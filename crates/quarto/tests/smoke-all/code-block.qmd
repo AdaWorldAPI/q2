@@ -1,0 +1,16 @@
+---
+title: Code Block Test
+format: html
+_quarto:
+  tests:
+    html:
+      ensureFileRegexMatches:
+        - ["<pre", "<code", "def hello", "print"]
+---
+
+Here is some Python code:
+
+```python
+def hello():
+    print("Hello, World!")
+```

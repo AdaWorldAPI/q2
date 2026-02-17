@@ -1,0 +1,16 @@
+---
+title: Clean Render Test
+format: html
+_quarto:
+  tests:
+    html:
+      noErrors: true
+      ensureFileRegexMatches:
+        - ["<title>Clean Render Test</title>"]
+---
+
+This document should render cleanly without any errors.
+
+## Content
+
+Just some simple content here.

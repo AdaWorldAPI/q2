@@ -1,0 +1,22 @@
+---
+title: No Extra Files Test
+format: html
+_quarto:
+  tests:
+    html:
+      noErrors: true
+      fileExists: "no-extra-files.html"
+      # Verify no PDF was accidentally created when rendering HTML
+      pathDoesNotExist: "no-extra-files.pdf"
+      # Also test the alternate spelling
+      pathDoNotExists: "no-extra-files.tex"
+---
+
+This document verifies that rendering to one format doesn't create
+files for other formats.
+
+When we render to HTML:
+
+- `no-extra-files.html` should exist
+- `no-extra-files.pdf` should NOT exist
+- `no-extra-files.tex` should NOT exist

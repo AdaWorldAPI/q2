@@ -1,0 +1,16 @@
+---
+title: Basic Render Test
+format: html
+_quarto:
+  tests:
+    html:
+      ensureFileRegexMatches:
+        - ["<!DOCTYPE html>", "<title>Basic Render Test</title>", "This is a test paragraph"]
+        - ["ERROR", "FATAL"]
+---
+
+This is a test paragraph.
+
+## A Heading
+
+Some more content here.

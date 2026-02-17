@@ -2670,6 +2670,7 @@ dependencies = [
  "quarto-lsp",
  "quarto-sass",
  "quarto-system-runtime",
+ "quarto-test",
  "quarto-util",
  "serde_json",
  "serde_yaml",
@@ -2962,6 +2963,23 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "which 8.0.0",
+]
+
+[[package]]
+name = "quarto-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pampa",
+ "quarto-core",
+ "quarto-system-runtime",
+ "quarto-yaml",
+ "regex",
+ "serde",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

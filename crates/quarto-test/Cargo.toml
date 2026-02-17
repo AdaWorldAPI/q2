@@ -1,0 +1,27 @@
+[package]
+name = "quarto-test"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Testing infrastructure for Quarto documents with embedded assertions"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+regex.workspace = true
+
+quarto-yaml.workspace = true
+quarto-core.workspace = true
+quarto-system-runtime.workspace = true
+pampa.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

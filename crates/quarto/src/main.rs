@@ -401,7 +401,7 @@ fn main() -> Result<()> {
         Commands::Tools => commands::tools::execute(),
         Commands::Publish { .. } => commands::publish::execute(),
         Commands::Check { .. } => commands::check::execute(),
-        Commands::Call { .. } => commands::call::execute(),
+        Commands::Call { function, args } => commands::call::execute(function, args),
         Commands::Lsp => commands::lsp::execute(),
         Commands::Hub {
             project,

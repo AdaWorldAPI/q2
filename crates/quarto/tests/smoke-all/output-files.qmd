@@ -1,0 +1,19 @@
+---
+title: Output Files Test
+format: html
+_quarto:
+  tests:
+    html:
+      noErrors: true
+      # Verify the output HTML file exists (uses the output filename stem)
+      fileExists: "output-files.html"
+      # Verify the supporting files directory is created
+      folderExists: "output-files_files"
+---
+
+This document tests that rendering creates the expected output files.
+
+The HTML renderer should create:
+
+1. The main output file (`output-files.html`)
+2. A supporting files directory (`output-files_files/`) containing CSS and other assets

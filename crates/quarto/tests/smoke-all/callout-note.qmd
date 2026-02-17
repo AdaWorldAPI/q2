@@ -1,0 +1,15 @@
+---
+title: Callout Note Test
+format: html
+_quarto:
+  tests:
+    html:
+      ensureFileRegexMatches:
+        - ["callout", "callout-note", "This is a note"]
+---
+
+::: {.callout-note}
+## Note Title
+
+This is a note callout with some content.
+:::

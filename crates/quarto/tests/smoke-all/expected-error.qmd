@@ -1,0 +1,21 @@
+---
+title: Expected Error Test
+format: html
+_quarto:
+  tests:
+    html:
+      shouldError: default
+      printsMessage:
+        level: ERROR
+        regex: "unexpected character"
+---
+
+This document has unclosed YAML that will cause a parse error.
+
+```{python}
+# This would require execution which is disabled
+print("hello")
+```
+
+::: {.callout-note
+Unclosed div - missing closing brace
