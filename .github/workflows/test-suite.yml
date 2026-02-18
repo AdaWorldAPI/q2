@@ -17,7 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     
     name: Run test suite
-    if: github.repository == 'quarto-dev/kyoto'
+    if: github.repository == 'quarto-dev/q2'
     
     steps:
       - name: Checkout Repo
