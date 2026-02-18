@@ -703,50 +703,100 @@ module.exports = grammar({
         list_marker_dot: $ => choice($._list_marker_dot, $._list_marker_dot_dont_interrupt),
         list_marker_parenthesis: $ => choice($._list_marker_parenthesis, $._list_marker_parenthesis_dont_interrupt),
         list_marker_example: $ => choice($._list_marker_example, $._list_marker_example_dont_interrupt),
-        _list_item_plus: $ => seq(
-            $.list_marker_plus,
-            optional($.block_continuation),
-            $._list_item_content,
-            $._block_close,
-            optional($.block_continuation)
+        _list_item_plus: $ => choice(
+            seq(
+                $.list_marker_plus,
+                optional($.block_continuation),
+                $._list_item_content,
+                $._block_close,
+                optional($.block_continuation)
+            ),
+            seq(
+                $.list_marker_plus,
+                optional($._blank_line),
+                $._block_close,
+                optional($.block_continuation)
+            ),
         ),
-        _list_item_minus: $ => seq(
-            $.list_marker_minus,
-            optional($.block_continuation),
-            $._list_item_content,
-            $._block_close,
-            optional($.block_continuation)
+        _list_item_minus: $ => choice(
+            seq(
+                $.list_marker_minus,
+                optional($.block_continuation),
+                $._list_item_content,
+                $._block_close,
+                optional($.block_continuation)
+            ),
+            seq(
+                $.list_marker_minus,
+                optional($._blank_line),
+                $._block_close,
+                optional($.block_continuation)
+            ),
         ),
-        _list_item_star: $ => seq(
-            $.list_marker_star,
-            optional($.block_continuation),
-            $._list_item_content,
-            $._block_close,
-            optional($.block_continuation)
+        _list_item_star: $ => choice(
+            // Normal case: list item with content
+            seq(
+                $.list_marker_star,
+                optional($.block_continuation),
+                $._list_item_content,
+                $._block_close,
+                optional($.block_continuation)
+            ),
+            // Empty case: list item with no content
+            seq(
+                $.list_marker_star,
+                optional($._blank_line),
+                $._block_close,
+                optional($.block_continuation)
+            ),
         ),
-        _list_item_dot: $ => seq(
-            $.list_marker_dot,
-            optional($.block_continuation),
-            $._list_item_content,
-            $._block_close,
-            optional($.block_continuation)
+        _list_item_dot: $ => choice(
+            seq(
+                $.list_marker_dot,
+                optional($.block_continuation),
+                $._list_item_content,
+                $._block_close,
+                optional($.block_continuation)
+            ),
+            seq(
+                $.list_marker_dot,
+                optional($._blank_line),
+                $._block_close,
+                optional($.block_continuation)
+            ),
         ),
-        _list_item_parenthesis: $ => seq(
-            $.list_marker_parenthesis,
-            optional($.block_continuation),
-            $._list_item_content,
-            $._block_close,
-            optional($.block_continuation)
+        _list_item_parenthesis: $ => choice(
+            seq(
+                $.list_marker_parenthesis,
+                optional($.block_continuation),
+                $._list_item_content,
+                $._block_close,
+                optional($.block_continuation)
+            ),
+            seq(
+                $.list_marker_parenthesis,
+                optional($._blank_line),
+                $._block_close,
+                optional($.block_continuation)
+            ),
         ),
-        _list_item_example: $ => seq(
-            $.list_marker_example,
-            optional($.block_continuation),
-            $._list_item_content,
-            $._block_close,
-            optional($.block_continuation)
+        _list_item_example: $ => choice(
+            seq(
+                $.list_marker_example,
+                optional($.block_continuation),
+                $._list_item_content,
+                $._block_close,
+                optional($.block_continuation)
+            ),
+            seq(
+                $.list_marker_example,
+                optional($._blank_line),
+                $._block_close,
+                optional($.block_continuation)
+            ),
         ),
         // List items are closed after two consecutive blank lines
-        _list_item_content: $ => choice(
+        _list_item_content: $ => prec.left(choice(
             seq(
                 $._blank_line,
                 $._blank_line,
@@ -754,7 +804,7 @@ module.exports = grammar({
                 optional($.block_continuation)
             ),
             repeat1($._block),
-        ),
+        )),
 
         ///////////////////////////////////////////////////////////////////////////////////////////
         // A fenced code block. Fenced code blocks are mainly handled by the external scanner. In

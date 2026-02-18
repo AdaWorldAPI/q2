@@ -197,3 +197,232 @@ b
               (pandoc_str)
               (pandoc_soft_break)
               (pandoc_str))))))
+================================================================================
+11 - this one works because it EOFs before newline
+================================================================================
+* a
+* 
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_star)
+            (pandoc_paragraph
+              (pandoc_str)))
+          (list_item
+            (list_marker_star)))))
+================================================================================
+12 - empty star list item with trailing newline
+================================================================================
+* a
+*
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_star)
+            (pandoc_paragraph
+              (pandoc_str)))
+          (list_item
+            (list_marker_star)))))
+================================================================================
+13 - empty plus list item
+================================================================================
++ a
++
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_plus)
+            (pandoc_paragraph
+              (pandoc_str)))
+          (list_item
+            (list_marker_plus)))))
+================================================================================
+14 - empty minus list item
+================================================================================
+- a
+-
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_minus)
+            (pandoc_paragraph
+              (pandoc_str)))
+          (list_item
+            (list_marker_minus)))))
+================================================================================
+15 - empty ordered list item (dot)
+================================================================================
+1. a
+2.
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_dot)
+            (pandoc_paragraph
+              (pandoc_str)))
+          (list_item
+            (list_marker_dot)))))
+================================================================================
+16 - empty ordered list item (parenthesis)
+================================================================================
+1) a
+2)
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_parenthesis)
+            (pandoc_paragraph
+              (pandoc_str)))
+          (list_item
+            (list_marker_parenthesis)))))
+================================================================================
+17 - empty example list item (blank line separated, matching existing (@) behavior)
+================================================================================
+(@) a
+
+(@)
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_example)
+            (pandoc_paragraph
+              (pandoc_str)))
+          (list_item
+            (list_marker_example)))))
+================================================================================
+18 - empty item as first item
+================================================================================
+*
+* b
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_star))
+          (list_item
+            (list_marker_star)
+            (pandoc_paragraph
+              (pandoc_str))))))
+================================================================================
+19 - all items empty
+================================================================================
+*
+*
+*
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_star))
+          (list_item
+            (list_marker_star))
+          (list_item
+            (list_marker_star)))))
+================================================================================
+20 - empty item between non-empty items
+================================================================================
+* a
+*
+* b
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_star)
+            (pandoc_paragraph
+              (pandoc_str)))
+          (list_item
+            (list_marker_star))
+          (list_item
+            (list_marker_star)
+            (pandoc_paragraph
+              (pandoc_str))))))
+================================================================================
+21 - empty item in a nested list
+================================================================================
+* a
+  *
+  * b
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_star)
+            (pandoc_paragraph
+              (pandoc_str)
+              (block_continuation))
+            (pandoc_list
+              (list_item
+                (list_marker_star)
+                (block_continuation))
+              (list_item
+                (list_marker_star)
+                (pandoc_paragraph
+                  (pandoc_str))))))))
+================================================================================
+22 - empty item followed by non-indented content (list ends)
+================================================================================
+* a
+*
+
+b
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_list
+          (list_item
+            (list_marker_star)
+            (pandoc_paragraph
+              (pandoc_str)))
+          (list_item
+            (list_marker_star)))
+        (pandoc_paragraph
+          (pandoc_str))))
+================================================================================
+23 - empty item inside a blockquote
+================================================================================
+> * a
+> *
+
+--------------------------------------------------------------------------------
+    (document
+      (section
+        (pandoc_block_quote
+          (block_quote_marker)
+          (pandoc_list
+            (list_item
+              (list_marker_star)
+              (pandoc_paragraph
+                (pandoc_str)
+                (block_continuation)))
+            (list_item
+              (list_marker_star))))))
