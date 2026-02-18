@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-02-17
+
+- [`9dcdd68c`](https://github.com/quarto-dev/q2/commits/9dcdd68c): Fix grammar to support empty lists
+
 ### 2026-02-13
 
 - [`c23562c0`](https://github.com/quarto-dev/q2/commits/c23562c0): Fix nested tight lists incorrectly marked as loose (Para vs Plain)
