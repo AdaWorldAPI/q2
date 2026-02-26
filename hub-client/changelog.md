@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-02-26
+
+- [`45e211e1`](https://github.com/quarto-dev/q2/commits/45e211e1): Fix slide thumbnails showing in outline pane for non-slide documents
+
 ### 2026-02-17
 
 - [`9dcdd68c`](https://github.com/quarto-dev/q2/commits/9dcdd68c): Fix grammar to support empty lists
