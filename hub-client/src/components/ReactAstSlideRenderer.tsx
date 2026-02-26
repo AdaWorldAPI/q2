@@ -171,64 +171,70 @@ export function SlideAst({ astJson, currentFilePath, onNavigateToDocument, curre
             overflow: 'hidden'
           }}
         >
-          {renderSlide(slides[currentSlide], currentFilePath, onNavigateToDocument)}
+          {slides.length > 0
+            ? renderSlide(slides[currentSlide], currentFilePath, onNavigateToDocument)
+            : null}
         </div>
       </AspectRatioScaler>
 
-      {/* Navigation buttons */}
-      <div style={{
-        position: 'absolute',
-        bottom: '20px',
-        right: '20px',
-        display: 'flex',
-        gap: '10px',
-        zIndex: 100
-      }}>
-        <button
-          onClick={goToPrevSlide}
-          disabled={currentSlide === 0}
-          style={{
-            padding: '10px 15px',
-            fontSize: '18px',
-            background: '#2a76dd',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '5px',
-            cursor: currentSlide === 0 ? 'not-allowed' : 'pointer',
-            opacity: currentSlide === 0 ? 0.5 : 1
-          }}
-        >
-          ←
-        </button>
-        <button
-          onClick={goToNextSlide}
-          disabled={currentSlide === slides.length - 1}
-          style={{
-            padding: '10px 15px',
-            fontSize: '18px',
-            background: '#2a76dd',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '5px',
-            cursor: currentSlide === slides.length - 1 ? 'not-allowed' : 'pointer',
-            opacity: currentSlide === slides.length - 1 ? 0.5 : 1
-          }}
-        >
-          →
-        </button>
-      </div>
+      {/* Navigation buttons (hidden when no slides) */}
+      {slides.length > 1 && (
+        <div style={{
+          position: 'absolute',
+          bottom: '20px',
+          right: '20px',
+          display: 'flex',
+          gap: '10px',
+          zIndex: 100
+        }}>
+          <button
+            onClick={goToPrevSlide}
+            disabled={currentSlide === 0}
+            style={{
+              padding: '10px 15px',
+              fontSize: '18px',
+              background: '#2a76dd',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: currentSlide === 0 ? 'not-allowed' : 'pointer',
+              opacity: currentSlide === 0 ? 0.5 : 1
+            }}
+          >
+            ←
+          </button>
+          <button
+            onClick={goToNextSlide}
+            disabled={currentSlide === slides.length - 1}
+            style={{
+              padding: '10px 15px',
+              fontSize: '18px',
+              background: '#2a76dd',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: currentSlide === slides.length - 1 ? 'not-allowed' : 'pointer',
+              opacity: currentSlide === slides.length - 1 ? 0.5 : 1
+            }}
+          >
+            →
+          </button>
+        </div>
+      )}
 
-      {/* Slide counter */}
-      <div style={{
-        position: 'absolute',
-        bottom: '20px',
-        left: '20px',
-        color: '#fff',
-        fontSize: '14px',
-        fontFamily: 'sans-serif'
-      }}>
-        {currentSlide + 1} / {slides.length}
-      </div>
+      {/* Slide counter (hidden when no slides) */}
+      {slides.length > 0 && (
+        <div style={{
+          position: 'absolute',
+          bottom: '20px',
+          left: '20px',
+          color: '#fff',
+          fontSize: '14px',
+          fontFamily: 'sans-serif'
+        }}>
+          {currentSlide + 1} / {slides.length}
+        </div>
+      )}
     </div>
   );
 }
