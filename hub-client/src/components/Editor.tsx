@@ -157,13 +157,22 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
   // AST JSON for slide thumbnails
   const [astJson, setAstJson] = useState<string | null>(null);
 
-  // Generate thumbnails for slides
+  // Whether the current document is in slide format (format: q2-slides)
+  const [isSlideFormat, setIsSlideFormat] = useState(false);
+
+  // Handle format changes from PreviewRouter
+  const handleFormatChange = useCallback((isSlides: boolean) => {
+    setIsSlideFormat(isSlides);
+  }, []);
+
+  // Generate thumbnails for slides (only when in slide format)
   const thumbnails = useSlideThumbnails({
     astJson,
     currentFilePath: currentFile?.path ?? '',
     symbols,
     previewReady: wasmStatus === 'ready' && editorReady,
     contentVersion,
+    enabled: isSlideFormat,
   });
 
   // New file dialog state
@@ -867,6 +876,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
             onAstChange={handleAstChange}
             currentSlideIndex={currentSlideIndex}
             onSlideChange={handleSlideChange}
+            onFormatChange={handleFormatChange}
           />
         </div>
       </main>

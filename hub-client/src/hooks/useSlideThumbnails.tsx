@@ -27,6 +27,8 @@ interface UseSlideThumbnailsOptions {
   previewReady: boolean;
   /** Trigger value that changes when preview content updates. */
   contentVersion: number;
+  /** Whether the current document is in slide format. When false, returns an empty map. */
+  enabled: boolean;
 }
 
 
@@ -42,12 +44,22 @@ export function useSlideThumbnails({
   symbols,
   previewReady,
   contentVersion,
+  enabled,
 }: UseSlideThumbnailsOptions): ThumbnailMap {
   const [thumbnails, setThumbnails] = useState<ThumbnailMap>(new Map());
   const captureInProgressRef = useRef(false);
   const debounceTimeoutRef = useRef<number | null>(null);
 
+  // Clear thumbnails when disabled (e.g., switching away from slide format)
+  useEffect(() => {
+    if (!enabled) {
+      setThumbnails(new Map());
+    }
+  }, [enabled]);
+
   const captureThumbnails = useCallback(async () => {
+    // Skip thumbnail generation when not in slide format
+    if (!enabled) return;
     // Avoid overlapping capture operations
     if (captureInProgressRef.current) return;
     if (!previewReady) return;
@@ -153,7 +165,7 @@ export function useSlideThumbnails({
     } finally {
       captureInProgressRef.current = false;
     }
-  }, [astJson, currentFilePath, symbols, previewReady]);
+  }, [astJson, currentFilePath, symbols, previewReady, enabled]);
 
   // Debounced capture thumbnails when content changes
   useEffect(() => {

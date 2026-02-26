@@ -22,6 +22,7 @@ interface PreviewRouterProps {
   onAstChange?: (astJson: string | null) => void;
   currentSlideIndex?: number;
   onSlideChange?: (slideIndex: number) => void;
+  onFormatChange?: (isSlides: boolean) => void;
 }
 
 /**
@@ -30,7 +31,6 @@ interface PreviewRouterProps {
 function hasQ2SlidesFormat(astJson: string): boolean {
   try {
     const ast = JSON.parse(astJson);
-    console.log('YOOOO', ast?.meta?.format?.c?.[0]?.c)
     return 'q2-slides' === ast?.meta?.format?.c?.[0]?.c;
   } catch (err) {
     console.error('[PreviewRouter] Failed to parse AST:', err);
@@ -69,14 +69,17 @@ export default function PreviewRouter(props: PreviewRouterProps) {
         if (result.success) {
           const hasSlides = hasQ2SlidesFormat(result.ast);
           setUseReactPreview(hasSlides);
+          props.onFormatChange?.(hasSlides);
         } else {
           // On parse error, default to normal Preview
           setUseReactPreview(false);
+          props.onFormatChange?.(false);
         }
       } catch (err) {
         console.error('[PreviewRouter] Error checking format:', err);
         if (!cancelled) {
           setUseReactPreview(false);
+          props.onFormatChange?.(false);
         }
       } finally {
         if (!cancelled) {
@@ -103,10 +106,11 @@ export default function PreviewRouter(props: PreviewRouterProps) {
 
   // Render the appropriate preview component
   if (useReactPreview) {
-    // ReactPreview doesn't use onRegisterScrollToLine, so we omit it
-    const { onRegisterScrollToLine, ...reactPreviewProps } = props;
+    // ReactPreview doesn't use onRegisterScrollToLine or onFormatChange, so we omit them
+    const { onRegisterScrollToLine, onFormatChange, ...reactPreviewProps } = props;
     return <ReactPreview {...reactPreviewProps} />;
   } else {
-    return <Preview {...props} />;
+    const { onFormatChange, ...previewProps } = props;
+    return <Preview {...previewProps} />;
   }
 }
