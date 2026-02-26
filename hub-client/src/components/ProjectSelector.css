@@ -101,12 +101,6 @@
   border-bottom: 1px solid var(--border-color);
 }
 
-.modal-header .logo {
-  width: 56px;
-  height: 56px;
-  flex-shrink: 0;
-}
-
 .modal-header .header-text {
   display: flex;
   flex-direction: column;

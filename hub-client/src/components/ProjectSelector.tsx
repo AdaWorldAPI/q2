@@ -356,10 +356,9 @@ export default function ProjectSelector({
     <div className={`project-selector ${lightTheme ? 'light-theme' : ''}`}>
       <div className="modal">
         <div className="modal-header">
-          <img src="/quarto-icon.svg" alt="Quarto" className="logo" />
           <div className="header-text">
-            <h1>QuartoHub</h1>
-            <p className="tagline">Collaborative document editing</p>
+            <h1>Quarto Hub</h1>
+            <p className="tagline">Multiplayer editing for your Quarto projects</p>
           </div>
           <button
             className="theme-toggle"
