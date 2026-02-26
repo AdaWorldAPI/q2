@@ -15,7 +15,12 @@ be in reverse chronological order (latest first).
 
 ### 2026-02-26
 
+- [`04d2ed1b`](https://github.com/quarto-dev/q2/commits/04d2ed1b): Fix slide renderer crash on empty slides document
 - [`45e211e1`](https://github.com/quarto-dev/q2/commits/45e211e1): Fix slide thumbnails showing in outline pane for non-slide documents
+
+### 2026-02-25
+
+- [`6b038fb0`](https://github.com/quarto-dev/q2/commits/6b038fb0): Add slides support with live preview, outline thumbnails, and cursor-driven navigation
 
 ### 2026-02-17
 
