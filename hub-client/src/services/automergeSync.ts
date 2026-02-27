@@ -99,10 +99,14 @@ function ensureClient(): SyncClient {
 
 /**
  * Connect to a sync server and load a project.
+ *
+ * Auth is handled via HttpOnly cookies, sent automatically by the
+ * browser on same-origin WebSocket upgrades.
  */
 export async function connect(syncServerUrl: string, indexDocId: string): Promise<FileEntry[]> {
   await initWasm();
   vfsClear();
+
   return ensureClient().connect(syncServerUrl, indexDocId);
 }
 
@@ -194,6 +198,7 @@ export function isConnected(): boolean {
 export async function createNewProject(options: CreateProjectOptions): Promise<CreateProjectResult> {
   await initWasm();
   vfsClear();
+
   return ensureClient().createNewProject(options);
 }
 

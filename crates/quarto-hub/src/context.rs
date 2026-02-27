@@ -3,14 +3,17 @@
 //! Contains the automerge repo and storage manager.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use automerge::{Automerge, ObjType, ROOT, transaction::Transactable};
+use axum::http::StatusCode;
+use axum_jwt_auth::JwtDecoder;
 use samod::Repo;
 use samod::storage::TokioFilesystemStorage;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+use crate::auth::{self, AuthConfig, AuthState, GoogleClaims};
 use crate::discovery::ProjectFiles;
 use crate::error::Result;
 use crate::index::{IndexDocument, load_or_create_index};
@@ -21,7 +24,7 @@ use crate::sync::{SyncAllResult, SyncResult, sync_all_documents, sync_file_by_pa
 use crate::sync_state::SyncState;
 
 /// Configuration for the hub.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct HubConfig {
     /// Port to listen on
     pub port: u16,
@@ -45,6 +48,13 @@ pub struct HubConfig {
     /// Debounce duration for filesystem events in milliseconds.
     /// Default: 500ms.
     pub watch_debounce_ms: u64,
+
+    /// OAuth2 auth configuration. None = auth disabled.
+    pub auth_config: Option<AuthConfig>,
+
+    /// Allow auth without TLS (local dev). When true, the `Secure` flag is
+    /// omitted from auth cookies so browsers send them over plain HTTP.
+    pub allow_insecure_auth: bool,
 }
 
 impl Default for HubConfig {
@@ -56,6 +66,8 @@ impl Default for HubConfig {
             sync_interval_secs: Some(30),
             watch_enabled: true,
             watch_debounce_ms: 500,
+            auth_config: None,
+            allow_insecure_auth: false,
         }
     }
 }
@@ -69,9 +81,6 @@ pub struct HubContext {
     /// Storage manager (holds lockfile, manages directories)
     storage: StorageManager,
 
-    /// Hub configuration
-    config: RwLock<HubConfig>,
-
     /// Discovered project files
     project_files: ProjectFiles,
 
@@ -84,6 +93,18 @@ pub struct HubContext {
 
     /// Sync state for filesystem synchronization (protected by Mutex for interior mutability)
     sync_state: Mutex<SyncState>,
+
+    /// OAuth2 auth configuration (immutable after startup). None = auth disabled.
+    auth_config: Option<AuthConfig>,
+
+    /// Auth state: JWT decoder + JWKS refresh handle. Initialized once
+    /// at server startup when auth is configured. Using OnceLock because
+    /// it's set after construction but before the server accepts requests.
+    auth_state: OnceLock<AuthState>,
+
+    /// Whether insecure (HTTP) auth is allowed. When true, `Secure` flag
+    /// is omitted from auth cookies.
+    allow_insecure_auth: bool,
 }
 
 impl HubContext {
@@ -93,7 +114,7 @@ impl HubContext {
     /// 1. Initializes the samod Repo with filesystem storage at `.quarto/hub/automerge/`
     /// 2. Loads or creates the index document
     /// 3. Reconciles discovered .qmd files with the index
-    pub async fn new(mut storage: StorageManager, config: HubConfig) -> Result<Self> {
+    pub async fn new(mut storage: StorageManager, mut config: HubConfig) -> Result<Self> {
         // Discover project files
         let project_files = ProjectFiles::discover(storage.project_root());
 
@@ -152,24 +173,24 @@ impl HubContext {
             "Initial filesystem sync complete"
         );
 
+        let auth_config = config.auth_config.take();
+        let allow_insecure_auth = config.allow_insecure_auth;
+
         Ok(Self {
             storage,
-            config: RwLock::new(config),
             project_files,
             repo,
             index,
             sync_state: Mutex::new(sync_state_guard),
+            auth_config,
+            auth_state: OnceLock::new(),
+            allow_insecure_auth,
         })
     }
 
     /// Get reference to storage manager.
     pub fn storage(&self) -> &StorageManager {
         &self.storage
-    }
-
-    /// Get the current configuration.
-    pub async fn config(&self) -> HubConfig {
-        self.config.read().await.clone()
     }
 
     /// Get discovered project files.
@@ -218,6 +239,63 @@ impl HubContext {
             &mut sync_state,
         )
         .await
+    }
+
+    /// Get the auth configuration, if auth is enabled.
+    pub fn auth_config(&self) -> Option<&AuthConfig> {
+        self.auth_config.as_ref()
+    }
+
+    /// Store the auth state (decoder + refresh task handle).
+    /// Called once during server startup in `build_router`.
+    pub fn set_auth_state(&self, state: AuthState) -> std::result::Result<(), &'static str> {
+        self.auth_state
+            .set(state)
+            .map_err(|_| "auth_state already initialized")
+    }
+
+    /// Whether auth cookies should omit the `Secure` flag (HTTP dev mode).
+    pub fn allow_insecure_auth(&self) -> bool {
+        self.allow_insecure_auth
+    }
+
+    /// Authenticate a request. If auth is disabled, always succeeds.
+    /// If auth is enabled, token must be present and valid.
+    /// Used by both REST and WebSocket handlers.
+    pub async fn authenticate(&self, token: Option<&str>) -> std::result::Result<(), StatusCode> {
+        if self.auth_config().is_none() {
+            return Ok(()); // Auth disabled — allow all.
+        }
+        self.authenticate_claims(token).await.map(|_| ())
+    }
+
+    /// Authenticate a request and return the decoded claims.
+    /// Unlike `authenticate()`, this returns `Err` when auth is disabled
+    /// (because there are no claims to return). Used by `/auth/me`.
+    pub async fn authenticate_claims(
+        &self,
+        token: Option<&str>,
+    ) -> std::result::Result<GoogleClaims, StatusCode> {
+        let auth_config = self.auth_config().ok_or(StatusCode::UNAUTHORIZED)?;
+
+        let token = token.ok_or(StatusCode::UNAUTHORIZED)?;
+        let auth_state = self
+            .auth_state
+            .get()
+            .expect("auth_state is always present when auth is configured");
+
+        // JwtDecoder<T>::decode returns TokenData<T>. The T parameter
+        // lives on the trait, so we use a type annotation (not turbofish)
+        // to select GoogleClaims.
+        let token_data: jsonwebtoken::TokenData<GoogleClaims> =
+            auth_state.decoder.decode(token).await.map_err(|err| {
+                tracing::warn!(%err, "Auth failed");
+                StatusCode::UNAUTHORIZED
+            })?;
+
+        auth::check_allowlists(&token_data.claims, auth_config)?;
+        tracing::debug!(email = %token_data.claims.email, "Authenticated");
+        Ok(token_data.claims)
     }
 }
 

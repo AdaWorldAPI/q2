@@ -4,6 +4,7 @@ import ProjectSelector from './components/ProjectSelector';
 import Editor from './components/Editor';
 import Toast from './components/Toast';
 import { ViewModeProvider } from './components/ViewModeContext';
+import { LoginScreen } from './components/auth/LoginScreen';
 import {
   connect,
   disconnect,
@@ -15,8 +16,29 @@ import {
 import type { ProjectFile } from './services/wasmRenderer';
 import * as projectStorage from './services/projectStorage';
 import { useRouting } from './hooks/useRouting';
+import { useAuth } from './hooks/useAuth';
 import type { Route, ShareRoute } from './utils/routing';
 import './App.css';
+
+/**
+ * Connect to a sync server and load all file contents into a Map.
+ * Shared by every code path that opens a project.
+ */
+async function connectAndLoadContents(
+  syncServer: string,
+  indexDocId: string,
+): Promise<{ files: FileEntry[]; contents: Map<string, string> }> {
+  const files = await connect(syncServer, indexDocId);
+  const contents = new Map<string, string>();
+  for (const file of files) {
+    const content = getFileContent(file.path);
+    if (content !== null) contents.set(file.path, content);
+  }
+  return { files, contents };
+}
+
+/** Whether auth is configured (build-time env var). */
+const AUTH_ENABLED = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 /**
  * Data extracted from a shareable link, used to pre-fill the connect dialog.
@@ -31,12 +53,21 @@ export interface PendingShareData {
 }
 
 function App() {
+  const { auth, loading: authLoading, logout } = useAuth();
+
   const [project, setProject] = useState<ProjectEntry | null>(null);
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [fileContents, setFileContents] = useState<Map<string, string>>(new Map());
   const [showSaveToast, setShowSaveToast] = useState(false);
+
+  // Capture auth error from redirect query param (once, before URL is cleaned).
+  const [authError] = useState(() => {
+    const has = new URLSearchParams(window.location.search).has('auth_error');
+    if (has) window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+    return has;
+  });
 
   // Pending share link data (when user visits a shareable URL for a project they don't have)
   const [pendingShareData, setPendingShareData] = useState<PendingShareData | null>(null);
@@ -88,25 +119,15 @@ function App() {
           // Different project - need to load it
           const targetProject = await projectStorage.getProject(route.projectId);
           if (targetProject) {
-            // Connect to the project
             setIsConnecting(true);
             setConnectionError(null);
             try {
-              const loadedFiles = await connect(targetProject.syncServer, targetProject.indexDocId);
+              const { files: loadedFiles, contents } = await connectAndLoadContents(targetProject.syncServer, targetProject.indexDocId);
               setProject(targetProject);
               setFiles(loadedFiles);
-
-              const contents = new Map<string, string>();
-              for (const file of loadedFiles) {
-                const content = getFileContent(file.path);
-                if (content !== null) {
-                  contents.set(file.path, content);
-                }
-              }
               setFileContents(contents);
             } catch (err) {
               setConnectionError(err instanceof Error ? err.message : String(err));
-              // Navigate back to project selector on error
               navigateToProjectSelector({ replace: true });
             } finally {
               setIsConnecting(false);
@@ -146,24 +167,14 @@ function App() {
         const existingProject = await projectStorage.getProjectByIndexDocId(normalizedIndexDocId);
 
         if (existingProject) {
-          // Project exists locally - connect to it
           setIsConnecting(true);
           setConnectionError(null);
           try {
-            const loadedFiles = await connect(existingProject.syncServer, existingProject.indexDocId);
+            const { files: loadedFiles, contents } = await connectAndLoadContents(existingProject.syncServer, existingProject.indexDocId);
             setProject(existingProject);
             setFiles(loadedFiles);
-
-            const contents = new Map<string, string>();
-            for (const file of loadedFiles) {
-              const content = getFileContent(file.path);
-              if (content !== null) {
-                contents.set(file.path, content);
-              }
-            }
             setFileContents(contents);
 
-            // Navigate to the project (and optionally file) using local ID
             if (shareRoute.filePath) {
               navigateToFile(existingProject.id, shareRoute.filePath, { replace: true });
             } else {
@@ -192,21 +203,12 @@ function App() {
           setIsConnecting(true);
           setConnectionError(null);
           try {
-            const loadedFiles = await connect(targetProject.syncServer, targetProject.indexDocId);
+            const { files: loadedFiles, contents } = await connectAndLoadContents(targetProject.syncServer, targetProject.indexDocId);
             setProject(targetProject);
             setFiles(loadedFiles);
-
-            const contents = new Map<string, string>();
-            for (const file of loadedFiles) {
-              const content = getFileContent(file.path);
-              if (content !== null) {
-                contents.set(file.path, content);
-              }
-            }
             setFileContents(contents);
           } catch (err) {
             setConnectionError(err instanceof Error ? err.message : String(err));
-            // Navigate to project selector on error
             navigateToProjectSelector({ replace: true });
           } finally {
             setIsConnecting(false);
@@ -222,6 +224,19 @@ function App() {
 
     loadFromUrl();
   }, [route, navigateToProjectSelector, navigateToProject, navigateToFile]);
+
+  // Disconnect sync when auth is lost (token expired or user logged out).
+  // Without this, the WebSocket adapter keeps retrying with an expired cookie
+  // and the user sees "Connection lost" instead of the login screen.
+  useEffect(() => {
+    if (AUTH_ENABLED && !auth && !authLoading && project) {
+      disconnect();
+      setProject(null);
+      setFiles([]);
+      setFileContents(new Map());
+      setConnectionError(null);
+    }
+  }, [auth, authLoading, project]);
 
   // Intercept Ctrl+S / Cmd+S to prevent browser save dialog
   useEffect(() => {
@@ -281,21 +296,11 @@ function App() {
     setConnectionError(null);
 
     try {
-      const loadedFiles = await connect(selectedProject.syncServer, selectedProject.indexDocId);
+      const { files: loadedFiles, contents } = await connectAndLoadContents(selectedProject.syncServer, selectedProject.indexDocId);
       setProject(selectedProject);
       setFiles(loadedFiles);
-
-      // Initialize file contents from automerge
-      const contents = new Map<string, string>();
-      for (const file of loadedFiles) {
-        const content = getFileContent(file.path);
-        if (content !== null) {
-          contents.set(file.path, content);
-        }
-      }
       setFileContents(contents);
 
-      // Update URL to reflect the selected project (and optionally a specific file)
       if (filePathOverride) {
         navigateToFile(selectedProject.id, filePathOverride, { replace: true });
       } else {
@@ -384,6 +389,20 @@ function App() {
     setPendingShareData(null);
   }, []);
 
+  // Auth gate: when auth is enabled, require login before showing the app.
+  // Show a loading spinner while checking auth status to avoid login flash.
+  if (AUTH_ENABLED && authLoading) {
+    return (
+      <div className="project-selector" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (AUTH_ENABLED && !auth) {
+    return <LoginScreen error={authError} />;
+  }
+
   return (
     <>
       {!project ? (
@@ -394,6 +413,9 @@ function App() {
           error={connectionError}
           pendingShareData={pendingShareData}
           onClearPendingShare={handleClearPendingShare}
+          onSignOut={AUTH_ENABLED ? logout : undefined}
+          authEmail={auth?.email}
+          authPicture={auth?.picture}
         />
       ) : (
         <ViewModeProvider>

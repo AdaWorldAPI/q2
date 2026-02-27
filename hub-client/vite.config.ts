@@ -16,6 +16,9 @@ function getGitInfo() {
 
 const gitInfo = getGitInfo()
 
+/** Hub server URL. Override with VITE_HUB_SERVER env var. */
+const hubTarget = process.env.VITE_HUB_SERVER || 'http://localhost:3000';
+
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
@@ -43,6 +46,21 @@ export default defineConfig({
     fs: {
       // Allow serving files from the wasm package
       allow: ['..'],
+    },
+    proxy: {
+      // Forward /auth/* to the hub server (JWT validation, cookies, OAuth callback).
+      '/auth': {
+        target: hubTarget,
+        changeOrigin: true,
+      },
+      // Forward WebSocket upgrades to the hub server for Automerge sync.
+      // In dev, cookies are origin-scoped to :5173, so we proxy through Vite
+      // rather than connecting directly to the hub's port.
+      '/ws': {
+        target: hubTarget,
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
 })

@@ -352,6 +352,29 @@ enum Commands {
         /// Debounce duration for filesystem events in milliseconds.
         #[arg(long, default_value = "500")]
         watch_debounce: u64,
+
+        /// Google OAuth2 client ID. Presence enables auth.
+        /// Requires --behind-tls-proxy (or --allow-insecure-auth for local dev).
+        #[arg(long, env = "QUARTO_HUB_GOOGLE_CLIENT_ID")]
+        google_client_id: Option<String>,
+
+        /// Acknowledge that a TLS-terminating reverse proxy (nginx, Caddy,
+        /// cloud LB) sits in front of the hub. Required when auth is enabled.
+        #[arg(long)]
+        behind_tls_proxy: bool,
+
+        /// Allow auth without TLS (local development only). Tokens will
+        /// transit in plaintext — never use this in production.
+        #[arg(long)]
+        allow_insecure_auth: bool,
+
+        /// Allowed email addresses (comma-separated).
+        #[arg(long, env = "QUARTO_HUB_ALLOWED_EMAILS", value_delimiter = ',')]
+        allowed_emails: Option<Vec<String>>,
+
+        /// Allowed email domains (comma-separated).
+        #[arg(long, env = "QUARTO_HUB_ALLOWED_DOMAINS", value_delimiter = ',')]
+        allowed_domains: Option<Vec<String>>,
     },
 }
 
@@ -411,6 +434,11 @@ fn main() -> Result<()> {
             sync_interval,
             no_watch,
             watch_debounce,
+            google_client_id,
+            behind_tls_proxy,
+            allow_insecure_auth,
+            allowed_emails,
+            allowed_domains,
         } => commands::hub::execute(commands::hub::HubArgs {
             project,
             port,
@@ -419,6 +447,11 @@ fn main() -> Result<()> {
             sync_interval,
             no_watch,
             watch_debounce,
+            google_client_id,
+            behind_tls_proxy,
+            allow_insecure_auth,
+            allowed_emails,
+            allowed_domains,
         }),
     }
 }
