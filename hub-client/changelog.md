@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-02-27
+
+- [`aca66fbe`](https://github.com/quarto-dev/q2/commits/aca66fbe): Google OAuth2 authentication for Quarto Hub
+
 ### 2026-02-26
 
 - [`04d2ed1b`](https://github.com/quarto-dev/q2/commits/04d2ed1b): Fix slide renderer crash on empty slides document
