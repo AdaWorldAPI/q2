@@ -130,7 +130,11 @@ impl HubContext {
         info!(automerge_dir = %automerge_dir.display(), "Initializing samod repo");
 
         let samod_storage = TokioFilesystemStorage::new(&automerge_dir);
-        let repo = Repo::build_tokio().with_storage(samod_storage).load().await;
+        let repo = Repo::build_tokio()
+            .with_storage(samod_storage)
+            .with_announce_policy(|_doc_id, _peer_id| false)
+            .load()
+            .await;
 
         info!("samod repo initialized");
 
