@@ -4054,7 +4054,7 @@ dependencies = [
 [[package]]
 name = "samod"
 version = "0.7.1"
-source = "git+https://github.com/shikokuchuo/samod.git?branch=quarto#e53c7ce23e20a3cdee31ad509b992b00229afcde"
+source = "git+https://github.com/quarto-dev/samod.git?branch=quarto#e53c7ce23e20a3cdee31ad509b992b00229afcde"
 dependencies = [
  "async-channel",
  "automerge",
@@ -4074,7 +4074,7 @@ dependencies = [
 [[package]]
 name = "samod-core"
 version = "0.7.1"
-source = "git+https://github.com/shikokuchuo/samod.git?branch=quarto#e53c7ce23e20a3cdee31ad509b992b00229afcde"
+source = "git+https://github.com/quarto-dev/samod.git?branch=quarto#e53c7ce23e20a3cdee31ad509b992b00229afcde"
 dependencies = [
  "automerge",
  "base64 0.21.7",
