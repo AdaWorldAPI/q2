@@ -458,6 +458,7 @@ export default function Preview({
       )}
       <MorphIframe
         ref={doubleBufferedIframeRef}
+        qmdContent={content}
         html={renderedHtml}
         currentFilePath={currentFile?.path ?? ''}
         onNavigateToDocument={handleNavigateToDocument}

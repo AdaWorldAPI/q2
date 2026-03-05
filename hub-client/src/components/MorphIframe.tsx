@@ -16,6 +16,8 @@ interface MorphIframeProps {
   html: string;
   // Current file path for resolving relative links
   currentFilePath: string;
+
+  qmdContent: string;
   // Callback when user navigates to a different document (with optional anchor)
   // Parent (Preview) handles file lookup and switching
   onNavigateToDocument: (targetPath: string, anchor: string | null) => void;
@@ -102,40 +104,6 @@ function isElementVisible(element: HTMLElement): boolean {
 }
 
 /**
- * Get the first text node within an element (depth-first search).
- */
-function getFirstTextNode(element: Node): Text | null {
-  if (element.nodeType === Node.TEXT_NODE) {
-    return element as Text;
-  }
-
-  for (const child of element.childNodes) {
-    const textNode = getFirstTextNode(child);
-    if (textNode) return textNode;
-  }
-
-  return null;
-}
-
-/**
- * Get the last text node within an element (depth-first search, reverse order).
- */
-function getLastTextNode(element: Node): Text | null {
-  if (element.nodeType === Node.TEXT_NODE) {
-    return element as Text;
-  }
-
-  // Traverse children in reverse order
-  const children = Array.from(element.childNodes);
-  for (let i = children.length - 1; i >= 0; i--) {
-    const textNode = getLastTextNode(children[i]);
-    if (textNode) return textNode;
-  }
-
-  return null;
-}
-
-/**
  * Check if a position (line, col) is within or after the start of a data-loc range.
  */
 function isPositionAfterOrAt(
@@ -164,118 +132,88 @@ function isPositionBeforeOrAt(
 }
 
 /**
- * Calculate approximate text offset within an element for a given source position.
- * This is a heuristic that assumes uniform character distribution.
+ * Convert (row, col) position to character offset from start of text.
+ *
+ * @param text - The source text
+ * @param row - 1-based row number
+ * @param col - 1-based column number
+ * @returns Character offset from start of text, or null if position is out of bounds
  */
-function calculateOffsetInElement(
-  targetLine: number,
-  targetCol: number,
-  element: HTMLElement,
-  loc: SourceLocation
-): { textNode: Text, offset: number } | null {
-  // Get all text content from the element
-  const textContent = element.textContent || '';
-  const textLength = textContent.length;
+function rowAndColToOffset(
+  text: string,
+  row: number,
+  col: number
+): number | null {
+  const lines = text.split('\n');
 
-  if (textLength === 0) return null;
+  // Validate input position
+  if (row < 1 || row > lines.length) return null;
+  if (col < 1 || col > lines[row - 1].length + 1) return null;
 
-  // Calculate the "progress" through the source range
-  // This is a simplified heuristic that doesn't account for markdown syntax removal
-  const sourceStartOffset = (loc.startLine - 1) * 1000 + loc.startCol; // Arbitrary line length
-  const sourceEndOffset = (loc.endLine - 1) * 1000 + loc.endCol;
-  const targetOffset = (targetLine - 1) * 1000 + targetCol;
+  // Calculate character offset from start of text
+  let charOffset = 0;
+  for (let i = 0; i < row - 1; i++) {
+    charOffset += lines[i].length + 1; // +1 for newline
+  }
+  charOffset += col - 1;
 
-  const sourceLength = sourceEndOffset - sourceStartOffset;
-  const relativeOffset = targetOffset - sourceStartOffset;
+  return charOffset;
+}
 
-  // Calculate the approximate character offset in the rendered text
-  const progress = Math.max(0, Math.min(1, relativeOffset / sourceLength));
-  const approximateOffset = Math.floor(progress * textLength);
+/**
+ * Convert character offset to (row, col) position.
+ *
+ * @param text - The source text
+ * @param offset - Character offset from start of text
+ * @returns (row, col) position (1-based), or null if offset is out of bounds
+ */
+function offsetToRowAndCol(
+  text: string,
+  offset: number
+): { row: number, col: number } | null {
+  // Validate offset is within bounds
+  if (offset < 0 || offset > text.length) return null;
 
-  // Find the text node at this offset
+  const lines = text.split('\n');
   let currentOffset = 0;
-  const walker = document.createTreeWalker(
-    element,
-    NodeFilter.SHOW_TEXT,
-    null
-  );
 
-  let textNode: Text | null = null;
-  let offsetInNode = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineLength = lines[i].length;
+    const lineEnd = currentOffset + lineLength;
 
-  while (textNode = walker.nextNode() as Text) {
-    const nodeLength = textNode.textContent?.length || 0;
-    if (currentOffset + nodeLength >= approximateOffset) {
-      offsetInNode = approximateOffset - currentOffset;
-      return { textNode, offset: Math.max(0, Math.min(nodeLength, offsetInNode)) };
+    if (offset <= lineEnd) {
+      return {
+        row: i + 1,
+        col: offset - currentOffset + 1
+      };
     }
-    currentOffset += nodeLength;
+
+    currentOffset = lineEnd + 1; // +1 for newline
   }
 
-  // Fallback: return the last text node with offset at the end
-  const lastTextNode = getLastTextNode(element);
-  if (lastTextNode) {
-    return { textNode: lastTextNode, offset: lastTextNode.textContent?.length || 0 };
-  }
-
+  // Should not reach here if bounds check passed
   return null;
 }
 
 /**
- * Calculate approximate source position for a given text node and offset within it.
- * This is the reverse of calculateOffsetInElement - it maps from rendered DOM position
- * back to source position. Uses the same heuristic assumption of uniform character distribution.
+ * Add a character offset to a position (row, col) in a string.
+ *
+ * @param text - The source text
+ * @param row - 1-based row number
+ * @param col - 1-based column number
+ * @param offset - Number of characters to add (can be negative)
+ * @returns New (row, col) position after applying offset, or null if out of bounds
  */
-function calculateSourcePositionFromOffset(
-  textNode: Node,
-  offsetInTextNode: number,
-  element: HTMLElement,
-  loc: SourceLocation
-): { line: number, col: number } | null {
-  // Get all text content from the element
-  const textContent = element.textContent || '';
-  const textLength = textContent.length;
+function addOffsetToPosition(
+  text: string,
+  row: number,
+  col: number,
+  offset: number
+): { row: number, col: number } | null {
+  const charOffset = rowAndColToOffset(text, row, col);
+  if (charOffset === null) return null;
 
-  if (textLength === 0) return null;
-
-  // Find the absolute offset of the text node within the element
-  let absoluteOffset = 0;
-  const walker = document.createTreeWalker(
-    element,
-    NodeFilter.SHOW_TEXT,
-    null
-  );
-
-  let currentNode: Text | null = null;
-  let found = false;
-
-  while (currentNode = walker.nextNode() as Text) {
-    if (currentNode === textNode) {
-      absoluteOffset += offsetInTextNode;
-      found = true;
-      break;
-    }
-    absoluteOffset += currentNode.textContent?.length || 0;
-  }
-
-  if (!found) return null;
-
-  // Calculate the progress through the rendered text
-  const progress = textLength > 0 ? absoluteOffset / textLength : 0;
-
-  // Map this progress back to the source range
-  // This is the inverse of the calculation in calculateOffsetInElement
-  const sourceStartOffset = (loc.startLine - 1) * 1000 + loc.startCol;
-  const sourceEndOffset = (loc.endLine - 1) * 1000 + loc.endCol;
-  const sourceLength = sourceEndOffset - sourceStartOffset;
-
-  const targetSourceOffset = sourceStartOffset + Math.floor(progress * sourceLength);
-
-  // Convert back to line and column
-  const line = Math.floor(targetSourceOffset / 1000) + 1;
-  const col = (targetSourceOffset % 1000);
-
-  return { line, col };
+  return offsetToRowAndCol(text, charOffset + offset);
 }
 
 /**
@@ -295,6 +233,7 @@ function calculateSourcePositionFromOffset(
 function MorphIframe({
   html,
   currentFilePath,
+  qmdContent,
   onNavigateToDocument,
   onScroll,
   onClick,
@@ -425,7 +364,7 @@ function MorphIframe({
 
       // Find the most specific (smallest range) elements for start and end positions
       // Now considering both line AND column for position matching
-      const elements = doc.querySelectorAll('[data-loc]');
+      const elements = doc.querySelectorAll('span[data-loc]');
       let startElement: HTMLElement | null = null;
       let startLoc: SourceLocation | null = null;
       let startRangeSize = Infinity;
@@ -436,9 +375,10 @@ function MorphIframe({
       for (const element of elements) {
         const dataLoc = element.getAttribute('data-loc');
         if (!dataLoc) continue;
+        if (element.firstChild?.nodeType !== Node.TEXT_NODE) continue;
 
         const loc = parseDataLoc(dataLoc);
-        if (!loc) continue;
+        if (loc === null) continue;
 
         // Check if this element contains the start position (considering both line and column)
         if (isPositionAfterOrAt(startPos.startLine, startPos.startCol, loc.startLine, loc.startCol) &&
@@ -471,41 +411,33 @@ function MorphIframe({
         return;
       }
 
+      // Calculate the approximate text offsets within the elements
+      const startInfo = {
+        textNode: startElement.firstChild!,
+        offset: startPos.startCol - startLoc.startCol
+      }
+      const endInfo = {
+        textNode: endElement.firstChild!,
+        offset: endPos.startCol - endLoc.startCol
+      }
+
+      console.log(startElement)
+
       // Create a range and set it as the document selection
       const selection = doc.getSelection();
       if (!selection) return;
 
-      const range = doc.createRange();
+      try {
+        const range = doc.createRange();
+        range.setStart(startInfo.textNode, startInfo.offset);
+        range.setEnd(endInfo.textNode, endInfo.offset);
 
-      // Calculate the approximate text offsets within the elements
-      const startInfo = calculateOffsetInElement(startPos.startLine, startPos.startCol, startElement, startLoc);
-      const endInfo = calculateOffsetInElement(endPos.endLine, endPos.endCol, endElement, endLoc);
-
-      if (startInfo && endInfo) {
-        try {
-          range.setStart(startInfo.textNode, startInfo.offset);
-          range.setEnd(endInfo.textNode, endInfo.offset);
-        } catch (e) {
-          console.error('Error setting selection range:', e);
-          return;
-        }
-      } else {
-        // Fallback to selecting from the first text node to the last text node
-        const startTextNode = getFirstTextNode(startElement);
-        const endTextNode = getLastTextNode(endElement);
-
-        if (startTextNode && endTextNode) {
-          range.setStart(startTextNode, 0);
-          range.setEnd(endTextNode, endTextNode.textContent?.length || 0);
-        } else {
-          // Final fallback to selecting the entire elements
-          range.setStart(startElement, 0);
-          range.setEnd(endElement, endElement.childNodes.length);
-        }
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        console.error('could not set selection', startInfo, endInfo)
+        return
       }
-
-      selection.removeAllRanges();
-      selection.addRange(range);
     },
     clearSelection: () => {
       const iframe = iframeRef.current;
@@ -547,74 +479,30 @@ function MorphIframe({
       const anchorOffset = selection.anchorOffset;
       const focusOffset = selection.focusOffset;
 
-      if (!anchorNode || !focusNode) return;
+      if (anchorNode?.nodeType === Node.TEXT_NODE && focusNode?.nodeType === Node.TEXT_NODE) {
+        if (anchorNode.parentElement?.tagName !== 'SPAN' || focusNode.parentElement?.tagName !== 'SPAN') return;
+        const anchorLoc = parseDataLoc(anchorNode.parentElement?.getAttribute('data-loc')!);
+        const focusLoc = parseDataLoc(focusNode.parentElement?.getAttribute('data-loc')!);
+        if (anchorLoc === null || focusLoc === null) return;
 
-      // Find closest element with data-loc for anchor (start of selection)
-      const anchorElement = anchorNode.nodeType === Node.ELEMENT_NODE
-        ? (anchorNode as Element).closest('[data-loc]')
-        : anchorNode.parentElement?.closest('[data-loc]');
+        const start = addOffsetToPosition(qmdContent, anchorLoc.startLine, anchorLoc.startCol, anchorOffset)
+        const end = addOffsetToPosition(qmdContent, focusLoc.startLine, focusLoc.startCol, focusOffset)
+        if (start === null || end === null) return;
 
-      // Find closest element with data-loc for focus (end of selection)
-      const focusElement = focusNode.nodeType === Node.ELEMENT_NODE
-        ? (focusNode as Element).closest('[data-loc]')
-        : focusNode.parentElement?.closest('[data-loc]');
-
-      if (!anchorElement || !focusElement) return;
-
-      // Parse data-loc attributes
-      const anchorDataLoc = anchorElement.getAttribute('data-loc');
-      const focusDataLoc = focusElement.getAttribute('data-loc');
-
-      if (!anchorDataLoc || !focusDataLoc) return;
-
-      const anchorLoc = parseDataLoc(anchorDataLoc);
-      const focusLoc = parseDataLoc(focusDataLoc);
-
-      if (!anchorLoc || !focusLoc) return;
-
-      // Calculate more precise positions based on the text offset within the nodes
-      let startPos: SourceLocation | null = anchorLoc;
-      let endPos: SourceLocation | null = focusLoc;
-
-      // Try to refine the anchor position using the text offset
-      if (anchorNode.nodeType === Node.TEXT_NODE && anchorOffset !== focusOffset) {
-        const refinedAnchor = calculateSourcePositionFromOffset(
-          anchorNode,
-          anchorOffset,
-          anchorElement as HTMLElement,
-          anchorLoc
-        );
-        if (refinedAnchor) {
-          startPos = {
-            ...anchorLoc,
-            startLine: refinedAnchor.line,
-            startCol: refinedAnchor.col,
-            endLine: refinedAnchor.line,
-            endCol: refinedAnchor.col,
-          };
-        }
+        onSelectionChange({
+          startCol: start.col,
+          startLine: start.row,
+          endCol: 0, // 0s and fileId don't need to be set, but I don't want to upset typescript
+          endLine: 0,
+          fileId: anchorLoc.fileId
+        }, {
+          startCol: 0, // 0s and fileId don't need to be set, but I don't want to upset typescript
+          startLine: 0,
+          endCol: end.col,
+          endLine: end.row,
+          fileId: anchorLoc.fileId
+        });
       }
-
-      // Try to refine the focus position using the text offset
-      if (focusNode.nodeType === Node.TEXT_NODE) {
-        const refinedFocus = calculateSourcePositionFromOffset(
-          focusNode,
-          focusOffset,
-          focusElement as HTMLElement,
-          focusLoc
-        );
-        if (refinedFocus) {
-          endPos = {
-            ...focusLoc,
-            startLine: refinedFocus.line,
-            startCol: refinedFocus.col,
-            endLine: refinedFocus.line,
-            endCol: refinedFocus.col,
-          };
-        }
-      }
-
-      onSelectionChange(startPos, endPos);
     };
 
     // Listen to scroll on the iframe's content window
