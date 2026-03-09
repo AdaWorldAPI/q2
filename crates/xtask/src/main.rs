@@ -40,15 +40,17 @@ enum Command {
         quiet: bool,
     },
 
-    /// Run full project verification.
+    /// Run full project verification (mirrors CI checks).
     ///
     /// This runs all build and test steps to ensure the entire project is healthy:
-    /// 1. Build all Rust crates (cargo build --workspace)
-    /// 2. Run all Rust tests (cargo nextest run --workspace)
-    /// 3. Build hub-client including WASM (npm run build:all)
-    /// 4. Run hub-client tests (npm run test:ci)
+    /// 1. Run custom lint checks (cargo xtask lint)
+    /// 2. Build all Rust crates (cargo build --workspace, with -D warnings)
+    /// 3. Test tree-sitter grammars (tree-sitter test)
+    /// 4. Run all Rust tests (cargo nextest run --workspace, with -D warnings)
+    /// 5. Build hub-client including WASM (npm run build:all)
+    /// 6. Run hub-client tests (npm run test:ci)
     ///
-    /// Use this before committing to ensure nothing is broken.
+    /// Use this before pushing to ensure nothing will fail in CI.
     Verify {
         /// Skip Rust build step.
         #[arg(long)]
@@ -66,9 +68,17 @@ enum Command {
         #[arg(long)]
         skip_hub_tests: bool,
 
+        /// Skip tree-sitter grammar tests.
+        #[arg(long)]
+        skip_treesitter_tests: bool,
+
         /// Include hub-client e2e tests (slower, requires browser).
         #[arg(long)]
         e2e: bool,
+
+        /// Do not set RUSTFLAGS="-D warnings" (allows warnings during iteration).
+        #[arg(long)]
+        no_deny_warnings: bool,
     },
 }
 
@@ -85,14 +95,18 @@ fn main() -> Result<()> {
             skip_rust_tests,
             skip_hub_build,
             skip_hub_tests,
+            skip_treesitter_tests,
             e2e,
+            no_deny_warnings,
         } => {
             let config = verify::VerifyConfig {
                 skip_rust_build,
                 skip_rust_tests,
                 skip_hub_build,
                 skip_hub_tests,
+                skip_treesitter_tests,
                 include_e2e: e2e,
+                no_deny_warnings,
             };
             verify::run(&config)
         }

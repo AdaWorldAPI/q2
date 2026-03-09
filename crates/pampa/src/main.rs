@@ -1,4 +1,3 @@
-#![feature(trim_prefix_suffix)]
 #![allow(dead_code)]
 
 /*

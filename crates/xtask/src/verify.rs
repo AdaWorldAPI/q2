@@ -1,13 +1,20 @@
 //! Verify command - Full project verification.
 //!
-//! Runs all build and test steps to ensure the entire project is healthy:
-//! 1. Build all Rust crates
-//! 2. Run all Rust tests
-//! 3. Build hub-client (including WASM)
-//! 4. Run hub-client tests
+//! Runs all build and test steps to ensure the entire project is healthy,
+//! matching the CI environment as closely as possible:
+//! 1. Run custom lint checks
+//! 2. Build all Rust crates (with -D warnings, matching CI)
+//! 3. Test tree-sitter grammars
+//! 4. Run all Rust tests (with -D warnings, matching CI)
+//! 5. Build hub-client (including WASM)
+//! 6. Run hub-client tests
 
 use anyhow::{Context, Result, bail};
 use std::process::Command;
+
+use crate::lint;
+
+const TOTAL_STEPS: u32 = 6;
 
 /// Configuration for the verify command.
 pub struct VerifyConfig {
@@ -19,8 +26,12 @@ pub struct VerifyConfig {
     pub skip_hub_build: bool,
     /// Skip hub-client tests.
     pub skip_hub_tests: bool,
+    /// Skip tree-sitter grammar tests.
+    pub skip_treesitter_tests: bool,
     /// Run hub-client e2e tests (slower, requires browser).
     pub include_e2e: bool,
+    /// Do not set RUSTFLAGS="-D warnings" (allows warnings during iteration).
+    pub no_deny_warnings: bool,
 }
 
 impl Default for VerifyConfig {
@@ -30,7 +41,9 @@ impl Default for VerifyConfig {
             skip_rust_tests: false,
             skip_hub_build: false,
             skip_hub_tests: false,
+            skip_treesitter_tests: false,
             include_e2e: false,
+            no_deny_warnings: false,
         }
     }
 }
@@ -39,50 +52,117 @@ impl Default for VerifyConfig {
 pub fn run(config: &VerifyConfig) -> Result<()> {
     let project_root = find_project_root()?;
 
-    // Step 1: Build Rust workspace
+    let rustflags = if config.no_deny_warnings {
+        None
+    } else {
+        Some("-D warnings")
+    };
+
+    // Step 1: Custom lint checks
+    {
+        println!(
+            "\n━━━ Step 1/{}: Running custom lint checks ━━━\n",
+            TOTAL_STEPS
+        );
+        let lint_config = lint::LintConfig {
+            verbose: false,
+            quiet: false,
+        };
+        lint::run_check(&lint_config)?;
+        println!("✓ Custom lint checks complete");
+    }
+
+    // Step 2: Build Rust workspace
     if !config.skip_rust_build {
-        println!("\n━━━ Step 1/4: Building Rust workspace ━━━\n");
+        println!(
+            "\n━━━ Step 2/{}: Building Rust workspace{} ━━━\n",
+            TOTAL_STEPS,
+            if rustflags.is_some() {
+                " (warnings denied)"
+            } else {
+                ""
+            }
+        );
         run_command(
             "cargo",
             &["build", "--workspace"],
             &project_root,
+            rustflags,
             "Rust build failed",
         )?;
         println!("✓ Rust build complete");
     } else {
-        println!("\n━━━ Step 1/4: Skipping Rust build ━━━\n");
+        println!("\n━━━ Step 2/{}: Skipping Rust build ━━━\n", TOTAL_STEPS);
     }
 
-    // Step 2: Run Rust tests
+    // Step 3: Tree-sitter grammar tests
+    if !config.skip_treesitter_tests {
+        println!(
+            "\n━━━ Step 3/{}: Testing tree-sitter grammars ━━━\n",
+            TOTAL_STEPS
+        );
+        let ts_dir = project_root.join("crates/tree-sitter-qmd/tree-sitter-markdown");
+        run_command(
+            "tree-sitter",
+            &["test"],
+            &ts_dir,
+            None,
+            "Tree-sitter grammar tests failed",
+        )?;
+        println!("✓ Tree-sitter grammar tests complete");
+    } else {
+        println!(
+            "\n━━━ Step 3/{}: Skipping tree-sitter grammar tests ━━━\n",
+            TOTAL_STEPS
+        );
+    }
+
+    // Step 4: Run Rust tests
     if !config.skip_rust_tests {
-        println!("\n━━━ Step 2/4: Running Rust tests ━━━\n");
+        println!(
+            "\n━━━ Step 4/{}: Running Rust tests{} ━━━\n",
+            TOTAL_STEPS,
+            if rustflags.is_some() {
+                " (warnings denied)"
+            } else {
+                ""
+            }
+        );
         run_command(
             "cargo",
             &["nextest", "run", "--workspace"],
             &project_root,
+            rustflags,
             "Rust tests failed",
         )?;
         println!("✓ Rust tests complete");
     } else {
-        println!("\n━━━ Step 2/4: Skipping Rust tests ━━━\n");
+        println!("\n━━━ Step 4/{}: Skipping Rust tests ━━━\n", TOTAL_STEPS);
     }
 
-    // Step 3: Build hub-client (includes WASM)
+    // Step 5: Build hub-client (includes WASM)
     let hub_client_dir = project_root.join("hub-client");
     if !config.skip_hub_build {
-        println!("\n━━━ Step 3/4: Building hub-client (includes WASM) ━━━\n");
+        println!(
+            "\n━━━ Step 5/{}: Building hub-client (includes WASM) ━━━\n",
+            TOTAL_STEPS
+        );
         run_command(
             "npm",
             &["run", "build:all"],
             &hub_client_dir,
+            None,
             "hub-client build failed",
         )?;
         println!("✓ hub-client build complete");
     } else {
-        println!("\n━━━ Step 3/4: Skipping hub-client build ━━━\n");
+        println!(
+            "\n━━━ Step 5/{}: Skipping hub-client build ━━━\n",
+            TOTAL_STEPS
+        );
     }
 
-    // Step 4: Run hub-client tests
+    // Step 6: Run hub-client tests
     if !config.skip_hub_tests {
         let test_script = if config.include_e2e {
             "test:all"
@@ -90,18 +170,22 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
             "test:ci"
         };
         println!(
-            "\n━━━ Step 4/4: Running hub-client tests ({}) ━━━\n",
-            test_script
+            "\n━━━ Step 6/{}: Running hub-client tests ({}) ━━━\n",
+            TOTAL_STEPS, test_script
         );
         run_command(
             "npm",
             &["run", test_script],
             &hub_client_dir,
+            None,
             "hub-client tests failed",
         )?;
         println!("✓ hub-client tests complete");
     } else {
-        println!("\n━━━ Step 4/4: Skipping hub-client tests ━━━\n");
+        println!(
+            "\n━━━ Step 6/{}: Skipping hub-client tests ━━━\n",
+            TOTAL_STEPS
+        );
     }
 
     println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -132,10 +216,24 @@ fn find_project_root() -> Result<std::path::PathBuf> {
 }
 
 /// Run a command and check for success.
-fn run_command(program: &str, args: &[&str], dir: &std::path::Path, error_msg: &str) -> Result<()> {
-    let status = Command::new(program)
-        .args(args)
-        .current_dir(dir)
+///
+/// If `rustflags` is provided, it is set as the `RUSTFLAGS` environment variable
+/// for the command, matching CI behavior.
+fn run_command(
+    program: &str,
+    args: &[&str],
+    dir: &std::path::Path,
+    rustflags: Option<&str>,
+    error_msg: &str,
+) -> Result<()> {
+    let mut cmd = Command::new(program);
+    cmd.args(args).current_dir(dir);
+
+    if let Some(flags) = rustflags {
+        cmd.env("RUSTFLAGS", flags);
+    }
+
+    let status = cmd
         .status()
         .with_context(|| format!("Failed to run {} {:?}", program, args))?;
 

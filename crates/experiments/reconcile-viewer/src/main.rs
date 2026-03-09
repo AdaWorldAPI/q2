@@ -6,8 +6,6 @@
  * Unlike the raw reconciliation plan output, this shows actual content snippets
  * alongside the alignment decisions.
  */
-#![feature(trim_prefix_suffix)]
-
 use clap::Parser;
 use hashlink::LinkedHashMap;
 use pampa::readers;

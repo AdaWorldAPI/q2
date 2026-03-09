@@ -4,8 +4,6 @@
  *
  * Utility binary to compute and report AST reconciliation between two qmd files.
  */
-#![feature(trim_prefix_suffix)]
-
 use clap::Parser;
 use pampa::readers;
 use quarto_ast_reconcile::{ReconciliationPlan, compute_reconciliation};

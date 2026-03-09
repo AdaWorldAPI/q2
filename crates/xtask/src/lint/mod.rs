@@ -7,7 +7,7 @@ mod external_sources;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use walkdir::WalkDir;
 
 /// Configuration for lint runs.
@@ -53,8 +53,11 @@ impl std::fmt::Display for Violation {
     }
 }
 
-/// Run all lint checks on the codebase.
-pub fn run(config: &LintConfig) -> Result<()> {
+/// Run lint checks and return a Result (error if violations found).
+///
+/// This is the core implementation used by both the standalone `lint` command
+/// and the `verify` command.
+pub fn run_check(config: &LintConfig) -> Result<()> {
     let workspace_root = find_workspace_root()?;
     let crates_dir = workspace_root.join("crates");
 
@@ -106,8 +109,26 @@ pub fn run(config: &LintConfig) -> Result<()> {
             );
         }
 
-        // Exit with error code 1 to indicate violations were found
-        std::process::exit(1);
+        bail!(
+            "Lint checks failed with {} violation(s)",
+            all_violations.len()
+        );
+    }
+}
+
+/// Run all lint checks on the codebase.
+///
+/// This is the entry point for the standalone `cargo xtask lint` command.
+/// It calls `run_check` and exits with code 1 on violations.
+pub fn run(config: &LintConfig) -> Result<()> {
+    match run_check(config) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // For the standalone command, exit with code 1 on lint violations
+            // to preserve the original behavior.
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
     }
 }
 
