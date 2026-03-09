@@ -44,11 +44,12 @@ enum Command {
     ///
     /// This runs all build and test steps to ensure the entire project is healthy:
     /// 1. Run custom lint checks (cargo xtask lint)
-    /// 2. Build all Rust crates (cargo build --workspace, with -D warnings)
-    /// 3. Test tree-sitter grammars (tree-sitter test)
-    /// 4. Run all Rust tests (cargo nextest run --workspace, with -D warnings)
-    /// 5. Build hub-client including WASM (npm run build:all)
-    /// 6. Run hub-client tests (npm run test:ci)
+    /// 2. Check Rust formatting (cargo fmt --check)
+    /// 3. Build all Rust crates (cargo build --workspace, with -D warnings)
+    /// 4. Test tree-sitter grammars (tree-sitter test)
+    /// 5. Run all Rust tests (cargo nextest run --workspace, with -D warnings)
+    /// 6. Build hub-client including WASM (npm run build:all)
+    /// 7. Run hub-client tests (npm run test:ci)
     ///
     /// Use this before pushing to ensure nothing will fail in CI.
     Verify {

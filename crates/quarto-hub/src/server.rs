@@ -1182,9 +1182,6 @@ mod tests {
 
     #[test]
     fn format_peer_info_none() {
-        assert_eq!(
-            format_peer_info(&None),
-            ("-".to_string(), "-".to_string())
-        );
+        assert_eq!(format_peer_info(&None), ("-".to_string(), "-".to_string()));
     }
 }
