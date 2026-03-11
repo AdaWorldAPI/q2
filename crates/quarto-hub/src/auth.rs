@@ -1,10 +1,13 @@
-//! Google OAuth2 authentication for quarto-hub.
+//! OIDC authentication for quarto-hub.
 //!
 //! All auth code lives in this module. Authentication is optional — disabled
-//! by default and enabled with `--google-client-id <ID>`.
+//! by default and enabled with `--oidc-client-id <ID>`.
 //!
-//! Uses Google ID tokens (JWTs) validated locally against Google's cached
-//! public keys via `axum-jwt-auth`. No per-connection HTTP call to Google.
+//! Uses OIDC ID tokens (JWTs) validated locally against the provider's cached
+//! public keys via `axum-jwt-auth`. No per-connection HTTP call to the provider.
+//!
+//! The JWKS URL is discovered automatically from the issuer's
+//! `/.well-known/openid-configuration` endpoint at startup.
 
 use axum::http::StatusCode;
 use axum_jwt_auth::RemoteJwksDecoder;
@@ -13,17 +16,93 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+/// Default image domain for Google profile pictures.
+const DEFAULT_IMAGE_DOMAIN: &str = "lh3.googleusercontent.com";
+
 /// Authentication configuration.
+///
+/// Construct via [`AuthConfig::new()`] which validates the issuer URL
+/// and image domains at creation time.
 #[derive(Debug, Clone)]
 pub struct AuthConfig {
     pub client_id: String,
+    /// OIDC issuer URL, guaranteed to be a valid HTTPS URL.
+    pub issuer: String,
+    pub image_domains: Vec<String>,
     pub allowed_emails: Option<Vec<String>>,
     pub allowed_domains: Option<Vec<String>>,
 }
 
-/// Google ID token claims.
+impl AuthConfig {
+    /// Create a new `AuthConfig`, validating the issuer URL and image domains.
+    ///
+    /// - `issuer` must be a well-formed HTTPS URL.
+    /// - Each image domain must be a bare hostname (no scheme, no path).
+    /// - If `image_domains` is empty, defaults to Google's profile picture CDN.
+    pub fn new(
+        client_id: String,
+        issuer: String,
+        image_domains: Vec<String>,
+        allowed_emails: Option<Vec<String>>,
+        allowed_domains: Option<Vec<String>>,
+    ) -> Result<Self, String> {
+        // Validate issuer is a well-formed HTTPS URL.
+        let parsed = url::Url::parse(&issuer)
+            .map_err(|e| format!("Malformed OIDC issuer URL '{issuer}': {e}"))?;
+        if parsed.scheme() != "https" {
+            return Err(format!(
+                "OIDC issuer must use HTTPS, got '{}'",
+                parsed.scheme()
+            ));
+        }
+
+        // Apply default and validate image domains.
+        let image_domains = if image_domains.is_empty() {
+            vec![DEFAULT_IMAGE_DOMAIN.to_string()]
+        } else {
+            for domain in &image_domains {
+                validate_image_domain(domain).map_err(|e| format!("Image domain: {e}"))?;
+            }
+            image_domains
+        };
+
+        Ok(Self {
+            client_id,
+            issuer,
+            image_domains,
+            allowed_emails,
+            allowed_domains,
+        })
+    }
+
+    /// Whether the configured issuer is Google (`https://accounts.google.com`).
+    ///
+    /// Used to gate Google-specific endpoints like `/auth/callback`.
+    pub fn is_google_issuer(&self) -> bool {
+        self.issuer.trim_end_matches('/') == "https://accounts.google.com"
+    }
+
+    /// Extract the CSP origin (`scheme://host[:port]`) from the validated issuer URL.
+    ///
+    /// Panics if the issuer is not a valid URL, which cannot happen if
+    /// the config was constructed via [`AuthConfig::new()`].
+    pub fn issuer_origin(&self) -> String {
+        let url = url::Url::parse(&self.issuer).expect("issuer validated at construction");
+        match url.port() {
+            Some(port) => format!("https://{}:{}", url.host_str().unwrap_or(""), port),
+            None => format!("https://{}", url.host_str().unwrap_or("")),
+        }
+    }
+}
+
+/// OIDC ID token claims.
+///
+/// Uses standard OIDC claim names defined in the
+/// [OIDC Core spec](https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims).
+/// `email_verified` defaults to `false` via `#[serde(default)]` so providers
+/// that omit the claim (e.g. Azure AD) deserialize safely rather than failing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GoogleClaims {
+pub struct OidcClaims {
     pub sub: String,
     pub email: String,
     #[serde(default)]
@@ -40,7 +119,12 @@ pub struct GoogleClaims {
 /// user passes if they match ANY list (OR, not AND). This allows
 /// combining `--allowed-domains=company.com` with
 /// `--allowed-emails=contractor@gmail.com`.
-pub fn check_allowlists(claims: &GoogleClaims, config: &AuthConfig) -> Result<(), StatusCode> {
+///
+/// **Important**: the `email_verified` claim is trusted as reported by the
+/// OIDC provider. Some providers set it to `true` without rigorous
+/// verification. When using `--allowed-domains`, ensure your provider
+/// actually verifies email ownership before issuing tokens.
+pub fn check_allowlists(claims: &OidcClaims, config: &AuthConfig) -> Result<(), StatusCode> {
     if !claims.email_verified {
         return Err(StatusCode::UNAUTHORIZED);
     }
@@ -53,17 +137,16 @@ pub fn check_allowlists(claims: &GoogleClaims, config: &AuthConfig) -> Result<()
         return Ok(());
     }
 
-    // Case-insensitive comparison: Google normalizes emails to lowercase
-    // in ID token claims, but the allowlist may have mixed case. Using
-    // eq_ignore_ascii_case is also forward-compatible with non-Google
-    // identity providers that may not normalize.
+    // Case-insensitive comparison: most OIDC providers normalize emails to
+    // lowercase in ID token claims, but the allowlist may have mixed case.
+    // Using eq_ignore_ascii_case handles providers that don't normalize.
     let email_ok = config
         .allowed_emails
         .as_ref()
         .is_some_and(|list| list.iter().any(|e| e.eq_ignore_ascii_case(&claims.email)));
 
     let domain_ok = config.allowed_domains.as_ref().is_some_and(|list| {
-        let domain = claims.email.split('@').last().unwrap_or("");
+        let domain = claims.email.split('@').next_back().unwrap_or("");
         list.iter().any(|d| d.eq_ignore_ascii_case(domain))
     });
 
@@ -96,22 +179,192 @@ impl std::fmt::Debug for AuthState {
     }
 }
 
-/// Build the JWKS decoder for Google ID token validation.
+/// OIDC Discovery document (subset of fields we need).
+#[derive(Deserialize)]
+struct OidcDiscoveryDocument {
+    issuer: String,
+    jwks_uri: String,
+}
+
+/// Discover the JWKS URL from the issuer's `/.well-known/openid-configuration`.
+///
+/// The `issuer` must be a validated HTTPS URL (guaranteed by [`AuthConfig::new()`]).
+///
+/// Validates:
+/// - The discovery document's `issuer` field matches the configured issuer
+/// - The `jwks_uri` is an HTTPS URL
+///
+/// Returns the `jwks_uri` from the discovery document.
+pub async fn discover_jwks_url(
+    client: &reqwest::Client,
+    issuer: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let discovery_url = format!(
+        "{}/.well-known/openid-configuration",
+        issuer.trim_end_matches('/')
+    );
+
+    let response = client.get(&discovery_url).send().await.map_err(|e| {
+        format!("Failed to fetch OIDC discovery document from {discovery_url}: {e}")
+    })?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "OIDC discovery endpoint returned HTTP {}: {discovery_url}",
+            response.status()
+        )
+        .into());
+    }
+
+    let doc: OidcDiscoveryDocument = response.json().await.map_err(|e| {
+        format!("Failed to parse OIDC discovery document from {discovery_url}: {e}")
+    })?;
+
+    validate_discovery_document(&doc, issuer, &discovery_url)
+}
+
+/// Validate an OIDC discovery document against the configured issuer.
+///
+/// - The document's `issuer` field must match the configured issuer (prevents spoofing).
+/// - The `jwks_uri` must be a well-formed HTTPS URL.
+///
+/// Returns the `jwks_uri` on success.
+fn validate_discovery_document(
+    doc: &OidcDiscoveryDocument,
+    configured_issuer: &str,
+    discovery_url: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    if doc.issuer.trim_end_matches('/') != configured_issuer.trim_end_matches('/') {
+        return Err(format!(
+            "OIDC issuer mismatch: configured '{}' but discovery document reports '{}'",
+            configured_issuer, doc.issuer
+        )
+        .into());
+    }
+
+    let jwks_url = url::Url::parse(&doc.jwks_uri)
+        .map_err(|e| format!("Malformed JWKS URI '{}': {e}", doc.jwks_uri))?;
+    if jwks_url.scheme() != "https" {
+        return Err(format!(
+            "JWKS URI must use HTTPS, got '{}' from {}",
+            jwks_url.scheme(),
+            discovery_url
+        )
+        .into());
+    }
+
+    Ok(doc.jwks_uri.clone())
+}
+
+/// Convert a JWK key algorithm to a JWT signing algorithm.
+///
+/// Returns `None` for key encryption algorithms (RSA1_5, RSA-OAEP, etc.)
+/// and unknown algorithms, which are not used for OIDC token signing.
+fn signing_algorithm(ka: &jsonwebtoken::jwk::KeyAlgorithm) -> Option<Algorithm> {
+    use jsonwebtoken::jwk::KeyAlgorithm;
+    match ka {
+        KeyAlgorithm::RS256 => Some(Algorithm::RS256),
+        KeyAlgorithm::RS384 => Some(Algorithm::RS384),
+        KeyAlgorithm::RS512 => Some(Algorithm::RS512),
+        KeyAlgorithm::ES256 => Some(Algorithm::ES256),
+        KeyAlgorithm::ES384 => Some(Algorithm::ES384),
+        KeyAlgorithm::PS256 => Some(Algorithm::PS256),
+        KeyAlgorithm::PS384 => Some(Algorithm::PS384),
+        KeyAlgorithm::PS512 => Some(Algorithm::PS512),
+        KeyAlgorithm::EdDSA => Some(Algorithm::EdDSA),
+        _ => None,
+    }
+}
+
+/// Discover allowed JWT signing algorithms from a JWKS endpoint.
+///
+/// Fetches the JWKS and extracts the `alg` field from each key.
+/// If the resulting set is empty (all keys omit `alg`), falls back to
+/// `[RS256]` — the most common OIDC signing algorithm.
+async fn discover_algorithms(
+    client: &reqwest::Client,
+    jwks_url: &str,
+) -> Result<Vec<Algorithm>, Box<dyn std::error::Error>> {
+    let jwks: jsonwebtoken::jwk::JwkSet = client
+        .get(jwks_url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch JWKS from {jwks_url}: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JWKS from {jwks_url}: {e}"))?;
+
+    let algorithms = extract_algorithms_from_jwks(&jwks, jwks_url);
+    Ok(algorithms)
+}
+
+/// Extract signing algorithms from a JWKS key set.
+///
+/// Returns a deduplicated list of signing algorithms found in the keys' `alg` fields.
+/// Falls back to `[RS256]` if no keys declare a signing algorithm.
+fn extract_algorithms_from_jwks(
+    jwks: &jsonwebtoken::jwk::JwkSet,
+    jwks_url: &str,
+) -> Vec<Algorithm> {
+    let mut algorithms = Vec::new();
+    for jwk in &jwks.keys {
+        if let Some(ref ka) = jwk.common.key_algorithm {
+            if let Some(algo) = signing_algorithm(ka) {
+                if !algorithms.contains(&algo) {
+                    algorithms.push(algo);
+                }
+            }
+        }
+    }
+
+    if algorithms.is_empty() {
+        tracing::warn!("No 'alg' field found in any JWK from {jwks_url}; falling back to RS256");
+        algorithms.push(Algorithm::RS256);
+    } else {
+        tracing::info!(
+            algorithms = ?algorithms,
+            "Discovered JWT signing algorithms from JWKS"
+        );
+    }
+
+    algorithms
+}
+
+/// Build the JWKS decoder for OIDC ID token validation.
 /// Returns an `AuthState` that owns both the decoder and the
 /// background JWKS refresh task handle.
+///
+/// Discovers the JWKS URL and signing algorithms from the provider's
+/// OIDC discovery endpoint, then initializes the decoder with provider-specific
+/// validation settings.
 pub async fn build_auth_state(
-    client_id: &str,
+    config: &AuthConfig,
 ) -> std::result::Result<AuthState, Box<dyn std::error::Error>> {
-    let mut validation = Validation::new(Algorithm::RS256);
-    validation.set_audience(&[client_id]);
-    validation.set_issuer(&["https://accounts.google.com"]);
+    // Shared HTTP client for OIDC discovery requests.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
+    // Discover JWKS URL and fetch initial keys.
+    let jwks_url = discover_jwks_url(&client, &config.issuer).await?;
+    tracing::info!(jwks_url = %jwks_url, "Discovered JWKS URL from OIDC issuer");
+
+    // Discover algorithms from the JWKS endpoint.
+    let algorithms = discover_algorithms(&client, &jwks_url).await?;
+
+    let mut validation = Validation::default();
+    validation.algorithms = algorithms;
+    validation.set_audience(&[&config.client_id]);
+    validation.set_issuer(&[&config.issuer]);
+    validation.validate_nbf = true;
+    // leeway defaults to 60 seconds in jsonwebtoken, which is fine
 
     let decoder = RemoteJwksDecoder::builder()
-        .jwks_url("https://www.googleapis.com/oauth2/v3/certs".to_string())
+        .jwks_url(jwks_url)
         .validation(validation)
         .build()?;
 
-    // Fetch the initial JWKS keys from Google before accepting requests.
+    // Fetch the initial JWKS keys before accepting requests.
     decoder.initialize().await?;
 
     // Spawn the periodic JWKS key refresh as a background task.
@@ -137,19 +390,19 @@ pub async fn build_auth_state(
 /// Returns an error if auth is enabled without TLS protection.
 /// Logs a warning if `--allow-insecure-auth` is used (local dev).
 pub fn validate_tls_config(
-    google_client_id: Option<&str>,
+    oidc_client_id: Option<&str>,
     behind_tls_proxy: bool,
     allow_insecure_auth: bool,
 ) -> std::result::Result<(), String> {
-    if google_client_id.is_some() && !behind_tls_proxy && !allow_insecure_auth {
+    if oidc_client_id.is_some() && !behind_tls_proxy && !allow_insecure_auth {
         return Err(
-            "--google-client-id requires TLS to protect tokens in transit.\n\
+            "--oidc-client-id requires TLS to protect tokens in transit.\n\
              Use --behind-tls-proxy if a reverse proxy terminates TLS,\n\
              or --allow-insecure-auth for local development (never in production)."
                 .to_string(),
         );
     }
-    if allow_insecure_auth && google_client_id.is_some() {
+    if allow_insecure_auth && oidc_client_id.is_some() {
         tracing::warn!(
             "Auth enabled WITHOUT TLS (--allow-insecure-auth). \
              Tokens will transit in plaintext. Do not use in production."
@@ -158,12 +411,33 @@ pub fn validate_tls_config(
     Ok(())
 }
 
+/// Validate that an image domain is safe for CSP inclusion.
+///
+/// Accepts bare hostnames only (e.g. `lh3.googleusercontent.com`).
+/// Rejects domains containing characters that could allow CSP injection.
+pub fn validate_image_domain(domain: &str) -> Result<(), String> {
+    if domain.is_empty() {
+        return Err("Image domain must not be empty".to_string());
+    }
+    // Must be a bare hostname: alphanumeric, dots, hyphens only.
+    // No scheme, no path, no whitespace, no semicolons.
+    let valid = domain
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    if !valid {
+        return Err(format!(
+            "Invalid image domain '{domain}': must contain only alphanumeric characters, dots, and hyphens"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn make_claims(email: &str, verified: bool) -> GoogleClaims {
-        GoogleClaims {
+    fn make_claims(email: &str, verified: bool) -> OidcClaims {
+        OidcClaims {
             sub: "123".to_string(),
             email: email.to_string(),
             email_verified: verified,
@@ -173,11 +447,14 @@ mod tests {
     }
 
     fn make_config(emails: Option<Vec<&str>>, domains: Option<Vec<&str>>) -> AuthConfig {
-        AuthConfig {
-            client_id: "test-client-id".to_string(),
-            allowed_emails: emails.map(|v| v.into_iter().map(String::from).collect()),
-            allowed_domains: domains.map(|v| v.into_iter().map(String::from).collect()),
-        }
+        AuthConfig::new(
+            "test-client-id".to_string(),
+            "https://accounts.google.com".to_string(),
+            vec!["lh3.googleusercontent.com".to_string()],
+            emails.map(|v| v.into_iter().map(String::from).collect()),
+            domains.map(|v| v.into_iter().map(String::from).collect()),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -305,5 +582,389 @@ mod tests {
     #[test]
     fn tls_not_required_when_auth_disabled() {
         assert!(validate_tls_config(None, false, false).is_ok());
+    }
+
+    // ── OidcClaims deserialization ─────────────────────────────
+
+    #[test]
+    fn oidc_claims_google_style() {
+        let json = r#"{
+            "sub": "1234567890",
+            "email": "user@gmail.com",
+            "email_verified": true,
+            "name": "Test User",
+            "picture": "https://lh3.googleusercontent.com/photo.jpg"
+        }"#;
+        let claims: OidcClaims = serde_json::from_str(json).unwrap();
+        assert_eq!(claims.sub, "1234567890");
+        assert_eq!(claims.email, "user@gmail.com");
+        assert!(claims.email_verified);
+        assert_eq!(claims.name.as_deref(), Some("Test User"));
+        assert!(claims.picture.is_some());
+    }
+
+    #[test]
+    fn oidc_claims_azure_style_no_picture_no_email_verified() {
+        let json = r#"{
+            "sub": "AAAAABBBBBcccccc",
+            "email": "user@contoso.com",
+            "name": "Contoso User"
+        }"#;
+        let claims: OidcClaims = serde_json::from_str(json).unwrap();
+        assert_eq!(claims.sub, "AAAAABBBBBcccccc");
+        assert_eq!(claims.email, "user@contoso.com");
+        // email_verified defaults to false when absent
+        assert!(!claims.email_verified);
+        assert_eq!(claims.name.as_deref(), Some("Contoso User"));
+        assert!(claims.picture.is_none());
+    }
+
+    #[test]
+    fn oidc_claims_missing_email_verified_defaults_false_and_rejected() {
+        let json = r#"{
+            "sub": "xyz",
+            "email": "user@example.com",
+            "name": "User"
+        }"#;
+        let claims: OidcClaims = serde_json::from_str(json).unwrap();
+        assert!(!claims.email_verified);
+
+        // Should be rejected by check_allowlists
+        let config = make_config(None, None);
+        assert_eq!(
+            check_allowlists(&claims, &config),
+            Err(StatusCode::UNAUTHORIZED)
+        );
+    }
+
+    // ── validate_image_domain ──────────────────────────────────
+
+    #[test]
+    fn image_domain_valid() {
+        assert!(validate_image_domain("lh3.googleusercontent.com").is_ok());
+        assert!(validate_image_domain("cdn.example.co.uk").is_ok());
+        assert!(validate_image_domain("avatars.githubusercontent.com").is_ok());
+    }
+
+    #[test]
+    fn image_domain_rejects_csp_injection() {
+        assert!(validate_image_domain("evil.com; script-src 'unsafe-inline'").is_err());
+    }
+
+    #[test]
+    fn image_domain_rejects_whitespace() {
+        assert!(validate_image_domain("evil.com evil2.com").is_err());
+    }
+
+    #[test]
+    fn image_domain_rejects_scheme_prefix() {
+        assert!(validate_image_domain("https://example.com").is_err());
+    }
+
+    #[test]
+    fn image_domain_rejects_empty() {
+        assert!(validate_image_domain("").is_err());
+    }
+
+    // ── AuthConfig::new() validation ───────────────────────────
+
+    #[test]
+    fn auth_config_rejects_http_issuer() {
+        let result = AuthConfig::new(
+            "client-id".to_string(),
+            "http://accounts.google.com".to_string(),
+            vec![],
+            None,
+            None,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("OIDC issuer must use HTTPS"));
+    }
+
+    #[test]
+    fn auth_config_rejects_malformed_issuer() {
+        let result = AuthConfig::new(
+            "client-id".to_string(),
+            "not a url at all".to_string(),
+            vec![],
+            None,
+            None,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Malformed"));
+    }
+
+    #[test]
+    fn auth_config_defaults_image_domain_when_empty() {
+        let config = AuthConfig::new(
+            "client-id".to_string(),
+            "https://accounts.google.com".to_string(),
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(config.image_domains, vec!["lh3.googleusercontent.com"]);
+    }
+
+    #[test]
+    fn auth_config_rejects_invalid_image_domain() {
+        let result = AuthConfig::new(
+            "client-id".to_string(),
+            "https://accounts.google.com".to_string(),
+            vec!["evil.com; script-src 'unsafe-inline'".to_string()],
+            None,
+            None,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn auth_config_issuer_origin() {
+        let config = AuthConfig::new(
+            "client-id".to_string(),
+            "https://login.microsoftonline.com/tenant/v2.0".to_string(),
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(config.issuer_origin(), "https://login.microsoftonline.com");
+    }
+
+    #[test]
+    fn auth_config_issuer_origin_with_port() {
+        let config = AuthConfig::new(
+            "client-id".to_string(),
+            "https://auth.example.com:8443/realm".to_string(),
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(config.issuer_origin(), "https://auth.example.com:8443");
+    }
+
+    // ── is_google_issuer ──────────────────────────────────────────
+
+    #[test]
+    fn is_google_issuer_true() {
+        let config = make_config(None, None);
+        assert!(config.is_google_issuer());
+    }
+
+    #[test]
+    fn is_google_issuer_with_trailing_slash() {
+        let config = AuthConfig::new(
+            "client-id".to_string(),
+            "https://accounts.google.com/".to_string(),
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(config.is_google_issuer());
+    }
+
+    #[test]
+    fn is_google_issuer_false_for_azure() {
+        let config = AuthConfig::new(
+            "client-id".to_string(),
+            "https://login.microsoftonline.com/tenant/v2.0".to_string(),
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(!config.is_google_issuer());
+    }
+
+    // ── signing_algorithm ─────────────────────────────────────────
+
+    #[test]
+    fn signing_algorithm_maps_common_algorithms() {
+        use jsonwebtoken::jwk::KeyAlgorithm;
+        assert_eq!(
+            signing_algorithm(&KeyAlgorithm::RS256),
+            Some(Algorithm::RS256)
+        );
+        assert_eq!(
+            signing_algorithm(&KeyAlgorithm::ES256),
+            Some(Algorithm::ES256)
+        );
+        assert_eq!(
+            signing_algorithm(&KeyAlgorithm::EdDSA),
+            Some(Algorithm::EdDSA)
+        );
+    }
+
+    #[test]
+    fn signing_algorithm_rejects_encryption_algorithms() {
+        use jsonwebtoken::jwk::KeyAlgorithm;
+        // RSA1_5 and RSA-OAEP are key encryption algorithms, not signing.
+        assert_eq!(signing_algorithm(&KeyAlgorithm::RSA1_5), None);
+        assert_eq!(signing_algorithm(&KeyAlgorithm::RSA_OAEP), None);
+    }
+
+    // ── validate_discovery_document ───────────────────────────────
+
+    fn make_discovery_doc(issuer: &str, jwks_uri: &str) -> OidcDiscoveryDocument {
+        OidcDiscoveryDocument {
+            issuer: issuer.to_string(),
+            jwks_uri: jwks_uri.to_string(),
+        }
+    }
+
+    #[test]
+    fn discovery_doc_valid() {
+        let doc = make_discovery_doc(
+            "https://accounts.google.com",
+            "https://www.googleapis.com/oauth2/v3/certs",
+        );
+        let result =
+            validate_discovery_document(&doc, "https://accounts.google.com", "https://ignored");
+        assert_eq!(
+            result.unwrap(),
+            "https://www.googleapis.com/oauth2/v3/certs"
+        );
+    }
+
+    #[test]
+    fn discovery_doc_issuer_mismatch() {
+        let doc = make_discovery_doc("https://evil.com", "https://evil.com/.well-known/jwks.json");
+        let result =
+            validate_discovery_document(&doc, "https://accounts.google.com", "https://ignored");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("issuer mismatch"), "got: {err}");
+        assert!(err.contains("evil.com"));
+    }
+
+    #[test]
+    fn discovery_doc_issuer_trailing_slash_normalization() {
+        let doc = make_discovery_doc(
+            "https://accounts.google.com/",
+            "https://www.googleapis.com/oauth2/v3/certs",
+        );
+        // Configured without trailing slash, doc has trailing slash — should still match.
+        let result =
+            validate_discovery_document(&doc, "https://accounts.google.com", "https://ignored");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn discovery_doc_rejects_http_jwks_uri() {
+        let doc = make_discovery_doc(
+            "https://accounts.google.com",
+            "http://www.googleapis.com/oauth2/v3/certs",
+        );
+        let result =
+            validate_discovery_document(&doc, "https://accounts.google.com", "https://ignored");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("JWKS URI must use HTTPS"), "got: {err}");
+    }
+
+    #[test]
+    fn discovery_doc_rejects_malformed_jwks_uri() {
+        let doc = make_discovery_doc("https://accounts.google.com", "not a url");
+        let result =
+            validate_discovery_document(&doc, "https://accounts.google.com", "https://ignored");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Malformed JWKS URI"), "got: {err}");
+    }
+
+    // ── extract_algorithms_from_jwks ──────────────────────────────
+
+    #[test]
+    fn extract_algorithms_finds_rs256() {
+        let jwks: jsonwebtoken::jwk::JwkSet = serde_json::from_value(serde_json::json!({
+            "keys": [{
+                "kty": "RSA",
+                "alg": "RS256",
+                "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+                "e": "AQAB",
+                "use": "sig"
+            }]
+        }))
+        .unwrap();
+        let algos = extract_algorithms_from_jwks(&jwks, "https://example.com/jwks");
+        assert_eq!(algos, vec![Algorithm::RS256]);
+    }
+
+    #[test]
+    fn extract_algorithms_deduplicates() {
+        let jwks: jsonwebtoken::jwk::JwkSet = serde_json::from_value(serde_json::json!({
+            "keys": [
+                {
+                    "kty": "RSA",
+                    "alg": "RS256",
+                    "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+                    "e": "AQAB",
+                    "use": "sig",
+                    "kid": "key1"
+                },
+                {
+                    "kty": "RSA",
+                    "alg": "RS256",
+                    "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+                    "e": "AQAB",
+                    "use": "sig",
+                    "kid": "key2"
+                }
+            ]
+        }))
+        .unwrap();
+        let algos = extract_algorithms_from_jwks(&jwks, "https://example.com/jwks");
+        assert_eq!(algos, vec![Algorithm::RS256]);
+    }
+
+    #[test]
+    fn extract_algorithms_multiple_different() {
+        let jwks: jsonwebtoken::jwk::JwkSet = serde_json::from_value(serde_json::json!({
+            "keys": [
+                {
+                    "kty": "RSA",
+                    "alg": "RS256",
+                    "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+                    "e": "AQAB",
+                    "use": "sig",
+                    "kid": "rsa-key"
+                },
+                {
+                    "kty": "EC",
+                    "alg": "ES256",
+                    "crv": "P-256",
+                    "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+                    "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+                    "use": "sig",
+                    "kid": "ec-key"
+                }
+            ]
+        }))
+        .unwrap();
+        let algos = extract_algorithms_from_jwks(&jwks, "https://example.com/jwks");
+        assert_eq!(algos, vec![Algorithm::RS256, Algorithm::ES256]);
+    }
+
+    #[test]
+    fn extract_algorithms_falls_back_to_rs256_when_no_alg() {
+        let jwks: jsonwebtoken::jwk::JwkSet = serde_json::from_value(serde_json::json!({
+            "keys": [{
+                "kty": "RSA",
+                "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+                "e": "AQAB",
+                "use": "sig"
+            }]
+        }))
+        .unwrap();
+        let algos = extract_algorithms_from_jwks(&jwks, "https://example.com/jwks");
+        assert_eq!(algos, vec![Algorithm::RS256]);
+    }
+
+    #[test]
+    fn extract_algorithms_empty_keyset_falls_back_to_rs256() {
+        let jwks: jsonwebtoken::jwk::JwkSet =
+            serde_json::from_value(serde_json::json!({ "keys": [] })).unwrap();
+        let algos = extract_algorithms_from_jwks(&jwks, "https://example.com/jwks");
+        assert_eq!(algos, vec![Algorithm::RS256]);
     }
 }
