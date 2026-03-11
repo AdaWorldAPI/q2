@@ -844,6 +844,14 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
                 // Prefer showing hover below the line. This prevents diagnostic popups near
                 // the top of the editor from overlapping the navbar.
                 hover: { above: false },
+                // Disable aggressive autocomplete/suggestions
+                quickSuggestions: false,
+                suggestOnTriggerCharacters: false,
+                wordBasedSuggestions: 'off',
+                acceptSuggestionOnEnter: 'off',
+                acceptSuggestionOnCommitCharacter: false,
+                suggest: { showWords: false, showSnippets: false },
+                inlineSuggest: { enabled: false },
               }}
             />
           </div>
