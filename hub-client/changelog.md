@@ -15,7 +15,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-03-11
 
-- [`5f54ad1f`](https://github.com/quarto-dev/q2/commits/5f54ad1f): Disable Monaco editor autocomplete suggestions by default
+- [`239aa927`](https://github.com/quarto-dev/q2/commits/239aa927): Disable Monaco editor autocomplete suggestions by default
 
 ### 2026-02-27
 
