@@ -11,7 +11,6 @@
 //! document, including callouts, cross-references, metadata normalization, etc.
 
 use async_trait::async_trait;
-use quarto_config::MergedConfig;
 
 use crate::pipeline::build_transform_pipeline;
 use crate::render::{BinaryDependencies, RenderContext};
@@ -23,11 +22,12 @@ use crate::transform::TransformPipeline;
 
 /// Apply AST transforms to the document.
 ///
-/// This stage:
-/// 1. Takes a parsed DocumentAst
-/// 2. Merges project config with document metadata (if project config exists)
-/// 3. Runs the standard transform pipeline (callouts, metadata, title block, etc.)
-/// 4. Returns the transformed DocumentAst
+/// This stage runs the Quarto-specific AST transformations on the parsed
+/// document (callouts, metadata normalization, title block, TOC, etc.).
+///
+/// Metadata merging is handled by the upstream [`MetadataMergeStage`] —
+/// by the time this stage runs, `doc.ast.meta` already contains the
+/// fully merged and format-flattened config.
 ///
 /// # Transform Pipeline
 ///
@@ -77,7 +77,8 @@ impl Default for AstTransformsStage {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl PipelineStage for AstTransformsStage {
     fn name(&self) -> &str {
         "ast-transforms"
@@ -103,29 +104,6 @@ impl PipelineStage for AstTransformsStage {
                 input.kind(),
             ));
         };
-
-        // Merge project config with document metadata.
-        // Project format_config provides defaults that document metadata can override.
-        // This enables WASM to inject settings like `format.html.source-location: full`.
-        if let Some(format_config) = ctx
-            .project
-            .config
-            .as_ref()
-            .and_then(|c| c.format_config.as_ref())
-        {
-            // MergedConfig: later layers (document) override earlier layers (project)
-            let merged = MergedConfig::new(vec![format_config, &doc.ast.meta]);
-            if let Ok(materialized) = merged.materialize() {
-                trace_event!(
-                    ctx,
-                    EventLevel::Debug,
-                    "merged project config with document metadata"
-                );
-                doc.ast.meta = materialized;
-            }
-            // Note: If materialization fails (shouldn't happen with well-formed configs),
-            // we silently continue with the original document metadata.
-        }
 
         let transform_count = self.pipeline.len();
         trace_event!(
@@ -318,7 +296,7 @@ mod tests {
         let runtime = Arc::new(MockRuntime);
         let project = ProjectContext {
             dir: PathBuf::from("/project"),
-            config: None,
+            config: crate::project::ProjectConfig::default(),
             is_single_file: true,
             files: vec![],
             output_dir: PathBuf::from("/project"),

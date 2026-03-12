@@ -9,9 +9,6 @@ description = "WASM client for quarto-hub web frontend"
 [lib]
 crate-type = ["cdylib"]
 
-[build-dependencies]
-sha2 = "0.10"
-
 [dependencies]
 pampa = { path = "../pampa", default-features = false }
 quarto-ast-reconcile = { path = "../quarto-ast-reconcile" }
@@ -32,4 +29,3 @@ serde_yaml = "0.9"
 yaml-rust2 = "0.11"
 console_error_panic_hook = "0.1"
 base64 = "0.22"
-sha2 = "0.10"

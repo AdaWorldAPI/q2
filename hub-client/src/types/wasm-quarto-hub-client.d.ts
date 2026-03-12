@@ -8,15 +8,12 @@ declare module 'wasm-quarto-hub-client' {
   export function vfs_remove_file(path: string): string;
   export function vfs_list_files(): string;
   export function vfs_clear(): string;
+  export function vfs_set_runtime_metadata(yaml: string): string;
+  export function vfs_get_runtime_metadata(): string;
   export function vfs_read_file(path: string): string;
   export function vfs_read_binary_file(path: string): string;
   export function render_qmd(path: string): Promise<string>;
   export function render_qmd_content(content: string, template_bundle: string): Promise<string>;
-  export function render_qmd_content_with_options(
-    content: string,
-    template_bundle: string,
-    options_json: string
-  ): Promise<string>;
   export function get_builtin_template(name: string): string;
 
   // JavaScript execution test functions (interstitial validation)
@@ -67,13 +64,10 @@ declare module 'wasm-quarto-hub-client' {
   // SASS compilation functions
   export function sass_available(): boolean;
   export function sass_compiler_name(): string | undefined;
-  export function get_scss_resources_version(): string;
   export function compile_scss(scss: string, minified: boolean, load_paths_json: string): Promise<string>;
   export function compile_scss_with_bootstrap(scss: string, minified: boolean): Promise<string>;
-  export function compile_document_css(content: string, document_path: string): Promise<string>;
   export function compile_theme_css_by_name(theme_name: string, minified: boolean): Promise<string>;
   export function compile_default_bootstrap_css(minified: boolean): Promise<string>;
-  export function compute_theme_content_hash(content: string, document_path: string): string;
 
   // Response types for project creation (for documentation/reference)
   export interface ProjectChoice {

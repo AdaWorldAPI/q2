@@ -7,14 +7,18 @@
 
 //! Assertion system for verifying rendered document output.
 
+mod css_regex;
 mod file_exists;
 mod file_regex;
+mod html_elements;
 mod no_errors;
 mod prints_message;
 mod should_error;
 
+pub use css_regex::EnsureCssRegexMatches;
 pub use file_exists::{FileExists, FolderExists, PathDoesNotExist};
 pub use file_regex::EnsureFileRegexMatches;
+pub use html_elements::EnsureHtmlElements;
 pub use no_errors::{NoErrors, NoErrorsOrWarnings};
 pub use prints_message::PrintsMessage;
 pub use should_error::ShouldError;

@@ -19,28 +19,35 @@ use std::sync::{Arc, OnceLock};
 
 use quarto_core::{
     BinaryDependencies, DocumentInfo, Format, HtmlRenderConfig, ProjectConfig, ProjectContext,
-    QuartoError, RenderContext, RenderOptions, extract_format_metadata, render_qmd_to_html,
+    QuartoError, RenderContext, RenderOptions, render_qmd_to_html,
 };
 use quarto_error_reporting::{DiagnosticKind, DiagnosticMessage};
 use quarto_pandoc_types::ConfigValue;
 use quarto_sass::{
-    BOOTSTRAP_RESOURCES, RESOURCE_PATH_PREFIX, THEMES_RESOURCES, ThemeConfig, ThemeContext,
-    compile_theme_css, themes::ThemeSpec,
+    BOOTSTRAP_RESOURCES, RESOURCE_PATH_PREFIX, ThemeConfig, ThemeContext, compile_theme_css,
 };
 use quarto_source_map::SourceContext;
 use quarto_system_runtime::{SystemRuntime, WasmRuntime};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-// Global runtime instance for VFS operations
-static RUNTIME: OnceLock<WasmRuntime> = OnceLock::new();
+// Global runtime instance for VFS operations.
+// Stored as Arc so it can be shared with the rendering pipeline.
+static RUNTIME: OnceLock<Arc<WasmRuntime>> = OnceLock::new();
 
+/// Get a reference to the global VFS runtime for direct method calls.
 fn get_runtime() -> &'static WasmRuntime {
+    get_runtime_arc()
+}
+
+/// Get a clone of the global VFS runtime as `Arc<dyn SystemRuntime>`
+/// for passing into the rendering pipeline.
+fn get_runtime_arc() -> &'static Arc<WasmRuntime> {
     RUNTIME.get_or_init(|| {
         let runtime = WasmRuntime::new();
         // Populate VFS with embedded Bootstrap SCSS resources
         populate_vfs_with_embedded_resources(&runtime);
-        runtime
+        Arc::new(runtime)
     })
 }
 
@@ -195,6 +202,63 @@ pub fn vfs_list_files() -> String {
 pub fn vfs_clear() -> String {
     get_runtime().clear_user_files(RESOURCE_PATH_PREFIX);
     VfsResponse::ok()
+}
+
+/// Set runtime metadata for the configuration merge pipeline.
+///
+/// Runtime metadata is merged as the highest-precedence layer, above project,
+/// directory, and document metadata. This allows the host environment to inject
+/// settings like `format.html.source-location: full` for scroll sync.
+///
+/// # Arguments
+/// * `yaml` - YAML string with metadata to inject, or empty string to clear
+///
+/// # Returns
+/// JSON: `{ "success": true }` or `{ "success": false, "error": "..." }`
+///
+/// # Example
+///
+/// ```javascript
+/// vfs_set_runtime_metadata("format:\n  html:\n    source-location: full\n");
+/// ```
+#[wasm_bindgen]
+pub fn vfs_set_runtime_metadata(yaml: &str) -> String {
+    if yaml.is_empty() {
+        get_runtime().set_runtime_metadata(None);
+        return VfsResponse::ok();
+    }
+
+    match serde_yaml::from_str::<serde_json::Value>(yaml) {
+        Ok(value) => {
+            if value.is_object() {
+                get_runtime().set_runtime_metadata(Some(value));
+                VfsResponse::ok()
+            } else {
+                VfsResponse::error("Runtime metadata must be a YAML mapping")
+            }
+        }
+        Err(e) => VfsResponse::error(&format!("Failed to parse YAML: {}", e)),
+    }
+}
+
+/// Get the current runtime metadata.
+///
+/// # Returns
+/// JSON: `{ "success": true, "content": "..." }` with YAML string,
+/// or `{ "success": true, "content": null }` if no metadata is set
+#[wasm_bindgen]
+pub fn vfs_get_runtime_metadata() -> String {
+    match get_runtime().get_runtime_metadata() {
+        Some(value) => match serde_yaml::to_string(&value) {
+            Ok(yaml) => VfsResponse::with_content(yaml),
+            Err(e) => VfsResponse::error(&format!("Failed to serialize metadata: {}", e)),
+        },
+        None => serde_json::to_string(&serde_json::json!({
+            "success": true,
+            "content": null
+        }))
+        .unwrap(),
+    }
 }
 
 /// Read a text file from the virtual filesystem.
@@ -423,7 +487,7 @@ fn create_wasm_project_context(path: &Path) -> ProjectContext {
     let dir = path.parent().unwrap_or(Path::new("/")).to_path_buf();
     ProjectContext {
         dir: dir.clone(),
-        config: None,
+        config: ProjectConfig::default(),
         is_single_file: true,
         files: vec![DocumentInfo::from_path(path)],
         output_dir: dir,
@@ -458,9 +522,7 @@ pub async fn parse_qmd_to_ast(content: &str) -> String {
     let doc = DocumentInfo::from_path(path);
     let binaries = BinaryDependencies::new();
 
-    // Extract format metadata from frontmatter
-    let format_metadata = extract_format_metadata(content, "html").unwrap_or_default();
-    let format = Format::html().with_metadata(format_metadata);
+    let format = Format::html();
 
     let options = RenderOptions {
         verbose: false,
@@ -471,8 +533,9 @@ pub async fn parse_qmd_to_ast(content: &str) -> String {
 
     let mut ctx = RenderContext::new(&project, &doc, &format, &binaries).with_options(options);
 
-    // Create Arc runtime for the async pipeline
-    let runtime_arc: Arc<dyn SystemRuntime> = Arc::new(WasmRuntime::new());
+    // Share the global VFS runtime with the pipeline
+    let runtime_arc: Arc<dyn SystemRuntime> =
+        Arc::clone(get_runtime_arc()) as Arc<dyn SystemRuntime>;
 
     let result = quarto_core::pipeline::parse_qmd_to_ast(
         content.as_bytes(),
@@ -599,8 +662,20 @@ pub async fn render_qmd(path: &str) -> String {
         }
     };
 
-    // Create minimal project context for WASM
-    let project = create_wasm_project_context(path);
+    // Discover project context from VFS (finds _quarto.yml in parent directories)
+    let project = match ProjectContext::discover(path, runtime) {
+        Ok(p) => p,
+        Err(e) => {
+            return serde_json::to_string(&RenderResponse {
+                success: false,
+                error: Some(format!("Failed to discover project context: {}", e)),
+                html: None,
+                diagnostics: None,
+                warnings: None,
+            })
+            .unwrap();
+        }
+    };
     let doc = DocumentInfo::from_path(path);
     let binaries = BinaryDependencies::new();
 
@@ -619,8 +694,7 @@ pub async fn render_qmd(path: &str) -> String {
             .unwrap();
         }
     };
-    let format_metadata = extract_format_metadata(content_str, "html").unwrap_or_default();
-    let format = Format::html().with_metadata(format_metadata);
+    let format = Format::html();
 
     let options = RenderOptions {
         verbose: false,
@@ -635,8 +709,9 @@ pub async fn render_qmd(path: &str) -> String {
     let config = HtmlRenderConfig::default();
     let source_name = path.to_string_lossy();
 
-    // Create Arc runtime for the async pipeline
-    let runtime_arc: Arc<dyn SystemRuntime> = Arc::new(WasmRuntime::new());
+    // Share the global VFS runtime with the pipeline
+    let runtime_arc: Arc<dyn SystemRuntime> =
+        Arc::clone(get_runtime_arc()) as Arc<dyn SystemRuntime>;
 
     match render_qmd_to_html(&content, &source_name, &mut ctx, &config, runtime_arc).await {
         Ok(output) => {
@@ -704,10 +779,7 @@ pub async fn render_qmd_content(content: &str, _template_bundle: &str) -> String
     let doc = DocumentInfo::from_path(path);
     let binaries = BinaryDependencies::new();
 
-    // Extract format metadata from frontmatter (e.g., toc, toc-depth)
-    // This matches the native CLI behavior for feature parity.
-    let format_metadata = extract_format_metadata(content, "html").unwrap_or_default();
-    let format = Format::html().with_metadata(format_metadata);
+    let format = Format::html();
 
     let options = RenderOptions {
         verbose: false,
@@ -722,8 +794,9 @@ pub async fn render_qmd_content(content: &str, _template_bundle: &str) -> String
     // TODO: Support custom templates via template_bundle parameter
     let config = HtmlRenderConfig::default();
 
-    // Create Arc runtime for the async pipeline
-    let runtime_arc: Arc<dyn SystemRuntime> = Arc::new(WasmRuntime::new());
+    // Share the global VFS runtime with the pipeline
+    let runtime_arc: Arc<dyn SystemRuntime> =
+        Arc::clone(get_runtime_arc()) as Arc<dyn SystemRuntime>;
 
     let result = render_qmd_to_html(
         content.as_bytes(),
@@ -738,140 +811,6 @@ pub async fn render_qmd_content(content: &str, _template_bundle: &str) -> String
         Ok(output) => {
             // Populate VFS with artifacts so post-processor can resolve them.
             // This includes CSS at /.quarto/project-artifacts/styles.css.
-            let runtime = get_runtime();
-            for (_key, artifact) in ctx.artifacts.iter() {
-                if let Some(path) = &artifact.path {
-                    runtime.add_file(path, artifact.content.clone());
-                }
-            }
-
-            // Convert warnings to structured JSON with line/column info
-            let warnings = diagnostics_to_json(&output.diagnostics, &output.source_context);
-            serde_json::to_string(&RenderResponse {
-                success: true,
-                error: None,
-                html: Some(output.html),
-                diagnostics: None,
-                warnings: if warnings.is_empty() {
-                    None
-                } else {
-                    Some(warnings)
-                },
-            })
-            .unwrap()
-        }
-        Err(e) => {
-            // Extract structured diagnostics from parse errors
-            let (error_msg, diagnostics) = match &e {
-                QuartoError::Parse(parse_error) => {
-                    let diags =
-                        diagnostics_to_json(&parse_error.diagnostics, &parse_error.source_context);
-                    (e.to_string(), Some(diags))
-                }
-                _ => (e.to_string(), None),
-            };
-
-            serde_json::to_string(&RenderResponse {
-                success: false,
-                error: Some(error_msg),
-                html: None,
-                diagnostics,
-                warnings: None,
-            })
-            .unwrap()
-        }
-    }
-}
-
-// ============================================================================
-// RENDER OPTIONS API
-// ============================================================================
-
-/// Options for rendering QMD content.
-///
-/// These are parsed from JSON and used to configure the render pipeline.
-#[derive(Deserialize, Default)]
-struct WasmRenderOptions {
-    /// Enable source location tracking in HTML output.
-    ///
-    /// When true, injects `format.html.source-location: full` into the config,
-    /// which adds `data-loc` attributes to HTML elements for scroll sync.
-    #[serde(default)]
-    source_location: bool,
-}
-
-/// Render QMD content with options.
-///
-/// # Arguments
-/// * `content` - QMD source text
-/// * `template_bundle` - Template bundle JSON (currently unused, reserved for future use)
-/// * `options_json` - Options JSON: `{"source_location": true}`
-///
-/// # Returns
-/// JSON: `{ "success": true, "html": "..." }` or `{ "success": false, "error": "...", "diagnostics": [...] }`
-#[wasm_bindgen]
-pub async fn render_qmd_content_with_options(
-    content: &str,
-    _template_bundle: &str,
-    options_json: &str,
-) -> String {
-    // Parse options, defaulting to empty if invalid
-    let wasm_options: WasmRenderOptions = serde_json::from_str(options_json).unwrap_or_default();
-
-    // Create a virtual path for this content
-    let path = Path::new("/input.qmd");
-
-    // Create project context, optionally with format config for source location tracking
-    let project = if wasm_options.source_location {
-        let format_config = ConfigValue::from_path(&["format", "html", "source-location"], "full");
-        let project_config = ProjectConfig::with_format_config(format_config);
-        let dir = path.parent().unwrap_or(Path::new("/")).to_path_buf();
-        ProjectContext {
-            dir: dir.clone(),
-            config: Some(project_config),
-            is_single_file: true,
-            files: vec![DocumentInfo::from_path(path)],
-            output_dir: dir,
-        }
-    } else {
-        create_wasm_project_context(path)
-    };
-
-    let doc = DocumentInfo::from_path(path);
-    let binaries = BinaryDependencies::new();
-
-    // Extract format metadata from frontmatter (e.g., toc, toc-depth)
-    // This matches the native CLI behavior for feature parity.
-    let format_metadata = extract_format_metadata(content, "html").unwrap_or_default();
-    let format = Format::html().with_metadata(format_metadata);
-
-    let options = RenderOptions {
-        verbose: false,
-        execute: false,
-        use_freeze: false,
-        output_path: None,
-    };
-
-    let mut ctx = RenderContext::new(&project, &doc, &format, &binaries).with_options(options);
-
-    // Use the unified async pipeline (same as CLI)
-    let config = HtmlRenderConfig::default();
-
-    // Create Arc runtime for the async pipeline
-    let runtime_arc: Arc<dyn SystemRuntime> = Arc::new(WasmRuntime::new());
-
-    let result = render_qmd_to_html(
-        content.as_bytes(),
-        "/input.qmd",
-        &mut ctx,
-        &config,
-        runtime_arc,
-    )
-    .await;
-
-    match result {
-        Ok(output) => {
-            // Populate VFS with artifacts so post-processor can resolve them.
             let runtime = get_runtime();
             for (_key, artifact) in ctx.artifacts.iter() {
                 if let Some(path) = &artifact.path {
@@ -1613,36 +1552,6 @@ pub fn sass_compiler_name() -> Option<String> {
     get_runtime().sass_compiler_name().map(|s| s.to_string())
 }
 
-/// Hash of embedded SCSS resources, computed at build time.
-///
-/// This changes whenever any SCSS file in `resources/scss/` is modified.
-/// Used by hub-client to invalidate the SASS cache when embedded resources change.
-const SCSS_RESOURCES_HASH: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/scss_resources_hash.txt"));
-
-/// Get the version hash of embedded SCSS resources.
-///
-/// This returns a hash that changes whenever the embedded SCSS files change.
-/// Hub-client uses this to invalidate its SASS cache when the WASM module
-/// is updated with new SCSS resources.
-///
-/// # Returns
-/// A 16-character hex string (first 64 bits of SHA-256 hash).
-///
-/// # Example
-/// ```javascript
-/// const version = get_scss_resources_version();
-/// const storedVersion = localStorage.getItem('scss-version');
-/// if (version !== storedVersion) {
-///     await sassCache.clear();
-///     localStorage.setItem('scss-version', version);
-/// }
-/// ```
-#[wasm_bindgen]
-pub fn get_scss_resources_version() -> String {
-    SCSS_RESOURCES_HASH.to_string()
-}
-
 /// Compile SCSS to CSS.
 ///
 /// This function compiles SCSS source code to CSS using dart-sass (via the JS bridge).
@@ -1711,273 +1620,6 @@ pub async fn compile_scss_with_bootstrap(scss: &str, minified: bool) -> String {
     // Default load path includes embedded Bootstrap SCSS
     let load_paths = format!("[\"{}/bootstrap/scss\"]", RESOURCE_PATH_PREFIX);
     compile_scss(scss, minified, &load_paths).await
-}
-
-/// Compile CSS for a document's theme configuration.
-///
-/// Extracts the theme from the document's YAML frontmatter and compiles
-/// the appropriate CSS. Supports:
-/// - Single theme: `theme: cosmo`
-/// - Multiple themes: `theme: [cosmo, custom.scss]`
-/// - No theme: uses default Bootstrap
-///
-/// # Arguments
-/// * `content` - The QMD document content (must include YAML frontmatter)
-/// * `document_path` - Path to the document in the VFS (e.g., "/docs/index.qmd")
-///
-/// # Returns
-/// JSON: `{ "success": true, "css": "..." }` or `{ "success": false, "error": "..." }`
-///
-/// # Path Resolution
-///
-/// The `document_path` is used to resolve relative paths in custom theme specifications.
-/// For example, if a document at `/docs/index.qmd` references `editorial_marks.scss`,
-/// the theme file will be looked up at `/docs/editorial_marks.scss`.
-///
-/// # Example
-/// ```javascript
-/// const qmd = `---
-/// title: My Document
-/// format:
-///   html:
-///     theme: cosmo
-/// ---
-///
-/// # Hello World
-/// `;
-/// const result = JSON.parse(await compile_document_css(qmd, "/index.qmd"));
-/// if (result.success) {
-///     document.querySelector('style').textContent = result.css;
-/// }
-/// ```
-#[wasm_bindgen]
-pub async fn compile_document_css(content: &str, document_path: &str) -> String {
-    let runtime = get_runtime();
-
-    // Check if SASS is available
-    if !runtime.sass_available() {
-        return SassCompileResponse::error("SASS compilation is not available");
-    }
-
-    // Extract YAML frontmatter and parse it
-    let config = match extract_frontmatter_config(content) {
-        Ok(config) => config,
-        Err(e) => return SassCompileResponse::error(&e),
-    };
-
-    // Extract theme configuration
-    let theme_config = match ThemeConfig::from_config_value(&config) {
-        Ok(config) => config,
-        Err(e) => return SassCompileResponse::error(&format!("Invalid theme config: {}", e)),
-    };
-
-    // Extract document directory from path
-    // First, normalize the path using VFS conventions so that relative paths
-    // like "index.qmd" become "/project/index.qmd" (VFS's default project root).
-    // This ensures theme resolution looks in the same directories where files are stored.
-    //
-    // Examples (assuming VFS project root is /project):
-    //   "index.qmd" -> canonicalize -> "/project/index.qmd" -> parent -> "/project"
-    //   "docs/index.qmd" -> canonicalize -> "/project/docs/index.qmd" -> parent -> "/project/docs"
-    //   "/custom/index.qmd" -> canonicalize -> "/custom/index.qmd" -> parent -> "/custom"
-    let doc_path = Path::new(document_path);
-    let normalized_path = runtime
-        .canonicalize(doc_path)
-        .unwrap_or_else(|_| doc_path.to_path_buf());
-    let doc_dir = normalized_path
-        .parent()
-        .map(|p| {
-            if p.as_os_str().is_empty() {
-                // Parent is empty (shouldn't happen after canonicalize), use root
-                std::path::PathBuf::from("/")
-            } else {
-                p.to_path_buf()
-            }
-        })
-        .unwrap_or_else(|| std::path::PathBuf::from("/"));
-
-    // Create theme context with the correct document directory
-    let context = ThemeContext::new(doc_dir, runtime);
-
-    // Compile CSS
-    match compile_theme_css(&theme_config, &context).await {
-        Ok(css) => SassCompileResponse::ok(css),
-        Err(e) => SassCompileResponse::error(&format!("SASS compilation failed: {}", e)),
-    }
-}
-
-/// Compute a content-based hash for a document's theme configuration.
-///
-/// This function computes a merkle-tree-inspired hash of all theme content that
-/// would be used when compiling the document's CSS. The hash changes when any
-/// source file changes, making it suitable as a cache key.
-///
-/// # Algorithm
-///
-/// 1. Parse the theme configuration from YAML frontmatter
-/// 2. For each theme component:
-///    - Built-in themes: read content from embedded resources
-///    - Custom SCSS files: read content from VFS
-/// 3. Compute SHA-256 hash of each file's content
-/// 4. Sort hashes lexicographically (for determinism)
-/// 5. Compute SHA-256 of the concatenated sorted hashes
-///
-/// # Arguments
-/// * `content` - The QMD document content (must include YAML frontmatter)
-/// * `document_path` - Path to the document in the VFS (e.g., "docs/index.qmd")
-///
-/// # Returns
-/// JSON: `{ "success": true, "hash": "abc123..." }` or `{ "success": false, "error": "..." }`
-///
-/// # Example
-/// ```javascript
-/// const qmd = `---
-/// format:
-///   html:
-///     theme: [cosmo, custom.scss]
-/// ---
-/// # Hello
-/// `;
-/// const result = JSON.parse(await compute_theme_content_hash(qmd, "index.qmd"));
-/// if (result.success) {
-///     const cacheKey = `theme:${result.hash}:minified=true`;
-///     // Use cacheKey for IndexedDB lookup
-/// }
-/// ```
-#[wasm_bindgen]
-pub fn compute_theme_content_hash(content: &str, document_path: &str) -> String {
-    use sha2::{Digest, Sha256};
-
-    let runtime = get_runtime();
-
-    // Extract YAML frontmatter and parse it
-    let config = match extract_frontmatter_config(content) {
-        Ok(config) => config,
-        Err(e) => return ThemeHashResponse::error(&e),
-    };
-
-    // Extract theme configuration
-    let theme_config = match ThemeConfig::from_config_value(&config) {
-        Ok(config) => config,
-        Err(e) => return ThemeHashResponse::error(&format!("Invalid theme config: {}", e)),
-    };
-
-    // Normalize document path using VFS conventions
-    let doc_path = Path::new(document_path);
-    let normalized_path = runtime
-        .canonicalize(doc_path)
-        .unwrap_or_else(|_| doc_path.to_path_buf());
-    let doc_dir = normalized_path
-        .parent()
-        .map(|p| {
-            if p.as_os_str().is_empty() {
-                std::path::PathBuf::from("/")
-            } else {
-                p.to_path_buf()
-            }
-        })
-        .unwrap_or_else(|| std::path::PathBuf::from("/"));
-
-    // Collect content hashes for all theme components
-    let mut content_hashes: Vec<String> = Vec::new();
-
-    // If no themes specified, hash an empty marker for "default bootstrap"
-    if theme_config.themes.is_empty() {
-        let mut hasher = Sha256::new();
-        hasher.update(b"__default_bootstrap__");
-        let hash = format!("{:x}", hasher.finalize());
-        content_hashes.push(hash);
-    }
-
-    for theme_spec in &theme_config.themes {
-        match theme_spec {
-            ThemeSpec::BuiltIn(builtin) => {
-                // Read built-in theme content from embedded resources
-                let filename = builtin.filename();
-                match THEMES_RESOURCES.read_str(Path::new(&filename)) {
-                    Some(theme_content) => {
-                        let mut hasher = Sha256::new();
-                        hasher.update(theme_content.as_bytes());
-                        let hash = format!("{:x}", hasher.finalize());
-                        content_hashes.push(hash);
-                    }
-                    None => {
-                        return ThemeHashResponse::error(&format!(
-                            "Built-in theme not found: {}",
-                            builtin.name()
-                        ));
-                    }
-                }
-            }
-            ThemeSpec::Custom(path) => {
-                // Resolve custom theme path relative to document directory
-                let resolved_path = if path.is_absolute() {
-                    path.clone()
-                } else {
-                    doc_dir.join(path)
-                };
-
-                // Read custom theme content from VFS
-                match runtime.file_read_string(&resolved_path) {
-                    Ok(theme_content) => {
-                        let mut hasher = Sha256::new();
-                        hasher.update(theme_content.as_bytes());
-                        let hash = format!("{:x}", hasher.finalize());
-                        content_hashes.push(hash);
-                    }
-                    Err(e) => {
-                        return ThemeHashResponse::error(&format!(
-                            "Failed to read custom theme '{}': {}",
-                            resolved_path.display(),
-                            e
-                        ));
-                    }
-                }
-            }
-        }
-    }
-
-    // Sort hashes lexicographically for determinism
-    content_hashes.sort();
-
-    // Compute final hash of concatenated sorted hashes
-    let mut final_hasher = Sha256::new();
-    for hash in &content_hashes {
-        final_hasher.update(hash.as_bytes());
-    }
-    let final_hash = format!("{:x}", final_hasher.finalize());
-
-    ThemeHashResponse::ok(final_hash)
-}
-
-/// Response type for theme content hash computation.
-#[derive(Serialize)]
-struct ThemeHashResponse {
-    success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-impl ThemeHashResponse {
-    fn ok(hash: String) -> String {
-        serde_json::to_string(&ThemeHashResponse {
-            success: true,
-            hash: Some(hash),
-            error: None,
-        })
-        .unwrap_or_else(|_| r#"{"success":false,"error":"JSON serialization failed"}"#.to_string())
-    }
-
-    fn error(msg: &str) -> String {
-        serde_json::to_string(&ThemeHashResponse {
-            success: false,
-            hash: None,
-            error: Some(msg.to_string()),
-        })
-        .unwrap_or_else(|_| r#"{"success":false,"error":"JSON serialization failed"}"#.to_string())
-    }
 }
 
 /// Compile CSS for a specific theme name.
@@ -2067,91 +1709,6 @@ pub async fn compile_default_bootstrap_css(minified: bool) -> String {
     match compile_theme_css(&theme_config, &context).await {
         Ok(css) => SassCompileResponse::ok(css),
         Err(e) => SassCompileResponse::error(&format!("SASS compilation failed: {}", e)),
-    }
-}
-
-// =============================================================================
-// Helper Functions for Theme Compilation
-// =============================================================================
-
-/// Extract YAML frontmatter from QMD content and parse to ConfigValue.
-///
-/// Looks for content between `---` markers at the start of the document.
-fn extract_frontmatter_config(content: &str) -> Result<ConfigValue, String> {
-    use quarto_pandoc_types::{ConfigValueKind, MergeOp};
-    use quarto_source_map::SourceInfo;
-
-    // Find YAML frontmatter boundaries
-    let trimmed = content.trim_start();
-    if !trimmed.starts_with("---") {
-        // No frontmatter - return empty config
-        return Ok(ConfigValue {
-            value: ConfigValueKind::Map(vec![]),
-            source_info: SourceInfo::default(),
-            merge_op: MergeOp::default(),
-        });
-    }
-
-    // Find the closing `---`
-    let after_first = &trimmed[3..];
-    let end_pos = after_first
-        .find("\n---")
-        .ok_or_else(|| "Unclosed YAML frontmatter".to_string())?;
-
-    // Extract YAML content
-    let yaml_str = &after_first[..end_pos].trim();
-
-    // Parse YAML to serde_json::Value first
-    let yaml_value: serde_json::Value = serde_yaml::from_str(yaml_str)
-        .map_err(|e| format!("Failed to parse YAML frontmatter: {}", e))?;
-
-    // Convert to ConfigValue
-    Ok(json_to_config_value(&yaml_value))
-}
-
-/// Convert a serde_json::Value to ConfigValue.
-///
-/// This is a simplified conversion that preserves the structure needed
-/// for theme configuration extraction.
-fn json_to_config_value(value: &serde_json::Value) -> ConfigValue {
-    use quarto_pandoc_types::{ConfigMapEntry, ConfigValueKind, MergeOp};
-    use quarto_source_map::SourceInfo;
-    use yaml_rust2::Yaml;
-
-    let kind = match value {
-        serde_json::Value::Null => ConfigValueKind::Scalar(Yaml::Null),
-        serde_json::Value::Bool(b) => ConfigValueKind::Scalar(Yaml::Boolean(*b)),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                ConfigValueKind::Scalar(Yaml::Integer(i))
-            } else if let Some(f) = n.as_f64() {
-                ConfigValueKind::Scalar(Yaml::Real(f.to_string()))
-            } else {
-                ConfigValueKind::Scalar(Yaml::String(n.to_string()))
-            }
-        }
-        serde_json::Value::String(s) => ConfigValueKind::Scalar(Yaml::String(s.clone())),
-        serde_json::Value::Array(arr) => {
-            let items: Vec<ConfigValue> = arr.iter().map(json_to_config_value).collect();
-            ConfigValueKind::Array(items)
-        }
-        serde_json::Value::Object(obj) => {
-            let entries: Vec<ConfigMapEntry> = obj
-                .iter()
-                .map(|(k, v)| ConfigMapEntry {
-                    key: k.clone(),
-                    key_source: SourceInfo::default(),
-                    value: json_to_config_value(v),
-                })
-                .collect();
-            ConfigValueKind::Map(entries)
-        }
-    };
-
-    ConfigValue {
-        value: kind,
-        source_info: SourceInfo::default(),
-        merge_op: MergeOp::default(),
     }
 }
 

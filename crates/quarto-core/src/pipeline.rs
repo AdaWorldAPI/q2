@@ -55,8 +55,9 @@ use crate::Result;
 use crate::render::RenderContext;
 use crate::stage::stages::ApplyTemplateConfig;
 use crate::stage::{
-    ApplyTemplateStage, AstTransformsStage, EngineExecutionStage, LoadedSource, ParseDocumentStage,
-    Pipeline, PipelineData, PipelineStage, RenderHtmlBodyStage, StageContext,
+    ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, EngineExecutionStage,
+    LoadedSource, MetadataMergeStage, ParseDocumentStage, Pipeline, PipelineData, PipelineStage,
+    RenderHtmlBodyStage, StageContext,
 };
 use crate::transform::TransformPipeline;
 use crate::transforms::{
@@ -128,13 +129,17 @@ pub struct AstOutput {
 /// This creates stages for:
 /// 1. `ParseDocumentStage` - Parse QMD to Pandoc AST
 /// 2. `EngineExecutionStage` - Execute code cells (jupyter, knitr, or markdown passthrough)
-/// 3. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, etc.)
-/// 4. `RenderHtmlBodyStage` - Render AST to HTML body
-/// 5. `ApplyTemplateStage` - Apply HTML template
+/// 3. `MetadataMergeStage` - Merge project/directory/document/runtime metadata
+/// 4. `CompileThemeCssStage` - Compile theme CSS from merged metadata
+/// 5. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, etc.)
+/// 6. `RenderHtmlBodyStage` - Render AST to HTML body
+/// 7. `ApplyTemplateStage` - Apply HTML template
 pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
     vec![
         Box::new(ParseDocumentStage::new()),
         Box::new(EngineExecutionStage::new()),
+        Box::new(MetadataMergeStage::new()),
+        Box::new(CompileThemeCssStage::new()),
         Box::new(AstTransformsStage::new()),
         Box::new(RenderHtmlBodyStage::new()),
         Box::new(ApplyTemplateStage::new()),
@@ -146,9 +151,11 @@ pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
 /// This creates a pipeline with the following stages:
 /// 1. `ParseDocumentStage` - Parse QMD to Pandoc AST
 /// 2. `EngineExecutionStage` - Execute code cells (jupyter, knitr, or markdown passthrough)
-/// 3. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, etc.)
-/// 4. `RenderHtmlBodyStage` - Render AST to HTML body
-/// 5. `ApplyTemplateStage` - Apply HTML template
+/// 3. `MetadataMergeStage` - Merge project/directory/document/runtime metadata
+/// 4. `CompileThemeCssStage` - Compile theme CSS from merged metadata
+/// 5. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, etc.)
+/// 6. `RenderHtmlBodyStage` - Render AST to HTML body
+/// 7. `ApplyTemplateStage` - Apply HTML template
 ///
 /// # Returns
 ///
@@ -171,9 +178,11 @@ pub fn build_html_pipeline() -> Pipeline {
 ///
 /// Stages:
 /// 1. `ParseDocumentStage` - Parse QMD to Pandoc AST
-/// 2. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, TOC, etc.)
-/// 3. `RenderHtmlBodyStage` - Render AST to HTML body
-/// 4. `ApplyTemplateStage` - Apply HTML template
+/// 2. `MetadataMergeStage` - Merge project/directory/document/runtime metadata
+/// 3. `CompileThemeCssStage` - Compile theme CSS from merged metadata
+/// 4. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, TOC, etc.)
+/// 5. `RenderHtmlBodyStage` - Render AST to HTML body
+/// 6. `ApplyTemplateStage` - Apply HTML template
 ///
 /// # Returns
 ///
@@ -187,6 +196,8 @@ pub fn build_wasm_html_pipeline() -> Pipeline {
     let stages: Vec<Box<dyn PipelineStage>> = vec![
         Box::new(ParseDocumentStage::new()),
         // No EngineExecutionStage - code cells pass through as-is
+        Box::new(MetadataMergeStage::new()),
+        Box::new(CompileThemeCssStage::new()),
         Box::new(AstTransformsStage::new()),
         Box::new(RenderHtmlBodyStage::new()),
         Box::new(ApplyTemplateStage::new()),
@@ -291,6 +302,7 @@ pub async fn parse_qmd_to_ast(
     let stages: Vec<Box<dyn PipelineStage>> = vec![
         Box::new(ParseDocumentStage::new()),
         Box::new(EngineExecutionStage::new()),
+        Box::new(MetadataMergeStage::new()),
         Box::new(AstTransformsStage::new()),
     ];
 
@@ -366,6 +378,8 @@ pub async fn render_qmd_to_html(
         let stages: Vec<Box<dyn PipelineStage>> = vec![
             Box::new(ParseDocumentStage::new()),
             Box::new(EngineExecutionStage::new()),
+            Box::new(MetadataMergeStage::new()),
+            Box::new(CompileThemeCssStage::new()),
             Box::new(AstTransformsStage::new()),
             Box::new(RenderHtmlBodyStage::new()),
             Box::new(ApplyTemplateStage::with_config(apply_config)),
@@ -448,7 +462,7 @@ mod tests {
     fn make_test_project() -> ProjectContext {
         ProjectContext {
             dir: PathBuf::from("/project"),
-            config: None,
+            config: crate::project::ProjectConfig::default(),
             is_single_file: true,
             files: vec![DocumentInfo::from_path("/project/test.qmd")],
             output_dir: PathBuf::from("/project"),
@@ -665,25 +679,27 @@ mod tests {
     #[test]
     fn test_build_html_pipeline_stages() {
         let stages = build_html_pipeline_stages();
-        assert_eq!(stages.len(), 5);
+        assert_eq!(stages.len(), 7);
         assert_eq!(stages[0].name(), "parse-document");
         assert_eq!(stages[1].name(), "engine-execution");
-        assert_eq!(stages[2].name(), "ast-transforms");
-        assert_eq!(stages[3].name(), "render-html-body");
-        assert_eq!(stages[4].name(), "apply-template");
+        assert_eq!(stages[2].name(), "metadata-merge");
+        assert_eq!(stages[3].name(), "compile-theme-css");
+        assert_eq!(stages[4].name(), "ast-transforms");
+        assert_eq!(stages[5].name(), "render-html-body");
+        assert_eq!(stages[6].name(), "apply-template");
     }
 
     #[test]
     fn test_build_html_pipeline() {
         let pipeline = build_html_pipeline();
-        assert_eq!(pipeline.len(), 5);
+        assert_eq!(pipeline.len(), 7);
     }
 
     #[test]
     fn test_build_wasm_html_pipeline() {
         let pipeline = build_wasm_html_pipeline();
-        // WASM pipeline has 4 stages (no engine execution)
-        assert_eq!(pipeline.len(), 4);
+        // WASM pipeline has 6 stages (no engine execution)
+        assert_eq!(pipeline.len(), 6);
     }
 
     #[test]
@@ -716,5 +732,121 @@ mod tests {
 
         let result = build_html_pipeline_with_stages(stages);
         assert!(result.is_err());
+    }
+
+    // === Theme CSS integration tests ===
+
+    use crate::project::ProjectConfig;
+    use crate::resources::DEFAULT_CSS;
+    use quarto_pandoc_types::{ConfigMapEntry, ConfigValue, ConfigValueKind};
+    use quarto_source_map::SourceInfo;
+    use yaml_rust2::Yaml;
+
+    fn project_with_theme(theme: &str) -> ProjectContext {
+        let theme_value = ConfigValue {
+            value: ConfigValueKind::Scalar(Yaml::String(theme.to_string())),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let entry = ConfigMapEntry {
+            key: "theme".to_string(),
+            key_source: SourceInfo::default(),
+            value: theme_value,
+        };
+        let metadata = ConfigValue {
+            value: ConfigValueKind::Map(vec![entry]),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        ProjectContext {
+            dir: PathBuf::from("/project"),
+            config: ProjectConfig::with_metadata(metadata),
+            is_single_file: false,
+            files: vec![DocumentInfo::from_path("/project/test.qmd")],
+            output_dir: PathBuf::from("/project"),
+        }
+    }
+
+    fn get_css_artifact(ctx: &crate::render::RenderContext) -> String {
+        let artifact = ctx
+            .artifacts
+            .get("css:default")
+            .expect("css:default artifact missing");
+        String::from_utf8(artifact.content.clone()).expect("CSS should be valid UTF-8")
+    }
+
+    #[test]
+    fn test_render_pipeline_theme_from_project() {
+        let content = b"---\ntitle: Test\n---\n\nContent.";
+
+        let project = project_with_theme("darkly");
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        let config = HtmlRenderConfig::default();
+        let runtime = make_test_runtime();
+        let _output = pollster::block_on(render_qmd_to_html(
+            content, "test.qmd", &mut ctx, &config, runtime,
+        ))
+        .unwrap();
+
+        let css = get_css_artifact(&ctx);
+        assert_ne!(css, DEFAULT_CSS, "should not be default CSS");
+        assert!(
+            css.contains("#375a7f"),
+            "darkly theme should contain primary color #375a7f"
+        );
+    }
+
+    #[test]
+    fn test_render_pipeline_theme_from_document_overrides_project() {
+        // Project has darkly, document has flatly — document should win
+        let content = b"---\ntitle: Test\ntheme: flatly\n---\n\nContent.";
+
+        let project = project_with_theme("darkly");
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        let config = HtmlRenderConfig::default();
+        let runtime = make_test_runtime();
+        let _output = pollster::block_on(render_qmd_to_html(
+            content, "test.qmd", &mut ctx, &config, runtime,
+        ))
+        .unwrap();
+
+        let css = get_css_artifact(&ctx);
+        assert!(
+            css.contains("#2c3e50"),
+            "flatly theme should contain primary color #2c3e50"
+        );
+        assert!(
+            !css.contains("#375a7f"),
+            "darkly primary color should not be present"
+        );
+    }
+
+    #[test]
+    fn test_render_pipeline_no_theme_uses_default() {
+        let content = b"---\ntitle: Test\n---\n\nContent.";
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        let config = HtmlRenderConfig::default();
+        let runtime = make_test_runtime();
+        let _output = pollster::block_on(render_qmd_to_html(
+            content, "test.qmd", &mut ctx, &config, runtime,
+        ))
+        .unwrap();
+
+        let css = get_css_artifact(&ctx);
+        assert_eq!(css, DEFAULT_CSS, "no theme should produce DEFAULT_CSS");
     }
 }

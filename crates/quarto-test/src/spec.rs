@@ -13,8 +13,8 @@ use anyhow::{Context, Result};
 use serde_yaml::Value;
 
 use crate::assertions::{
-    Assertion, EnsureFileRegexMatches, FileExists, FolderExists, NoErrors, NoErrorsOrWarnings,
-    PathDoesNotExist, PrintsMessage, ShouldError,
+    Assertion, EnsureCssRegexMatches, EnsureFileRegexMatches, EnsureHtmlElements, FileExists,
+    FolderExists, NoErrors, NoErrorsOrWarnings, PathDoesNotExist, PrintsMessage, ShouldError,
 };
 
 /// Configuration for when/whether to run tests.
@@ -163,8 +163,16 @@ fn parse_format_spec(format: &str, value: &Value, _input_path: &Path) -> Result<
             let key_str = key.as_str().context("assertion key must be a string")?;
 
             match key_str {
+                "ensureHtmlElements" => {
+                    let assertion = parse_ensure_html_elements(assertion_value)?;
+                    assertions.push(Box::new(assertion));
+                }
                 "ensureFileRegexMatches" => {
                     let assertion = parse_ensure_file_regex_matches(assertion_value)?;
+                    assertions.push(Box::new(assertion));
+                }
+                "ensureCssRegexMatches" => {
+                    let assertion = parse_ensure_css_regex_matches(assertion_value)?;
                     assertions.push(Box::new(assertion));
                 }
                 "noErrors" => {
@@ -183,15 +191,19 @@ fn parse_format_spec(format: &str, value: &Value, _input_path: &Path) -> Result<
                     assertions.push(Box::new(ShouldError::new()));
                 }
                 "printsMessage" => {
-                    let assertion = parse_prints_message(assertion_value)?;
-                    assertions.push(Box::new(assertion));
+                    // Support both single object and array of printsMessage checks
+                    if let Some(arr) = assertion_value.as_sequence() {
+                        for item in arr {
+                            let assertion = parse_prints_message(item)?;
+                            assertions.push(Box::new(assertion));
+                        }
+                    } else {
+                        let assertion = parse_prints_message(assertion_value)?;
+                        assertions.push(Box::new(assertion));
+                    }
                 }
                 "fileExists" => {
-                    let path = assertion_value
-                        .as_str()
-                        .context("fileExists must be a string path")?
-                        .to_string();
-                    assertions.push(Box::new(FileExists::new(path)));
+                    parse_file_exists(assertion_value, &mut assertions)?;
                 }
                 // Support both spellings
                 "pathDoesNotExist" | "pathDoNotExists" => {
@@ -209,7 +221,7 @@ fn parse_format_spec(format: &str, value: &Value, _input_path: &Path) -> Result<
                     assertions.push(Box::new(FolderExists::new(path)));
                 }
                 other => {
-                    tracing::warn!("Unknown assertion type: {}", other);
+                    anyhow::bail!("Unknown assertion type: '{}' in format '{}'", other, format);
                 }
             }
         }
@@ -221,6 +233,69 @@ fn parse_format_spec(format: &str, value: &Value, _input_path: &Path) -> Result<
         check_warnings,
         expects_error,
     })
+}
+
+/// Parse `fileExists` assertion.
+///
+/// Supports the TS Quarto format:
+/// ```yaml
+/// fileExists:
+///   outputPath: "filename.html"    # relative to output directory
+///   supportPath: "filename.css"    # relative to support files directory
+/// ```
+fn parse_file_exists(value: &Value, assertions: &mut Vec<Box<dyn Assertion>>) -> Result<()> {
+    let map = value
+        .as_mapping()
+        .context("fileExists must be a mapping with outputPath and/or supportPath keys")?;
+
+    for (key, file_value) in map {
+        let key_str = key.as_str().context("fileExists key must be a string")?;
+        let file = file_value
+            .as_str()
+            .context("fileExists value must be a string path")?
+            .to_string();
+
+        match key_str {
+            "outputPath" => {
+                assertions.push(Box::new(FileExists::new(file)));
+            }
+            "supportPath" => {
+                assertions.push(Box::new(FileExists::new_support_path(file)));
+            }
+            other => {
+                anyhow::bail!(
+                    "Unknown fileExists key: '{}' (expected 'outputPath' or 'supportPath')",
+                    other
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Parse `ensureCssRegexMatches` assertion.
+///
+/// Same format as `ensureFileRegexMatches` but checks linked CSS files
+/// instead of the output HTML.
+fn parse_ensure_css_regex_matches(value: &Value) -> Result<EnsureCssRegexMatches> {
+    let arr = value
+        .as_sequence()
+        .context("ensureCssRegexMatches must be an array")?;
+
+    let matches = if !arr.is_empty() {
+        parse_pattern_array(&arr[0])?
+    } else {
+        vec![]
+    };
+
+    let no_matches = if arr.len() > 1 {
+        parse_pattern_array(&arr[1])?
+    } else {
+        vec![]
+    };
+
+    EnsureCssRegexMatches::new(matches, no_matches)
 }
 
 /// Parse `ensureFileRegexMatches` assertion.
@@ -249,6 +324,34 @@ fn parse_ensure_file_regex_matches(value: &Value) -> Result<EnsureFileRegexMatch
     };
 
     EnsureFileRegexMatches::new(matches, no_matches)
+}
+
+/// Parse `ensureHtmlElements` assertion.
+///
+/// Format (same two-array structure as ensureFileRegexMatches):
+/// ```yaml
+/// ensureHtmlElements:
+///   - ["nav#TOC", "div.cell"]          # selectors that must match
+///   - ["div.do-not-be-here"]           # selectors that must NOT match (optional)
+/// ```
+fn parse_ensure_html_elements(value: &Value) -> Result<EnsureHtmlElements> {
+    let arr = value
+        .as_sequence()
+        .context("ensureHtmlElements must be an array")?;
+
+    let selectors = if !arr.is_empty() {
+        parse_pattern_array(&arr[0])?
+    } else {
+        vec![]
+    };
+
+    let no_match_selectors = if arr.len() > 1 {
+        parse_pattern_array(&arr[1])?
+    } else {
+        vec![]
+    };
+
+    EnsureHtmlElements::new(selectors, no_match_selectors)
 }
 
 /// Parse `printsMessage` assertion.
@@ -395,6 +498,155 @@ mod tests {
         let assertion = parse_ensure_file_regex_matches(&yaml).unwrap();
         assert_eq!(assertion.matches.len(), 2);
         assert_eq!(assertion.no_matches.len(), 1);
+    }
+
+    #[test]
+    fn test_unknown_assertion_fails() {
+        let yaml: Value = serde_yaml::from_str(
+            r#"
+            _quarto:
+              tests:
+                html:
+                  unknownAssertion: true
+            "#,
+        )
+        .unwrap();
+
+        let result = parse_test_specs(&yaml, std::path::Path::new("test.qmd"));
+        assert!(result.is_err());
+        let err = format!("{:#}", result.unwrap_err());
+        assert!(
+            err.contains("Unknown assertion type") && err.contains("unknownAssertion"),
+            "Expected error about unknown assertion, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_file_exists_output_path() {
+        let yaml: Value = serde_yaml::from_str(
+            r#"
+            _quarto:
+              tests:
+                html:
+                  noErrors: true
+                  fileExists:
+                    outputPath: "test.html"
+            "#,
+        )
+        .unwrap();
+
+        let (_, specs) = parse_test_specs(&yaml, std::path::Path::new("test.qmd")).unwrap();
+        assert_eq!(specs.len(), 1);
+        // noErrors + fileExists = 2 assertions
+        assert_eq!(specs[0].assertions.len(), 2);
+        assert_eq!(specs[0].assertions[1].name(), "fileExists");
+    }
+
+    #[test]
+    fn test_file_exists_support_path() {
+        let yaml: Value = serde_yaml::from_str(
+            r#"
+            _quarto:
+              tests:
+                html:
+                  noErrors: true
+                  fileExists:
+                    supportPath: "styles.css"
+            "#,
+        )
+        .unwrap();
+
+        let (_, specs) = parse_test_specs(&yaml, std::path::Path::new("test.qmd")).unwrap();
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].assertions.len(), 2);
+        assert_eq!(specs[0].assertions[1].name(), "fileExists");
+    }
+
+    #[test]
+    fn test_file_exists_both_paths() {
+        let yaml: Value = serde_yaml::from_str(
+            r#"
+            _quarto:
+              tests:
+                html:
+                  noErrors: true
+                  fileExists:
+                    outputPath: "test.html"
+                    supportPath: "styles.css"
+            "#,
+        )
+        .unwrap();
+
+        let (_, specs) = parse_test_specs(&yaml, std::path::Path::new("test.qmd")).unwrap();
+        assert_eq!(specs.len(), 1);
+        // noErrors + 2 fileExists = 3 assertions
+        assert_eq!(specs[0].assertions.len(), 3);
+    }
+
+    #[test]
+    fn test_prints_message_single() {
+        let yaml: Value = serde_yaml::from_str(
+            r#"
+            _quarto:
+              tests:
+                html:
+                  shouldError: default
+                  printsMessage:
+                    level: ERROR
+                    regex: "test error"
+            "#,
+        )
+        .unwrap();
+
+        let (_, specs) = parse_test_specs(&yaml, std::path::Path::new("test.qmd")).unwrap();
+        assert_eq!(specs.len(), 1);
+        // shouldError + printsMessage = 2 assertions
+        assert_eq!(specs[0].assertions.len(), 2);
+    }
+
+    #[test]
+    fn test_prints_message_array() {
+        let yaml: Value = serde_yaml::from_str(
+            r#"
+            _quarto:
+              tests:
+                html:
+                  shouldError: default
+                  printsMessage:
+                    - level: ERROR
+                      regex: "first error"
+                    - level: WARN
+                      regex: "a warning"
+            "#,
+        )
+        .unwrap();
+
+        let (_, specs) = parse_test_specs(&yaml, std::path::Path::new("test.qmd")).unwrap();
+        assert_eq!(specs.len(), 1);
+        // shouldError + 2 printsMessage = 3 assertions
+        assert_eq!(specs[0].assertions.len(), 3);
+    }
+
+    #[test]
+    fn test_ensure_html_elements_parsed() {
+        let yaml: Value = serde_yaml::from_str(
+            r#"
+            _quarto:
+              tests:
+                html:
+                  noErrors: true
+                  ensureHtmlElements:
+                    - ["nav#TOC"]
+            "#,
+        )
+        .unwrap();
+
+        let (_, specs) = parse_test_specs(&yaml, std::path::Path::new("test.qmd")).unwrap();
+        assert_eq!(specs.len(), 1);
+        // noErrors + ensureHtmlElements
+        assert_eq!(specs[0].assertions.len(), 2);
+        assert_eq!(specs[0].assertions[1].name(), "ensureHtmlElements");
     }
 
     #[test]

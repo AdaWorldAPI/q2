@@ -170,14 +170,6 @@ impl<'a> RenderContext<'a> {
         output
     }
 
-    /// Get a metadata value from the format configuration
-    pub fn format_metadata(&self, key: &str) -> Option<&serde_json::Value> {
-        if self.format.metadata.is_null() {
-            return None;
-        }
-        self.format.metadata.get(key)
-    }
-
     /// Check if this is a native Rust pipeline render
     pub fn is_native(&self) -> bool {
         self.format.native_pipeline
@@ -211,7 +203,7 @@ mod tests {
     fn make_test_project() -> ProjectContext {
         ProjectContext {
             dir: PathBuf::from("/project"),
-            config: None,
+            config: crate::project::ProjectConfig::default(),
             is_single_file: true,
             files: vec![DocumentInfo::from_path("/project/doc.qmd")],
             output_dir: PathBuf::from("/project"),
@@ -221,7 +213,7 @@ mod tests {
     fn make_test_project_with_output_dir() -> ProjectContext {
         ProjectContext {
             dir: PathBuf::from("/project"),
-            config: None,
+            config: crate::project::ProjectConfig::default(),
             is_single_file: false,
             files: vec![DocumentInfo::from_path("/project/doc.qmd")],
             output_dir: PathBuf::from("/project/_site"),
@@ -386,34 +378,6 @@ mod tests {
 
         let ctx = RenderContext::new(&project, &doc, &format, &binaries);
         assert!(!ctx.is_native());
-    }
-
-    #[test]
-    fn test_render_context_format_metadata_null() {
-        let project = make_test_project();
-        let doc = DocumentInfo::from_path("/project/doc.qmd");
-        let format = Format::html(); // Metadata is null by default
-        let binaries = BinaryDependencies::new();
-
-        let ctx = RenderContext::new(&project, &doc, &format, &binaries);
-        assert!(ctx.format_metadata("toc").is_none());
-    }
-
-    #[test]
-    fn test_render_context_format_metadata_with_value() {
-        let project = make_test_project();
-        let doc = DocumentInfo::from_path("/project/doc.qmd");
-        let format = Format::html().with_metadata(serde_json::json!({
-            "toc": true,
-            "theme": "default"
-        }));
-        let binaries = BinaryDependencies::new();
-
-        let ctx = RenderContext::new(&project, &doc, &format, &binaries);
-
-        assert!(ctx.format_metadata("toc").is_some());
-        assert_eq!(ctx.format_metadata("toc"), Some(&serde_json::json!(true)));
-        assert!(ctx.format_metadata("nonexistent").is_none());
     }
 
     #[test]

@@ -71,16 +71,19 @@ export interface MockWasmRenderer {
   vfsReadFile(path: string): VfsResponse;
   vfsReadBinaryFile(path: string): VfsResponse;
 
+  // Runtime metadata operations
+  setRuntimeMetadata(yaml: string): VfsResponse;
+  getRuntimeMetadata(): VfsResponse;
+  setScrollSyncEnabled(enabled: boolean): void;
+
   // Rendering operations
   renderQmd(path: string): Promise<RenderResponse>;
   renderQmdContent(content: string, templateBundle?: string): Promise<RenderResponse>;
-  renderToHtml(content: string, options?: { sourceLocation?: boolean; documentPath?: string }): Promise<RenderResult>;
+  renderToHtml(options: { documentPath: string }): Promise<RenderResult>;
+  renderContentToHtml(content: string): Promise<RenderResult>;
 
   // SASS operations
   sassAvailable(): Promise<boolean>;
-  compileScss(scss: string, options?: { minified?: boolean }): Promise<string>;
-  compileDocumentCss(content: string, options?: { minified?: boolean; documentPath?: string }): Promise<string>;
-  computeThemeContentHash(content: string, documentPath?: string): string;
 
   // Test helpers
   _getVfs(): Map<string, string | Uint8Array>;
@@ -107,7 +110,7 @@ export interface MockWasmRenderer {
  * });
  *
  * await mockWasm.initWasm();
- * const result = await mockWasm.renderToHtml('# Hello World');
+ * const result = await mockWasm.renderToHtml({ documentPath: 'index.qmd' });
  * expect(result.success).toBe(true);
  * expect(result.html).toContain('Rendered content');
  * ```
@@ -122,6 +125,7 @@ export function createMockWasmRenderer(options: MockWasmOptions = {}): MockWasmR
   let sassError: Error | null = options.sassError || null;
   let diagnostics: Diagnostic[] = options.diagnostics || [];
   let warnings: Diagnostic[] = options.warnings || [];
+  let runtimeMetadataYaml: string | null = null;
 
   const renderer: MockWasmRenderer = {
     async initWasm(): Promise<void> {
@@ -182,6 +186,31 @@ export function createMockWasmRenderer(options: MockWasmOptions = {}): MockWasmR
       return { success: true, content: base64 };
     },
 
+    // Runtime metadata operations
+    setRuntimeMetadata(yaml: string): VfsResponse {
+      if (yaml === '') {
+        runtimeMetadataYaml = null;
+        return { success: true };
+      }
+      runtimeMetadataYaml = yaml;
+      return { success: true };
+    },
+
+    getRuntimeMetadata(): VfsResponse {
+      return {
+        success: true,
+        content: runtimeMetadataYaml ?? undefined,
+      };
+    },
+
+    setScrollSyncEnabled(enabled: boolean): void {
+      if (enabled) {
+        renderer.setRuntimeMetadata('format:\n  html:\n    source-location: full\n');
+      } else {
+        renderer.setRuntimeMetadata('');
+      }
+    },
+
     // Rendering operations
     async renderQmd(path: string): Promise<RenderResponse> {
       if (renderError) {
@@ -228,8 +257,27 @@ export function createMockWasmRenderer(options: MockWasmOptions = {}): MockWasmR
     },
 
     async renderToHtml(
+      _options: { documentPath: string },
+    ): Promise<RenderResult> {
+      if (renderError) {
+        return {
+          html: '',
+          success: false,
+          error: renderError.message,
+          diagnostics,
+          warnings,
+        };
+      }
+
+      return {
+        html: renderResult,
+        success: true,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      };
+    },
+
+    async renderContentToHtml(
       _content: string,
-      _options?: { sourceLocation?: boolean; documentPath?: string },
     ): Promise<RenderResult> {
       if (renderError) {
         return {
@@ -251,41 +299,6 @@ export function createMockWasmRenderer(options: MockWasmOptions = {}): MockWasmR
     // SASS operations
     async sassAvailable(): Promise<boolean> {
       return isSassAvailable;
-    },
-
-    async compileScss(_scss: string, _options?: { minified?: boolean }): Promise<string> {
-      if (sassError) {
-        throw sassError;
-      }
-      if (!isSassAvailable) {
-        throw new Error('SASS compilation is not available');
-      }
-      return compiledCss;
-    },
-
-    async compileDocumentCss(
-      _content: string,
-      _options?: { minified?: boolean; documentPath?: string },
-    ): Promise<string> {
-      if (sassError) {
-        throw sassError;
-      }
-      if (!isSassAvailable) {
-        throw new Error('SASS compilation is not available');
-      }
-      return compiledCss;
-    },
-
-    computeThemeContentHash(
-      _content: string,
-      _documentPath?: string,
-    ): string {
-      // Return a mock hash for testing
-      // In real usage, this would compute a content-based merkle hash
-      return JSON.stringify({
-        success: true,
-        hash: 'mock-content-hash-' + Date.now().toString(16),
-      });
     },
 
     // Test helpers
@@ -327,6 +340,7 @@ export function createMockWasmRenderer(options: MockWasmOptions = {}): MockWasmR
       sassError = null;
       diagnostics = [];
       warnings = [];
+      runtimeMetadataYaml = null;
     },
   };
 
