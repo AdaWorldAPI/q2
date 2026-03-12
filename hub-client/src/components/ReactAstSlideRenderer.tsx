@@ -63,6 +63,7 @@ type LinkInline = { t: 'Link'; c: [[string, string[], [string, string][]], Inlin
 type ImageInline = { t: 'Image'; c: [[string, string[], [string, string][]], Inline[], [string, string]] };
 type SpanInline = { t: 'Span'; c: [[string, string[], [string, string][]], Inline[]] };
 type MathInline = { t: 'Math'; c: [{ t: string }, string] };
+type QuotedInline = { t: 'Quoted'; c: [{ t: string }, Inline[]] };
 type UnknownInline = { t: string; c?: unknown };
 
 type Inline =
@@ -77,6 +78,7 @@ type Inline =
   | ImageInline
   | SpanInline
   | MathInline
+  | QuotedInline
   | UnknownInline;
 
 interface PandocAstSlideRendererProps {
@@ -758,6 +760,20 @@ function renderInline(
     case 'Strong': {
       const strongInline = inline as StrongInline;
       return <strong key={key}>{renderInlines(strongInline.c, currentFilePath, onNavigateToDocument)}</strong>;
+    }
+
+    case 'Quoted': {
+      const quotedInline = inline as QuotedInline;
+      const [quoteType, inlines] = quotedInline.c;
+      const quote = quoteType.t === 'SingleQuote' ? '\u2018' : '\u201c';
+      const endQuote = quoteType.t === 'SingleQuote' ? '\u2019' : '\u201d';
+      return (
+        <span key={key}>
+          {quote}
+          {renderInlines(inlines, currentFilePath, onNavigateToDocument)}
+          {endQuote}
+        </span>
+      );
     }
 
     case 'Code': {
