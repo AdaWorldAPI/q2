@@ -10,10 +10,11 @@ use automerge::{Automerge, ObjType, ROOT, transaction::Transactable};
 use axum::http::StatusCode;
 use axum_jwt_auth::JwtDecoder;
 use samod::storage::TokioFilesystemStorage;
-use samod::{ConnectionId, Repo};
+use samod::{AcceptorHandle, NeverAnnounce, PeerId, Repo};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+use crate::access_policy::AuditAccessPolicy;
 use crate::auth::{self, AuthConfig, AuthState, OidcClaims};
 use crate::discovery::ProjectFiles;
 use crate::error::Result;
@@ -93,6 +94,9 @@ pub struct HubContext {
     /// Clone is cheap: Repo wraps Arc<Mutex<Inner>>.
     repo: Repo,
 
+    /// Acceptor handle for inbound WebSocket connections.
+    acceptor: AcceptorHandle,
+
     /// The project index document (maps file paths to document IDs)
     index: IndexDocument,
 
@@ -112,10 +116,10 @@ pub struct HubContext {
     /// is omitted from auth cookies.
     allow_insecure_auth: bool,
 
-    /// Maps connection IDs to authenticated user emails.
+    /// Maps peer IDs to authenticated user emails.
     /// Populated by handle_websocket when auth is enabled; read by the
-    /// on_document_served callback for audit logging.
-    connection_emails: Arc<StdMutex<HashMap<ConnectionId, String>>>,
+    /// AuditAccessPolicy for audit logging.
+    peer_emails: Arc<StdMutex<HashMap<PeerId, String>>>,
 }
 
 impl HubContext {
@@ -155,26 +159,23 @@ impl HubContext {
         info!(automerge_dir = %automerge_dir.display(), "Initializing samod repo");
 
         let samod_storage = TokioFilesystemStorage::new(&automerge_dir);
-        let connection_emails = Arc::new(StdMutex::new(HashMap::new()));
+        let peer_emails = Arc::new(StdMutex::new(HashMap::new()));
+        let audit_policy = AuditAccessPolicy::new(peer_emails.clone());
 
-        let mut builder = Repo::build_tokio()
+        let builder = Repo::build_tokio()
             .with_storage(samod_storage)
-            .with_announce_policy(|_doc_id, _peer_id| false);
-
-        if config.auth_config.is_some() {
-            let emails = connection_emails.clone();
-            builder = builder.with_on_document_served(move |served| {
-                if let Some(email) = emails.lock().unwrap().get(&served.connection_id) {
-                    tracing::info!(
-                        email = %email,
-                        document_id = %served.document_id,
-                        "Document served"
-                    );
-                }
-            });
-        }
+            .with_announce_policy(NeverAnnounce)
+            .with_access_policy(audit_policy);
 
         let repo = builder.load().await;
+
+        // Create an acceptor for inbound WebSocket connections
+        let acceptor_url: url::Url = format!("ws://{}:{}", config.host, config.port)
+            .parse()
+            .expect("valid acceptor URL");
+        let acceptor = repo
+            .make_acceptor(acceptor_url)
+            .map_err(|_| crate::error::Error::Server("repo is stopped".to_string()))?;
 
         info!("samod repo initialized");
 
@@ -230,12 +231,13 @@ impl HubContext {
             storage,
             project_files,
             repo,
+            acceptor,
             index,
             sync_state,
             auth_config,
             auth_state: OnceLock::new(),
             allow_insecure_auth,
-            connection_emails,
+            peer_emails,
         })
     }
 
@@ -257,6 +259,11 @@ impl HubContext {
     /// Get reference to the samod repo.
     pub fn repo(&self) -> &Repo {
         &self.repo
+    }
+
+    /// Get reference to the acceptor handle for inbound connections.
+    pub fn acceptor(&self) -> &AcceptorHandle {
+        &self.acceptor
     }
 
     /// Get reference to the index document.
@@ -327,9 +334,9 @@ impl HubContext {
         self.allow_insecure_auth
     }
 
-    /// Connection→email map for document-served audit logging.
-    pub fn connection_emails(&self) -> &Arc<StdMutex<HashMap<ConnectionId, String>>> {
-        &self.connection_emails
+    /// Peer→email map for document access audit logging.
+    pub fn peer_emails(&self) -> &Arc<StdMutex<HashMap<PeerId, String>>> {
+        &self.peer_emails
     }
 
     /// Authenticate a request. If auth is disabled, always succeeds.

@@ -663,45 +663,59 @@ async fn ws_handler(
 
 /// Handle an upgraded WebSocket connection.
 async fn handle_websocket(socket: WebSocket, ctx: SharedContext, email: Option<String>) {
+    use futures::StreamExt;
+    use samod::AcceptorEvent;
+
     // accept_axum returns immediately; the connection runs in the background
-    match ctx.repo().accept_axum(socket) {
+    match ctx.acceptor().accept_axum(socket) {
         Ok(connection) => {
-            let conn_id = connection.id();
+            let mut events = connection.events();
+            let mut connected_peer_id = None;
 
-            // Store connection→email mapping for document_served callback
-            if let Some(ref email) = email {
-                ctx.connection_emails()
-                    .lock()
-                    .unwrap()
-                    .insert(conn_id, email.clone());
+            // Wait for the handshake to complete (ClientConnected) or connection
+            // to drop (ClientDisconnected / stream end).
+            while let Some(event) = events.next().await {
+                match event {
+                    AcceptorEvent::ClientConnected {
+                        peer_info,
+                        connection_id: _,
+                    } => {
+                        let (peer_id_str, storage_id) = format_peer_info(&Some(peer_info.clone()));
+
+                        // Store peer→email mapping for audit logging
+                        if let Some(ref email) = email {
+                            ctx.peer_emails()
+                                .lock()
+                                .unwrap()
+                                .insert(peer_info.peer_id.clone(), email.clone());
+                        }
+                        connected_peer_id = Some(peer_info.peer_id);
+
+                        info!(
+                            peer_id = peer_id_str,
+                            storage_id,
+                            email = email.as_deref().unwrap_or("-"),
+                            "WebSocket client connected"
+                        );
+                    }
+                    AcceptorEvent::ClientDisconnected {
+                        connection_id: _,
+                        reason,
+                    } => {
+                        // Clean up mapping
+                        if let Some(ref peer_id) = connected_peer_id {
+                            ctx.peer_emails().lock().unwrap().remove(peer_id);
+                        }
+
+                        info!(
+                            email = email.as_deref().unwrap_or("-"),
+                            reason = ?reason,
+                            "WebSocket client disconnected"
+                        );
+                        break;
+                    }
+                }
             }
-
-            // Peer info becomes available once the handshake completes.
-            let (peer_id, storage_id) = match connection.handshake_complete().await {
-                Ok(info) => format_peer_info(&Some(info)),
-                Err(_) => format_peer_info(&None),
-            };
-
-            info!(
-                peer_id,
-                storage_id,
-                email = email.as_deref().unwrap_or("-"),
-                "WebSocket client connected"
-            );
-
-            // The connection is managed by samod and stays alive until the WebSocket closes.
-            let reason = connection.finished().await;
-
-            // Clean up mapping
-            ctx.connection_emails().lock().unwrap().remove(&conn_id);
-
-            info!(
-                peer_id,
-                storage_id,
-                email = email.as_deref().unwrap_or("-"),
-                reason = ?reason,
-                "WebSocket client disconnected"
-            );
         }
         Err(samod::Stopped) => {
             tracing::warn!("WebSocket rejected: repo is stopped");
