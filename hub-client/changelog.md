@@ -13,6 +13,15 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-13
+
+- [`6708f1bf`](https://github.com/quarto-dev/q2/commits/6708f1bf): Fix: preserve share link hash across auth redirect
+
+### 2026-03-12
+
+- [`7b56f5dd`](https://github.com/quarto-dev/q2/commits/7b56f5dd): Add project metadata support
+- [`6400a521`](https://github.com/quarto-dev/q2/commits/6400a521): Add quoted node handling
+
 ### 2026-03-11
 
 - [`ba8b95da`](https://github.com/quarto-dev/q2/commits/ba8b95da): Replace fixed 2s sleep with document readiness poll in E2E tests (38% faster)
