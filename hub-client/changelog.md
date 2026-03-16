@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-16
+
+- [`57c53daa`](https://github.com/quarto-dev/q2/commits/57c53daa): Add replay support for Quarto Hub
+
 ### 2026-03-13
 
 - [`6708f1bf`](https://github.com/quarto-dev/q2/commits/6708f1bf): Fix: preserve share link hash across auth redirect
