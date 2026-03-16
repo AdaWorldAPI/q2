@@ -679,21 +679,6 @@ pub async fn render_qmd(path: &str) -> String {
     let doc = DocumentInfo::from_path(path);
     let binaries = BinaryDependencies::new();
 
-    // Extract format metadata from frontmatter (e.g., toc, toc-depth)
-    // This matches the native CLI behavior for feature parity.
-    let content_str = match std::str::from_utf8(&content) {
-        Ok(s) => s,
-        Err(_) => {
-            return serde_json::to_string(&RenderResponse {
-                success: false,
-                error: Some("Content is not valid UTF-8".to_string()),
-                html: None,
-                diagnostics: None,
-                warnings: None,
-            })
-            .unwrap();
-        }
-    };
     let format = Format::html();
 
     let options = RenderOptions {

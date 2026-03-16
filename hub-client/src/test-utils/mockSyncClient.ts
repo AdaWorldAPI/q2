@@ -53,8 +53,6 @@ export interface MockSyncClient {
   renameFile(oldPath: string, newPath: string): void;
   getFileHandle(path: string): { documentId: string } | null;
   getFilePaths(): string[];
-  pauseSync(): void;
-  resumeSync(): void;
   createNewProject(options: CreateProjectOptions): Promise<CreateProjectResult>;
 
   // Test helpers
@@ -219,14 +217,6 @@ export function createMockSyncClient(
 
     getFilePaths(): string[] {
       return Array.from(files.keys());
-    },
-
-    pauseSync(): void {
-      // No-op in mock — sync is simulated
-    },
-
-    resumeSync(): void {
-      // No-op in mock — sync is simulated
     },
 
     async createNewProject(options: CreateProjectOptions): Promise<CreateProjectResult> {
