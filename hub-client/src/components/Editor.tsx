@@ -12,6 +12,7 @@ import {
   renameFile,
   exportProjectAsZip,
 } from '../services/automergeSync';
+import { vfsAddFile, isWasmReady } from '../services/wasmRenderer';
 import type { Diagnostic } from '../types/diagnostic';
 import { registerIntelligenceProviders, disposeIntelligenceProviders } from '../services/monacoProviders';
 import { processFileForUpload } from '../services/resourceService';
@@ -20,6 +21,7 @@ import { usePreference } from '../hooks/usePreference';
 import { useIntelligence } from '../hooks/useIntelligence';
 import { useSlideThumbnails } from '../hooks/useSlideThumbnails';
 import { useCursorToSlide } from '../hooks/useCursorToSlide';
+import { useReplayMode } from '../hooks/useReplayMode';
 import { diffToMonacoEdits } from '../utils/diffToMonacoEdits';
 import { diagnosticsToMarkers } from '../utils/diagnosticToMonaco';
 import FileSidebar from './FileSidebar';
@@ -35,6 +37,7 @@ import AboutTab from './tabs/AboutTab';
 import ViewToggleControl from './ViewToggleControl';
 import { useViewMode } from './ViewModeContext';
 import MarkdownSummary from './MarkdownSummary';
+import ReplayDrawer from './ReplayDrawer';
 import './Editor.css';
 import PreviewRouter from './PreviewRouter';
 
@@ -119,6 +122,11 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
     path: currentFile?.path ?? null,
     enableSymbols: true,
   });
+
+  // Replay mode for document history.
+  // isActiveRef is updated synchronously in enter()/exit() — before React
+  // re-renders — so it can guard handleEditorChange against stale closures.
+  const { state: replayState, controls: replayControls, isActiveRef: replayActiveRef } = useReplayMode(currentFile?.path ?? null);
 
   // Get content from fileContents map, or use default for new files
   const getContent = useCallback((file: FileEntry | null): string => {
@@ -268,6 +276,52 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
     }
   }, [currentFile, project.description]);
 
+  // Toggle Monaco read-only mode during replay
+  useEffect(() => {
+    if (!editorRef.current) return;
+    const readOnly = replayState.isActive;
+    editorRef.current.updateOptions({ readOnly, domReadOnly: readOnly });
+  }, [replayState.isActive]);
+
+  // Content for preview and MarkdownSummary: show replay content when active,
+  // otherwise the normal Automerge-synced content. We keep `content` state
+  // untouched during replay so that when replay exits, the Automerge sync
+  // effect's setContent(automergeContent) always produces a state change.
+  const displayContent = replayState.isActive ? replayState.currentContent : content;
+
+  // When replay content changes, update Monaco and VFS for display.
+  // Writing to VFS ensures the preview renderer sees historical content.
+  useEffect(() => {
+    if (!replayState.isActive) return;
+
+    const model = editorRef.current?.getModel();
+    if (model && editorRef.current) {
+      applyingRemoteRef.current = true;
+      model.setValue(replayState.currentContent);
+      applyingRemoteRef.current = false;
+    }
+
+    // Update VFS so the WASM renderer sees the historical content
+    if (currentFile && isWasmReady()) {
+      vfsAddFile(currentFile.path, replayState.currentContent);
+    }
+  }, [replayState.isActive, replayState.currentContent, currentFile]);
+
+  // Restore VFS when replay exits — the Automerge sync effect restores Monaco
+  // and React state, but doesn't re-write VFS unless fileContents changed.
+  const prevReplayActiveRef = useRef(false);
+  useEffect(() => {
+    const wasActive = prevReplayActiveRef.current;
+    prevReplayActiveRef.current = replayState.isActive;
+
+    if (wasActive && !replayState.isActive && currentFile && isWasmReady()) {
+      const liveContent = fileContents.get(currentFile.path);
+      if (liveContent !== undefined) {
+        vfsAddFile(currentFile.path, liveContent);
+      }
+    }
+  }, [replayState.isActive, currentFile, fileContents]);
+
   // Refresh intelligence (outline) when content changes
   // VFS is updated via Automerge callbacks, so we trigger refresh after content changes
   useEffect(() => {
@@ -307,6 +361,9 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
   useEffect(() => {
     if (!currentFile) return;
 
+    // During replay mode, the replay hook controls content — skip Automerge sync
+    if (replayState.isActive) return;
+
     const automergeContent = fileContents.get(currentFile.path);
     if (automergeContent === undefined) return;
 
@@ -335,7 +392,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
     // Always update React state to keep preview in sync.
     // Since Monaco is uncontrolled, this won't affect editor content or cursor.
     setContent(automergeContent);
-  }, [currentFile, fileContents]);
+  }, [currentFile, fileContents, replayState.isActive]);
 
   // Update currentFile when files list changes (e.g., on initial load)
   // Note: setState in effect is intentional - syncing with external file list
@@ -373,6 +430,9 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
   }, [route, files, fileContents, currentFile]);
 
   const handleEditorChange = (value: string | undefined) => {
+    // Skip changes during replay mode. Use the ref (always current) rather than
+    // the closure value (can be stale between setState and re-render).
+    if (replayActiveRef.current) return;
     // Skip echo when applying remote changes
     if (applyingRemoteRef.current) return;
 
@@ -437,6 +497,8 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
 
   // Handle file selection from sidebar (uses replaceState - no history entry)
   const handleSelectFile = useCallback((file: FileEntry) => {
+    // Block file switching during replay mode
+    if (replayState.isActive) return;
     // Don't switch to binary files in the editor
     if (isBinaryExtension(file.path)) {
       // For now, just ignore binary file selection
@@ -452,7 +514,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
     setUnlocatedErrors([]);
     // Update URL without adding history entry (sidebar navigation)
     onNavigateToFile(file.path, { replace: true });
-  }, [fileContents, onNavigateToFile]);
+  }, [fileContents, onNavigateToFile, replayState.isActive]);
 
   // Handle opening a file in a new browser tab
   const handleOpenInNewTab = useCallback((file: FileEntry) => {
@@ -726,6 +788,10 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
         />
       )}
 
+      {!isFullscreenPreview && replayState.isActive && (
+        <div className="replay-mode-banner">REPLAY MODE</div>
+      )}
+
       {!isFullscreenPreview && unlocatedErrors.length > 0 && (
         <div className="diagnostics-banner">
           {unlocatedErrors.map((diag, i) => (
@@ -740,7 +806,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
 
       <main className={`editor-main view-mode-${viewMode}`}>
         {!isFullscreenPreview && (
-          <SidebarTabs>
+          <SidebarTabs disabled={replayState.isActive}>
             {(activeTab) => {
               switch (activeTab) {
                 case 'files':
@@ -805,7 +871,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
             {viewMode === 'preview' && (
               <div className="markdown-summary-overlay">
                 <MarkdownSummary
-                  content={content}
+                  content={displayContent}
                   onLineClick={(lineNumber) => {
                     if (previewScrollToLineRef.current) {
                       previewScrollToLineRef.current(lineNumber);
@@ -876,7 +942,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
             </button>
           )}
           <PreviewRouter
-            content={content}
+            content={displayContent}
             currentFile={currentFile}
             files={files}
             scrollSyncEnabled={scrollSyncEnabled}
@@ -895,6 +961,11 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
           />
         </div>
       </main>
+
+      {/* Replay mode drawer */}
+      {!isFullscreenPreview && (
+        <ReplayDrawer state={replayState} controls={replayControls} disabled={!!currentFile && isBinaryExtension(currentFile.path)} />
+      )}
 
       {/* New file dialog */}
       <NewFileDialog

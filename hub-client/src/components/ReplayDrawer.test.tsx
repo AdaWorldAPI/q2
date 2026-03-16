@@ -1,0 +1,205 @@
+/**
+ * Tests for ReplayDrawer component
+ *
+ * @vitest-environment jsdom
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import ReplayDrawer from './ReplayDrawer';
+import type { ReplayState, ReplayControls } from '../hooks/useReplayMode';
+
+function makeState(overrides: Partial<ReplayState> = {}): ReplayState {
+  return {
+    isActive: false,
+    historyLength: 0,
+    currentIndex: 0,
+    isPlaying: false,
+    playbackSpeed: 1,
+    currentContent: '',
+    timestamp: null,
+    actor: null,
+    chunkActors: [],
+    ...overrides,
+  };
+}
+
+function makeControls(overrides: Partial<ReplayControls> = {}): ReplayControls {
+  return {
+    enter: vi.fn(),
+    exit: vi.fn(),
+    apply: vi.fn(),
+    seekTo: vi.fn(),
+    seekToStart: vi.fn(),
+    seekToEnd: vi.fn(),
+    play: vi.fn(),
+    pause: vi.fn(),
+    stepForward: vi.fn(),
+    stepBackward: vi.fn(),
+    cycleSpeed: vi.fn(),
+    getTimestampAtIndex: vi.fn().mockReturnValue(null),
+    ...overrides,
+  };
+}
+
+describe('ReplayDrawer', () => {
+  let controls: ReplayControls;
+
+  beforeEach(() => {
+    controls = makeControls();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  describe('collapsed state', () => {
+    it('renders chevron and "History" label', () => {
+      render(<ReplayDrawer state={makeState()} controls={controls} />);
+      expect(screen.getByText('Replay')).toBeDefined();
+    });
+
+    it('clicking the bar calls controls.enter()', () => {
+      render(<ReplayDrawer state={makeState()} controls={controls} />);
+      fireEvent.click(screen.getByText('Replay'));
+      expect(controls.enter).toHaveBeenCalled();
+    });
+  });
+
+  describe('expanded state', () => {
+    const activeState = makeState({
+      isActive: true,
+      historyLength: 100,
+      currentIndex: 42,
+      currentContent: 'hello',
+      timestamp: 1710000000,
+      actor: 'abcdef0123456789abcdef0123456789',
+      chunkActors: Array.from({ length: 10 }, () => [{ actor: 'abcdef0123456789abcdef0123456789', fraction: 1 }]),
+    });
+
+    it('renders transport controls when active', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      expect(screen.getByLabelText('Skip to start')).toBeDefined();
+      expect(screen.getByLabelText('Step backward')).toBeDefined();
+      expect(screen.getByLabelText('Play')).toBeDefined();
+      expect(screen.getByLabelText('Step forward')).toBeDefined();
+      expect(screen.getByLabelText('Skip to end')).toBeDefined();
+    });
+
+    it('Skip to start button calls controls.seekToStart()', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.click(screen.getByLabelText('Skip to start'));
+      expect(controls.seekToStart).toHaveBeenCalled();
+    });
+
+    it('Skip to end button calls controls.seekToEnd()', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.click(screen.getByLabelText('Skip to end'));
+      expect(controls.seekToEnd).toHaveBeenCalled();
+    });
+
+    it('renders Apply button and collapse toggle in header', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      expect(screen.getByText('Restore')).toBeDefined();
+      expect(screen.getByLabelText('Collapse history')).toBeDefined();
+    });
+
+    it('renders position indicator', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      expect(screen.getByText(/43 of 100/)).toBeDefined();
+    });
+
+    it('renders actor short hash', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      expect(screen.getByText('abcdef01')).toBeDefined();
+    });
+
+    it('Apply button calls controls.apply()', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.click(screen.getByText('Restore'));
+      expect(controls.apply).toHaveBeenCalled();
+    });
+
+    it('header toggle calls controls.exit()', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.click(screen.getByLabelText('Collapse history'));
+      expect(controls.exit).toHaveBeenCalled();
+    });
+
+    it('shows Pause button when playing', () => {
+      const playingState = makeState({
+        ...activeState,
+        isPlaying: true,
+      });
+      render(<ReplayDrawer state={playingState} controls={controls} />);
+      expect(screen.getByLabelText('Pause')).toBeDefined();
+    });
+
+    it('scrubber onChange calls controls.seekTo()', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      const scrubber = screen.getByRole('slider');
+      fireEvent.change(scrubber, { target: { value: '10' } });
+      expect(controls.seekTo).toHaveBeenCalledWith(10);
+    });
+
+    it('speed button shows current speed and calls cycleSpeed', () => {
+      render(<ReplayDrawer state={activeState} controls={controls} />);
+      const speedBtn = screen.getByLabelText('Playback speed');
+      expect(speedBtn.textContent).toBe('1x');
+      fireEvent.click(speedBtn);
+      expect(controls.cycleSpeed).toHaveBeenCalled();
+    });
+
+    it('speed button reflects 4x speed', () => {
+      const fastState = makeState({ ...activeState, playbackSpeed: 4 });
+      render(<ReplayDrawer state={fastState} controls={controls} />);
+      expect(screen.getByLabelText('Playback speed').textContent).toBe('4x');
+    });
+  });
+
+  describe('keyboard shortcuts', () => {
+    const activeState = makeState({
+      isActive: true,
+      historyLength: 100,
+      currentIndex: 50,
+      currentContent: 'test',
+      chunkActors: Array.from({ length: 10 }, () => [{ actor: 'actor1', fraction: 1 }]),
+    });
+
+    it('Space toggles play/pause', () => {
+      const { container } = render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.keyDown(container.firstChild!, { key: ' ' });
+      expect(controls.play).toHaveBeenCalled();
+    });
+
+    it('ArrowLeft calls stepBackward', () => {
+      const { container } = render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.keyDown(container.firstChild!, { key: 'ArrowLeft' });
+      expect(controls.stepBackward).toHaveBeenCalled();
+    });
+
+    it('ArrowRight calls stepForward', () => {
+      const { container } = render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.keyDown(container.firstChild!, { key: 'ArrowRight' });
+      expect(controls.stepForward).toHaveBeenCalled();
+    });
+
+    it('Home calls seekToStart', () => {
+      const { container } = render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.keyDown(container.firstChild!, { key: 'Home' });
+      expect(controls.seekToStart).toHaveBeenCalled();
+    });
+
+    it('End calls seekToEnd', () => {
+      const { container } = render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.keyDown(container.firstChild!, { key: 'End' });
+      expect(controls.seekToEnd).toHaveBeenCalled();
+    });
+
+    it('Escape calls exit', () => {
+      const { container } = render(<ReplayDrawer state={activeState} controls={controls} />);
+      fireEvent.keyDown(container.firstChild!, { key: 'Escape' });
+      expect(controls.exit).toHaveBeenCalled();
+    });
+  });
+});

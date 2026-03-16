@@ -1,0 +1,247 @@
+/* ReplayDrawer - bottom drawer for document history replay */
+
+.replay-drawer {
+  background: #1a1a2e;
+  border-top: 1px solid #1f3460;
+  flex-shrink: 0;
+  transition: height 0.2s ease;
+}
+
+.replay-drawer--collapsed {
+  height: 28px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.replay-drawer--expanded {
+  height: 72px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  outline: none;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Toggle button — matches .section-header style from SidebarTabs */
+.replay-drawer__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #ccc;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s;
+  user-select: none;
+}
+
+.replay-drawer__toggle:hover:not(:disabled) {
+  color: #fff;
+}
+
+.replay-drawer__toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Collapsed: toggle fills the bar */
+.replay-drawer--collapsed .replay-drawer__toggle {
+  width: 100%;
+  height: 100%;
+  padding: 0 10px;
+}
+
+.replay-drawer__chevron {
+  font-size: 8px;
+  color: #888;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+/* Header row (expanded): clickable full-width to collapse */
+.replay-drawer__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  padding: 4px 10px 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.replay-drawer__header:hover .replay-drawer__toggle {
+  color: #fff;
+}
+
+.replay-drawer__info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.replay-drawer__position {
+  font-size: 12px;
+  color: #aaa;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+.replay-drawer__actor {
+  font-size: 11px;
+  color: #888;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+.replay-drawer__timestamp {
+  font-size: 11px;
+  color: #666;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.replay-drawer__relative {
+  color: #888;
+}
+
+/* Controls row: transport + scrubber */
+.replay-drawer__controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  padding: 0 10px 6px;
+}
+
+.replay-drawer__transport {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.replay-drawer__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: #0f3460;
+  border: 1px solid #1f4460;
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.replay-drawer__btn:hover {
+  background: #1f4460;
+  color: #fff;
+}
+
+.replay-drawer__btn--play {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
+
+.replay-drawer__btn--speed {
+  width: auto;
+  padding: 0 6px;
+  font-size: 10px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  margin-left: 3px;
+}
+
+.replay-drawer__btn--apply {
+  width: auto;
+  height: 24px;
+  padding: 0 10px;
+  background: #0a4f0a;
+  border-color: #166616;
+  color: #4ade80;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+}
+
+.replay-drawer__btn--apply:hover {
+  background: #166616;
+  color: #6ee7a0;
+}
+
+/* Waveform scrubber container */
+.replay-waveform-container {
+  flex: 1;
+  min-width: 80px;
+  position: relative;
+  height: 24px;
+}
+
+.replay-waveform {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+}
+
+/* Transparent range input overlaid on waveform for interaction */
+.replay-waveform__input {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+
+.replay-waveform__input::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 100%;
+}
+
+.replay-waveform__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 0;
+  height: 0;
+}
+
+.replay-waveform__input::-moz-range-track {
+  background: transparent;
+  height: 100%;
+  border: none;
+}
+
+.replay-waveform__input::-moz-range-thumb {
+  width: 0;
+  height: 0;
+  border: none;
+}
+
+.replay-drawer__tooltip {
+  position: absolute;
+  bottom: 100%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  padding: 3px 8px;
+  background: #0f0f1e;
+  border: 1px solid #1f3460;
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
