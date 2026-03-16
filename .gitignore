@@ -10,6 +10,7 @@ target
 .beads/daemon-error
 .beads/bd.sock
 .beads/beads.db
+.beads/beads.db-wal
 .beads/.exclusive-lock
 
 # .beads directory files (keep JSONL only)
