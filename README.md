@@ -1,6 +1,6 @@
 # Quarto 2
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/quarto-dev/kyoto)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/quarto-dev/q2)
 
 > **Experimental** - This project is under active development. It's not yet ready for production use, and will not be for a while.
 
