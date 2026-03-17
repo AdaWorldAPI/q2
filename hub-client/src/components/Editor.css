@@ -194,11 +194,6 @@
   flex-shrink: 0;
 }
 
-.pane-divider .view-toggle-control {
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-
 .editor-pane {
   position: relative;
   overflow: hidden;
