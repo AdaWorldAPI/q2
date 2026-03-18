@@ -188,7 +188,6 @@
 
 /* Pane divider between editor and preview */
 .pane-divider {
-  position: relative;
   width: 1px;
   background: #1f3460;
   flex-shrink: 0;
