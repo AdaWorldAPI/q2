@@ -13,8 +13,22 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-18
+
+- [`18f94117`](https://github.com/quarto-dev/q2/commits/18f94117): Scroll sync editor and preview in replay mode
+- [`6e54d4a7`](https://github.com/quarto-dev/q2/commits/6e54d4a7): Fix preview unmount/remount cycle on every keystroke
+- [`1e901f03`](https://github.com/quarto-dev/q2/commits/1e901f03): Add `q2-debug` format with comment prototype
+- [`3e0c7bec`](https://github.com/quarto-dev/q2/commits/3e0c7bec): Move toggle buttons to top header bar
+
+### 2026-03-17
+
+- [`120af933`](https://github.com/quarto-dev/q2/commits/120af933): Move view toggle control to bottom
+- [`9ba0f20f`](https://github.com/quarto-dev/q2/commits/9ba0f20f): Synthesize format key in merged metadata after MetadataMergeStage
+- [`da45e1b5`](https://github.com/quarto-dev/q2/commits/da45e1b5): Extract replay logic into `quarto-sync-client`
+
 ### 2026-03-16
 
+- [`10bb2e38`](https://github.com/quarto-dev/q2/commits/10bb2e38): Clean up leftover code in hub-client
 - [`57c53daa`](https://github.com/quarto-dev/q2/commits/57c53daa): Add replay support for Quarto Hub
 
 ### 2026-03-13
