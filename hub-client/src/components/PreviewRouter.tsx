@@ -56,15 +56,14 @@ function getQ2Format(astJson: string): string | null {
  */
 export default function PreviewRouter(props: PreviewRouterProps) {
   const [reactFormat, setReactFormat] = useState<string | null>(null);
-  const [isChecking, setIsChecking] = useState(true);
+  const [checkedPath, setCheckedPath] = useState<string | undefined>(undefined);
+  const initialChecking = checkedPath !== props.currentFile?.path;
 
   // Check the format whenever content changes
   useEffect(() => {
     let cancelled = false;
 
     async function checkFormat() {
-      setIsChecking(true);
-
       try {
         // Ensure WASM is ready
         if (!isWasmReady()) {
@@ -78,7 +77,6 @@ export default function PreviewRouter(props: PreviewRouterProps) {
 
         if (result.success) {
           const format = getQ2Format(result.ast);
-          console.log("FORMAT", format)
           setReactFormat(format);
           props.onFormatChange?.(format);
         } else {
@@ -94,7 +92,7 @@ export default function PreviewRouter(props: PreviewRouterProps) {
         }
       } finally {
         if (!cancelled) {
-          setIsChecking(false);
+          setCheckedPath(props.currentFile?.path);
         }
       }
     }
@@ -106,8 +104,10 @@ export default function PreviewRouter(props: PreviewRouterProps) {
     };
   }, [props.content, props.currentFile?.path]);
 
-  // Show loading state while checking format
-  if (isChecking) {
+  // Show loading state only during the very first format check.
+  // Subsequent re-checks keep the current Preview mounted to avoid
+  // a destructive unmount/remount cycle on every keystroke.
+  if (initialChecking) {
     return (
       <div style={{ padding: '20px', color: '#666' }}>
         Loading preview...
