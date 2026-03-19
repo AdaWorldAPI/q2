@@ -15,6 +15,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-03-19
 
+- [`3ff0f585`](https://github.com/quarto-dev/q2/commits/3ff0f585): Add Lua WASM support
 - [`871e3b0e`](https://github.com/quarto-dev/q2/commits/871e3b0e): Replay UI improvements
 - [`a6bceb18`](https://github.com/quarto-dev/q2/commits/a6bceb18): Implement persistent identity
 
