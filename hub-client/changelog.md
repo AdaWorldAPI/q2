@@ -13,6 +13,11 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-19
+
+- [`871e3b0e`](https://github.com/quarto-dev/q2/commits/871e3b0e): Replay UI improvements
+- [`a6bceb18`](https://github.com/quarto-dev/q2/commits/a6bceb18): Implement persistent identity
+
 ### 2026-03-18
 
 - [`18f94117`](https://github.com/quarto-dev/q2/commits/18f94117): Scroll sync editor and preview in replay mode
