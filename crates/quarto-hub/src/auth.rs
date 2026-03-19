@@ -13,6 +13,7 @@ use axum::http::StatusCode;
 use axum_jwt_auth::RemoteJwksDecoder;
 use jsonwebtoken::{Algorithm, Validation};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -430,6 +431,19 @@ pub fn validate_image_domain(domain: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Derive an Automerge actor ID from an OIDC `sub` claim.
+///
+/// SHA-256 hashes the `sub` string to produce a uniform 32-byte (64 hex char)
+/// actor ID regardless of provider. This ensures true opacity — some providers
+/// like Auth0 include identifying prefixes (`auth0|...`) in the `sub`.
+///
+/// The same `sub` always produces the same actor ID, so a user's changes are
+/// consistently attributed across sessions, devices, and reconnections.
+pub fn sub_to_actor_id(sub: &str) -> String {
+    let digest = Sha256::digest(sub.as_bytes());
+    format!("{:x}", digest)
 }
 
 #[cfg(test)]
@@ -966,5 +980,41 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "keys": [] })).unwrap();
         let algos = extract_algorithms_from_jwks(&jwks, "https://example.com/jwks");
         assert_eq!(algos, vec![Algorithm::RS256]);
+    }
+
+    // ── sub_to_actor_id ──────────────────────────────────────────
+
+    #[test]
+    fn sub_to_actor_id_uniform_64_hex_for_all_providers() {
+        let subs = [
+            "114946389732038281927",          // Google numeric
+            "AAAAABBBBBcccccc",               // Azure mixed-case
+            "auth0|5f7c8ec7c33c6c004bbafe82", // Auth0 with special chars
+            "x",                              // minimal
+            "a-very-long-subject-identifier-from-some-provider-that-uses-uuids-as-sub-claims",
+        ];
+        for sub in &subs {
+            let id = sub_to_actor_id(sub);
+            assert_eq!(
+                id.len(),
+                64,
+                "expected 64 hex chars for sub '{sub}', got {}",
+                id.len()
+            );
+            assert!(
+                id.chars().all(|c| c.is_ascii_hexdigit()),
+                "non-hex char in id for sub '{sub}'"
+            );
+        }
+    }
+
+    #[test]
+    fn sub_to_actor_id_deterministic() {
+        assert_eq!(sub_to_actor_id("same-sub"), sub_to_actor_id("same-sub"));
+    }
+
+    #[test]
+    fn sub_to_actor_id_different_subs_differ() {
+        assert_ne!(sub_to_actor_id("user-one"), sub_to_actor_id("user-two"));
     }
 }
