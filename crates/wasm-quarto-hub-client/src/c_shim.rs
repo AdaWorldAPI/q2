@@ -701,7 +701,6 @@ pub unsafe extern "C" fn strtod(s: *const c_char, endptr: *mut *mut c_char) -> C
     let is_hex = *p as u8 == b'0' && (*p.add(1) as u8 == b'x' || *p.add(1) as u8 == b'X');
 
     let mut result: f64;
-    let start = p;
 
     if is_hex {
         p = p.add(2); // skip "0x"
