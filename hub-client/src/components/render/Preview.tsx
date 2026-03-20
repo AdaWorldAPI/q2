@@ -1,14 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type * as Monaco from 'monaco-editor';
 import type { FileEntry } from '../../types/project';
-import { isQmdFile } from '../../types/project';
 import type { Diagnostic } from '../../types/diagnostic';
-import { initWasm, renderToHtml, isWasmReady, setScrollSyncEnabled } from '../../services/wasmRenderer';
+import { renderToHtml, isWasmReady, setScrollSyncEnabled } from '../../services/wasmRenderer';
 import { useScrollSync } from '../../hooks/useScrollSync';
 import { useSelectionSync } from '../../hooks/useSelectionSync';
-import { stripAnsi } from '../../utils/stripAnsi';
 import { PreviewErrorOverlay } from './PreviewErrorOverlay';
 import MorphIframe, { type MorphIframeHandle } from './MorphIframe';
+import { ErrorView } from './PreviewStaticInfoViews';
 
 // Preview pane state machine:
 // START: Initial blank page
@@ -34,165 +33,10 @@ interface PreviewProps {
   onFileChange: (file: FileEntry, anchor?: string) => void;
   onOpenNewFileDialog: (initialFilename: string) => void;
   onDiagnosticsChange: (diagnostics: Diagnostic[]) => void;
-  onWasmStatusChange?: (status: 'loading' | 'ready' | 'error', error: string | null) => void;
   /** Callback to register scrollToLine function for external use */
   onRegisterScrollToLine?: (fn: (line: number) => void) => void;
   /** Callback to register setScrollRatio function for external use */
   onRegisterSetScrollRatio?: (fn: (ratio: number) => void) => void;
-}
-
-// Fallback for when WASM isn't ready yet
-function renderFallback(content: string, message: string): string {
-  return `
-    <html>
-      <head>
-        <style>
-          body {
-            font-family: system-ui, -apple-system, sans-serif;
-            padding: 24px;
-            max-width: 800px;
-            margin: 0 auto;
-            line-height: 1.6;
-            color: #333;
-          }
-          pre {
-            background: #f4f4f4;
-            padding: 16px;
-            border-radius: 4px;
-            overflow-x: auto;
-          }
-          code { font-family: 'SF Mono', Monaco, monospace; }
-          .notice {
-            padding: 12px;
-            border-radius: 4px;
-            margin-bottom: 16px;
-          }
-          .loading { background: #e3f2fd; }
-          .error { background: #ffebee; color: #c62828; }
-        </style>
-      </head>
-      <body>
-        <div class="notice loading">
-          ${message}
-        </div>
-        <pre><code>${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
-      </body>
-    </html>
-  `;
-}
-
-// Error display HTML
-function renderError(content: string, error: string, diagnostics?: string[]): string {
-  // Strip ANSI codes and escape HTML
-  const cleanError = stripAnsi(error)
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  const diagHtml = diagnostics?.length
-    ? `<ul>${diagnostics.map(d => `<li>${stripAnsi(d).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</li>`).join('')}</ul>`
-    : '';
-
-  return `
-    <html>
-      <head>
-        <style>
-          body {
-            font-family: system-ui, -apple-system, sans-serif;
-            padding: 24px;
-            max-width: 800px;
-            margin: 0 auto;
-            line-height: 1.6;
-            color: #333;
-          }
-          pre {
-            background: #f4f4f4;
-            padding: 16px;
-            border-radius: 4px;
-            overflow-x: auto;
-          }
-          code { font-family: 'SF Mono', Monaco, monospace; }
-          .error {
-            background: #ffebee;
-            color: #c62828;
-            padding: 12px;
-            border-radius: 4px;
-            margin-bottom: 16px;
-          }
-          .error-message {
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', monospace;
-            font-size: 13px;
-            line-height: 1.4;
-            white-space: pre;
-            overflow-x: auto;
-            margin-top: 8px;
-          }
-          .error ul { margin: 8px 0 0 0; padding-left: 20px; }
-        </style>
-      </head>
-      <body>
-        <div class="error">
-          <strong>Render Error</strong>
-          <div class="error-message">${cleanError}</div>
-          ${diagHtml}
-        </div>
-        <pre><code>${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
-      </body>
-    </html>
-  `;
-}
-
-// Placeholder HTML for non-QMD files
-function renderNonQmdPlaceholder(filename: string): string {
-  const extension = filename.split('.').pop() || 'file';
-  return `
-    <html>
-      <head>
-        <style>
-          body {
-            font-family: system-ui, -apple-system, sans-serif;
-            margin: 0;
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #f5f5f5;
-            color: #666;
-          }
-          .placeholder {
-            text-align: center;
-            padding: 24px;
-          }
-          .placeholder-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
-            opacity: 0.5;
-          }
-          .placeholder-text {
-            font-size: 14px;
-            line-height: 1.6;
-          }
-          .placeholder-extension {
-            font-family: 'SF Mono', Monaco, monospace;
-            background: #e0e0e0;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 13px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="placeholder">
-          <div class="placeholder-icon">&#128196;</div>
-          <div class="placeholder-text">
-            Preview is available for <span class="placeholder-extension">.qmd</span> files<br>
-            <span style="opacity: 0.7; font-size: 13px;">
-              This <span class="placeholder-extension">.${extension}</span> file can be edited in the editor
-            </span>
-          </div>
-        </div>
-      </body>
-    </html>
-  `;
 }
 
 // Result of rendering QMD content
@@ -205,24 +49,25 @@ type RenderResult = {
   error: string;
   diagnostics: Diagnostic[];
 }
+
 // Render a VFS document to HTML using WASM
 // The document content must already be in the VFS via Automerge sync.
 // Scroll sync (source-location) is controlled via runtime metadata, not per-render.
 async function doRender(
-  qmdContent: string,
-  options: { documentPath: string }
+  documentPath: string
 ): Promise<RenderResult> {
+  // Caller should check isWasmReady() before calling this
   if (!isWasmReady()) {
     return {
-      success: true,
-      html: renderFallback(qmdContent, 'Loading WASM renderer...'),
+      success: false,
+      error: 'WASM not ready',
       diagnostics: [],
     };
   }
 
   try {
     const result = await renderToHtml({
-      documentPath: options.documentPath,
+      documentPath: documentPath,
     });
 
     // Collect all diagnostics from both success and error paths
@@ -272,20 +117,9 @@ export default function Preview({
   onFileChange,
   onOpenNewFileDialog,
   onDiagnosticsChange,
-  onWasmStatusChange,
   onRegisterScrollToLine,
   onRegisterSetScrollRatio,
 }: PreviewProps) {
-  const [wasmStatus, setWasmStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [wasmError, setWasmError] = useState<string | null>(null);
-
-  // Notify parent when WASM status changes
-  useEffect(() => {
-    onWasmStatusChange?.(wasmStatus, wasmError);
-  }, [wasmStatus, wasmError, onWasmStatusChange]);
-
-
-
   // Preview state machine for error handling
   const [previewState, setPreviewState] = useState<PreviewState>('START');
   const [currentError, setCurrentError] = useState<CurrentError | null>(null);
@@ -314,29 +148,6 @@ export default function Preview({
   // Debounce rendering
   const renderTimeoutRef = useRef<number | null>(null);
   const lastContentRef = useRef<string>('');
-
-  // Initialize WASM on mount
-  useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      try {
-        setWasmStatus('loading');
-        await initWasm();
-        if (!cancelled) {
-          setWasmStatus('ready');
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setWasmStatus('error');
-          setWasmError(err instanceof Error ? err.message : String(err));
-        }
-      }
-    }
-
-    init();
-    return () => { cancelled = true; };
-  }, []);
 
   // Handler for cross-document navigation from DoubleBufferedIframe
   const handleNavigateToDocument = useCallback(
@@ -384,7 +195,7 @@ export default function Preview({
     if (isWasmReady()) {
       setScrollSyncEnabled(scrollSyncEnabled);
     }
-  }, [scrollSyncEnabled, wasmStatus]);
+  }, [scrollSyncEnabled]);
 
   // Render function that uses WASM when available
   // Implements state machine transitions for error handling:
@@ -394,28 +205,34 @@ export default function Preview({
   const doRenderWithStateManagement = useCallback(async (qmdContent: string, documentPath: string) => {
     lastContentRef.current = qmdContent;
 
-    const result = await doRender(qmdContent, { documentPath });
+    // Don't render if WASM isn't ready - component will show fallback
+    if (!isWasmReady()) {
+      return;
+    }
+
+    const result = await doRender(documentPath);
     if (qmdContent !== lastContentRef.current) return;
 
     // Update diagnostics
     onDiagnosticsChange(result.diagnostics);
-    setCurrentError(result.success ? null : {
-      message: result.error!,
-      diagnostics: result.diagnostics,
-    });
 
     if (result.success) {
-      // Success: transition to GOOD state from any state
+      // Normal success: transition to GOOD state from any state
       setPreviewState('GOOD');
+      setCurrentError(null);
       // Update rendered HTML
       setRenderedHtml(result.html);
     } else {
       // Set current error for overlay
+      setCurrentError({
+        message: result.error,
+        diagnostics: result.diagnostics,
+      });
+
       const currentState = previewStateRef.current;
       if (currentState === 'START' || currentState === 'ERROR_AT_START') {
         // No good render yet - show full error page
         setPreviewState('ERROR_AT_START');
-        setRenderedHtml(renderError(qmdContent, result.error));
       } else {
         // Was GOOD or ERROR_FROM_GOOD - keep last good HTML, show overlay
         // DON'T update HTML content
@@ -434,24 +251,19 @@ export default function Preview({
     }, 20);
   }, [doRenderWithStateManagement]);
 
-  // Re-render when content changes or WASM becomes ready
+  // Re-render when content changes
   useEffect(() => {
     const filePath = currentFile?.path;
 
-    // For non-QMD files, show a placeholder and clear diagnostics
-    if (!isQmdFile(filePath)) {
-      onDiagnosticsChange([]);
-      setCurrentError(null);
-      setPreviewState('START');
-      setRenderedHtml(renderNonQmdPlaceholder(filePath ?? 'file'));
+    // PreviewRouter filters non-QMD files, so filePath should always be valid here
+    if (!filePath) {
       return;
     }
 
     // Pass document path as-is from Automerge (e.g., "index.qmd" or "docs/index.qmd").
     // The WASM layer will use VFS path normalization to resolve relative paths correctly.
-    // filePath is guaranteed non-null here because isQmdFile(undefined) returns false.
-    updatePreview(content, filePath!);
-  }, [content, updatePreview, wasmStatus, currentFile?.path, onDiagnosticsChange]);
+    updatePreview(content, filePath);
+  }, [content, updatePreview, currentFile?.path]);
 
   // Reset preview state when file changes
   useEffect(() => {
@@ -461,26 +273,29 @@ export default function Preview({
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      {wasmError && (
-        <div className="wasm-error-banner">
-          Failed to load WASM: {wasmError}
-        </div>
+      {previewState === 'ERROR_AT_START' && currentError ? (
+        // Error page (no good render yet)
+        <ErrorView content={content} error={currentError.message} diagnostics={currentError.diagnostics} />
+      ) : (
+        // Normal iframe with morphing
+        <>
+          <MorphIframe
+            ref={doubleBufferedIframeRef}
+            qmdContent={content}
+            html={renderedHtml}
+            currentFilePath={currentFile?.path ?? ''}
+            onNavigateToDocument={handleNavigateToDocument}
+            onScroll={handlePreviewScroll}
+            onClick={handlePreviewClick}
+            onSelectionChange={handlePreviewSelection}
+          />
+          {/* Error overlay shown when error occurs after successful render */}
+          <PreviewErrorOverlay
+            error={currentError}
+            visible={previewState === 'ERROR_FROM_GOOD'}
+          />
+        </>
       )}
-      <MorphIframe
-        ref={doubleBufferedIframeRef}
-        qmdContent={content}
-        html={renderedHtml}
-        currentFilePath={currentFile?.path ?? ''}
-        onNavigateToDocument={handleNavigateToDocument}
-        onScroll={handlePreviewScroll}
-        onClick={handlePreviewClick}
-        onSelectionChange={handlePreviewSelection}
-      />
-      {/* Error overlay shown when error occurs after successful render */}
-      <PreviewErrorOverlay
-        error={currentError}
-        visible={previewState === 'ERROR_FROM_GOOD'}
-      />
     </div>
   );
 }

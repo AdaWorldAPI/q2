@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import type * as Monaco from 'monaco-editor';
 import type { FileEntry } from '../../types/project';
+import { isQmdFile } from '../../types/project';
 import type { Diagnostic } from '../../types/diagnostic';
 import { parseQmdToAst, isWasmReady, initWasm } from '../../services/wasmRenderer';
 import Preview from './Preview';
 import ReactPreview from './ReactPreview';
+import { FallbackView, NonQmdPlaceholderView } from './PreviewStaticInfoViews';
 
 interface PreviewRouterProps {
   content: string;
@@ -37,14 +39,11 @@ export function getQ2Format(astJson: string): string | null {
     const ast = JSON.parse(astJson);
     const fmt = ast?.meta?.format;
     if (!fmt) return null;
-    let formatStr: string | null = null;
     // MetaString: { t: "MetaString", c: "q2-slides" }
-    if (fmt.t === 'MetaString') formatStr = fmt.c;
+    if (fmt.t === 'MetaString') return fmt.c;
     // MetaInlines: { t: "MetaInlines", c: [{ t: "Str", c: "q2-slides" }] }
-    if (fmt.t === 'MetaInlines') formatStr = fmt.c?.[0]?.c;
-    // Return formats handled by ReactPreview
-    if (formatStr?.startsWith('q2-')) return formatStr;
-    if (formatStr === 'revealjs') return formatStr;
+    if (fmt.t === 'MetaInlines') return fmt.c?.[0]?.c;
+
     return null;
   } catch (err) {
     console.error('[PreviewRouter] Failed to parse AST:', err);
@@ -66,53 +65,57 @@ export default function PreviewRouter(props: PreviewRouterProps) {
   // Track the last stable format to avoid unmounting during re-checks
   const lastStableFormatRef = useRef<string | null>(null);
 
+  // WASM initialization state - shared by both Preview and ReactPreview
+  const [wasmStatus, setWasmStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [wasmError, setWasmError] = useState<string | null>(null);
+
+  // Initialize WASM on mount
+  useEffect(() => {
+    async function init() {
+      try {
+        setWasmStatus('loading');
+        await initWasm();
+        setWasmStatus('ready');
+      } catch (err) {
+        setWasmStatus('error');
+        setWasmError(err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    init();
+  }, []);
+
+  // Notify parent when WASM status changes
+  useEffect(() => {
+    props.onWasmStatusChange?.(wasmStatus, wasmError);
+  }, [wasmStatus, wasmError, props.onWasmStatusChange]);
+
   // Check the format whenever content changes
   useEffect(() => {
-    let cancelled = false;
-
     async function checkFormat() {
       try {
-        // Ensure WASM is ready
+        // Skip format check if WASM isn't ready yet (will retry when it is)
         if (!isWasmReady()) {
-          await initWasm();
+          return;
         }
 
         // Parse the QMD to AST to check metadata
         const result = await parseQmdToAst(props.content);
-
-        if (cancelled) return;
-
         if (result.success) {
           const format = getQ2Format(result.ast);
           setReactFormat(format);
           lastStableFormatRef.current = format;
           props.onFormatChange?.(format);
-        } else {
-          // On parse error, default to normal Preview
-          setReactFormat(null);
-          lastStableFormatRef.current = null;
-          props.onFormatChange?.(null);
         }
       } catch (err) {
         console.error('[PreviewRouter] Error checking format:', err);
-        if (!cancelled) {
-          setReactFormat(null);
-          lastStableFormatRef.current = null;
-          props.onFormatChange?.(null);
-        }
       } finally {
-        if (!cancelled) {
-          setCheckedPath(props.currentFile?.path);
-        }
+        setCheckedPath(props.currentFile?.path);
       }
     }
 
     checkFormat();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [props.content, props.currentFile?.path]);
+  }, [props.content, props.currentFile?.path, wasmStatus]);
 
   // Show loading state only during the very first format check.
   // Subsequent re-checks keep the current Preview mounted to avoid
@@ -125,13 +128,27 @@ export default function PreviewRouter(props: PreviewRouterProps) {
     );
   }
 
-  // Render the appropriate preview component
-  if (reactFormat) {
-    // ReactPreview doesn't use onRegisterScrollToLine/onRegisterSetScrollRatio/onFormatChange, so we omit them
-    const { onRegisterScrollToLine, onRegisterSetScrollRatio, onFormatChange, ...reactPreviewProps } = props;
-    return <ReactPreview {...reactPreviewProps} format={reactFormat} />;
-  } else {
-    const { onFormatChange, setContent, fileContents, ...previewProps } = props;
-    return <Preview {...previewProps} />;
+  // Non-QMD files: show placeholder
+  if (!isQmdFile(props.currentFile?.path)) {
+    return <NonQmdPlaceholderView filename={props.currentFile?.path ?? 'no currentFile path'} />;
   }
+
+  // Render the appropriate preview component with shared WASM error banner
+  const { onRegisterScrollToLine, onRegisterSetScrollRatio, onFormatChange, setContent, fileContents, ...commonProps } = props;
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {wasmError && (
+        // WASM loading fallback
+        <FallbackView content={props.content} message="Loading WASM renderer..." />
+      )}
+      <div style={{ flex: 1, overflow: 'hidden' }}>
+        {reactFormat ? (
+          <ReactPreview {...commonProps} setContent={setContent} fileContents={fileContents} format={reactFormat} />
+        ) : (
+          <Preview {...commonProps} onRegisterScrollToLine={onRegisterScrollToLine} onRegisterSetScrollRatio={onRegisterSetScrollRatio} />
+        )}
+      </div>
+    </div>
+  );
 }

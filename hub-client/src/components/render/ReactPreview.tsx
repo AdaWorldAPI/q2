@@ -1,9 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type * as Monaco from 'monaco-editor';
 import type { FileEntry } from '../../types/project';
-import { isQmdFile } from '../../types/project';
 import type { Diagnostic } from '../../types/diagnostic';
-import { initWasm, parseQmdToAst, isWasmReady, incrementalWriteQmd } from '../../services/wasmRenderer';
+import { parseQmdToAst, isWasmReady, incrementalWriteQmd } from '../../services/wasmRenderer';
 import { stripAnsi } from '../../utils/stripAnsi';
 import { PreviewErrorOverlay } from './PreviewErrorOverlay';
 import ReactRenderer from './ReactRenderer';
@@ -33,7 +32,6 @@ interface PreviewProps {
   onFileChange: (file: FileEntry, anchor?: string) => void;
   onOpenNewFileDialog: (initialFilename: string) => void;
   onDiagnosticsChange: (diagnostics: Diagnostic[]) => void;
-  onWasmStatusChange?: (status: 'loading' | 'ready' | 'error', error: string | null) => void;
   onAstChange?: (astJson: string | null) => void;
   currentSlideIndex?: number;
   onSlideChange?: (slideIndex: number) => void;
@@ -104,21 +102,12 @@ export default function ReactPreview({
   onFileChange,
   onOpenNewFileDialog,
   onDiagnosticsChange,
-  onWasmStatusChange,
   onAstChange,
   currentSlideIndex,
   onSlideChange,
   setContent,
   format,
 }: PreviewProps) {
-  const [wasmStatus, setWasmStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [wasmError, setWasmError] = useState<string | null>(null);
-
-  // Notify parent when WASM status changes
-  useEffect(() => {
-    onWasmStatusChange?.(wasmStatus, wasmError);
-  }, [wasmStatus, wasmError, onWasmStatusChange]);
-
   // Preview state machine for error handling
   const [previewState, setPreviewState] = useState<PreviewState>('START');
   const [currentError, setCurrentError] = useState<CurrentError | null>(null);
@@ -134,29 +123,6 @@ export default function ReactPreview({
   // Debounce rendering
   const renderTimeoutRef = useRef<number | null>(null);
   const lastContentRef = useRef<string>('');
-
-  // Initialize WASM on mount
-  useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      try {
-        setWasmStatus('loading');
-        await initWasm();
-        if (!cancelled) {
-          setWasmStatus('ready');
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setWasmStatus('error');
-          setWasmError(err instanceof Error ? err.message : String(err));
-        }
-      }
-    }
-
-    init();
-    return () => { cancelled = true; };
-  }, []);
 
   // Handler for cross-document navigation
   const handleNavigateToDocument = useCallback(
@@ -209,7 +175,7 @@ export default function ReactPreview({
       if (currentState === 'START' || currentState === 'ERROR_AT_START') {
         // No good render yet - show full error page
         setPreviewState('ERROR_AT_START');
-        setAst(''); // Clear AST on error
+        // setAst(''); // Clear AST on error
         onAstChange?.(null);
       } else {
         // Was GOOD or ERROR_FROM_GOOD - keep last good AST, show overlay
@@ -227,23 +193,11 @@ export default function ReactPreview({
     doRenderWithStateManagement(newContent, documentPath);
   }, [doRenderWithStateManagement]);
 
-  // Re-render when content changes, WASM becomes ready, or scroll sync is toggled
+  // Re-render when content changes or scroll sync is toggled
   useEffect(() => {
-    const filePath = currentFile?.path;
-
-    // For non-QMD files, show a placeholder and clear diagnostics
-    if (!isQmdFile(filePath)) {
-      onDiagnosticsChange([]);
-      setCurrentError(null);
-      setPreviewState('START');
-      setAst('');
-      onAstChange?.(null);
-      return;
-    }
-
     // Pass document path as-is from Automerge (e.g., "index.qmd" or "docs/index.qmd").
-    updatePreview(content, filePath);
-  }, [content, updatePreview, wasmStatus, scrollSyncEnabled, currentFile?.path, onDiagnosticsChange]);
+    updatePreview(content, currentFile?.path);
+  }, [content, updatePreview, scrollSyncEnabled, currentFile?.path, onDiagnosticsChange]);
 
   // Reset preview state when file changes
   useEffect(() => {
@@ -263,11 +217,6 @@ export default function ReactPreview({
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-      {wasmError && (
-        <div className="wasm-error-banner">
-          Failed to load WASM: {wasmError}
-        </div>
-      )}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         {ast && (previewState === 'GOOD' || previewState === 'ERROR_FROM_GOOD') ? (
           <ReactRenderer
