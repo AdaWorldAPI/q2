@@ -3,6 +3,13 @@ import { Deck, Slide } from '@revealjs/react';
 import 'reveal.js/reveal.css';
 import 'reveal.js/theme/white.css';
 import 'katex/dist/katex.min.css';
+import './revealjs-menu-override.css';
+import RevealNotes from 'reveal.js/plugin/notes';
+import RevealSearch from 'reveal.js/plugin/search';
+import RevealZoom from 'reveal.js/plugin/zoom';
+// @ts-ignore - no type definitions
+import RevealMenuPlugin from 'reveal.js-menu/plugin.js';
+const RevealMenu = RevealMenuPlugin.default || RevealMenuPlugin;
 import { parseSlides, renderBlock, type PandocAST, type Slide as PandocSlide } from './ReactAstSlideRenderer';
 
 interface RevealjsSlideRendererProps {
@@ -103,6 +110,7 @@ export function RevealjsSlideAst({ astJson, currentFilePath, onNavigateToDocumen
         bottom: 0,
         background: 'white'
       }}
+      className="revealjs-container"
     >
       <Deck
         deckRef={deckRef}
@@ -118,8 +126,27 @@ export function RevealjsSlideAst({ astJson, currentFilePath, onNavigateToDocumen
           hash: false,
           transition: 'slide',
           backgroundTransition: 'fade',
-          keyboard: false,
+          keyboard: true,
+          // @ts-ignore - menu config not in base types
+          menu: {
+            path: '/reveal-menu/',
+            side: 'left',
+            width: 'normal',
+            numbers: false,
+            titleSelector: 'h1, h2, h3, h4, h5, h6',
+            useTextContentForMissingTitles: true,
+            hideMissingTitles: false,
+            markers: true,
+            custom: false,
+            themes: false,
+            transitions: false,
+            openButton: true,
+            openSlideNumber: false,
+            keyboard: true,
+            loadIcons: false,
+          },
         }}
+        plugins={[RevealNotes, RevealSearch, RevealZoom, RevealMenu]}
         onSlideChange={handleSlideChange}
       >
         {slides.map((slide, index) => (

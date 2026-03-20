@@ -1,0 +1,119 @@
+/* Override reveal.js-menu positioning for embedded preview pane */
+.revealjs-container .reveal .slide-menu-button {
+  position: absolute !important;
+  left: 30px;
+  bottom: 30px;
+  z-index: 30;
+}
+
+/* Ensure menu overlay and panel are positioned relative to container */
+.revealjs-container .slide-menu-wrapper,
+.revealjs-container .slide-menu-wrapper .slide-menu-overlay,
+.revealjs-container .slide-menu-wrapper .slide-menu-panel {
+  position: absolute !important;
+}
+
+.revealjs-container .slide-menu-wrapper {
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* Override fixed positioning on the menu itself */
+.revealjs-container .slide-menu-wrapper .slide-menu {
+  position: absolute !important;
+  top: 0;
+  height: 100%;
+}
+
+/* Simple hamburger icon without font-awesome */
+.reveal .slide-menu-button a {
+  display: block;
+  width: 24px;
+  height: 24px;
+  position: relative;
+}
+
+/* Hide any font-awesome icons */
+.reveal .slide-menu-button a i,
+.reveal .slide-menu-button a svg {
+  display: none;
+}
+
+/* Create hamburger icon */
+.reveal .slide-menu-button a::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 2px;
+  background: currentColor;
+  box-shadow: 0 -6px 0 currentColor, 0 6px 0 currentColor;
+}
+
+/* CSS icons for toolbar buttons */
+
+/* Slides icon (grid/images icon) */
+.slide-menu-toolbar > li[data-panel='Slides'] i.fa-images,
+.slide-menu-toolbar > li[data-panel='Slides'] svg {
+  display: inline-block !important;
+  width: 1.7em;
+  height: 1.7em;
+  position: relative;
+  vertical-align: middle;
+}
+
+.slide-menu-toolbar > li[data-panel='Slides'] i.fa-images::before,
+.slide-menu-toolbar > li[data-panel='Slides'] svg::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-0.6em, -0.375em);
+  width: 0.3em;
+  height: 0.3em;
+  background: currentColor;
+  border-radius: 1px;
+  box-shadow:
+    0.45em 0 0 0 currentColor,
+    0.9em 0 0 0 currentColor,
+    0 0.45em 0 0 currentColor,
+    0.45em 0.45em 0 0 currentColor,
+    0.9em 0.45em 0 0 currentColor;
+}
+
+/* Close icon (X) */
+.slide-menu-toolbar > li#close i.fa-times,
+.slide-menu-toolbar > li#close svg {
+  display: inline-block !important;
+  width: 1.7em;
+  height: 1.7em;
+  position: relative;
+  vertical-align: middle;
+}
+
+.slide-menu-toolbar > li#close i.fa-times::before,
+.slide-menu-toolbar > li#close i.fa-times::after,
+.slide-menu-toolbar > li#close svg::before,
+.slide-menu-toolbar > li#close svg::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.2em;
+  height: 2px;
+  background: currentColor;
+}
+
+.slide-menu-toolbar > li#close i.fa-times::before,
+.slide-menu-toolbar > li#close svg::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.slide-menu-toolbar > li#close i.fa-times::after,
+.slide-menu-toolbar > li#close svg::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
