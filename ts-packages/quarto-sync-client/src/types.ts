@@ -3,7 +3,7 @@
  */
 
 import type { Patch } from '@automerge/automerge-repo';
-import type { FileEntry } from '@quarto/quarto-automerge-schema';
+import type { FileEntry, ActorIdentity } from '@quarto/quarto-automerge-schema';
 
 // Re-export Patch for consumers
 export type { Patch };
@@ -71,6 +71,12 @@ export interface SyncClientCallbacks {
    * Provides the full list of files in the project.
    */
   onFilesChange?: (files: FileEntry[]) => void;
+
+  /**
+   * Called when the identity map changes (optional).
+   * Provides the full actorId -> ActorIdentity mapping.
+   */
+  onIdentitiesChange?: (identities: Record<string, ActorIdentity>) => void;
 
   /**
    * Called when connection state changes (optional).

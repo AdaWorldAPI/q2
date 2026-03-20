@@ -30,6 +30,12 @@ interface Props {
   authEmail?: string;
   /** Authenticated user's Google avatar URL. */
   authPicture?: string | null;
+  /** Called when the user changes their screen name. */
+  onScreenNameChange?: (name: string) => void;
+  /** Called when the user changes their cursor color. */
+  onColorChange?: (color: string) => void;
+  /** Authenticated user's OIDC display name (for screen name reset). */
+  authName?: string | null;
 }
 
 // Curated color palette for user selection (10 colors, single row)
@@ -49,6 +55,9 @@ export default function ProjectSelector({
   onSignOut,
   authEmail,
   authPicture,
+  onScreenNameChange,
+  onColorChange,
+  authName,
 }: Props) {
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,6 +174,7 @@ export default function ProjectSelector({
       const updated = await userSettingsService.updateUserName(editNameValue.trim());
       setUserSettings(updated);
       setEditingName(false);
+      onScreenNameChange?.(updated.userName);
     } catch (err) {
       console.error('Failed to update name:', err);
     }
@@ -179,21 +189,34 @@ export default function ProjectSelector({
     try {
       const updated = await userSettingsService.updateUserColor(color);
       setUserSettings(updated);
+      onColorChange?.(updated.userColor);
     } catch (err) {
       console.error('Failed to update color:', err);
     }
   };
 
+  const handleResetName = async () => {
+    if (!authName) return;
+    try {
+      const updated = await userSettingsService.updateUserName(authName);
+      setUserSettings(updated);
+      onScreenNameChange?.(updated.userName);
+    } catch (err) {
+      console.error('Failed to reset name:', err);
+    }
+  };
+
   const handleRandomizeName = async () => {
     try {
-      // Reset generates a new random name
       const reset = await userSettingsService.resetUserIdentity();
-      // But keep the color if user had one selected
+      // Keep the color if user had one selected
       if (userSettings && userSettings.userColor !== reset.userColor) {
         const updated = await userSettingsService.updateUserColor(userSettings.userColor);
         setUserSettings(updated);
+        onScreenNameChange?.(updated.userName);
       } else {
         setUserSettings(reset);
+        onScreenNameChange?.(reset.userName);
       }
     } catch (err) {
       console.error('Failed to randomize name:', err);
@@ -623,8 +646,13 @@ export default function ProjectSelector({
             </div>
 
             <div className="identity-actions">
+              {authName && (
+                <button type="button" onClick={handleResetName} className="randomize-btn">
+                  Reset
+                </button>
+              )}
               <button type="button" onClick={handleRandomizeName} className="randomize-btn">
-                Randomize Name
+                Randomize
               </button>
             </div>
 
