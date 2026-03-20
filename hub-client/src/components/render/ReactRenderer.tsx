@@ -122,7 +122,6 @@ async function loadCustomComponents(
 function ReactRenderer({
   astJson,
   currentFilePath,
-  files,
   fileContents,
   onNavigateToDocument,
   setAst,
