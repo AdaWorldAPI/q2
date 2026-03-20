@@ -13,6 +13,18 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-20
+
+- [`30b14f93`](https://github.com/quarto-dev/q2/commits/30b14f93): Add missing reveal.js dependencies (reveal.js, @revealjs/react, reveal.js-menu)
+- [`b6b9013f`](https://github.com/quarto-dev/q2/commits/b6b9013f): Actor identity mapping: resolve screen names in replay
+- [`01c54f9c`](https://github.com/quarto-dev/q2/commits/01c54f9c): Add revealjs menu so it feels more like quarto revealjs
+- [`0cfd9e71`](https://github.com/quarto-dev/q2/commits/0cfd9e71): Add react revealjs renderer
+- [`484abb71`](https://github.com/quarto-dev/q2/commits/484abb71): Add example custom render components
+- [`c05276b8`](https://github.com/quarto-dev/q2/commits/c05276b8): Fix build errors caused by prev commit
+- [`d6eb0604`](https://github.com/quarto-dev/q2/commits/d6eb0604): Experimental q2-debug custom render components
+- [`3375b86e`](https://github.com/quarto-dev/q2/commits/3375b86e): Replay performance: incremental editor updates during playback
+- [`e291d551`](https://github.com/quarto-dev/q2/commits/e291d551): Fix crash when slide index exceeds available slides after deletion
+
 ### 2026-03-19
 
 - [`3ff0f585`](https://github.com/quarto-dev/q2/commits/3ff0f585): Add Lua WASM support
