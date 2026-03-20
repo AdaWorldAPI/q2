@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { FileEntry } from '../../types/project';
 import { Ast, componentRegistry } from '../render/ReactAstDebugRenderer';
 import { SlideAst } from './ReactAstSlideRenderer';
+import { RevealjsSlideAst } from './RevealjsReactAstSlideRenderer';
 import { transpileAndImportTSX } from '../../services/tsxTranspiler';
 
 // Simple error boundary to catch errors in custom components
@@ -179,16 +180,29 @@ function ReactRenderer({
     );
   }
 
-  // q2-slides format
+  // q2-slides or revealjs format - check if it's revealjs
+  const ast = JSON.parse(astJson);
+  const isRevealjs = format === 'revealjs' || (ast?.meta?.format?.t === 'MetaString' && ast.meta.format.c === 'revealjs');
+
   return (
     <ErrorBoundary>
-      <SlideAst
-        astJson={astJson}
-        currentFilePath={currentFilePath}
-        onNavigateToDocument={onNavigateToDocument}
-        currentSlide={currentSlideIndex}
-        onSlideChange={onSlideChange}
-      />
+      {isRevealjs ? (
+        <RevealjsSlideAst
+          astJson={astJson}
+          currentFilePath={currentFilePath}
+          onNavigateToDocument={onNavigateToDocument}
+          currentSlide={currentSlideIndex}
+          onSlideChange={onSlideChange}
+        />
+      ) : (
+        <SlideAst
+          astJson={astJson}
+          currentFilePath={currentFilePath}
+          onNavigateToDocument={onNavigateToDocument}
+          currentSlide={currentSlideIndex}
+          onSlideChange={onSlideChange}
+        />
+      )}
     </ErrorBoundary>
   );
 }

@@ -42,8 +42,9 @@ export function getQ2Format(astJson: string): string | null {
     if (fmt.t === 'MetaString') formatStr = fmt.c;
     // MetaInlines: { t: "MetaInlines", c: [{ t: "Str", c: "q2-slides" }] }
     if (fmt.t === 'MetaInlines') formatStr = fmt.c?.[0]?.c;
-    // Only return formats handled by ReactPreview
+    // Return formats handled by ReactPreview
     if (formatStr?.startsWith('q2-')) return formatStr;
+    if (formatStr === 'revealjs') return formatStr;
     return null;
   } catch (err) {
     console.error('[PreviewRouter] Failed to parse AST:', err);

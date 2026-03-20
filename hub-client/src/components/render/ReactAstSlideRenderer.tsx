@@ -38,7 +38,7 @@ type RawBlock = { t: 'RawBlock'; c: [string, string] };
 type FigureBlock = { t: 'Figure'; c: [[string, string[], [string, string][]], [Inline[] | null, Block[]], Block[]] };
 type UnknownBlock = { t: string; c?: unknown };
 
-type Block =
+export type Block =
   | ParaBlock
   | PlainBlock
   | HeaderBlock
@@ -66,7 +66,7 @@ type MathInline = { t: 'Math'; c: [{ t: string }, string] };
 type QuotedInline = { t: 'Quoted'; c: [{ t: string }, Inline[]] };
 type UnknownInline = { t: string; c?: unknown };
 
-type Inline =
+export type Inline =
   | StrInline
   | SpaceInline
   | SoftBreakInline
@@ -550,7 +550,7 @@ function parseStyleString(styleString: string): React.CSSProperties {
 // Block Rendering
 // ============================================================================
 
-function renderBlock(
+export function renderBlock(
   block: Block,
   key: number,
   currentFilePath: string,
@@ -723,7 +723,7 @@ function renderBlock(
 // Inline Rendering
 // ============================================================================
 
-function renderInlines(
+export function renderInlines(
   inlines: Inline[],
   currentFilePath: string,
   onNavigateToDocument?: (path: string, anchor: string | null) => void
