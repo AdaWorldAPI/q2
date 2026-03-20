@@ -1,18 +1,7 @@
-import React from 'react';
-import type {
-    BlockNode,
-    InlineNode,
-    NodeArgs,
-    ParaBlock,
-    PlainBlock,
-    HeaderBlock,
-    SpanInline,
-    StrInline,
-} from './ReactAstDebugRenderer';
-import { Block } from './ReactAstDebugRenderer';
-
-// This file is not currently used, but can copied&pasted into Quartohub (without the imports)
-// as a custom render component
+const React = window.React;
+const {
+  Block: B
+} = window.__REACT_AST_DEBUG_RENDERER__;
 
 function isComment(inline: InlineNode): boolean {
     if (inline.t === 'Span' && 'c' in inline) {
@@ -23,9 +12,10 @@ function isComment(inline: InlineNode): boolean {
     return false;
 }
 
+// export const Block = B
 // BlockWithComments component
 const splitEmoji = (string: string) => [...new Intl.Segmenter().segment(string)].map(x => x.segment)
-export const BlockWithComments = (args: NodeArgs<BlockNode>) => {
+export const Block = (args: NodeArgs<BlockNode>) => {
     const { node: block, onNavigateToDocument, setLocalAst } = args
     // Gather comments from inline children if block has them
     let comments: InlineNode[] = [];
@@ -60,11 +50,11 @@ export const BlockWithComments = (args: NodeArgs<BlockNode>) => {
 
     // Skip CommentWrapper for BulletList and OrderedList
     if (block.t === 'BulletList' || block.t === 'OrderedList') {
-        return <Block node={block} onNavigateToDocument={onNavigateToDocument} setLocalAst={setLocalAst}></Block>;
+        return <B node={block} onNavigateToDocument={onNavigateToDocument} setLocalAst={setLocalAst}></B>;
     }
 
     return <CommentWrapper reactionCounts={reactionCounts} comments={comments} setLocalAst={setLocalAst} block={block}>
-        <Block node={newBlock} onNavigateToDocument={onNavigateToDocument} setLocalAst={setLocalAst}></Block>
+        <B node={newBlock} onNavigateToDocument={onNavigateToDocument} setLocalAst={setLocalAst}></B>
     </CommentWrapper>;
 };
 
