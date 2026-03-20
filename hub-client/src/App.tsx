@@ -12,9 +12,11 @@ import {
   getFileContent,
   updateFileContent,
   createNewProject,
+  type ActorIdentity,
 } from './services/automergeSync';
 import type { ProjectFile } from './services/wasmRenderer';
 import * as projectStorage from './services/projectStorage';
+import { getUserIdentity, updateUserName } from './services/userSettings';
 import { useRouting } from './hooks/useRouting';
 import { useAuth } from './hooks/useAuth';
 import type { Route, ShareRoute } from './utils/routing';
@@ -28,8 +30,10 @@ async function connectAndLoadContents(
   syncServer: string,
   indexDocId: string,
   actorId?: string,
+  screenName?: string,
+  color?: string,
 ): Promise<{ files: FileEntry[]; contents: Map<string, string> }> {
-  const files = await connect(syncServer, indexDocId, actorId);
+  const files = await connect(syncServer, indexDocId, actorId, screenName, color);
   const contents = new Map<string, string>();
   for (const file of files) {
     const content = getFileContent(file.path);
@@ -62,6 +66,9 @@ function App() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [fileContents, setFileContents] = useState<Map<string, string>>(new Map());
   const [showSaveToast, setShowSaveToast] = useState(false);
+  const [screenName, setScreenName] = useState<string | undefined>();
+  const [cursorColor, setCursorColor] = useState<string | undefined>();
+  const [identities, setIdentities] = useState<Record<string, ActorIdentity>>({});
 
   // Capture auth error from redirect query param (once, before URL is cleaned).
   const [authError] = useState(() => {
@@ -69,6 +76,23 @@ function App() {
     if (has) window.history.replaceState(null, '', window.location.pathname + window.location.hash);
     return has;
   });
+
+  // Load screen name from IndexedDB (for identity mapping in Automerge docs).
+  // When auth is enabled, wait for it to resolve so we can upgrade anonymous
+  // names to the OIDC display name on first login. Without auth, load immediately.
+  useEffect(() => {
+    if (AUTH_ENABLED && authLoading) return;
+    getUserIdentity().then(async (settings) => {
+      if (auth?.name && settings.userName.startsWith('Anonymous ')) {
+        const updated = await updateUserName(auth.name);
+        setScreenName(updated.userName);
+        setCursorColor(updated.userColor);
+      } else {
+        setScreenName(settings.userName);
+        setCursorColor(settings.userColor);
+      }
+    });
+  }, [authLoading]);
 
   // Pending share link data (when user visits a shareable URL for a project they don't have)
   const [pendingShareData, setPendingShareData] = useState<PendingShareData | null>(null);
@@ -123,7 +147,7 @@ function App() {
             setIsConnecting(true);
             setConnectionError(null);
             try {
-              const { files: loadedFiles, contents } = await connectAndLoadContents(targetProject.syncServer, targetProject.indexDocId, auth?.actorId);
+              const { files: loadedFiles, contents } = await connectAndLoadContents(targetProject.syncServer, targetProject.indexDocId, auth?.actorId, screenName, cursorColor);
               setProject(targetProject);
               setFiles(loadedFiles);
               setFileContents(contents);
@@ -171,7 +195,7 @@ function App() {
           setIsConnecting(true);
           setConnectionError(null);
           try {
-            const { files: loadedFiles, contents } = await connectAndLoadContents(existingProject.syncServer, existingProject.indexDocId, auth?.actorId);
+            const { files: loadedFiles, contents } = await connectAndLoadContents(existingProject.syncServer, existingProject.indexDocId, auth?.actorId, screenName, cursorColor);
             setProject(existingProject);
             setFiles(loadedFiles);
             setFileContents(contents);
@@ -204,7 +228,7 @@ function App() {
           setIsConnecting(true);
           setConnectionError(null);
           try {
-            const { files: loadedFiles, contents } = await connectAndLoadContents(targetProject.syncServer, targetProject.indexDocId, auth?.actorId);
+            const { files: loadedFiles, contents } = await connectAndLoadContents(targetProject.syncServer, targetProject.indexDocId, auth?.actorId, screenName, cursorColor);
             setProject(targetProject);
             setFiles(loadedFiles);
             setFileContents(contents);
@@ -269,6 +293,9 @@ function App() {
       onFilesChange: (newFiles) => {
         setFiles(newFiles);
       },
+      onIdentitiesChange: (newIdentities) => {
+        setIdentities(newIdentities);
+      },
       onFileContent: (path, content, _patches) => {
         // Note: patches are ignored - we use diff-based sync in Editor.tsx
         setFileContents((prev) => {
@@ -297,7 +324,7 @@ function App() {
     setConnectionError(null);
 
     try {
-      const { files: loadedFiles, contents } = await connectAndLoadContents(selectedProject.syncServer, selectedProject.indexDocId, auth?.actorId);
+      const { files: loadedFiles, contents } = await connectAndLoadContents(selectedProject.syncServer, selectedProject.indexDocId, auth?.actorId, screenName, cursorColor);
       setProject(selectedProject);
       setFiles(loadedFiles);
       setFileContents(contents);
@@ -312,7 +339,7 @@ function App() {
     } finally {
       setIsConnecting(false);
     }
-  }, [navigateToProject, navigateToFile, auth?.actorId]);
+  }, [navigateToProject, navigateToFile, auth?.actorId, screenName, cursorColor]);
 
   const handleDisconnect = useCallback(async () => {
     await disconnect();
@@ -355,7 +382,7 @@ function App() {
       const result = await createNewProject({
         syncServer,
         files,
-      }, auth?.actorId);
+      }, auth?.actorId, screenName, cursorColor);
 
       // Store the project in IndexedDB
       const projectEntry = await projectStorage.addProject(
@@ -384,7 +411,7 @@ function App() {
     } finally {
       setIsConnecting(false);
     }
-  }, [navigateToProject, auth?.actorId]);
+  }, [navigateToProject, auth?.actorId, screenName, cursorColor]);
 
   const handleClearPendingShare = useCallback(() => {
     setPendingShareData(null);
@@ -404,6 +431,16 @@ function App() {
     return <LoginScreen error={authError} />;
   }
 
+  // Gate on screen name being loaded (fast IndexedDB read).
+  // Prevents connects from firing before the identity can be written.
+  if (screenName === undefined) {
+    return (
+      <div className="project-selector" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Loading...</div>
+      </div>
+    );
+  }
+
   return (
     <>
       {!project ? (
@@ -417,6 +454,9 @@ function App() {
           onSignOut={AUTH_ENABLED ? logout : undefined}
           authEmail={auth?.email}
           authPicture={auth?.picture}
+          onScreenNameChange={setScreenName}
+          onColorChange={setCursorColor}
+          authName={auth?.name}
         />
       ) : (
         <ViewModeProvider>
@@ -431,6 +471,7 @@ function App() {
               navigateToFile(project.id, filePath, options);
             }}
             actorId={auth?.actorId}
+            identities={identities}
           />
         </ViewModeProvider>
       )}

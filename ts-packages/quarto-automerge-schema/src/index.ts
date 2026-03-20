@@ -10,12 +10,63 @@
 // Document Schema Types
 // ============================================================================
 
+/** Current schema version for IndexDocument. */
+export const CURRENT_SCHEMA_VERSION = 1;
+
+/**
+ * Actor identity stored in the index document.
+ * Older documents may store just a string (screen name); new entries
+ * include both name and cursor color.
+ */
+export interface ActorIdentity {
+  name: string;
+  color: string; // hex color from the palette, e.g. "#E91E63"
+}
+
 /**
  * Root document that maps file paths to Automerge document IDs.
  * This is the entry point for a Quarto project in Automerge.
+ *
+ * `version` and `identities` are optional because V0 documents
+ * (created before schema versioning) will not have them.
  */
 export interface IndexDocument {
   files: Record<string, string>; // path -> docId mapping
+  version?: number; // schema version (1 = current)
+  identities?: Record<string, ActorIdentity>; // actorId -> identity
+}
+
+/**
+ * Migrate an IndexDocument to the current schema version.
+ * Must be called inside an Automerge `change()` callback.
+ *
+ * @returns true if the document was modified (migration applied)
+ */
+export function migrateIndexDocument(doc: IndexDocument): boolean {
+  if (doc.version !== undefined) return false;
+  doc.version = CURRENT_SCHEMA_VERSION;
+  if (!doc.identities) {
+    doc.identities = {};
+  }
+  return true;
+}
+
+/**
+ * Set or update an identity mapping in the IndexDocument.
+ * Must be called inside an Automerge `change()` callback.
+ *
+ * @returns true if the identity was added or changed
+ */
+export function setIdentity(doc: IndexDocument, actorId: string, screenName: string, color: string): boolean {
+  if (!doc.identities) {
+    doc.identities = {};
+  }
+  const existing = doc.identities[actorId];
+  if (existing?.name === screenName && existing?.color === color) {
+    return false;
+  }
+  doc.identities[actorId] = { name: screenName, color };
+  return true;
 }
 
 /**
