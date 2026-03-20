@@ -6,10 +6,14 @@
 //! ```
 //!
 //! Available commands:
+//! - `dev-setup`: Install required development tools (cargo-nextest, wasm-pack)
 //! - `lint`: Run custom lint checks on the codebase
+//! - `test`: Run workspace tests with platform-appropriate crate exclusions
 //! - `verify`: Run full project verification (build + tests for Rust and hub-client)
 
+mod dev_setup;
 mod lint;
+mod test;
 mod verify;
 
 use anyhow::Result;
@@ -26,6 +30,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Install required development tools.
+    ///
+    /// Checks for cargo-nextest and wasm-pack, installing any that are missing.
+    /// Uses cargo-binstall for faster binary installs when available,
+    /// falling back to cargo install --locked otherwise.
+    DevSetup {},
+
     /// Run custom lint checks on the codebase.
     ///
     /// These checks catch issues that standard Rust linters miss,
@@ -38,6 +49,22 @@ enum Command {
         /// Only show errors, no progress or summary.
         #[arg(short, long)]
         quiet: bool,
+    },
+
+    /// Run workspace tests with platform-appropriate crate exclusions.
+    ///
+    /// On Windows, automatically excludes crates that depend on v8 (which cannot
+    /// compile test binaries on Windows). On other platforms, runs the full suite.
+    ///
+    /// Extra arguments after `--` are forwarded to cargo nextest.
+    Test {
+        /// Set RUSTFLAGS="-D warnings" (deny warnings, matching CI).
+        #[arg(long)]
+        deny_warnings: bool,
+
+        /// Extra arguments to pass to cargo nextest run.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// Run full project verification (mirrors CI checks).
@@ -87,9 +114,21 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::DevSetup {} => dev_setup::run(),
         Command::Lint { verbose, quiet } => {
             let config = lint::LintConfig { verbose, quiet };
             lint::run(&config)
+        }
+        Command::Test {
+            deny_warnings,
+            args,
+        } => {
+            let rustflags = if deny_warnings {
+                Some("-D warnings")
+            } else {
+                None
+            };
+            test::run(&args, rustflags)
         }
         Command::Verify {
             skip_rust_build,
