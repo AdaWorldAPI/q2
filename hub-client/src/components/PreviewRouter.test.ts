@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getQ2Format } from './PreviewRouter';
+import { getQ2Format } from './render/getQ2Format';
 
 /** Helper to build an AST JSON string with a MetaString format value */
 function metaString(value: string): string {
@@ -50,8 +50,12 @@ describe('getQ2Format', () => {
     expect(getQ2Format(metaString('docx'))).toBeNull();
   });
 
-  it('returns null for "revealjs"', () => {
-    expect(getQ2Format(metaString('revealjs'))).toBeNull();
+  it('returns "revealjs" from MetaString', () => {
+    expect(getQ2Format(metaString('revealjs'))).toBe('revealjs');
+  });
+
+  it('returns "revealjs" from MetaInlines', () => {
+    expect(getQ2Format(metaInlines('revealjs'))).toBe('revealjs');
   });
 
   it('returns null for "epub"', () => {

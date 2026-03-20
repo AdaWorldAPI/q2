@@ -7,6 +7,7 @@ import { parseQmdToAst, isWasmReady, initWasm } from '../../services/wasmRendere
 import Preview from './Preview';
 import ReactPreview from './ReactPreview';
 import { FallbackView, NonQmdPlaceholderView } from './PreviewStaticInfoViews';
+import { getQ2Format } from './getQ2Format';
 
 interface PreviewRouterProps {
   content: string;
@@ -28,27 +29,6 @@ interface PreviewRouterProps {
   onSlideChange?: (slideIndex: number) => void;
   onFormatChange?: (format: string | null) => void;
   setContent: (content: string) => void;
-}
-
-/**
- * Extract format string from the parsed AST metadata
- * Returns null if no format is found, otherwise returns the format string (e.g., 'q2-slides', 'q2-debug')
- */
-export function getQ2Format(astJson: string): string | null {
-  try {
-    const ast = JSON.parse(astJson);
-    const fmt = ast?.meta?.format;
-    if (!fmt) return null;
-    // MetaString: { t: "MetaString", c: "q2-slides" }
-    if (fmt.t === 'MetaString') return fmt.c;
-    // MetaInlines: { t: "MetaInlines", c: [{ t: "Str", c: "q2-slides" }] }
-    if (fmt.t === 'MetaInlines') return fmt.c?.[0]?.c;
-
-    return null;
-  } catch (err) {
-    console.error('[PreviewRouter] Failed to parse AST:', err);
-    return null;
-  }
 }
 
 /**
