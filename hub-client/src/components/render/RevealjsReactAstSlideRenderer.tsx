@@ -126,7 +126,9 @@ export function RevealjsSlideAst({ astJson, currentFilePath, onNavigateToDocumen
           hash: false,
           transition: 'slide',
           backgroundTransition: 'fade',
-          keyboard: true,
+          // probably need to re-enable this on-focus or something
+          // but it was making it so I can't type!
+          keyboard: false,
           // @ts-ignore - menu config not in base types
           menu: {
             path: '/reveal-menu/',

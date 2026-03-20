@@ -20,12 +20,12 @@ interface SlideMapping {
  *
  * @param astJson - The Pandoc AST JSON string
  * @param symbols - Document symbols (headers) from intelligence
- * @returns A function that takes a line number (0-based) and returns the corresponding slide index
+ * @returns A function that takes a line number (0-based) and returns the corresponding slide index, or null if no valid mapping exists
  */
 export function useCursorToSlide(
   astJson: string | null,
   symbols: Symbol[]
-): (line: number) => number {
+): (line: number) => number | null {
   const slideMapping = useMemo((): SlideMapping[] => {
     if (!astJson || symbols.length === 0) {
       return [];
@@ -75,9 +75,10 @@ export function useCursorToSlide(
 
   // Return a function that maps a line number to a slide index
   return useMemo(() => {
-    return (line: number): number => {
+    return (line: number): number | null => {
       if (slideMapping.length === 0) {
-        return 0;
+        // Return null to indicate no valid mapping (don't reset to 0)
+        return null;
       }
 
       // Find the last slide that starts at or before this line

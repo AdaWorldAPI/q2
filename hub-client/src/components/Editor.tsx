@@ -583,7 +583,10 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
       // Get the cursor line (0-based in Monaco)
       const line = e.position.lineNumber - 1; // Convert to 0-based for our mapping
       const slideIndex = getSlideForLineRef.current(line);
-      setCurrentSlideIndex(slideIndex);
+      // Only update if we have a valid slide mapping (null means AST is invalid)
+      if (slideIndex !== null) {
+        setCurrentSlideIndex(slideIndex);
+      }
     });
 
     // Attach drag-drop handlers to editor container
