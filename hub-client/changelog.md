@@ -13,8 +13,15 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-21
+
+- [`d20e3405`](https://github.com/quarto-dev/q2/commits/d20e3405): Per-project actor IDs via HMAC-SHA256
+
 ### 2026-03-20
 
+- [`27ba12d6`](https://github.com/quarto-dev/q2/commits/27ba12d6): Fix: route `format: revealjs` to ReactPreview
+- [`871c5e9c`](https://github.com/quarto-dev/q2/commits/871c5e9c): revealjs and slide cursor sync improvement
+- [`78995642`](https://github.com/quarto-dev/q2/commits/78995642): Refactor preview, reactpreview, and previewrouter to handle respective concerns better
 - [`30b14f93`](https://github.com/quarto-dev/q2/commits/30b14f93): Add missing reveal.js dependencies (reveal.js, @revealjs/react, reveal.js-menu)
 - [`b6b9013f`](https://github.com/quarto-dev/q2/commits/b6b9013f): Actor identity mapping: resolve screen names in replay
 - [`01c54f9c`](https://github.com/quarto-dev/q2/commits/01c54f9c): Add revealjs menu so it feels more like quarto revealjs
