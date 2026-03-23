@@ -1,463 +1,1549 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>q2 — Graph Notebook</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap');
-        
-        :root {
-            --teal: #00bcd4;
-        }
-        
-        body {
-            font-family: 'Inter', system-ui, sans-serif;
-        }
-        
-        .logo-font {
-            font-family: 'Space Grotesk', sans-serif;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>q2 cockpit prototype</title>
+  <style>
+    :root {
+      --bg-0: #0a0e17;
+      --bg-1: #101624;
+      --bg-2: #141c2d;
+      --bg-3: #182235;
+      --panel: rgba(16, 22, 36, 0.88);
+      --panel-strong: rgba(20, 28, 45, 0.95);
+      --border: rgba(77, 208, 225, 0.16);
+      --border-strong: rgba(77, 208, 225, 0.28);
+      --accent: #00bcd4;
+      --accent-2: #4dd0e1;
+      --accent-soft: rgba(77, 208, 225, 0.12);
+      --text: #e7f3ff;
+      --muted: #93a9bf;
+      --success: #35d07f;
+      --warning: #ffb547;
+      --danger: #ff637d;
+      --shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+      --radius: 18px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
 
-        .graph-node {
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        .graph-node:hover circle {
-            filter: brightness(1.3);
-        }
-        
-        .node-label {
-            font-size: 11px;
-            font-weight: 500;
-            pointer-events: none;
-        }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(77, 208, 225, 0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(0, 188, 212, 0.10), transparent 24%),
+        linear-gradient(180deg, #0a0e17 0%, #111826 52%, #161d2d 100%);
+      overflow: hidden;
+    }
 
-        table th, table td {
-            transition: background-color 0.1s ease;
-        }
-        
-        .selected-row {
-            background-color: rgba(0, 188, 212, 0.15) !important;
-            border-left: 3px solid #00bcd4;
-        }
+    .shell {
+      display: grid;
+      grid-template-rows: 76px minmax(0, 1fr) 250px 236px;
+      grid-template-columns: 280px minmax(560px, 1fr) 360px;
+      gap: 14px;
+      height: 100vh;
+      min-width: 1280px;
+      padding: 14px;
+    }
 
-        .panel {
-            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
-        }
-    </style>
+    .topbar {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 220px minmax(420px, 1fr) auto;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .brand, .querybar, .top-actions, .panel {
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(17, 24, 38, 0.9), rgba(12, 18, 30, 0.92));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand {
+      border-radius: 20px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .brand::after {
+      content: "";
+      position: absolute;
+      inset: auto -20px -30px auto;
+      width: 120px;
+      height: 120px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(77, 208, 225, 0.25), transparent 70%);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .brand small {
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+
+    .querybar {
+      border-radius: 20px;
+      padding: 10px 12px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .querybar .prompt {
+      width: 34px;
+      height: 34px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(0, 188, 212, 0.2), rgba(77, 208, 225, 0.08));
+      border: 1px solid rgba(77, 208, 225, 0.25);
+      display: grid;
+      place-items: center;
+      color: var(--accent-2);
+      font-weight: 700;
+      font-family: var(--mono);
+    }
+
+    .query-input-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .query-input-wrap label {
+      font-size: 11px;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    #queryInput {
+      width: 100%;
+      padding: 0;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 14px;
+      font-family: var(--mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .chip, .button, .badge, .pill {
+      border-radius: 999px;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .chip {
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--accent-2);
+      border-color: rgba(77, 208, 225, 0.24);
+      background: rgba(77, 208, 225, 0.08);
+      cursor: pointer;
+    }
+
+    .chip:after { content: "▾"; font-size: 10px; opacity: 0.8; }
+
+    .button {
+      padding: 10px 14px;
+      border-color: rgba(77, 208, 225, 0.24);
+      background: linear-gradient(135deg, rgba(0, 188, 212, 0.18), rgba(77, 208, 225, 0.08));
+      color: var(--text);
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: transform 200ms ease, border-color 200ms ease, background 200ms ease;
+    }
+
+    .button:hover { transform: translateY(-1px); border-color: rgba(77, 208, 225, 0.42); }
+
+    .top-actions {
+      border-radius: 20px;
+      padding: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .panel {
+      border-radius: var(--radius);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(77, 208, 225, 0.12);
+      background: linear-gradient(180deg, rgba(77, 208, 225, 0.05), rgba(77, 208, 225, 0));
+    }
+
+    .panel-title {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .panel-title h2 {
+      margin: 0;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .panel-title span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .signal {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .signal::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--success);
+      box-shadow: 0 0 16px rgba(53, 208, 127, 0.8);
+    }
+
+    .left {
+      grid-column: 1;
+      grid-row: 2;
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 12px;
+      padding: 0 0 12px;
+    }
+
+    .left-body {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      background: rgba(77, 208, 225, 0.06);
+      border: 1px solid rgba(77, 208, 225, 0.10);
+      border-radius: 14px;
+      padding: 12px;
+      min-height: 74px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .metric .value {
+      font-size: 24px;
+      font-weight: 700;
+      margin-top: 8px;
+    }
+
+    .metric small {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill {
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+      transition: 200ms ease;
+    }
+
+    .pill.active, .pill:hover {
+      color: var(--text);
+      border-color: rgba(77, 208, 225, 0.26);
+      background: rgba(77, 208, 225, 0.12);
+    }
+
+    .example-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .example {
+      border-radius: 14px;
+      border: 1px solid rgba(77, 208, 225, 0.10);
+      background: rgba(77, 208, 225, 0.04);
+      padding: 12px;
+      cursor: pointer;
+      transition: 200ms ease;
+    }
+
+    .example:hover {
+      border-color: rgba(77, 208, 225, 0.28);
+      transform: translateX(2px);
+    }
+
+    .example strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 6px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .example code {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent-2);
+    }
+
+    .graph-panel {
+      grid-column: 2;
+      grid-row: 2;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .graph-stage {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      background:
+        linear-gradient(rgba(77, 208, 225, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(77, 208, 225, 0.035) 1px, transparent 1px),
+        radial-gradient(circle at center, rgba(77, 208, 225, 0.08), transparent 42%);
+      background-size: 28px 28px, 28px 28px, auto;
+    }
+
+    .graph-overlay {
+      position: absolute;
+      inset: 10px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .overlay-card {
+      align-self: flex-start;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(10, 14, 23, 0.76);
+      border: 1px solid rgba(77, 208, 225, 0.14);
+      backdrop-filter: blur(10px);
+      max-width: 280px;
+    }
+
+    .overlay-card b {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .overlay-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    #graphSvg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+    }
+
+    #graphSvg:active { cursor: grabbing; }
+
+    .graph-footer {
+      border-top: 1px solid rgba(77, 208, 225, 0.12);
+      padding: 10px 14px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .legend span::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+      background: currentColor;
+      box-shadow: 0 0 16px currentColor;
+    }
+
+    .legend .server { color: #4dd0e1; }
+    .legend .database { color: #ffd166; }
+    .legend .service { color: #9b8cff; }
+
+    .mini-status {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 7px 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      color: var(--muted);
+    }
+
+    .badge.good { color: var(--success); border-color: rgba(53,208,127,0.20); }
+    .badge.warn { color: var(--warning); border-color: rgba(255,181,71,0.20); }
+    .badge.hot { color: var(--danger); border-color: rgba(255,99,125,0.20); }
+
+    .sidebar {
+      grid-column: 3;
+      grid-row: 2;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .sidebar-body {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+      overflow: auto;
+    }
+
+    .node-card {
+      border-radius: 16px;
+      border: 1px solid rgba(77, 208, 225, 0.14);
+      background: rgba(77, 208, 225, 0.05);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .node-card h3 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .node-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .node-meta span {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .prop-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .prop-row {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 12px;
+      font-size: 12px;
+      line-height: 1.45;
+      padding: 8px 0;
+      border-bottom: 1px dashed rgba(255,255,255,0.06);
+    }
+
+    .prop-row:last-child { border-bottom: none; }
+
+    .prop-row .k { color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+
+    .connections {
+      display: grid;
+      gap: 8px;
+    }
+
+    .connection {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      font-size: 12px;
+    }
+
+    .connection b { font-weight: 600; }
+    .connection span { color: var(--muted); }
+
+    .spark {
+      border-radius: 14px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 10px;
+    }
+
+    .spark canvas {
+      width: 100%;
+      height: 82px;
+      display: block;
+    }
+
+    .table-panel {
+      grid-column: 1 / -1;
+      grid-row: 3;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .table-toolbar {
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid rgba(77, 208, 225, 0.12);
+    }
+
+    .table-toolbar .search {
+      flex: 1;
+      max-width: 280px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      color: var(--text);
+      outline: none;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12px;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: rgba(17, 24, 38, 0.96);
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(77, 208, 225, 0.12);
+      text-align: left;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    tbody {
+      display: block;
+      height: 178px;
+      overflow: auto;
+    }
+
+    thead, tbody tr {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+
+    tbody tr {
+      transition: background 180ms ease, box-shadow 180ms ease;
+      cursor: pointer;
+    }
+
+    tbody tr:nth-child(even) { background: rgba(255,255,255,0.018); }
+    tbody tr:hover, tbody tr.active {
+      background: rgba(77, 208, 225, 0.10);
+      box-shadow: inset 3px 0 0 rgba(77, 208, 225, 0.9);
+    }
+
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: #d9e9f9;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    td code {
+      font-family: var(--mono);
+      color: var(--accent-2);
+      font-size: 11px;
+    }
+
+    .cells-panel {
+      grid-column: 1 / -1;
+      grid-row: 4;
+      display: grid;
+      grid-template-columns: 1.2fr 1.1fr 0.9fr;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .cell {
+      border: 1px solid rgba(77, 208, 225, 0.14);
+      background: linear-gradient(180deg, rgba(17, 24, 38, 0.92), rgba(12, 18, 30, 0.94));
+      border-radius: 18px;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      box-shadow: var(--shadow);
+      position: relative;
+    }
+
+    .cell.running::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      box-shadow: inset 0 0 0 1px rgba(77, 208, 225, 0.45);
+      animation: pulse 1.35s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.2; }
+      50% { opacity: 0.9; }
+    }
+
+    .cell-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(77, 208, 225, 0.12);
+    }
+
+    .cell-head .leftside {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .cell-index {
+      width: 24px;
+      height: 24px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: rgba(77, 208, 225, 0.10);
+      border: 1px solid rgba(77, 208, 225, 0.18);
+      font-size: 11px;
+      color: var(--accent-2);
+      font-family: var(--mono);
+    }
+
+    .lang-chip {
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .cell-body {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    pre {
+      margin: 0;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(8, 12, 20, 0.86);
+      border: 1px solid rgba(77, 208, 225, 0.08);
+      color: #c8f3ff;
+      font-size: 11px;
+      line-height: 1.55;
+      font-family: var(--mono);
+      overflow: auto;
+    }
+
+    .cell-result {
+      border-radius: 14px;
+      border: 1px solid rgba(77, 208, 225, 0.08);
+      background: rgba(77, 208, 225, 0.04);
+      padding: 12px;
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 0;
+    }
+
+    .cell-result strong { color: var(--text); }
+
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 11px;
+    }
+
+    .mini-table td {
+      padding: 8px 0;
+      border-bottom: 1px dashed rgba(255,255,255,0.06);
+    }
+
+    .markdown-card {
+      line-height: 1.6;
+    }
+
+    .markdown-card h4 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      color: var(--text);
+    }
+
+    .markdown-card ul {
+      margin: 8px 0 0 18px;
+      padding: 0;
+    }
+
+    .tooltip {
+      position: fixed;
+      pointer-events: none;
+      transform: translate(14px, 12px);
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: rgba(10, 14, 23, 0.92);
+      border: 1px solid rgba(77, 208, 225, 0.18);
+      color: var(--text);
+      font-size: 12px;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transition: opacity 120ms ease;
+      z-index: 40;
+    }
+
+    .tooltip b { display: block; margin-bottom: 4px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-2); }
+    .tooltip small { color: var(--muted); }
+
+    .footer-note {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 1380px) {
+      .shell {
+        grid-template-columns: 240px minmax(520px, 1fr) 320px;
+      }
+    }
+  </style>
 </head>
-<body class="bg-[#0a0e17] text-white h-screen overflow-hidden flex flex-col">
-    <!-- TOP BAR - Command Center -->
-    <header class="h-14 bg-[#111827] border-b border-[#334155] flex items-center px-6 gap-x-6 z-50">
-        <!-- Logo -->
-        <div class="flex items-center gap-x-3">
-            <div class="w-7 h-7 bg-gradient-to-br from-[#00bcd4] to-[#4dd0e1] rounded flex items-center justify-center text-black text-xs font-bold logo-font">q2</div>
-            <div>
-                <span class="logo-font text-2xl font-semibold tracking-tighter text-white">q2</span>
-            </div>
-        </div>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <section class="brand">
+        <small>q2 graph notebook</small>
+        <h1>Cockpit / local binary / linked views</h1>
+      </section>
 
-        <!-- Query Bar -->
-        <div class="flex-1 max-w-[680px] relative group">
-            <div class="flex items-center bg-[#1a1f2e] border border-[#334155] focus-within:border-[#00bcd4] rounded-2xl px-5 py-2 text-sm transition-all duration-200">
-                <input id="query-input" 
-                       type="text" 
-                       value="g.V().hasLabel('server').outE('connects').inV().path()"
-                       class="flex-1 bg-transparent outline-none font-mono text-[#e2e8f0] placeholder:text-[#64748b]">
-                
-                <!-- Language chip -->
-                <div onclick="cycleLanguage()" 
-                     id="language-chip"
-                     class="ml-4 px-4 py-1 bg-[#00bcd4]/10 hover:bg-[#00bcd4]/20 text-[#00bcd4] text-xs font-medium rounded-xl flex items-center gap-x-1.5 cursor-pointer transition-colors">
-                    <span id="current-lang">gremlin</span>
-                    <span class="text-[10px] opacity-60">▾</span>
-                </div>
-            </div>
-            
-            <!-- Subtle auto-detect hint -->
-            <div class="absolute -bottom-5 left-6 text-[10px] text-[#64748b] font-mono hidden group-focus-within:block">
-                Gremlin • auto-detected
-            </div>
+      <section class="querybar">
+        <div class="prompt">&gt;_</div>
+        <div class="query-input-wrap">
+          <label>active cell / auto-detect language</label>
+          <input id="queryInput" value="g.V().hasLabel('server').outE().inV().path()" spellcheck="false" />
         </div>
+        <button class="chip" id="langChip">gremlin</button>
+        <button class="button" id="simulateBtn">reactive execute</button>
+      </section>
 
-        <!-- Right controls -->
-        <div class="flex items-center gap-x-3">
-            <button onclick="executeQuery()" 
-                    class="flex items-center gap-x-2 bg-[#00bcd4] hover:bg-[#4dd0e1] text-black font-medium px-6 py-2 rounded-2xl text-sm transition-all active:scale-95">
-                <span>Execute</span>
-                <span class="text-xs opacity-70">⌘⏎</span>
-            </button>
-            
-            <button onclick="exportPDF()" 
-                    class="flex items-center gap-x-2 border border-[#334155] hover:border-[#00bcd4] px-5 py-2 rounded-2xl text-sm font-medium transition-all">
-                <span class="text-[#00bcd4]">⎙</span>
-                PDF
-            </button>
-            
-            <div class="w-px h-6 bg-[#334155]"></div>
-            
-            <button onclick="toggleAI()" 
-                    class="w-8 h-8 flex items-center justify-center rounded-2xl border border-[#334155] hover:border-[#00bcd4] transition-all">
-                <span class="text-lg">✦</span>
-            </button>
-        </div>
-    </header>
-
-    <div class="flex flex-1 overflow-hidden">
-        
-        <!-- LEFT: Notebook Cells -->
-        <div class="w-56 bg-[#111827] border-r border-[#334155] flex flex-col panel">
-            <div class="px-5 pt-5 pb-3 text-xs font-semibold tracking-[0.5px] text-[#64748b] uppercase">Notebook</div>
-            
-            <div class="flex-1 overflow-y-auto px-3 space-y-1 text-sm">
-                <div onclick="this.classList.toggle('bg-[#1f2937]')" 
-                     class="px-4 py-3 rounded-2xl flex items-center gap-x-3 hover:bg-[#1f2937] cursor-pointer bg-[#1f2937]">
-                    <div class="w-2 h-2 bg-[#00bcd4] rounded-full"></div>
-                    <div class="flex-1 truncate">Main Gremlin Query</div>
-                    <div class="text-[#64748b] text-xs">live</div>
-                </div>
-                
-                <div onclick="this.classList.toggle('bg-[#1f2937]')" 
-                     class="px-4 py-3 rounded-2xl flex items-center gap-x-3 hover:bg-[#1f2937] cursor-pointer">
-                    <div class="w-2 h-2 bg-amber-400 rounded-full"></div>
-                    <div class="flex-1 truncate">R: centrality()</div>
-                </div>
-                
-                <div onclick="this.classList.toggle('bg-[#1f2937]')" 
-                     class="px-4 py-3 rounded-2xl flex items-center gap-x-3 hover:bg-[#1f2937] cursor-pointer">
-                    <div class="w-2 h-2 bg-emerald-400 rounded-full"></div>
-                    <div class="flex-1 truncate">Markdown notes</div>
-                </div>
-            </div>
-            
-            <!-- Parameters -->
-            <div class="border-t border-[#334155] p-5">
-                <div class="text-xs font-semibold tracking-widest text-[#64748b] mb-3">FILTERS</div>
-                <div class="space-y-4">
-                    <div>
-                        <div class="text-xs text-[#94a3b8]">Label</div>
-                        <select class="w-full mt-1 bg-[#1a1f2e] border border-[#334155] rounded-xl px-3 py-2 text-sm">
-                            <option>server</option>
-                            <option>database</option>
-                            <option>user</option>
-                        </select>
-                    </div>
-                    <div>
-                        <div class="text-xs text-[#94a3b8]">Min degree</div>
-                        <input type="range" min="0" max="10" value="2" class="w-full accent-[#00bcd4]">
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- CENTER COLUMN -->
-        <div class="flex-1 flex flex-col">
-            
-            <!-- GRAPH PANEL -->
-            <div class="flex-1 relative bg-[#0a1421] flex flex-col panel">
-                <div class="h-11 bg-[#111827]/80 backdrop-blur-md border-b border-[#334155] flex items-center px-6 text-xs z-10">
-                    <div class="flex items-center gap-x-8 text-[#94a3b8]">
-                        <button onclick="setLayout('force')" class="hover:text-white transition-colors flex items-center gap-x-1">
-                            <span class="text-[#00bcd4]">⟡</span> FORCE
-                        </button>
-                        <button onclick="setLayout('circular')" class="hover:text-white transition-colors">CIRCULAR</button>
-                        <button onclick="setLayout('hierarchical')" class="hover:text-white transition-colors">HIERARCHY</button>
-                    </div>
-                    
-                    <div class="flex-1"></div>
-                    
-                    <div class="flex items-center gap-x-6 text-xs">
-                        <div class="flex items-center gap-x-1.5">
-                            <div class="w-2 h-2 bg-[#00bcd4] rounded"></div>
-                            <span>Servers</span>
-                        </div>
-                        <div class="flex items-center gap-x-1.5">
-                            <div class="w-2 h-2 bg-amber-400 rounded"></div>
-                            <span>Databases</span>
-                        </div>
-                    </div>
-                    
-                    <div class="flex-1"></div>
-                    
-                    <div class="flex items-center gap-x-px bg-[#1a1f2e] rounded-2xl p-px">
-                        <button onclick="zoomOut()" class="w-8 h-8 flex items-center justify-center hover:bg-[#334155] rounded-[14px]">−</button>
-                        <button onclick="zoomReset()" class="px-4 text-xs text-[#00bcd4]">100%</button>
-                        <button onclick="zoomIn()" class="w-8 h-8 flex items-center justify-center hover:bg-[#334155] rounded-[14px]">+</button>
-                    </div>
-                </div>
-                
-                <div class="flex-1 relative" id="graph-wrapper">
-                    <svg id="graph-svg" width="100%" height="100%" class="absolute inset-0" xmlns="http://www.w3.org/2000/svg"></svg>
-                    
-                    <div class="absolute bottom-6 left-6 bg-[#111827]/90 backdrop-blur-md text-xs px-5 py-2.5 rounded-3xl border border-[#334155] flex items-center gap-x-3">
-                        <div class="flex items-center gap-x-2">
-                            <span class="text-emerald-400">●</span>
-                            <span id="node-count" class="font-mono">14 nodes</span>
-                        </div>
-                        <div class="w-px h-3 bg-[#334155]"></div>
-                        <div class="flex items-center gap-x-2">
-                            <span class="text-[#00bcd4]">↔</span>
-                            <span id="edge-count" class="font-mono">27 edges</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- BOTTOM: Result Table -->
-            <div class="h-80 bg-[#111827] border-t border-[#334155] flex flex-col panel">
-                <div class="px-6 h-10 border-b border-[#334155] flex items-center justify-between text-xs font-semibold tracking-widest text-[#64748b]">
-                    <div>QUERY RESULT • 14 rows</div>
-                    <div class="flex items-center gap-x-6">
-                        <button onclick="sortTable()" class="hover:text-white">Sort ↓</button>
-                        <button class="text-[#00bcd4]">Export CSV</button>
-                    </div>
-                </div>
-                
-                <div class="flex-1 overflow-auto">
-                    <table id="result-table" class="w-full text-sm">
-                        <thead class="sticky top-0 bg-[#111827] z-10">
-                            <tr class="text-[#64748b] border-b border-[#334155]">
-                                <th class="text-left pl-8 py-3 font-medium w-12">ID</th>
-                                <th class="text-left py-3 font-medium">LABEL</th>
-                                <th class="text-left py-3 font-medium">TYPE</th>
-                                <th class="text-left py-3 font-medium">DEGREE</th>
-                                <th class="text-left py-3 font-medium">STATUS</th>
-                            </tr>
-                        </thead>
-                        <tbody id="table-body" class="text-[#e2e8f0] divide-y divide-[#1f2937]"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- RIGHT: Inspector -->
-        <div class="w-80 bg-[#111827] border-l border-[#334155] flex flex-col panel overflow-hidden">
-            <div class="px-6 h-11 border-b border-[#334155] flex items-center text-xs uppercase font-semibold tracking-widest text-[#64748b]">
-                INSPECTOR
-            </div>
-            
-            <div id="inspector" class="flex-1 p-6 overflow-auto">
-                <div class="h-full flex flex-col items-center justify-center text-center">
-                    <div class="w-16 h-16 rounded-3xl bg-gradient-to-br from-[#00bcd4]/10 to-transparent flex items-center justify-center mb-6">
-                        <span class="text-4xl">◉</span>
-                    </div>
-                    <div class="text-[#64748b] text-sm max-w-[180px]">
-                        Click any node in the graph to see properties, edges, and metadata
-                    </div>
-                </div>
-            </div>
-            
-            <div class="h-11 border-t border-[#334155] bg-[#0a0e17] flex items-center px-6 text-[10px] text-[#64748b] font-mono">
-                LIVE • 2718
-            </div>
-        </div>
+      <section class="top-actions">
+        <span class="badge good">mcp /sse live</span>
+        <span class="badge">⌘P export PDF</span>
+        <button class="button">notebook saved</button>
+      </section>
     </div>
 
-    <script>
-        let nodes = [
-            { id: "1", label: "web-prod-01", type: "server", x: 280, y: 220, color: "#00bcd4", degree: 5 },
-            { id: "2", label: "db-master", type: "database", x: 520, y: 150, color: "#f59e0b", degree: 8 },
-            { id: "3", label: "api-gateway", type: "server", x: 680, y: 340, color: "#00bcd4", degree: 12 },
-            { id: "4", label: "user-4721", type: "user", x: 180, y: 410, color: "#a78bfa", degree: 3 },
-            { id: "5", label: "cache-redis", type: "cache", x: 450, y: 480, color: "#f43f5e", degree: 7 },
-            { id: "6", label: "auth-service", type: "service", x: 750, y: 210, color: "#22c55e", degree: 4 },
-            { id: "7", label: "analytics", type: "database", x: 310, y: 310, color: "#f59e0b", degree: 6 }
-        ]
-        
-        let edges = [
-            { from: "1", to: "2" }, { from: "1", to: "3" }, { from: "1", to: "5" },
-            { from: "2", to: "3" }, { from: "2", to: "7" },
-            { from: "3", to: "6" }, { from: "4", to: "1" },
-            { from: "5", to: "2" }, { from: "6", to: "7" }
-        ]
-        
-        let selectedId = null
-        let currentLang = "gremlin"
-        const languages = ["gremlin", "cypher", "sparql", "r"]
-        
-        const svg = document.getElementById("graph-svg")
-        const NS = "http://www.w3.org/2000/svg"
-        
-        function renderGraph() {
-            svg.innerHTML = ""
-            
-            edges.forEach(edge => {
-                const n1 = nodes.find(n => n.id === edge.from)
-                const n2 = nodes.find(n => n.id === edge.to)
-                if (!n1 || !n2) return
-                
-                const line = document.createElementNS(NS, "line")
-                line.setAttribute("x1", n1.x)
-                line.setAttribute("y1", n1.y)
-                line.setAttribute("x2", n2.x)
-                line.setAttribute("y2", n2.y)
-                line.setAttribute("stroke", "#334155")
-                line.setAttribute("stroke-width", "2.5")
-                line.setAttribute("stroke-opacity", "0.7")
-                svg.appendChild(line)
-            })
-            
-            nodes.forEach(node => {
-                const g = document.createElementNS(NS, "g")
-                g.setAttribute("class", "graph-node")
-                g.setAttribute("data-id", node.id)
-                
-                const circle = document.createElementNS(NS, "circle")
-                circle.setAttribute("cx", node.x)
-                circle.setAttribute("cy", node.y)
-                circle.setAttribute("r", "27")
-                circle.setAttribute("fill", node.color)
-                circle.setAttribute("stroke", selectedId === node.id ? "#67e8f9" : "#1e2937")
-                circle.setAttribute("stroke-width", selectedId === node.id ? "5" : "4")
-                circle.setAttribute("stroke-opacity", selectedId === node.id ? "1" : "0.9")
-                g.appendChild(circle)
-                
-                const text = document.createElementNS(NS, "text")
-                text.setAttribute("x", node.x)
-                text.setAttribute("y", node.y + 48)
-                text.setAttribute("text-anchor", "middle")
-                text.setAttribute("fill", "#cbd5e1")
-                text.setAttribute("class", "node-label")
-                text.textContent = node.label
-                g.appendChild(text)
-                
-                g.addEventListener("click", (e) => {
-                    e.stopImmediatePropagation()
-                    selectNode(node.id)
-                })
-                
-                makeDraggable(g, node)
-                svg.appendChild(g)
-            })
+    <section class="panel left">
+      <div class="panel-header">
+        <div class="panel-title">
+          <h2>Situation</h2>
+          <span>dense overview, filters, quick jumps</span>
+        </div>
+        <div class="signal">healthy</div>
+      </div>
+      <div class="left-body">
+        <div class="metrics">
+          <div class="metric">
+            <div class="label">Nodes</div>
+            <div class="value" id="nodeCount">8</div>
+            <small>live graph scope</small>
+          </div>
+          <div class="metric">
+            <div class="label">Edges</div>
+            <div class="value" id="edgeCount">11</div>
+            <small>visible paths</small>
+          </div>
+          <div class="metric">
+            <div class="label">Healthy</div>
+            <div class="value" id="healthyCount">5</div>
+            <small>green signals</small>
+          </div>
+          <div class="metric">
+            <div class="label">Alerts</div>
+            <div class="value" id="alertCount">2</div>
+            <small>amber + red</small>
+          </div>
+        </div>
+
+        <div>
+          <div class="footer-note" style="margin-bottom: 8px;">filters</div>
+          <div class="filters" id="filterPills">
+            <button class="pill active" data-filter="all">all</button>
+            <button class="pill" data-filter="server">servers</button>
+            <button class="pill" data-filter="database">databases</button>
+            <button class="pill" data-filter="service">services</button>
+            <button class="pill" data-filter="warning">at risk</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="footer-note" style="margin-bottom: 8px;">example cells</div>
+          <div class="example-list">
+            <div class="example" data-query="g.V().hasLabel('server').outE().inV().path()">
+              <strong>Infrastructure path</strong>
+              <code>g.V().hasLabel('server').outE().inV().path()</code>
+            </div>
+            <div class="example" data-query="MATCH (s:Server)-[:CALLS]->(svc:Service) RETURN s, svc LIMIT 25">
+              <strong>Cypher service fanout</strong>
+              <code>MATCH (s:Server)-[:CALLS]-&gt;(svc:Service) RETURN s, svc</code>
+            </div>
+            <div class="example" data-query="library(dplyr)\nservices %>% count(status) %>% arrange(desc(n))">
+              <strong>R rollup</strong>
+              <code>services %&gt;% count(status)</code>
+            </div>
+            <div class="example" data-query="PREFIX app: <http://q2.local/app#>\nSELECT ?service ?db WHERE { ?service app:dependsOn ?db . }">
+              <strong>SPARQL dependency</strong>
+              <code>PREFIX app: ... SELECT ?service ?db</code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel graph-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <h2>Graph result</h2>
+          <span>force-directed, linked to sidebar + table + cells</span>
+        </div>
+        <div class="signal">selection drives all views</div>
+      </div>
+      <div class="graph-stage" id="graphStage">
+        <svg id="graphSvg" viewBox="0 0 900 520" preserveAspectRatio="xMidYMid meet">
+          <g id="graphViewport">
+            <g id="edgeLayer"></g>
+            <g id="nodeLayer"></g>
+          </g>
+        </svg>
+        <div class="graph-overlay">
+          <div class="overlay-card">
+            <b>Auto mode</b>
+            <p id="graphSummary">Gremlin detected. Click a node to propagate selection through all panels.</p>
+          </div>
+          <div class="overlay-card" style="align-self:flex-end; max-width: 240px;">
+            <b>Viewport</b>
+            <p>Wheel to zoom. Drag nodes. Layout settles with a soft spring and low-gravity drift.</p>
+          </div>
+        </div>
+      </div>
+      <div class="graph-footer">
+        <div class="legend">
+          <span class="server">server</span>
+          <span class="database">database</span>
+          <span class="service">service</span>
+        </div>
+        <div class="mini-status">
+          <span class="badge good" id="selectionBadge">selected / srv-api-01</span>
+          <span class="badge warn">reactive DAG / 3 downstream</span>
+          <span class="badge hot">1 critical edge</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel sidebar">
+      <div class="panel-header">
+        <div class="panel-title">
+          <h2>Node intelligence</h2>
+          <span>properties, metadata, neighbors, sparkline</span>
+        </div>
+        <div class="signal">live linked</div>
+      </div>
+      <div class="sidebar-body">
+        <div class="node-card">
+          <h3 id="nodeTitle">srv-api-01</h3>
+          <div class="node-meta" id="nodeMeta"></div>
+          <div class="prop-grid" id="propGrid"></div>
+        </div>
+
+        <div>
+          <div class="footer-note" style="margin-bottom: 8px;">connections</div>
+          <div class="connections" id="connections"></div>
+        </div>
+
+        <div class="spark">
+          <div class="footer-note" style="margin-bottom: 8px;">latency trend</div>
+          <canvas id="sparkCanvas" width="320" height="82"></canvas>
+        </div>
+      </div>
+      <div class="graph-footer">
+        <div class="footer-note">single-click updates every instrument on screen</div>
+      </div>
+    </section>
+
+    <section class="panel table-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <h2>Result table</h2>
+          <span>dense, sortable, same entities as the graph</span>
+        </div>
+        <div class="signal">row click = graph highlight</div>
+      </div>
+      <div class="table-toolbar">
+        <input class="search" id="tableSearch" placeholder="filter nodes, status, owner..." />
+        <div class="mini-status">
+          <span class="badge">sortable columns</span>
+          <span class="badge">full width</span>
+          <span class="badge good">selection synced</span>
+        </div>
+      </div>
+      <div style="padding: 0 0 4px;">
+        <table>
+          <thead>
+            <tr>
+              <th data-sort="id">Entity</th>
+              <th data-sort="type">Type</th>
+              <th data-sort="status">Status</th>
+              <th data-sort="owner">Owner</th>
+              <th data-sort="region">Region</th>
+              <th data-sort="degree">Degree</th>
+              <th data-sort="query">Path</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cells-panel">
+      <article class="cell" id="cell1">
+        <div class="cell-head">
+          <div class="leftside">
+            <div class="cell-index">1</div>
+            <span class="lang-chip" id="cell1Lang">gremlin</span>
+          </div>
+          <span class="badge good">upstream</span>
+        </div>
+        <div class="cell-body">
+          <pre id="cell1Code">g.V().hasLabel('server').outE().inV().path()</pre>
+          <div class="cell-result">
+            <strong>Graph result</strong><br />
+            Local force view renders the queried subgraph as SVG/HTML. This would be supplied by <code>notebook-render</code> and hydrated into the cockpit panel above.
+            <table class="mini-table">
+              <tr><td>Nodes returned</td><td id="cell1Nodes">8</td></tr>
+              <tr><td>Edges returned</td><td id="cell1Edges">11</td></tr>
+              <tr><td>Primary focus</td><td id="cell1Focus">srv-api-01</td></tr>
+            </table>
+          </div>
+        </div>
+      </article>
+
+      <article class="cell" id="cell2">
+        <div class="cell-head">
+          <div class="leftside">
+            <div class="cell-index">2</div>
+            <span class="lang-chip">r</span>
+          </div>
+          <span class="badge warn">downstream</span>
+        </div>
+        <div class="cell-body">
+          <pre>services |&gt;
+  dplyr::count(status, sort = TRUE) |&gt;
+  dplyr::mutate(pct = scales::percent(n / sum(n)))</pre>
+          <div class="cell-result">
+            <strong>Reactive summary</strong><br />
+            This cell re-runs whenever the upstream graph cell changes. In the real product, the R kernel would emit structured output and charts without a manual run-all ritual.
+            <table class="mini-table">
+              <tr><td>healthy</td><td id="healthSummary">5 / 8</td></tr>
+              <tr><td>warning</td><td id="warnSummary">2 / 8</td></tr>
+              <tr><td>critical</td><td id="critSummary">1 / 8</td></tr>
+            </table>
+          </div>
+        </div>
+      </article>
+
+      <article class="cell" id="cell3">
+        <div class="cell-head">
+          <div class="leftside">
+            <div class="cell-index">3</div>
+            <span class="lang-chip">markdown</span>
+          </div>
+          <span class="badge">document view</span>
+        </div>
+        <div class="cell-body">
+          <div class="cell-result markdown-card">
+            <h4>Operational note</h4>
+            <div id="noteBody">
+              Selected node <strong>srv-api-01</strong> fronts the service mesh and currently fans out to both the <strong>auth-service</strong> and <strong>payments-db</strong> path. Exporting to PDF should preserve this exact state: code, graph, table, note.
+            </div>
+            <ul>
+              <li>Notebook is the report, not a second-class export target.</li>
+              <li>Panels stay visible; no wandering through tabs.</li>
+              <li>Every click is a tiny orchestral cue for the rest of the interface.</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+    </section>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+    const graphState = {
+      nodes: [
+        { id: 'srv-api-01', type: 'server', status: 'healthy', owner: 'platform', region: 'eu-central', cpu: '41%', edges: 3, degree: 3, tier: 'edge', x: 330, y: 175, trend: [40, 43, 41, 44, 46, 42, 40, 39, 41, 40], info: 'Entry node for graph query paths.', risk: 'low', ip: '10.6.4.12' },
+        { id: 'srv-etl-02', type: 'server', status: 'warning', owner: 'data', region: 'eu-west', cpu: '77%', edges: 3, degree: 3, tier: 'compute', x: 200, y: 330, trend: [45, 49, 50, 56, 59, 62, 66, 71, 75, 77], info: 'ETL worker with rising latency.', risk: 'medium', ip: '10.8.1.33' },
+        { id: 'srv-batch-04', type: 'server', status: 'critical', owner: 'ml', region: 'us-east', cpu: '92%', edges: 2, degree: 2, tier: 'compute', x: 470, y: 330, trend: [55, 58, 60, 64, 71, 76, 83, 88, 91, 92], info: 'Batch executor currently overloaded.', risk: 'high', ip: '10.9.2.90' },
+        { id: 'auth-service', type: 'service', status: 'healthy', owner: 'identity', region: 'eu-central', cpu: '32%', edges: 4, degree: 4, tier: 'service', x: 560, y: 165, trend: [30, 31, 30, 29, 32, 33, 34, 32, 33, 32], info: 'Authentication microservice.', risk: 'low', ip: 'svc://auth-service' },
+        { id: 'reco-service', type: 'service', status: 'warning', owner: 'recommendations', region: 'us-east', cpu: '64%', edges: 3, degree: 3, tier: 'service', x: 610, y: 320, trend: [48, 49, 51, 53, 56, 57, 59, 61, 63, 64], info: 'Recommendation graph service.', risk: 'medium', ip: 'svc://reco-service' },
+        { id: 'payments-db', type: 'database', status: 'healthy', owner: 'finops', region: 'eu-central', cpu: '29%', edges: 2, degree: 2, tier: 'storage', x: 720, y: 210, trend: [28, 28, 29, 30, 31, 30, 29, 30, 29, 29], info: 'Primary transactional store.', risk: 'low', ip: 'db://payments' },
+        { id: 'events-db', type: 'database', status: 'healthy', owner: 'streaming', region: 'eu-west', cpu: '36%', edges: 3, degree: 3, tier: 'storage', x: 350, y: 430, trend: [35, 37, 36, 35, 38, 39, 38, 37, 36, 36], info: 'Append-only event ledger.', risk: 'low', ip: 'db://events' },
+        { id: 'feature-store', type: 'database', status: 'healthy', owner: 'ml', region: 'us-east', cpu: '34%', edges: 2, degree: 2, tier: 'storage', x: 705, y: 385, trend: [31, 31, 32, 33, 34, 34, 33, 34, 35, 34], info: 'Feature vectors used by recommendation flows.', risk: 'low', ip: 'db://feature-store' }
+      ],
+      edges: [
+        { source: 'srv-api-01', target: 'auth-service', kind: 'CALLS', weight: 1 },
+        { source: 'srv-api-01', target: 'payments-db', kind: 'READS', weight: 1 },
+        { source: 'srv-api-01', target: 'events-db', kind: 'WRITES', weight: 1 },
+        { source: 'srv-etl-02', target: 'events-db', kind: 'READS', weight: 1 },
+        { source: 'srv-etl-02', target: 'reco-service', kind: 'CALLS', weight: 1 },
+        { source: 'srv-etl-02', target: 'feature-store', kind: 'WRITES', weight: 1 },
+        { source: 'srv-batch-04', target: 'reco-service', kind: 'CALLS', weight: 1 },
+        { source: 'srv-batch-04', target: 'feature-store', kind: 'WRITES', weight: 1 },
+        { source: 'auth-service', target: 'payments-db', kind: 'READS', weight: 1 },
+        { source: 'reco-service', target: 'events-db', kind: 'READS', weight: 1 },
+        { source: 'reco-service', target: 'feature-store', kind: 'READS', weight: 1 }
+      ],
+      selectedId: 'srv-api-01',
+      filter: 'all',
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+      sortKey: 'id',
+      sortDir: 1,
+      searchTerm: ''
+    };
+
+    const colorByType = {
+      server: '#4dd0e1',
+      database: '#ffd166',
+      service: '#9b8cff'
+    };
+
+    const statusColor = {
+      healthy: '#35d07f',
+      warning: '#ffb547',
+      critical: '#ff637d'
+    };
+
+    const queryInput = document.getElementById('queryInput');
+    const langChip = document.getElementById('langChip');
+    const simulateBtn = document.getElementById('simulateBtn');
+    const graphSummary = document.getElementById('graphSummary');
+    const selectionBadge = document.getElementById('selectionBadge');
+    const nodeTitle = document.getElementById('nodeTitle');
+    const nodeMeta = document.getElementById('nodeMeta');
+    const propGrid = document.getElementById('propGrid');
+    const connectionsEl = document.getElementById('connections');
+    const tableBody = document.getElementById('tableBody');
+    const tableSearch = document.getElementById('tableSearch');
+    const tooltip = document.getElementById('tooltip');
+    const sparkCanvas = document.getElementById('sparkCanvas');
+    const filterPills = [...document.querySelectorAll('#filterPills .pill')];
+    const nodeCount = document.getElementById('nodeCount');
+    const edgeCount = document.getElementById('edgeCount');
+    const healthyCount = document.getElementById('healthyCount');
+    const alertCount = document.getElementById('alertCount');
+    const cell1Lang = document.getElementById('cell1Lang');
+    const cell1Code = document.getElementById('cell1Code');
+    const cell1Nodes = document.getElementById('cell1Nodes');
+    const cell1Edges = document.getElementById('cell1Edges');
+    const cell1Focus = document.getElementById('cell1Focus');
+    const healthSummary = document.getElementById('healthSummary');
+    const warnSummary = document.getElementById('warnSummary');
+    const critSummary = document.getElementById('critSummary');
+    const noteBody = document.getElementById('noteBody');
+
+    const edgeLayer = document.getElementById('edgeLayer');
+    const nodeLayer = document.getElementById('nodeLayer');
+    const viewport = document.getElementById('graphViewport');
+    const graphSvg = document.getElementById('graphSvg');
+
+    function detectLanguage(text) {
+      const t = text.trim();
+      if (/^g\./i.test(t) || /\.hasLabel\(|\.outE\(|\.inV\(/i.test(t)) return 'gremlin';
+      if (/^MATCH\s*\(/i.test(t)) return 'cypher';
+      if (/^PREFIX\s/i.test(t) || /SELECT\s+\?/i.test(t)) return 'sparql';
+      if (/%>%|<-|library\(/.test(t)) return 'r';
+      if (/\b(let|fn)\b/.test(t)) return 'rust';
+      return 'markdown';
+    }
+
+    function getVisibleNodes() {
+      let nodes = [...graphState.nodes];
+      const filter = graphState.filter;
+      if (filter === 'server' || filter === 'database' || filter === 'service') nodes = nodes.filter(n => n.type === filter);
+      if (filter === 'warning') nodes = nodes.filter(n => n.status !== 'healthy');
+      if (graphState.searchTerm) {
+        const q = graphState.searchTerm.toLowerCase();
+        nodes = nodes.filter(n => Object.values(n).join(' ').toLowerCase().includes(q));
+      }
+      return nodes;
+    }
+
+    function getVisibleEdges(visibleIds) {
+      return graphState.edges.filter(e => visibleIds.has(e.source) && visibleIds.has(e.target));
+    }
+
+    function updateMetrics() {
+      const visibleNodes = getVisibleNodes();
+      const visibleIds = new Set(visibleNodes.map(n => n.id));
+      const visibleEdges = getVisibleEdges(visibleIds);
+      nodeCount.textContent = visibleNodes.length;
+      edgeCount.textContent = visibleEdges.length;
+      healthyCount.textContent = visibleNodes.filter(n => n.status === 'healthy').length;
+      alertCount.textContent = visibleNodes.filter(n => n.status !== 'healthy').length;
+      cell1Nodes.textContent = visibleNodes.length;
+      cell1Edges.textContent = visibleEdges.length;
+      healthSummary.textContent = `${visibleNodes.filter(n => n.status === 'healthy').length} / ${visibleNodes.length}`;
+      warnSummary.textContent = `${visibleNodes.filter(n => n.status === 'warning').length} / ${visibleNodes.length}`;
+      critSummary.textContent = `${visibleNodes.filter(n => n.status === 'critical').length} / ${visibleNodes.length}`;
+    }
+
+    function renderSidebar() {
+      const node = graphState.nodes.find(n => n.id === graphState.selectedId) || graphState.nodes[0];
+      nodeTitle.textContent = node.id;
+      selectionBadge.textContent = `selected / ${node.id}`;
+      cell1Focus.textContent = node.id;
+      nodeMeta.innerHTML = [node.type, node.status, node.owner, node.region].map(v => `<span>${v}</span>`).join('');
+      propGrid.innerHTML = `
+        <div class="prop-row"><div class="k">owner</div><div>${node.owner}</div></div>
+        <div class="prop-row"><div class="k">status</div><div style="color:${statusColor[node.status]}">${node.status}</div></div>
+        <div class="prop-row"><div class="k">region</div><div>${node.region}</div></div>
+        <div class="prop-row"><div class="k">tier</div><div>${node.tier}</div></div>
+        <div class="prop-row"><div class="k">compute</div><div>${node.cpu} cpu, degree ${node.degree}</div></div>
+        <div class="prop-row"><div class="k">address</div><div><code>${node.ip}</code></div></div>
+        <div class="prop-row"><div class="k">note</div><div>${node.info}</div></div>
+      `;
+
+      const connections = graphState.edges
+        .filter(e => e.source === node.id || e.target === node.id)
+        .map(e => ({
+          kind: e.kind,
+          peer: e.source === node.id ? e.target : e.source,
+          direction: e.source === node.id ? 'outbound' : 'inbound'
+        }));
+
+      connectionsEl.innerHTML = connections.map(c => `
+        <div class="connection">
+          <div><b>${c.peer}</b><br /><span>${c.direction}</span></div>
+          <div style="color: var(--accent-2);">${c.kind}</div>
+        </div>`).join('');
+
+      noteBody.innerHTML = `Selected node <strong>${node.id}</strong> belongs to <strong>${node.owner}</strong> and currently sits in <strong>${node.region}</strong>. Exporting to PDF should preserve this exact state: code, graph, table, note.`;
+      drawSpark(node.trend, node.status);
+    }
+
+    function renderTable() {
+      const visibleNodes = getVisibleNodes();
+      const sorted = [...visibleNodes].sort((a, b) => {
+        const ka = a[graphState.sortKey];
+        const kb = b[graphState.sortKey];
+        if (typeof ka === 'number' && typeof kb === 'number') return (ka - kb) * graphState.sortDir;
+        return String(ka).localeCompare(String(kb)) * graphState.sortDir;
+      });
+
+      tableBody.innerHTML = sorted.map(node => `
+        <tr data-id="${node.id}" class="${node.id === graphState.selectedId ? 'active' : ''}">
+          <td>${node.id}</td>
+          <td>${node.type}</td>
+          <td style="color:${statusColor[node.status]}">${node.status}</td>
+          <td>${node.owner}</td>
+          <td>${node.region}</td>
+          <td>${node.degree}</td>
+          <td><code>${queryInput.value.slice(0, 34)}${queryInput.value.length > 34 ? '…' : ''}</code></td>
+        </tr>
+      `).join('');
+
+      [...tableBody.querySelectorAll('tr')].forEach(row => row.addEventListener('click', () => {
+        graphState.selectedId = row.dataset.id;
+        renderAll();
+      }));
+    }
+
+    function renderGraph() {
+      const visibleNodes = getVisibleNodes();
+      const visibleIds = new Set(visibleNodes.map(n => n.id));
+      const visibleEdges = getVisibleEdges(visibleIds);
+
+      const nodeMap = new Map(graphState.nodes.map(n => [n.id, n]));
+      edgeLayer.innerHTML = visibleEdges.map(e => {
+        const s = nodeMap.get(e.source);
+        const t = nodeMap.get(e.target);
+        const selected = graphState.selectedId === e.source || graphState.selectedId === e.target;
+        return `<g class="edge" data-source="${e.source}" data-target="${e.target}">
+          <line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" stroke="${selected ? 'rgba(77,208,225,0.95)' : 'rgba(125,162,186,0.42)'}" stroke-width="${selected ? 2.6 : 1.4}" />
+          <text x="${(s.x+t.x)/2}" y="${(s.y+t.y)/2 - 6}" fill="rgba(147,169,191,0.72)" font-size="10" text-anchor="middle">${e.kind}</text>
+        </g>`;
+      }).join('');
+
+      nodeLayer.innerHTML = visibleNodes.map(n => {
+        const selected = n.id === graphState.selectedId;
+        const opacity = graphState.filter === 'all' || n.type === graphState.filter || (graphState.filter === 'warning' && n.status !== 'healthy') ? 1 : 0.7;
+        return `<g class="node" data-id="${n.id}" transform="translate(${n.x}, ${n.y})" style="cursor:pointer; opacity:${opacity}">
+          <circle r="${selected ? 24 : 20}" fill="rgba(10, 14, 23, 0.95)" stroke="${selected ? statusColor[n.status] : colorByType[n.type]}" stroke-width="${selected ? 3.2 : 2.2}" />
+          <circle r="${selected ? 9 : 8}" fill="${colorByType[n.type]}" opacity="0.9" />
+          <circle r="${selected ? 30 : 0}" fill="none" stroke="rgba(77,208,225,0.28)" stroke-width="1" />
+          <text y="42" fill="#d9e9f9" font-size="12" text-anchor="middle">${n.id}</text>
+          <text y="-28" fill="${statusColor[n.status]}" font-size="10" text-anchor="middle">${n.status}</text>
+        </g>`;
+      }).join('');
+
+      [...nodeLayer.querySelectorAll('.node')].forEach(el => {
+        const id = el.dataset.id;
+        let dragging = false;
+        let offsetX = 0;
+        let offsetY = 0;
+        const node = graphState.nodes.find(n => n.id === id);
+
+        el.addEventListener('mousedown', evt => {
+          dragging = true;
+          evt.stopPropagation();
+          graphState.selectedId = id;
+          offsetX = evt.offsetX - node.x;
+          offsetY = evt.offsetY - node.y;
+        });
+
+        window.addEventListener('mousemove', evt => {
+          if (!dragging) return;
+          const rect = graphSvg.getBoundingClientRect();
+          node.x = ((evt.clientX - rect.left) / rect.width) * 900 - graphState.panX;
+          node.y = ((evt.clientY - rect.top) / rect.height) * 520 - graphState.panY;
+          node.vx = 0;
+          node.vy = 0;
+          renderGraph();
+          renderSidebar();
+          renderTable();
+        });
+
+        window.addEventListener('mouseup', () => dragging = false);
+
+        el.addEventListener('click', evt => {
+          evt.stopPropagation();
+          graphState.selectedId = id;
+          renderAll();
+        });
+
+        el.addEventListener('mouseenter', evt => showTooltip(evt, node));
+        el.addEventListener('mousemove', evt => showTooltip(evt, node));
+        el.addEventListener('mouseleave', hideTooltip);
+      });
+
+      viewport.setAttribute('transform', `translate(${graphState.panX}, ${graphState.panY}) scale(${graphState.zoom})`);
+    }
+
+    function drawSpark(values, status) {
+      const ctx = sparkCanvas.getContext('2d');
+      const w = sparkCanvas.width;
+      const h = sparkCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+      const color = statusColor[status];
+      const max = Math.max(...values) + 4;
+      const min = Math.min(...values) - 4;
+
+      ctx.strokeStyle = 'rgba(77, 208, 225, 0.10)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i <= 3; i++) {
+        const y = (h / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      values.forEach((v, i) => {
+        const x = (w - 16) * (i / (values.length - 1)) + 8;
+        const y = h - 10 - ((v - min) / (max - min)) * (h - 20);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      values.forEach((v, i) => {
+        const x = (w - 16) * (i / (values.length - 1)) + 8;
+        const y = h - 10 - ((v - min) / (max - min)) * (h - 20);
+        ctx.beginPath();
+        ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function showTooltip(evt, node) {
+      tooltip.style.opacity = 1;
+      tooltip.style.left = evt.clientX + 'px';
+      tooltip.style.top = evt.clientY + 'px';
+      tooltip.innerHTML = `<b>${node.type}</b>${node.id}<br /><small>${node.owner} · ${node.region} · ${node.status}</small>`;
+    }
+
+    function hideTooltip() {
+      tooltip.style.opacity = 0;
+    }
+
+    function renderCells() {
+      const lang = detectLanguage(queryInput.value);
+      cell1Lang.textContent = lang;
+      cell1Code.textContent = queryInput.value;
+      const node = graphState.nodes.find(n => n.id === graphState.selectedId);
+      graphSummary.textContent = `${lang.charAt(0).toUpperCase() + lang.slice(1)} detected. ${node.id} is currently the focus node across the cockpit.`;
+    }
+
+    function renderAll() {
+      updateMetrics();
+      renderSidebar();
+      renderTable();
+      renderGraph();
+      renderCells();
+      langChip.textContent = detectLanguage(queryInput.value);
+      document.querySelectorAll('.example').forEach(ex => ex.style.borderColor = ex.dataset.query === queryInput.value ? 'rgba(77,208,225,0.28)' : 'rgba(77,208,225,0.10)');
+      filterPills.forEach(p => p.classList.toggle('active', p.dataset.filter === graphState.filter));
+    }
+
+    function runReactivePulse() {
+      ['cell1', 'cell2', 'cell3'].forEach(id => document.getElementById(id).classList.remove('running'));
+      document.getElementById('cell1').classList.add('running');
+      setTimeout(() => document.getElementById('cell2').classList.add('running'), 260);
+      setTimeout(() => document.getElementById('cell3').classList.add('running'), 520);
+      setTimeout(() => {
+        ['cell1', 'cell2', 'cell3'].forEach(id => document.getElementById(id).classList.remove('running'));
+      }, 1600);
+    }
+
+    queryInput.addEventListener('input', () => {
+      graphState.sortKey = 'id';
+      langChip.textContent = detectLanguage(queryInput.value);
+      runReactivePulse();
+      renderCells();
+    });
+
+    simulateBtn.addEventListener('click', () => {
+      runReactivePulse();
+      renderAll();
+    });
+
+    tableSearch.addEventListener('input', () => {
+      graphState.searchTerm = tableSearch.value.trim();
+      renderAll();
+    });
+
+    document.querySelectorAll('thead th').forEach(th => th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      graphState.sortDir = graphState.sortKey === key ? graphState.sortDir * -1 : 1;
+      graphState.sortKey = key;
+      renderTable();
+    }));
+
+    filterPills.forEach(p => p.addEventListener('click', () => {
+      graphState.filter = p.dataset.filter;
+      renderAll();
+    }));
+
+    document.querySelectorAll('.example').forEach(ex => ex.addEventListener('click', () => {
+      queryInput.value = ex.dataset.query;
+      langChip.textContent = detectLanguage(queryInput.value);
+      runReactivePulse();
+      renderAll();
+    }));
+
+    graphSvg.addEventListener('click', () => hideTooltip());
+
+    graphSvg.addEventListener('wheel', evt => {
+      evt.preventDefault();
+      const delta = evt.deltaY < 0 ? 0.06 : -0.06;
+      graphState.zoom = Math.max(0.72, Math.min(1.45, graphState.zoom + delta));
+      viewport.setAttribute('transform', `translate(${graphState.panX}, ${graphState.panY}) scale(${graphState.zoom})`);
+    }, { passive: false });
+
+    let lastMouse = null;
+    let panning = false;
+    graphSvg.addEventListener('mousedown', evt => {
+      if (evt.target.closest('.node')) return;
+      panning = true;
+      lastMouse = { x: evt.clientX, y: evt.clientY };
+    });
+    window.addEventListener('mousemove', evt => {
+      if (!panning) return;
+      const dx = ((evt.clientX - lastMouse.x) / graphSvg.clientWidth) * 900;
+      const dy = ((evt.clientY - lastMouse.y) / graphSvg.clientHeight) * 520;
+      graphState.panX += dx;
+      graphState.panY += dy;
+      lastMouse = { x: evt.clientX, y: evt.clientY };
+      viewport.setAttribute('transform', `translate(${graphState.panX}, ${graphState.panY}) scale(${graphState.zoom})`);
+    });
+    window.addEventListener('mouseup', () => panning = false);
+
+    function tick() {
+      const visibleNodes = getVisibleNodes();
+      const visibleIds = new Set(visibleNodes.map(n => n.id));
+      const visibleEdges = getVisibleEdges(visibleIds);
+      const nodeMap = new Map(visibleNodes.map(n => [n.id, n]));
+
+      visibleNodes.forEach(n => {
+        n.vx = n.vx || 0;
+        n.vy = n.vy || 0;
+        const centerForce = 0.0009;
+        n.vx += (450 - n.x) * centerForce;
+        n.vy += (260 - n.y) * centerForce;
+      });
+
+      for (let i = 0; i < visibleNodes.length; i++) {
+        for (let j = i + 1; j < visibleNodes.length; j++) {
+          const a = visibleNodes[i];
+          const b = visibleNodes[j];
+          let dx = b.x - a.x;
+          let dy = b.y - a.y;
+          const dist2 = dx * dx + dy * dy || 0.01;
+          const force = 2200 / dist2;
+          a.vx -= force * dx / 1000;
+          a.vy -= force * dy / 1000;
+          b.vx += force * dx / 1000;
+          b.vy += force * dy / 1000;
         }
-        
-        function makeDraggable(element, node) {
-            let dragging = false
-            
-            element.addEventListener("mousedown", (e) => {
-                if (e.detail > 1) return
-                dragging = true
-                element.style.cursor = "grabbing"
-            })
-            
-            document.addEventListener("mousemove", (e) => {
-                if (!dragging) return
-                const rect = svg.getBoundingClientRect()
-                node.x = Math.max(50, Math.min(svg.clientWidth - 50, e.clientX - rect.left))
-                node.y = Math.max(50, Math.min(svg.clientHeight - 80, e.clientY - rect.top))
-                renderGraph()
-            })
-            
-            document.addEventListener("mouseup", () => {
-                if (dragging) {
-                    dragging = false
-                    element.style.cursor = "pointer"
-                }
-            })
-        }
-        
-        function selectNode(id) {
-            selectedId = id
-            renderGraph()
-            renderTable()
-            renderInspector()
-        }
-        
-        function renderInspector() {
-            const container = document.getElementById("inspector")
-            const node = nodes.find(n => n.id === selectedId)
-            
-            if (!node) {
-                container.innerHTML = `
-                    <div class="h-full flex flex-col items-center justify-center text-center opacity-60">
-                        <div class="text-6xl mb-6">◉</div>
-                        <div class="text-sm">Click a node to inspect</div>
-                    </div>`
-                return
-            }
-            
-            container.innerHTML = `
-                <div class="space-y-8">
-                    <div>
-                        <div class="flex items-center gap-x-4">
-                            <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-4xl" style="background: linear-gradient(135deg, ${node.color}33, #1e2937)">◉</div>
-                            <div>
-                                <div class="text-xl font-semibold text-white">${node.label}</div>
-                                <div class="inline-flex items-center gap-x-2 mt-1">
-                                    <span class="px-3 py-0.5 text-xs rounded-3xl bg-[#00bcd4]/10 text-[#00bcd4]">${node.type}</span>
-                                    <span class="text-xs text-emerald-400">● healthy</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="uppercase text-[10px] tracking-[1px] text-[#64748b] mb-3">PROPERTIES</div>
-                        <div class="bg-[#1a1f2e] rounded-2xl p-5 space-y-4 text-sm">
-                            <div class="flex justify-between"><span class="text-[#94a3b8]">IP</span><span class="font-mono">10.42.3.${node.id}17</span></div>
-                            <div class="flex justify-between"><span class="text-[#94a3b8]">CPU</span><span>${Math.floor(Math.random()*40+5)}%</span></div>
-                            <div class="flex justify-between"><span class="text-[#94a3b8]">Last seen</span><span class="font-mono">just now</span></div>
-                            <div class="flex justify-between"><span class="text-[#94a3b8]">Degree</span><span class="font-medium">${node.degree}</span></div>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="uppercase text-[10px] tracking-[1px] text-[#64748b] mb-3">CONNECTED</div>
-                        <div class="grid grid-cols-2 gap-2">
-                            ${edges.filter(e => e.from === node.id || e.to === node.id)
-                                .map(e => {
-                                    const otherId = e.from === node.id ? e.to : e.from
-                                    const other = nodes.find(n => n.id === otherId)
-                                    return `<div onclick="selectNode('${otherId}')" class="bg-[#1a1f2e] hover:bg-[#25303f] p-3 rounded-xl cursor-pointer transition-all text-xs truncate">${other?.label || otherId}</div>`
-                                }).join('')}
-                        </div>
-                    </div>
-                </div>`
-        }
-        
-        function renderTable() {
-            const tbody = document.getElementById("table-body")
-            tbody.innerHTML = ""
-            
-            nodes.forEach(node => {
-                const row = document.createElement("tr")
-                row.className = `hover:bg-[#1f2937] cursor-pointer transition-all ${selectedId === node.id ? 'selected-row' : ''}`
-                row.innerHTML = `
-                    <td class="pl-8 py-4 font-mono text-[#64748b]">${node.id}</td>
-                    <td class="py-4 font-medium">${node.label}</td>
-                    <td class="py-4"><span class="inline-block px-3 py-0.5 text-xs rounded-3xl bg-[#334155]">${node.type}</span></td>
-                    <td class="py-4 font-mono">${node.degree}</td>
-                    <td class="py-4"><span class="text-emerald-400 text-xs font-medium">● LIVE</span></td>`
-                row.onclick = () => selectNode(node.id)
-                tbody.appendChild(row)
-            })
-        }
-        
-        function sortTable() { nodes.reverse(); renderTable() }
-        
-        function executeQuery() {
-            const input = document.getElementById("query-input")
-            input.style.transition = "all 0.3s"
-            input.style.transform = "scale(0.98)"
-            setTimeout(() => input.style.transform = "scale(1)", 180)
-        }
-        
-        function exportPDF() { alert("PDF export → notebook-publish crate") }
-        function cycleLanguage() {
-            let idx = languages.indexOf(currentLang)
-            currentLang = languages[(idx + 1) % languages.length]
-            document.getElementById("current-lang").textContent = currentLang
-        }
-        function toggleAI() { alert("✦ MCP Copilot → /mcp/sse on :2718") }
-        function setLayout(mode) {
-            nodes.forEach(n => { n.x += (Math.random()*40-20); n.y += (Math.random()*30-15) })
-            renderGraph()
-        }
-        function zoomIn() {}
-        function zoomOut() {}
-        function zoomReset() {}
-        
-        window.onload = () => { renderGraph(); renderTable() }
-    </script>
+      }
+
+      visibleEdges.forEach(e => {
+        const s = nodeMap.get(e.source);
+        const t = nodeMap.get(e.target);
+        const dx = t.x - s.x;
+        const dy = t.y - s.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const targetDist = 140;
+        const spring = (dist - targetDist) * 0.0032;
+        const fx = (dx / dist) * spring;
+        const fy = (dy / dist) * spring;
+        s.vx += fx;
+        s.vy += fy;
+        t.vx -= fx;
+        t.vy -= fy;
+      });
+
+      visibleNodes.forEach(n => {
+        n.vx *= 0.92;
+        n.vy *= 0.92;
+        n.x = Math.max(80, Math.min(820, n.x + n.vx));
+        n.y = Math.max(80, Math.min(440, n.y + n.vy));
+      });
+
+      renderGraph();
+      requestAnimationFrame(tick);
+    }
+
+    renderAll();
+    tick();
+  </script>
 </body>
 </html>
