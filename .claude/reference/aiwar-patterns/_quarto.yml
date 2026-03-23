@@ -1,0 +1,35 @@
+jupyter: python3
+project:
+  type: default
+  output-dir: public
+
+site-url: https://sarahciston.gitlab.com/aiwarcloud
+
+author: 
+  - name: Sarah Ciston
+    degrees: PhD
+    orcid: 0000-0001-9456-9537
+    corresponding: true
+    email: sarah@sarahciston.com
+
+bibliography: src/bibliography.json
+
+format: 
+  html: 
+    theme: 
+      - cosmo
+      # - brand
+      - src/style.scss
+    toc: true
+    toc-title: "Contents"
+    code-fold: true
+    code-annotations: hover
+    css:
+      - src/style.css 
+    number-sections: false
+    reference-location: margin
+    toc-location: left
+
+# execute:
+  # freeze: auto
+#   debug: true

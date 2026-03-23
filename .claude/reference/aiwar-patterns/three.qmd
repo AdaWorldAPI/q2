@@ -1,0 +1,170 @@
+---
+title: AI War Cloud
+subtitle: AI decision making from battlefield to desktop
+# date: Aug 1 2025
+keywords: artificial intelligence, artistic research, automated decision making, autonomous weapons, critical AI, defense, generative AI, international security, machine learning, military, surveillance, technoimperialism, tech industry, warfare
+---
+**AI War Cloud is an interactive database and tangible interactive installation connecting and explaining the current techno-imperial boomerang that is perpetuated by machine learning.** 
+
+```{python}
+# | echo: false
+# | column: page
+# | label: fig-graph
+## | fig-cap: "AI War Cloud Database connects AI decision support systems and machine learning tasks as they are used across military and commercial industries."
+## | scroll: 800px
+## | classes: cell
+
+import pandas as pd
+from pandas import Series, DataFrame
+import networkx as nx
+import gravis as gv
+from pprint import pprint
+
+Sheets = pd.ExcelFile("./data/aiwc.ods")
+
+# create graph with edges from csv import
+Edges_Deployed = pd.read_excel(Sheets, sheet_name = "E_isDeployedBy")
+Edges_Developed = pd.read_excel(Sheets, sheet_name = "E_isDevelopedBy")
+Edges_Place = pd.read_excel(Sheets, sheet_name = "E_place")
+Edges_Connection = pd.read_excel(Sheets, sheet_name = "E_connection")
+Edges_People = pd.read_excel(Sheets, sheet_name = "E_people")
+all_edges = [Edges_Deployed, Edges_Developed, Edges_Place, Edges_Connection, Edges_People]
+Edges = pd.concat(all_edges)
+
+g = nx.from_pandas_edgelist(Edges, 
+                            source='source', 
+                            target='target', 
+                            edge_attr=['label'], 
+                            create_using=nx.Graph(), #DiGraph
+                            edge_key=False)
+
+# print(g.edges())
+
+
+# assign data to nodes (stakeholders)
+Stakeholders = pd.read_excel(Sheets, sheet_name = "N_Stakeholders") #, header=0, index_col=0
+Stakeholders = Stakeholders.T # transforms from long to wide table
+Stakeholders.index_col = 'id'
+
+StakeDict = Stakeholders.to_dict()
+# pprint((StakeDict))
+
+for d in StakeDict:
+    g.nodes[StakeDict[d]['id']].update(StakeDict[d]) 
+
+# assign data to nodes (systems)
+Systems = pd.read_excel(Sheets, sheet_name = "N_Systems")
+Systems = Systems.T # transforms from long to wide table
+Systems.index_col = 'id'
+
+SysDict = Systems.to_dict()
+
+for d in SysDict:
+    g.nodes[SysDict[d]['id']].update(SysDict[d]) 
+
+# assign data to nodes (civic)
+Civic = pd.read_excel(Sheets, sheet_name = "N_Civic")
+Civic = Civic.T # transforms from long to wide table
+Civic.index_col = 'id'
+
+CivDict = Civic.to_dict()
+
+for d in CivDict:
+    g.nodes[CivDict[d]['id']].update(CivDict[d])
+
+# assign data to nodes (history)
+Hist = pd.read_excel(Sheets, sheet_name = "N_Historical")
+Hist = Hist.T # transforms from long to wide table
+Hist.index_col = 'id'
+
+HistDict = Hist.to_dict()
+
+for d in HistDict:
+    g.nodes[HistDict[d]['id']].update(HistDict[d])
+
+# assign data to nodes (people)
+People = pd.read_excel(Sheets, sheet_name = "N_People")
+Peep = People.T # transforms from long to wide table
+Peep.index_col = 'id'
+
+PeepDict = Peep.to_dict()
+
+for d in Peep:
+    g.nodes[PeepDict[d]['id']].update(PeepDict[d])
+
+### test nodes
+# print(g.nodes.data())
+# print(g.nodes['Lavender']['nounKey'])
+
+# visual settings
+gg = g.graph
+gg['edge_opacity'] = 0.25
+gg['node_opacity'] = 0 #.75
+# gg['node_shape'] = 'rectangle'
+# gg['node_border_size'] = 0
+# gg['edge_label_size'] = 5
+gg['node_label_size'] = 9
+# gg['node_color'] = 'gray'
+# gg['border_size'] = 0
+# gg['node_hover'] = '$name'
+gg['node_click'] = 'Details: $hover'
+
+# centrality = nx.algorithms.degree_centrality(g)
+# nx.set_node_attributes(g, centrality, 'size')
+
+# communities = nx.algorithms.community.louvain_communities(g)
+# communities = nx.algorithms.community.greedy_modularity_communities(g)
+# colors = ['#51DBD9', '#5186DB', '#51B2DB', '#51DBAB', '#515ADB', '#009ADB']
+# for community, color in zip(communities, colors):
+#   for node in community:
+#     g.nodes[node]['color'] = color #add edges to this too
+
+gv.three(g, 
+        graph_height=800,
+        zoom_factor=-1,
+        show_details=False,
+        show_details_toggle_button=True,
+        show_node_label=True, 
+        node_label_data_source='name',
+        # node_size_data_source='year',
+        node_size_factor = 2,
+        # node_click='details',
+        # use_node_size_normalization=True,
+        # node_size_normalization_max=20,
+        # show_edge_label=False,
+        # edge_size_data_source='size',
+        # edge_size_normalization_max=3,
+        # edge_size_normalization_min=0.5,
+        # edge_label_data_source='label',
+        edge_curvature=0,
+        node_hover_neighborhood=True,
+        node_hover_tooltip=True,
+        edge_hover_tooltip=True,
+        # use_collision_force=True,
+        many_body_force_strength=-1100,
+        many_body_force_theta=0.5,
+        node_drag_fix=True,
+        show_node_image=True,
+        node_image_size_factor=1.75,
+        show_node_label_border=False,
+        show_edge_label_border=False,
+        # node_label_rotation=0,
+        node_label_font='IBM Plex Mono',
+        use_x_positioning_force = True,
+        x_positioning_force_strength = 0.04,
+        use_y_positioning_force = True,
+        y_positioning_force_strength = 0.07,
+        use_z_positioning_force = True,
+        z_positioning_force_strength = 0.11,
+        # use_centering_force = False,
+)
+
+
+```
+
+
+Bibliography: [References](about.html#full-bibliography)
+
+Code: [GitLab](https://gitlab.com/sarahciston/aiwar)
+
+[Credits and Acknowledgments](about.html#credits)
