@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>q2 — Graph Notebook</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap');
+
+        :root {
+            --teal: #00bcd4;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .logo-font {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        .graph-node {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .graph-node:hover circle {
+            filter: brightness(1.3);
+        }
+
+        .node-label {
+            font-size: 11px;
+            font-weight: 500;
+            pointer-events: none;
+        }
+        table th, table td {
+            transition: background-color 0.1s ease;
+        }
+
+        .selected-row {
+            background-color: rgba(0, 188, 212, 0.15) !important;
+            border-left: 3px solid #00bcd4;
+        }
+        .panel {
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+        }
+    </style>
+</head>
+<body class="bg-[#0a0e17] text-white h-screen overflow-hidden flex flex-col">
+    <!-- TOP BAR - Command Center -->
+    <header class="h-14 bg-[#111827] border-b border-[#334155] flex items-center px-6 gap-x-6 z-50">
+        <!-- Logo -->
+        <div class="flex items-center gap-x-3">
+            <div class="w-7 h-7 bg-gradient-to-br from-[#00bcd4] to-[#4dd0e1] rounded flex items-center justify-center text-black text-xs font-bold logo-font">q2</div>
+            <div>
+                <span class="logo-font text-2xl font-semibold tracking-tighter text-white">q2</span>
+            </div>
+        </div>
+        <!-- Query Bar -->
+        <div class="flex-1 max-w-[680px] relative group">
+            <div class="flex items-center bg-[#1a1f2e] border border-[#334155] focus-within:border-[#00bcd4] rounded-2xl px-5 py-2 text-sm transition-all duration-200">
+                <input id="query-input"
+                       type="text"
+                       value="g.V().hasLabel('server').outE('connects').inV().path()"
+                       class="flex-1 bg-transparent outline-none font-mono text-[#e2e8f0] placeholder:text-[#64748b]">
+
+                <!-- Language chip -->
+                <div onclick="cycleLanguage()"
+                     id="language-chip"
+                     class="ml-4 px-4 py-1 bg-[#00bcd4]/10 hover:bg-[#00bcd4]/20 text-[#00bcd4] text-xs font-medium rounded-xl flex items-center gap-x-1.5 cursor-pointer transition-colors">
+                    <span id="current-lang">gremlin</span>
+                    <span class="text-[10px] opacity-60">&#9662;</span>
+                </div>
+            </div>
+
+            <!-- Subtle auto-detect hint -->
+            <div class="absolute -bottom-5 left-6 text-[10px] text-[#64748b] font-mono hidden group-focus-within:block">
+                Gremlin &bull; auto-detected
+            </div>
+        </div>
+        <!-- Right controls -->
+        <div class="flex items-center gap-x-3">
+            <button onclick="executeQuery()"
+                    class="flex items-center gap-x-2 bg-[#00bcd4] hover:bg-[#4dd0e1] text-black font-medium px-6 py-2 rounded-2xl text-sm transition-all active:scale-95">
+                <span>Execute</span>
+                <span class="text-xs opacity-70">&#8984;&#9166;</span>
+            </button>
+
+            <button onclick="exportPDF()"
+                    class="flex items-center gap-x-2 border border-[#334155] hover:border-[#00bcd4] px-5 py-2 rounded-2xl text-sm font-medium transition-all">
+                <span class="text-[#00bcd4]">&#9112;</span>
+                PDF
+            </button>
+
+            <div class="w-px h-6 bg-[#334155]"></div>
+
+            <button onclick="toggleAI()"
+                    class="w-8 h-8 flex items-center justify-center rounded-2xl border border-[#334155] hover:border-[#00bcd4] transition-all">
+                <span class="text-lg">&#10022;</span>
+            </button>
+        </div>
+    </header>
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- LEFT: Notebook Cells -->
+        <div class="w-56 bg-[#111827] border-r border-[#334155] flex flex-col panel">
+            <div class="px-5 pt-5 pb-3 text-xs font-semibold tracking-[0.5px] text-[#64748b] uppercase">Notebook</div>
+
+            <div class="flex-1 overflow-y-auto px-3 space-y-1 text-sm">
+                <div onclick="this.classList.toggle('bg-[#1f2937]')"
+                     class="px-4 py-3 rounded-2xl flex items-center gap-x-3 hover:bg-[#1f2937] cursor-pointer bg-[#1f2937]">
+                    <div class="w-2 h-2 bg-[#00bcd4] rounded-full"></div>
+                    <div class="flex-1 truncate">Main Gremlin Query</div>
+                    <div class="text-[#64748b] text-xs">live</div>
+                </div>
+
+                <div onclick="this.classList.toggle('bg-[#1f2937]')"
+                     class="px-4 py-3 rounded-2xl flex items-center gap-x-3 hover:bg-[#1f2937] cursor-pointer">
+                    <div class="w-2 h-2 bg-amber-400 rounded-full"></div>
+                    <div class="flex-1 truncate">R: centrality()</div>
+                </div>
+
+                <div onclick="this.classList.toggle('bg-[#1f2937]')"
+                     class="px-4 py-3 rounded-2xl flex items-center gap-x-3 hover:bg-[#1f2937] cursor-pointer">
+                    <div class="w-2 h-2 bg-emerald-400 rounded-full"></div>
+                    <div class="flex-1 truncate">Markdown notes</div>
+                </div>
+            </div>
+
+            <!-- Parameters -->
+            <div class="border-t border-[#334155] p-5">
+                <div class="text-xs font-semibold tracking-widest text-[#64748b] mb-3">FILTERS</div>
+                <div class="space-y-4">
+                    <div>
+                        <div class="text-xs text-[#94a3b8]">Label</div>
+                        <select class="w-full mt-1 bg-[#1a1f2e] border border-[#334155] rounded-xl px-3 py-2 text-sm">
+                            <option>server</option>
+                            <option>database</option>
+                            <option>user</option>
+                        </select>
+                    </div>
+                    <div>
+                        <div class="text-xs text-[#94a3b8]">Min degree</div>
+                        <input type="range" min="0" max="10" value="2" class="w-full accent-[#00bcd4]">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- CENTER COLUMN -->
+        <div class="flex-1 flex flex-col">
+
+            <!-- GRAPH PANEL -->
+            <div class="flex-1 relative bg-[#0a1421] flex flex-col panel">
+                <div class="h-11 bg-[#111827]/80 backdrop-blur-md border-b border-[#334155] flex items-center px-6 text-xs z-10">
+                    <div class="flex items-center gap-x-8 text-[#94a3b8]">
+                        <button onclick="setLayout('force')" class="hover:text-white transition-colors flex items-center gap-x-1">
+                            <span class="text-[#00bcd4]">&#10065;</span> FORCE
+                        </button>
+                        <button onclick="setLayout('circular')" class="hover:text-white transition-colors">CIRCULAR</button>
+                        <button onclick="setLayout('hierarchical')" class="hover:text-white transition-colors">HIERARCHY</button>
+                    </div>
+
+                    <div class="flex-1"></div>
+
+                    <div class="flex items-center gap-x-6 text-xs">
+                        <div class="flex items-center gap-x-1.5">
+                            <div class="w-2 h-2 bg-[#00bcd4] rounded"></div>
+                            <span>Servers</span>
+                        </div>
+                        <div class="flex items-center gap-x-1.5">
+                            <div class="w-2 h-2 bg-amber-400 rounded"></div>
+                            <span>Databases</span>
+                        </div>
+                    </div>
+
+                    <div class="flex-1"></div>
+
+                    <div class="flex items-center gap-x-px bg-[#1a1f2e] rounded-2xl p-px">
+                        <button onclick="zoomOut()" class="w-8 h-8 flex items-center justify-center hover:bg-[#334155] rounded-[14px]">&minus;</button>
+                        <button onclick="zoomReset()" class="px-4 text-xs text-[#00bcd4]">100%</button>
+                        <button onclick="zoomIn()" class="w-8 h-8 flex items-center justify-center hover:bg-[#334155] rounded-[14px]">+</button>
+                    </div>
+                </div>
+
+                <div class="flex-1 relative" id="graph-wrapper">
+                    <svg id="graph-svg" width="100%" height="100%" class="absolute inset-0" xmlns="http://www.w3.org/2000/svg"></svg>
+
+                    <div class="absolute bottom-6 left-6 bg-[#111827]/90 backdrop-blur-md text-xs px-5 py-2.5 rounded-3xl border border-[#334155] flex items-center gap-x-3">
+                        <div class="flex items-center gap-x-2">
+                            <span class="text-emerald-400">&#9679;</span>
+                            <span id="node-count" class="font-mono">14 nodes</span>
+                        </div>
+                        <div class="w-px h-3 bg-[#334155]"></div>
+                        <div class="flex items-center gap-x-2">
+                            <span class="text-[#00bcd4]">&#8596;</span>
+                            <span id="edge-count" class="font-mono">27 edges</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BOTTOM: Result Table -->
+            <div class="h-80 bg-[#111827] border-t border-[#334155] flex flex-col panel">
+                <div class="px-6 h-10 border-b border-[#334155] flex items-center justify-between text-xs font-semibold tracking-widest text-[#64748b]">
+                    <div>QUERY RESULT &bull; 14 rows</div>
+                    <div class="flex items-center gap-x-6">
+                        <button onclick="sortTable()" class="hover:text-white">Sort &darr;</button>
+                        <button class="text-[#00bcd4]">Export CSV</button>
+                    </div>
+                </div>
+
+                <div class="flex-1 overflow-auto">
+                    <table id="result-table" class="w-full text-sm">
+                        <thead class="sticky top-0 bg-[#111827] z-10">
+                            <tr class="text-[#64748b] border-b border-[#334155]">
+                                <th class="text-left pl-8 py-3 font-medium w-12">ID</th>
+                                <th class="text-left py-3 font-medium">LABEL</th>
+                                <th class="text-left py-3 font-medium">TYPE</th>
+                                <th class="text-left py-3 font-medium">DEGREE</th>
+                                <th class="text-left py-3 font-medium">STATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body" class="text-[#e2e8f0] divide-y divide-[#1f2937]"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <!-- RIGHT: Inspector -->
+        <div class="w-80 bg-[#111827] border-l border-[#334155] flex flex-col panel overflow-hidden">
+            <div class="px-6 h-11 border-b border-[#334155] flex items-center text-xs uppercase font-semibold tracking-widest text-[#64748b]">
+                INSPECTOR
+            </div>
+
+            <div id="inspector" class="flex-1 p-6 overflow-auto">
+                <div class="h-full flex flex-col items-center justify-center text-center">
+                    <div class="w-16 h-16 rounded-3xl bg-gradient-to-br from-[#00bcd4]/10 to-transparent flex items-center justify-center mb-6">
+                        <span class="text-4xl">&#9673;</span>
+                    </div>
+                    <div class="text-[#64748b] text-sm max-w-[180px]">
+                        Click any node in the graph to see properties, edges, and metadata
+                    </div>
+                </div>
+            </div>
+
+            <div class="h-11 border-t border-[#334155] bg-[#0a0e17] flex items-center px-6 text-[10px] text-[#64748b] font-mono">
+                LIVE &bull; 2718
+            </div>
+        </div>
+    </div>
+    <script>
+        let nodes = [
+            { id: "1", label: "web-prod-01", type: "server", x: 280, y: 220, color: "#00bcd4", degree: 5 },
+            { id: "2", label: "db-master", type: "database", x: 520, y: 150, color: "#f59e0b", degree: 8 },
+            { id: "3", label: "api-gateway", type: "server", x: 680, y: 340, color: "#00bcd4", degree: 12 },
+            { id: "4", label: "user-4721", type: "user", x: 180, y: 410, color: "#a78bfa", degree: 3 },
+            { id: "5", label: "cache-redis", type: "cache", x: 450, y: 480, color: "#f43f5e", degree: 7 },
+            { id: "6", label: "auth-service", type: "service", x: 750, y: 210, color: "#22c55e", degree: 4 },
+            { id: "7", label: "analytics", type: "database", x: 310, y: 310, color: "#f59e0b", degree: 6 }
+        ]
+
+        let edges = [
+            { from: "1", to: "2" }, { from: "1", to: "3" }, { from: "1", to: "5" },
+            { from: "2", to: "3" }, { from: "2", to: "7" },
+            { from: "3", to: "6" }, { from: "4", to: "1" },
+            { from: "5", to: "2" }, { from: "6", to: "7" }
+        ]
+
+        let selectedId = null
+        let currentLang = "gremlin"
+        const languages = ["gremlin", "cypher", "sparql", "r"]
+
+        const svg = document.getElementById("graph-svg")
+        const NS = "http://www.w3.org/2000/svg"
+
+        function renderGraph() {
+            svg.innerHTML = ""
+
+            edges.forEach(edge => {
+                const n1 = nodes.find(n => n.id === edge.from)
+                const n2 = nodes.find(n => n.id === edge.to)
+                if (!n1 || !n2) return
+
+                const line = document.createElementNS(NS, "line")
+                line.setAttribute("x1", n1.x)
+                line.setAttribute("y1", n1.y)
+                line.setAttribute("x2", n2.x)
+                line.setAttribute("y2", n2.y)
+                line.setAttribute("stroke", "#334155")
+                line.setAttribute("stroke-width", "2.5")
+                line.setAttribute("stroke-opacity", "0.7")
+                svg.appendChild(line)
+            })
+
+            nodes.forEach(node => {
+                const g = document.createElementNS(NS, "g")
+                g.setAttribute("class", "graph-node")
+                g.setAttribute("data-id", node.id)
+
+                const circle = document.createElementNS(NS, "circle")
+                circle.setAttribute("cx", node.x)
+                circle.setAttribute("cy", node.y)
+                circle.setAttribute("r", "27")
+                circle.setAttribute("fill", node.color)
+                circle.setAttribute("stroke", selectedId === node.id ? "#67e8f9" : "#1e2937")
+                circle.setAttribute("stroke-width", selectedId === node.id ? "5" : "4")
+                circle.setAttribute("stroke-opacity", selectedId === node.id ? "1" : "0.9")
+                g.appendChild(circle)
+
+                const text = document.createElementNS(NS, "text")
+                text.setAttribute("x", node.x)
+                text.setAttribute("y", node.y + 48)
+                text.setAttribute("text-anchor", "middle")
+                text.setAttribute("fill", "#cbd5e1")
+                text.setAttribute("class", "node-label")
+                text.textContent = node.label
+                g.appendChild(text)
+
+                g.addEventListener("click", (e) => {
+                    e.stopImmediatePropagation()
+                    selectNode(node.id)
+                })
+
+                makeDraggable(g, node)
+                svg.appendChild(g)
+            })
+        }
+
+        function makeDraggable(element, node) {
+            let dragging = false
+
+            element.addEventListener("mousedown", (e) => {
+                if (e.detail > 1) return
+                dragging = true
+                element.style.cursor = "grabbing"
+            })
+
+            document.addEventListener("mousemove", (e) => {
+                if (!dragging) return
+                const rect = svg.getBoundingClientRect()
+                node.x = Math.max(50, Math.min(svg.clientWidth - 50, e.clientX - rect.left))
+                node.y = Math.max(50, Math.min(svg.clientHeight - 80, e.clientY - rect.top))
+                renderGraph()
+            })
+
+            document.addEventListener("mouseup", () => {
+                if (dragging) {
+                    dragging = false
+                    element.style.cursor = "pointer"
+                }
+            })
+        }
+
+        function selectNode(id) {
+            selectedId = id
+            renderGraph()
+            renderTable()
+            renderInspector()
+        }
+
+        function renderInspector() {
+            const container = document.getElementById("inspector")
+            const node = nodes.find(n => n.id === selectedId)
+
+            if (!node) {
+                container.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-center opacity-60">
+                        <div class="text-6xl mb-6">&#9673;</div>
+                        <div class="text-sm">Click a node to inspect</div>
+                    </div>`
+                return
+            }
+
+            container.innerHTML = `
+                <div class="space-y-8">
+                    <div>
+                        <div class="flex items-center gap-x-4">
+                            <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-4xl" style="background: linear-gradient(135deg, ${node.color}33, #1e2937)">&#9673;</div>
+                            <div>
+                                <div class="text-xl font-semibold text-white">${node.label}</div>
+                                <div class="inline-flex items-center gap-x-2 mt-1">
+                                    <span class="px-3 py-0.5 text-xs rounded-3xl bg-[#00bcd4]/10 text-[#00bcd4]">${node.type}</span>
+                                    <span class="text-xs text-emerald-400">&#9679; healthy</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="uppercase text-[10px] tracking-[1px] text-[#64748b] mb-3">PROPERTIES</div>
+                        <div class="bg-[#1a1f2e] rounded-2xl p-5 space-y-4 text-sm">
+                            <div class="flex justify-between"><span class="text-[#94a3b8]">IP</span><span class="font-mono">10.42.3.${node.id}17</span></div>
+                            <div class="flex justify-between"><span class="text-[#94a3b8]">CPU</span><span>${Math.floor(Math.random()*40+5)}%</span></div>
+                            <div class="flex justify-between"><span class="text-[#94a3b8]">Last seen</span><span class="font-mono">just now</span></div>
+                            <div class="flex justify-between"><span class="text-[#94a3b8]">Degree</span><span class="font-medium">${node.degree}</span></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="uppercase text-[10px] tracking-[1px] text-[#64748b] mb-3">CONNECTED</div>
+                        <div class="grid grid-cols-2 gap-2">
+                            ${edges.filter(e => e.from === node.id || e.to === node.id)
+                                .map(e => {
+                                    const otherId = e.from === node.id ? e.to : e.from
+                                    const other = nodes.find(n => n.id === otherId)
+                                    return `<div onclick="selectNode('${otherId}')" class="bg-[#1a1f2e] hover:bg-[#25303f] p-3 rounded-xl cursor-pointer transition-all text-xs truncate">${other?.label || otherId}</div>`
+                                }).join('')}
+                        </div>
+                    </div>
+                </div>`
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById("table-body")
+            tbody.innerHTML = ""
+
+            nodes.forEach(node => {
+                const row = document.createElement("tr")
+                row.className = `hover:bg-[#1f2937] cursor-pointer transition-all ${selectedId === node.id ? 'selected-row' : ''}`
+                row.innerHTML = `
+                    <td class="pl-8 py-4 font-mono text-[#64748b]">${node.id}</td>
+                    <td class="py-4 font-medium">${node.label}</td>
+                    <td class="py-4"><span class="inline-block px-3 py-0.5 text-xs rounded-3xl bg-[#334155]">${node.type}</span></td>
+                    <td class="py-4 font-mono">${node.degree}</td>
+                    <td class="py-4"><span class="text-emerald-400 text-xs font-medium">&#9679; LIVE</span></td>`
+                row.onclick = () => selectNode(node.id)
+                tbody.appendChild(row)
+            })
+        }
+
+        function sortTable() { nodes.reverse(); renderTable() }
+
+        function executeQuery() {
+            const input = document.getElementById("query-input")
+            input.style.transition = "all 0.3s"
+            input.style.transform = "scale(0.98)"
+            setTimeout(() => input.style.transform = "scale(1)", 180)
+        }
+
+        function exportPDF() { alert("PDF export -> notebook-publish crate") }
+        function cycleLanguage() {
+            let idx = languages.indexOf(currentLang)
+            currentLang = languages[(idx + 1) % languages.length]
+            document.getElementById("current-lang").textContent = currentLang
+        }
+        function toggleAI() { alert("MCP Copilot -> /mcp/sse on :2718") }
+        function setLayout(mode) {
+            nodes.forEach(n => { n.x += (Math.random()*40-20); n.y += (Math.random()*30-15) })
+            renderGraph()
+        }
+        function zoomIn() {}
+        function zoomOut() {}
+        function zoomReset() {}
+
+        window.onload = () => { renderGraph(); renderTable() }
+    </script>
+</body>
+</html>
