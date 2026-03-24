@@ -10,6 +10,8 @@
 
 pub mod hydration;
 pub mod reasoning;
+#[cfg(feature = "orchestrator")]
+pub mod thinking;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -67,6 +69,33 @@ pub fn detect_language(source: &str) -> QueryLanguage {
 // ── Execution entry point ──
 
 pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, String> {
+    // %%think magic: route through 10-layer cognitive stack
+    #[cfg(feature = "orchestrator")]
+    if source.trim().starts_with("%%think") {
+        let query = source.trim().strip_prefix("%%think").unwrap_or("").trim();
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        let result = rt.block_on(thinking::execute_think(query))?;
+        return Ok(QueryResult {
+            language,
+            raw_output: result.output.clone(),
+            html: Some(format!(
+                "<div class=\"think-result\">\
+                 <div class=\"pet-scan\">{}</div>\
+                 <pre>{}</pre>\
+                 <div class=\"meta\">Band: {} | Staunen: {} | Layers: {} | {}μs</div>\
+                 </div>",
+                serde_json::to_string_pretty(&result.pet_scan).unwrap_or_default(),
+                result.output,
+                result.band,
+                result.staunen,
+                result.layers_executed,
+                result.elapsed_us,
+            )),
+            graph_json: None,
+            elapsed_ms: (result.elapsed_us / 1000) as u64,
+        });
+    }
+
     match language {
         QueryLanguage::Cypher => execute_cypher(source),
         QueryLanguage::Gremlin | QueryLanguage::Sparql => {

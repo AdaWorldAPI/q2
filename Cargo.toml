@@ -178,6 +178,11 @@ default-features = false
 path = "../lance-graph/crates/bgz17"
 package = "bgz17"
 
+# rs-graph-llm: LangGraph-like orchestrator — thinking.rs 10-layer cognitive stack
+[workspace.dependencies.graph-flow]
+path = "../rs-graph-llm/graph-flow"
+package = "graph-flow"
+
 [workspace.dependencies.q2-ndarray]
 path = "./crates/stubs/q2-ndarray"
 
