@@ -3,6 +3,8 @@
 //! Hot path: 221 nodes + 356 edges, all in-memory. Zero network hops.
 //! Cypher queries execute against Arrow-speed in-process data.
 
+pub mod encounter_round;
+
 use neo4j_rs::{Graph, PropertyMap, Value};
 use neo4j_rs::storage::MemoryBackend;
 use serde::Deserialize;
@@ -368,9 +370,10 @@ pub fn query_result_to_vis_json(
                     let name = node.properties.get("name")
                         .and_then(|v| if let Value::String(s) = v { Some(s.as_str()) } else { None })
                         .unwrap_or("unknown");
+                    let id_fallback = format!("n-{}", node.id.0);
                     let id = node.properties.get("id")
                         .and_then(|v| if let Value::String(s) = v { Some(s.as_str()) } else { None })
-                        .unwrap_or(&format!("n-{}", node.id.0));
+                        .unwrap_or(&id_fallback);
 
                     // Build properties object
                     let mut prop_obj = serde_json::Map::new();
@@ -387,8 +390,8 @@ pub fn query_result_to_vis_json(
                 }
                 Value::Relationship(rel) => {
                     edges.push(serde_json::json!({
-                        "source": format!("n-{}", rel.src_id.0),
-                        "target": format!("n-{}", rel.dst_id.0),
+                        "source": format!("n-{}", rel.src.0),
+                        "target": format!("n-{}", rel.dst.0),
                         "label": rel.rel_type,
                     }));
                 }
@@ -416,8 +419,8 @@ pub fn query_result_to_vis_json(
                     }
                     for rel in &path.relationships {
                         edges.push(serde_json::json!({
-                            "source": format!("n-{}", rel.src_id.0),
-                            "target": format!("n-{}", rel.dst_id.0),
+                            "source": format!("n-{}", rel.src.0),
+                            "target": format!("n-{}", rel.dst.0),
                             "label": rel.rel_type,
                         }));
                     }
