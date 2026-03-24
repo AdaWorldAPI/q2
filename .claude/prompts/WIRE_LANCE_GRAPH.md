@@ -1,6 +1,17 @@
 # Wire lance-graph Hot Path into notebook-query
 
-## MANDATORY: Read .claude/rules/architectural-compliance.md FIRST
+## FIRST: Pull latest — the tree changed
+
+```bash
+git fetch origin main
+git reset --hard origin/main
+```
+
+The lance-graph stub was DELETED. The workspace Cargo.toml was rewritten.
+notebook-query/Cargo.toml has new deps. If you're on a stale branch you
+will be working on code that no longer exists.
+
+## MANDATORY: Read .claude/rules/architectural-compliance.md SECOND
 
 ## Context
 
