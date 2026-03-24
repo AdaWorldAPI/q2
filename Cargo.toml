@@ -166,17 +166,16 @@ path = "./crates/stubs/notebook-kernel"
 path = "./crates/stubs/notebook-render"
 
 # The real engine — Cypher parser + DataFusion planner + blasgraph columnar
-# default-features = false skips deltalake (s3/azure/gcs) and unity-catalog
+# Local path ensures Cargo uses the FULL crate (with zeckf64, heel_hip_twig_leaf,
+# versioned graph, neighborhood, etc.) — not the vendored subdirectory copy.
 [workspace.dependencies.lance-graph]
-git = "https://github.com/AdaWorldAPI/lance-graph"
-branch = "main"
+path = "../lance-graph/crates/lance-graph"
 package = "lance-graph"
 default-features = false
 
 # bgz17: Blasgraph-ZeckBF17 — HHTL cascade, semiring algebra, GraphBLAS, container seals
 [workspace.dependencies.bgz17]
-git = "https://github.com/AdaWorldAPI/lance-graph"
-branch = "main"
+path = "../lance-graph/crates/bgz17"
 package = "bgz17"
 
 [workspace.dependencies.q2-ndarray]

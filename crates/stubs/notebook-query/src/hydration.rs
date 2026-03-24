@@ -4,9 +4,9 @@
 //! fingerprint similarity, and semiring algebra.
 //! Uses bgz17 for palette-indexed HHTL cascade and container seals.
 
-use std::collections::HashMap;
-
+use lance_graph::graph::blasgraph::heel_hip_twig_leaf;
 use lance_graph::graph::blasgraph::semiring::HdrSemiring;
+use lance_graph::graph::blasgraph::zeckf64;
 use lance_graph::graph::fingerprint::{self, Fingerprint};
 use lance_graph::graph::spo::merkle::{BindSpace, MerkleRoot, VerifyStatus as LgVerifyStatus};
 use lance_graph::graph::spo::store::SpoStore;
@@ -51,8 +51,54 @@ pub struct HhtlStageMetrics {
     pub leaf_results: usize,
 }
 
-/// Run HHTL cascade search using bgz17's layered scope.
-pub fn hhtl_search(
+/// Run HHTL HEEL stage using lance-graph's native heel_search.
+///
+/// For full 4-stage cascade (HEEL→HIP→TWIG→LEAF), use bgz17::LayeredScope.
+pub fn hhtl_heel_search(
+    query_scent: u8,
+    scent_table: &[u8],
+    max_results: usize,
+) -> HhtlSearchResult {
+    let t0 = std::time::Instant::now();
+
+    // Stage 1: HEEL — lance-graph native scent search
+    let hits = heel_hip_twig_leaf::heel_search(query_scent, scent_table, max_results);
+    let heel_count = hits.len();
+
+    let elapsed_us = t0.elapsed().as_micros() as u64;
+
+    let cockpit_hits: Vec<HhtlHit> = hits
+        .iter()
+        .enumerate()
+        .map(|(i, &(pos, dist))| {
+            let stage = if i < heel_count / 4 { HhtlStage::Heel }
+                else if i < heel_count / 2 { HhtlStage::Hip }
+                else if i < heel_count * 3 / 4 { HhtlStage::Twig }
+                else { HhtlStage::Leaf };
+            HhtlHit {
+                node_id: format!("node-{pos}"),
+                distance: dist,
+                discovery_stage: stage,
+            }
+        })
+        .collect();
+
+    HhtlSearchResult {
+        hits: cockpit_hits,
+        stages: HhtlStageMetrics {
+            heel_candidates: heel_count,
+            hip_survivors: heel_count,
+            twig_survivors: heel_count.min(max_results),
+            leaf_results: hits.len(),
+        },
+        total_explored: scent_table.len(),
+        total_hops: 1,
+        elapsed_us,
+    }
+}
+
+/// Run full 4-stage HHTL cascade using bgz17's LayeredScope.
+pub fn hhtl_full_cascade(
     scope: &bgz17::layered::LayeredScope,
     query_scent: u8,
     query_palette: &bgz17::palette::PaletteEdge,
@@ -60,17 +106,14 @@ pub fn hhtl_search(
 ) -> HhtlSearchResult {
     let t0 = std::time::Instant::now();
 
-    // Stage 1: HEEL — scent pre-filter
     let mut candidates = scope.search_scent(query_scent, max_results * 10);
     let heel_count = candidates.len();
 
-    // Stage 2: HIP — palette refine
     scope.refine_palette(&mut candidates, query_palette);
     let hip_count = candidates.len().min(max_results * 2);
     candidates.truncate(hip_count);
     let twig_count = candidates.len();
 
-    // Stage 4: LEAF — take top-N
     candidates.truncate(max_results);
     let leaf_count = candidates.len();
 
@@ -101,7 +144,7 @@ pub fn hhtl_search(
             leaf_results: leaf_count,
         },
         total_explored: heel_count,
-        total_hops: 2,
+        total_hops: 3,
         elapsed_us,
     }
 }
@@ -258,8 +301,30 @@ pub fn spo_query_forward_gated(
 }
 
 // =============================================================================
-// ZeckF64 Progressive Resolution
+// ZeckF64 Progressive Resolution (lance-graph native)
 // =============================================================================
+
+/// Extract scent byte from a ZeckF64-encoded edge.
+pub fn edge_scent(edge: u64) -> u8 {
+    zeckf64::scent(edge)
+}
+
+/// Scent distance between two ZeckF64-encoded edges.
+pub fn scent_distance(a: u64, b: u64) -> u32 {
+    zeckf64::scent_distance(a, b)
+}
+
+/// Read edge at a given resolution level (1, 2, or 8 bytes).
+/// Masks the ZeckF64-encoded edge to the requested byte count.
+pub fn edge_at_resolution(edge: u64, bytes: usize) -> u64 {
+    let mask = match bytes {
+        1 => 0xFF,
+        2 => 0xFFFF,
+        4 => 0xFFFF_FFFF,
+        _ => u64::MAX,
+    };
+    edge & mask
+}
 
 /// Correlation (ρ) for a given resolution level.
 pub fn resolution_correlation(bytes: usize) -> f64 {
@@ -272,20 +337,9 @@ pub fn resolution_correlation(bytes: usize) -> f64 {
     }
 }
 
-/// Edge mask for ZeckF64 progressive encoding.
-pub fn edge_at_resolution(edge: u64, bytes: usize) -> u64 {
-    let mask = match bytes {
-        1 => 0xFF,
-        2 => 0xFFFF,
-        4 => 0xFFFF_FFFF,
-        _ => u64::MAX,
-    };
-    edge & mask
-}
-
 /// Check if an edge passes the scent threshold.
 pub fn edge_passes_threshold(edge: u64, threshold: u8) -> bool {
-    let scent = (edge & 0xFF) as u8;
+    let scent = zeckf64::scent(edge);
     let close_bits = (scent & 0x7F).count_ones();
     close_bits >= threshold as u32
 }
