@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>q2 — Graph Notebook</title>
+<style>
+  :root { --bg: #0a0e17; --accent: #00bcd4; --text: #e8eaf6; --muted: #8892b0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .logo { font-size: 48px; font-weight: 700; letter-spacing: -2px; }
+  .logo span { color: var(--accent); }
+  .subtitle { color: var(--muted); margin-top: 8px; font-size: 14px; }
+  .status { margin-top: 24px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #4caf50; box-shadow: 0 0 8px rgba(76,175,80,0.6); }
+  .endpoints { margin-top: 32px; display: grid; gap: 8px; font-family: monospace; font-size: 12px; color: var(--muted); }
+  .endpoints code { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="logo">q<span>2</span></div>
+  <div class="subtitle">Graph Notebook — Cockpit UI</div>
+  <div class="status"><div class="dot"></div> Server running</div>
+  <div class="endpoints">
+    <div><code>GET  /health</code> — health check</div>
+    <div><code>GET  /mcp/sse</code> — MCP over SSE</div>
+    <div><code>POST /mcp/message</code> — MCP tool calls</div>
+  </div>
+</body>
+</html>

@@ -30,6 +30,20 @@ quarto-sass.workspace = true
 quarto-test.workspace = true
 serde_yaml.workspace = true
 
+# Graph notebook dependencies
+notebook-runtime.workspace = true
+notebook-query.workspace = true
+notebook-kernel.workspace = true
+notebook-render.workspace = true
+lance-graph.workspace = true
+q2-ndarray.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+serde.workspace = true
+uuid.workspace = true
+async-stream.workspace = true
+futures-core.workspace = true
+
 [build-dependencies]
 
 [dev-dependencies]
