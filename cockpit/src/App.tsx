@@ -6,6 +6,7 @@ import { GraphPanel } from './components/GraphPanel';
 import { Inspector } from './components/Inspector';
 import { ResultTable } from './components/ResultTable';
 import { CellStrip } from './components/CellStrip';
+import { LeftRail } from './components/LeftRail';
 
 export function App() {
   const connected = useStore((s) => s.connected);
@@ -15,65 +16,35 @@ export function App() {
   }, []);
 
   return (
-    <>
-      {/* Top bar */}
-      <div id="topbar">
-        <div className="topbar-left">
-          <span className="logo">
-            q<span className="logo-accent">2</span>
+    <div className="shell">
+      {/* ── Row 1: Top bar ── */}
+      <section className="topbar">
+        <div className="brand">
+          <small>q2 graph notebook</small>
+          <h1>Cockpit</h1>
+        </div>
+        <QueryBar />
+        <div className="top-actions">
+          <span className={`badge ${connected ? 'good' : ''}`}>
+            {connected ? 'mcp /sse live' : 'disconnected'}
           </span>
-          <div className="breadcrumb">
-            <span className="breadcrumb-item">notebooks</span>
-            <span className="breadcrumb-sep">/</span>
-            <span className="breadcrumb-item active">network-topology</span>
-          </div>
+          <span className="badge">export PDF</span>
         </div>
+      </section>
 
-        <div className="topbar-center">
-          <QueryBar />
-        </div>
+      {/* ── Row 2: Left rail / Graph / Inspector ── */}
+      <LeftRail />
+      <GraphPanel />
+      <Inspector />
 
-        <div className="topbar-right">
-          <div className="topbar-status">
-            <span
-              className={`status-dot ${connected ? 'connected' : ''}`}
-            />
-            <span>{connected ? 'Connected' : 'Disconnected'}</span>
-          </div>
-        </div>
-      </div>
+      {/* ── Row 3: Result table ── */}
+      <ResultTable />
 
-      {/* Cockpit grid */}
-      <div id="cockpit">
-        <div id="graphPanel" className="panel">
-          <GraphPanel />
-        </div>
-        <div id="propertiesPanel" className="panel">
-          <Inspector />
-        </div>
-        <div id="tablePanel" className="panel">
-          <ResultTable />
-        </div>
-        <div id="cellStack" className="panel">
-          <CellStrip />
-        </div>
-      </div>
+      {/* ── Row 4: Notebook cells ── */}
+      <CellStrip />
 
-      {/* Status bar */}
-      <div id="statusbar">
-        <div className="statusbar-left">
-          <span className="status-item">
-            <span
-              className={`status-dot ${connected ? 'connected' : ''}`}
-            />
-            lance-graph
-          </span>
-          <span className="status-item">MCP 2024-11-05</span>
-        </div>
-        <div className="statusbar-right">
-          <span className="status-item">q2 v0.1.0</span>
-        </div>
-      </div>
-    </>
+      {/* Tooltip container */}
+      <div className="tooltip" id="tooltip" />
+    </div>
   );
 }

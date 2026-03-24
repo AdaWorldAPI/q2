@@ -31,29 +31,32 @@ export interface Cell {
 // ---- Store ----
 
 interface CockpitState {
-  // Connection
   connected: boolean;
   setConnected: (v: boolean) => void;
 
-  // Graph data (populated from cell_execute results with type=graph)
   nodes: GraphNode[];
   edges: GraphEdge[];
   setGraphData: (nodes: GraphNode[], edges: GraphEdge[]) => void;
 
-  // Global selection (linked: graph <-> table <-> inspector)
   selectedNodeId: string | null;
   selectNode: (id: string | null) => void;
 
-  // Cells
   cells: Cell[];
   setCells: (cells: Cell[]) => void;
   addCell: (cell: Cell) => void;
   updateCell: (cell: Cell) => void;
   removeCell: (id: string) => void;
 
-  // Execution
   executing: boolean;
   setExecuting: (v: boolean) => void;
+
+  // Filter state for left rail
+  filter: string;
+  setFilter: (f: string) => void;
+
+  // Table search
+  searchTerm: string;
+  setSearchTerm: (t: string) => void;
 }
 
 export const useStore = create<CockpitState>((set) => ({
@@ -82,4 +85,10 @@ export const useStore = create<CockpitState>((set) => ({
 
   executing: false,
   setExecuting: (v) => set({ executing: v }),
+
+  filter: 'all',
+  setFilter: (f) => set({ filter: f }),
+
+  searchTerm: '',
+  setSearchTerm: (t) => set({ searchTerm: t }),
 }));
