@@ -1,7 +1,33 @@
-# TODO: replace when crate is transcoded
 [package]
 name = "q2-ndarray"
 version = "0.1.0"
 edition = "2024"
+description = "SIMD-accelerated N-dimensional arrays for Quarto graph notebooks"
+
+[features]
+# By default, pull in the full ndarray fork with SIMD optimizations.
+# Commercial users who cannot use the fork can disable default features
+# to get a pure-Rust scalar fallback with no external ndarray dependency.
+#
+# Usage:
+#   Default (SIMD):  q2-ndarray = { path = "..." }
+#   Fallback:        q2-ndarray = { path = "...", default-features = false }
+default = ["ndarray-simd"]
+
+# Full ndarray fork with AVX-512/AVX2/scalar SIMD dispatch
+ndarray-simd = ["dep:ndarray"]
+
+# Optional BLAS backend (requires system BLAS library)
+blas = ["ndarray-simd", "ndarray/blas"]
+
+# Parallel iterators via rayon
+rayon = ["ndarray-simd", "ndarray/rayon"]
+
+# Multi-threaded matrix multiplication (no external BLAS needed)
+matrixmultiply-threading = ["ndarray-simd", "ndarray/matrixmultiply-threading"]
+
+# All HPC features bundled
+hpc = ["ndarray-simd", "blas", "rayon", "matrixmultiply-threading"]
 
 [dependencies]
+ndarray = { git = "https://github.com/AdaWorldAPI/ndarray.git", branch = "master", optional = true }
