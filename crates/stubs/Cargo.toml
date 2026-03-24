@@ -15,5 +15,6 @@ notebook-runtime = { path = "notebook-runtime" }
 notebook-query = { path = "notebook-query" }
 notebook-kernel = { path = "notebook-kernel" }
 notebook-render = { path = "notebook-render" }
-lance-graph = { path = "lance-graph" }
+# lance-graph is now a real git dep — no longer a stub
+lance-graph.workspace = true
 q2-ndarray = { path = "q2-ndarray" }

@@ -1,7 +1,12 @@
-# TODO: replace when crate is transcoded from AdaWorldAPI/graph-notebook
+# Notebook query engine — routes Cypher/Gremlin/SPARQL through lance-graph DataFusion
 [package]
 name = "notebook-query"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+lance-graph.workspace = true
+arrow = { version = "57", features = ["prettyprint"] }
+datafusion = { version = "51", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde_json = "1"
