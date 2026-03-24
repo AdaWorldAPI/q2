@@ -730,6 +730,8 @@ fn aiwar_graph_json() -> Result<String, String> {
             let schema = batch.schema();
             let id_idx = schema.index_of("id").ok();
             let name_idx = schema.index_of("name").ok();
+            // Pre-collect field names once per table — avoids clone per row×column
+            let field_names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
 
             for row in 0..batch.num_rows() {
                 let id_val = id_idx
@@ -740,10 +742,10 @@ fn aiwar_graph_json() -> Result<String, String> {
                     .unwrap_or_default();
 
                 // Build properties from all columns
-                let mut props = serde_json::Map::new();
-                for (col_idx, field) in schema.fields().iter().enumerate() {
+                let mut props = serde_json::Map::with_capacity(field_names.len());
+                for (col_idx, &fname) in field_names.iter().enumerate() {
                     if let Some(val) = get_json_value(batch, col_idx, row) {
-                        props.insert(field.name().clone(), val);
+                        props.insert(fname.to_owned(), val);
                     }
                 }
 
@@ -799,15 +801,10 @@ fn batch_to_text(batch: &RecordBatch) -> String {
     if batch.num_rows() == 0 {
         return "(empty result)".to_string();
     }
-    // Use arrow's pretty-print
-    let mut buf = Vec::new();
-    if arrow::util::pretty::pretty_format_batches(&[batch.clone()])
-        .map(|table| buf.extend_from_slice(table.to_string().as_bytes()))
-        .is_ok()
-    {
-        String::from_utf8_lossy(&buf).to_string()
-    } else {
-        format!("{} rows, {} columns", batch.num_rows(), batch.num_columns())
+    // pretty_format_batches takes &[RecordBatch] — use from_ref to avoid clone
+    match arrow::util::pretty::pretty_format_batches(std::slice::from_ref(batch)) {
+        Ok(table) => table.to_string(),
+        Err(_) => format!("{} rows, {} columns", batch.num_rows(), batch.num_columns()),
     }
 }
 
