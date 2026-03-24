@@ -1,0 +1,16 @@
+[package]
+name = "aiwar-ingest"
+version.workspace = true
+edition.workspace = true
+description = "Load aiwar_graph.json into neo4j-rs MemoryBackend (hot path) or Parquet (cold path)"
+
+[dependencies]
+neo4j-rs = { path = "../../../neo4j-rs", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
