@@ -11,6 +11,7 @@ pub mod create;
 pub mod hub;
 pub mod install;
 pub mod list;
+pub mod notebook;
 pub mod lsp;
 pub mod pandoc;
 pub mod preview;

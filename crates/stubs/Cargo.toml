@@ -1,0 +1,19 @@
+# TODO: replace when crate is transcoded
+# Container crate for stub packages - these are local stubs for external crates
+# that don't exist in Rust yet. Each stub lives in its own subdirectory.
+[package]
+name = "stubs"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+notebook-runtime = { path = "notebook-runtime" }
+notebook-query = { path = "notebook-query" }
+notebook-kernel = { path = "notebook-kernel" }
+notebook-render = { path = "notebook-render" }
+lance-graph = { path = "lance-graph" }
+q2-ndarray = { path = "q2-ndarray" }

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>q2 — Graph Notebook</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="cockpit.css">
+</head>
+<body>
+  <!-- Top Bar -->
+  <header id="topbar">
+    <div class="topbar-left">
+      <div class="logo">q<span class="logo-accent">2</span></div>
+      <div class="breadcrumb">
+        <span class="breadcrumb-item">bardioc-infra</span>
+        <span class="breadcrumb-sep">/</span>
+        <span class="breadcrumb-item active">network-topology.qmd</span>
+      </div>
+    </div>
+    <div class="topbar-center">
+      <div class="query-bar" id="queryBar">
+        <div class="query-lang-chip" id="langChip" title="Click to override language">
+          <span id="langLabel">gremlin</span>
+          <svg width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        </div>
+        <input
+          type="text"
+          id="queryInput"
+          placeholder="g.V().hasLabel('server').outE().inV().path()"
+          spellcheck="false"
+          autocomplete="off"
+        >
+        <div class="query-actions">
+          <button class="query-run" id="runBtn" title="Execute (Shift+Enter)">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 2l9 5-9 5V2z" fill="currentColor"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="topbar-btn" title="Export PDF (Cmd+P)">
+        <svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M9 1v4h4" stroke="currentColor" stroke-width="1.2" fill="none"/><text x="5" y="12" font-size="5" fill="currentColor" font-weight="600">PDF</text></svg>
+      </button>
+      <button class="topbar-btn" title="Settings">
+        <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M2.9 2.9l1.4 1.4M11.7 11.7l1.4 1.4M13.1 2.9l-1.4 1.4M4.3 11.7l-1.4 1.4" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+      <div class="topbar-status">
+        <span class="status-dot connected"></span>
+        <span class="status-text">localhost:2718</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Cockpit Layout -->
+  <main id="cockpit">
+    <!-- Graph Panel (primary) -->
+    <section id="graphPanel" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Graph</span>
+        <div class="panel-controls">
+          <button class="panel-btn active" title="Force-directed" data-layout="force">
+            <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="4" cy="4" r="2" stroke="currentColor" fill="none"/><circle cx="10" cy="10" r="2" stroke="currentColor" fill="none"/><circle cx="10" cy="4" r="2" stroke="currentColor" fill="none"/><line x1="5.5" y1="5" x2="8.5" y2="9" stroke="currentColor" stroke-width="0.8"/><line x1="6" y1="4" x2="8" y2="4" stroke="currentColor" stroke-width="0.8"/></svg>
+          </button>
+          <button class="panel-btn" title="Hierarchical" data-layout="hierarchical">
+            <svg width="14" height="14" viewBox="0 0 14 14"><rect x="5" y="1" width="4" height="3" rx="0.5" stroke="currentColor" fill="none"/><rect x="1" y="10" width="4" height="3" rx="0.5" stroke="currentColor" fill="none"/><rect x="9" y="10" width="4" height="3" rx="0.5" stroke="currentColor" fill="none"/><line x1="7" y1="4" x2="7" y2="7" stroke="currentColor" stroke-width="0.8"/><line x1="3" y1="10" x2="7" y2="7" stroke="currentColor" stroke-width="0.8"/><line x1="11" y1="10" x2="7" y2="7" stroke="currentColor" stroke-width="0.8"/></svg>
+          </button>
+          <span class="panel-divider"></span>
+          <button class="panel-btn" title="Fit to view">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M1 5V2a1 1 0 011-1h3M9 1h3a1 1 0 011 1v3M13 9v3a1 1 0 01-1 1h-3M5 13H2a1 1 0 01-1-1V9" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+          </button>
+          <span class="panel-badge" id="nodeCount">24 nodes · 31 edges</span>
+        </div>
+      </div>
+      <div class="panel-body" id="graphCanvas">
+        <!-- SVG graph rendered here -->
+        <svg id="graphSvg" width="100%" height="100%"></svg>
+        <!-- Loading state -->
+        <div class="graph-empty" id="graphEmpty" style="display:none">
+          <div class="graph-empty-icon">
+            <svg width="48" height="48" viewBox="0 0 48 48"><circle cx="16" cy="16" r="6" stroke="var(--accent)" stroke-width="1.5" fill="none" opacity="0.4"/><circle cx="36" cy="12" r="4" stroke="var(--accent)" stroke-width="1.5" fill="none" opacity="0.3"/><circle cx="32" cy="36" r="5" stroke="var(--accent)" stroke-width="1.5" fill="none" opacity="0.4"/><circle cx="12" cy="36" r="3" stroke="var(--accent)" stroke-width="1.5" fill="none" opacity="0.2"/><line x1="21" y1="18" x2="33" y2="14" stroke="var(--accent)" stroke-width="0.8" opacity="0.2"/><line x1="18" y1="21" x2="14" y2="33" stroke="var(--accent)" stroke-width="0.8" opacity="0.2"/><line x1="30" y1="32" x2="22" y2="18" stroke="var(--accent)" stroke-width="0.8" opacity="0.2"/></svg>
+          </div>
+          <div class="graph-empty-text">Type a query to explore the graph</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Properties Sidebar -->
+    <aside id="propertiesPanel" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Properties</span>
+        <button class="panel-btn" id="pinBtn" title="Pin panel">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1v5M4 6h6l-1 4H5L4 6zM5 10l-1 3M9 10l1 3" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+        </button>
+      </div>
+      <div class="panel-body properties-body" id="propertiesBody">
+        <!-- Selected node info -->
+        <div class="prop-section">
+          <div class="prop-node-header">
+            <span class="prop-node-icon server"></span>
+            <div>
+              <div class="prop-node-label">web-server-03</div>
+              <div class="prop-node-type">Server</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="prop-section">
+          <div class="prop-section-title">Attributes</div>
+          <table class="prop-table">
+            <tr><td class="prop-key">id</td><td class="prop-val">srv-003</td></tr>
+            <tr><td class="prop-key">region</td><td class="prop-val">eu-west-1</td></tr>
+            <tr><td class="prop-key">status</td><td class="prop-val"><span class="status-badge healthy">healthy</span></td></tr>
+            <tr><td class="prop-key">cpu_avg</td><td class="prop-val">0.42</td></tr>
+            <tr><td class="prop-key">memory_gb</td><td class="prop-val">31.2</td></tr>
+            <tr><td class="prop-key">uptime_days</td><td class="prop-val">127</td></tr>
+            <tr><td class="prop-key">last_deploy</td><td class="prop-val">2026-03-21</td></tr>
+          </table>
+        </div>
+
+        <div class="prop-section">
+          <div class="prop-section-title">Connections <span class="prop-count">5</span></div>
+          <div class="prop-edges">
+            <div class="prop-edge">
+              <span class="edge-direction outgoing">→</span>
+              <span class="edge-label">SERVES</span>
+              <span class="edge-target">api-gateway-01</span>
+            </div>
+            <div class="prop-edge">
+              <span class="edge-direction outgoing">→</span>
+              <span class="edge-label">READS_FROM</span>
+              <span class="edge-target">cache-redis-02</span>
+            </div>
+            <div class="prop-edge">
+              <span class="edge-direction outgoing">→</span>
+              <span class="edge-label">WRITES_TO</span>
+              <span class="edge-target">db-postgres-01</span>
+            </div>
+            <div class="prop-edge">
+              <span class="edge-direction incoming">←</span>
+              <span class="edge-label">MONITORS</span>
+              <span class="edge-target">prometheus-01</span>
+            </div>
+            <div class="prop-edge">
+              <span class="edge-direction incoming">←</span>
+              <span class="edge-label">ROUTES_TO</span>
+              <span class="edge-target">lb-haproxy-01</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Result Table -->
+    <section id="tablePanel" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Results</span>
+        <div class="panel-controls">
+          <span class="panel-badge" id="rowCount">24 rows</span>
+          <button class="panel-btn" title="Export CSV">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1v9M4 7l3 3 3-3M2 12h10" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel-body table-body">
+        <table class="result-table" id="resultTable">
+          <thead>
+            <tr>
+              <th class="sortable" data-col="label">Label <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="type">Type <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="region">Region <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="status">Status <span class="sort-icon">↕</span></th>
+              <th class="sortable numeric" data-col="cpu">CPU <span class="sort-icon">↕</span></th>
+              <th class="sortable numeric" data-col="memory">Mem (GB) <span class="sort-icon">↕</span></th>
+              <th class="sortable numeric" data-col="connections">Conns <span class="sort-icon">↕</span></th>
+            </tr>
+          </thead>
+          <tbody id="resultBody">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Cell Stack -->
+    <section id="cellStack" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Notebook</span>
+        <div class="panel-controls">
+          <button class="panel-btn" id="addCellBtn" title="Add cell">
+            <svg width="14" height="14" viewBox="0 0 14 14"><line x1="7" y1="3" x2="7" y2="11" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel-body cells-body" id="cellsBody">
+        <!-- Cell 1: Markdown -->
+        <div class="cell" data-cell-type="markdown">
+          <div class="cell-gutter">
+            <span class="cell-type-indicator md">MD</span>
+          </div>
+          <div class="cell-content">
+            <div class="cell-rendered markdown-rendered">
+              <h3>Network Topology Analysis</h3>
+              <p>This notebook explores the Bardioc infrastructure graph. We query the server topology, identify bottlenecks, and generate the monthly uptime report.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cell 2: Gremlin query (executed) -->
+        <div class="cell executed" data-cell-type="code">
+          <div class="cell-gutter">
+            <span class="cell-type-indicator gremlin">GR</span>
+            <span class="cell-execution-order">[1]</span>
+          </div>
+          <div class="cell-content">
+            <div class="cell-source">
+              <pre><code><span class="tok-fn">g</span>.<span class="tok-method">V</span>().<span class="tok-method">hasLabel</span>(<span class="tok-string">'server'</span>)
+  .<span class="tok-method">project</span>(<span class="tok-string">'name'</span>, <span class="tok-string">'region'</span>, <span class="tok-string">'cpu'</span>)
+    .<span class="tok-method">by</span>(<span class="tok-string">'name'</span>)
+    .<span class="tok-method">by</span>(<span class="tok-string">'region'</span>)
+    .<span class="tok-method">by</span>(<span class="tok-string">'cpu_avg'</span>)</code></pre>
+            </div>
+            <div class="cell-output">
+              <div class="cell-output-label">24 results · 42ms</div>
+              <div class="cell-output-content mini-table">
+                <table>
+                  <tr><td>web-server-01</td><td>us-east-1</td><td>0.67</td></tr>
+                  <tr><td>web-server-02</td><td>us-east-1</td><td>0.54</td></tr>
+                  <tr><td>web-server-03</td><td>eu-west-1</td><td>0.42</td></tr>
+                  <tr class="more-indicator"><td colspan="3">… 21 more rows</td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cell 3: R code -->
+        <div class="cell executed" data-cell-type="code">
+          <div class="cell-gutter">
+            <span class="cell-type-indicator r">R</span>
+            <span class="cell-execution-order">[2]</span>
+          </div>
+          <div class="cell-content">
+            <div class="cell-source">
+              <pre><code><span class="tok-fn">library</span>(<span class="tok-string">ggplot2</span>)
+
+<span class="tok-var">cpu_data</span> <span class="tok-op">&lt;-</span> <span class="tok-fn">as.data.frame</span>(<span class="tok-var">cell</span>[<span class="tok-num">1</span>])
+<span class="tok-fn">ggplot</span>(<span class="tok-var">cpu_data</span>, <span class="tok-fn">aes</span>(<span class="tok-var">x</span> = <span class="tok-var">name</span>, <span class="tok-var">y</span> = <span class="tok-var">cpu</span>, <span class="tok-var">fill</span> = <span class="tok-var">region</span>)) <span class="tok-op">+</span>
+  <span class="tok-fn">geom_col</span>() <span class="tok-op">+</span>
+  <span class="tok-fn">theme_minimal</span>() <span class="tok-op">+</span>
+  <span class="tok-fn">labs</span>(<span class="tok-var">title</span> = <span class="tok-string">"CPU Usage by Server"</span>)</code></pre>
+            </div>
+            <div class="cell-output">
+              <div class="cell-output-label">chart · 210ms</div>
+              <div class="cell-output-content cell-chart" id="miniChart">
+                <!-- Inline SVG bar chart placeholder -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cell 4: SPARQL (pending) -->
+        <div class="cell" data-cell-type="code">
+          <div class="cell-gutter">
+            <span class="cell-type-indicator sparql">SQ</span>
+          </div>
+          <div class="cell-content">
+            <div class="cell-source">
+              <pre><code><span class="tok-keyword">SELECT</span> <span class="tok-var">?server</span> <span class="tok-var">?uptime</span>
+<span class="tok-keyword">WHERE</span> {
+  <span class="tok-var">?server</span> <span class="tok-prop">a</span> <span class="tok-type">:Server</span> ;
+          <span class="tok-prop">:uptime_days</span> <span class="tok-var">?uptime</span> .
+  <span class="tok-keyword">FILTER</span>(<span class="tok-var">?uptime</span> <span class="tok-op">&gt;</span> <span class="tok-num">90</span>)
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add cell button -->
+        <div class="cell-add-zone" id="addCellZone">
+          <button class="cell-add-btn">
+            <svg width="14" height="14" viewBox="0 0 14 14"><line x1="7" y1="3" x2="7" y2="11" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.5"/></svg>
+            Add cell
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Status Bar -->
+  <footer id="statusbar">
+    <div class="statusbar-left">
+      <span class="status-item">
+        <span class="status-dot connected"></span>
+        Connected
+      </span>
+      <span class="status-item">lance-graph v0.4.2</span>
+      <span class="status-item">24 vertices · 31 edges · 3.2ms</span>
+    </div>
+    <div class="statusbar-right">
+      <span class="status-item">Cell [2] running</span>
+      <span class="status-item">MCP: 3 tools</span>
+      <span class="status-item">localhost:2718</span>
+    </div>
+  </footer>
+
+  <script src="cockpit.js"></script>
+</body>
+</html>

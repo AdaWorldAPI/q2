@@ -7,6 +7,8 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod commands;
+mod notebook_server;
+mod publisher;
 
 #[derive(Parser)]
 #[command(name = "quarto")]
@@ -15,6 +17,42 @@ mod commands;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Subcommand)]
+enum NotebookCommands {
+    /// Start the graph notebook server (default port 2718)
+    Serve {
+        /// Port to listen on
+        #[arg(short, long, default_value = "2718")]
+        port: u16,
+
+        /// Host to bind to
+        #[arg(short = 'H', long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// Open browser automatically
+        #[arg(long)]
+        open: bool,
+
+        /// Directory containing frontend static files
+        #[arg(long)]
+        frontend_dir: Option<PathBuf>,
+    },
+
+    /// Render a notebook file to HTML or PDF
+    Render {
+        /// Input notebook file (.nb or .qmd)
+        input: String,
+
+        /// Output format (html or pdf)
+        #[arg(short, long, default_value = "html")]
+        format: String,
+
+        /// Output file path
+        #[arg(short, long)]
+        output: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -319,6 +357,13 @@ enum Commands {
     /// Start the Quarto Language Server Protocol server
     Lsp,
 
+    /// Start the graph notebook cockpit server or render notebooks.
+    ///
+    /// `q2 notebook serve` starts the cockpit on port 2718.
+    /// `q2 notebook render <file>` renders to HTML or PDF.
+    #[command(subcommand)]
+    Notebook(NotebookCommands),
+
     /// Start collaborative hub server for real-time editing.
     /// By default, watches the current directory (or --project path).
     /// Use --no-project to run as a standalone sync server.
@@ -459,6 +504,28 @@ fn main() -> Result<()> {
         Commands::Check { .. } => commands::check::execute(),
         Commands::Call { function, args } => commands::call::execute(function, args),
         Commands::Lsp => commands::lsp::execute(),
+        Commands::Notebook(subcmd) => match subcmd {
+            NotebookCommands::Serve {
+                port,
+                host,
+                open,
+                frontend_dir,
+            } => commands::notebook::execute_serve(commands::notebook::NotebookServeArgs {
+                port,
+                host,
+                open,
+                frontend_dir,
+            }),
+            NotebookCommands::Render {
+                input,
+                format,
+                output,
+            } => commands::notebook::execute_render(commands::notebook::NotebookRenderArgs {
+                input,
+                format,
+                output,
+            }),
+        },
         Commands::Hub {
             project,
             no_project,

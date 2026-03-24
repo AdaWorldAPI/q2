@@ -1,0 +1,7 @@
+# TODO: replace when crate is transcoded from AdaWorldAPI/graph-notebook
+[package]
+name = "notebook-query"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]

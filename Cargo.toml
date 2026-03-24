@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/*",
+    "crates/stubs/*",
     "crates/experiments/reconcile-viewer",
     "crates/pampa/fuzz",
 ]
@@ -150,6 +151,39 @@ path = "./crates/quarto-hub"
 
 [workspace.dependencies.quarto-test]
 path = "./crates/quarto-test"
+
+# Graph notebook stub crates (TODO: replace when crates are transcoded)
+[workspace.dependencies.notebook-runtime]
+path = "./crates/stubs/notebook-runtime"
+
+[workspace.dependencies.notebook-query]
+path = "./crates/stubs/notebook-query"
+
+[workspace.dependencies.notebook-kernel]
+path = "./crates/stubs/notebook-kernel"
+
+[workspace.dependencies.notebook-render]
+path = "./crates/stubs/notebook-render"
+
+[workspace.dependencies.lance-graph]
+path = "./crates/stubs/lance-graph"
+
+[workspace.dependencies.q2-ndarray]
+path = "./crates/stubs/q2-ndarray"
+
+[workspace.dependencies.axum]
+version = "0.7"
+features = ["ws"]
+
+[workspace.dependencies.tower-http]
+version = "0.5"
+features = ["fs", "cors"]
+
+[workspace.dependencies.async-stream]
+version = "0.3"
+
+[workspace.dependencies.futures-core]
+version = "0.3"
 
 [workspace.lints.rust]
 # coverage_nightly is used by pampa for code coverage instrumentation on nightly Rust
