@@ -19,7 +19,7 @@ use tower_http::services::ServeDir;
 use notebook_query::{QueryLanguage, detect_language, execute};
 use notebook_query::reasoning::{self, TruthValue, TruthEdge};
 use notebook_query::hydration::SemiringVariant;
-use notebook_runtime::{Cell, CellId, CellOutput, ExecutionState, Runtime};
+use crate::notebook_types::{Cell, CellId, CellOutput, ExecutionState, Runtime};
 
 use crate::commands::notebook::NotebookServeArgs;
 
@@ -188,7 +188,7 @@ fn cell_to_response(cell: &Cell) -> CellResponse {
             },
             CellOutput::Table { headers, rows } => OutputResponse {
                 output_type: "table".into(),
-                content: notebook_render::render_table(headers, rows),
+                content: crate::notebook_types::render_table(headers, rows),
             },
             CellOutput::Graph { html } => OutputResponse {
                 output_type: "graph".into(),
@@ -400,6 +400,21 @@ fn mcp_tool_definitions() -> Vec<McpToolDefinition> {
                     "version": { "type": "integer", "description": "Version number to load (0-42). Omit to get current." },
                     "action": { "type": "string", "enum": ["play", "pause", "step", "status"], "description": "Timeline action" }
                 }
+            }),
+        },
+        // ── Planner Tool ──
+        McpToolDefinition {
+            name: "planner_plan",
+            description: "Run unified query planner on a Cypher query. Returns plan strategies, thinking context, MUL assessment.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Cypher query to plan" },
+                    "style": { "type": "string", "description": "Optional thinking style override (analytical, convergent, systematic, creative, divergent, exploratory, focused, diffuse, peripheral, intuitive, deliberate, metacognitive)" },
+                    "felt_competence": { "type": "number", "description": "Felt competence for MUL assessment (0-1)" },
+                    "demonstrated_competence": { "type": "number", "description": "Demonstrated competence for MUL assessment (0-1)" }
+                },
+                "required": ["query"]
             }),
         },
     ]
@@ -864,6 +879,39 @@ async fn handle_mcp_method(
                             version.unwrap_or(0),
                             if version.unwrap_or(0) > 40 { "stable (Wisdom)" } else { "new learning (Staunen)" }
                         ),
+                    }))
+                }
+
+                // ── Planner tool ──
+                "planner_plan" => {
+                    let query = arguments
+                        .get("query")
+                        .and_then(|v| v.as_str())
+                        .ok_or("planner_plan: 'query' is required")?;
+                    let style = arguments
+                        .get("style")
+                        .and_then(|v| v.as_str());
+                    let felt_competence = arguments
+                        .get("felt_competence")
+                        .and_then(|v| v.as_f64());
+                    let demonstrated_competence = arguments
+                        .get("demonstrated_competence")
+                        .and_then(|v| v.as_f64());
+
+                    let info = notebook_query::plan_query(
+                        query,
+                        style,
+                        felt_competence,
+                        demonstrated_competence,
+                    )?;
+
+                    Ok(serde_json::json!({
+                        "strategies_used": info.strategies_used,
+                        "thinking_style": info.thinking_style,
+                        "semiring": info.semiring,
+                        "free_will_modifier": info.free_will_modifier,
+                        "compass_score": info.compass_score,
+                        "gate": info.gate,
                     }))
                 }
 

@@ -1,7 +1,0 @@
-# TODO: replace when crate is transcoded
-[package]
-name = "notebook-kernel"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]

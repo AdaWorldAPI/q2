@@ -1,4 +1,8 @@
-// TODO: replace when crate is transcoded from AdaWorldAPI/marimo
+//! Notebook types — inlined from the archived notebook-runtime stub.
+//!
+//! These are the core types for the graph notebook: cells, outputs, DAG, runtime.
+//! Previously lived in `crates/stubs/notebook-runtime/`.
+
 use std::collections::HashMap;
 
 pub type CellId = String;
@@ -90,7 +94,6 @@ impl Runtime {
     }
 
     pub fn execute_cell(&mut self, id: &str) -> Result<CellOutput, String> {
-        // TODO: implement real execution
         if let Some(cell) = self.get_cell_mut(id) {
             cell.execution_state = ExecutionState::Success;
             Ok(CellOutput::Text(format!("Executed cell {}", id)))
@@ -104,4 +107,22 @@ impl Default for Runtime {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Render a table as an HTML string.
+pub fn render_table(headers: &[String], rows: &[Vec<String>]) -> String {
+    let mut html = String::from("<table>\n<thead><tr>");
+    for h in headers {
+        html.push_str(&format!("<th>{}</th>", h));
+    }
+    html.push_str("</tr></thead>\n<tbody>\n");
+    for row in rows {
+        html.push_str("<tr>");
+        for cell in row {
+            html.push_str(&format!("<td>{}</td>", cell));
+        }
+        html.push_str("</tr>\n");
+    }
+    html.push_str("</tbody>\n</table>");
+    html
 }

@@ -31,10 +31,8 @@ quarto-test.workspace = true
 serde_yaml.workspace = true
 
 # Graph notebook dependencies
-notebook-runtime.workspace = true
-notebook-query.workspace = true
-notebook-kernel.workspace = true
-notebook-render.workspace = true
+notebook-query = { workspace = true, features = ["planner"] }
+lance-graph-planner.workspace = true
 lance-graph.workspace = true
 q2-ndarray.workspace = true
 axum.workspace = true
