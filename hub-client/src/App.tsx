@@ -70,6 +70,7 @@ function App() {
   const [screenName, setScreenName] = useState<string | undefined>();
   const [cursorColor, setCursorColor] = useState<string | undefined>();
   const [identities, setIdentities] = useState<Record<string, ActorIdentity>>({});
+  const [isOnline, setIsOnline] = useState<boolean>(false);
 
   // Fetch per-project actor ID; calls logout and returns null on session expiry.
   const resolveActorId = useCallback(async (indexDocId: string): Promise<string | undefined | null> => {
@@ -323,9 +324,13 @@ function App() {
         });
       },
       onConnectionChange: (connected) => {
+        setIsOnline(connected);
         if (!connected && project) {
-          // Connection lost
-          setConnectionError('Connection lost');
+          // Connection lost - show error
+          setConnectionError('Connection lost - working offline');
+        } else if (connected && connectionError === 'Connection lost - working offline') {
+          // Connection restored - clear error
+          setConnectionError(null);
         }
       },
       onError: (error) => {
@@ -495,6 +500,7 @@ function App() {
               navigateToFile(project.id, filePath, options);
             }}
             identities={identities}
+            isOnline={isOnline}
           />
         </ViewModeProvider>
       )}

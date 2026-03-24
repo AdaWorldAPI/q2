@@ -31,6 +31,7 @@
     "@automerge/automerge": "^2.2.9",
     "@automerge/automerge-repo": "^2.5.1",
     "@automerge/automerge-repo-network-websocket": "^2.5.1",
+    "@automerge/automerge-repo-storage-indexeddb": "^2.5.4",
     "@quarto/quarto-automerge-schema": "*",
     "fflate": "^0.8.2"
   },
