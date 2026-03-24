@@ -354,3 +354,165 @@ That's the closer. The room doesn't need to understand NARS or
 semirings or ZeckF64. They see a brain thinking. They see it
 surprised. They see it making connections. They see it calm down.
 They see it become wise.
+
+---
+
+## ADDENDUM: The Graph IS the Brain
+
+Forget the separate cognition trace panel. The aiwar graph itself
+IS the neural network. The 221 nodes ARE the neurons. The 356 edges
+ARE the dendrites. The thinking layers map onto REGIONS of the graph.
+
+### How It Works
+
+When the thinking graph processes a version, the layers don't
+light up in a separate diagram. They light up IN the data graph:
+
+```
+Layer 1 (Sensory Ingest):
+  → ALL nodes briefly flash (data arriving)
+  → Intensity = how much new data this version adds
+  
+Layer 2 (Fingerprint):
+  → Nodes that MATCH the new data's fingerprint glow teal
+  → The cascade search narrows to a REGION of the graph
+  
+Layer 3 (Cascade Search / Foveal vs Parafoveal):
+  → Foveal: matched region stays teal (familiar, calm)
+  → Parafoveal: matched region shifts to PURPLE (novel, needs reasoning)
+  → The rest of the graph dims to 20% opacity
+  → Spotlight effect: you see WHERE the thinking is happening
+  
+Layer 5 (Semiring Reasoning):
+  → Signal particles travel along edges in the ACTIVE region
+  → Each inference chain = a particle trail through connected nodes
+  → The path glows behind the particle (like a neon trace)
+  → Multiple chains = multiple particles = the region BUZZES
+  
+Layer 6 (Memory Consolidation):
+  → Staunen: the active region PULSES amber. New dendrites grow
+    (new edges materialize between nodes that weren't connected)
+  → Wisdom: the active region settles to calm green glow
+  → The rest of the graph slowly fades back to normal
+  
+NARS Epiphanies:
+  → Inferred edges don't just pop up — they GROW between nodes
+  → The two nodes flash, a dashed line extends from both sides
+  → They meet in the middle with a bright flash
+  → Like synapses forming in real time
+```
+
+### The Visual Effect
+
+The whole graph is a dark cloud. When play starts:
+
+```
+v00: All nodes briefly illuminate (base data loads).
+     Then they settle to dim default state.
+
+v01: A CLUSTER of nodes lights up (enrichment touches these).
+     The cluster shifts from teal to purple (Parafoveal).
+     Signal particles run through the cluster.
+     Three new edges grow outward. Epiphany flashes.
+     The cluster settles. Rest of graph stays dim.
+
+v31: A DIFFERENT region lights up (Epstein network).
+     This region burns BRIGHT — heavy reasoning.
+     Particles trace paths: Epstein → MIT → Thiel → Palantir.
+     Six epiphanies pop. The region is buzzing.
+     Staunen: amber pulse ripples outward from the epicenter.
+     New dendrites grow from Epstein cluster toward Palantir cluster.
+     The two regions are now connected where they weren't before.
+     
+v35: The same region activates but CALMER.
+     Some particles, fewer epiphanies.
+     One inference gets contradicted — red flash, edge fades.
+     Layer 6: Wisdom. Green calm. The cluster dims.
+
+v42: Brief teal flash (Foveal — seen this before).
+     Almost instant. No purple. No particles.
+     The graph knows everything now.
+     Settled. Breathing gently. Wise.
+```
+
+### Color Language (no legend needed — intuitive)
+
+```
+DIM GREY:      idle / unaffected nodes
+TEAL GLOW:     Foveal — recognized, familiar, fast path
+PURPLE GLOW:   Parafoveal — novel, under active reasoning
+AMBER PULSE:   Staunen — surprise, new learning, dendrite growth
+GREEN SETTLE:  Wisdom — stable, consolidated, known
+BRIGHT CYAN:   epiphany flash — new inference born
+RED FLASH:     contradiction — inference disproven
+WHITE:         signal particle — information flowing
+```
+
+### The PET Heatmap Becomes a Timeline Sparkline
+
+Instead of a grid, show a thin sparkline strip below the graph:
+
+```
+──────────────────────────────────────────────────
+v00 ▁▁  v01 ▃▅  v31 ▇█▇  v32 ▅▃  v35 ▂▁  v42 ▁
+──────────────────────────────────────────────────
+```
+
+Height = total reasoning intensity for that version.
+Color = dominant state (teal/purple/amber/green).
+Click any point → graph rewinds to that version's activation state.
+
+### Implementation: Overlay Mode
+
+Don't render two graphs. Render ONE graph with an activation overlay:
+
+```typescript
+interface NodeActivation {
+  nodeId: string;
+  layer: number;          // which thinking layer activated this node
+  intensity: number;      // 0.0 to 1.0
+  color: string;          // teal / purple / amber / green
+  particleTarget?: string; // if a signal particle should launch toward this node
+}
+
+interface GraphState {
+  nodes: Node[];           // static data (label, type, position)
+  edges: Edge[];           // static connections
+  activations: Map<string, NodeActivation>;  // live overlay
+  particles: Particle[];   // in-flight signal particles
+  epiphanies: Epiphany[];  // pending edge births
+  globalDim: number;       // 0.2 when spotlight active, 1.0 when idle
+}
+```
+
+vis-network supports custom node rendering. Each frame:
+1. Check if node has an activation → apply glow color + intensity
+2. Check if node is outside active region → apply globalDim
+3. Draw particles along edges between activated nodes
+4. Animate epiphany edge births
+
+### The Breathing Idle State
+
+When not playing, the graph doesn't go static. It BREATHES:
+
+```javascript
+// Gentle sine wave on all node opacity
+const breath = 0.85 + 0.15 * Math.sin(Date.now() / 2000);
+nodes.forEach(n => n.opacity = breath);
+```
+
+Subtle. Almost subliminal. The graph is alive. It's resting, not dead.
+When play starts, the breathing accelerates slightly before the first
+activation — like an intake of breath before thinking.
+
+### Sound (optional, for installations)
+
+If the presentation has audio:
+- Particle movement: soft tick (like a Geiger counter, one per particle)
+- Epiphany: crystalline chime
+- Staunen: low resonant hum
+- Wisdom: silence (the absence of sound IS the signal)
+- Breathing: very faint ambient pad, barely perceptible
+
+Sarah Ciston built the original aiwar as a "tangible interactive installation."
+This makes it one again — but the installation is the graph THINKING.
