@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 lance-graph.workspace = true
+bgz17.workspace = true
 arrow = { version = "57", features = ["prettyprint"] }
 datafusion = { version = "51", default-features = false }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

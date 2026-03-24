@@ -2,6 +2,14 @@
 //!
 //! Hot path: aiwar_graph.json → Arrow RecordBatches → lance-graph CypherQuery → DataFusion.
 //! Cold path (optional): Neo4j Aura via neo4rs behind the `neo4j-fallback` feature.
+//!
+//! ## Graph Intelligence Modules
+//!
+//! - `hydration`: HHTL cascade, semiring selector, container seals, GraphBLAS expand
+//! - `reasoning`: NARS truth values, temporal playback, progressive resolution
+
+pub mod hydration;
+pub mod reasoning;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};

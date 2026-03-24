@@ -173,6 +173,12 @@ branch = "main"
 package = "lance-graph"
 default-features = false
 
+# bgz17: Blasgraph-ZeckBF17 — HHTL cascade, semiring algebra, GraphBLAS, container seals
+[workspace.dependencies.bgz17]
+git = "https://github.com/AdaWorldAPI/lance-graph"
+branch = "main"
+package = "bgz17"
+
 [workspace.dependencies.q2-ndarray]
 path = "./crates/stubs/q2-ndarray"
 
