@@ -410,15 +410,24 @@ async fn handle_mcp_method(
                     let result =
                         execute(code, lang).map_err(|e| e.to_string())?;
 
-                    // Create a cell with the result
+                    // Build outputs: prefer graph_json for graph queries,
+                    // fall back to html, then raw_output
+                    let outputs = if let Some(ref graph_json) = result.graph_json {
+                        vec![CellOutput::Graph {
+                            html: graph_json.clone(),
+                        }]
+                    } else {
+                        vec![CellOutput::Html(
+                            result.html.unwrap_or(result.raw_output),
+                        )]
+                    };
+
                     let cell_id = state.next_id().await;
                     let cell = Cell {
                         id: cell_id.clone(),
                         source: code.to_string(),
                         language: Some(lang_to_str(lang).to_string()),
-                        outputs: vec![CellOutput::Html(
-                            result.html.unwrap_or(result.raw_output),
-                        )],
+                        outputs,
                         execution_state: ExecutionState::Success,
                     };
                     let mut runtime = state.runtime.lock().await;
