@@ -165,8 +165,13 @@ path = "./crates/stubs/notebook-kernel"
 [workspace.dependencies.notebook-render]
 path = "./crates/stubs/notebook-render"
 
+# The real engine — Cypher parser + DataFusion planner + blasgraph columnar
+# default-features = false skips deltalake (s3/azure/gcs) and unity-catalog
 [workspace.dependencies.lance-graph]
-path = "./crates/stubs/lance-graph"
+git = "https://github.com/AdaWorldAPI/lance-graph"
+branch = "main"
+package = "lance-graph"
+default-features = false
 
 [workspace.dependencies.q2-ndarray]
 path = "./crates/stubs/q2-ndarray"
