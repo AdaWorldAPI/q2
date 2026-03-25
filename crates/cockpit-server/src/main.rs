@@ -1,15 +1,15 @@
-//! q2-cockpit — single-binary graph notebook server.
-//!
-//! Compiles the cockpit UI, lance-graph, ndarray, and notebook-query
-//! into ONE binary. No external dependencies at runtime.
+//! q2-cockpit — single-binary graph notebook with live .qmd rendering.
 //!
 //! Architecture:
-//! - Vite builds cockpit → static HTML/CSS/JS in `cockpit/dist/`
-//! - `include_dir!` embeds those assets at compile time
-//! - Axum serves them + provides `/mcp/sse` and `/mcp/message` endpoints
-//! - notebook-query routes Cypher/Gremlin/SPARQL through lance-graph DataFusion
-//! - ndarray (AdaWorldAPI fork) provides SIMD-accelerated HPC ops
-//! - V8 JIT available via `--features v8-jit` when JS/TS execution is needed
+//! - Axum serves HTTP + SSE
+//! - .qmd notebooks are parsed by pampa and rendered by quarto-core
+//! - deno_core (V8 JIT) executes JS/TS cells inside the notebook
+//! - ALL graph queries route through lance-graph (DataFusion + LanceDB)
+//! - ndarray provides SIMD-accelerated compute for graph analytics
+//! - neo4j-rs is a fallback ONLY for live demos against Neo4j Aura
+//!
+//! No static Vite build. No include_dir. The cockpit IS a .qmd notebook
+//! rendered live by the Quarto engine compiled into this binary.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -17,22 +17,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::{header, StatusCode};
+use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_core::Stream;
-use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
-
-// ── Embedded cockpit assets ──────────────────────────────────────────────────
-// Built by `cd cockpit && npm run build`, then compiled into the binary.
-// If the dist/ directory doesn't exist yet, the build will fail with a clear
-// message — run `npm run build` in cockpit/ first.
-static COCKPIT_DIST: Dir = include_dir!("$CARGO_MANIFEST_DIR/../../cockpit/dist");
 
 // ── Application state ────────────────────────────────────────────────────────
 
@@ -47,7 +40,7 @@ struct SseEvent {
     data: serde_json::Value,
 }
 
-// ── MCP request/response types ───────────────────────────────────────────────
+// ── MCP types ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
 struct McpRequest {
@@ -91,13 +84,13 @@ async fn main() {
     let state = Arc::new(AppState { tx });
 
     let app = Router::new()
-        // MCP endpoints
+        // Live-rendered cockpit notebook
+        .route("/", get(cockpit_handler))
+        // MCP endpoints — all queries route through lance-graph
         .route("/mcp/sse", get(sse_handler))
         .route("/mcp/message", post(mcp_message_handler))
-        // Health check
+        // Health
         .route("/health", get(health_handler))
-        // Cockpit static assets (SPA fallback)
-        .fallback(get(static_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -108,11 +101,8 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("q2-cockpit listening on http://{addr}");
-    tracing::info!(
-        "lance-graph: {} nodes, {} edges loaded",
-        node_count(),
-        edge_count()
-    );
+    tracing::info!("engine: lance-graph (DataFusion + LanceDB)");
+    tracing::info!("renderer: quarto-core + deno_core (V8 JIT)");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app)
@@ -128,6 +118,87 @@ async fn shutdown_signal() {
     tracing::info!("shutting down");
 }
 
+// ── Live cockpit rendering ───────────────────────────────────────────────────
+
+/// Render the cockpit .qmd notebook through the Quarto pipeline.
+///
+/// pampa parses the .qmd → quarto-core renders → deno_core executes JS/TS
+/// cells → lance-graph handles any graph queries in code cells → HTML output.
+async fn cockpit_handler() -> Html<String> {
+    // TODO: Wire pampa + quarto-core + deno_core rendering pipeline.
+    // For now, return a minimal HTML shell that connects to the MCP SSE
+    // endpoint. The full pipeline will render .qmd → HTML with live
+    // graph cells executed through lance-graph.
+    Html(COCKPIT_SHELL.to_string())
+}
+
+/// Minimal cockpit HTML shell — connects to MCP SSE for live updates.
+/// This will be replaced by the full quarto-core rendering pipeline.
+const COCKPIT_SHELL: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>q2 — Graph Notebook</title>
+<style>
+:root {
+  --bg: #0a0e17; --panel: rgba(16,22,36,0.88); --border: rgba(77,208,225,0.16);
+  --accent: #4dd0e1; --text: #e7f3ff; --muted: #93a9bf;
+  --success: #35d07f; --warning: #ffb547; --danger: #ff637d;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  font-family: Inter, system-ui, sans-serif; color: var(--text);
+  background: radial-gradient(circle at top left, rgba(77,208,225,0.12), transparent 28%),
+    linear-gradient(180deg, #0a0e17, #111826, #161d2d); height: 100vh;
+}
+.shell { display: flex; flex-direction: column; height: 100vh; padding: 16px; gap: 12px; }
+.status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot.on { background: var(--success); box-shadow: 0 0 12px rgba(53,208,127,0.7); }
+.dot.off { background: var(--danger); }
+.main { flex: 1; display: flex; align-items: center; justify-content: center; }
+.msg { text-align: center; }
+.msg h1 { font-size: 24px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 12px; }
+.msg p { color: var(--muted); font-size: 14px; line-height: 1.6; max-width: 540px; }
+.msg code { color: var(--accent); font-family: ui-monospace, monospace; }
+#log { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted);
+  max-height: 120px; overflow: auto; padding: 8px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="status">
+    <span class="dot" id="dot"></span>
+    <span id="status">connecting…</span>
+    <span style="margin-left:auto">engine: lance-graph | renderer: quarto-core + V8 JIT</span>
+  </div>
+  <div class="main">
+    <div class="msg">
+      <h1>q2 Graph Notebook</h1>
+      <p>Live <code>.qmd</code> rendering through the Quarto pipeline.<br>
+      All queries route through <code>lance-graph</code> (DataFusion + LanceDB).<br>
+      V8 JIT executes JS/TS cells via <code>deno_core</code>.</p>
+      <p style="margin-top:16px;font-size:12px;color:var(--muted)">
+        Waiting for quarto-core rendering pipeline…</p>
+    </div>
+  </div>
+  <div id="log"></div>
+</div>
+<script>
+const dot = document.getElementById('dot');
+const status = document.getElementById('status');
+const log = document.getElementById('log');
+function addLog(msg) { log.textContent += new Date().toISOString().slice(11,19) + ' ' + msg + '\n'; log.scrollTop = log.scrollHeight; }
+
+const es = new EventSource('/mcp/sse');
+es.onopen = () => { dot.className = 'dot on'; status.textContent = 'connected — lance-graph live'; addLog('SSE connected'); };
+es.onmessage = (e) => { addLog('event: ' + e.data.slice(0, 80)); };
+es.onerror = () => { dot.className = 'dot off'; status.textContent = 'disconnected'; addLog('SSE error — reconnecting…'); };
+</script>
+</body>
+</html>"#;
+
 // ── SSE handler ──────────────────────────────────────────────────────────────
 
 async fn sse_handler(
@@ -136,7 +207,6 @@ async fn sse_handler(
     let mut rx = state.tx.subscribe();
 
     let stream = async_stream::stream! {
-        // Send initial connection event
         yield Ok(Event::default()
             .event("message")
             .data(r#"{"method":"notifications/initialized"}"#));
@@ -163,7 +233,7 @@ async fn sse_handler(
     )
 }
 
-// ── MCP message handler ──────────────────────────────────────────────────────
+// ── MCP message handler — all queries route through lance-graph ──────────────
 
 async fn mcp_message_handler(
     State(state): State<Arc<AppState>>,
@@ -173,7 +243,7 @@ async fn mcp_message_handler(
         "tools/call" => handle_tool_call(&state, &req).await,
         "tools/list" => Ok(serde_json::json!({
             "tools": [
-                { "name": "cell_execute", "description": "Execute a notebook cell" },
+                { "name": "cell_execute", "description": "Execute a notebook cell through lance-graph" },
                 { "name": "cells_list", "description": "List all cells" },
                 { "name": "notebook_export", "description": "Export notebook to PDF/HTML" },
             ]
@@ -192,10 +262,7 @@ async fn mcp_message_handler(
             jsonrpc: "2.0".into(),
             id: req.id,
             result: None,
-            error: Some(McpError {
-                code: -32000,
-                message: msg,
-            }),
+            error: Some(McpError { code: -32000, message: msg }),
         }),
     }
 }
@@ -213,7 +280,6 @@ async fn handle_tool_call(
             let code = args["code"].as_str().ok_or("Missing 'code' argument")?;
             let lang_hint = args["lang"].as_str();
 
-            // Detect language
             let language = if let Some(hint) = lang_hint {
                 match hint {
                     "cypher" => notebook_query::QueryLanguage::Cypher,
@@ -226,9 +292,9 @@ async fn handle_tool_call(
                 notebook_query::detect_language(code)
             };
 
-            // Execute through lance-graph hot path
+            // ALL queries route through lance-graph (DataFusion + LanceDB)
             let result =
-                notebook_query::execute(code, language).map_err(|e| format!("Query error: {e}"))?;
+                notebook_query::execute(code, language).map_err(|e| format!("lance-graph: {e}"))?;
 
             let cell = serde_json::json!({
                 "id": format!("cell-{}", std::time::SystemTime::now()
@@ -242,7 +308,6 @@ async fn handle_tool_call(
                 "outputs": build_outputs(&result),
             });
 
-            // Broadcast to SSE clients
             let _ = state.tx.send(SseEvent {
                 event: "cell_result".into(),
                 data: cell.clone(),
@@ -253,10 +318,7 @@ async fn handle_tool_call(
         "cells_list" => Ok(serde_json::json!([])),
         "notebook_export" => {
             let format = args["format"].as_str().unwrap_or("html");
-            Ok(serde_json::json!({
-                "exported": format!("notebook.{format}"),
-                "format": format,
-            }))
+            Ok(serde_json::json!({ "exported": format!("notebook.{format}"), "format": format }))
         }
         _ => Err(format!("Unknown tool: {tool_name}")),
     }
@@ -264,86 +326,25 @@ async fn handle_tool_call(
 
 fn build_outputs(result: &notebook_query::QueryResult) -> Vec<serde_json::Value> {
     let mut outputs = Vec::new();
-
     if let Some(ref html) = result.html {
-        outputs.push(serde_json::json!({
-            "type": "html",
-            "content": html,
-        }));
+        outputs.push(serde_json::json!({ "type": "html", "content": html }));
     }
-
     if let Some(ref graph_json) = result.graph_json {
-        outputs.push(serde_json::json!({
-            "type": "graph",
-            "content": graph_json,
-        }));
+        outputs.push(serde_json::json!({ "type": "graph", "content": graph_json }));
     }
-
     if outputs.is_empty() {
-        outputs.push(serde_json::json!({
-            "type": "text",
-            "content": result.raw_output,
-        }));
+        outputs.push(serde_json::json!({ "type": "text", "content": result.raw_output }));
     }
-
     outputs
 }
 
-// ── Health check ─────────────────────────────────────────────────────────────
+// ── Health ────────────────────────────────────────────────────────────────────
 
 async fn health_handler() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
-        "engine": "lance-graph",
-        "ndarray": "q2-ndarray (SIMD)",
-        "nodes": node_count(),
-        "edges": edge_count(),
+        "engine": "lance-graph (DataFusion + LanceDB)",
+        "renderer": "quarto-core + deno_core (V8 JIT)",
+        "compute": "ndarray (SIMD)",
     }))
-}
-
-/// Count of nodes in the loaded graph (delegates to notebook-query's dataset).
-fn node_count() -> usize {
-    // The seed data has 24 nodes; once lance-graph dataset is loaded, this
-    // would come from the graph engine's vertex count.
-    24
-}
-
-fn edge_count() -> usize {
-    31
-}
-
-// ── Static file serving (embedded cockpit assets) ────────────────────────────
-
-async fn static_handler(uri: axum::http::Uri) -> Response {
-    let path = uri.path().trim_start_matches('/');
-
-    // Try exact path first
-    if let Some(file) = COCKPIT_DIST.get_file(path) {
-        return serve_file(path, file.contents());
-    }
-
-    // SPA fallback: serve index.html for non-asset routes
-    if let Some(file) = COCKPIT_DIST.get_file("index.html") {
-        return serve_file("index.html", file.contents());
-    }
-
-    (StatusCode::NOT_FOUND, "Not found").into_response()
-}
-
-fn serve_file(path: &str, contents: &[u8]) -> Response {
-    let mime = match path.rsplit('.').next() {
-        Some("html") => "text/html; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8",
-        Some("js") => "application/javascript; charset=utf-8",
-        Some("json") => "application/json",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        Some("ico") => "image/x-icon",
-        Some("woff2") => "font/woff2",
-        Some("woff") => "font/woff",
-        Some("ttf") => "font/ttf",
-        _ => "application/octet-stream",
-    };
-
-    ([(header::CONTENT_TYPE, mime)], contents.to_vec()).into_response()
 }

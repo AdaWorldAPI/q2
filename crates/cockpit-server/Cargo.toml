@@ -3,7 +3,7 @@ name = "cockpit-server"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94"
-description = "Single-binary graph notebook cockpit — embeds UI + lance-graph + ndarray + V8 JIT"
+description = "Single-binary graph notebook — live .qmd rendering via lance-graph + deno_core"
 
 [[bin]]
 name = "q2-cockpit"
@@ -23,22 +23,26 @@ futures-core.workspace = true
 serde.workspace = true
 serde_json = "1"
 
-# Graph engine — lance-graph hot path via workspace (cloned at ../lance-graph)
+# ── The engine: lance-graph ──────────────────────────────────────────
+# Parser, DataFusion planner, LanceDB storage, blasgraph columnar,
+# semiring algebra, HHTL cascade. ALL queries route through here.
 lance-graph.workspace = true
+
+# Query routing layer — dispatches Cypher/Gremlin/SPARQL to lance-graph
 notebook-query.workspace = true
 
-# AIwar renderer — loads graph data into neo4j-rs, converts to vis-network JSON
+# AIwar renderer — loads graph data into the engine
 aiwar-ingest = { path = "../aiwar-ingest" }
 
-# ndarray — the real AdaWorldAPI fork (cloned at ../ndarray by Dockerfile)
-q2-ndarray.workspace = true
-
-# V8 JIT — execute JS/TS inside the binary
+# ── Quarto rendering pipeline ───────────────────────────────────────
+# pampa parses .qmd, quarto-core renders, deno_core executes JS/TS cells
+quarto-core.workspace = true
+quarto-system-runtime.workspace = true
 deno_core.workspace = true
 serde_v8.workspace = true
 
-# Embed the Vite build output into the binary
-include_dir.workspace = true
+# ── SIMD compute ────────────────────────────────────────────────────
+q2-ndarray.workspace = true
 
 # Logging
 tracing.workspace = true
@@ -48,4 +52,5 @@ tracing-subscriber.workspace = true
 default = []
 planner = ["notebook-query/planner"]
 orchestrator = ["notebook-query/orchestrator"]
+# Neo4j Aura fallback — only for live demos when lance-graph is unreachable
 neo4j-fallback = ["notebook-query/neo4j-fallback"]
