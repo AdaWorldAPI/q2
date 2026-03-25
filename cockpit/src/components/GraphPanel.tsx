@@ -35,40 +35,45 @@ const NETWORK_OPTIONS: Options = {
       strokeWidth: 3,
       strokeColor: '#0a0e17',
     },
-    borderWidth: 2.2,
-    shadow: { enabled: true, color: 'rgba(0,0,0,0.4)', size: 12, x: 0, y: 4 },
+    borderWidth: 2.5,
+    shadow: { enabled: true, color: 'rgba(0,0,0,0.5)', size: 14, x: 0, y: 4 },
   },
   edges: {
-    color: { color: 'rgba(125,162,186,0.42)', highlight: '#4dd0e1', hover: 'rgba(77,208,225,0.7)' },
+    color: { color: 'rgba(125,162,186,0.35)', highlight: '#4dd0e1', hover: 'rgba(77,208,225,0.6)' },
     font: {
-      color: 'rgba(147,169,191,0.72)',
-      size: 10,
+      color: 'rgba(147,169,191,0.65)',
+      size: 9,
       face: 'Inter, ui-sans-serif, system-ui, sans-serif',
       strokeWidth: 0,
       align: 'middle',
     },
-    width: 1.4,
-    smooth: { enabled: true, type: 'continuous', roundness: 0.15 },
-    selectionWidth: 2,
-    hoverWidth: 0.5,
+    width: 1.2,
+    smooth: { enabled: true, type: 'continuous', roundness: 0.12 },
+    selectionWidth: 2.5,
+    hoverWidth: 0.6,
+    arrows: { to: { enabled: true, scaleFactor: 0.5, type: 'arrow' } },
   },
   physics: {
     solver: 'forceAtlas2Based',
     forceAtlas2Based: {
-      gravitationalConstant: -80,
-      centralGravity: 0.006,
-      springLength: 160,
-      springConstant: 0.035,
-      damping: 0.4,
+      gravitationalConstant: -90,
+      centralGravity: 0.005,
+      springLength: 170,
+      springConstant: 0.03,
+      damping: 0.42,
+      avoidOverlap: 0.3,
     },
-    stabilization: { iterations: 150, fit: true },
+    stabilization: { iterations: 200, fit: true },
   },
   interaction: {
     hover: true,
     tooltipDelay: 80,
     zoomView: true,
     dragView: true,
+    dragNodes: true,
     multiselect: false,
+    navigationButtons: false,
+    keyboard: false,
   },
   layout: { improvedLayout: true },
 };
@@ -98,7 +103,7 @@ export function GraphPanel() {
   // Derive legend from visible node types
   const legendTypes = useMemo(() => {
     const types = new Set(filteredNodes.map((n) => n.type));
-    return Array.from(types).slice(0, 6);
+    return Array.from(types).slice(0, 7);
   }, [filteredNodes]);
 
   // Status counts for footer badges
@@ -120,21 +125,27 @@ export function GraphPanel() {
 
     const visNodes = new DataSet(
       filteredNodes.map((n) => {
-        const color = TYPE_COLORS[n.type] || '#4dd0e1';
+        const typeColor = TYPE_COLORS[n.type] || '#4dd0e1';
         const statusColor = STATUS_COLORS[String(n.properties.status)] || '#35d07f';
-        const connections =
-          typeof n.properties.connections === 'number' ? n.properties.connections : 4;
+        const conns = typeof n.properties.connections === 'number' ? n.properties.connections : 4;
+        const cpu = typeof n.properties.cpu === 'number' ? n.properties.cpu : 0.3;
+        // Size scales with connections, databases and caches get a boost
+        const baseSize = n.type === 'Database' || n.type === 'Cache' ? 16 : 12;
+        const size = baseSize + Math.min(conns, 12) * 1.8;
         return {
           id: n.id,
           label: n.label,
           color: {
-            background: 'rgba(10, 14, 23, 0.95)',
-            border: color,
-            highlight: { background: 'rgba(10, 14, 23, 0.95)', border: statusColor },
-            hover: { background: 'rgba(10, 14, 23, 0.85)', border: color },
+            background: `rgba(10, 14, 23, ${0.85 + cpu * 0.12})`,
+            border: statusColor,
+            highlight: { background: 'rgba(10, 14, 23, 0.95)', border: '#4dd0e1' },
+            hover: { background: 'rgba(10, 14, 23, 0.80)', border: typeColor },
           },
-          size: 12 + Math.min(connections, 12) * 1.5,
-          title: `${n.label}\n${n.type} \u00b7 ${n.properties.status}\n${n.properties.region}`,
+          size,
+          title: `${n.label}\n${n.type} \u00b7 ${n.properties.status}\n${n.properties.region}\nCPU: ${(cpu * 100).toFixed(0)}%`,
+          font: {
+            color: statusColor === '#ff637d' ? '#ff637d' : '#d9e9f9',
+          },
         };
       }),
     );
@@ -185,10 +196,13 @@ export function GraphPanel() {
     <section className="panel graph-panel">
       <div className="panel-header">
         <div className="panel-title">
-          <h2>Graph result</h2>
+          <h2>Graph</h2>
           <span>force-directed &middot; linked to sidebar + table + cells</span>
         </div>
-        <div className="signal">selection drives all views</div>
+        <div className="graph-header-right">
+          <span className="badge">{filteredNodes.length} nodes &middot; {filteredEdges.length} edges</span>
+          <div className="signal">selection drives all views</div>
+        </div>
       </div>
       <div className="graph-stage" id="graphStage">
         {filteredNodes.length === 0 ? (
@@ -211,13 +225,13 @@ export function GraphPanel() {
                 <b>Auto mode</b>
                 <p>
                   {selectedNode
-                    ? `${selectedNode.label} selected. Click another node to update all panels.`
+                    ? `${selectedNode.label} is the focus node across the cockpit.`
                     : 'Click a node to propagate selection through all panels.'}
                 </p>
               </div>
               <div className="overlay-card overlay-card-bottom">
                 <b>Viewport</b>
-                <p>Wheel to zoom. Drag to pan. Drag nodes to rearrange.</p>
+                <p>Wheel to zoom. Drag nodes. Layout settles with a soft spring and low-gravity drift.</p>
               </div>
             </div>
           </>

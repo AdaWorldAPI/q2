@@ -3,6 +3,10 @@ import { useStore } from '../store';
 
 type SortDir = 1 | -1;
 
+const STATUS_COLORS: Record<string, string> = {
+  healthy: '#35d07f', warning: '#ffb547', critical: '#ff637d',
+};
+
 export function ResultTable() {
   const nodes = useStore((s) => s.nodes);
   const edges = useStore((s) => s.edges);
@@ -36,14 +40,30 @@ export function ResultTable() {
     return result;
   }, [nodes, filter, searchTerm]);
 
+  // Degree + connection count map
+  const degreeMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    edges.forEach((e) => {
+      m[e.source] = (m[e.source] || 0) + 1;
+      m[e.target] = (m[e.target] || 0) + 1;
+    });
+    return m;
+  }, [edges]);
+
   const sorted = useMemo(() => {
     return [...filteredNodes].sort((a, b) => {
-      const va = sortKey === 'label' ? a.label : sortKey === 'type' ? a.type : a.properties[sortKey];
-      const vb = sortKey === 'label' ? b.label : sortKey === 'type' ? b.type : b.properties[sortKey];
+      let va: string | number;
+      let vb: string | number;
+
+      if (sortKey === 'label') { va = a.label; vb = b.label; }
+      else if (sortKey === 'type') { va = a.type; vb = b.type; }
+      else if (sortKey === 'conns') { va = degreeMap[a.id] || 0; vb = degreeMap[b.id] || 0; }
+      else { va = a.properties[sortKey] ?? ''; vb = b.properties[sortKey] ?? ''; }
+
       if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * sortDir;
-      return String(va ?? '').localeCompare(String(vb ?? '')) * sortDir;
+      return String(va).localeCompare(String(vb)) * sortDir;
     });
-  }, [filteredNodes, sortKey, sortDir]);
+  }, [filteredNodes, sortKey, sortDir, degreeMap]);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -54,30 +74,21 @@ export function ResultTable() {
     }
   };
 
-  // Degree column
-  const degreeMap = useMemo(() => {
-    const m: Record<string, number> = {};
-    edges.forEach((e) => {
-      m[e.source] = (m[e.source] || 0) + 1;
-      m[e.target] = (m[e.target] || 0) + 1;
-    });
-    return m;
-  }, [edges]);
-
   const columns = [
-    { key: 'label', label: 'Entity' },
+    { key: 'label', label: 'Label' },
     { key: 'type', label: 'Type' },
-    { key: 'status', label: 'Status' },
     { key: 'region', label: 'Region' },
+    { key: 'status', label: 'Status' },
     { key: 'cpu', label: 'CPU' },
-    { key: 'memory', label: 'Memory' },
+    { key: 'memory_gb', label: 'Mem (GB)' },
+    { key: 'conns', label: 'Conns' },
   ];
 
   return (
     <section className="panel table-panel">
       <div className="panel-header">
         <div className="panel-title">
-          <h2>Result table</h2>
+          <h2>Results</h2>
           <span>dense &middot; sortable &middot; same entities as the graph</span>
         </div>
         <div className="signal">row click = graph highlight</div>
@@ -91,6 +102,12 @@ export function ResultTable() {
         />
         <div className="mini-status">
           <span className="badge">{filteredNodes.length} rows</span>
+          <span className="badge">
+            <svg width="12" height="12" viewBox="0 0 12 12" style={{ verticalAlign: '-1px', marginRight: '4px' }}>
+              <path d="M6 1v7M3 5l3 3 3-3M2 10h8" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            export
+          </span>
           <span className="badge good">selection synced</span>
         </div>
       </div>
@@ -99,7 +116,7 @@ export function ResultTable() {
           <thead>
             <tr>
               {columns.map((col) => (
-                <th key={col.key} onClick={() => handleSort(col.key)} data-sort={col.key}>
+                <th key={col.key} onClick={() => handleSort(col.key)}>
                   {col.label}
                   {sortKey === col.key && (
                     <span style={{ marginLeft: '4px', opacity: 0.7 }}>
@@ -108,34 +125,32 @@ export function ResultTable() {
                   )}
                 </th>
               ))}
-              <th onClick={() => handleSort('degree')}>Degree</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((node) => {
               const statusStr = String(node.properties.status || '');
-              const statusColor =
-                statusStr === 'healthy' ? '#35d07f' : statusStr === 'warning' ? '#ffb547' : '#ff637d';
+              const statusColor = STATUS_COLORS[statusStr] || '#93a9bf';
+              const cpu = typeof node.properties.cpu === 'number' ? node.properties.cpu : null;
+              const mem = typeof node.properties.memory_gb === 'number' ? node.properties.memory_gb : null;
               return (
                 <tr
                   key={node.id}
                   className={node.id === selectedNodeId ? 'active' : ''}
                   onClick={() => selectNode(node.id)}
                 >
-                  <td>{node.label}</td>
+                  <td><strong>{node.label}</strong></td>
                   <td>{node.type}</td>
-                  <td style={{ color: statusColor }}>{statusStr}</td>
                   <td>{String(node.properties.region || '')}</td>
                   <td>
-                    {typeof node.properties.cpu === 'number'
-                      ? (node.properties.cpu * 100).toFixed(0) + '%'
-                      : String(node.properties.cpu || '')}
+                    <span className="status-pill" style={{ color: statusColor, borderColor: `${statusColor}40` }}>
+                      {statusStr.toUpperCase()}
+                    </span>
                   </td>
-                  <td>
-                    {typeof node.properties.memory === 'number'
-                      ? node.properties.memory.toFixed(1) + ' GB'
-                      : String(node.properties.memory || '')}
+                  <td className={cpu !== null && cpu > 0.7 ? 'td-hot' : ''}>
+                    {cpu !== null ? cpu.toFixed(2) : ''}
                   </td>
+                  <td>{mem !== null ? mem.toFixed(1) : ''}</td>
                   <td>{degreeMap[node.id] || 0}</td>
                 </tr>
               );

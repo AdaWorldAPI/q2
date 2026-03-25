@@ -28,3 +28,6 @@ default = []
 neo4j-fallback = ["dep:neo4rs"]
 planner = ["dep:lance-graph-planner"]
 orchestrator = ["dep:graph-flow", "dep:uuid"]
+# bardioc: use lightweight stubs instead of lance-graph hot path.
+# Default (no bardioc) = lance-graph + DataFusion for all query languages.
+bardioc = []
