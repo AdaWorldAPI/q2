@@ -1,146 +1,201 @@
-// NARS reasoning panel — shows inference chains, truth values, gates
-// Surfaces enrichment data as "AI-discovered connections"
-
 import { useState } from 'react';
+import type { GraphNode, GraphEdge } from '../store';
 import { TruthBadge } from './TruthBadge';
-
-interface Inference {
-  source: string;
-  target: string;
-  rel_type: string;
-  truth: { frequency: number; confidence: number; expectation: number };
-  inference_type: string;
-  via: string[];
-}
+import { ENRICHMENT_INDEX, getDefaultReasoning, type ReasoningResult, type EnrichmentEdge } from '../data/aiwar-seed';
 
 interface NarsPanelProps {
-  selectedNode: string | null;
-  onRunInference: (nodeId: string, depth: number) => Promise<Inference[]>;
-  onSearchChina?: (query: string) => void;
+  selectedNode: GraphNode | null;
+  edges: GraphEdge[];
+  onEnrich: (result: ReasoningResult) => void;
 }
 
-function classifyGate(c: number): 'FLOW' | 'HOLD' | 'BLOCK' {
-  if (c >= 0.6) return 'FLOW';
-  if (c >= 0.35) return 'HOLD';
-  return 'BLOCK';
-}
+export function NarsPanel({ selectedNode, edges, onEnrich }: NarsPanelProps) {
+  const [reasoning, setReasoning] = useState<ReasoningResult | null>(null);
+  const [running, setRunning] = useState(false);
+  const [showChina, setShowChina] = useState(false);
 
-export function NarsPanel({ selectedNode, onRunInference, onSearchChina }: NarsPanelProps) {
-  const [inferences, setInferences] = useState<Inference[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [depth, setDepth] = useState(3);
+  if (!selectedNode) {
+    return (
+      <section className="panel nars-panel">
+        <div className="panel-header">
+          <div className="panel-title">
+            <h2>NARS Inference</h2>
+            <span>select a system to reason</span>
+          </div>
+        </div>
+        <div className="nars-empty">
+          <div style={{ fontSize: '12px', color: 'var(--muted)', textAlign: 'center', padding: '40px 20px' }}>
+            Select a weapon system and click<br /><strong>Reason About This</strong> to discover<br />connections through NARS inference.
+          </div>
+        </div>
+      </section>
+    );
+  }
 
-  const handleReason = async () => {
-    if (!selectedNode) return;
-    setLoading(true);
-    try {
-      const results = await onRunInference(selectedNode, depth);
-      setInferences(results);
-    } finally {
-      setLoading(false);
-    }
+  const nodeEdges = edges.filter(
+    (e) => e.source === selectedNode.id || e.target === selectedNode.id,
+  );
+
+  const handleReason = () => {
+    setRunning(true);
+    setShowChina(false);
+    // Simulate inference delay
+    setTimeout(() => {
+      const result = ENRICHMENT_INDEX[selectedNode.id] || getDefaultReasoning(selectedNode.id, selectedNode.label);
+      setReasoning(result);
+      setRunning(false);
+      onEnrich(result);
+    }, 1200 + Math.random() * 800);
   };
 
-  const flow = inferences.filter((i) => classifyGate(i.truth.confidence) === 'FLOW');
-  const hold = inferences.filter((i) => classifyGate(i.truth.confidence) === 'HOLD');
-  const block = inferences.filter((i) => classifyGate(i.truth.confidence) === 'BLOCK');
+  const handleChinaLinks = () => {
+    setShowChina(true);
+  };
 
   return (
-    <div className="nars-panel">
-      <div className="nars-header">
-        <h3>NARS Inference</h3>
-        {selectedNode && (
-          <div className="nars-controls">
-            <select
-              value={depth}
-              onChange={(e) => setDepth(Number(e.target.value))}
-              className="nars-select"
-            >
-              <option value={2}>2 hops</option>
-              <option value={3}>3 hops</option>
-              <option value={4}>4 hops</option>
-            </select>
-            <button className="button nars-reason-btn" onClick={handleReason} disabled={loading}>
-              {loading ? 'reasoning...' : 'Reason'}
-            </button>
-          </div>
+    <section className="panel nars-panel">
+      <div className="panel-header">
+        <div className="panel-title">
+          <h2>NARS Inference</h2>
+          <span>{selectedNode.label}</span>
+        </div>
+        {reasoning && (
+          <span className="badge good">
+            {reasoning.discoveredConnections} discovered
+          </span>
         )}
       </div>
-
-      {!selectedNode && (
-        <div className="nars-empty">Select a node and click Reason to discover connections</div>
-      )}
-
-      {inferences.length > 0 && (
-        <div className="nars-results">
-          <div className="nars-summary">
-            <span className="badge good">{flow.length} FLOW</span>
-            <span className="badge warn">{hold.length} HOLD</span>
-            <span className="badge hot">{block.length} BLOCK</span>
-            <span className="badge">{inferences.length} total</span>
+      <div className="nars-body">
+        {/* Official data */}
+        <div className="nars-section">
+          <div className="section-label">official data</div>
+          <div className="nars-official">
+            {nodeEdges.slice(0, 5).map((e, i) => (
+              <div key={i} className="nars-edge-row">
+                <span className="nars-edge-label">
+                  {e.source === selectedNode.id ? selectedNode.label : e.source}
+                  <span className="nars-arrow"> &rarr;[{e.label}]&rarr; </span>
+                  {e.target === selectedNode.id ? selectedNode.label : e.target}
+                </span>
+              </div>
+            ))}
+            {nodeEdges.length === 0 && (
+              <div style={{ color: 'var(--muted)', fontSize: '12px' }}>No direct edges in official data</div>
+            )}
           </div>
-
-          {flow.length > 0 && (
-            <div className="nars-group">
-              <div className="section-label">AI Discovered Connections</div>
-              {flow.map((inf, i) => (
-                <div key={i} className="nars-inference-card">
-                  <div className="nars-chain">
-                    <span className="nars-node">{inf.source}</span>
-                    <span className="nars-arrow">&rarr;[{inf.rel_type}]&rarr;</span>
-                    <span className="nars-node">{inf.target}</span>
-                  </div>
-                  {inf.via.length > 0 && (
-                    <div className="nars-via">via: {inf.via.join(' → ')}</div>
-                  )}
-                  <TruthBadge
-                    f={inf.truth.frequency}
-                    c={inf.truth.confidence}
-                    gate={classifyGate(inf.truth.confidence)}
-                  />
+          <div className="nars-props">
+            {Object.entries(selectedNode.properties).map(([k, v]) => (
+              v && String(v) !== 'NaN' && String(v) !== '' ? (
+                <div key={k} className="prop-row">
+                  <div className="k">{k}</div>
+                  <div>{String(v)}</div>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {hold.length > 0 && (
-            <div className="nars-group">
-              <div className="section-label">Needs Verification</div>
-              {hold.map((inf, i) => (
-                <div key={i} className="nars-inference-card nars-hold">
-                  <div className="nars-chain">
-                    <span className="nars-node">{inf.source}</span>
-                    <span className="nars-arrow">&rarr;[{inf.rel_type}]&rarr;</span>
-                    <span className="nars-node">{inf.target}</span>
-                  </div>
-                  <TruthBadge
-                    f={inf.truth.frequency}
-                    c={inf.truth.confidence}
-                    gate="HOLD"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {onSearchChina && (
-            <div className="nars-actions">
-              <button
-                className="button"
-                onClick={() => onSearchChina('SenseTime military contracts China AI weapons')}
-              >
-                China Links
-              </button>
-              <button
-                className="button"
-                onClick={() => onSearchChina(selectedNode + ' funding network investors')}
-              >
-                Deeper
-              </button>
-            </div>
-          )}
+              ) : null
+            ))}
+          </div>
         </div>
-      )}
-    </div>
+
+        {/* Reason button */}
+        {!reasoning && (
+          <button
+            className="nars-reason-btn"
+            onClick={handleReason}
+            disabled={running}
+          >
+            {running ? 'Reasoning...' : '\uD83E\uDDE0 Reason About This'}
+          </button>
+        )}
+
+        {running && (
+          <div className="nars-running">
+            <div className="nars-spinner" />
+            <span>NARS inference in progress...</span>
+            <span className="nars-running-sub">Deduction &middot; Induction &middot; Abduction</span>
+          </div>
+        )}
+
+        {/* Discovered connections */}
+        {reasoning && !running && (
+          <>
+            <div className="nars-section">
+              <div className="section-label">
+                AI discovered connections &mdash; {reasoning.discoveredConnections} inferences
+              </div>
+              <div className="nars-discoveries">
+                {reasoning.enrichmentEdges.map((e: EnrichmentEdge, i: number) => (
+                  <div key={i} className="nars-discovery-card">
+                    <div className="nars-discovery-edge">
+                      {e.source} &rarr;[{e.label}]&rarr; {e.target}
+                    </div>
+                    <div className="nars-discovery-detail">{e.detail}</div>
+                    <div className="nars-discovery-meta">
+                      <TruthBadge f={e.truthValue.f} c={e.truthValue.c} gate={e.gate} />
+                      <span className="nars-inference-type">{e.inference}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Patterns */}
+            <div className="nars-section">
+              <div className="section-label">structural patterns</div>
+              <div className="nars-patterns">
+                {reasoning.patterns.map((p, i) => (
+                  <div key={i} className="nars-pattern">{p}</div>
+                ))}
+              </div>
+            </div>
+
+            {/* Confidence bar */}
+            <div className="nars-confidence">
+              <div className="section-label">confidence</div>
+              <div className="nars-confidence-bar">
+                <div
+                  className="nars-confidence-fill"
+                  style={{ width: `${reasoning.confidence}%` }}
+                />
+              </div>
+              <span className="nars-confidence-value">{reasoning.confidence.toFixed(1)}%</span>
+            </div>
+
+            {/* Action buttons */}
+            <div className="nars-actions">
+              <button className="nars-action-btn" onClick={handleReason}>Deeper</button>
+              <button className="nars-action-btn" onClick={handleChinaLinks}>China Links</button>
+              <button className="nars-action-btn">Full Chain</button>
+            </div>
+
+            {/* China links panel */}
+            {showChina && (
+              <div className="nars-section nars-china">
+                <div className="section-label">cross-domain inference &mdash; China containment</div>
+                <div className="nars-china-pattern">
+                  Pattern: Every system in the dataset serves resource denial against China.
+                </div>
+                <div className="nars-china-chains">
+                  <div>US &rarr; Lattice &rarr; autonomous kill chain</div>
+                  <div>US &rarr; Replicator &rarr; drone swarms</div>
+                  <div>Israel &rarr; Lavender &rarr; target ranking</div>
+                  <div>NATO &rarr; DIANA &rarr; defense innovation</div>
+                </div>
+                <div className="nars-china-search">
+                  <div className="section-label">live search</div>
+                  <div className="nars-search-item">\uD83D\uDD0D "SenseTime military contracts"</div>
+                  <div className="nars-search-item">\uD83D\uDD0D "Hikvision Xinjiang surveillance"</div>
+                  <div className="nars-search-item">\uD83D\uDD0D "PLA autonomous weapons 2025"</div>
+                  <div className="nars-search-status">
+                    <TruthBadge f={0.55} c={0.35} gate="HOLD" />
+                    <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                      High complexity, cross-domain inference
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   );
 }

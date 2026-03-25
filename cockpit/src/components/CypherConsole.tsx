@@ -1,120 +1,75 @@
-// Multi-cell Cypher console — executes queries through lance-graph via MCP
+import { useState } from 'react';
+import { AIWAR_QUERIES } from '../data/aiwar-seed';
+import { executeQuery } from '../transport';
 
-import { useState, useCallback } from 'react';
+export function CypherConsole() {
+  const [activeCell, setActiveCell] = useState(0);
+  const [results, setResults] = useState<Record<number, string>>({});
+  const [running, setRunning] = useState<number | null>(null);
 
-interface CypherCell {
-  id: string;
-  code: string;
-  lang: string;
-  result: string | null;
-  elapsed_ms: number | null;
-  running: boolean;
-}
-
-interface CypherConsoleProps {
-  preloadedQueries: Array<{ label: string; code: string; lang: string }>;
-  onExecute: (code: string, lang: string) => Promise<{ raw_output: string; elapsed_ms: number; graph_json?: string }>;
-  onNarsReason?: (code: string) => void;
-}
-
-export function CypherConsole({ preloadedQueries, onExecute, onNarsReason }: CypherConsoleProps) {
-  const [cells, setCells] = useState<CypherCell[]>(() =>
-    preloadedQueries.slice(0, 3).map((q, i) => ({
-      id: `cypher-${i}`,
-      code: q.code,
-      lang: q.lang,
-      result: null,
-      elapsed_ms: null,
-      running: false,
-    })),
-  );
-
-  const runCell = useCallback(async (id: string) => {
-    const cell = cells.find((c) => c.id === id);
-    if (!cell) return;
-
-    setCells((prev) => prev.map((c) => (c.id === id ? { ...c, running: true } : c)));
-
+  const handleRun = async (index: number) => {
+    setRunning(index);
     try {
-      const result = await onExecute(cell.code, cell.lang);
-      setCells((prev) =>
-        prev.map((c) =>
-          c.id === id
-            ? { ...c, result: result.raw_output, elapsed_ms: result.elapsed_ms, running: false }
-            : c,
-        ),
-      );
-    } catch (e) {
-      setCells((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, result: `Error: ${e}`, running: false } : c,
-        ),
-      );
+      const cell = await executeQuery(AIWAR_QUERIES[index].code, 'cypher');
+      const textOutput = cell.outputs.find((o) => o.type === 'text' || o.type === 'table');
+      setResults((prev) => ({
+        ...prev,
+        [index]: textOutput?.content || 'Query executed successfully',
+      }));
+    } catch (err) {
+      setResults((prev) => ({
+        ...prev,
+        [index]: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      }));
+    } finally {
+      setRunning(null);
     }
-  }, [cells, onExecute]);
-
-  const updateCode = useCallback((id: string, code: string) => {
-    setCells((prev) => prev.map((c) => (c.id === id ? { ...c, code } : c)));
-  }, []);
-
-  const addCell = useCallback(() => {
-    setCells((prev) => [
-      ...prev,
-      { id: `cypher-${Date.now()}`, code: '', lang: 'cypher', result: null, elapsed_ms: null, running: false },
-    ]);
-  }, []);
+  };
 
   return (
-    <div className="cypher-console">
-      <div className="cypher-header">
-        <div className="section-label">Cypher Console</div>
-        <button className="badge" onClick={addCell} style={{ cursor: 'pointer' }}>
-          + Add Cell
-        </button>
+    <section className="panel cypher-console">
+      <div className="panel-header">
+        <div className="panel-title">
+          <h2>Cypher Console</h2>
+          <span>pre-loaded analytical queries</span>
+        </div>
+        <span className="badge">{AIWAR_QUERIES.length} queries</span>
       </div>
       <div className="cypher-cells">
-        {cells.map((cell, i) => (
-          <div key={cell.id} className={`cypher-cell ${cell.running ? 'running' : ''}`}>
+        {AIWAR_QUERIES.map((q, i) => (
+          <div
+            key={i}
+            className={`cypher-cell ${activeCell === i ? 'active' : ''} ${running === i ? 'running' : ''}`}
+            onClick={() => setActiveCell(i)}
+          >
             <div className="cypher-cell-head">
-              <span className="cell-index">{i + 1}</span>
-              <span className="lang-chip">{cell.lang}</span>
-              <div style={{ flex: 1 }} />
-              <button
-                className="button"
-                onClick={() => runCell(cell.id)}
-                disabled={cell.running}
-                style={{ padding: '6px 10px', fontSize: '11px' }}
-              >
-                {cell.running ? 'running...' : 'Run'}
-              </button>
-              {onNarsReason && cell.result && (
+              <span className="cypher-cell-index">[{i + 1}]</span>
+              <span className="cypher-cell-title">{q.title}</span>
+              <div className="cypher-cell-actions">
                 <button
-                  className="button"
-                  onClick={() => onNarsReason(cell.code)}
-                  style={{ padding: '6px 10px', fontSize: '11px' }}
+                  className="cypher-run-btn"
+                  onClick={(e) => { e.stopPropagation(); handleRun(i); }}
+                  disabled={running !== null}
                 >
-                  NARS Reason
+                  {running === i ? '\u23F3' : '\u25B8'} Run
                 </button>
-              )}
-            </div>
-            <textarea
-              className="cypher-input"
-              value={cell.code}
-              onChange={(e) => updateCode(cell.id, e.target.value)}
-              rows={Math.min(cell.code.split('\n').length + 1, 6)}
-              spellCheck={false}
-            />
-            {cell.result && (
-              <div className="cypher-result">
-                <div className="cypher-result-meta">
-                  {cell.elapsed_ms !== null && <span className="badge">{cell.elapsed_ms}ms</span>}
-                </div>
-                <pre>{cell.result.slice(0, 2000)}</pre>
               </div>
+            </div>
+            {activeCell === i && (
+              <>
+                <div className="cypher-cell-desc">{q.description}</div>
+                <pre className="cypher-cell-code"><code>{q.code}</code></pre>
+                {results[i] && (
+                  <div className="cypher-cell-result">
+                    <strong>Result</strong>
+                    <pre>{results[i]}</pre>
+                  </div>
+                )}
+              </>
             )}
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
