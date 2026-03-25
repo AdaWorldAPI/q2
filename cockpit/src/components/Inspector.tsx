@@ -16,14 +16,21 @@ function drawSparkline(canvas: HTMLCanvasElement, values: number[], status: stri
   if (!ctx) return;
   const w = canvas.width;
   const h = canvas.height;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+
   ctx.clearRect(0, 0, w, h);
   const color = STATUS_COLORS[status] || '#4dd0e1';
   const max = Math.max(...values) + 4;
   const min = Math.min(...values) - 4;
 
   // Grid lines
-  ctx.strokeStyle = 'rgba(77, 208, 225, 0.10)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(77, 208, 225, 0.08)';
+  ctx.lineWidth = 0.5;
   for (let i = 1; i <= 3; i++) {
     const y = (h / 4) * i;
     ctx.beginPath();
@@ -32,9 +39,29 @@ function drawSparkline(canvas: HTMLCanvasElement, values: number[], status: stri
     ctx.stroke();
   }
 
+  // Fill area under curve
+  const gradient = ctx.createLinearGradient(0, 0, 0, h);
+  gradient.addColorStop(0, color.replace(')', ', 0.15)').replace('rgb', 'rgba'));
+  gradient.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = (w - 16) * (i / (values.length - 1)) + 8;
+    const y = h - 10 - ((v - min) / (max - min)) * (h - 20);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  const lastX = (w - 16) + 8;
+  ctx.lineTo(lastX, h);
+  ctx.lineTo(8, h);
+  ctx.closePath();
+  ctx.fill();
+
   // Line
   ctx.strokeStyle = color;
-  ctx.lineWidth = 2.4;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
   ctx.beginPath();
   values.forEach((v, i) => {
     const x = (w - 16) * (i / (values.length - 1)) + 8;
@@ -44,15 +71,22 @@ function drawSparkline(canvas: HTMLCanvasElement, values: number[], status: stri
   });
   ctx.stroke();
 
-  // Dots
+  // Terminal dot (latest point)
+  const lastVal = values[values.length - 1];
+  const lx = (w - 16) + 8;
+  const ly = h - 10 - ((lastVal - min) / (max - min)) * (h - 20);
   ctx.fillStyle = color;
-  values.forEach((v, i) => {
-    const x = (w - 16) * (i / (values.length - 1)) + 8;
-    const y = h - 10 - ((v - min) / (max - min)) * (h - 20);
-    ctx.beginPath();
-    ctx.arc(x, y, 2.4, 0, Math.PI * 2);
-    ctx.fill();
-  });
+  ctx.beginPath();
+  ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  // Glow ring
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.4;
+  ctx.beginPath();
+  ctx.arc(lx, ly, 6, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
 export function Inspector() {
@@ -68,19 +102,29 @@ export function Inspector() {
     if (!selectedNodeId) return [];
     return edges
       .filter((e) => e.source === selectedNodeId || e.target === selectedNodeId)
-      .map((e) => ({
-        kind: e.label,
-        peer: e.source === selectedNodeId ? e.target : e.source,
-        direction: e.source === selectedNodeId ? 'outbound' : 'inbound',
-      }));
+      .map((e) => {
+        const isOutbound = e.source === selectedNodeId;
+        return {
+          kind: e.label,
+          peer: isOutbound ? e.target : e.source,
+          direction: isOutbound ? 'outbound' : 'inbound',
+          arrow: isOutbound ? '\u2192' : '\u2190',
+        };
+      });
   }, [edges, selectedNodeId]);
 
-  // Generate synthetic sparkline data from CPU property
+  // Compute degree
+  const degree = useMemo(() => {
+    if (!selectedNodeId) return 0;
+    return edges.filter((e) => e.source === selectedNodeId || e.target === selectedNodeId).length;
+  }, [edges, selectedNodeId]);
+
+  // Generate sparkline data from CPU property
   const sparkData = useMemo(() => {
     if (!node) return [];
     const cpu = typeof node.properties.cpu === 'number' ? node.properties.cpu * 100 : 40;
-    return Array.from({ length: 10 }, (_, i) =>
-      Math.round(cpu + (Math.sin(i * 0.8) * 6) + (i * 1.5)),
+    return Array.from({ length: 12 }, (_, i) =>
+      Math.round(cpu + (Math.sin(i * 0.7) * 8) + (Math.cos(i * 0.3) * 4) + (i * 0.8)),
     );
   }, [node]);
 
@@ -95,8 +139,8 @@ export function Inspector() {
       <section className="panel sidebar">
         <div className="panel-header">
           <div className="panel-title">
-            <h2>Node intelligence</h2>
-            <span>properties &middot; neighbors &middot; sparkline</span>
+            <h2>Properties</h2>
+            <span>properties &middot; metadata &middot; neighbors &middot; sparkline</span>
           </div>
         </div>
         <div className="sidebar-body sidebar-empty">
@@ -117,44 +161,50 @@ export function Inspector() {
 
   const color = TYPE_COLORS[node.type] || '#4dd0e1';
   const statusStr = String(node.properties.status || 'healthy');
+  const statusColor = STATUS_COLORS[statusStr] || '#35d07f';
 
   return (
     <section className="panel sidebar">
       <div className="panel-header">
         <div className="panel-title">
-          <h2>Node intelligence</h2>
-          <span>properties &middot; neighbors &middot; sparkline</span>
+          <h2>Properties</h2>
+          <span>properties &middot; metadata &middot; neighbors &middot; sparkline</span>
         </div>
         <div className="signal">live linked</div>
       </div>
       <div className="sidebar-body">
-        {/* Node card */}
+        {/* Node identity card */}
         <div className="node-card">
-          <h3 style={{ color }}>{node.label}</h3>
-          <div className="node-meta">
-            <span>{node.type}</span>
-            <span style={{ color: STATUS_COLORS[statusStr], borderColor: `${STATUS_COLORS[statusStr]}33` }}>
-              {statusStr}
-            </span>
-            {node.properties.region && <span>{String(node.properties.region)}</span>}
+          <div className="node-identity">
+            <div className="node-avatar" style={{ borderColor: statusColor, background: `${color}18` }}>
+              <span style={{ color }}>{node.type.slice(0, 2).toUpperCase()}</span>
+            </div>
+            <div>
+              <h3 style={{ color }}>{node.label}</h3>
+              <span className="node-type-label" style={{ color: statusColor }}>
+                {node.type} &middot; {statusStr}
+              </span>
+            </div>
           </div>
+        </div>
+
+        {/* Attributes */}
+        <div>
+          <div className="section-label">attributes</div>
           <div className="prop-grid">
             <div className="prop-row"><div className="k">id</div><div><code>{node.id}</code></div></div>
-            {Object.entries(node.properties).map(([key, val]) => (
-              <div className="prop-row" key={key}>
-                <div className="k">{key}</div>
-                <div style={key === 'status' ? { color: STATUS_COLORS[String(val)] } : undefined}>
-                  {typeof val === 'number' ? (Number.isInteger(val) ? val : val.toFixed(2)) : String(val)}
-                </div>
-              </div>
-            ))}
+            <div className="prop-row"><div className="k">region</div><div>{String(node.properties.region || '')}</div></div>
+            <div className="prop-row"><div className="k">status</div><div style={{ color: statusColor }}>{statusStr}</div></div>
+            <div className="prop-row"><div className="k">compute</div><div>{typeof node.properties.cpu === 'number' ? `${(node.properties.cpu * 100).toFixed(0)}% cpu, degree ${degree}` : 'n/a'}</div></div>
+            <div className="prop-row"><div className="k">memory</div><div>{typeof node.properties.memory_gb === 'number' ? `${node.properties.memory_gb} GB` : 'n/a'}</div></div>
+            <div className="prop-row"><div className="k">connections</div><div>{String(node.properties.connections || degree)}</div></div>
           </div>
         </div>
 
         {/* Connections */}
         {connections.length > 0 && (
           <div>
-            <div className="section-label">connections</div>
+            <div className="section-label">connections <span style={{ opacity: 0.5 }}>({connections.length})</span></div>
             <div className="connections-list">
               {connections.map((c, i) => (
                 <button
@@ -162,12 +212,14 @@ export function Inspector() {
                   className="connection-card"
                   onClick={() => selectNode(c.peer)}
                 >
-                  <div>
-                    <b>{c.peer}</b>
-                    <br />
-                    <span style={{ color: 'var(--muted)', fontSize: '11px' }}>{c.direction}</span>
+                  <div className="conn-info">
+                    <span className={`conn-arrow ${c.direction}`}>{c.arrow}</span>
+                    <div>
+                      <b>{c.peer}</b>
+                      <span className="conn-dir">{c.direction}</span>
+                    </div>
                   </div>
-                  <div style={{ color: 'var(--accent-2)' }}>{c.kind}</div>
+                  <span className="conn-kind">{c.kind}</span>
                 </button>
               ))}
             </div>
@@ -176,12 +228,10 @@ export function Inspector() {
 
         {/* Sparkline */}
         <div className="spark-card">
-          <div className="section-label">cpu trend</div>
+          <div className="section-label">latency trend</div>
           <canvas ref={sparkRef} width={320} height={82} />
+          <div className="spark-footer">single-click updates every instrument on screen</div>
         </div>
-      </div>
-      <div className="graph-footer" style={{ borderTop: '1px solid var(--border)' }}>
-        <div className="footer-note">single-click updates every instrument</div>
       </div>
     </section>
   );

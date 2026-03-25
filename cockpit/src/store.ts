@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { SEED_NODES, SEED_EDGES } from './seed';
 
 // ---- Types ----
 
@@ -63,8 +64,8 @@ export const useStore = create<CockpitState>((set) => ({
   connected: false,
   setConnected: (v) => set({ connected: v }),
 
-  nodes: [],
-  edges: [],
+  nodes: SEED_NODES,
+  edges: SEED_EDGES,
   setGraphData: (nodes, edges) => set({ nodes, edges }),
 
   selectedNodeId: null,
