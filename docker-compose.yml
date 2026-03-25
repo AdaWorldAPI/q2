@@ -1,0 +1,27 @@
+# Local testing: q2 notebook with lance-graph + aiwar data
+#
+# Usage (from parent directory containing q2/, lance-graph/, aiwar-neo4j-harvest/):
+#   docker compose -f q2/docker-compose.yml up --build
+#
+# Or for bardioc stub mode (no lance-graph):
+#   docker compose -f q2/docker-compose.yml --profile bardioc up --build
+
+services:
+  q2-notebook:
+    build:
+      context: ..
+      dockerfile: q2/Dockerfile
+      args:
+        LANCE_GRAPH_DIR: lance-graph
+        AIWAR_DIR: aiwar-neo4j-harvest
+    ports:
+      - "2718:2718"
+    environment:
+      - PORT=2718
+      - AIWAR_DATA_PATH=/opt/data/aiwar_graph.json
+      - RUST_LOG=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2718/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

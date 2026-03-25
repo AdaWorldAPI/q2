@@ -1,6 +1,8 @@
 [build]
 builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "q2/Dockerfile"
+# Build context is the parent directory containing q2/, lance-graph/, aiwar-neo4j-harvest/
+# On Railway, set the root directory to the monorepo parent.
 
 [deploy]
 healthcheckPath = "/health"
