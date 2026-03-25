@@ -43,7 +43,8 @@ RUN git clone --depth 1 https://github.com/AdaWorldAPI/q2.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/rs-graph-llm.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
+ && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git \
+ && git clone --depth 1 https://github.com/AdaWorldAPI/aiwar.git
 
 # ── Build the cockpit frontend ────────────────────────────────────────
 WORKDIR /build/q2/cockpit
