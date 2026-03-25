@@ -1,0 +1,376 @@
+/* ================================================================
+   Palantir Dashboard — landing + explorer additions
+   Extends cockpit.css (do not duplicate base styles)
+   ================================================================ */
+
+/* ── Landing page ─────────────────────────────────────────────── */
+.palantir-landing {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.palantir-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(17, 24, 38, 0.9), rgba(12, 18, 30, 0.92));
+  backdrop-filter: blur(16px);
+  gap: 16px;
+}
+.palantir-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+  padding: 40px 20px;
+  align-content: center;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ── Data source cards ────────────────────────────────────────── */
+.datasource-card {
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(17, 24, 38, 0.9), rgba(12, 18, 30, 0.94));
+  border-radius: var(--radius);
+  padding: 24px;
+  cursor: pointer;
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  text-align: left;
+  color: var(--text);
+  font-family: var(--sans);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+.datasource-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-strong);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.55);
+}
+.datasource-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  border: 2px solid;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.datasource-card h3 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+}
+.datasource-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.datasource-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.datasource-launch {
+  margin-top: auto;
+  padding: 8px 14px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  transition: 200ms ease;
+}
+.datasource-card:hover .datasource-launch {
+  background: rgba(77, 208, 225, 0.08);
+}
+
+/* ── Explorer layout ──────────────────────────────────────────── */
+.palantir-explorer {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.aiwar-explorer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 14px;
+  gap: 12px;
+}
+.aiwar-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.aiwar-header h2 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.aiwar-stats {
+  display: flex;
+  gap: 8px;
+}
+.aiwar-view-toggle {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+.aiwar-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 200px 1fr 340px;
+  gap: 12px;
+  min-height: 0;
+}
+.aiwar-entities {
+  display: flex;
+  flex-direction: column;
+}
+.aiwar-entities .rail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+}
+.aiwar-center {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.aiwar-center .table-scroll {
+  flex: 1;
+  overflow: auto;
+}
+.aiwar-inspector {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.aiwar-reason-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.aiwar-console {
+  max-height: 260px;
+  overflow: auto;
+}
+
+/* ── NARS panel ───────────────────────────────────────────────── */
+.nars-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nars-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nars-header h3 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nars-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.nars-select {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 11px;
+  outline: none;
+}
+.nars-reason-btn {
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.2), rgba(255, 152, 0, 0.08)) !important;
+  border-color: rgba(255, 152, 0, 0.3) !important;
+  color: #ff9800 !important;
+}
+.nars-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 20px 0;
+  text-align: center;
+}
+.nars-summary {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.nars-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nars-inference-card {
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nars-inference-card.nars-hold {
+  border-color: rgba(255, 181, 71, 0.15);
+}
+.nars-chain {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.nars-node {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+.nars-arrow {
+  color: var(--muted);
+  font-size: 11px;
+}
+.nars-via {
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+.nars-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+}
+.nars-results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Truth badge ──────────────────────────────────────────────── */
+.truth-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.truth-values {
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.truth-bar-bg {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.truth-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 300ms ease;
+}
+.truth-gate {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  width: fit-content;
+}
+.truth-badge-compact {
+  font-size: 10px;
+  font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.truth-gate-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* ── Cypher console ───────────────────────────────────────────── */
+.cypher-console {
+  padding: 12px;
+}
+.cypher-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.cypher-cells {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cypher-cell {
+  border: 1px solid rgba(77, 208, 225, 0.12);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(17, 24, 38, 0.92);
+}
+.cypher-cell.running {
+  box-shadow: inset 0 0 0 1px rgba(77, 208, 225, 0.4);
+}
+.cypher-cell-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(77, 208, 225, 0.08);
+}
+.cypher-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(8, 12, 20, 0.8);
+  border: none;
+  outline: none;
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.cypher-result {
+  border-top: 1px solid rgba(77, 208, 225, 0.08);
+  padding: 10px 12px;
+}
+.cypher-result-meta {
+  margin-bottom: 6px;
+}
+.cypher-result pre {
+  font-size: 11px;
+  max-height: 120px;
+  overflow: auto;
+}

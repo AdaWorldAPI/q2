@@ -1,0 +1,1690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>q2 — Graph Notebook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ================================================================
+   q2 Graph Notebook — Cockpit Theme
+   Dark theme, teal/cyan accents, dense multi-panel layout
+   ================================================================ */
+
+:root {
+  /* Background layers */
+  --bg-base:      #0a0e17;
+  --bg-surface:   #0f1420;
+  --bg-panel:     #131927;
+  --bg-elevated:  #1a2035;
+  --bg-hover:     #1e2640;
+  --bg-active:    #242d4a;
+
+  /* Accent */
+  --accent:       #00bcd4;
+  --accent-light: #4dd0e1;
+  --accent-dim:   #0097a7;
+  --accent-glow:  rgba(0, 188, 212, 0.15);
+  --accent-border:rgba(0, 188, 212, 0.25);
+
+  /* Semantic */
+  --green:        #4caf50;
+  --green-dim:    rgba(76, 175, 80, 0.15);
+  --amber:        #ffc107;
+  --amber-dim:    rgba(255, 193, 7, 0.15);
+  --red:          #ef5350;
+  --red-dim:      rgba(239, 83, 80, 0.15);
+
+  /* Text */
+  --text-primary:   #e8eaf6;
+  --text-secondary: #8892b0;
+  --text-muted:     #546078;
+  --text-accent:    var(--accent-light);
+
+  /* Borders */
+  --border:       #1e2a3a;
+  --border-light: #2a3650;
+
+  /* Type */
+  --font-sans:  'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:  'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* Sizing */
+  --topbar-h:     48px;
+  --statusbar-h:  24px;
+  --panel-header: 32px;
+  --radius:       6px;
+  --radius-sm:    4px;
+
+  /* Motion */
+  --ease:         cubic-bezier(0.4, 0, 0.2, 1);
+  --duration:     200ms;
+}
+
+/* ---- Reset ---- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ================================================================
+   TOP BAR
+   ================================================================ */
+#topbar {
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  gap: 16px;
+  z-index: 100;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 200px;
+}
+
+.logo {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+.logo-accent { color: var(--accent); }
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.breadcrumb-item.active { color: var(--text-secondary); }
+.breadcrumb-sep { opacity: 0.4; }
+
+.topbar-center { flex: 1; max-width: 720px; margin: 0 auto; }
+
+.query-bar {
+  display: flex;
+  align-items: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  height: 34px;
+  padding: 0 4px 0 0;
+  transition: border-color var(--duration) var(--ease), box-shadow var(--duration) var(--ease);
+}
+.query-bar:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.query-lang-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-glow);
+  border-right: 1px solid var(--border);
+  border-radius: var(--radius) 0 0 var(--radius);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background var(--duration) var(--ease);
+}
+.query-lang-chip:hover { background: rgba(0,188,212,0.25); }
+
+#queryInput {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  padding: 0 10px;
+  height: 100%;
+  outline: none;
+}
+#queryInput::placeholder { color: var(--text-muted); }
+
+.query-actions { display: flex; align-items: center; gap: 4px; }
+.query-run {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--bg-base);
+  cursor: pointer;
+  transition: background var(--duration) var(--ease), transform 100ms;
+}
+.query-run:hover { background: var(--accent-light); }
+.query-run:active { transform: scale(0.93); }
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 200px;
+  justify-content: flex-end;
+}
+
+.topbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--duration) var(--ease), color var(--duration) var(--ease);
+}
+.topbar-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.status-dot.connected {
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
+}
+
+/* ================================================================
+   COCKPIT GRID
+   ================================================================ */
+#cockpit {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  grid-template-rows: minmax(300px, 1fr) auto auto;
+  grid-template-areas:
+    "graph props"
+    "table props"
+    "cells cells";
+  height: calc(100vh - var(--topbar-h) - var(--statusbar-h));
+  gap: 1px;
+  background: var(--border);
+}
+
+#graphPanel  { grid-area: graph; }
+#propertiesPanel { grid-area: props; }
+#tablePanel  { grid-area: table; }
+#cellStack   { grid-area: cells; }
+
+/* ================================================================
+   PANELS
+   ================================================================ */
+.panel {
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--panel-header);
+  padding: 0 10px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-secondary);
+}
+
+.panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.panel-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+}
+.panel-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.panel-btn.active { color: var(--accent); background: var(--accent-glow); }
+
+.panel-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.panel-badge {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  background: var(--bg-elevated);
+  border-radius: 10px;
+}
+
+.panel-body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* ================================================================
+   GRAPH PANEL
+   ================================================================ */
+#graphCanvas {
+  position: relative;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(0,188,212,0.03) 0%, transparent 50%),
+    radial-gradient(circle at 70% 60%, rgba(0,188,212,0.02) 0%, transparent 40%),
+    var(--bg-surface);
+}
+
+/* Subtle grid pattern */
+#graphCanvas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+#graphSvg { position: relative; z-index: 1; }
+
+.graph-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 2;
+}
+.graph-empty-text {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Graph node styles */
+.graph-node {
+  cursor: pointer;
+  transition: opacity var(--duration) var(--ease);
+}
+.graph-node circle {
+  transition: r var(--duration) var(--ease), stroke-width var(--duration) var(--ease);
+}
+.graph-node:hover circle {
+  stroke-width: 2.5;
+}
+.graph-node.selected circle {
+  stroke: var(--accent-light);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+}
+.graph-node text {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  fill: var(--text-secondary);
+  pointer-events: none;
+}
+.graph-node.selected text { fill: var(--text-primary); }
+
+.graph-link {
+  stroke: var(--border-light);
+  stroke-width: 1;
+  opacity: 0.6;
+  transition: opacity var(--duration) var(--ease), stroke var(--duration) var(--ease);
+}
+.graph-link.highlighted {
+  stroke: var(--accent);
+  opacity: 1;
+  stroke-width: 1.5;
+}
+
+.graph-link-label {
+  font-family: var(--font-sans);
+  font-size: 8px;
+  fill: var(--text-muted);
+  pointer-events: none;
+}
+
+/* Tooltip */
+.graph-tooltip {
+  position: absolute;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-primary);
+  pointer-events: none;
+  z-index: 50;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  max-width: 240px;
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.graph-tooltip.visible { opacity: 1; }
+.graph-tooltip .tt-label { font-weight: 600; color: var(--accent-light); }
+.graph-tooltip .tt-type { color: var(--text-muted); font-size: 10px; margin-left: 6px; }
+.graph-tooltip .tt-props { margin-top: 4px; }
+.graph-tooltip .tt-prop { display: flex; justify-content: space-between; gap: 12px; }
+.graph-tooltip .tt-prop-key { color: var(--text-muted); }
+.graph-tooltip .tt-prop-val { color: var(--text-secondary); text-align: right; }
+
+/* ================================================================
+   PROPERTIES PANEL
+   ================================================================ */
+.properties-body {
+  padding: 0;
+}
+
+.prop-section {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.prop-node-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.prop-node-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.prop-node-icon.server {
+  background: var(--accent-glow);
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.prop-node-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.prop-node-type {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.prop-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prop-count {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 8px;
+}
+
+.prop-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.prop-table td {
+  padding: 3px 0;
+  font-size: 12px;
+  vertical-align: top;
+}
+.prop-key {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  width: 100px;
+  white-space: nowrap;
+}
+.prop-val {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.status-badge.healthy { color: var(--green); background: var(--green-dim); }
+.status-badge.warning { color: var(--amber); background: var(--amber-dim); }
+.status-badge.critical { color: var(--red); background: var(--red-dim); }
+
+.prop-edges {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.prop-edge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--duration) var(--ease);
+}
+.prop-edge:hover { background: var(--bg-hover); }
+
+.edge-direction {
+  font-size: 12px;
+  font-weight: 700;
+  width: 16px;
+  text-align: center;
+}
+.edge-direction.outgoing { color: var(--accent); }
+.edge-direction.incoming { color: var(--amber); }
+
+.edge-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.edge-target {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+/* ================================================================
+   RESULT TABLE
+   ================================================================ */
+.table-body {
+  overflow: auto;
+}
+
+.result-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.result-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  white-space: nowrap;
+  z-index: 2;
+}
+.result-table th.numeric { text-align: right; }
+.result-table th.sortable { cursor: pointer; }
+.result-table th.sortable:hover { color: var(--text-primary); }
+.result-table th .sort-icon {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 2px;
+  opacity: 0.5;
+}
+.result-table th.sorted .sort-icon { opacity: 1; color: var(--accent); }
+
+.result-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.result-table td.numeric { text-align: right; }
+
+.result-table tbody tr {
+  cursor: pointer;
+  transition: background var(--duration) var(--ease);
+}
+.result-table tbody tr:hover { background: var(--bg-hover); }
+.result-table tbody tr.selected {
+  background: var(--accent-glow);
+}
+.result-table tbody tr.selected td { color: var(--text-primary); }
+
+/* ================================================================
+   CELL STACK
+   ================================================================ */
+.cells-body {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cell {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color var(--duration) var(--ease), box-shadow var(--duration) var(--ease);
+}
+.cell:hover { border-color: var(--border-light); }
+.cell:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-glow);
+}
+
+/* Loading pulse animation */
+.cell.running {
+  animation: cell-pulse 2s ease-in-out infinite;
+}
+@keyframes cell-pulse {
+  0%, 100% { border-color: var(--border); }
+  50% { border-color: var(--accent-dim); }
+}
+
+.cell-gutter {
+  width: 36px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  gap: 4px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+
+.cell-type-indicator {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+.cell-type-indicator.gremlin { color: var(--accent); background: var(--accent-glow); }
+.cell-type-indicator.r { color: #4fc3f7; background: rgba(79, 195, 247, 0.15); }
+.cell-type-indicator.sparql { color: #ab47bc; background: rgba(171, 71, 188, 0.15); }
+.cell-type-indicator.cypher { color: #66bb6a; background: rgba(102, 187, 106, 0.15); }
+.cell-type-indicator.md { color: var(--text-muted); background: var(--bg-elevated); }
+
+.cell-execution-order {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.cell-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.cell-source {
+  padding: 8px 12px;
+  background: var(--bg-surface);
+}
+
+.cell-source pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Syntax tokens */
+.tok-fn { color: #82aaff; }
+.tok-method { color: #82aaff; }
+.tok-string { color: #c3e88d; }
+.tok-keyword { color: #c792ea; }
+.tok-var { color: #f78c6c; }
+.tok-op { color: #89ddff; }
+.tok-num { color: #f78c6c; }
+.tok-type { color: #ffcb6b; }
+.tok-prop { color: #82aaff; }
+.tok-comment { color: var(--text-muted); font-style: italic; }
+
+.cell-output {
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.cell-output-label {
+  padding: 4px 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.cell-output-content {
+  padding: 8px 12px;
+}
+
+.mini-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.mini-table td {
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.mini-table .more-indicator td {
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  border: none;
+  padding-top: 4px;
+}
+
+.cell-chart {
+  height: 120px;
+}
+
+/* Markdown cell */
+.markdown-rendered {
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.markdown-rendered h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.markdown-rendered p {
+  font-size: 12.5px;
+}
+
+/* Add cell zone */
+.cell-add-zone {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+.cell-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+}
+.cell-add-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+/* ================================================================
+   STATUS BAR
+   ================================================================ */
+#statusbar {
+  height: var(--statusbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  z-index: 100;
+}
+
+.statusbar-left, .statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ================================================================
+   SCROLLBAR
+   ================================================================ */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ================================================================
+   ANIMATIONS
+   ================================================================ */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.cell-output-content { animation: fade-in var(--duration) var(--ease); }
+
+/* ================================================================
+   RESPONSIVE (minimum 1280px as per spec)
+   ================================================================ */
+@media (max-width: 1400px) {
+  #cockpit {
+    grid-template-columns: 1fr 240px;
+  }
+}
+
+@media (max-width: 1280px) {
+  #cockpit {
+    grid-template-columns: 1fr 220px;
+  }
+  .topbar-left { min-width: 160px; }
+  .topbar-right { min-width: 160px; }
+}
+</style>
+</head>
+  <!-- Top Bar -->
+  <header id="topbar">
+    <div class="topbar-left">
+      <div class="logo">q<span class="logo-accent">2</span></div>
+      <div class="breadcrumb">
+        <span class="breadcrumb-item">bardioc-infra</span>
+        <span class="breadcrumb-sep">/</span>
+        <span class="breadcrumb-item active">network-topology.qmd</span>
+      </div>
+    </div>
+    <div class="topbar-center">
+      <div class="query-bar" id="queryBar">
+        <div class="query-lang-chip" id="langChip" title="Click to override language">
+          <span id="langLabel">gremlin</span>
+          <svg width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        </div>
+        <input
+          type="text"
+          id="queryInput"
+          placeholder="g.V().hasLabel('server').outE().inV().path()"
+          spellcheck="false"
+          autocomplete="off"
+        >
+        <div class="query-actions">
+          <button class="query-run" id="runBtn" title="Execute (Shift+Enter)">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 2l9 5-9 5V2z" fill="currentColor"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="topbar-btn" title="Export PDF (Cmd+P)">
+        <svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M9 1v4h4" stroke="currentColor" stroke-width="1.2" fill="none"/><text x="5" y="12" font-size="5" fill="currentColor" font-weight="600">PDF</text></svg>
+      </button>
+      <button class="topbar-btn" title="Settings">
+        <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M2.9 2.9l1.4 1.4M11.7 11.7l1.4 1.4M13.1 2.9l-1.4 1.4M4.3 11.7l-1.4 1.4" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+      <div class="topbar-status">
+        <span class="status-dot connected"></span>
+        <span class="status-text">localhost:2718</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Cockpit Layout -->
+  <main id="cockpit">
+    <!-- Graph Panel (primary) -->
+    <section id="graphPanel" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Graph</span>
+        <div class="panel-controls">
+          <button class="panel-btn active" title="Force-directed" data-layout="force">
+            <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="4" cy="4" r="2" stroke="currentColor" fill="none"/><circle cx="10" cy="10" r="2" stroke="currentColor" fill="none"/><circle cx="10" cy="4" r="2" stroke="currentColor" fill="none"/><line x1="5.5" y1="5" x2="8.5" y2="9" stroke="currentColor" stroke-width="0.8"/><line x1="6" y1="4" x2="8" y2="4" stroke="currentColor" stroke-width="0.8"/></svg>
+          </button>
+          <button class="panel-btn" title="Hierarchical" data-layout="hierarchical">
+            <svg width="14" height="14" viewBox="0 0 14 14"><rect x="5" y="1" width="4" height="3" rx="0.5" stroke="currentColor" fill="none"/><rect x="1" y="10" width="4" height="3" rx="0.5" stroke="currentColor" fill="none"/><rect x="9" y="10" width="4" height="3" rx="0.5" stroke="currentColor" fill="none"/><line x1="7" y1="4" x2="7" y2="7" stroke="currentColor" stroke-width="0.8"/><line x1="3" y1="10" x2="7" y2="7" stroke="currentColor" stroke-width="0.8"/><line x1="11" y1="10" x2="7" y2="7" stroke="currentColor" stroke-width="0.8"/></svg>
+          </button>
+          <span class="panel-divider"></span>
+          <button class="panel-btn" title="Fit to view">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M1 5V2a1 1 0 011-1h3M9 1h3a1 1 0 011 1v3M13 9v3a1 1 0 01-1 1h-3M5 13H2a1 1 0 01-1-1V9" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+          </button>
+          <span class="panel-badge" id="nodeCount">24 nodes · 31 edges</span>
+        </div>
+      </div>
+      <div class="panel-body" id="graphCanvas">
+        <!-- SVG graph rendered here -->
+        <svg id="graphSvg" width="100%" height="100%"></svg>
+        <!-- Loading state -->
+        <div class="graph-empty" id="graphEmpty" style="display:none">
+          <div class="graph-empty-icon">
+            <svg width="48" height="48" viewBox="0 0 48 48"><circle cx="16" cy="16" r="6" stroke="var(--accent)" stroke-width="1.5" fill="none" opacity="0.4"/><circle cx="36" cy="12" r="4" stroke="var(--accent)" stroke-width="1.5" fill="none" opacity="0.3"/><circle cx="32" cy="36" r="5" stroke="var(--accent)" stroke-width="1.5" fill="none" opacity="0.4"/><circle cx="12" cy="36" r="3" stroke="var(--accent)" stroke-width="1.5" fill="none" opacity="0.2"/><line x1="21" y1="18" x2="33" y2="14" stroke="var(--accent)" stroke-width="0.8" opacity="0.2"/><line x1="18" y1="21" x2="14" y2="33" stroke="var(--accent)" stroke-width="0.8" opacity="0.2"/><line x1="30" y1="32" x2="22" y2="18" stroke="var(--accent)" stroke-width="0.8" opacity="0.2"/></svg>
+          </div>
+          <div class="graph-empty-text">Type a query to explore the graph</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Properties Sidebar -->
+    <aside id="propertiesPanel" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Properties</span>
+        <button class="panel-btn" id="pinBtn" title="Pin panel">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1v5M4 6h6l-1 4H5L4 6zM5 10l-1 3M9 10l1 3" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+        </button>
+      </div>
+      <div class="panel-body properties-body" id="propertiesBody">
+        <!-- Selected node info -->
+        <div class="prop-section">
+          <div class="prop-node-header">
+            <span class="prop-node-icon server"></span>
+            <div>
+              <div class="prop-node-label">web-server-03</div>
+              <div class="prop-node-type">Server</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="prop-section">
+          <div class="prop-section-title">Attributes</div>
+          <table class="prop-table">
+            <tr><td class="prop-key">id</td><td class="prop-val">srv-003</td></tr>
+            <tr><td class="prop-key">region</td><td class="prop-val">eu-west-1</td></tr>
+            <tr><td class="prop-key">status</td><td class="prop-val"><span class="status-badge healthy">healthy</span></td></tr>
+            <tr><td class="prop-key">cpu_avg</td><td class="prop-val">0.42</td></tr>
+            <tr><td class="prop-key">memory_gb</td><td class="prop-val">31.2</td></tr>
+            <tr><td class="prop-key">uptime_days</td><td class="prop-val">127</td></tr>
+            <tr><td class="prop-key">last_deploy</td><td class="prop-val">2026-03-21</td></tr>
+          </table>
+        </div>
+
+        <div class="prop-section">
+          <div class="prop-section-title">Connections <span class="prop-count">5</span></div>
+          <div class="prop-edges">
+            <div class="prop-edge">
+              <span class="edge-direction outgoing">→</span>
+              <span class="edge-label">SERVES</span>
+              <span class="edge-target">api-gateway-01</span>
+            </div>
+            <div class="prop-edge">
+              <span class="edge-direction outgoing">→</span>
+              <span class="edge-label">READS_FROM</span>
+              <span class="edge-target">cache-redis-02</span>
+            </div>
+            <div class="prop-edge">
+              <span class="edge-direction outgoing">→</span>
+              <span class="edge-label">WRITES_TO</span>
+              <span class="edge-target">db-postgres-01</span>
+            </div>
+            <div class="prop-edge">
+              <span class="edge-direction incoming">←</span>
+              <span class="edge-label">MONITORS</span>
+              <span class="edge-target">prometheus-01</span>
+            </div>
+            <div class="prop-edge">
+              <span class="edge-direction incoming">←</span>
+              <span class="edge-label">ROUTES_TO</span>
+              <span class="edge-target">lb-haproxy-01</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Result Table -->
+    <section id="tablePanel" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Results</span>
+        <div class="panel-controls">
+          <span class="panel-badge" id="rowCount">24 rows</span>
+          <button class="panel-btn" title="Export CSV">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1v9M4 7l3 3 3-3M2 12h10" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel-body table-body">
+        <table class="result-table" id="resultTable">
+          <thead>
+            <tr>
+              <th class="sortable" data-col="label">Label <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="type">Type <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="region">Region <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="status">Status <span class="sort-icon">↕</span></th>
+              <th class="sortable numeric" data-col="cpu">CPU <span class="sort-icon">↕</span></th>
+              <th class="sortable numeric" data-col="memory">Mem (GB) <span class="sort-icon">↕</span></th>
+              <th class="sortable numeric" data-col="connections">Conns <span class="sort-icon">↕</span></th>
+            </tr>
+          </thead>
+          <tbody id="resultBody">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Cell Stack -->
+    <section id="cellStack" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Notebook</span>
+        <div class="panel-controls">
+          <button class="panel-btn" id="addCellBtn" title="Add cell">
+            <svg width="14" height="14" viewBox="0 0 14 14"><line x1="7" y1="3" x2="7" y2="11" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel-body cells-body" id="cellsBody">
+        <!-- Cell 1: Markdown -->
+        <div class="cell" data-cell-type="markdown">
+          <div class="cell-gutter">
+            <span class="cell-type-indicator md">MD</span>
+          </div>
+          <div class="cell-content">
+            <div class="cell-rendered markdown-rendered">
+              <h3>Network Topology Analysis</h3>
+              <p>This notebook explores the Bardioc infrastructure graph. We query the server topology, identify bottlenecks, and generate the monthly uptime report.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cell 2: Gremlin query (executed) -->
+        <div class="cell executed" data-cell-type="code">
+          <div class="cell-gutter">
+            <span class="cell-type-indicator gremlin">GR</span>
+            <span class="cell-execution-order">[1]</span>
+          </div>
+          <div class="cell-content">
+            <div class="cell-source">
+              <pre><code><span class="tok-fn">g</span>.<span class="tok-method">V</span>().<span class="tok-method">hasLabel</span>(<span class="tok-string">'server'</span>)
+  .<span class="tok-method">project</span>(<span class="tok-string">'name'</span>, <span class="tok-string">'region'</span>, <span class="tok-string">'cpu'</span>)
+    .<span class="tok-method">by</span>(<span class="tok-string">'name'</span>)
+    .<span class="tok-method">by</span>(<span class="tok-string">'region'</span>)
+    .<span class="tok-method">by</span>(<span class="tok-string">'cpu_avg'</span>)</code></pre>
+            </div>
+            <div class="cell-output">
+              <div class="cell-output-label">24 results · 42ms</div>
+              <div class="cell-output-content mini-table">
+                <table>
+                  <tr><td>web-server-01</td><td>us-east-1</td><td>0.67</td></tr>
+                  <tr><td>web-server-02</td><td>us-east-1</td><td>0.54</td></tr>
+                  <tr><td>web-server-03</td><td>eu-west-1</td><td>0.42</td></tr>
+                  <tr class="more-indicator"><td colspan="3">… 21 more rows</td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cell 3: R code -->
+        <div class="cell executed" data-cell-type="code">
+          <div class="cell-gutter">
+            <span class="cell-type-indicator r">R</span>
+            <span class="cell-execution-order">[2]</span>
+          </div>
+          <div class="cell-content">
+            <div class="cell-source">
+              <pre><code><span class="tok-fn">library</span>(<span class="tok-string">ggplot2</span>)
+
+<span class="tok-var">cpu_data</span> <span class="tok-op">&lt;-</span> <span class="tok-fn">as.data.frame</span>(<span class="tok-var">cell</span>[<span class="tok-num">1</span>])
+<span class="tok-fn">ggplot</span>(<span class="tok-var">cpu_data</span>, <span class="tok-fn">aes</span>(<span class="tok-var">x</span> = <span class="tok-var">name</span>, <span class="tok-var">y</span> = <span class="tok-var">cpu</span>, <span class="tok-var">fill</span> = <span class="tok-var">region</span>)) <span class="tok-op">+</span>
+  <span class="tok-fn">geom_col</span>() <span class="tok-op">+</span>
+  <span class="tok-fn">theme_minimal</span>() <span class="tok-op">+</span>
+  <span class="tok-fn">labs</span>(<span class="tok-var">title</span> = <span class="tok-string">"CPU Usage by Server"</span>)</code></pre>
+            </div>
+            <div class="cell-output">
+              <div class="cell-output-label">chart · 210ms</div>
+              <div class="cell-output-content cell-chart" id="miniChart">
+                <!-- Inline SVG bar chart placeholder -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cell 4: SPARQL (pending) -->
+        <div class="cell" data-cell-type="code">
+          <div class="cell-gutter">
+            <span class="cell-type-indicator sparql">SQ</span>
+          </div>
+          <div class="cell-content">
+            <div class="cell-source">
+              <pre><code><span class="tok-keyword">SELECT</span> <span class="tok-var">?server</span> <span class="tok-var">?uptime</span>
+<span class="tok-keyword">WHERE</span> {
+  <span class="tok-var">?server</span> <span class="tok-prop">a</span> <span class="tok-type">:Server</span> ;
+          <span class="tok-prop">:uptime_days</span> <span class="tok-var">?uptime</span> .
+  <span class="tok-keyword">FILTER</span>(<span class="tok-var">?uptime</span> <span class="tok-op">&gt;</span> <span class="tok-num">90</span>)
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add cell button -->
+        <div class="cell-add-zone" id="addCellZone">
+          <button class="cell-add-btn">
+            <svg width="14" height="14" viewBox="0 0 14 14"><line x1="7" y1="3" x2="7" y2="11" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.5"/></svg>
+            Add cell
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Status Bar -->
+  <footer id="statusbar">
+    <div class="statusbar-left">
+      <span class="status-item">
+        <span class="status-dot connected"></span>
+        Connected
+      </span>
+      <span class="status-item">lance-graph v0.4.2</span>
+      <span class="status-item">24 vertices · 31 edges · 3.2ms</span>
+    </div>
+    <div class="statusbar-right">
+      <span class="status-item">Cell [2] running</span>
+      <span class="status-item">MCP: 3 tools</span>
+      <span class="status-item">localhost:2718</span>
+    </div>
+  </footer>
+
+<script>
+/* ================================================================
+   q2 Graph Notebook — Cockpit Interactivity
+   Force-directed graph, sortable table, linked selection
+   ================================================================ */
+
+// ---- Data Model ----
+const NODES = [
+  { id: 'srv-001', label: 'web-server-01',   type: 'Server',   region: 'us-east-1', status: 'healthy',  cpu: 0.67, memory: 28.4, connections: 5  },
+  { id: 'srv-002', label: 'web-server-02',   type: 'Server',   region: 'us-east-1', status: 'healthy',  cpu: 0.54, memory: 24.1, connections: 4  },
+  { id: 'srv-003', label: 'web-server-03',   type: 'Server',   region: 'eu-west-1', status: 'healthy',  cpu: 0.42, memory: 31.2, connections: 5  },
+  { id: 'srv-004', label: 'web-server-04',   type: 'Server',   region: 'eu-west-1', status: 'warning',  cpu: 0.81, memory: 29.8, connections: 3  },
+  { id: 'api-001', label: 'api-gateway-01',  type: 'Gateway',  region: 'us-east-1', status: 'healthy',  cpu: 0.31, memory: 8.2,  connections: 8  },
+  { id: 'api-002', label: 'api-gateway-02',  type: 'Gateway',  region: 'eu-west-1', status: 'healthy',  cpu: 0.28, memory: 7.9,  connections: 7  },
+  { id: 'db-001',  label: 'db-postgres-01',  type: 'Database',  region: 'us-east-1', status: 'healthy',  cpu: 0.45, memory: 62.3, connections: 6  },
+  { id: 'db-002',  label: 'db-postgres-02',  type: 'Database',  region: 'eu-west-1', status: 'healthy',  cpu: 0.38, memory: 58.7, connections: 5  },
+  { id: 'cache-01',label: 'cache-redis-01',  type: 'Cache',    region: 'us-east-1', status: 'healthy',  cpu: 0.12, memory: 16.0, connections: 6  },
+  { id: 'cache-02',label: 'cache-redis-02',  type: 'Cache',    region: 'eu-west-1', status: 'healthy',  cpu: 0.09, memory: 16.0, connections: 5  },
+  { id: 'lb-001',  label: 'lb-haproxy-01',   type: 'LoadBalancer', region: 'us-east-1', status: 'healthy', cpu: 0.22, memory: 4.1, connections: 6  },
+  { id: 'lb-002',  label: 'lb-haproxy-02',   type: 'LoadBalancer', region: 'eu-west-1', status: 'healthy', cpu: 0.19, memory: 3.8, connections: 5  },
+  { id: 'mon-001', label: 'prometheus-01',   type: 'Monitor',  region: 'us-east-1', status: 'healthy',  cpu: 0.55, memory: 12.4, connections: 10 },
+  { id: 'msg-001', label: 'kafka-broker-01', type: 'Queue',    region: 'us-east-1', status: 'healthy',  cpu: 0.61, memory: 32.0, connections: 8  },
+  { id: 'msg-002', label: 'kafka-broker-02', type: 'Queue',    region: 'eu-west-1', status: 'warning',  cpu: 0.78, memory: 30.5, connections: 7  },
+  { id: 'cdn-001', label: 'cdn-edge-01',     type: 'CDN',      region: 'global',    status: 'healthy',  cpu: 0.15, memory: 2.1,  connections: 4  },
+  { id: 'dns-001', label: 'dns-resolver-01', type: 'DNS',      region: 'global',    status: 'healthy',  cpu: 0.08, memory: 1.2,  connections: 3  },
+  { id: 'vault-01',label: 'vault-01',        type: 'Secrets',  region: 'us-east-1', status: 'healthy',  cpu: 0.05, memory: 2.0,  connections: 4  },
+  { id: 'log-001', label: 'elasticsearch-01',type: 'Search',   region: 'us-east-1', status: 'healthy',  cpu: 0.72, memory: 48.0, connections: 5  },
+  { id: 'svc-001', label: 'auth-service-01', type: 'Service',  region: 'us-east-1', status: 'healthy',  cpu: 0.33, memory: 8.8,  connections: 5  },
+  { id: 'svc-002', label: 'user-service-01', type: 'Service',  region: 'us-east-1', status: 'healthy',  cpu: 0.29, memory: 7.2,  connections: 4  },
+  { id: 'svc-003', label: 'order-service-01',type: 'Service',  region: 'eu-west-1', status: 'critical', cpu: 0.92, memory: 14.5, connections: 6  },
+  { id: 'wrk-001', label: 'worker-batch-01', type: 'Worker',   region: 'us-east-1', status: 'healthy',  cpu: 0.48, memory: 16.3, connections: 3  },
+  { id: 'wrk-002', label: 'worker-batch-02', type: 'Worker',   region: 'eu-west-1', status: 'healthy',  cpu: 0.44, memory: 15.9, connections: 3  },
+];
+
+const EDGES = [
+  { source: 'lb-001',  target: 'srv-001', label: 'ROUTES_TO' },
+  { source: 'lb-001',  target: 'srv-002', label: 'ROUTES_TO' },
+  { source: 'lb-002',  target: 'srv-003', label: 'ROUTES_TO' },
+  { source: 'lb-002',  target: 'srv-004', label: 'ROUTES_TO' },
+  { source: 'srv-001', target: 'api-001', label: 'SERVES' },
+  { source: 'srv-002', target: 'api-001', label: 'SERVES' },
+  { source: 'srv-003', target: 'api-002', label: 'SERVES' },
+  { source: 'srv-004', target: 'api-002', label: 'SERVES' },
+  { source: 'api-001', target: 'svc-001', label: 'CALLS' },
+  { source: 'api-001', target: 'svc-002', label: 'CALLS' },
+  { source: 'api-002', target: 'svc-003', label: 'CALLS' },
+  { source: 'svc-001', target: 'db-001',  label: 'QUERIES' },
+  { source: 'svc-002', target: 'db-001',  label: 'QUERIES' },
+  { source: 'svc-003', target: 'db-002',  label: 'QUERIES' },
+  { source: 'srv-001', target: 'cache-01',label: 'READS_FROM' },
+  { source: 'srv-002', target: 'cache-01',label: 'READS_FROM' },
+  { source: 'srv-003', target: 'cache-02',label: 'READS_FROM' },
+  { source: 'srv-004', target: 'cache-02',label: 'READS_FROM' },
+  { source: 'msg-001', target: 'wrk-001', label: 'DELIVERS' },
+  { source: 'msg-002', target: 'wrk-002', label: 'DELIVERS' },
+  { source: 'svc-003', target: 'msg-002', label: 'PUBLISHES' },
+  { source: 'svc-002', target: 'msg-001', label: 'PUBLISHES' },
+  { source: 'mon-001', target: 'srv-001', label: 'MONITORS' },
+  { source: 'mon-001', target: 'srv-002', label: 'MONITORS' },
+  { source: 'mon-001', target: 'srv-003', label: 'MONITORS' },
+  { source: 'mon-001', target: 'srv-004', label: 'MONITORS' },
+  { source: 'mon-001', target: 'db-001',  label: 'MONITORS' },
+  { source: 'mon-001', target: 'db-002',  label: 'MONITORS' },
+  { source: 'dns-001', target: 'cdn-001', label: 'RESOLVES' },
+  { source: 'cdn-001', target: 'lb-001',  label: 'FORWARDS' },
+  { source: 'cdn-001', target: 'lb-002',  label: 'FORWARDS' },
+];
+
+// ---- Type → Color mapping ----
+const TYPE_COLORS = {
+  Server:       '#00bcd4',
+  Gateway:      '#4dd0e1',
+  Database:     '#ffc107',
+  Cache:        '#ff7043',
+  LoadBalancer: '#66bb6a',
+  Monitor:      '#ab47bc',
+  Queue:        '#ef5350',
+  CDN:          '#42a5f5',
+  DNS:          '#78909c',
+  Secrets:      '#8d6e63',
+  Search:       '#7e57c2',
+  Service:      '#26c6da',
+  Worker:       '#9ccc65',
+};
+
+// ---- State ----
+let selectedNodeId = null;
+let simulation = null;
+let svgWidth = 800;
+let svgHeight = 500;
+
+// Deep-copy nodes for simulation (add x, y, vx, vy)
+const simNodes = NODES.map(n => ({ ...n, x: 0, y: 0, vx: 0, vy: 0 }));
+const simEdges = EDGES.map(e => ({
+  ...e,
+  sourceNode: simNodes.find(n => n.id === e.source),
+  targetNode: simNodes.find(n => n.id === e.target),
+}));
+
+// ---- Force Simulation (no d3 dependency) ----
+function initSimulation() {
+  const svg = document.getElementById('graphSvg');
+  const rect = svg.parentElement.getBoundingClientRect();
+  svgWidth = rect.width || 800;
+  svgHeight = rect.height || 500;
+
+  // Initialize positions in a circle
+  const cx = svgWidth / 2;
+  const cy = svgHeight / 2;
+  const r = Math.min(svgWidth, svgHeight) * 0.35;
+  simNodes.forEach((n, i) => {
+    const angle = (2 * Math.PI * i) / simNodes.length;
+    n.x = cx + r * Math.cos(angle);
+    n.y = cy + r * Math.sin(angle);
+    n.vx = 0;
+    n.vy = 0;
+  });
+
+  // Run simulation
+  let alpha = 1;
+  const decay = 0.005;
+  const minAlpha = 0.001;
+
+  function tick() {
+    if (alpha < minAlpha) { renderGraph(); return; }
+
+    // Center gravity
+    simNodes.forEach(n => {
+      n.vx += (cx - n.x) * 0.001 * alpha;
+      n.vy += (cy - n.y) * 0.001 * alpha;
+    });
+
+    // Repulsion (charge)
+    for (let i = 0; i < simNodes.length; i++) {
+      for (let j = i + 1; j < simNodes.length; j++) {
+        const a = simNodes[i], b = simNodes[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = -300 * alpha / (dist * dist);
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        a.vx -= fx; a.vy -= fy;
+        b.vx += fx; b.vy += fy;
+      }
+    }
+
+    // Spring (links)
+    simEdges.forEach(e => {
+      const s = e.sourceNode, t = e.targetNode;
+      if (!s || !t) return;
+      let dx = t.x - s.x, dy = t.y - s.y;
+      let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const desiredLen = 120;
+      const force = (dist - desiredLen) * 0.005 * alpha;
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      s.vx += fx; s.vy += fy;
+      t.vx -= fx; t.vy -= fy;
+    });
+
+    // Velocity damping and position update
+    simNodes.forEach(n => {
+      if (n._dragging) return;
+      n.vx *= 0.6;
+      n.vy *= 0.6;
+      n.x += n.vx;
+      n.y += n.vy;
+      // Bounds
+      n.x = Math.max(40, Math.min(svgWidth - 40, n.x));
+      n.y = Math.max(40, Math.min(svgHeight - 40, n.y));
+    });
+
+    alpha -= decay;
+    renderGraph();
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+}
+
+// ---- SVG Rendering ----
+const NS = 'http://www.w3.org/2000/svg';
+
+function renderGraph() {
+  const svg = document.getElementById('graphSvg');
+  svg.innerHTML = '';
+
+  // Edges
+  simEdges.forEach(e => {
+    const s = e.sourceNode, t = e.targetNode;
+    if (!s || !t) return;
+
+    const isHighlighted = selectedNodeId && (s.id === selectedNodeId || t.id === selectedNodeId);
+
+    const line = document.createElementNS(NS, 'line');
+    line.setAttribute('x1', s.x);
+    line.setAttribute('y1', s.y);
+    line.setAttribute('x2', t.x);
+    line.setAttribute('y2', t.y);
+    line.setAttribute('class', 'graph-link' + (isHighlighted ? ' highlighted' : ''));
+    svg.appendChild(line);
+  });
+
+  // Nodes
+  simNodes.forEach(n => {
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('class', 'graph-node' + (n.id === selectedNodeId ? ' selected' : ''));
+    g.setAttribute('data-id', n.id);
+
+    const color = TYPE_COLORS[n.type] || '#00bcd4';
+    const radius = 6 + Math.min(n.connections, 12) * 1.2;
+
+    // Glow
+    if (n.id === selectedNodeId) {
+      const glow = document.createElementNS(NS, 'circle');
+      glow.setAttribute('cx', n.x);
+      glow.setAttribute('cy', n.y);
+      glow.setAttribute('r', radius + 6);
+      glow.setAttribute('fill', 'none');
+      glow.setAttribute('stroke', color);
+      glow.setAttribute('stroke-width', '1');
+      glow.setAttribute('opacity', '0.3');
+      g.appendChild(glow);
+    }
+
+    const circle = document.createElementNS(NS, 'circle');
+    circle.setAttribute('cx', n.x);
+    circle.setAttribute('cy', n.y);
+    circle.setAttribute('r', radius);
+    circle.setAttribute('fill', color);
+    circle.setAttribute('fill-opacity', n.id === selectedNodeId ? '1' : '0.7');
+    circle.setAttribute('stroke', n.id === selectedNodeId ? '#e8eaf6' : color);
+    circle.setAttribute('stroke-width', n.id === selectedNodeId ? '2.5' : '1.5');
+    circle.setAttribute('stroke-opacity', '0.8');
+    g.appendChild(circle);
+
+    // Label
+    const text = document.createElementNS(NS, 'text');
+    text.setAttribute('x', n.x);
+    text.setAttribute('y', n.y + radius + 14);
+    text.setAttribute('text-anchor', 'middle');
+    text.textContent = n.label;
+    g.appendChild(text);
+
+    // Events
+    g.addEventListener('mousedown', (ev) => startDrag(ev, n));
+    g.addEventListener('click', () => selectNode(n.id));
+
+    svg.appendChild(g);
+  });
+}
+
+// ---- Drag ----
+let dragNode = null;
+let dragOffset = { x: 0, y: 0 };
+
+function startDrag(ev, node) {
+  ev.preventDefault();
+  dragNode = node;
+  node._dragging = true;
+  const svg = document.getElementById('graphSvg');
+  const rect = svg.getBoundingClientRect();
+  dragOffset.x = ev.clientX - rect.left - node.x;
+  dragOffset.y = ev.clientY - rect.top - node.y;
+}
+
+document.addEventListener('mousemove', (ev) => {
+  if (!dragNode) return;
+  const svg = document.getElementById('graphSvg');
+  const rect = svg.getBoundingClientRect();
+  dragNode.x = ev.clientX - rect.left - dragOffset.x;
+  dragNode.y = ev.clientY - rect.top - dragOffset.y;
+  renderGraph();
+});
+
+document.addEventListener('mouseup', () => {
+  if (dragNode) {
+    dragNode._dragging = false;
+    dragNode = null;
+  }
+});
+
+// ---- Selection (linked: graph ↔ table ↔ properties) ----
+function selectNode(id) {
+  selectedNodeId = (selectedNodeId === id) ? null : id;
+  renderGraph();
+  renderTable();
+  renderProperties();
+}
+
+// ---- Result Table ----
+let sortCol = null;
+let sortAsc = true;
+
+function renderTable() {
+  const tbody = document.getElementById('resultBody');
+  tbody.innerHTML = '';
+
+  let sorted = [...NODES];
+  if (sortCol) {
+    sorted.sort((a, b) => {
+      let va = a[sortCol], vb = b[sortCol];
+      if (typeof va === 'string') va = va.toLowerCase();
+      if (typeof vb === 'string') vb = vb.toLowerCase();
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  }
+
+  sorted.forEach(n => {
+    const tr = document.createElement('tr');
+    tr.className = n.id === selectedNodeId ? 'selected' : '';
+    tr.addEventListener('click', () => selectNode(n.id));
+
+    const statusClass = n.status === 'healthy' ? 'healthy' : n.status === 'warning' ? 'warning' : 'critical';
+
+    tr.innerHTML = `
+      <td>${n.label}</td>
+      <td>${n.type}</td>
+      <td>${n.region}</td>
+      <td><span class="status-badge ${statusClass}">${n.status}</span></td>
+      <td class="numeric">${n.cpu.toFixed(2)}</td>
+      <td class="numeric">${n.memory.toFixed(1)}</td>
+      <td class="numeric">${n.connections}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ---- Sortable headers ----
+document.querySelectorAll('.result-table th.sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (sortCol === col) {
+      sortAsc = !sortAsc;
+    } else {
+      sortCol = col;
+      sortAsc = true;
+    }
+    // Update visual
+    document.querySelectorAll('.result-table th').forEach(h => h.classList.remove('sorted'));
+    th.classList.add('sorted');
+    th.querySelector('.sort-icon').textContent = sortAsc ? '↑' : '↓';
+    renderTable();
+  });
+});
+
+// ---- Properties Panel ----
+function renderProperties() {
+  const body = document.getElementById('propertiesBody');
+  const node = simNodes.find(n => n.id === selectedNodeId);
+
+  if (!node) {
+    body.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);gap:12px;padding:20px;text-align:center;">
+        <svg width="40" height="40" viewBox="0 0 40 40" opacity="0.4"><circle cx="14" cy="14" r="5" stroke="var(--accent)" stroke-width="1.2" fill="none"/><circle cx="30" cy="10" r="3" stroke="var(--accent)" stroke-width="1.2" fill="none"/><circle cx="26" cy="30" r="4" stroke="var(--accent)" stroke-width="1.2" fill="none"/><line x1="18" y1="16" x2="28" y2="12" stroke="var(--accent)" stroke-width="0.7" opacity="0.4"/><line x1="16" y1="18" x2="24" y2="27" stroke="var(--accent)" stroke-width="0.7" opacity="0.4"/></svg>
+        <div style="font-size:12px;">Select a node to view properties</div>
+      </div>`;
+    return;
+  }
+
+  const color = TYPE_COLORS[node.type] || '#00bcd4';
+
+  // Find edges
+  const outgoing = EDGES.filter(e => e.source === node.id);
+  const incoming = EDGES.filter(e => e.target === node.id);
+
+  body.innerHTML = `
+    <div class="prop-section">
+      <div class="prop-node-header">
+        <span class="prop-node-icon" style="background:${color}22;border:1.5px solid ${color};box-shadow:0 0 10px ${color}33;"></span>
+        <div>
+          <div class="prop-node-label">${node.label}</div>
+          <div class="prop-node-type" style="color:${color}">${node.type}</div>
+        </div>
+      </div>
+    </div>
+    <div class="prop-section">
+      <div class="prop-section-title">Attributes</div>
+      <table class="prop-table">
+        <tr><td class="prop-key">id</td><td class="prop-val">${node.id}</td></tr>
+        <tr><td class="prop-key">region</td><td class="prop-val">${node.region}</td></tr>
+        <tr><td class="prop-key">status</td><td class="prop-val"><span class="status-badge ${node.status}">${node.status}</span></td></tr>
+        <tr><td class="prop-key">cpu_avg</td><td class="prop-val">${node.cpu.toFixed(2)}</td></tr>
+        <tr><td class="prop-key">memory_gb</td><td class="prop-val">${node.memory.toFixed(1)}</td></tr>
+        <tr><td class="prop-key">connections</td><td class="prop-val">${node.connections}</td></tr>
+      </table>
+    </div>
+    <div class="prop-section">
+      <div class="prop-section-title">Connections <span class="prop-count">${outgoing.length + incoming.length}</span></div>
+      <div class="prop-edges">
+        ${outgoing.map(e => `
+          <div class="prop-edge" onclick="selectNode('${e.target}')">
+            <span class="edge-direction outgoing">\u2192</span>
+            <span class="edge-label">${e.label}</span>
+            <span class="edge-target">${NODES.find(n => n.id === e.target)?.label || e.target}</span>
+          </div>`).join('')}
+        ${incoming.map(e => `
+          <div class="prop-edge" onclick="selectNode('${e.source}')">
+            <span class="edge-direction incoming">\u2190</span>
+            <span class="edge-label">${e.label}</span>
+            <span class="edge-target">${NODES.find(n => n.id === e.source)?.label || e.source}</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+// ---- Tooltip ----
+const tooltip = document.createElement('div');
+tooltip.className = 'graph-tooltip';
+document.body.appendChild(tooltip);
+
+document.getElementById('graphSvg').addEventListener('mousemove', (ev) => {
+  const target = ev.target.closest('.graph-node');
+  if (target && !dragNode) {
+    const id = target.dataset.id;
+    const node = simNodes.find(n => n.id === id);
+    if (node) {
+      const color = TYPE_COLORS[node.type] || '#00bcd4';
+      tooltip.innerHTML = `
+        <div><span class="tt-label">${node.label}</span><span class="tt-type">${node.type}</span></div>
+        <div class="tt-props">
+          <div class="tt-prop"><span class="tt-prop-key">region</span><span class="tt-prop-val">${node.region}</span></div>
+          <div class="tt-prop"><span class="tt-prop-key">cpu</span><span class="tt-prop-val">${(node.cpu * 100).toFixed(0)}%</span></div>
+          <div class="tt-prop"><span class="tt-prop-key">memory</span><span class="tt-prop-val">${node.memory.toFixed(1)} GB</span></div>
+        </div>`;
+      tooltip.classList.add('visible');
+      tooltip.style.left = (ev.clientX + 12) + 'px';
+      tooltip.style.top = (ev.clientY - 10) + 'px';
+    }
+  } else {
+    tooltip.classList.remove('visible');
+  }
+});
+document.getElementById('graphSvg').addEventListener('mouseleave', () => {
+  tooltip.classList.remove('visible');
+});
+
+// ---- Mini bar chart for R cell output ----
+function renderMiniChart() {
+  const container = document.getElementById('miniChart');
+  if (!container) return;
+  const data = NODES.filter(n => n.type === 'Server').slice(0, 8);
+  const maxCpu = 1;
+  const barWidth = 40;
+  const gap = 6;
+  const chartWidth = data.length * (barWidth + gap);
+  const chartHeight = 100;
+
+  let svg = `<svg width="${chartWidth}" height="${chartHeight + 20}" viewBox="0 0 ${chartWidth} ${chartHeight + 20}" xmlns="http://www.w3.org/2000/svg">`;
+
+  data.forEach((d, i) => {
+    const x = i * (barWidth + gap);
+    const h = (d.cpu / maxCpu) * chartHeight;
+    const y = chartHeight - h;
+    const color = d.region === 'us-east-1' ? '#00bcd4' : '#4dd0e1';
+    svg += `<rect x="${x}" y="${y}" width="${barWidth}" height="${h}" rx="3" fill="${color}" opacity="0.8"/>`;
+    svg += `<text x="${x + barWidth/2}" y="${chartHeight + 14}" text-anchor="middle" font-size="8" fill="#546078" font-family="var(--font-mono)">${d.label.split('-').pop()}</text>`;
+  });
+
+  svg += '</svg>';
+  container.innerHTML = svg;
+}
+
+// ---- Query bar language detection ----
+const queryInput = document.getElementById('queryInput');
+const langLabel = document.getElementById('langLabel');
+
+const LANG_PATTERNS = [
+  { pattern: /^\s*g\./i, lang: 'gremlin' },
+  { pattern: /^\s*MATCH\s*\(/i, lang: 'cypher' },
+  { pattern: /^\s*(SELECT|CONSTRUCT|ASK|DESCRIBE)\s/i, lang: 'sparql' },
+  { pattern: /^\s*(library|require|ggplot|data\.frame|<-)/i, lang: 'r' },
+];
+
+queryInput.addEventListener('input', () => {
+  const val = queryInput.value;
+  for (const { pattern, lang } of LANG_PATTERNS) {
+    if (pattern.test(val)) {
+      langLabel.textContent = lang;
+      return;
+    }
+  }
+});
+
+// Shift+Enter to "run"
+queryInput.addEventListener('keydown', (ev) => {
+  if (ev.shiftKey && ev.key === 'Enter') {
+    ev.preventDefault();
+    runQuery();
+  }
+});
+
+document.getElementById('runBtn').addEventListener('click', runQuery);
+
+function runQuery() {
+  const bar = document.getElementById('queryBar');
+  bar.style.boxShadow = '0 0 0 2px rgba(0,188,212,0.4)';
+  setTimeout(() => { bar.style.boxShadow = ''; }, 400);
+}
+
+// ---- Keyboard shortcut: Cmd+P for PDF ----
+document.addEventListener('keydown', (ev) => {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key === 'p') {
+    ev.preventDefault();
+    // PDF export stub
+  }
+});
+
+// ---- Init ----
+window.addEventListener('load', () => {
+  renderTable();
+  renderProperties();
+  renderMiniChart();
+  initSimulation();
+});
+
+window.addEventListener('resize', () => {
+  const svg = document.getElementById('graphSvg');
+  const rect = svg.parentElement.getBoundingClientRect();
+  svgWidth = rect.width || 800;
+  svgHeight = rect.height || 500;
+});
+</script>
+</body></html>
