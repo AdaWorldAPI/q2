@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-23
+
+- [`14e29996`](https://github.com/quarto-dev/q2/commits/14e29996): Fix: use HMAC actor ID from first change in project creation
+
 ### 2026-03-21
 
 - [`d20e3405`](https://github.com/quarto-dev/q2/commits/d20e3405): Per-project actor IDs via HMAC-SHA256

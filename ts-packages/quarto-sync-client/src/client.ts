@@ -6,10 +6,11 @@
  * them to provide their own storage/VFS implementation.
  */
 
-import { Repo, DocHandle, updateText } from '@automerge/automerge-repo';
+import { Repo, DocHandle, updateText, generateAutomergeUrl, parseAutomergeUrl } from '@automerge/automerge-repo';
 import type { DocumentId, Patch } from '@automerge/automerge-repo';
-import { clone as automergeClone } from '@automerge/automerge';
+import { clone as automergeClone, from as automergeFrom, save as automergeSerialize } from '@automerge/automerge';
 import { BrowserWebSocketClientAdapter } from '@automerge/automerge-repo-network-websocket';
+import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb';
 
 import type {
   IndexDocument,
@@ -169,10 +170,22 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     handle.update(doc => automergeClone(doc, { actor: actorId }));
   }
 
-  // Helper: create a document with actor ID applied.
-  function createDoc<T>(): DocHandle<T> {
-    const handle = state.repo!.create<T>();
-    applyActorId(handle, state.actorId);
+  // Helper: create a new document with the correct actor ID from the
+  // very first change. Uses Automerge.from() + repo.import() so the
+  // initial data is attributed to the HMAC actor (not a random one).
+  // applyActorId is still needed after import because repo.import()
+  // does not preserve the actor for future handle.change() calls.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function createDoc<T>(initialValue?: any, docId?: DocumentId): DocHandle<T> {
+    if (state.actorId) {
+      const doc = automergeFrom(initialValue ?? {}, { actor: state.actorId });
+      const handle = state.repo!.import<T>(automergeSerialize(doc), docId ? { docId } : undefined);
+      applyActorId(handle, state.actorId);
+      return handle;
+    }
+    // No actor ID (offline mode) - use import without actor to respect the provided docId
+    const doc = automergeFrom(initialValue ?? {});
+    const handle = state.repo!.import<T>(automergeSerialize(doc), docId ? { docId } : undefined);
     return handle;
   }
 
@@ -310,6 +323,9 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
 
   /**
    * Connect to a sync server and load a project.
+   *
+   * Supports offline mode: if the peer connection fails or times out,
+   * the function will continue and load documents from local IndexedDB.
    */
   async function connect(syncServerUrl: string, indexDocId: string, actorId?: string, screenName?: string, color?: string): Promise<FileEntry[]> {
     // Disconnect from any existing connection
@@ -317,12 +333,23 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
 
     try {
       state.wsAdapter = new BrowserWebSocketClientAdapter(syncServerUrl);
-      state.repo = new Repo({ network: [state.wsAdapter] });
+      state.repo = new Repo({
+        network: [state.wsAdapter],
+        storage: new IndexedDBStorageAdapter(),
+      });
       state.actorId = actorId ?? null;
 
-      console.log('Waiting for peer connection...');
-      await waitForPeer(state.repo, 30000);
-      console.log('Peer connected');
+      // Try to connect to peer, but continue in offline mode if it fails
+      let isOnline = false;
+      try {
+        console.log('Waiting for peer connection...');
+        await waitForPeer(state.repo, 1); // Quick check - auto-reconnects in background
+        console.log('Peer connected - online mode');
+        isOnline = true;
+      } catch (peerError) {
+        console.warn('Peer connection failed, continuing in offline mode:', peerError);
+        isOnline = false;
+      }
 
       const docId = indexDocId as DocumentId;
       const indexHandle = await findDoc<IndexDocument>(docId);
@@ -330,16 +357,25 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
 
       const doc = indexHandle.doc();
       if (!doc) {
-        throw new Error('Failed to load index document');
+        throw new Error(
+          isOnline
+            ? 'Failed to load index document'
+            : 'Document not found in local storage. Connect online first to sync this project.'
+        );
       }
 
-      // Migrate schema and sync identity
-      indexHandle.change(d => {
-        migrateIndexDocument(d);
-        if (actorId && screenName) {
-          setIdentity(d, actorId, screenName, color || '');
-        }
-      });
+
+
+      // Only attempt to modify documents if we're online (to avoid conflicts)
+      if (isOnline) {
+        // Migrate schema and sync identity
+        indexHandle.change(d => {
+          migrateIndexDocument(d);
+          if (actorId && screenName) {
+            setIdentity(d, actorId, screenName, color || '');
+          }
+        });
+      }
 
       const currentDoc = indexHandle.doc()!;
       const files = getFilesFromIndex(currentDoc);
@@ -361,10 +397,33 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
       indexHandle.on('change', indexChangeHandler);
       state.cleanupFns.push(() => indexHandle.off('change', indexChangeHandler));
 
+      // Subscribe to network events for ongoing connection status
+      let currentlyOnline = isOnline;
+      const onPeerConnect = () => {
+        if (!currentlyOnline) {
+          currentlyOnline = true;
+          console.log('Peer connected - switching to online mode');
+          callbacks.onConnectionChange?.(true);
+        }
+      };
+      const onPeerDisconnect = () => {
+        if (currentlyOnline) {
+          currentlyOnline = false;
+          console.log('Peer disconnected - switching to offline mode');
+          callbacks.onConnectionChange?.(false);
+        }
+      };
+      state.repo!.networkSubsystem.on('peer', onPeerConnect);
+      state.repo!.networkSubsystem.on('peer-disconnected', onPeerDisconnect);
+      state.cleanupFns.push(() => {
+        state.repo!.networkSubsystem.off('peer', onPeerConnect);
+        state.repo!.networkSubsystem.off('peer-disconnected', onPeerDisconnect);
+      });
+
       // Load file documents
       await loadFileDocuments(files);
 
-      callbacks.onConnectionChange?.(true);
+      callbacks.onConnectionChange?.(currentlyOnline);
       return files;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -626,32 +685,68 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
   /**
    * Create a new project with the given files.
    */
-  async function createNewProject(options: CreateProjectOptions, actorId?: string, screenName?: string, color?: string): Promise<CreateProjectResult> {
+  async function createNewProject(
+    options: CreateProjectOptions,
+    actorId?: string,
+    screenName?: string,
+    color?: string,
+    resolveActorId?: (indexDocId: string) => Promise<string | null | undefined>,
+  ): Promise<CreateProjectResult> {
     await disconnect();
 
     try {
       state.wsAdapter = new BrowserWebSocketClientAdapter(options.syncServer);
-      state.repo = new Repo({ network: [state.wsAdapter] });
-      state.actorId = actorId ?? null;
-
-      await waitForPeer(state.repo, 30000);
-
-      const indexHandle = createDoc<IndexDocument>();
-      indexHandle.change(doc => {
-        doc.files = {};
-        doc.version = 1;
-        doc.identities = {};
-        if (actorId && screenName) {
-          setIdentity(doc, actorId, screenName, color || '');
-        }
+      state.repo = new Repo({
+        network: [state.wsAdapter],
+        storage: new IndexedDBStorageAdapter(),
       });
+
+      // Try to connect to peer, but continue in offline mode if it fails
+      let isOnline = false;
+      try {
+        console.log('Waiting for peer connection...');
+        await waitForPeer(state.repo, 1); // Quick check - auto-reconnects in background
+        console.log('Peer connected - online mode');
+        isOnline = true;
+      } catch (peerError) {
+        console.warn('Peer connection failed, creating project in offline mode:', peerError);
+        isOnline = false;
+      }
+
+      // Phase 1: Generate a document ID and resolve the actor ID before
+      // creating any documents. This avoids the chicken-and-egg problem
+      // where repo.create() writes an initial change with a random actor.
+      const indexUrl = generateAutomergeUrl();
+      const { documentId: indexDocId } = parseAutomergeUrl(indexUrl);
+
+      // Only resolve actor ID from server if we're online
+      const resolvedActorId = isOnline && resolveActorId
+        ? (await resolveActorId(indexDocId)) ?? undefined
+        : actorId;
+      state.actorId = resolvedActorId ?? null;
+
+      // Phase 2: Create the index document via createDoc with the
+      // pre-generated ID so the first change uses the correct actor.
+      console.log(`[createNewProject] Creating index document with ID ${indexDocId}`);
+      const indexHandle = createDoc<IndexDocument>(
+        { files: {}, version: 1, identities: {} },
+        indexDocId,
+      );
       state.indexHandle = indexHandle;
+      console.log(`[createNewProject] Index document created, ID:`, indexHandle.documentId);
+
+      // Write identity (separate change so the schema init is clean).
+      if (resolvedActorId && screenName) {
+        indexHandle.change(doc => {
+          setIdentity(doc, resolvedActorId, screenName, color || '');
+        });
+      }
 
       // Fire initial identities
       lastIdentities = getIdentitiesFromIndex(indexHandle.doc()!);
       callbacks.onIdentitiesChange?.(lastIdentities);
 
-      const indexDocId = indexHandle.documentId;
+      // Phase 3: Create file documents (now using the correct actor).
       const createdFiles: FileEntry[] = [];
 
       for (const file of options.files) {
@@ -706,7 +801,30 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
       indexHandle.on('change', indexChangeHandler);
       state.cleanupFns.push(() => indexHandle.off('change', indexChangeHandler));
 
-      callbacks.onConnectionChange?.(true);
+      // Subscribe to network events for ongoing connection status
+      let currentlyOnline = isOnline;
+      const onPeerConnect = () => {
+        if (!currentlyOnline) {
+          currentlyOnline = true;
+          console.log('Peer connected - switching to online mode');
+          callbacks.onConnectionChange?.(true);
+        }
+      };
+      const onPeerDisconnect = () => {
+        if (currentlyOnline) {
+          currentlyOnline = false;
+          console.log('Peer disconnected - switching to offline mode');
+          callbacks.onConnectionChange?.(false);
+        }
+      };
+      state.repo!.networkSubsystem.on('peer', onPeerConnect);
+      state.repo!.networkSubsystem.on('peer-disconnected', onPeerDisconnect);
+      state.cleanupFns.push(() => {
+        state.repo!.networkSubsystem.off('peer', onPeerConnect);
+        state.repo!.networkSubsystem.off('peer-disconnected', onPeerDisconnect);
+      });
+
+      callbacks.onConnectionChange?.(currentlyOnline);
 
       return { indexDocId, files: createdFiles };
     } catch (err) {
@@ -752,6 +870,13 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     return astCache.get(path)?.ast ?? null;
   }
 
+  /**
+   * Get the current actor ID, or null if not set.
+   */
+  function getActorId(): string | null {
+    return state.actorId;
+  }
+
   // Return the public API
   return {
     connect,
@@ -770,6 +895,7 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     getFileHandle,
     getFilePaths,
     createNewProject,
+    getActorId,
   };
 }
 
