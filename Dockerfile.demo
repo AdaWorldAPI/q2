@@ -1,11 +1,12 @@
 # ══════════════════════════════════════════════════════════════════════
-# q2-demo — Palantir cockpit (Vite build) + old prototype fallback
+# q2-demo — Aiwar cockpit (Vite build) + corporate demo fallback
 # ══════════════════════════════════════════════════════════════════════
 # Serves:
-#   /       → Palantir glass morphism cockpit (React/Vite build)
-#   /demo   → old standalone prototype (fallback)
-#   /health → 200 OK
-#   /mcp/*  → stub MCP endpoints (until Rust binary deploys)
+#   /          → Palantir dashboard, auto-launches Aiwar explorer
+#   /demo      → corporate infrastructure demo (original cockpit)
+#   /?view=aiwar → explicit Aiwar launch
+#   /health    → 200 OK
+#   /mcp/*     → stub MCP endpoints (until Rust binary deploys)
 # ══════════════════════════════════════════════════════════════════════
 
 # ── Stage 1: Build the Palantir cockpit ───────────────────────────────
