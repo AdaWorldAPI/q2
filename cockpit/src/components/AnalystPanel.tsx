@@ -7,13 +7,19 @@ interface AnalysisResult {
   description: string;
   thinking_style: string | null;
   elapsed_us: number;
-  queries: {
-    cypher: string;
-    intent: string;
-    status: string;
-    row_count: number;
-    error: string | null;
-    edges_found: TruthEdge[];
+  thinking_steps: {
+    step: number;
+    action: string;
+    detail: string;
+    edges_before: number;
+    edges_after: number;
+    new_inferences: number;
+  }[];
+  projections: {
+    label: string;
+    confidence: number;
+    basis: string;
+    implication: string;
   }[];
   causality_chains: {
     name: string;
@@ -208,24 +214,42 @@ export function AnalystPanel() {
             </div>
           )}
 
-          {/* Queries executed */}
+          {/* Thinking steps */}
           <div className="analyst-queries">
-            <div className="section-label">queries executed ({result.queries.length})</div>
-            {result.queries.map((q, i) => (
-              <div key={i} className={`analyst-query ${q.status === 'error' ? 'analyst-query--error' : ''}`}>
-                <div className="analyst-query-intent">{q.intent}</div>
-                <pre className="analyst-query-cypher"><code>{q.cypher}</code></pre>
-                <div className="analyst-query-meta">
-                  <span className={`badge ${q.status === 'success' ? 'good' : q.status === 'error' ? 'hot' : ''}`}>
-                    {q.status}
+            <div className="section-label">thinking trace</div>
+            {result.thinking_steps.map((step, i) => (
+              <div key={i} className="analyst-query">
+                <div className="analyst-query-intent">
+                  <span className={`badge ${step.action === 'ERROR' ? 'hot' : step.action === 'INFER' ? 'warn' : 'good'}`} style={{ marginRight: 8 }}>
+                    {step.action}
                   </span>
-                  <span className="badge">{q.row_count} rows</span>
-                  <span className="badge">{q.edges_found.length} edges</span>
-                  {q.error && <span style={{ color: 'var(--danger)', fontSize: 11 }}>{q.error}</span>}
+                  Step {step.step}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0' }}>{step.detail}</div>
+                <div className="analyst-query-meta">
+                  {step.edges_after > 0 && <span className="badge">{step.edges_after} edges</span>}
+                  {step.new_inferences > 0 && <span className="badge warn">+{step.new_inferences} inferred</span>}
                 </div>
               </div>
             ))}
           </div>
+
+          {/* Projections */}
+          {result.projections.length > 0 && (
+            <div className="analyst-chains">
+              <div className="section-label">projections</div>
+              {result.projections.map((p, i) => (
+                <div key={i} className="analyst-chain">
+                  <div className="analyst-chain-header">
+                    <strong>{p.label}</strong>
+                    <TruthBadge f={p.confidence} c={p.confidence} gate={p.confidence > 0.3 ? 'FLOW' : 'HOLD'} />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0' }}>{p.basis}</div>
+                  <div style={{ fontSize: 11, color: 'var(--accent-2)' }}>{p.implication}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

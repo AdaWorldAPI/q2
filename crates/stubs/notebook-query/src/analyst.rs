@@ -1,23 +1,15 @@
-//! Political Analyst Savant Agent — generates structured thinking
-//! by running NARS causality chains across the aiwar graph through
-//! different analytical lenses.
+//! Political Analyst Savant — creates thinking by running NARS
+//! SPO causal inference across the aiwar graph.
 //!
-//! The agent doesn't retrieve answers — it CREATES THINKING.
-//! Each analysis bucket runs a set of Cypher queries, applies NARS
-//! truth propagation, and produces a causality chain with confidence.
-//!
-//! Buckets:
-//! - Economic Review: resource flows, trade leverage, defense contracts
-//! - Civil Engineering: dual-use tech transfer, civilian impact
-//! - Political Dynamics: power structures, alliances, containment
-//! - AI Development Impact: autonomy escalation, regulatory capture
-//! - Kill Chain Analysis: targeting pipelines, civilian harm
-//! - Surveillance Ecosystem: data flows, privacy erosion
+//! Loads the graph directly (no MCP), builds TruthEdges from all
+//! relationships, runs NARS deduction/abduction/induction, builds
+//! causal chains, and projects forward.
 
-use crate::reasoning::{TruthValue, TruthEdge, nars_deduction, nars_abduction, nars_induction, infer_edges};
+use crate::reasoning::{
+    infer_edges, nars_deduction, InferenceType, TruthEdge, TruthValue,
+};
 use serde::{Deserialize, Serialize};
-
-// ── Analysis Buckets ─────────────────────────────────────────────────────────
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -32,16 +24,9 @@ pub enum AnalysisBucket {
 
 impl AnalysisBucket {
     pub fn all() -> &'static [AnalysisBucket] {
-        &[
-            Self::EconomicReview,
-            Self::CivilEngineering,
-            Self::PoliticalDynamics,
-            Self::AiDevelopmentImpact,
-            Self::KillChainAnalysis,
-            Self::SurveillanceEcosystem,
-        ]
+        &[Self::EconomicReview, Self::CivilEngineering, Self::PoliticalDynamics,
+          Self::AiDevelopmentImpact, Self::KillChainAnalysis, Self::SurveillanceEcosystem]
     }
-
     pub fn label(&self) -> &'static str {
         match self {
             Self::EconomicReview => "Economic Review",
@@ -52,166 +37,123 @@ impl AnalysisBucket {
             Self::SurveillanceEcosystem => "Surveillance Ecosystem",
         }
     }
-
     pub fn description(&self) -> &'static str {
         match self {
-            Self::EconomicReview => "Resource flows, trade leverage, defense contracts, investor networks",
-            Self::CivilEngineering => "Dual-use technology transfer, civilian applications, infrastructure",
-            Self::PoliticalDynamics => "Power structures, alliances, containment strategies, sovereignty",
-            Self::AiDevelopmentImpact => "Autonomy escalation, regulatory capture, capability thresholds",
-            Self::KillChainAnalysis => "Targeting pipelines, civilian harm, proportionality, oversight",
-            Self::SurveillanceEcosystem => "Data flows, privacy erosion, cross-border surveillance, NSO/Pegasus",
+            Self::EconomicReview => "Resource flows, defense contracts, investor networks",
+            Self::CivilEngineering => "Dual-use technology transfer, civilian applications",
+            Self::PoliticalDynamics => "Power structures, alliances, containment strategies",
+            Self::AiDevelopmentImpact => "Autonomy escalation, regulatory capture, thresholds",
+            Self::KillChainAnalysis => "Targeting pipelines, civilian harm, oversight gaps",
+            Self::SurveillanceEcosystem => "Data flows, privacy erosion, cross-border surveillance",
         }
     }
-
-    /// Cypher queries that seed this bucket's analysis.
-    pub fn seed_queries(&self) -> Vec<AnalysisQuery> {
+    fn node_keywords(&self) -> &[&str] {
         match self {
-            Self::EconomicReview => vec![
-                AnalysisQuery {
-                    cypher: "MATCH (p:Person)-[r]-(s:Stakeholder) WHERE p.type CONTAINS 'Investor' RETURN p.name, r.label, s.name".into(),
-                    intent: "Map investor → company connections".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-                AnalysisQuery {
-                    cypher: "MATCH (s:Stakeholder)-[r:DEVELOPED_BY]-(sys:System) WHERE s.type = 'DefenseCompany' RETURN s.name, sys.name, sys.year".into(),
-                    intent: "Defense contractor → weapons pipeline".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-                AnalysisQuery {
-                    cypher: "MATCH (s:System)-[r:USED_IN]-(n:Stakeholder) WHERE n.type = 'Nation' RETURN n.name, collect(s.name) AS systems".into(),
-                    intent: "Nation → deployed weapons (economic dependency)".into(),
-                    nars_mode: NarsMode::Induction,
-                },
-            ],
-            Self::CivilEngineering => vec![
-                AnalysisQuery {
-                    cypher: "MATCH (s:System) WHERE s.civicUse IS NOT NULL AND s.civicUse <> '' RETURN s.name, s.civicUse, s.militaryUse".into(),
-                    intent: "Identify dual-use systems".into(),
-                    nars_mode: NarsMode::Abduction,
-                },
-                AnalysisQuery {
-                    cypher: "MATCH (c:CivicSystem)-[r]-(s:System) RETURN c.name, r.label, s.name".into(),
-                    intent: "Civic ↔ military technology transfer paths".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-            ],
-            Self::PoliticalDynamics => vec![
-                AnalysisQuery {
-                    cypher: "MATCH (n1:Stakeholder)-[r]-(n2:Stakeholder) WHERE n1.type = 'Nation' AND n2.type = 'Nation' RETURN n1.name, r.label, n2.name".into(),
-                    intent: "Nation → nation relationships".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-                AnalysisQuery {
-                    cypher: "MATCH (n:Stakeholder {type: 'Nation'})-[r:DEPLOYED_BY]-(s:System) RETURN n.name, count(s) AS weapon_count ORDER BY weapon_count DESC".into(),
-                    intent: "Military capability ranking by nation".into(),
-                    nars_mode: NarsMode::Induction,
-                },
-                AnalysisQuery {
-                    cypher: "MATCH (s:System)-[r:USED_IN]-(place:Stakeholder) WHERE place.type = 'Nation' RETURN place.name, s.name, s.year ORDER BY s.year DESC".into(),
-                    intent: "Where are weapons being deployed? (conflict zones)".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-            ],
-            Self::AiDevelopmentImpact => vec![
-                AnalysisQuery {
-                    cypher: "MATCH (s:System) WHERE s.type CONTAINS 'AI' OR s.type CONTAINS 'Generative' OR s.MLTask IS NOT NULL RETURN s.name, s.type, s.year, s.MLTask ORDER BY s.year DESC".into(),
-                    intent: "AI capability timeline".into(),
-                    nars_mode: NarsMode::Induction,
-                },
-                AnalysisQuery {
-                    cypher: "MATCH (s:System) WHERE s.militaryUse CONTAINS 'autonomous' OR s.name CONTAINS 'Lattice' OR s.name CONTAINS 'Replicator' RETURN s.name, s.militaryUse, s.year".into(),
-                    intent: "Autonomous weapons escalation".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-            ],
-            Self::KillChainAnalysis => vec![
-                AnalysisQuery {
-                    cypher: "MATCH (s:System) WHERE s.militaryUse CONTAINS 'kill' OR s.militaryUse CONTAINS 'target' OR s.name IN ['Lavender', 'Gospel', 'Fire Factory', 'Where\\'s Daddy'] RETURN s.name, s.militaryUse, s.year".into(),
-                    intent: "Kill chain components".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-                AnalysisQuery {
-                    cypher: "MATCH (s:System)-[r]-(st:Stakeholder) WHERE s.name IN ['Lavender', 'Gospel'] RETURN s.name, r.label, st.name".into(),
-                    intent: "Who develops and deploys targeting systems".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-            ],
-            Self::SurveillanceEcosystem => vec![
-                AnalysisQuery {
-                    cypher: "MATCH (s:System) WHERE s.militaryUse CONTAINS 'surveillance' OR s.militaryUse CONTAINS 'Intelligence' OR s.type CONTAINS 'Surveillance' RETURN s.name, s.militaryUse, s.year".into(),
-                    intent: "Surveillance-focused systems".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-                AnalysisQuery {
-                    cypher: "MATCH (s:System)-[r]-(st:Stakeholder) WHERE s.name IN ['Pegasus', 'Clearview', 'Gotham', 'Foundry', 'Palantir AIP'] RETURN s.name, r.label, st.name".into(),
-                    intent: "Surveillance vendor network".into(),
-                    nars_mode: NarsMode::Deduction,
-                },
-            ],
-        }
-    }
-
-    /// Which thinking style is most appropriate for this bucket.
-    #[cfg(feature = "planner")]
-    pub fn preferred_style(&self) -> lance_graph_planner::api::ThinkingStyle {
-        use lance_graph_planner::api::ThinkingStyle;
-        match self {
-            Self::EconomicReview => ThinkingStyle::Analytical,
-            Self::CivilEngineering => ThinkingStyle::Systematic,
-            Self::PoliticalDynamics => ThinkingStyle::Divergent,
-            Self::AiDevelopmentImpact => ThinkingStyle::Exploratory,
-            Self::KillChainAnalysis => ThinkingStyle::Focused,
-            Self::SurveillanceEcosystem => ThinkingStyle::Creative,
+            Self::EconomicReview => &["Thiel", "Luckey", "Musk", "Palantir", "Anduril", "Fund"],
+            Self::CivilEngineering => &["Claude", "Roomba", "Pokemon", "Niantic"],
+            Self::PoliticalDynamics => &["US", "Israel", "NATO", "China", "Russia", "UK", "DIANA"],
+            Self::AiDevelopmentImpact => &["Lattice", "Replicator", "AIP", "Gotham", "LLM"],
+            Self::KillChainAnalysis => &["Lavender", "Gospel", "Fire", "Daddy", "Alchemist", "Legion"],
+            Self::SurveillanceEcosystem => &["Pegasus", "Clearview", "Gotham", "Foundry", "Palantir", "Fortify"],
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnalysisQuery {
-    pub cypher: String,
-    pub intent: String,
-    pub nars_mode: NarsMode,
+#[derive(Debug, Deserialize)]
+struct RawGraph {
+    #[serde(rename = "N_Systems", default)] systems: Vec<RawNode>,
+    #[serde(rename = "N_Stakeholders", default)] stakeholders: Vec<RawNode>,
+    #[serde(rename = "N_People", default)] people: Vec<RawNode>,
+    #[serde(rename = "N_Civic", default)] civic: Vec<RawNode>,
+    #[serde(rename = "N_Historical", default)] historical: Vec<RawNode>,
+    #[serde(rename = "E_connection", default)] e_connection: Vec<RawEdge>,
+    #[serde(rename = "E_isDevelopedBy", default)] e_developed: Vec<RawEdge>,
+    #[serde(rename = "E_isDeployedBy", default)] e_deployed: Vec<RawEdge>,
+    #[serde(rename = "E_place", default)] e_place: Vec<RawEdge>,
+    #[serde(rename = "E_people", default)] e_people: Vec<RawEdge>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NarsMode {
-    Deduction,
-    Abduction,
-    Induction,
+#[derive(Debug, Deserialize)]
+struct RawNode { id: Option<String>, name: Option<String>, #[serde(rename = "type")] node_type: Option<String> }
+
+#[derive(Debug, Deserialize)]
+struct RawEdge { source: Option<String>, target: Option<String>, label: Option<String> }
+
+fn load_graph() -> Option<RawGraph> {
+    for path in &[
+        std::env::var("AIWAR_DATA_PATH").unwrap_or_default(),
+        "/app/data/aiwar_graph.json".into(),
+        "cockpit/public/aiwar_graph.json".into(),
+        "../aiwar-neo4j-harvest/data/aiwar_graph.json".into(),
+        "/home/user/aiwar-neo4j-harvest/data/aiwar_graph.json".into(),
+    ] {
+        if path.is_empty() { continue; }
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let cleaned = content.replace("NaN", "null");
+            if let Ok(g) = serde_json::from_str::<RawGraph>(&cleaned) { return Some(g); }
+        }
+    }
+    None
 }
 
-// ── Analysis Result ──────────────────────────────────────────────────────────
+fn build_node_map(g: &RawGraph) -> HashMap<String, (String, String)> {
+    let mut m = HashMap::new();
+    for (nodes, typ) in [(&g.systems, "System"), (&g.stakeholders, "Stakeholder"),
+        (&g.people, "Person"), (&g.civic, "CivicSystem"), (&g.historical, "Historical")] {
+        for n in nodes {
+            if let Some(id) = &n.id {
+                m.insert(id.clone(), (n.name.clone().unwrap_or_default(), typ.to_string()));
+            }
+        }
+    }
+    m
+}
+
+fn build_truth_edges(g: &RawGraph) -> Vec<TruthEdge> {
+    let mut edges = Vec::new();
+    for (raw, rel, conf) in [
+        (&g.e_connection, "connected_to", 0.75),
+        (&g.e_developed, "developed_by", 0.85),
+        (&g.e_deployed, "deployed_by", 0.80),
+        (&g.e_place, "used_in", 0.80),
+        (&g.e_people, "person_link", 0.70),
+    ] {
+        for e in raw {
+            if let (Some(s), Some(t)) = (&e.source, &e.target) {
+                edges.push(TruthEdge {
+                    source: s.clone(), target: t.clone(),
+                    rel_type: e.label.clone().unwrap_or_else(|| rel.to_string()),
+                    truth: TruthValue::new(0.85, conf),
+                    inferred: false, via: vec![], inference_type: None,
+                });
+            }
+        }
+    }
+    edges
+}
+
+// ── Result Types ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisResult {
     pub bucket: AnalysisBucket,
     pub label: String,
     pub description: String,
-    pub queries: Vec<QueryResult>,
+    pub thinking_steps: Vec<ThinkingStep>,
     pub causality_chains: Vec<CausalityChain>,
+    pub projections: Vec<Projection>,
     pub summary: AnalysisSummary,
-    pub thinking_style: Option<String>,
     pub elapsed_us: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueryResult {
-    pub cypher: String,
-    pub intent: String,
-    pub status: QueryStatus,
-    pub row_count: usize,
-    pub edges_found: Vec<TruthEdge>,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QueryStatus {
-    Success,
-    Error,
-    NoResults,
+pub struct ThinkingStep {
+    pub step: usize,
+    pub action: String,
+    pub detail: String,
+    pub edges_before: usize,
+    pub edges_after: usize,
+    pub new_inferences: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,266 +166,193 @@ pub struct CausalityChain {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Projection {
+    pub label: String,
+    pub confidence: f64,
+    pub basis: String,
+    pub implication: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisSummary {
-    pub total_nodes_involved: usize,
-    pub total_edges_found: usize,
-    pub total_inferred: usize,
+    pub total_nodes: usize,
+    pub total_edges_observed: usize,
+    pub total_edges_inferred: usize,
     pub avg_confidence: f64,
     pub key_findings: Vec<String>,
     pub blind_spots: Vec<String>,
 }
 
-// ── The Savant Agent ─────────────────────────────────────────────────────────
+// ── The Analyst ──────────────────────────────────────────────────────────────
 
-/// Run a full analysis for one bucket.
-///
-/// 1. Execute seed Cypher queries against the graph
-/// 2. Collect edges with initial truth values
-/// 3. Run NARS inference to discover new connections
-/// 4. Build causality chains
-/// 5. Generate summary with key findings
 pub fn analyze(bucket: AnalysisBucket) -> AnalysisResult {
     let start = std::time::Instant::now();
-    let seed_queries = bucket.seed_queries();
+    let mut steps = Vec::new();
 
-    let mut all_edges: Vec<TruthEdge> = Vec::new();
-    let mut query_results: Vec<QueryResult> = Vec::new();
-
-    // Execute each seed query
-    for sq in &seed_queries {
-        match crate::execute(&sq.cypher, crate::QueryLanguage::Cypher) {
-            Ok(result) => {
-                // Extract edges from the query result
-                let edges = extract_edges_from_result(&result, &sq.nars_mode);
-                let row_count = result.raw_output.lines().count();
-                all_edges.extend(edges.clone());
-                query_results.push(QueryResult {
-                    cypher: sq.cypher.clone(),
-                    intent: sq.intent.clone(),
-                    status: if row_count > 0 { QueryStatus::Success } else { QueryStatus::NoResults },
-                    row_count,
-                    edges_found: edges,
-                    error: None,
-                });
-            }
-            Err(e) => {
-                query_results.push(QueryResult {
-                    cypher: sq.cypher.clone(),
-                    intent: sq.intent.clone(),
-                    status: QueryStatus::Error,
-                    row_count: 0,
-                    edges_found: vec![],
-                    error: Some(e),
-                });
-            }
-        }
-    }
-
-    // Run NARS inference on collected edges
-    let inferred = infer_edges(&all_edges, 0.3, 3);
-    let total_inferred = inferred.len();
-    all_edges.extend(inferred);
-
-    // Build causality chains
-    let causality_chains = build_causality_chains(&all_edges, bucket);
-
-    // Generate summary
-    let unique_nodes: std::collections::HashSet<&str> = all_edges.iter()
-        .flat_map(|e| [e.source.as_str(), e.target.as_str()])
-        .collect();
-
-    let avg_confidence = if all_edges.is_empty() {
-        0.0
-    } else {
-        all_edges.iter().map(|e| e.truth.confidence).sum::<f64>() / all_edges.len() as f64
+    let graph = match load_graph() {
+        Some(g) => g,
+        None => return empty_result(bucket, start, "aiwar_graph.json not found"),
     };
 
-    let key_findings = generate_findings(&all_edges, bucket);
-    let blind_spots = generate_blind_spots(&all_edges, bucket);
+    let all_edges = build_truth_edges(&graph);
+    let node_map = build_node_map(&graph);
 
-    let summary = AnalysisSummary {
-        total_nodes_involved: unique_nodes.len(),
-        total_edges_found: all_edges.len() - total_inferred,
-        total_inferred,
-        avg_confidence,
-        key_findings,
-        blind_spots,
-    };
+    steps.push(ThinkingStep { step: 1, action: "OBSERVE".into(),
+        detail: format!("Loaded {} nodes, {} edges", node_map.len(), all_edges.len()),
+        edges_before: 0, edges_after: all_edges.len(), new_inferences: 0 });
+
+    // Filter by bucket relevance
+    let kw = bucket.node_keywords();
+    let filtered: Vec<TruthEdge> = all_edges.iter().filter(|e| {
+        kw.iter().any(|k| e.source.contains(k) || e.target.contains(k))
+    }).cloned().collect();
+
+    steps.push(ThinkingStep { step: 2, action: "FILTER".into(),
+        detail: format!("Filtered to {} edges for {} (keywords: {})", filtered.len(), bucket.label(), kw.join(", ")),
+        edges_before: all_edges.len(), edges_after: filtered.len(), new_inferences: 0 });
+
+    // NARS inference
+    let inferred = infer_edges(&filtered, 0.15, 3);
+    let n_inf = inferred.len();
+
+    steps.push(ThinkingStep { step: 3, action: "INFER".into(),
+        detail: format!("NARS deduction: {} new causal links discovered", n_inf),
+        edges_before: filtered.len(), edges_after: filtered.len() + n_inf, new_inferences: n_inf });
+
+    let mut relevant = filtered;
+    relevant.extend(inferred);
+
+    // Build chains
+    let chains = build_chains(&relevant, &node_map);
+    steps.push(ThinkingStep { step: 4, action: "CHAIN".into(),
+        detail: format!("{} causality chains built", chains.len()),
+        edges_before: relevant.len(), edges_after: relevant.len(), new_inferences: 0 });
+
+    // Project
+    let projections = project(&chains, &relevant, bucket);
+    steps.push(ThinkingStep { step: 5, action: "PROJECT".into(),
+        detail: format!("{} projections generated", projections.len()),
+        edges_before: relevant.len(), edges_after: relevant.len(), new_inferences: 0 });
+
+    let obs = relevant.iter().filter(|e| !e.inferred).count();
+    let inf = relevant.iter().filter(|e| e.inferred).count();
+    let avg_c = if relevant.is_empty() { 0.0 } else { relevant.iter().map(|e| e.truth.confidence).sum::<f64>() / relevant.len() as f64 };
 
     AnalysisResult {
-        bucket,
-        label: bucket.label().to_string(),
-        description: bucket.description().to_string(),
-        queries: query_results,
-        causality_chains,
-        summary,
-        thinking_style: None, // Set by caller if planner feature is on
+        bucket, label: bucket.label().into(), description: bucket.description().into(),
+        thinking_steps: steps, causality_chains: chains, projections,
+        summary: AnalysisSummary {
+            total_nodes: node_map.len(), total_edges_observed: obs, total_edges_inferred: inf,
+            avg_confidence: avg_c,
+            key_findings: findings(&relevant, &node_map, bucket),
+            blind_spots: blind_spots(&relevant, bucket),
+        },
         elapsed_us: start.elapsed().as_micros() as u64,
     }
 }
 
-/// Run all buckets and return a full analytical report.
 pub fn full_analysis() -> Vec<AnalysisResult> {
     AnalysisBucket::all().iter().map(|b| analyze(*b)).collect()
 }
 
-// ── Internal helpers ─────────────────────────────────────────────────────────
-
-fn extract_edges_from_result(result: &crate::QueryResult, mode: &NarsMode) -> Vec<TruthEdge> {
-    // Parse graph JSON if available
-    if let Some(ref graph_json) = result.graph_json {
-        if let Ok(data) = serde_json::from_str::<serde_json::Value>(graph_json) {
-            if let Some(edges) = data["edges"].as_array() {
-                return edges.iter().filter_map(|e| {
-                    let source = e["source"].as_str()?.to_string();
-                    let target = e["target"].as_str()?.to_string();
-                    let label = e["label"].as_str().unwrap_or("related").to_string();
-                    Some(TruthEdge {
-                        source,
-                        target,
-                        rel_type: label,
-                        truth: TruthValue { frequency: 0.80, confidence: 0.70 },
-                        inferred: false,
-                        via: vec![],
-                        inference_type: None,
-                    })
-                }).collect();
-            }
-        }
+fn empty_result(bucket: AnalysisBucket, start: std::time::Instant, msg: &str) -> AnalysisResult {
+    AnalysisResult {
+        bucket, label: bucket.label().into(), description: bucket.description().into(),
+        thinking_steps: vec![ThinkingStep { step: 1, action: "ERROR".into(), detail: msg.into(), edges_before: 0, edges_after: 0, new_inferences: 0 }],
+        causality_chains: vec![], projections: vec![],
+        summary: AnalysisSummary { total_nodes: 0, total_edges_observed: 0, total_edges_inferred: 0, avg_confidence: 0.0, key_findings: vec![msg.into()], blind_spots: vec![] },
+        elapsed_us: start.elapsed().as_micros() as u64,
     }
-
-    // Fallback: parse raw text output for entity pairs
-    let base_confidence = match mode {
-        NarsMode::Deduction => 0.80,
-        NarsMode::Induction => 0.65,
-        NarsMode::Abduction => 0.55,
-    };
-
-    result.raw_output.lines().skip(1).filter_map(|line| {
-        let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
-        if parts.len() >= 2 {
-            Some(TruthEdge {
-                source: parts[0].to_string(),
-                target: parts[1].to_string(),
-                rel_type: if parts.len() >= 3 { parts[2].to_string() } else { "related".to_string() },
-                truth: TruthValue { frequency: 0.80, confidence: base_confidence },
-                inferred: false,
-                via: vec![],
-                inference_type: None,
-            })
-        } else {
-            None
-        }
-    }).collect()
 }
 
-fn build_causality_chains(edges: &[TruthEdge], bucket: AnalysisBucket) -> Vec<CausalityChain> {
-    // Group related edges into chains by following source→target paths
-    let mut chains: Vec<CausalityChain> = Vec::new();
-
-    // Find chain starters (nodes that appear as source but not target)
+fn build_chains(edges: &[TruthEdge], node_map: &HashMap<String, (String, String)>) -> Vec<CausalityChain> {
+    let mut adj: HashMap<&str, Vec<&TruthEdge>> = HashMap::new();
+    for e in edges { adj.entry(&e.source).or_default().push(e); }
     let targets: std::collections::HashSet<&str> = edges.iter().map(|e| e.target.as_str()).collect();
-    let starters: Vec<&TruthEdge> = edges.iter()
-        .filter(|e| !targets.contains(e.source.as_str()))
-        .collect();
+    let starters: Vec<&str> = adj.keys().filter(|k| !targets.contains(**k)).copied().collect();
+    let name = |id: &str| node_map.get(id).map(|(n, _)| n.clone()).unwrap_or_else(|| id.into());
 
-    for start in starters.iter().take(5) {
-        let mut chain_edges = vec![(*start).clone()];
-        let mut current = &start.target;
-
-        // Follow the chain up to 5 hops
-        for _ in 0..5 {
-            if let Some(next) = edges.iter().find(|e| e.source == *current && !chain_edges.iter().any(|c| c.target == e.target)) {
-                chain_edges.push(next.clone());
-                current = &next.target;
-            } else {
-                break;
-            }
+    let mut chains = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for &start in starters.iter().take(20) {
+        let mut chain = Vec::new();
+        let mut cur = start;
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(cur);
+        for _ in 0..6 {
+            if let Some(nexts) = adj.get(cur) {
+                if let Some(best) = nexts.iter().filter(|e| !visited.contains(e.target.as_str()))
+                    .max_by(|a, b| a.truth.confidence.partial_cmp(&b.truth.confidence).unwrap_or(std::cmp::Ordering::Equal)) {
+                    chain.push((*best).clone());
+                    visited.insert(&best.target);
+                    cur = &best.target;
+                } else { break; }
+            } else { break; }
         }
-
-        if chain_edges.len() >= 2 {
-            let confidence = chain_edges.iter()
-                .map(|e| e.truth.confidence)
-                .fold(1.0, |acc, c| acc * c);
-
-            let narrative = chain_edges.iter()
-                .map(|e| format!("{} →[{}]→ {}", e.source, e.rel_type, e.target))
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            chains.push(CausalityChain {
-                name: format!("{} → {}", chain_edges[0].source, chain_edges.last().unwrap().target),
-                edges: chain_edges,
-                confidence,
-                inference_type: "deduction".to_string(),
-                narrative,
-            });
+        if chain.len() >= 2 {
+            let key = format!("{}→{}", start, cur);
+            if seen.contains(&key) { continue; }
+            seen.insert(key);
+            let conf = chain.iter().map(|e| e.truth.confidence).fold(1.0, |a, b| a * b);
+            let has_inf = chain.iter().any(|e| e.inferred);
+            let narrative = chain.iter().map(|e| format!("{} →[{}]→ {}{}", name(&e.source), e.rel_type, name(&e.target), if e.inferred { " ⟹" } else { "" })).collect::<Vec<_>>().join(" | ");
+            chains.push(CausalityChain { name: format!("{} → {}", name(start), name(cur)), edges: chain, confidence: conf, inference_type: if has_inf { "deduction+observed" } else { "observed" }.into(), narrative });
         }
     }
-
-    chains.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
-    chains.truncate(5);
+    chains.sort_by(|a, b| b.edges.len().cmp(&a.edges.len()));
+    chains.truncate(8);
     chains
 }
 
-fn generate_findings(edges: &[TruthEdge], bucket: AnalysisBucket) -> Vec<String> {
-    let mut findings = Vec::new();
-
-    // Count node frequency
-    let mut node_freq: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for e in edges {
-        *node_freq.entry(&e.source).or_default() += 1;
-        *node_freq.entry(&e.target).or_default() += 1;
+fn project(chains: &[CausalityChain], edges: &[TruthEdge], bucket: AnalysisBucket) -> Vec<Projection> {
+    let mut p = Vec::new();
+    for c in chains.iter().take(3) {
+        if c.confidence > 0.05 {
+            let last = c.edges.last().map(|e| e.target.as_str()).unwrap_or("?");
+            p.push(Projection {
+                label: format!("{} chain continues", c.name), confidence: c.confidence * 0.7,
+                basis: c.narrative.clone(),
+                implication: format!("{} remains central to {} dynamics", last, bucket.label()),
+            });
+        }
     }
-    let mut sorted: Vec<_> = node_freq.iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(a.1));
-
-    if let Some((node, count)) = sorted.first() {
-        findings.push(format!("Most connected entity: {} ({} connections)", node, count));
+    let mut deg: HashMap<&str, usize> = HashMap::new();
+    for e in edges { *deg.entry(&e.source).or_default() += 1; *deg.entry(&e.target).or_default() += 1; }
+    if let Some((node, d)) = deg.iter().max_by_key(|(_, d)| *d) {
+        p.push(Projection { label: format!("Hub: {}", node), confidence: 0.75, basis: format!("{} connections", d), implication: format!("Disruption to {} cascades through the network", node) });
     }
-
-    // High confidence inferences
-    let high_conf: Vec<_> = edges.iter().filter(|e| e.inferred && e.truth.confidence > 0.6).collect();
-    if !high_conf.is_empty() {
-        findings.push(format!("{} high-confidence inferences discovered", high_conf.len()));
+    let inf = edges.iter().filter(|e| e.inferred).count();
+    if inf > 0 {
+        p.push(Projection { label: "Hidden structure".into(), confidence: 0.5, basis: format!("{} NARS-inferred connections", inf), implication: "Causal links exist that aren't directly documented — discovered through reasoning".into() });
     }
-
-    let inferred_count = edges.iter().filter(|e| e.inferred).count();
-    if inferred_count > 0 {
-        findings.push(format!("NARS discovered {} new connections through inference", inferred_count));
-    }
-
-    findings.push(format!("{} total edges in {} analysis", edges.len(), bucket.label()));
-    findings
+    p
 }
 
-fn generate_blind_spots(edges: &[TruthEdge], bucket: AnalysisBucket) -> Vec<String> {
-    let mut blind_spots = Vec::new();
+fn findings(edges: &[TruthEdge], nm: &HashMap<String, (String, String)>, bucket: AnalysisBucket) -> Vec<String> {
+    let name = |id: &str| nm.get(id).map(|(n, _)| n.clone()).unwrap_or_else(|| id.into());
+    let mut freq: HashMap<&str, usize> = HashMap::new();
+    for e in edges { *freq.entry(&e.source).or_default() += 1; *freq.entry(&e.target).or_default() += 1; }
+    let mut sorted: Vec<_> = freq.iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(a.1));
+    let mut f = Vec::new();
+    for (n, c) in sorted.iter().take(3) { f.push(format!("{} ({} connections) — central to {}", name(n), c, bucket.label())); }
+    let inf = edges.iter().filter(|e| e.inferred).count();
+    if inf > 0 { f.push(format!("NARS discovered {} hidden causal links", inf)); }
+    f.push(format!("{} total edges analyzed, {:.0}% avg confidence", edges.len(), edges.iter().map(|e| e.truth.confidence).sum::<f64>() / edges.len().max(1) as f64 * 100.0));
+    f
+}
 
-    let low_conf: Vec<_> = edges.iter().filter(|e| e.truth.confidence < 0.4).collect();
-    if !low_conf.is_empty() {
-        blind_spots.push(format!("{} low-confidence edges need verification", low_conf.len()));
-    }
-
+fn blind_spots(edges: &[TruthEdge], bucket: AnalysisBucket) -> Vec<String> {
+    let mut s = Vec::new();
+    let low = edges.iter().filter(|e| e.truth.confidence < 0.3).count();
+    if low > 0 { s.push(format!("{} low-confidence edges need verification", low)); }
     match bucket {
-        AnalysisBucket::EconomicReview => {
-            blind_spots.push("Chinese defense spending data is sparse in this dataset".to_string());
-            blind_spots.push("Offshore financial flows not tracked".to_string());
-        }
-        AnalysisBucket::PoliticalDynamics => {
-            blind_spots.push("Russian AI weapons data is minimal".to_string());
-            blind_spots.push("Non-state actor networks not mapped".to_string());
-        }
-        AnalysisBucket::KillChainAnalysis => {
-            blind_spots.push("Civilian casualty data not in this graph".to_string());
-        }
-        AnalysisBucket::SurveillanceEcosystem => {
-            blind_spots.push("Chinese surveillance exports (Hikvision, SenseTime) underrepresented".to_string());
-        }
+        AnalysisBucket::EconomicReview => s.push("Chinese/Russian defense spending underrepresented".into()),
+        AnalysisBucket::KillChainAnalysis => s.push("Civilian casualty attribution not in graph".into()),
+        AnalysisBucket::SurveillanceEcosystem => s.push("Hikvision/SenseTime export data sparse".into()),
         _ => {}
     }
-
-    blind_spots
+    s
 }
 
 #[cfg(test)]
@@ -491,18 +360,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_buckets_have_queries() {
-        for bucket in AnalysisBucket::all() {
-            let queries = bucket.seed_queries();
-            assert!(!queries.is_empty(), "{:?} has no seed queries", bucket);
-        }
+    fn all_buckets_have_keywords() {
+        for b in AnalysisBucket::all() { assert!(!b.node_keywords().is_empty()); }
     }
 
     #[test]
-    fn bucket_labels_are_nonempty() {
-        for bucket in AnalysisBucket::all() {
-            assert!(!bucket.label().is_empty());
-            assert!(!bucket.description().is_empty());
-        }
+    fn labels_nonempty() {
+        for b in AnalysisBucket::all() { assert!(!b.label().is_empty()); assert!(!b.description().is_empty()); }
     }
 }
