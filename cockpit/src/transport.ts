@@ -63,7 +63,15 @@ export async function executeQuery(code: string, lang?: string): Promise<Cell> {
   try {
     const args: Record<string, unknown> = { code };
     if (lang) args.lang = lang;
-    const cell: Cell = await callTool('cell_execute', args);
+    const raw = await callTool('cell_execute', args);
+    // Ensure the result has the Cell shape (outputs array)
+    const cell: Cell = {
+      id: raw?.id || `cell-${Date.now()}`,
+      source: raw?.source || code,
+      language: raw?.language || lang || 'unknown',
+      execution_state: raw?.execution_state || 'success',
+      outputs: Array.isArray(raw?.outputs) ? raw.outputs : [],
+    };
     store.addCell(cell);
 
     // If the result contains graph output, parse and set graph data
