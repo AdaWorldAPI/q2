@@ -3,7 +3,7 @@ name = "cockpit-server"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94"
-description = "Single-binary graph notebook cockpit — embeds UI + lance-graph + ndarray"
+description = "Single-binary graph notebook cockpit — embeds UI + lance-graph + ndarray + V8 JIT"
 
 [[bin]]
 name = "q2-cockpit"
@@ -29,6 +29,10 @@ notebook-query.workspace = true
 
 # ndarray — the real AdaWorldAPI fork (cloned at ../ndarray by Dockerfile)
 q2-ndarray.workspace = true
+
+# V8 JIT — execute JS/TS inside the binary
+deno_core.workspace = true
+serde_v8.workspace = true
 
 # Embed the Vite build output into the binary
 include_dir.workspace = true
