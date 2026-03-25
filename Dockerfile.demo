@@ -23,16 +23,13 @@ COPY cockpit-prototype/q2-cockpit-standalone.html ./public/demo/index.html
 COPY cockpit-prototype/cockpit.css ./public/demo/cockpit.css
 COPY cockpit-prototype/cockpit.js ./public/demo/cockpit.js
 
-# Copy the cockpit/dist if it exists (Vite build), otherwise just use prototype
-COPY cockpit/dist/ ./public/ 2>/dev/null || true
-
 # Health endpoint — tiny Node script
 RUN cat > server.js << 'ENDSERVER'
 const http = require('http');
 const { execSync } = require('child_process');
 const fs = require('fs');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 // Read the demo HTML once
 const demoPath = '/app/public/demo/index.html';
