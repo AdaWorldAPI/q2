@@ -54,7 +54,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [features]
-default = ["embed-cockpit"]
+default = ["embed-cockpit", "planner"]
 embed-cockpit = ["dep:include_dir"]
 planner = ["notebook-query/planner"]
 orchestrator = ["notebook-query/orchestrator"]

@@ -98,6 +98,14 @@ async fn main() {
         // MCP endpoints — all queries route through lance-graph
         .route("/mcp/sse", get(sse_handler))
         .route("/mcp/message", post(mcp_message_handler))
+        // Data status — what's loaded, what failed
+        .route("/api/data/status", get(data_status_handler))
+        // Live strategy diagnostics — runs all 16 strategies against real queries
+        .route("/api/debug/strategies", get(strategy_check_handler))
+        // Political analyst — NARS causality chains through analytical buckets
+        .route("/api/analyst/buckets", get(analyst_buckets_handler))
+        .route("/api/analyst/analyze/:bucket", get(analyst_analyze_handler))
+        .route("/api/analyst/full", get(analyst_full_handler))
         // Health
         .route("/health", get(health_handler))
         // Static files + SPA fallback (serves the Vite React build)
@@ -386,6 +394,183 @@ fn build_outputs(result: &notebook_query::QueryResult) -> Vec<serde_json::Value>
         outputs.push(serde_json::json!({ "type": "text", "content": result.raw_output }));
     }
     outputs
+}
+
+// ── Live strategy diagnostics ─────────────────────────────────────────────────
+
+/// Run all 16 strategies with synthetic queries, report what fires/fails/panics.
+/// Also runs demo analyses: same query through all 12 thinking styles.
+async fn strategy_check_handler() -> Json<serde_json::Value> {
+    // Run in a blocking thread since strategy checks may be CPU-intensive
+    let result = tokio::task::spawn_blocking(|| {
+        notebook_query::diagnostics::run_strategy_checks()
+    })
+    .await;
+
+    match result {
+        Ok(matrix) => Json(serde_json::to_value(matrix).unwrap_or_default()),
+        Err(e) => Json(serde_json::json!({
+            "error": format!("Strategy check failed: {}", e),
+            "strategies": [],
+            "operational": 0,
+            "total": 0,
+        })),
+    }
+}
+
+// ── Political Analyst Savant ──────────────────────────────────────────────────
+
+/// List available analysis buckets.
+async fn analyst_buckets_handler() -> Json<serde_json::Value> {
+    let buckets: Vec<serde_json::Value> = notebook_query::analyst::AnalysisBucket::all()
+        .iter()
+        .map(|b| serde_json::json!({
+            "id": serde_json::to_value(b).unwrap_or_default(),
+            "label": b.label(),
+            "description": b.description(),
+            "query_count": b.seed_queries().len(),
+        }))
+        .collect();
+    Json(serde_json::json!({ "buckets": buckets }))
+}
+
+/// Run analysis for a specific bucket.
+async fn analyst_analyze_handler(
+    axum::extract::Path(bucket_name): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    let bucket = match bucket_name.as_str() {
+        "economic_review" => notebook_query::analyst::AnalysisBucket::EconomicReview,
+        "civil_engineering" => notebook_query::analyst::AnalysisBucket::CivilEngineering,
+        "political_dynamics" => notebook_query::analyst::AnalysisBucket::PoliticalDynamics,
+        "ai_development_impact" => notebook_query::analyst::AnalysisBucket::AiDevelopmentImpact,
+        "kill_chain_analysis" => notebook_query::analyst::AnalysisBucket::KillChainAnalysis,
+        "surveillance_ecosystem" => notebook_query::analyst::AnalysisBucket::SurveillanceEcosystem,
+        _ => {
+            return Json(serde_json::json!({
+                "error": format!("Unknown bucket: {}. Available: economic_review, civil_engineering, political_dynamics, ai_development_impact, kill_chain_analysis, surveillance_ecosystem", bucket_name),
+            }));
+        }
+    };
+
+    let result = tokio::task::spawn_blocking(move || {
+        notebook_query::analyst::analyze(bucket)
+    }).await;
+
+    match result {
+        Ok(analysis) => Json(serde_json::to_value(analysis).unwrap_or_default()),
+        Err(e) => Json(serde_json::json!({ "error": format!("Analysis failed: {}", e) })),
+    }
+}
+
+/// Run all 6 analysis buckets.
+async fn analyst_full_handler() -> Json<serde_json::Value> {
+    let result = tokio::task::spawn_blocking(|| {
+        notebook_query::analyst::full_analysis()
+    }).await;
+
+    match result {
+        Ok(analyses) => Json(serde_json::to_value(analyses).unwrap_or_default()),
+        Err(e) => Json(serde_json::json!({ "error": format!("Full analysis failed: {}", e) })),
+    }
+}
+
+// ── Data status — probe each data source ─────────────────────────────────────
+
+/// Returns the load status of each data source: aiwar graph, enrichment files,
+/// neural diagnosis, etc. The frontend renders this as a status bar.
+async fn data_status_handler() -> Json<serde_json::Value> {
+    let mut sources: Vec<serde_json::Value> = Vec::new();
+
+    // 1. Aiwar Graph JSON — the official 221-node dataset
+    let aiwar_status = match notebook_query::execute(
+        "MATCH (n) RETURN count(n) AS total",
+        notebook_query::QueryLanguage::Cypher,
+    ) {
+        Ok(result) => serde_json::json!({
+            "name": "Aiwar Graph",
+            "file": "aiwar_graph.json",
+            "status": "loaded",
+            "detail": result.raw_output,
+            "elapsed_ms": result.elapsed_ms,
+        }),
+        Err(e) => serde_json::json!({
+            "name": "Aiwar Graph",
+            "file": "aiwar_graph.json",
+            "status": "error",
+            "detail": e,
+        }),
+    };
+    sources.push(aiwar_status);
+
+    // 2. Enrichment Cypher files — check if directory exists
+    let cypher_dir = std::path::Path::new("/home/user/aiwar-neo4j-harvest/cypher");
+    let enrichment_status = if cypher_dir.exists() {
+        let count = std::fs::read_dir(cypher_dir)
+            .map(|entries| entries.filter_map(|e| e.ok()).filter(|e| {
+                e.path().extension().map_or(false, |ext| ext == "cypher")
+            }).count())
+            .unwrap_or(0);
+        serde_json::json!({
+            "name": "Enrichment Cypher",
+            "file": "cypher/*.cypher",
+            "status": if count > 0 { "loaded" } else { "empty" },
+            "detail": format!("{} cypher files found", count),
+            "count": count,
+        })
+    } else {
+        serde_json::json!({
+            "name": "Enrichment Cypher",
+            "file": "cypher/*.cypher",
+            "status": "not_found",
+            "detail": "Directory not found: aiwar-neo4j-harvest/cypher/",
+        })
+    };
+    sources.push(enrichment_status);
+
+    // 3. Neural diagnosis scan data
+    let neural_status = if cfg!(feature = "embed-cockpit") {
+        serde_json::json!({
+            "name": "Neural Diagnosis",
+            "file": "neural_diagnosis.json",
+            "status": "embedded",
+            "detail": "Embedded in Vite build",
+        })
+    } else {
+        serde_json::json!({
+            "name": "Neural Diagnosis",
+            "file": "neural_diagnosis.json",
+            "status": "static",
+            "detail": "Served from public/",
+        })
+    };
+    sources.push(neural_status);
+
+    // 4. Aiwar CSV (51 weapons)
+    let csv_candidates = [
+        "/home/user/aiwar-neo4j-harvest/data/aiwarcloud-table.csv",
+        "../aiwar-neo4j-harvest/data/aiwarcloud-table.csv",
+    ];
+    let csv_status = csv_candidates.iter().find(|p| std::path::Path::new(p).exists());
+    sources.push(match csv_status {
+        Some(path) => serde_json::json!({
+            "name": "Aiwar CSV",
+            "file": "aiwarcloud-table.csv",
+            "status": "found",
+            "detail": format!("At {}", path),
+        }),
+        None => serde_json::json!({
+            "name": "Aiwar CSV",
+            "file": "aiwarcloud-table.csv",
+            "status": "not_found",
+            "detail": "51 weapons CSV not found",
+        }),
+    });
+
+    Json(serde_json::json!({
+        "sources": sources,
+        "total": sources.len(),
+        "loaded": sources.iter().filter(|s| s["status"] == "loaded" || s["status"] == "found" || s["status"] == "embedded").count(),
+    }))
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────

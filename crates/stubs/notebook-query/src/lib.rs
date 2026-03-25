@@ -8,6 +8,8 @@
 //! - `hydration`: HHTL cascade, semiring selector, container seals, GraphBLAS expand
 //! - `reasoning`: NARS truth values, temporal playback, progressive resolution
 
+pub mod analyst;
+pub mod diagnostics;
 pub mod hydration;
 pub mod reasoning;
 #[cfg(feature = "orchestrator")]
