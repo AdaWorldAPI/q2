@@ -23,14 +23,14 @@ futures-core.workspace = true
 serde.workspace = true
 serde_json = "1"
 
-# Graph engine — lance-graph hot path (the REAL engine)
-notebook-query.workspace = true
+# Graph engine — lance-graph hot path via workspace (cloned at ../lance-graph)
 lance-graph.workspace = true
+notebook-query.workspace = true
 
-# The actual ndarray fork with SIMD (AVX-512/AVX2), HPC modules, graph ops
-ndarray = { git = "https://github.com/AdaWorldAPI/ndarray.git", branch = "master" }
+# ndarray — the real AdaWorldAPI fork (cloned at ../ndarray by Dockerfile)
+q2-ndarray.workspace = true
 
-# V8 JIT — execute JS/TS inside the binary (transcoded from quarto-system-runtime)
+# V8 JIT — execute JS/TS inside the binary
 deno_core.workspace = true
 serde_v8.workspace = true
 
@@ -43,9 +43,6 @@ tracing-subscriber.workspace = true
 
 [features]
 default = []
-# Enable the unified query planner (MUL+Compass → Thinking → Strategy)
 planner = ["notebook-query/planner"]
-# Enable the 10-layer cognitive stack (%%think magic)
 orchestrator = ["notebook-query/orchestrator"]
-# Neo4j Aura cold path fallback
 neo4j-fallback = ["notebook-query/neo4j-fallback"]

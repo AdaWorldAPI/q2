@@ -1,6 +1,6 @@
 //! q2-cockpit — single-binary graph notebook server.
 //!
-//! Compiles the cockpit UI, lance-graph, ndarray, notebook-query, and V8 JIT
+//! Compiles the cockpit UI, lance-graph, ndarray, and notebook-query
 //! into ONE binary. No external dependencies at runtime.
 //!
 //! Architecture:
@@ -9,7 +9,7 @@
 //! - Axum serves them + provides `/mcp/sse` and `/mcp/message` endpoints
 //! - notebook-query routes Cypher/Gremlin/SPARQL through lance-graph DataFusion
 //! - ndarray (AdaWorldAPI fork) provides SIMD-accelerated HPC ops
-//! - deno_core (V8 JIT) executes JS/TS inside the binary — no Node.js needed
+//! - V8 JIT available via `--features v8-jit` when JS/TS execution is needed
 
 use std::convert::Infallible;
 use std::net::SocketAddr;

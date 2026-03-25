@@ -47,15 +47,13 @@ RUN git clone --depth 1 https://github.com/AdaWorldAPI/q2.git \
 
 # ── Build the cockpit frontend ────────────────────────────────────────
 WORKDIR /build/q2/cockpit
-RUN npm install --ignore-scripts && npm run build
+RUN npm install && npm run build && ls -la dist/
 # cockpit/dist/ now exists for include_dir!
 
 # ── Build the Rust binary ─────────────────────────────────────────────
 WORKDIR /build/q2
-RUN cargo build --release --package cockpit-server 2>&1 | tail -20
-
-# Verify binary exists and runs
-RUN ./target/release/q2-cockpit --help || true
+RUN cargo build --release --package cockpit-server \
+    && ls -lh target/release/q2-cockpit
 
 # ── Stage 2: Minimal runtime ─────────────────────────────────────────
 FROM debian:bookworm-slim
