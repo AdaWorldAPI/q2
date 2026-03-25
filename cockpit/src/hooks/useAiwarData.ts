@@ -2,18 +2,30 @@ import { useState, useCallback } from 'react';
 import type { GraphNode, GraphEdge } from '../store';
 import { convertAiwarGraph } from '../data/aiwar-seed';
 
+export interface AiwarWeapon {
+  weapon: string;
+  developed: string;
+  usedBy: string;
+  militaryPurpose: string;
+  typeOfTech: string;
+  repurpose: string;
+  source: string;
+  sourceType: string;
+}
+
 interface AiwarData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  weapons: AiwarWeapon[];
   loading: boolean;
   error: string | null;
 }
 
-// Try to fetch from server first, fall back to embedded data
 export function useAiwarData() {
   const [data, setData] = useState<AiwarData>({
     nodes: [],
     edges: [],
+    weapons: [],
     loading: false,
     error: null,
   });
@@ -21,36 +33,33 @@ export function useAiwarData() {
   const load = useCallback(async () => {
     setData((d) => ({ ...d, loading: true, error: null }));
     try {
-      const res = await fetch('/api/aiwar/graph');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw = await res.json();
+      // Fetch both the graph JSON and the weapons CSV (both in /public/)
+      const [graphRes, weaponsRes] = await Promise.all([
+        fetch('/aiwar_graph.json'),
+        fetch('/aiwar_weapons.json'),
+      ]);
+
+      if (!graphRes.ok) throw new Error(`Failed to load graph: HTTP ${graphRes.status}`);
+      if (!weaponsRes.ok) throw new Error(`Failed to load weapons: HTTP ${weaponsRes.status}`);
+
+      const raw = await graphRes.json();
+      const weapons: AiwarWeapon[] = await weaponsRes.json();
       const { nodes, edges } = convertAiwarGraph(raw);
-      setData({ nodes, edges, loading: false, error: null });
-      return { nodes, edges };
+
+      setData({ nodes, edges, weapons, loading: false, error: null });
+      return { nodes, edges, weapons };
     } catch (err) {
-      // Server not available — try embedded data via MCP
+      // Fallback: try the server API endpoint
       try {
-        const res = await fetch('/mcp/message', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: Date.now(),
-            method: 'tools/call',
-            params: { name: 'cell_execute', arguments: { code: 'MATCH (n) RETURN n LIMIT 500', lang: 'cypher' } },
-          }),
-        });
+        const res = await fetch('/api/aiwar/graph');
         if (res.ok) {
-          const json = await res.json();
-          const graphOutput = json.result?.outputs?.find((o: { type: string }) => o.type === 'graph');
-          if (graphOutput) {
-            const parsed = JSON.parse(graphOutput.content);
-            setData({ nodes: parsed.nodes || [], edges: parsed.edges || [], loading: false, error: null });
-            return { nodes: parsed.nodes || [], edges: parsed.edges || [] };
-          }
+          const raw = await res.json();
+          const { nodes, edges } = convertAiwarGraph(raw);
+          setData({ nodes, edges, weapons: [], loading: false, error: null });
+          return { nodes, edges, weapons: [] };
         }
       } catch {
-        // ignore MCP fallback error
+        // ignore server fallback error
       }
       const errMsg = err instanceof Error ? err.message : 'Failed to load aiwar data';
       setData((d) => ({ ...d, loading: false, error: errMsg }));

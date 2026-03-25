@@ -13,6 +13,28 @@
 }
 
 /* ================================================================
+   LOADING OVERLAY
+   ================================================================ */
+.palantir-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 8px;
+}
+
+.palantir-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 99, 125, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 99, 125, 0.04);
+}
+
+/* ================================================================
    PALANTIR SHELL — Landing page
    ================================================================ */
 .palantir-shell {
