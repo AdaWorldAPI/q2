@@ -1,0 +1,115 @@
+# ══════════════════════════════════════════════════════════════════════
+# q2-demo — static cockpit fallback while Rust binary build stabilizes
+# ══════════════════════════════════════════════════════════════════════
+# Serves:
+#   /demo  → Palantir cockpit (static prototype with MCP/SSE wiring)
+#   /      → redirect to /demo
+#   /health → 200 OK
+#
+# This is the FALLBACK. The real binary is Dockerfile (Rust + lance-graph).
+# ══════════════════════════════════════════════════════════════════════
+
+FROM node:22-alpine
+
+RUN apk add --no-cache curl
+
+WORKDIR /app
+
+# Install serve
+RUN npm install -g serve@14
+
+# Copy the cockpit prototype (static HTML with embedded CSS/JS + MCP wiring)
+COPY cockpit-prototype/q2-cockpit-standalone.html ./public/demo/index.html
+COPY cockpit-prototype/cockpit.css ./public/demo/cockpit.css
+COPY cockpit-prototype/cockpit.js ./public/demo/cockpit.js
+
+# Copy the cockpit/dist if it exists (Vite build), otherwise just use prototype
+COPY cockpit/dist/ ./public/ 2>/dev/null || true
+
+# Health endpoint — tiny Node script
+RUN cat > server.js << 'ENDSERVER'
+const http = require('http');
+const { execSync } = require('child_process');
+const fs = require('fs');
+
+const PORT = process.env.PORT || 3000;
+
+// Read the demo HTML once
+const demoPath = '/app/public/demo/index.html';
+const demoHtml = fs.existsSync(demoPath) ? fs.readFileSync(demoPath, 'utf8') : '<h1>q2 demo loading...</h1>';
+
+// Check if Vite build exists
+const hasViteBuild = fs.existsSync('/app/public/index.html');
+
+const server = http.createServer((req, res) => {
+  // Health check
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', mode: 'demo-fallback', engine: 'static' }));
+    return;
+  }
+
+  // Redirect root to /demo
+  if (req.url === '/' && !hasViteBuild) {
+    res.writeHead(302, { Location: '/demo' });
+    res.end();
+    return;
+  }
+
+  // Serve demo
+  if (req.url === '/demo' || req.url === '/demo/') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(demoHtml);
+    return;
+  }
+
+  // MCP stubs so the cockpit JS doesn't error
+  if (req.url === '/mcp/sse') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write('data: {"method":"notifications/initialized","params":{"serverInfo":{"name":"q2-demo"}}}\n\n');
+    const keepalive = setInterval(() => res.write(': keepalive\n\n'), 15000);
+    req.on('close', () => clearInterval(keepalive));
+    return;
+  }
+
+  if (req.url === '/mcp/message' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      try {
+        const msg = JSON.parse(body);
+        res.end(JSON.stringify({
+          jsonrpc: '2.0', id: msg.id,
+          result: { mode: 'demo', message: 'Static fallback — Rust binary not yet deployed' }
+        }));
+      } catch(e) {
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }));
+      }
+    });
+    return;
+  }
+
+  // 404
+  res.writeHead(404);
+  res.end('Not found');
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`q2 demo fallback on http://0.0.0.0:${PORT}`);
+  console.log(`  /demo   → Palantir cockpit (static)`);
+  console.log(`  /health → health check`);
+  console.log(`  /mcp/*  → stub MCP endpoints`);
+});
+ENDSERVER
+
+HEALTHCHECK --interval=15s --timeout=3s \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENV PORT=8080
+EXPOSE 8080
+CMD ["node", "server.js"]
