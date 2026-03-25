@@ -2,7 +2,7 @@
 builder = "dockerfile"
 # Use Dockerfile.demo (static fallback) until Rust binary build stabilizes.
 # Switch to Dockerfile (full Rust binary) once cargo build -p quarto passes.
-dockerfilePath = "Dockerfile.demo"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
