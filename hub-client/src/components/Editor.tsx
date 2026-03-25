@@ -50,10 +50,10 @@ interface Props {
   route: Route;
   /** Callback to update URL when file changes */
   onNavigateToFile: (filePath: string, options?: { anchor?: string; replace?: boolean }) => void;
-  /** Current user's Automerge actor ID (for "Me" label in replay) */
-  actorId?: string | null;
   /** Actor ID -> identity mapping from the IndexDocument */
   identities?: Record<string, import('../services/automergeSync').ActorIdentity>;
+  /** Whether the project is connected to the sync server */
+  isOnline: boolean;
 }
 
 // Map file extension to Monaco language ID
@@ -101,7 +101,7 @@ function selectDefaultFile(files: FileEntry[]): FileEntry | null {
   return files[0];
 }
 
-export default function Editor({ project, files, fileContents, onDisconnect, onContentChange, route, onNavigateToFile, actorId, identities }: Props) {
+export default function Editor({ project, files, fileContents, onDisconnect, onContentChange, route, onNavigateToFile, identities, isOnline }: Props) {
   // View mode for pane sizing
   const { viewMode } = useViewMode();
 
@@ -971,6 +971,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
                       wasmError={wasmError}
                       userCount={userCount}
                       remoteUsers={remoteUsers}
+                      isOnline={isOnline}
                     />
                   );
                 case 'settings':
@@ -1089,7 +1090,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
 
       {/* Replay mode drawer */}
       {!isFullscreenPreview && (
-        <ReplayDrawer state={replayState} controls={replayControls} disabled={!!currentFile && isBinaryExtension(currentFile.path)} currentActorId={actorId} identities={identities} />
+        <ReplayDrawer state={replayState} controls={replayControls} disabled={!!currentFile && isBinaryExtension(currentFile.path)} identities={identities} />
       )}
 
       {/* New file dialog */}
