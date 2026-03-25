@@ -8,8 +8,8 @@
 //! - ndarray provides SIMD-accelerated compute for graph analytics
 //! - neo4j-rs is a fallback ONLY for live demos against Neo4j Aura
 //!
-//! No static Vite build. No include_dir. The cockpit IS a .qmd notebook
-//! rendered live by the Quarto engine compiled into this binary.
+//! The cockpit/ Vite build is embedded via include_dir! and served as
+//! static files with SPA fallback. React Router handles / vs /demo vs /debug.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -17,15 +17,26 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
 use axum::response::sse::{Event, Sse};
-use axum::response::{Html, IntoResponse};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_core::Stream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+
+// ── Embed the Vite build at compile time ─────────────────────────────────────
+// The cockpit/ directory is built by `cd cockpit && npm run build` which
+// produces dist/. We embed dist/ so the binary serves the React app directly.
+// If dist/ doesn't exist at compile time, we fall back to the inline HTML shell.
+
+#[cfg(feature = "embed-cockpit")]
+use include_dir::{include_dir, Dir};
+
+#[cfg(feature = "embed-cockpit")]
+static COCKPIT_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../cockpit/dist");
 
 // ── Application state ────────────────────────────────────────────────────────
 
@@ -84,13 +95,13 @@ async fn main() {
     let state = Arc::new(AppState { tx });
 
     let app = Router::new()
-        // Live-rendered cockpit notebook
-        .route("/", get(cockpit_handler))
         // MCP endpoints — all queries route through lance-graph
         .route("/mcp/sse", get(sse_handler))
         .route("/mcp/message", post(mcp_message_handler))
         // Health
         .route("/health", get(health_handler))
+        // Static files + SPA fallback (serves the Vite React build)
+        .fallback(get(static_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -101,8 +112,10 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("q2-cockpit listening on http://{addr}");
-    tracing::info!("engine: lance-graph (DataFusion + LanceDB)");
-    tracing::info!("renderer: quarto-core + deno_core (V8 JIT)");
+    tracing::info!("  /       → Palantir cockpit (Vite build, 221 aiwar nodes)");
+    tracing::info!("  /demo   → infrastructure demo (24 seed nodes)");
+    tracing::info!("  /debug  → neural debugger (18,763 functions)");
+    tracing::info!("  /mcp/*  → MCP endpoints (lance-graph)");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app)
@@ -118,23 +131,64 @@ async fn shutdown_signal() {
     tracing::info!("shutting down");
 }
 
-// ── Live cockpit rendering ───────────────────────────────────────────────────
+// ── Static file handler with SPA fallback ────────────────────────────────────
 
-/// Render the cockpit .qmd notebook through the Quarto pipeline.
-///
-/// pampa parses the .qmd → quarto-core renders → deno_core executes JS/TS
-/// cells → lance-graph handles any graph queries in code cells → HTML output.
-async fn cockpit_handler() -> Html<String> {
-    // TODO: Wire pampa + quarto-core + deno_core rendering pipeline.
-    // For now, return a minimal HTML shell that connects to the MCP SSE
-    // endpoint. The full pipeline will render .qmd → HTML with live
-    // graph cells executed through lance-graph.
-    Html(COCKPIT_SHELL.to_string())
+/// Serves embedded Vite build files. Falls back to index.html for SPA routing.
+async fn static_handler(uri: axum::http::Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+
+    // Try to serve the exact file from embedded dist/
+    #[cfg(feature = "embed-cockpit")]
+    {
+        // Try exact path first
+        if let Some(file) = COCKPIT_DIST.get_file(path) {
+            let mime = mime_from_path(path);
+            return (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, mime)],
+                file.contents(),
+            )
+                .into_response();
+        }
+
+        // SPA fallback: serve index.html for all non-file routes
+        // (React Router handles /demo, /debug, etc.)
+        if !path.contains('.') || path.is_empty() {
+            if let Some(index) = COCKPIT_DIST.get_file("index.html") {
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                    index.contents(),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // Fallback: inline HTML shell (when embed-cockpit feature is off)
+    if path.is_empty() || !path.contains('.') {
+        return Html(FALLBACK_SHELL.to_string()).into_response();
+    }
+
+    (StatusCode::NOT_FOUND, "Not found").into_response()
 }
 
-/// Minimal cockpit HTML shell — connects to MCP SSE for live updates.
-/// This will be replaced by the full quarto-core rendering pipeline.
-const COCKPIT_SHELL: &str = r#"<!DOCTYPE html>
+fn mime_from_path(path: &str) -> &'static str {
+    if path.ends_with(".html") { "text/html; charset=utf-8" }
+    else if path.ends_with(".css") { "text/css; charset=utf-8" }
+    else if path.ends_with(".js") { "application/javascript; charset=utf-8" }
+    else if path.ends_with(".json") { "application/json" }
+    else if path.ends_with(".svg") { "image/svg+xml" }
+    else if path.ends_with(".png") { "image/png" }
+    else if path.ends_with(".ico") { "image/x-icon" }
+    else if path.ends_with(".woff2") { "font/woff2" }
+    else if path.ends_with(".woff") { "font/woff" }
+    else { "application/octet-stream" }
+}
+
+/// Minimal fallback shell when the Vite build isn't embedded.
+/// This is ONLY shown when the binary is compiled WITHOUT the embed-cockpit feature.
+const FALLBACK_SHELL: &str = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -171,16 +225,13 @@ body {
   <div class="status">
     <span class="dot" id="dot"></span>
     <span id="status">connecting…</span>
-    <span style="margin-left:auto">engine: lance-graph | renderer: quarto-core + V8 JIT</span>
+    <span style="margin-left:auto">Build with --features embed-cockpit to serve the Vite React app</span>
   </div>
   <div class="main">
     <div class="msg">
       <h1>q2 Graph Notebook</h1>
-      <p>Live <code>.qmd</code> rendering through the Quarto pipeline.<br>
-      All queries route through <code>lance-graph</code> (DataFusion + LanceDB).<br>
-      V8 JIT executes JS/TS cells via <code>deno_core</code>.</p>
-      <p style="margin-top:16px;font-size:12px;color:var(--muted)">
-        Waiting for quarto-core rendering pipeline…</p>
+      <p>The Palantir cockpit is not embedded in this build.<br>
+      Compile with <code>cargo build --features embed-cockpit</code> after running <code>cd cockpit && npm run build</code>.</p>
     </div>
   </div>
   <div id="log"></div>
@@ -190,7 +241,6 @@ const dot = document.getElementById('dot');
 const status = document.getElementById('status');
 const log = document.getElementById('log');
 function addLog(msg) { log.textContent += new Date().toISOString().slice(11,19) + ' ' + msg + '\n'; log.scrollTop = log.scrollHeight; }
-
 const es = new EventSource('/mcp/sse');
 es.onopen = () => { dot.className = 'dot on'; status.textContent = 'connected — lance-graph live'; addLog('SSE connected'); };
 es.onmessage = (e) => { addLog('event: ' + e.data.slice(0, 80)); };
@@ -346,5 +396,6 @@ async fn health_handler() -> Json<serde_json::Value> {
         "engine": "lance-graph (DataFusion + LanceDB)",
         "renderer": "quarto-core + deno_core (V8 JIT)",
         "compute": "ndarray (SIMD)",
+        "cockpit": if cfg!(feature = "embed-cockpit") { "embedded (Vite React)" } else { "fallback shell" },
     }))
 }

@@ -1284,3 +1284,164 @@
   color: var(--muted);
   font-style: italic;
 }
+
+/* ================================================================
+   NEURAL DEBUGGER
+   ================================================================ */
+.neural-debugger {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+.neural-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10, 14, 23, 0.9);
+  flex-shrink: 0;
+}
+.neural-topbar-left { display: flex; align-items: center; gap: 12px; }
+.neural-topbar-left h2 { margin: 0; font-size: 14px; letter-spacing: 0.04em; }
+.neural-topbar-right { display: flex; gap: 8px; }
+.neural-loading {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100vh; gap: 12px; color: var(--muted); font-size: 13px;
+}
+.neural-content { flex: 1; overflow: hidden; }
+
+/* Viz layout */
+.neural-viz-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  height: 100%;
+  gap: 0;
+}
+.neural-viz-main { position: relative; overflow: hidden; }
+.neural-viz-sidebar {
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: rgba(10, 14, 23, 0.6);
+  padding: 12px;
+}
+
+/* Grid layout */
+.neural-grid-layout {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  height: 100%;
+}
+.neural-grid-sidebar {
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  padding: 12px;
+}
+.neural-grid-main { overflow: auto; padding: 16px; }
+.neural-grid-hint {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: var(--muted); font-size: 13px;
+}
+
+/* Summary bar */
+.neural-summary {
+  display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 12px;
+  background: rgba(10, 14, 23, 0.6);
+}
+.neural-summary-stat { display: flex; flex-direction: column; gap: 2px; min-width: 50px; }
+.neural-stat-value { font-size: 18px; font-weight: 700; font-family: var(--mono); }
+.neural-stat-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Repo cards */
+.neural-repos { display: flex; flex-direction: column; gap: 12px; }
+.neural-repo-card {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px; background: rgba(17, 24, 38, 0.5);
+}
+.neural-repo-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+.neural-repo-header h3 { margin: 0; font-size: 13px; letter-spacing: 0.04em; }
+.neural-repo-role { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.neural-repo-health { font-size: 20px; font-weight: 700; font-family: var(--mono); }
+.neural-repo-stats { display: flex; gap: 10px; font-size: 10px; color: var(--muted); margin-bottom: 8px; }
+
+/* Coverage bar */
+.coverage-bar { margin: 6px 0; }
+.coverage-bar-track { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.06); display: flex; overflow: hidden; }
+.coverage-seg { height: 100%; }
+.coverage-alive { background: #35d07f; }
+.coverage-stub { background: #666; }
+.coverage-dead { background: #ff637d; }
+
+/* Module chips */
+.neural-modules { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.neural-module-chip {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px; background: rgba(255,255,255,0.02);
+  font-size: 10px; color: var(--muted); cursor: pointer;
+  font-family: var(--sans); transition: 200ms ease;
+}
+.neural-module-chip:hover { border-color: rgba(255,255,255,0.15); color: var(--text); }
+.neural-module-chip.active { background: rgba(77,208,225,0.08); border-color: rgba(77,208,225,0.25); color: var(--text); }
+.neural-module-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.neural-module-count { font-family: var(--mono); opacity: 0.5; }
+.neural-module-dead { color: #ff637d; font-weight: 600; }
+.neural-module-nan { color: #ffb547; font-weight: 600; }
+
+/* Neuron grid */
+.neuron-grid { display: flex; flex-direction: column; gap: 12px; }
+.neuron-grid-header h3 { margin: 0 0 6px; font-size: 14px; }
+.neuron-grid-stats { display: flex; gap: 12px; font-size: 11px; color: var(--muted); }
+.neuron-grid-clean { padding: 40px; text-align: center; color: var(--muted); font-size: 12px; }
+
+.neuron-list { display: flex; flex-direction: column; gap: 6px; }
+.neuron-item {
+  padding: 8px 12px; border-left: 3px solid; border-radius: 0 8px 8px 0;
+  background: rgba(255,255,255,0.02);
+}
+.neuron-item-header { display: flex; align-items: center; gap: 8px; }
+.neuron-state-badge {
+  padding: 2px 6px; border: 1px solid; border-radius: 4px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+}
+.neuron-item-sig { font-family: var(--mono); font-size: 11px; color: var(--text); }
+.neuron-item-loc { font-size: 10px; color: var(--muted); margin-top: 4px; font-family: var(--mono); }
+
+/* Resonance viz */
+.resonance-viz { display: flex; flex-direction: column; height: 100%; }
+.resonance-viz-toolbar {
+  display: flex; gap: 6px; padding: 8px 12px;
+  border-bottom: 1px solid var(--border); background: rgba(10,14,23,0.8); flex-shrink: 0;
+}
+.viz-mode-btn {
+  padding: 5px 12px; border: 1px solid rgba(255,255,255,0.1);
+  background: transparent; color: var(--muted); border-radius: 6px;
+  font-size: 11px; cursor: pointer; font-family: var(--sans); transition: 200ms ease;
+}
+.viz-mode-btn.active { background: rgba(77,208,225,0.12); border-color: rgba(77,208,225,0.3); color: var(--text); }
+.viz-mode-btn:hover { border-color: rgba(255,255,255,0.2); }
+.resonance-viz-stage { flex: 1; position: relative; overflow: hidden; }
+
+/* Viz canvases */
+.viz-waveform { width: 100%; height: 100%; background: #0a0e17; }
+.viz-waveform canvas { display: block; }
+.viz-connectome { width: 100%; height: 100%; }
+.viz-dendrite { display: flex; flex-direction: column; height: 100%; }
+.viz-dendrite-canvas { flex: 1; }
+.viz-dendrite-controls {
+  display: flex; gap: 8px; padding: 8px 12px; align-items: center;
+  border-top: 1px solid var(--border); background: rgba(10,14,23,0.8);
+}
+.viz-ctrl-btn {
+  padding: 4px 10px; border: 1px solid rgba(255,255,255,0.1);
+  background: transparent; color: var(--muted); border-radius: 6px;
+  font-size: 10px; cursor: pointer; font-family: var(--sans);
+}
+.viz-ctrl-btn.active { background: rgba(77,208,225,0.12); border-color: rgba(77,208,225,0.3); color: var(--text); }
+.viz-style-select {
+  padding: 4px 8px; border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04); color: var(--text);
+  border-radius: 6px; font-size: 10px; font-family: var(--sans);
+}

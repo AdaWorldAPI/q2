@@ -28,8 +28,8 @@ WORKDIR /app
 # Palantir cockpit (Vite build) — served at /
 COPY --from=frontend /build/dist/ ./public/
 
-# Old prototype — served at /demo
-COPY cockpit-prototype/q2-cockpit-standalone.html ./public/demo/index.html
+# Note: /demo is handled by React Router in the Vite build (SPA fallback).
+# No separate prototype file needed — the same index.html serves all routes.
 
 # Server with MCP stubs, health check, and static file serving
 RUN cat > server.js << 'ENDSERVER'
