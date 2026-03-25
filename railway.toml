@@ -1,8 +1,8 @@
 [build]
 builder = "dockerfile"
-# Dockerfile lives at repo root. Live-clones all deps from GitHub — no
-# sibling directories needed. Build context = this repo (q2/).
-dockerfilePath = "Dockerfile"
+# Use Dockerfile.demo (static fallback) until Rust binary build stabilizes.
+# Switch to Dockerfile (full Rust binary) once cargo build -p quarto passes.
+dockerfilePath = "Dockerfile.demo"
 
 [deploy]
 healthcheckPath = "/health"
