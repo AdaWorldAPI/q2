@@ -129,6 +129,7 @@ export function PalantirApp() {
           )}
           {superpositionActive && <span className="badge" style={{ color: '#fff' }}>36 BRAINS</span>}
           {loadError && <span className="badge hot" title={loadError}>data error</span>}
+          <a href="/debug" className="badge" style={{ textDecoration: 'none', cursor: 'pointer', color: '#e040fb', borderColor: 'rgba(224,64,251,0.2)' }}>neural debug</a>
           <a href="/demo" className="badge" style={{ textDecoration: 'none', cursor: 'pointer' }}>infra demo</a>
         </div>
       </section>
