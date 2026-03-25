@@ -114,7 +114,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // MCP message stub
+  // MCP message stub — returns Cell-shaped responses so the frontend doesn't crash
   if (url === '/mcp/message' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
@@ -122,10 +122,31 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       try {
         const msg = JSON.parse(body);
-        res.end(JSON.stringify({
-          jsonrpc: '2.0', id: msg.id,
-          result: { mode: 'demo', message: 'lance-graph binary not yet deployed — static demo' }
-        }));
+        const toolName = msg.params && msg.params.name;
+        const code = msg.params && msg.params.arguments && msg.params.arguments.code || '';
+
+        if (toolName === 'cell_execute') {
+          // Return a proper Cell object that the frontend expects
+          res.end(JSON.stringify({
+            jsonrpc: '2.0', id: msg.id,
+            result: {
+              id: 'cell-' + Date.now(),
+              source: code,
+              language: msg.params.arguments.lang || 'cypher',
+              execution_state: 'success',
+              outputs: [
+                { type: 'text', content: 'Demo mode — lance-graph binary not deployed. Query: ' + code.slice(0, 100) },
+              ],
+            }
+          }));
+        } else if (toolName === 'cells_list') {
+          res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: [] }));
+        } else {
+          res.end(JSON.stringify({
+            jsonrpc: '2.0', id: msg.id,
+            result: { id: 'stub', source: '', language: 'text', execution_state: 'success', outputs: [] }
+          }));
+        }
       } catch(e) {
         res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }));
       }
