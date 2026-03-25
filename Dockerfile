@@ -5,7 +5,7 @@
 #   lance-graph parser → DataFusion planner → LanceDB
 #   quarto-core + deno_core (V8 JIT) → live .qmd rendering
 #   ndarray → SIMD compute
-#   MCP over SSE with 16 tools (cell_execute, planner_plan, graph_*, ...)
+#   MCP over SSE with 16 tools
 #
 # Pinned: Rust 1.94.0 | Arrow 57 | DataFusion 51
 # ══════════════════════════════════════════════════════════════════════
@@ -26,15 +26,16 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build
 
-# Live clone — compile deps only
-RUN git clone --depth 1 https://github.com/AdaWorldAPI/q2.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
+# q2 comes from the Railway build context (this repo, this branch)
+COPY . /build/q2
+
+# Sibling deps — clone from GitHub
+RUN git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/rs-graph-llm.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
 
-# Build the q2 binary — includes notebook server, all MCP tools,
-# lance-graph execution, planner, NARS inference, V8 JIT
+# Build the q2 binary
 WORKDIR /build/q2
 RUN cargo build --release -p quarto \
     && ls -lh target/release/q2

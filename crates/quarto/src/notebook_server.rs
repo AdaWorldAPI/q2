@@ -225,9 +225,14 @@ async fn health_handler() -> Json<HealthResponse> {
     })
 }
 
-/// Placeholder frontend page
+/// Live cockpit — Palantir layout, dynamic via MCP/SSE → lance-graph
 async fn index_handler() -> Html<&'static str> {
     Html(include_str!("frontend_placeholder.html"))
+}
+
+/// Static demo — Palantir cockpit with mock data (no API required)
+async fn demo_handler() -> Html<&'static str> {
+    Html(include_str!("cockpit_demo.html"))
 }
 
 // ---- MCP Tool definitions ----
@@ -400,6 +405,23 @@ fn mcp_tool_definitions() -> Vec<McpToolDefinition> {
                     "version": { "type": "integer", "description": "Version number to load (0-42). Omit to get current." },
                     "action": { "type": "string", "enum": ["play", "pause", "step", "status"], "description": "Timeline action" }
                 }
+            }),
+        },
+        // ── Demo Datasets ──
+        McpToolDefinition {
+            name: "demo_datasets",
+            description: "List available demo datasets with sample queries",
+            input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+        },
+        McpToolDefinition {
+            name: "demo_load",
+            description: "Load a demo dataset by name and execute its default query through lance-graph",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "dataset": { "type": "string", "enum": ["aiwar", "infrastructure", "supply-chain"], "description": "Demo dataset to load" }
+                },
+                "required": ["dataset"]
             }),
         },
         // ── Planner Tool ──
@@ -882,6 +904,92 @@ async fn handle_mcp_method(
                     }))
                 }
 
+                // ── Demo datasets ──
+                "demo_datasets" => {
+                    Ok(serde_json::json!({
+                        "datasets": [
+                            {
+                                "name": "aiwar",
+                                "title": "AI War Cloud",
+                                "description": "221 nodes, 356 edges — AI warfare systems, stakeholders, and geopolitical connections",
+                                "queries": [
+                                    { "lang": "cypher", "code": "MATCH (s:System) RETURN s.name, s.type, s.currentStatus ORDER BY s.name", "label": "All systems" },
+                                    { "lang": "cypher", "code": "MATCH (s:System)-[:DEVELOPED_BY]->(st:Stakeholder) RETURN s.name, st.name LIMIT 25", "label": "Systems + developers" },
+                                    { "lang": "cypher", "code": "MATCH (s:System) WHERE s.militaryUse IS NOT NULL RETURN s.name, s.militaryUse, s.type", "label": "Military AI systems" },
+                                    { "lang": "cypher", "code": "MATCH p=(a:System)-[*1..2]-(b:System) RETURN p LIMIT 50", "label": "System connections (2 hops)" },
+                                    { "lang": "gremlin", "code": "g.V().hasLabel('System').outE().inV().path()", "label": "System traversal" },
+                                ]
+                            },
+                            {
+                                "name": "infrastructure",
+                                "title": "Network Topology",
+                                "description": "24 nodes, 31 edges — servers, databases, caches, load balancers, queues",
+                                "queries": [
+                                    { "lang": "cypher", "code": "MATCH (n) RETURN n.name, labels(n)[0] AS type, n.status, n.region", "label": "All nodes" },
+                                    { "lang": "cypher", "code": "MATCH (s:Server)-[:CALLS]->(g:Gateway)-[:CALLS]->(svc:Service) RETURN s.name, g.name, svc.name", "label": "Server → Gateway → Service" },
+                                    { "lang": "cypher", "code": "MATCH (n) WHERE n.cpu > 0.7 RETURN n.name, n.cpu, n.status", "label": "High CPU nodes" },
+                                    { "lang": "gremlin", "code": "g.V().hasLabel('Server').outE().inV().path()", "label": "Server paths" },
+                                ]
+                            },
+                            {
+                                "name": "supply-chain",
+                                "title": "Supply Chain",
+                                "description": "Vendor dependencies, risk scoring, critical path analysis",
+                                "queries": [
+                                    { "lang": "cypher", "code": "MATCH (v:Vendor)-[:SUPPLIES]->(c:Component) RETURN v.name, c.name, c.risk_score ORDER BY c.risk_score DESC", "label": "Vendor → Component risk" },
+                                    { "lang": "cypher", "code": "MATCH p=shortestPath((a:Vendor)-[*]-(b:Vendor)) WHERE a.name <> b.name RETURN p LIMIT 10", "label": "Vendor shortest paths" },
+                                ]
+                            }
+                        ]
+                    }))
+                }
+
+                "demo_load" => {
+                    let dataset = arguments
+                        .get("dataset")
+                        .and_then(|v| v.as_str())
+                        .ok_or("Missing dataset name")?;
+
+                    let (code, lang) = match dataset {
+                        "aiwar" => (
+                            "MATCH (s:System)-[:DEVELOPED_BY]->(st:Stakeholder) RETURN s, st LIMIT 50",
+                            QueryLanguage::Cypher,
+                        ),
+                        "infrastructure" => (
+                            "MATCH (n) RETURN n",
+                            QueryLanguage::Cypher,
+                        ),
+                        "supply-chain" => (
+                            "MATCH (v:Vendor)-[:SUPPLIES]->(c:Component) RETURN v, c LIMIT 30",
+                            QueryLanguage::Cypher,
+                        ),
+                        _ => return Err(format!("Unknown dataset: {dataset}")),
+                    };
+
+                    // Execute through lance-graph
+                    let result = execute(code, lang).map_err(|e| e.to_string())?;
+
+                    let outputs = if let Some(ref graph_json) = result.graph_json {
+                        vec![CellOutput::Graph { html: graph_json.clone() }]
+                    } else {
+                        vec![CellOutput::Html(result.html.unwrap_or(result.raw_output))]
+                    };
+
+                    let cell_id = state.next_id().await;
+                    let cell = Cell {
+                        id: cell_id.clone(),
+                        source: code.to_string(),
+                        language: Some(lang_to_str(lang).to_string()),
+                        outputs,
+                        execution_state: ExecutionState::Success,
+                    };
+                    let mut runtime = state.runtime.lock().await;
+                    runtime.add_cell(cell);
+
+                    let cell = runtime.get_cell(&cell_id).unwrap();
+                    Ok(serde_json::to_value(cell_to_response(cell)).unwrap())
+                }
+
                 // ── Planner tool ──
                 "planner_plan" => {
                     let query = arguments
@@ -972,7 +1080,10 @@ pub async fn serve(args: NotebookServeArgs) -> Result<()> {
         .with_state(state)
         .layer(CorsLayer::permissive());
 
-    // Serve frontend static files if directory exists
+    // /demo always serves the static Palantir cockpit
+    app = app.route("/demo", get(demo_handler));
+
+    // Serve frontend static files if directory exists, otherwise live cockpit
     if let Some(ref dir) = args.frontend_dir {
         if dir.exists() {
             app = app.nest_service("/", ServeDir::new(dir));
