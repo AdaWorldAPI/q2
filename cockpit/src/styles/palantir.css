@@ -316,9 +316,11 @@
 }
 
 /* ================================================================
-   NARS PANEL
+   NARS PANEL — replaces Inspector in sidebar position
    ================================================================ */
 .nars-panel {
+  grid-column: 3;
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   overflow: hidden;
