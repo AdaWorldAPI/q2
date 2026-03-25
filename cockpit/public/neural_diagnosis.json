@@ -1,0 +1,1858 @@
+{
+  "total_functions": 18763,
+  "total_files": 78,
+  "total_dead": 27,
+  "total_stub": 257,
+  "total_nan_risk": 160,
+  "health_pct": 98.48638,
+  "scan_duration_ms": 32076,
+  "repos": [
+    {
+      "name": "lance-graph",
+      "total_functions": 4429,
+      "total_dead": 3,
+      "total_stub": 22,
+      "total_nan_risk": 58,
+      "health_pct": 99.43554,
+      "modules": [
+        {
+          "name": "adjacency",
+          "total": 30,
+          "alive_or_static": 30,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "blasgraph",
+          "total": 768,
+          "alive_or_static": 765,
+          "dead": 0,
+          "stub": 3,
+          "nan_risk": 5,
+          "health_pct": 99.609375,
+          "dead_functions": [
+            {
+              "id": "lance-graph::blasgraph::new",
+              "file": "crates/lance-graph/src/graph/blasgraph/descriptor.rs",
+              "line": 78,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::blasgraph::zero",
+              "file": "crates/lance-graph/src/graph/blasgraph/ndarray_bridge.rs",
+              "line": 51,
+              "signature": "fn zero() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::blasgraph::new",
+              "file": "AdaWorldAPI-lance-graph-d9df43b/crates/lance-graph/src/graph/blasgraph/descriptor.rs",
+              "line": 78,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "builder",
+          "total": 102,
+          "alive_or_static": 102,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "cam_pq",
+          "total": 51,
+          "alive_or_static": 51,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 1,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "datafusion_planner",
+          "total": 399,
+          "alive_or_static": 399,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 7,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "elevation",
+          "total": 68,
+          "alive_or_static": 68,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "execute",
+          "total": 6,
+          "alive_or_static": 6,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "graph",
+          "total": 153,
+          "alive_or_static": 153,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "ir",
+          "total": 44,
+          "alive_or_static": 44,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "mul",
+          "total": 25,
+          "alive_or_static": 25,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 1,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "namespace",
+          "total": 14,
+          "alive_or_static": 14,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "nars",
+          "total": 16,
+          "alive_or_static": 16,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 1,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "neighborhood",
+          "total": 92,
+          "alive_or_static": 92,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "optimize",
+          "total": 25,
+          "alive_or_static": 24,
+          "dead": 0,
+          "stub": 1,
+          "nan_risk": 0,
+          "health_pct": 96.0,
+          "dead_functions": [
+            {
+              "id": "lance-graph::optimize::iterative",
+              "file": "crates/lance-graph-planner/src/optimize/rule.rs",
+              "line": 33,
+              "signature": "fn iterative(&self) -> bool",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "physical",
+          "total": 76,
+          "alive_or_static": 69,
+          "dead": 0,
+          "stub": 7,
+          "nan_risk": 3,
+          "health_pct": 90.789474,
+          "dead_functions": [
+            {
+              "id": "lance-graph::physical::is_pipeline_breaker",
+              "file": "crates/lance-graph-planner/src/physical/broadcast.rs",
+              "line": 43,
+              "signature": "fn is_pipeline_breaker(&self) -> bool",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::physical::is_pipeline_breaker",
+              "file": "crates/lance-graph-planner/src/physical/collapse.rs",
+              "line": 89,
+              "signature": "fn is_pipeline_breaker(&self) -> bool",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::physical::cardinality",
+              "file": "crates/lance-graph-planner/src/physical/collapse.rs",
+              "line": 153,
+              "signature": "fn cardinality(&self) -> f64",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::physical::is_pipeline_breaker",
+              "file": "crates/lance-graph-planner/src/physical/collapse.rs",
+              "line": 154,
+              "signature": "fn is_pipeline_breaker(&self) -> bool",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::physical::is_pipeline_breaker",
+              "file": "crates/lance-graph-planner/src/physical/accumulate.rs",
+              "line": 213,
+              "signature": "fn is_pipeline_breaker(&self) -> bool",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::physical::is_pipeline_breaker",
+              "file": "crates/lance-graph-planner/src/physical/cam_pq_scan.rs",
+              "line": 171,
+              "signature": "fn is_pipeline_breaker(&self) -> bool",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::physical::is_pipeline_breaker",
+              "file": "crates/lance-graph-planner/src/physical/scan.rs",
+              "line": 113,
+              "signature": "fn is_pipeline_breaker(&self) -> bool",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "plan",
+          "total": 19,
+          "alive_or_static": 19,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 6,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "spo",
+          "total": 144,
+          "alive_or_static": 142,
+          "dead": 0,
+          "stub": 2,
+          "nan_risk": 0,
+          "health_pct": 98.61111,
+          "dead_functions": [
+            {
+              "id": "lance-graph::spo::one",
+              "file": "crates/lance-graph/src/graph/spo/semiring.rs",
+              "line": 42,
+              "signature": "fn one() -> u32",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::spo::one",
+              "file": "AdaWorldAPI-lance-graph-d9df43b/crates/lance-graph/src/graph/spo/semiring.rs",
+              "line": 42,
+              "signature": "fn one() -> u32",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "src",
+          "total": 1645,
+          "alive_or_static": 1633,
+          "dead": 3,
+          "stub": 9,
+          "nan_risk": 28,
+          "health_pct": 99.270515,
+          "dead_functions": [
+            {
+              "id": "lance-graph::src::cardinality",
+              "file": "crates/lance-graph-planner/src/lib.rs",
+              "line": 464,
+              "signature": "fn cardinality(&self) -> f64",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::src::is_pipeline_breaker",
+              "file": "crates/lance-graph-planner/src/lib.rs",
+              "line": 465,
+              "signature": "fn is_pipeline_breaker(&self) -> bool",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::src::extract_functions",
+              "file": "crates/neural-debug/src/scanner.rs",
+              "line": 168,
+              "signature": "fn extract_functions(...) -> Vec<FunctionMeta>",
+              "state": "dead"
+            },
+            {
+              "id": "lance-graph::src::detects_todo_as_dead",
+              "file": "crates/neural-debug/src/scanner.rs",
+              "line": 341,
+              "signature": "fn detects_todo_as_dead() -> ()",
+              "state": "dead"
+            },
+            {
+              "id": "lance-graph::src::broken",
+              "file": "crates/neural-debug/src/scanner.rs",
+              "line": 343,
+              "signature": "fn broken() -> i32",
+              "state": "dead"
+            },
+            {
+              "id": "lance-graph::src::stub_fn",
+              "file": "crates/neural-debug/src/scanner.rs",
+              "line": 356,
+              "signature": "fn stub_fn() -> Vec<i32>",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::src::double_quoted_string",
+              "file": "crates/lance-graph/src/parser.rs",
+              "line": 929,
+              "signature": "fn double_quoted_string(input: &str) -> IResult<&str, String>",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::src::new",
+              "file": "crates/lance-graph/src/query.rs",
+              "line": 1091,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::src::new",
+              "file": "crates/lance-graph/src/config.rs",
+              "line": 191,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::src::double_quoted_string",
+              "file": "AdaWorldAPI-lance-graph-d9df43b/crates/lance-graph/src/parser.rs",
+              "line": 928,
+              "signature": "fn double_quoted_string(input: &str) -> IResult<&str, String>",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::src::new",
+              "file": "AdaWorldAPI-lance-graph-d9df43b/crates/lance-graph/src/query.rs",
+              "line": 1089,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "lance-graph::src::new",
+              "file": "AdaWorldAPI-lance-graph-d9df43b/crates/lance-graph/src/config.rs",
+              "line": 191,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "strategy",
+          "total": 106,
+          "alive_or_static": 106,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "tests",
+          "total": 615,
+          "alive_or_static": 615,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 6,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "thinking",
+          "total": 31,
+          "alive_or_static": 31,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        }
+      ]
+    },
+    {
+      "name": "ndarray",
+      "total_functions": 4814,
+      "total_dead": 3,
+      "total_stub": 32,
+      "total_nan_risk": 102,
+      "health_pct": 99.27296,
+      "modules": [
+        {
+          "name": "backend",
+          "total": 131,
+          "alive_or_static": 131,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 4,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "bf16_test_src",
+          "total": 17,
+          "alive_or_static": 17,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 2,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "dimension",
+          "total": 243,
+          "alive_or_static": 237,
+          "dead": 0,
+          "stub": 6,
+          "nan_risk": 0,
+          "health_pct": 97.53087,
+          "dead_functions": [
+            {
+              "id": "ndarray::dimension::index_unchecked",
+              "file": "src/dimension/ndindex.rs",
+              "line": 49,
+              "signature": "fn index_unchecked(&self, _strides: &Ix0) -> isize",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::dimension::len",
+              "file": "src/dimension/sequence.rs",
+              "line": 81,
+              "signature": "fn len(&self) -> usize;\n}\n\n/// Indexable sequence with length (mut)\npub(in crate::dimension) trait SequenceMut: Sequence + IndexMut<usize>",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::dimension::insert_axis",
+              "file": "src/dimension/dimension_trait.rs",
+              "line": 393,
+              "signature": "fn insert_axis(&self, axis: Axis) -> Self::Larger;\n\n    #[doc(hidden)]\n    fn try_remove_axis(&self, axis: Axis) -> Self::Smaller;\n\n    private_decl!",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::dimension::ndim",
+              "file": "src/dimension/dimension_trait.rs",
+              "line": 424,
+              "signature": "fn ndim(&self) -> usize",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::dimension::into_pattern",
+              "file": "src/dimension/dimension_trait.rs",
+              "line": 444,
+              "signature": "fn into_pattern(self) -> Self::Pattern",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::dimension::next_for",
+              "file": "src/dimension/dimension_trait.rs",
+              "line": 452,
+              "signature": "fn next_for(&self, _index: Self) -> Option<Self>",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "doc",
+          "total": 0,
+          "alive_or_static": 0,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "examples",
+          "total": 47,
+          "alive_or_static": 39,
+          "dead": 0,
+          "stub": 8,
+          "nan_risk": 0,
+          "health_pct": 82.97873,
+          "dead_functions": [
+            {
+              "id": "ndarray::examples::main",
+              "file": "examples/sort-axis.rs",
+              "line": 188,
+              "signature": "fn main() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::examples::takes_layout",
+              "file": "examples/functions_and_traits.rs",
+              "line": 132,
+              "signature": "fn takes_layout(_arr: &LayoutRef<A, D>) -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::examples::takes_layout_mut",
+              "file": "examples/functions_and_traits.rs",
+              "line": 136,
+              "signature": "fn takes_layout_mut(_arr: &mut LayoutRef<A, D>) -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::examples::main",
+              "file": "examples/functions_and_traits.rs",
+              "line": 202,
+              "signature": "fn main() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::examples::main",
+              "file": "examples/bounds_check_elim.rs",
+              "line": 114,
+              "signature": "fn main() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::examples::main",
+              "file": "examples/column_standardize.rs",
+              "line": 27,
+              "signature": "fn main() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::examples::main",
+              "file": "examples/convo.rs",
+              "line": 67,
+              "signature": "fn main() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::examples::main",
+              "file": "examples/type_conversion.rs",
+              "line": 120,
+              "signature": "fn main() -> ()",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "extension",
+          "total": 1,
+          "alive_or_static": 1,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "hpc",
+          "total": 2296,
+          "alive_or_static": 2295,
+          "dead": 0,
+          "stub": 1,
+          "nan_risk": 81,
+          "health_pct": 99.95644,
+          "dead_functions": [
+            {
+              "id": "ndarray::hpc::new",
+              "file": "src/hpc/substrate.rs",
+              "line": 241,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "impl_views",
+          "total": 46,
+          "alive_or_static": 46,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "iterators",
+          "total": 155,
+          "alive_or_static": 155,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "jitson",
+          "total": 103,
+          "alive_or_static": 103,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 2,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "jitson_cranelift",
+          "total": 61,
+          "alive_or_static": 60,
+          "dead": 0,
+          "stub": 1,
+          "nan_risk": 0,
+          "health_pct": 98.36066,
+          "dead_functions": [
+            {
+              "id": "ndarray::jitson_cranelift::assert_send_sync",
+              "file": "src/hpc/jitson_cranelift/noise_jit.rs",
+              "line": 450,
+              "signature": "fn assert_send_sync() -> ()",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "total": 16,
+          "alive_or_static": 16,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "linalg",
+          "total": 41,
+          "alive_or_static": 40,
+          "dead": 1,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 97.560974,
+          "dead_functions": [
+            {
+              "id": "ndarray::linalg::general_dot_shape_error",
+              "file": "src/linalg/impl_linalg.rs",
+              "line": 351,
+              "signature": "fn general_dot_shape_error(...) -> !",
+              "state": "dead"
+            }
+          ]
+        },
+        {
+          "name": "ndarray_for_numpy_users",
+          "total": 0,
+          "alive_or_static": 0,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "numeric",
+          "total": 22,
+          "alive_or_static": 22,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 2,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "parallel",
+          "total": 40,
+          "alive_or_static": 37,
+          "dead": 0,
+          "stub": 3,
+          "nan_risk": 0,
+          "health_pct": 92.5,
+          "dead_functions": [
+            {
+              "id": "ndarray::parallel::opt_len",
+              "file": "src/parallel/par.rs",
+              "line": 154,
+              "signature": "fn opt_len(&self) -> Option<usize>",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::parallel::opt_len",
+              "file": "src/parallel/par.rs",
+              "line": 263,
+              "signature": "fn opt_len(&self) -> Option<usize>",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::parallel::opt_len",
+              "file": "src/parallel/par.rs",
+              "line": 349,
+              "signature": "fn opt_len(&self) -> Option<usize>",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "scripts",
+          "total": 10,
+          "alive_or_static": 10,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "src",
+          "total": 942,
+          "alive_or_static": 932,
+          "dead": 2,
+          "stub": 8,
+          "nan_risk": 10,
+          "health_pct": 98.93843,
+          "dead_functions": [
+            {
+              "id": "ndarray::src::contiguous_stride",
+              "file": "src/indexes.rs",
+              "line": 223,
+              "signature": "fn contiguous_stride(&self) -> Self::Stride",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::src::in_ndim",
+              "file": "src/slice.rs",
+              "line": 329,
+              "signature": "fn in_ndim(&self) -> usize;\n\n    /// Returns the number of axes in the output array.\n    fn out_ndim(&self) -> usize;\n\n    private_decl!",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::src::multi_slice_move",
+              "file": "src/slice.rs",
+              "line": 927,
+              "signature": "fn multi_slice_move(&self, view: ArrayViewMut<'a, A, D>) -> Self::Output;\n\n    private_decl!",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::src::multi_slice_move",
+              "file": "src/slice.rs",
+              "line": 938,
+              "signature": "fn multi_slice_move(&self, _view: ArrayViewMut<'a, A, D>) -> Self::Output",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::src::broadcast_panic",
+              "file": "src/lib.rs",
+              "line": 1824,
+              "signature": "fn broadcast_panic(from: &D, to: &E) -> !\n        where\n            D: Dimension,\n            E: Dimension,",
+              "state": "dead"
+            },
+            {
+              "id": "ndarray::src::_is_pointer_inbounds",
+              "file": "src/data_traits.rs",
+              "line": 44,
+              "signature": "fn _is_pointer_inbounds(&self, ptr: *const Self::Elem) -> bool;\n\n    private_decl!",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::src::try_is_unique",
+              "file": "src/data_traits.rs",
+              "line": 216,
+              "signature": "fn try_is_unique(&mut self) -> Option<bool>",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::src::new",
+              "file": "src/data_traits.rs",
+              "line": 518,
+              "signature": "fn new(elements: Vec<Self::Elem>) -> Self;\n\n    /// Converts the data representation to a shared (copy on write)\n    /// representation, cloning the array elements if necessary.\n    #[doc(hidden)]\n    #[allow(clippy::wrong_self_convention)]\n    fn into_shared<D>(self_: ArrayBase<Self, D>) -> ArcArray<Self::Elem, D>\n    where\n        Self::Elem: Clone,\n        D: Dimension;\n}\n\n/// Array representation trait.\n///\n/// A representation that is a lightweight view.\n///\n/// ***Internal trait, see `Data`.***\n#[allow(clippy::missing_safety_doc)] // not implementable downstream\npub unsafe trait DataShared: Clone + Data + RawDataClone",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::src::array_out_of_bounds",
+              "file": "src/arraytraits.rs",
+              "line": 34,
+              "signature": "fn array_out_of_bounds() -> !",
+              "state": "dead"
+            },
+            {
+              "id": "ndarray::src::test_no_swap_via_doctests",
+              "file": "src/impl_ref_types.rs",
+              "line": 410,
+              "signature": "fn test_no_swap_via_doctests() -> ()",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "tests",
+          "total": 566,
+          "alive_or_static": 563,
+          "dead": 0,
+          "stub": 3,
+          "nan_risk": 0,
+          "health_pct": 99.46996,
+          "dead_functions": [
+            {
+              "id": "ndarray::tests::is_send",
+              "file": "tests/array-construct.rs",
+              "line": 43,
+              "signature": "fn is_send(_t: &T) -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::tests::is_sync",
+              "file": "tests/array-construct.rs",
+              "line": 44,
+              "signature": "fn is_sync(_t: &T) -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::tests::_send_sync",
+              "file": "tests/iterators.rs",
+              "line": 786,
+              "signature": "fn _send_sync(_: &T) -> ()",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "zip",
+          "total": 77,
+          "alive_or_static": 75,
+          "dead": 0,
+          "stub": 2,
+          "nan_risk": 1,
+          "health_pct": 97.402596,
+          "dead_functions": [
+            {
+              "id": "ndarray::zip::as_ptr",
+              "file": "src/zip/ndproducer.rs",
+              "line": 86,
+              "signature": "fn as_ptr(&self) -> Self::Ptr;\n    #[doc(hidden)]\n    unsafe fn as_ref(&self, ptr: Self::Ptr) -> Self::Item;\n    #[doc(hidden)]\n    unsafe fn uget_ptr(&self, i: &Self::Dim) -> Self::Ptr;\n    #[doc(hidden)]\n    fn stride_of(&self, axis: Axis) -> <Self::Ptr as Offset>::Stride;\n    #[doc(hidden)]\n    fn contiguous_stride(&self) -> Self::Stride;\n    #[doc(hidden)]\n    fn split_at(self, axis: Axis, index: usize) -> (Self, Self)\n    where Self: Sized;\n\n    private_decl!",
+              "state": "stub"
+            },
+            {
+              "id": "ndarray::zip::broadcast_unwrap",
+              "file": "src/zip/mod.rs",
+              "line": 49,
+              "signature": "fn broadcast_unwrap(self, shape: E) -> Self::Output;\n    private_decl!",
+              "state": "stub"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "q2",
+      "total_functions": 9488,
+      "total_dead": 21,
+      "total_stub": 203,
+      "total_nan_risk": 0,
+      "health_pct": 97.63912,
+      "modules": [
+        {
+          "name": "aiwar",
+          "total": 17,
+          "alive_or_static": 17,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "assertions",
+          "total": 98,
+          "alive_or_static": 97,
+          "dead": 0,
+          "stub": 1,
+          "nan_risk": 0,
+          "health_pct": 98.97959,
+          "dead_functions": [
+            {
+              "id": "q2::assertions::test_extract_stylesheet_hrefs_skips_external",
+              "file": "crates/quarto-test/src/assertions/css_regex.rs",
+              "line": 209,
+              "signature": "fn test_extract_stylesheet_hrefs_skips_external() -> ()",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "bin",
+          "total": 18,
+          "alive_or_static": 18,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "call",
+          "total": 2,
+          "alive_or_static": 2,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "commands",
+          "total": 27,
+          "alive_or_static": 27,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "conversions",
+          "total": 216,
+          "alive_or_static": 215,
+          "dead": 0,
+          "stub": 1,
+          "nan_risk": 0,
+          "health_pct": 99.53704,
+          "dead_functions": [
+            {
+              "id": "q2::conversions::apply_fixes",
+              "file": "crates/qmd-syntax-helper/src/conversions/q_2_11.rs",
+              "line": 88,
+              "signature": "fn apply_fixes(...) -> Result<String>",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "diagnostics",
+          "total": 21,
+          "alive_or_static": 21,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "engine",
+          "total": 125,
+          "alive_or_static": 120,
+          "dead": 0,
+          "stub": 5,
+          "nan_risk": 0,
+          "health_pct": 96.0,
+          "dead_functions": [
+            {
+              "id": "q2::engine::name",
+              "file": "crates/quarto-core/src/engine/traits.rs",
+              "line": 65,
+              "signature": "fn name(&self) -> &str;\n\n    /// Execute code cells in the input content.\n    ///\n    /// # Arguments\n    ///\n    /// * `input` - QMD text with executable code cells\n    /// * `ctx` - Execution context with paths, config, and options\n    ///\n    /// # Returns\n    ///\n    /// `ExecuteResult` containing:\n    /// - Transformed markdown with execution outputs\n    /// - Paths to any supporting files created\n    /// - Filters to apply during rendering\n    /// - Content to inject into the document\n    ///\n    /// # Errors\n    ///\n    /// Returns `ExecutionError` if:\n    /// - The engine runtime is not available\n    /// - Code execution fails\n    /// - IO operations fail\n    fn execute(&self, input: &str, ctx: &ExecutionContext)\n    -> Result<ExecuteResult, ExecutionError>;\n\n    /// Whether this engine supports freeze/thaw caching.\n    ///\n    /// If true, execution results can be cached in the `_freeze/`\n    /// directory and reused on subsequent renders when source\n    /// code hasn't changed.\n    ///\n    /// Default: `false`\n    fn can_freeze(&self) -> bool",
+              "state": "stub"
+            },
+            {
+              "id": "q2::engine::intermediate_files",
+              "file": "crates/quarto-core/src/engine/traits.rs",
+              "line": 114,
+              "signature": "fn intermediate_files(&self, _input_path: &Path) -> Vec<PathBuf>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::engine::assert_send_sync",
+              "file": "crates/quarto-core/src/engine/traits.rs",
+              "line": 202,
+              "signature": "fn assert_send_sync() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "q2::engine::can_freeze",
+              "file": "crates/quarto-core/src/engine/markdown.rs",
+              "line": 57,
+              "signature": "fn can_freeze(&self) -> bool",
+              "state": "stub"
+            },
+            {
+              "id": "q2::engine::assert_send_sync",
+              "file": "crates/quarto-core/src/engine/markdown.rs",
+              "line": 180,
+              "signature": "fn assert_send_sync() -> ()",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "examples",
+          "total": 15,
+          "alive_or_static": 15,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "extension",
+          "total": 55,
+          "alive_or_static": 55,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "fuzz_targets",
+          "total": 0,
+          "alive_or_static": 0,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "jupyter",
+          "total": 121,
+          "alive_or_static": 119,
+          "dead": 0,
+          "stub": 2,
+          "nan_risk": 0,
+          "health_pct": 98.34711,
+          "dead_functions": [
+            {
+              "id": "q2::jupyter::execute_inline_expressions",
+              "file": "crates/quarto-core/src/engine/jupyter/transform.rs",
+              "line": 215,
+              "signature": "fn execute_inline_expressions(...) -> Result<Vec<String>>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::jupyter::assert_send_sync",
+              "file": "crates/quarto-core/src/engine/jupyter/mod.rs",
+              "line": 252,
+              "signature": "fn assert_send_sync() -> ()",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "knitr",
+          "total": 164,
+          "alive_or_static": 162,
+          "dead": 0,
+          "stub": 2,
+          "nan_risk": 0,
+          "health_pct": 98.78049,
+          "dead_functions": [
+            {
+              "id": "q2::knitr::assert_send_sync",
+              "file": "crates/quarto-core/src/engine/knitr/mod.rs",
+              "line": 384,
+              "signature": "fn assert_send_sync() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "q2::knitr::test_engine_execute_special_characters",
+              "file": "crates/quarto-core/src/engine/knitr/mod.rs",
+              "line": 1162,
+              "signature": "fn test_engine_execute_special_characters() -> ()",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "lint",
+          "total": 21,
+          "alive_or_static": 21,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "lua",
+          "total": 915,
+          "alive_or_static": 914,
+          "dead": 0,
+          "stub": 1,
+          "nan_risk": 0,
+          "health_pct": 99.89071,
+          "dead_functions": [
+            {
+              "id": "q2::lua::register_pandoc_path",
+              "file": "crates/pampa/src/lua/path.rs",
+              "line": 31,
+              "signature": "fn register_pandoc_path(...) -> Result<()>",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "pandoc",
+          "total": 115,
+          "alive_or_static": 114,
+          "dead": 0,
+          "stub": 1,
+          "nan_risk": 0,
+          "health_pct": 99.13043,
+          "dead_functions": [
+            {
+              "id": "q2::pandoc::none",
+              "file": "crates/pampa/src/pandoc/location.rs",
+              "line": 155,
+              "signature": "fn none() -> Self",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "parsers",
+          "total": 14,
+          "alive_or_static": 14,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "quarto-citeproc",
+          "total": 5,
+          "alive_or_static": 5,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "quarto-sass",
+          "total": 3,
+          "alive_or_static": 3,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "readers",
+          "total": 51,
+          "alive_or_static": 51,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "runtime",
+          "total": 0,
+          "alive_or_static": 0,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "rust",
+          "total": 27,
+          "alive_or_static": 27,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "schema",
+          "total": 123,
+          "alive_or_static": 123,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "src",
+          "total": 4365,
+          "alive_or_static": 4307,
+          "dead": 2,
+          "stub": 56,
+          "nan_risk": 0,
+          "health_pct": 98.67125,
+          "dead_functions": [
+            {
+              "id": "q2::src::new",
+              "file": "crates/quarto-doctemplate/src/context.rs",
+              "line": 157,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::get_partial",
+              "file": "crates/quarto-doctemplate/src/resolver.rs",
+              "line": 53,
+              "signature": "fn get_partial(&self, _name: &str, _base_path: &Path) -> Option<String>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::assert_error",
+              "file": "crates/quarto-yaml/src/error.rs",
+              "line": 145,
+              "signature": "fn assert_error(_: &T) -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::html_escape",
+              "file": "crates/quarto/src/publisher.rs",
+              "line": 227,
+              "signature": "fn html_escape(s: &str) -> String",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::new",
+              "file": "crates/quarto-ast-reconcile/src/types.rs",
+              "line": 244,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::new",
+              "file": "crates/quarto-ast-reconcile/src/types.rs",
+              "line": 263,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::new",
+              "file": "crates/quarto-lsp-core/src/document.rs",
+              "line": 117,
+              "signature": "fn new() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::analyze_document_with_errors",
+              "file": "crates/quarto-lsp-core/src/analysis.rs",
+              "line": 670,
+              "signature": "fn analyze_document_with_errors() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::parse_document_with_invalid_yaml",
+              "file": "crates/quarto-lsp-core/src/diagnostics.rs",
+              "line": 219,
+              "signature": "fn parse_document_with_invalid_yaml() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::new",
+              "file": "crates/pampa/src/filters.rs",
+              "line": 80,
+              "signature": "fn new() -> Filter<'static>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::make_executable",
+              "file": "crates/pampa/src/json_filter.rs",
+              "line": 203,
+              "signature": "fn make_executable(_path: &std::path::Path) -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::file_write",
+              "file": "crates/quarto-core/src/filter_resolve.rs",
+              "line": 310,
+              "signature": "fn file_write(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::path_metadata",
+              "file": "crates/quarto-core/src/filter_resolve.rs",
+              "line": 330,
+              "signature": "fn path_metadata(&self,\n            _path: &std::path::Path,) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::PathMetadata>",
+              "state": "dead"
+            },
+            {
+              "id": "q2::src::file_copy",
+              "file": "crates/quarto-core/src/filter_resolve.rs",
+              "line": 336,
+              "signature": "fn file_copy(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::path_rename",
+              "file": "crates/quarto-core/src/filter_resolve.rs",
+              "line": 343,
+              "signature": "fn path_rename(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::file_remove",
+              "file": "crates/quarto-core/src/filter_resolve.rs",
+              "line": 350,
+              "signature": "fn file_remove(&self, _path: &std::path::Path) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::dir_create",
+              "file": "crates/quarto-core/src/filter_resolve.rs",
+              "line": 353,
+              "signature": "fn dir_create(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::dir_remove",
+              "file": "crates/quarto-core/src/filter_resolve.rs",
+              "line": 360,
+              "signature": "fn dir_remove(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::env_get",
+              "file": "crates/quarto-core/src/filter_resolve.rs",
+              "line": 404,
+              "signature": "fn env_get(&self, _name: &str) -> quarto_system_runtime::RuntimeResult<Option<String>>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::src::cpu_time",
+              "file": "crates/quarto-core/src/filter_resolve.rs",
+              "line": 424,
+              "signature": "fn cpu_time(&self) -> quarto_system_runtime::RuntimeResult<u64>",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "stage",
+          "total": 182,
+          "alive_or_static": 153,
+          "dead": 2,
+          "stub": 27,
+          "nan_risk": 0,
+          "health_pct": 84.06593,
+          "dead_functions": [
+            {
+              "id": "q2::stage::file_write",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 236,
+              "signature": "fn file_write(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::path_metadata",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 259,
+              "signature": "fn path_metadata(&self,\n            _path: &std::path::Path,) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::PathMetadata>",
+              "state": "dead"
+            },
+            {
+              "id": "q2::stage::file_copy",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 266,
+              "signature": "fn file_copy(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::path_rename",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 274,
+              "signature": "fn path_rename(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::file_remove",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 282,
+              "signature": "fn file_remove(&self, _path: &std::path::Path) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::dir_create",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 286,
+              "signature": "fn dir_create(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::dir_remove",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 294,
+              "signature": "fn dir_remove(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::env_get",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 342,
+              "signature": "fn env_get(&self, _name: &str) -> quarto_system_runtime::RuntimeResult<Option<String>>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::cpu_time",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 367,
+              "signature": "fn cpu_time(&self) -> quarto_system_runtime::RuntimeResult<u64>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::stdout_write",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 379,
+              "signature": "fn stdout_write(&self, _data: &[u8]) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::stderr_write",
+              "file": "crates/quarto-core/src/stage/context.rs",
+              "line": 383,
+              "signature": "fn stderr_write(&self, _data: &[u8]) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::file_write",
+              "file": "crates/quarto-core/src/stage/mod.rs",
+              "line": 131,
+              "signature": "fn file_write(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::path_metadata",
+              "file": "crates/quarto-core/src/stage/mod.rs",
+              "line": 154,
+              "signature": "fn path_metadata(&self,\n            _path: &std::path::Path,) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::PathMetadata>",
+              "state": "dead"
+            },
+            {
+              "id": "q2::stage::file_copy",
+              "file": "crates/quarto-core/src/stage/mod.rs",
+              "line": 161,
+              "signature": "fn file_copy(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::path_rename",
+              "file": "crates/quarto-core/src/stage/mod.rs",
+              "line": 169,
+              "signature": "fn path_rename(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::file_remove",
+              "file": "crates/quarto-core/src/stage/mod.rs",
+              "line": 177,
+              "signature": "fn file_remove(&self, _path: &std::path::Path) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::dir_create",
+              "file": "crates/quarto-core/src/stage/mod.rs",
+              "line": 181,
+              "signature": "fn dir_create(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::dir_remove",
+              "file": "crates/quarto-core/src/stage/mod.rs",
+              "line": 189,
+              "signature": "fn dir_remove(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::env_get",
+              "file": "crates/quarto-core/src/stage/mod.rs",
+              "line": 239,
+              "signature": "fn env_get(&self, _name: &str) -> quarto_system_runtime::RuntimeResult<Option<String>>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stage::cpu_time",
+              "file": "crates/quarto-core/src/stage/mod.rs",
+              "line": 264,
+              "signature": "fn cpu_time(&self) -> quarto_system_runtime::RuntimeResult<u64>",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "stages",
+          "total": 389,
+          "alive_or_static": 275,
+          "dead": 12,
+          "stub": 102,
+          "nan_risk": 0,
+          "health_pct": 70.69409,
+          "dead_functions": [
+            {
+              "id": "q2::stages::file_write",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 179,
+              "signature": "fn file_write(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::path_metadata",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 199,
+              "signature": "fn path_metadata(&self,\n            _path: &std::path::Path,) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::PathMetadata>",
+              "state": "dead"
+            },
+            {
+              "id": "q2::stages::file_copy",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 205,
+              "signature": "fn file_copy(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::path_rename",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 212,
+              "signature": "fn path_rename(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::file_remove",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 219,
+              "signature": "fn file_remove(&self, _path: &std::path::Path) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::dir_create",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 222,
+              "signature": "fn dir_create(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::dir_remove",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 229,
+              "signature": "fn dir_remove(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::env_get",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 268,
+              "signature": "fn env_get(&self, _name: &str) -> quarto_system_runtime::RuntimeResult<Option<String>>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::cpu_time",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 288,
+              "signature": "fn cpu_time(&self) -> quarto_system_runtime::RuntimeResult<u64>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::stdout_write",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 298,
+              "signature": "fn stdout_write(&self, _data: &[u8]) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::stderr_write",
+              "file": "crates/quarto-core/src/stage/stages/user_filters.rs",
+              "line": 301,
+              "signature": "fn stderr_write(&self, _data: &[u8]) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::file_write",
+              "file": "crates/quarto-core/src/stage/stages/render_html.rs",
+              "line": 143,
+              "signature": "fn file_write(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::path_metadata",
+              "file": "crates/quarto-core/src/stage/stages/render_html.rs",
+              "line": 163,
+              "signature": "fn path_metadata(&self,\n            _path: &std::path::Path,) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::PathMetadata>",
+              "state": "dead"
+            },
+            {
+              "id": "q2::stages::file_copy",
+              "file": "crates/quarto-core/src/stage/stages/render_html.rs",
+              "line": 169,
+              "signature": "fn file_copy(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::path_rename",
+              "file": "crates/quarto-core/src/stage/stages/render_html.rs",
+              "line": 176,
+              "signature": "fn path_rename(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::file_remove",
+              "file": "crates/quarto-core/src/stage/stages/render_html.rs",
+              "line": 183,
+              "signature": "fn file_remove(&self, _path: &std::path::Path) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::dir_create",
+              "file": "crates/quarto-core/src/stage/stages/render_html.rs",
+              "line": 186,
+              "signature": "fn dir_create(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::dir_remove",
+              "file": "crates/quarto-core/src/stage/stages/render_html.rs",
+              "line": 193,
+              "signature": "fn dir_remove(...) -> quarto_system_runtime::RuntimeResult<()>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::env_get",
+              "file": "crates/quarto-core/src/stage/stages/render_html.rs",
+              "line": 232,
+              "signature": "fn env_get(&self, _name: &str) -> quarto_system_runtime::RuntimeResult<Option<String>>",
+              "state": "stub"
+            },
+            {
+              "id": "q2::stages::cpu_time",
+              "file": "crates/quarto-core/src/stage/stages/render_html.rs",
+              "line": 252,
+              "signature": "fn cpu_time(&self) -> quarto_system_runtime::RuntimeResult<u64>",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "stubs",
+          "total": 0,
+          "alive_or_static": 0,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "task",
+          "total": 13,
+          "alive_or_static": 13,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "template",
+          "total": 86,
+          "alive_or_static": 86,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "tests",
+          "total": 1429,
+          "alive_or_static": 1420,
+          "dead": 5,
+          "stub": 4,
+          "nan_risk": 0,
+          "health_pct": 99.370186,
+          "dead_functions": [
+            {
+              "id": "q2::tests::load_template",
+              "file": "crates/quarto-doctemplate/tests/integration_tests.rs",
+              "line": 18,
+              "signature": "fn load_template(name: &str) -> Template",
+              "state": "dead"
+            },
+            {
+              "id": "q2::tests::load_template",
+              "file": "crates/quarto-doctemplate/tests/pandoc_equiv_tests.rs",
+              "line": 24,
+              "signature": "fn load_template(name: &str) -> Template",
+              "state": "dead"
+            },
+            {
+              "id": "q2::tests::main",
+              "file": "crates/comrak-to-pandoc/tests/debug_comrak.rs",
+              "line": 5,
+              "signature": "fn main() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "q2::tests::plain_text",
+              "file": "crates/comrak-to-pandoc/tests/generators.rs",
+              "line": 52,
+              "signature": "fn plain_text() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "q2::tests::para_only",
+              "file": "crates/comrak-to-pandoc/tests/generators.rs",
+              "line": 195,
+              "signature": "fn para_only() -> Self",
+              "state": "stub"
+            },
+            {
+              "id": "q2::tests::main",
+              "file": "crates/comrak-to-pandoc/tests/debug.rs",
+              "line": 1,
+              "signature": "fn main() -> ()",
+              "state": "stub"
+            },
+            {
+              "id": "q2::tests::get_first_paragraph_inlines",
+              "file": "crates/pampa/tests/test_code_span.rs",
+              "line": 20,
+              "signature": "fn get_first_paragraph_inlines(pandoc: &pampa::pandoc::Pandoc) -> &Vec<Inline>",
+              "state": "dead"
+            },
+            {
+              "id": "q2::tests::str_text",
+              "file": "crates/pampa/tests/inline_span_investigation.rs",
+              "line": 118,
+              "signature": "fn str_text(inline: &Inline) -> &str",
+              "state": "dead"
+            },
+            {
+              "id": "q2::tests::get_first_paragraph_inlines",
+              "file": "crates/pampa/tests/test_shortcode.rs",
+              "line": 24,
+              "signature": "fn get_first_paragraph_inlines(pandoc: &pampa::pandoc::Pandoc) -> &Vec<Inline>",
+              "state": "dead"
+            }
+          ]
+        },
+        {
+          "name": "transforms",
+          "total": 336,
+          "alive_or_static": 336,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "tree-sitter-doctemplate",
+          "total": 1,
+          "alive_or_static": 1,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "treesitter_utils",
+          "total": 39,
+          "alive_or_static": 38,
+          "dead": 0,
+          "stub": 1,
+          "nan_risk": 0,
+          "health_pct": 97.4359,
+          "dead_functions": [
+            {
+              "id": "q2::treesitter_utils::is_escapable_punctuation",
+              "file": "crates/pampa/src/pandoc/treesitter_utils/text_helpers.rs",
+              "line": 164,
+              "signature": "fn is_escapable_punctuation(ch: char) -> bool",
+              "state": "stub"
+            }
+          ]
+        },
+        {
+          "name": "utils",
+          "total": 80,
+          "alive_or_static": 80,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "wasm_entry_points",
+          "total": 8,
+          "alive_or_static": 8,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        },
+        {
+          "name": "writers",
+          "total": 407,
+          "alive_or_static": 407,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        }
+      ]
+    },
+    {
+      "name": "aiwar-neo4j-harvest",
+      "total_functions": 32,
+      "total_dead": 0,
+      "total_stub": 0,
+      "total_nan_risk": 0,
+      "health_pct": 100.0,
+      "modules": [
+        {
+          "name": "src",
+          "total": 32,
+          "alive_or_static": 32,
+          "dead": 0,
+          "stub": 0,
+          "nan_risk": 0,
+          "health_pct": 100.0,
+          "dead_functions": []
+        }
+      ]
+    }
+  ]
+}
