@@ -28,3 +28,6 @@ ts-packages/*/*.tsbuildinfo
 q2-demos/*/dist/
 crates/wasm-quarto-hub-client/pkg/
 rustc-ice-*.txt
+
+# Archived stubs (dead weight moved here instead of deleted)
+.archive/

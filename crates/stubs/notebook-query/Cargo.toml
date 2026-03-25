@@ -16,6 +16,9 @@ serde_json = "1"
 # Cold path: Neo4j Aura fallback (opt-in)
 neo4rs = { version = "0.8", optional = true }
 
+# Unified query planner (opt-in)
+lance-graph-planner = { workspace = true, optional = true }
+
 # Thinking orchestrator (opt-in)
 graph-flow = { workspace = true, optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
@@ -23,4 +26,5 @@ uuid = { version = "1", features = ["v4"], optional = true }
 [features]
 default = []
 neo4j-fallback = ["dep:neo4rs"]
+planner = ["dep:lance-graph-planner"]
 orchestrator = ["dep:graph-flow", "dep:uuid"]

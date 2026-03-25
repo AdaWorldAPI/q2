@@ -9,8 +9,7 @@
 use anyhow::Result;
 
 use notebook_query::detect_language;
-use notebook_render::render_table;
-use notebook_runtime::{CellOutput, Notebook};
+use crate::notebook_types::{render_table, CellOutput, Notebook};
 
 use crate::commands::notebook::NotebookRenderArgs;
 
@@ -286,7 +285,7 @@ pub fn render(args: NotebookRenderArgs) -> Result<()> {
 
     if let Some(cells) = doc.get("cells").and_then(|v| v.as_array()) {
         for cell_val in cells {
-            let cell = notebook_runtime::Cell {
+            let cell = crate::notebook_types::Cell {
                 id: cell_val
                     .get("id")
                     .and_then(|v| v.as_str())
@@ -299,7 +298,7 @@ pub fn render(args: NotebookRenderArgs) -> Result<()> {
                     .to_string(),
                 language: cell_val.get("language").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 outputs: vec![],
-                execution_state: notebook_runtime::ExecutionState::Idle,
+                execution_state: crate::notebook_types::ExecutionState::Idle,
             };
             notebook.cells.push(cell);
         }

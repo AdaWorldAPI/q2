@@ -8,6 +8,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod commands;
 mod notebook_server;
+mod notebook_types;
 mod publisher;
 
 #[derive(Parser)]

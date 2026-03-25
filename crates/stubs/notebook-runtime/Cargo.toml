@@ -1,7 +1,0 @@
-# TODO: replace when crate is transcoded from AdaWorldAPI/marimo
-[package]
-name = "notebook-runtime"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]

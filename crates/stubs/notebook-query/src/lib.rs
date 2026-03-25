@@ -43,6 +43,25 @@ pub struct QueryResult {
     /// The frontend renders this with vis-network.
     pub graph_json: Option<String>,
     pub elapsed_ms: u64,
+    /// Planner metadata (populated when `planner` feature is enabled).
+    pub planner_info: Option<PlannerInfo>,
+}
+
+/// Metadata from the unified query planner (strategies, thinking context, MUL).
+#[derive(Debug, Clone)]
+pub struct PlannerInfo {
+    /// Which strategies the planner selected.
+    pub strategies_used: Vec<String>,
+    /// Thinking style name (e.g. "Analytical", "Exploratory").
+    pub thinking_style: Option<String>,
+    /// Semiring variant selected by the thinking context.
+    pub semiring: Option<String>,
+    /// Free will modifier applied to confidence.
+    pub free_will_modifier: f64,
+    /// Compass score (if navigating unknown territory).
+    pub compass_score: Option<f64>,
+    /// MUL gate decision.
+    pub gate: Option<String>,
 }
 
 pub fn detect_language(source: &str) -> QueryLanguage {
@@ -93,6 +112,7 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
             )),
             graph_json: None,
             elapsed_ms: (result.elapsed_us / 1000) as u64,
+            planner_info: None,
         });
     }
 
@@ -107,6 +127,7 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
                 html: Some(format!("<pre>{}</pre>", source)),
                 graph_json,
                 elapsed_ms: 0,
+                planner_info: None,
             })
         }
         QueryLanguage::R => Ok(QueryResult {
@@ -115,6 +136,7 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
             html: Some(demo_r_table()),
             graph_json: None,
             elapsed_ms: 120,
+            planner_info: None,
         }),
         _ => Ok(QueryResult {
             language,
@@ -122,6 +144,7 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
             html: Some(format!("<pre>{}</pre>", source)),
             graph_json: None,
             elapsed_ms: 0,
+            planner_info: None,
         }),
     }
 }
@@ -129,6 +152,22 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
 // ── Cypher hot path via lance-graph ──
 
 fn execute_cypher(source: &str) -> Result<QueryResult, String> {
+    // Run planner first (if feature enabled) to get strategy selection + thinking context
+    #[cfg(feature = "planner")]
+    let planner_info = {
+        let info = run_planner(source);
+        // Log planner selection for debugging
+        if let Some(ref pi) = info {
+            eprintln!(
+                "[planner] strategies={:?} thinking={:?} semiring={:?}",
+                pi.strategies_used, pi.thinking_style, pi.semiring
+            );
+        }
+        info
+    };
+    #[cfg(not(feature = "planner"))]
+    let planner_info: Option<PlannerInfo> = None;
+
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     let t0 = Instant::now();
 
@@ -159,7 +198,101 @@ fn execute_cypher(source: &str) -> Result<QueryResult, String> {
         html,
         graph_json,
         elapsed_ms,
+        planner_info,
     })
+}
+
+// ── Unified query planner integration ──
+
+/// Run the planner on a Cypher query (planner feature only).
+/// Returns PlannerInfo with strategies, thinking style, semiring selection.
+#[cfg(feature = "planner")]
+fn run_planner(source: &str) -> Option<PlannerInfo> {
+    run_planner_with_options(source, None, None, None)
+}
+
+/// Run the planner with optional overrides.
+#[cfg(feature = "planner")]
+fn run_planner_with_options(
+    source: &str,
+    style_override: Option<&str>,
+    felt_competence: Option<f64>,
+    demonstrated_competence: Option<f64>,
+) -> Option<PlannerInfo> {
+    use lance_graph_planner::api::{Planner, ThinkingStyle};
+
+    let planner = Planner::new();
+
+    let result = if let (Some(fc), Some(dc)) = (felt_competence, demonstrated_competence) {
+        // Full MUL pipeline
+        let situation = lance_graph_planner::api::SituationInput {
+            felt_competence: fc,
+            demonstrated_competence: dc,
+            ..Default::default()
+        };
+        planner.plan_assessed(source, &situation)
+    } else if let Some(style_name) = style_override {
+        // Style override — parse the style name
+        let style = match style_name.to_lowercase().as_str() {
+            "analytical" => ThinkingStyle::Analytical,
+            "convergent" => ThinkingStyle::Convergent,
+            "systematic" => ThinkingStyle::Systematic,
+            "creative" => ThinkingStyle::Creative,
+            "divergent" => ThinkingStyle::Divergent,
+            "exploratory" => ThinkingStyle::Exploratory,
+            "focused" => ThinkingStyle::Focused,
+            "diffuse" => ThinkingStyle::Diffuse,
+            "peripheral" => ThinkingStyle::Peripheral,
+            "intuitive" => ThinkingStyle::Intuitive,
+            "deliberate" => ThinkingStyle::Deliberate,
+            "metacognitive" => ThinkingStyle::Metacognitive,
+            _ => ThinkingStyle::Analytical, // default fallback
+        };
+        planner.plan_with_style(source, style)
+    } else {
+        // Auto mode
+        planner.plan(source)
+    };
+
+    match result {
+        Ok(plan_result) => {
+            let thinking_style = plan_result
+                .thinking
+                .as_ref()
+                .map(|t| format!("{:?}", t.style));
+            let semiring = plan_result
+                .thinking
+                .as_ref()
+                .map(|t| format!("{:?}", t.semiring));
+            let gate = plan_result.mul.as_ref().map(|_| "Proceed".to_string());
+
+            Some(PlannerInfo {
+                strategies_used: plan_result.strategies_used,
+                thinking_style,
+                semiring,
+                free_will_modifier: plan_result.free_will_modifier,
+                compass_score: plan_result.compass_score,
+                gate,
+            })
+        }
+        Err(e) => {
+            eprintln!("[planner] error: {e}");
+            None
+        }
+    }
+}
+
+/// Public API: plan a query without executing it.
+/// Used by the MCP `planner_plan` tool in notebook_server.rs.
+#[cfg(feature = "planner")]
+pub fn plan_query(
+    source: &str,
+    style: Option<&str>,
+    felt_competence: Option<f64>,
+    demonstrated_competence: Option<f64>,
+) -> Result<PlannerInfo, String> {
+    run_planner_with_options(source, style, felt_competence, demonstrated_competence)
+        .ok_or_else(|| "Planner returned no result".to_string())
 }
 
 // ── Neo4j cold path (feature-gated) ──
@@ -191,6 +324,7 @@ pub async fn execute_cold(source: &str) -> Result<QueryResult, String> {
         html: Some(format!("<pre>{}</pre>", rows.join("\n"))),
         graph_json: None,
         elapsed_ms,
+        planner_info: None,
     })
 }
 

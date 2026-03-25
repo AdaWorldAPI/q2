@@ -152,18 +152,9 @@ path = "./crates/quarto-hub"
 [workspace.dependencies.quarto-test]
 path = "./crates/quarto-test"
 
-# Graph notebook stub crates (TODO: replace when crates are transcoded)
-[workspace.dependencies.notebook-runtime]
-path = "./crates/stubs/notebook-runtime"
-
+# Graph notebook crates
 [workspace.dependencies.notebook-query]
 path = "./crates/stubs/notebook-query"
-
-[workspace.dependencies.notebook-kernel]
-path = "./crates/stubs/notebook-kernel"
-
-[workspace.dependencies.notebook-render]
-path = "./crates/stubs/notebook-render"
 
 # The real engine — Cypher parser + DataFusion planner + blasgraph columnar
 # Local path ensures Cargo uses the FULL crate (with zeckf64, heel_hip_twig_leaf,
@@ -172,6 +163,11 @@ path = "./crates/stubs/notebook-render"
 path = "../lance-graph/crates/lance-graph"
 package = "lance-graph"
 default-features = false
+
+# Unified query planner: MUL+Compass → Thinking Orchestration → Strategy Selection
+[workspace.dependencies.lance-graph-planner]
+path = "../lance-graph/crates/lance-graph-planner"
+package = "lance-graph-planner"
 
 # bgz17: Blasgraph-ZeckBF17 — HHTL cascade, semiring algebra, GraphBLAS, container seals
 [workspace.dependencies.bgz17]
