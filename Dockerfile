@@ -1,85 +1,56 @@
 # ══════════════════════════════════════════════════════════════════════
-# q2-cockpit — single-binary Dockerfile with live clone
+# q2 — single Rust binary, live .qmd rendering
 # ══════════════════════════════════════════════════════════════════════
-# Clones ALL AdaWorldAPI repos from GitHub at build time.
-# Builds the cockpit frontend (Vite/React) and the Rust binary
-# (lance-graph + ndarray + V8 JIT + notebook-query + Axum).
-# Result: ONE binary, no runtime deps, no Node, no stubs.
+# `q2 notebook serve` runs the full stack:
+#   lance-graph parser → DataFusion planner → LanceDB
+#   quarto-core + deno_core (V8 JIT) → live .qmd rendering
+#   ndarray → SIMD compute
+#   MCP over SSE with 16 tools (cell_execute, planner_plan, graph_*, ...)
 #
-# Versions pinned:
-#   Rust 1.94.0 | Arrow 57 | DataFusion 51 | Node 22
-#
-# Railway settings:
-#   dockerfilePath = "q2/Dockerfile"
-#   Memory: 8GB+ (deno_core/V8 compiles are heavy)
-#   Disk: 10GB (Cargo cache)
+# Pinned: Rust 1.94.0 | Arrow 57 | DataFusion 51
 # ══════════════════════════════════════════════════════════════════════
 
-# ── Stage 1: Build everything ─────────────────────────────────────────
 FROM debian:bookworm AS builder
 
-# System deps: git, C/C++ toolchain, OpenSSL, protobuf
 RUN apt-get update && apt-get install -y \
     git curl build-essential cmake clang \
     libssl-dev pkg-config python3 \
     protobuf-compiler libprotobuf-dev \
-    ca-certificates gnupg \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Node 22 (for cockpit Vite build)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Rust 1.94.0 — explicit version, NOT latest, NOT 1.93
+# Rust 1.94.0
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain 1.94.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build
 
-# ── Live clone all AdaWorldAPI repos at HEAD ──────────────────────────
+# Live clone — compile deps only
 RUN git clone --depth 1 https://github.com/AdaWorldAPI/q2.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/rs-graph-llm.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/aiwar-neo4j-harvest.git
+ && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
 
-# ── Build the cockpit frontend ────────────────────────────────────────
-WORKDIR /build/q2/cockpit
-RUN npm install && npm run build && ls -la dist/
-# cockpit/dist/ now exists for include_dir!
-
-# ── Build the Rust binary ─────────────────────────────────────────────
+# Build the q2 binary — includes notebook server, all MCP tools,
+# lance-graph execution, planner, NARS inference, V8 JIT
 WORKDIR /build/q2
-RUN cargo build --release --package cockpit-server \
-    && ls -lh target/release/q2-cockpit
+RUN cargo build --release -p quarto \
+    && ls -lh target/release/q2
 
-# ── Stage 2: Minimal runtime ─────────────────────────────────────────
+# ── Runtime ───────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
-    ca-certificates libssl3 curl \
+RUN apt-get update && apt-get install -y ca-certificates libssl3 curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY --from=builder /build/q2/target/release/q2 ./q2
 
-# One binary — everything compiled in
-COPY --from=builder /build/q2/target/release/q2-cockpit ./q2-cockpit
-
-# Aiwar graph data (the primary test dataset)
-COPY --from=builder /build/aiwar-neo4j-harvest/data/aiwar_graph.json ./data/aiwar_graph.json
-
-# Tell notebook-query where to find aiwar data
-ENV AIWAR_DATA_PATH=/app/data/aiwar_graph.json
-
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s \
     CMD curl -f http://localhost:${PORT:-2718}/health || exit 1
 
-# Railway injects $PORT; default to 2718
 ENV PORT=2718
 EXPOSE 2718
-
-CMD ["./q2-cockpit"]
+CMD ["./q2", "notebook", "serve", "--host", "0.0.0.0", "--port", "2718"]
