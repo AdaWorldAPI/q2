@@ -1,47 +1,43 @@
-// Reusable NARS truth value display: frequency × confidence → gate
+// Reusable NARS truth value display: (f, c, gate)
 
 interface TruthBadgeProps {
   f: number;
   c: number;
-  gate?: 'FLOW' | 'HOLD' | 'BLOCK';
+  gate: 'FLOW' | 'HOLD' | 'BLOCK';
   compact?: boolean;
 }
 
-const GATE_COLORS = {
+const GATE_COLORS: Record<string, string> = {
   FLOW: '#35d07f',
   HOLD: '#ffb547',
   BLOCK: '#ff637d',
 };
 
+const GATE_ICONS: Record<string, string> = {
+  FLOW: '\u2713',
+  HOLD: '\u25CF',
+  BLOCK: '\u2717',
+};
+
 export function TruthBadge({ f, c, gate, compact }: TruthBadgeProps) {
-  const expectation = c * (f - 0.5) + 0.5;
-  const gateColor = gate ? GATE_COLORS[gate] : '#93a9bf';
-  const barWidth = Math.round(expectation * 100);
+  const color = GATE_COLORS[gate] || '#93a9bf';
 
   if (compact) {
     return (
-      <span className="truth-badge-compact" style={{ color: gateColor }}>
-        f={f.toFixed(2)} c={c.toFixed(2)}
-        {gate && <span className="truth-gate-dot" style={{ background: gateColor }} />}
+      <span className="truth-badge truth-badge--compact" style={{ color }}>
+        {gate} {f.toFixed(2)}
       </span>
     );
   }
 
   return (
-    <div className="truth-badge">
-      <div className="truth-values">
-        <span>f={f.toFixed(2)}</span>
-        <span>c={c.toFixed(2)}</span>
-        <span>e={expectation.toFixed(2)}</span>
-      </div>
-      <div className="truth-bar-bg">
-        <div className="truth-bar-fill" style={{ width: `${barWidth}%`, background: gateColor }} />
-      </div>
-      {gate && (
-        <span className="truth-gate" style={{ color: gateColor, borderColor: `${gateColor}40` }}>
-          {gate}
-        </span>
-      )}
-    </div>
+    <span className="truth-badge" style={{ borderColor: `${color}40` }}>
+      <span className="truth-values">
+        f={f.toFixed(2)}, c={c.toFixed(2)}
+      </span>
+      <span className="truth-gate" style={{ color, borderColor: `${color}40` }}>
+        {GATE_ICONS[gate]} {gate}
+      </span>
+    </span>
   );
 }
