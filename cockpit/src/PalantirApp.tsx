@@ -7,14 +7,11 @@ import { ResultTable } from './components/ResultTable';
 import { CellStrip } from './components/CellStrip';
 import { LeftRail } from './components/LeftRail';
 import { NarsPanel } from './components/NarsPanel';
-import { useAiwarData } from './hooks/useAiwarData';
-import { convertAiwarGraph, ENRICHMENT_INDEX, getDefaultReasoning, type ReasoningResult } from './data/aiwar-seed';
+import { StyleSelector } from './components/StyleSelector';
+import { SuperpositionView } from './components/SuperpositionView';
+import { convertAiwarGraph, type ReasoningResult } from './data/aiwar-seed';
+import { computeActivationPattern, type ThinkingStyle, type ActivationPattern } from './data/thinking-styles';
 
-/**
- * PalantirApp — the SAME dense cockpit layout as DemoApp,
- * but loaded with the 221-node aiwar graph instead of seed data.
- * Inspector is replaced with NarsPanel for reasoning capability.
- */
 export function PalantirApp() {
   const connected = useStore((s) => s.connected);
   const nodes = useStore((s) => s.nodes);
@@ -29,63 +26,57 @@ export function PalantirApp() {
   const [enrichedNodeIds, setEnrichedNodeIds] = useState<Set<string>>(new Set());
   const loadedRef = useRef(false);
 
-  // Connect SSE
-  useEffect(() => {
-    connectSSE();
-  }, []);
+  // BNN cognitive lens state
+  const [activeStyle, setActiveStyle] = useState<ThinkingStyle | null>(null);
+  const [superpositionActive, setSuperpositionActive] = useState(false);
+  const [activationPattern, setActivationPattern] = useState<ActivationPattern | null>(null);
 
-  // Load aiwar data into the store on mount
+  useEffect(() => { connectSSE(); }, []);
+
+  // Load aiwar data
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
-
     (async () => {
       try {
-        const [graphRes, weaponsRes] = await Promise.all([
-          fetch('/aiwar_graph.json'),
-          fetch('/aiwar_weapons.json'),
-        ]);
-        if (!graphRes.ok) throw new Error(`Graph: HTTP ${graphRes.status}`);
-        const raw = await graphRes.json();
+        const res = await fetch('/aiwar_graph.json');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const raw = await res.json();
         const { nodes: gNodes, edges: gEdges } = convertAiwarGraph(raw);
         setGraphData(gNodes, gEdges);
         setLoaded(true);
       } catch (err) {
-        setLoadError(err instanceof Error ? err.message : 'Failed to load aiwar data');
-        // Keep the default seed data
+        setLoadError(err instanceof Error ? err.message : 'Failed to load');
         setLoaded(true);
       }
     })();
   }, [setGraphData]);
 
-  // Selected node
+  // Compute BNN activation when style changes
+  useEffect(() => {
+    if (!activeStyle || nodes.length === 0) {
+      setActivationPattern(null);
+      return;
+    }
+    const pattern = computeActivationPattern(nodes, activeStyle);
+    setActivationPattern(pattern);
+  }, [activeStyle, nodes]);
+
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId) || null,
     [nodes, selectedNodeId],
   );
 
-  // Handle NARS enrichment — add new nodes/edges to the store
   const handleEnrich = useCallback((result: ReasoningResult) => {
     const currentNodeIds = new Set(nodes.map((n) => n.id));
     const newNodes = result.enrichmentNodes
       .filter((n) => !currentNodeIds.has(n.id))
-      .map((n) => ({
-        id: n.id,
-        label: n.label,
-        type: n.type,
-        properties: n.properties,
-      }));
+      .map((n) => ({ id: n.id, label: n.label, type: n.type, properties: n.properties }));
     const newEdges = result.enrichmentEdges.map((e) => ({
-      source: e.source,
-      target: e.target,
-      label: e.label,
+      source: e.source, target: e.target, label: e.label,
     }));
-
     if (newNodes.length > 0 || newEdges.length > 0) {
-      setGraphData(
-        [...nodes, ...newNodes],
-        [...edges, ...newEdges],
-      );
+      setGraphData([...nodes, ...newNodes], [...edges, ...newEdges]);
       setEnrichedNodeIds((prev) => {
         const next = new Set(prev);
         newNodes.forEach((n) => next.add(n.id));
@@ -94,14 +85,26 @@ export function PalantirApp() {
     }
   }, [nodes, edges, setGraphData]);
 
+  const handleStyleSelect = useCallback((style: ThinkingStyle | null) => {
+    setActiveStyle(style);
+    setSuperpositionActive(false);
+  }, []);
+
+  const handleToggleSuperposition = useCallback(() => {
+    setSuperpositionActive((v) => !v);
+    setActiveStyle(null);
+  }, []);
+
   const cellCount = useMemo(() => {
     const running = cells.filter((c) => c.execution_state === 'running').length;
     return { total: cells.length, running };
   }, [cells]);
 
-  // System count for display
   const systemCount = nodes.filter((n) => n.type === 'System').length;
   const enrichedCount = enrichedNodeIds.size;
+
+  // Show which panel in the right sidebar
+  const showSuperposition = superpositionActive && nodes.length > 0;
 
   return (
     <div className="shell">
@@ -116,29 +119,47 @@ export function PalantirApp() {
           <span className={`badge ${connected ? 'good' : ''}`}>
             {connected ? 'mcp /sse live' : 'disconnected'}
           </span>
-          {systemCount > 0 && (
-            <span className="badge good">{systemCount} systems</span>
+          {systemCount > 0 && <span className="badge good">{systemCount} systems</span>}
+          {enrichedCount > 0 && <span className="badge warn">+{enrichedCount} discovered</span>}
+          {activeStyle && (
+            <span className="badge" style={{ color: activeStyle.color, borderColor: `${activeStyle.color}40` }}>
+              {activeStyle.name}
+              {activationPattern && ` ${activationPattern.fireCount}/${nodes.length}`}
+            </span>
           )}
-          {enrichedCount > 0 && (
-            <span className="badge warn">+{enrichedCount} discovered</span>
-          )}
-          {loadError && (
-            <span className="badge hot" title={loadError}>data error</span>
-          )}
-          <a href="/demo" className="badge" style={{ textDecoration: 'none', cursor: 'pointer' }}>
-            infra demo
-          </a>
+          {superpositionActive && <span className="badge" style={{ color: '#fff' }}>36 BRAINS</span>}
+          {loadError && <span className="badge hot" title={loadError}>data error</span>}
+          <a href="/demo" className="badge" style={{ textDecoration: 'none', cursor: 'pointer' }}>infra demo</a>
         </div>
       </section>
 
-      {/* Row 2: Left rail / Graph / NARS Inspector */}
-      <LeftRail />
+      {/* Row 2: Left rail / Graph / Right panel */}
+      <section className="panel left-rail" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="panel-header">
+          <div className="panel-title">
+            <h2>Cognitive Lens</h2>
+            <span>36 thinking styles &middot; BNN activation</span>
+          </div>
+        </div>
+        <div className="rail-body" style={{ overflow: 'auto' }}>
+          <StyleSelector
+            selectedId={activeStyle?.id || null}
+            onSelect={handleStyleSelect}
+            superpositionActive={superpositionActive}
+            onToggleSuperposition={handleToggleSuperposition}
+          />
+        </div>
+      </section>
+
       <GraphPanel />
-      <NarsPanel
-        selectedNode={selectedNode}
-        edges={edges}
-        onEnrich={handleEnrich}
-      />
+
+      {showSuperposition ? (
+        <section className="panel nars-panel" style={{ overflow: 'auto' }}>
+          <SuperpositionView nodes={nodes} />
+        </section>
+      ) : (
+        <NarsPanel selectedNode={selectedNode} edges={edges} onEnrich={handleEnrich} />
+      )}
 
       {/* Row 3: Result table */}
       <ResultTable />
@@ -146,7 +167,7 @@ export function PalantirApp() {
       {/* Row 4: Notebook cells */}
       <CellStrip />
 
-      {/* Status bar (bottom) */}
+      {/* Status bar */}
       <footer className="status-bar">
         <div className="status-bar-left">
           <span className={`status-dot ${connected ? 'online' : 'offline'}`} />
@@ -162,13 +183,12 @@ export function PalantirApp() {
           {executing && <span className="status-executing">executing&hellip;</span>}
           <span>Cell [{cellCount.total}] {cellCount.running > 0 ? 'running' : 'idle'}</span>
           <span className="status-sep" />
-          <span>NARS + MCP</span>
+          <span>{activeStyle ? `BNN: ${activeStyle.name}` : superpositionActive ? 'BNN: 36x superposition' : 'NARS + MCP'}</span>
           <span className="status-sep" />
           <span>localhost:2718</span>
         </div>
       </footer>
 
-      {/* Tooltip container */}
       <div className="tooltip" id="tooltip" />
     </div>
   );

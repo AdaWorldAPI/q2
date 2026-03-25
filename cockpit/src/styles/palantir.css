@@ -1087,3 +1087,200 @@
   font-style: italic;
   margin-top: 4px;
 }
+
+/* ================================================================
+   STYLE SELECTOR — 36 Thinking Styles
+   ================================================================ */
+.style-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.style-selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.style-super-btn {
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: var(--sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: 200ms ease;
+}
+.style-super-btn.active {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+.style-super-btn:hover { border-color: rgba(255, 255, 255, 0.25); }
+
+.style-clusters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.style-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.style-cluster-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.style-cluster-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.style-chip {
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  border-radius: 6px;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: var(--sans);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: 200ms ease;
+  white-space: nowrap;
+}
+.style-chip:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text);
+}
+.style-chip.active {
+  color: var(--text);
+  font-weight: 600;
+}
+.style-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.style-detail {
+  padding: 10px;
+  border: 1px solid rgba(77, 208, 225, 0.12);
+  border-radius: 10px;
+  background: rgba(77, 208, 225, 0.03);
+}
+.style-detail-name {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.style-detail-desc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.style-detail-axis {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* ================================================================
+   SUPERPOSITION VIEW — 36 Brains
+   ================================================================ */
+.superposition-view {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.super-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.super-header h3 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.super-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.super-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.super-consensus-label { color: #35d07f; }
+.super-fault-label { color: #ffb547; }
+.super-blind-label { color: #93a9bf; }
+
+.super-row {
+  padding: 6px 8px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.super-row--consensus { background: rgba(53, 208, 127, 0.04); border-left: 2px solid #35d07f; }
+.super-row--fault { background: rgba(255, 181, 71, 0.04); border-left: 2px solid #ffb547; }
+.super-row--blind { background: rgba(147, 169, 191, 0.04); border-left: 2px solid #93a9bf; }
+
+.super-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.super-node-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.super-score {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--muted);
+}
+
+.super-bar-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.super-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 400ms ease;
+}
+
+.super-clusters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.super-cluster-tag {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.super-blind-who {
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
