@@ -2,8 +2,9 @@
 name = "graph-flow"
 version = "0.1.0"
 edition = "2021"
-description = "Stub for rs-graph-llm graph-flow — replaced by real crate when available"
+description = "Graph-flow execution engine — LangGraph-style DAG orchestration with channels and reducers"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"] }
