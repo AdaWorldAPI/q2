@@ -58,7 +58,7 @@ RUN git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
 
 # Build the q2 binary with embedded frontend
 WORKDIR /build/q2
-RUN cargo build --release -p cockpit-server --features embed-cockpit \
+RUN cargo build --release -p cockpit-server --features embed-cockpit,planner \
     && ls -lh target/release/q2-cockpit
 
 # ── Runtime ───────────────────────────────────────────────────────────

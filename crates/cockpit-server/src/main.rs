@@ -100,6 +100,8 @@ async fn main() {
         .route("/mcp/message", post(mcp_message_handler))
         // Data status — what's loaded, what failed
         .route("/api/data/status", get(data_status_handler))
+        // Live strategy diagnostics — runs all 16 strategies against real queries
+        .route("/api/debug/strategies", get(strategy_check_handler))
         // Health
         .route("/health", get(health_handler))
         // Static files + SPA fallback (serves the Vite React build)
@@ -388,6 +390,28 @@ fn build_outputs(result: &notebook_query::QueryResult) -> Vec<serde_json::Value>
         outputs.push(serde_json::json!({ "type": "text", "content": result.raw_output }));
     }
     outputs
+}
+
+// ── Live strategy diagnostics ─────────────────────────────────────────────────
+
+/// Run all 16 strategies with synthetic queries, report what fires/fails/panics.
+/// Also runs demo analyses: same query through all 12 thinking styles.
+async fn strategy_check_handler() -> Json<serde_json::Value> {
+    // Run in a blocking thread since strategy checks may be CPU-intensive
+    let result = tokio::task::spawn_blocking(|| {
+        notebook_query::diagnostics::run_strategy_checks()
+    })
+    .await;
+
+    match result {
+        Ok(matrix) => Json(serde_json::to_value(matrix).unwrap_or_default()),
+        Err(e) => Json(serde_json::json!({
+            "error": format!("Strategy check failed: {}", e),
+            "strategies": [],
+            "operational": 0,
+            "total": 0,
+        })),
+    }
 }
 
 // ── Data status — probe each data source ─────────────────────────────────────
