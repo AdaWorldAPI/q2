@@ -49,8 +49,8 @@ WORKDIR /app
 COPY --from=builder /build/q2/target/release/q2 ./q2
 
 HEALTHCHECK --interval=30s --timeout=3s \
-    CMD curl -f http://localhost:${PORT:-2718}/health || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
-ENV PORT=2718
-EXPOSE 2718
-CMD ["./q2", "notebook", "serve", "--host", "0.0.0.0", "--port", "2718"]
+ENV PORT=8080
+EXPOSE 8080
+CMD ["./q2", "notebook", "serve", "--host", "0.0.0.0", "--port", "8080"]
