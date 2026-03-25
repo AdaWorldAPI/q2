@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Network, type Options } from 'vis-network';
 import { DataSet } from 'vis-data';
 import type { GraphNode, GraphEdge } from '../store';
+import type { AiwarWeapon } from '../hooks/useAiwarData';
 import { NarsPanel } from './NarsPanel';
 import { CypherConsole } from './CypherConsole';
 import { AIWAR_TYPE_COLORS, type ReasoningResult } from '../data/aiwar-seed';
@@ -9,6 +10,7 @@ import { AIWAR_TYPE_COLORS, type ReasoningResult } from '../data/aiwar-seed';
 interface AiwarExplorerProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  weapons: AiwarWeapon[];
   onBack: () => void;
 }
 
@@ -49,7 +51,7 @@ const GRAPH_OPTIONS: Options = {
   layout: { improvedLayout: true },
 };
 
-export function AiwarExplorer({ nodes, edges, onBack }: AiwarExplorerProps) {
+export function AiwarExplorer({ nodes, edges, weapons, onBack }: AiwarExplorerProps) {
   const [view, setView] = useState<ViewMode>('table');
   const [filter, setFilter] = useState<FilterKey>('all');
   const [milFilter, setMilFilter] = useState<string | null>(null);
@@ -91,6 +93,17 @@ export function AiwarExplorer({ nodes, edges, onBack }: AiwarExplorerProps) {
   );
 
   const selectedNode = allNodes.find((n) => n.id === selectedId) || null;
+
+  // Filter weapons from CSV
+  const filteredWeapons = useMemo(() => {
+    if (weapons.length === 0) return [];
+    if (!search) return weapons;
+    const q = search.toLowerCase();
+    return weapons.filter((w) =>
+      [w.weapon, w.developed, w.usedBy, w.militaryPurpose, w.source, w.sourceType]
+        .join(' ').toLowerCase().includes(q),
+    );
+  }, [weapons, search]);
 
   // Nation counts
   const nationCounts = useMemo(() => {
@@ -282,40 +295,88 @@ export function AiwarExplorer({ nodes, edges, onBack }: AiwarExplorerProps) {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
-                <span className="badge">{filtered.length} rows</span>
+                <span className="badge">
+                  {weapons.length > 0 ? `${filteredWeapons.length} weapons` : `${filtered.length} rows`}
+                </span>
               </div>
               <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      {columns.map((col) => (
-                        <th key={col.key} onClick={() => handleSort(col.key)}>
-                          {col.label}
-                          {sortKey === col.key && <span style={{ marginLeft: 4, opacity: 0.7 }}>{sortDir === 1 ? '\u2191' : '\u2193'}</span>}
+                {weapons.length > 0 ? (
+                  /* Official CSV weapons table — the "innocent" view */
+                  <table>
+                    <thead>
+                      <tr>
+                        <th onClick={() => handleSort('weapon')}>
+                          Weapon{sortKey === 'weapon' && <span style={{ marginLeft: 4, opacity: 0.7 }}>{sortDir === 1 ? '\u2191' : '\u2193'}</span>}
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sorted.map((node) => (
-                      <tr
-                        key={node.id}
-                        className={node.id === selectedId ? 'active' : ''}
-                        onClick={() => setSelectedId(node.id === selectedId ? null : node.id)}
-                      >
-                        <td><strong>{node.label}</strong></td>
-                        <td>
-                          <span style={{ color: AIWAR_TYPE_COLORS[node.type] || '#00d4ff' }}>
-                            {node.type}
-                          </span>
-                        </td>
-                        <td>{String(node.properties.year || '')}</td>
-                        <td>{String(node.properties.militaryUse || '')}</td>
-                        <td>{String(node.properties.status || '')}</td>
+                        <th onClick={() => handleSort('developed')}>
+                          Year{sortKey === 'developed' && <span style={{ marginLeft: 4, opacity: 0.7 }}>{sortDir === 1 ? '\u2191' : '\u2193'}</span>}
+                        </th>
+                        <th onClick={() => handleSort('usedBy')}>
+                          Used By{sortKey === 'usedBy' && <span style={{ marginLeft: 4, opacity: 0.7 }}>{sortDir === 1 ? '\u2191' : '\u2193'}</span>}
+                        </th>
+                        <th>Military Purpose</th>
+                        <th>Source</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredWeapons.map((w, i) => {
+                        // Find matching graph node for selection
+                        const matchNode = nodes.find((n) =>
+                          n.label.toLowerCase() === w.weapon.toLowerCase() ||
+                          n.id.toLowerCase().replace(/\s/g, '') === w.weapon.toLowerCase().replace(/\s/g, ''),
+                        );
+                        return (
+                          <tr
+                            key={i}
+                            className={matchNode && matchNode.id === selectedId ? 'active' : ''}
+                            onClick={() => matchNode && setSelectedId(matchNode.id === selectedId ? null : matchNode.id)}
+                          >
+                            <td><strong>{w.weapon}</strong></td>
+                            <td>{w.developed}</td>
+                            <td>{w.usedBy}</td>
+                            <td style={{ maxWidth: 300, whiteSpace: 'normal', lineHeight: 1.4 }}>
+                              {w.militaryPurpose.length > 120 ? w.militaryPurpose.slice(0, 120) + '...' : w.militaryPurpose}
+                            </td>
+                            <td><span className="badge">{w.source}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  /* Fallback: graph node table */
+                  <table>
+                    <thead>
+                      <tr>
+                        {columns.map((col) => (
+                          <th key={col.key} onClick={() => handleSort(col.key)}>
+                            {col.label}
+                            {sortKey === col.key && <span style={{ marginLeft: 4, opacity: 0.7 }}>{sortDir === 1 ? '\u2191' : '\u2193'}</span>}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sorted.map((node) => (
+                        <tr
+                          key={node.id}
+                          className={node.id === selectedId ? 'active' : ''}
+                          onClick={() => setSelectedId(node.id === selectedId ? null : node.id)}
+                        >
+                          <td><strong>{node.label}</strong></td>
+                          <td>
+                            <span style={{ color: AIWAR_TYPE_COLORS[node.type] || '#00d4ff' }}>
+                              {node.type}
+                            </span>
+                          </td>
+                          <td>{String(node.properties.year || '')}</td>
+                          <td>{String(node.properties.militaryUse || '')}</td>
+                          <td>{String(node.properties.status || '')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </section>
           ) : (

@@ -8,9 +8,10 @@ interface PalantirShellProps {
   onLaunchDemo: () => void;
   onLaunchAiwar: () => void;
   onLaunchNotebook: () => void;
+  error?: string | null;
 }
 
-export function PalantirShell({ onLaunchDemo, onLaunchAiwar, onLaunchNotebook }: PalantirShellProps) {
+export function PalantirShell({ onLaunchDemo, onLaunchAiwar, onLaunchNotebook, error }: PalantirShellProps) {
   const connected = useStore((s) => s.connected);
 
   useEffect(() => {
@@ -72,6 +73,16 @@ export function PalantirShell({ onLaunchDemo, onLaunchAiwar, onLaunchNotebook }:
           actionLabel="Upload"
         />
       </section>
+
+      {/* Error message */}
+      {error && (
+        <div className="palantir-error">
+          <span className="badge hot">Error: {error}</span>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+            Make sure the aiwar data files are in cockpit/public/
+          </span>
+        </div>
+      )}
 
       {/* Recent queries */}
       <section className="palantir-recent panel">
