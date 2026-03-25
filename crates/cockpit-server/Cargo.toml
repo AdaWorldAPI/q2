@@ -3,7 +3,7 @@ name = "cockpit-server"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94"
-description = "Single-binary graph notebook cockpit — embeds UI + lance-graph + ndarray + V8 JIT"
+description = "Single-binary graph notebook cockpit — embeds UI + lance-graph + ndarray"
 
 [[bin]]
 name = "q2-cockpit"
@@ -23,16 +23,12 @@ futures-core.workspace = true
 serde.workspace = true
 serde_json = "1"
 
-# Graph engine — lance-graph hot path (the REAL engine)
-notebook-query.workspace = true
+# Graph engine — lance-graph hot path via workspace (cloned at ../lance-graph)
 lance-graph.workspace = true
+notebook-query.workspace = true
 
-# The actual ndarray fork with SIMD (AVX-512/AVX2), HPC modules, graph ops
-ndarray = { git = "https://github.com/AdaWorldAPI/ndarray.git", branch = "master" }
-
-# V8 JIT — execute JS/TS inside the binary (transcoded from quarto-system-runtime)
-deno_core.workspace = true
-serde_v8.workspace = true
+# ndarray — the real AdaWorldAPI fork (cloned at ../ndarray by Dockerfile)
+q2-ndarray.workspace = true
 
 # Embed the Vite build output into the binary
 include_dir.workspace = true
@@ -43,9 +39,19 @@ tracing-subscriber.workspace = true
 
 [features]
 default = []
+# V8 JIT engine — adds ~15 min compile time. Enable when JS/TS execution is needed.
+v8-jit = ["dep:deno_core", "dep:serde_v8"]
 # Enable the unified query planner (MUL+Compass → Thinking → Strategy)
 planner = ["notebook-query/planner"]
 # Enable the 10-layer cognitive stack (%%think magic)
 orchestrator = ["notebook-query/orchestrator"]
 # Neo4j Aura cold path fallback
 neo4j-fallback = ["notebook-query/neo4j-fallback"]
+
+[dependencies.deno_core]
+workspace = true
+optional = true
+
+[dependencies.serde_v8]
+workspace = true
+optional = true
