@@ -8,6 +8,7 @@ import { ResultTable } from './components/ResultTable';
 import { CellStrip } from './components/CellStrip';
 import { LeftRail } from './components/LeftRail';
 import { DataStatusBar } from './components/DataStatusBar';
+import { AnalystPanel } from './components/AnalystPanel';
 import { convertAiwarGraph } from './data/aiwar-seed';
 
 interface DataSource {
@@ -35,6 +36,7 @@ export function PalantirApp() {
   const executing = useStore((s) => s.executing);
   const setGraphData = useStore((s) => s.setGraphData);
 
+  const [showAnalyst, setShowAnalyst] = useState(false);
   const [dataSources, setDataSources] = useState<DataSource[]>([
     { name: 'Aiwar Graph', file: 'aiwar_graph.json', status: 'loading', detail: 'Connecting...' },
     { name: 'Enrichment Cypher', file: 'cypher/*.cypher', status: 'loading', detail: 'Checking...' },
@@ -171,6 +173,13 @@ export function PalantirApp() {
           <span className={`badge ${connected ? 'good' : ''}`}>
             {connected ? 'mcp /sse live' : 'disconnected'}
           </span>
+          <button
+            className={`badge ${showAnalyst ? 'good' : ''}`}
+            style={{ cursor: 'pointer', color: showAnalyst ? '#35d07f' : '#ffb547', borderColor: showAnalyst ? 'rgba(53,208,127,0.3)' : 'rgba(255,181,71,0.2)', background: 'none', fontFamily: 'var(--sans)' }}
+            onClick={() => setShowAnalyst(!showAnalyst)}
+          >
+            {showAnalyst ? 'close analyst' : 'analyst'}
+          </button>
           <a href="/debug" className="badge" style={{ textDecoration: 'none', cursor: 'pointer', color: '#e040fb', borderColor: 'rgba(224,64,251,0.2)' }}>neural debug</a>
           <a href="/demo" className="badge" style={{ textDecoration: 'none', cursor: 'pointer' }}>infra demo</a>
           <span className="badge good">notebook saved</span>
@@ -182,8 +191,20 @@ export function PalantirApp() {
       <GraphPanel />
       <Inspector />
 
-      {/* Row 3: Result table */}
-      <ResultTable />
+      {/* Row 3: Result table OR Analyst panel */}
+      {showAnalyst ? (
+        <section className="panel table-panel" style={{ overflow: 'auto' }}>
+          <div className="panel-header">
+            <div className="panel-title">
+              <h2>Political Analyst</h2>
+              <span>NARS causality chains &middot; 6 analysis buckets &middot; thinking styles</span>
+            </div>
+          </div>
+          <AnalystPanel />
+        </section>
+      ) : (
+        <ResultTable />
+      )}
 
       {/* Row 4: Notebook cells */}
       <CellStrip />
