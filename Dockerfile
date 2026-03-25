@@ -43,8 +43,7 @@ RUN git clone --depth 1 https://github.com/AdaWorldAPI/q2.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/rs-graph-llm.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/aiwar-neo4j-harvest.git
+ && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
 
 # ── Build the cockpit frontend ────────────────────────────────────────
 WORKDIR /build/q2/cockpit
@@ -65,14 +64,8 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# One binary — everything compiled in
+# One binary — everything compiled in (seed data embedded via include_dir)
 COPY --from=builder /build/q2/target/release/q2-cockpit ./q2-cockpit
-
-# Aiwar graph data (the primary test dataset)
-COPY --from=builder /build/aiwar-neo4j-harvest/data/aiwar_graph.json ./data/aiwar_graph.json
-
-# Tell notebook-query where to find aiwar data
-ENV AIWAR_DATA_PATH=/app/data/aiwar_graph.json
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s \
