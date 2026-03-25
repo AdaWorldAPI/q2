@@ -98,6 +98,8 @@ async fn main() {
         // MCP endpoints — all queries route through lance-graph
         .route("/mcp/sse", get(sse_handler))
         .route("/mcp/message", post(mcp_message_handler))
+        // Data status — what's loaded, what failed
+        .route("/api/data/status", get(data_status_handler))
         // Health
         .route("/health", get(health_handler))
         // Static files + SPA fallback (serves the Vite React build)
@@ -386,6 +388,105 @@ fn build_outputs(result: &notebook_query::QueryResult) -> Vec<serde_json::Value>
         outputs.push(serde_json::json!({ "type": "text", "content": result.raw_output }));
     }
     outputs
+}
+
+// ── Data status — probe each data source ─────────────────────────────────────
+
+/// Returns the load status of each data source: aiwar graph, enrichment files,
+/// neural diagnosis, etc. The frontend renders this as a status bar.
+async fn data_status_handler() -> Json<serde_json::Value> {
+    let mut sources: Vec<serde_json::Value> = Vec::new();
+
+    // 1. Aiwar Graph JSON — the official 221-node dataset
+    let aiwar_status = match notebook_query::execute(
+        "MATCH (n) RETURN count(n) AS total",
+        notebook_query::QueryLanguage::Cypher,
+    ) {
+        Ok(result) => serde_json::json!({
+            "name": "Aiwar Graph",
+            "file": "aiwar_graph.json",
+            "status": "loaded",
+            "detail": result.raw_output,
+            "elapsed_ms": result.elapsed_ms,
+        }),
+        Err(e) => serde_json::json!({
+            "name": "Aiwar Graph",
+            "file": "aiwar_graph.json",
+            "status": "error",
+            "detail": e,
+        }),
+    };
+    sources.push(aiwar_status);
+
+    // 2. Enrichment Cypher files — check if directory exists
+    let cypher_dir = std::path::Path::new("/home/user/aiwar-neo4j-harvest/cypher");
+    let enrichment_status = if cypher_dir.exists() {
+        let count = std::fs::read_dir(cypher_dir)
+            .map(|entries| entries.filter_map(|e| e.ok()).filter(|e| {
+                e.path().extension().map_or(false, |ext| ext == "cypher")
+            }).count())
+            .unwrap_or(0);
+        serde_json::json!({
+            "name": "Enrichment Cypher",
+            "file": "cypher/*.cypher",
+            "status": if count > 0 { "loaded" } else { "empty" },
+            "detail": format!("{} cypher files found", count),
+            "count": count,
+        })
+    } else {
+        serde_json::json!({
+            "name": "Enrichment Cypher",
+            "file": "cypher/*.cypher",
+            "status": "not_found",
+            "detail": "Directory not found: aiwar-neo4j-harvest/cypher/",
+        })
+    };
+    sources.push(enrichment_status);
+
+    // 3. Neural diagnosis scan data
+    let neural_status = if cfg!(feature = "embed-cockpit") {
+        serde_json::json!({
+            "name": "Neural Diagnosis",
+            "file": "neural_diagnosis.json",
+            "status": "embedded",
+            "detail": "Embedded in Vite build",
+        })
+    } else {
+        serde_json::json!({
+            "name": "Neural Diagnosis",
+            "file": "neural_diagnosis.json",
+            "status": "static",
+            "detail": "Served from public/",
+        })
+    };
+    sources.push(neural_status);
+
+    // 4. Aiwar CSV (51 weapons)
+    let csv_candidates = [
+        "/home/user/aiwar-neo4j-harvest/data/aiwarcloud-table.csv",
+        "../aiwar-neo4j-harvest/data/aiwarcloud-table.csv",
+    ];
+    let csv_status = csv_candidates.iter().find(|p| std::path::Path::new(p).exists());
+    sources.push(match csv_status {
+        Some(path) => serde_json::json!({
+            "name": "Aiwar CSV",
+            "file": "aiwarcloud-table.csv",
+            "status": "found",
+            "detail": format!("At {}", path),
+        }),
+        None => serde_json::json!({
+            "name": "Aiwar CSV",
+            "file": "aiwarcloud-table.csv",
+            "status": "not_found",
+            "detail": "51 weapons CSV not found",
+        }),
+    });
+
+    Json(serde_json::json!({
+        "sources": sources,
+        "total": sources.len(),
+        "loaded": sources.iter().filter(|s| s["status"] == "loaded" || s["status"] == "found" || s["status"] == "embedded").count(),
+    }))
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────
