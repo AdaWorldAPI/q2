@@ -102,6 +102,10 @@ async fn main() {
         .route("/api/data/status", get(data_status_handler))
         // Live strategy diagnostics — runs all 16 strategies against real queries
         .route("/api/debug/strategies", get(strategy_check_handler))
+        // Political analyst — NARS causality chains through analytical buckets
+        .route("/api/analyst/buckets", get(analyst_buckets_handler))
+        .route("/api/analyst/analyze/:bucket", get(analyst_analyze_handler))
+        .route("/api/analyst/full", get(analyst_full_handler))
         // Health
         .route("/health", get(health_handler))
         // Static files + SPA fallback (serves the Vite React build)
@@ -411,6 +415,62 @@ async fn strategy_check_handler() -> Json<serde_json::Value> {
             "operational": 0,
             "total": 0,
         })),
+    }
+}
+
+// ── Political Analyst Savant ──────────────────────────────────────────────────
+
+/// List available analysis buckets.
+async fn analyst_buckets_handler() -> Json<serde_json::Value> {
+    let buckets: Vec<serde_json::Value> = notebook_query::analyst::AnalysisBucket::all()
+        .iter()
+        .map(|b| serde_json::json!({
+            "id": serde_json::to_value(b).unwrap_or_default(),
+            "label": b.label(),
+            "description": b.description(),
+            "query_count": b.seed_queries().len(),
+        }))
+        .collect();
+    Json(serde_json::json!({ "buckets": buckets }))
+}
+
+/// Run analysis for a specific bucket.
+async fn analyst_analyze_handler(
+    axum::extract::Path(bucket_name): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    let bucket = match bucket_name.as_str() {
+        "economic_review" => notebook_query::analyst::AnalysisBucket::EconomicReview,
+        "civil_engineering" => notebook_query::analyst::AnalysisBucket::CivilEngineering,
+        "political_dynamics" => notebook_query::analyst::AnalysisBucket::PoliticalDynamics,
+        "ai_development_impact" => notebook_query::analyst::AnalysisBucket::AiDevelopmentImpact,
+        "kill_chain_analysis" => notebook_query::analyst::AnalysisBucket::KillChainAnalysis,
+        "surveillance_ecosystem" => notebook_query::analyst::AnalysisBucket::SurveillanceEcosystem,
+        _ => {
+            return Json(serde_json::json!({
+                "error": format!("Unknown bucket: {}. Available: economic_review, civil_engineering, political_dynamics, ai_development_impact, kill_chain_analysis, surveillance_ecosystem", bucket_name),
+            }));
+        }
+    };
+
+    let result = tokio::task::spawn_blocking(move || {
+        notebook_query::analyst::analyze(bucket)
+    }).await;
+
+    match result {
+        Ok(analysis) => Json(serde_json::to_value(analysis).unwrap_or_default()),
+        Err(e) => Json(serde_json::json!({ "error": format!("Analysis failed: {}", e) })),
+    }
+}
+
+/// Run all 6 analysis buckets.
+async fn analyst_full_handler() -> Json<serde_json::Value> {
+    let result = tokio::task::spawn_blocking(|| {
+        notebook_query::analyst::full_analysis()
+    }).await;
+
+    match result {
+        Ok(analyses) => Json(serde_json::to_value(analyses).unwrap_or_default()),
+        Err(e) => Json(serde_json::json!({ "error": format!("Full analysis failed: {}", e) })),
     }
 }
 
