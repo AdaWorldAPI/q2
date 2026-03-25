@@ -39,12 +39,14 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 WORKDIR /build
 
 # ── Live clone all AdaWorldAPI repos at HEAD ──────────────────────────
+# Only repos needed to compile the binary:
+# q2 (workspace), lance-graph (graph engine), ndarray (SIMD),
+# rs-graph-llm (thinking orchestrator), neo4j-rs (aiwar-ingest dep)
 RUN git clone --depth 1 https://github.com/AdaWorldAPI/q2.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/rs-graph-llm.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/aiwar.git
+ && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
 
 # ── Build the cockpit frontend ────────────────────────────────────────
 WORKDIR /build/q2/cockpit

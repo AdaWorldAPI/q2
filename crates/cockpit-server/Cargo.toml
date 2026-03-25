@@ -27,6 +27,9 @@ serde_json = "1"
 lance-graph.workspace = true
 notebook-query.workspace = true
 
+# AIwar renderer — loads graph data into neo4j-rs, converts to vis-network JSON
+aiwar-ingest = { path = "../aiwar-ingest" }
+
 # ndarray — the real AdaWorldAPI fork (cloned at ../ndarray by Dockerfile)
 q2-ndarray.workspace = true
 
