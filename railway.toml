@@ -1,8 +1,8 @@
 [build]
 builder = "dockerfile"
-# Use Dockerfile.demo (static fallback) until Rust binary build stabilizes.
-# Switch to Dockerfile (full Rust binary) once cargo build -p quarto passes.
-dockerfilePath = "Dockerfile"
+# Dockerfile builds: Node (Vite frontend) → Rust (cockpit-server with embedded frontend)
+# Dockerfile.demo is the Node-only fallback if Rust build fails.
+dockerfilePath = "Dockerfile.demo"
 
 [deploy]
 healthcheckPath = "/health"

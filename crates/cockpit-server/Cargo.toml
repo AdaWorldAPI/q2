@@ -44,12 +44,18 @@ serde_v8.workspace = true
 # ── SIMD compute ────────────────────────────────────────────────────
 q2-ndarray.workspace = true
 
+# ── Embedded frontend ──────────────────────────────────────────
+# When embed-cockpit feature is on, the Vite React build (cockpit/dist/)
+# is compiled into the binary via include_dir!
+include_dir = { version = "0.7", optional = true }
+
 # Logging
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [features]
-default = []
+default = ["embed-cockpit"]
+embed-cockpit = ["dep:include_dir"]
 planner = ["notebook-query/planner"]
 orchestrator = ["notebook-query/orchestrator"]
 # Neo4j Aura fallback — only for live demos when lance-graph is unreachable
