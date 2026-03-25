@@ -39,19 +39,6 @@ tracing-subscriber.workspace = true
 
 [features]
 default = []
-# V8 JIT engine — adds ~15 min compile time. Enable when JS/TS execution is needed.
-v8-jit = ["dep:deno_core", "dep:serde_v8"]
-# Enable the unified query planner (MUL+Compass → Thinking → Strategy)
 planner = ["notebook-query/planner"]
-# Enable the 10-layer cognitive stack (%%think magic)
 orchestrator = ["notebook-query/orchestrator"]
-# Neo4j Aura cold path fallback
 neo4j-fallback = ["notebook-query/neo4j-fallback"]
-
-[dependencies.deno_core]
-workspace = true
-optional = true
-
-[dependencies.serde_v8]
-workspace = true
-optional = true
