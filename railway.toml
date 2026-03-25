@@ -1,8 +1,8 @@
 [build]
 builder = "dockerfile"
-dockerfilePath = "q2/Dockerfile"
-# Build context is the parent directory containing q2/, lance-graph/, aiwar-neo4j-harvest/
-# On Railway, set the root directory to the monorepo parent.
+# Dockerfile lives at repo root. Live-clones all deps from GitHub — no
+# sibling directories needed. Build context = this repo (q2/).
+dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
