@@ -2,6 +2,7 @@
 name = "cockpit-server"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.94"
 description = "Single-binary graph notebook cockpit — embeds UI + lance-graph + ndarray + V8 JIT"
 
 [[bin]]

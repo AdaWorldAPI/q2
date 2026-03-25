@@ -15,12 +15,18 @@ COPY cockpit/ .
 RUN npm run build
 
 # ── Stage 2: Clone repos + build Rust binary ─────────────────────────
-FROM rust:1.83-bookworm AS rust-build
+# Start from bookworm with build tools, install Rust 1.94 explicitly
+FROM debian:bookworm AS rust-build
 
-# System deps for V8 (deno_core), OpenSSL, git
+# System deps for V8 (deno_core), OpenSSL, git, Rust install
 RUN apt-get update && apt-get install -y \
-    git cmake clang libssl-dev pkg-config python3 \
+    git cmake clang libssl-dev pkg-config python3 curl build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Rust 1.94.0 explicitly — NOT latest, NOT 1.93
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain 1.94.0
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build
 
