@@ -175,8 +175,9 @@ path = "../lance-graph/crates/bgz17"
 package = "bgz17"
 
 # rs-graph-llm: LangGraph-like orchestrator — thinking.rs 10-layer cognitive stack
+# Uses stub when rs-graph-llm repo is not available locally.
 [workspace.dependencies.graph-flow]
-path = "../rs-graph-llm/graph-flow"
+path = "./crates/stubs/graph-flow"
 package = "graph-flow"
 
 [workspace.dependencies.q2-ndarray]

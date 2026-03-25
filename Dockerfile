@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y \
     git curl build-essential cmake clang \
     libssl-dev pkg-config python3 \
     protobuf-compiler libprotobuf-dev \
-    ca-certificates \
+    ca-certificates lld \
     && rm -rf /var/lib/apt/lists/*
 
 # Rust 1.94.0
@@ -51,9 +51,9 @@ COPY . /build/q2
 COPY --from=frontend /build/dist/ /build/q2/cockpit/dist/
 
 # Sibling deps — clone from GitHub
+# graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
 RUN git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/rs-graph-llm.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
 
 # Build the q2 binary with embedded frontend
@@ -70,9 +70,14 @@ RUN apt-get update && apt-get install -y ca-certificates libssl3 curl \
 WORKDIR /app
 COPY --from=builder /build/q2/target/release/q2-cockpit ./q2-cockpit
 
+# Aiwar data for lance-graph hydration at startup
+COPY --from=builder /build/q2/cockpit/public/aiwar_graph.json ./data/aiwar_graph.json
+COPY --from=builder /build/q2/cockpit/public/aiwar_weapons.json ./data/aiwar_weapons.json
+
 HEALTHCHECK --interval=30s --timeout=3s \
     CMD curl -f http://localhost:8080/health || exit 1
 
 ENV PORT=8080
+ENV AIWAR_DATA_PATH=/app/data/aiwar_graph.json
 EXPOSE 8080
 CMD ["./q2-cockpit"]
