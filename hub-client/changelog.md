@@ -13,6 +13,15 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-25
+
+- [`6f55d7d1`](https://github.com/quarto-dev/q2/commits/6f55d7d1): Fix: initialize IndexedDB with upgrade callback regardless of call order
+- [`014a0944`](https://github.com/quarto-dev/q2/commits/014a0944): Fix: prevent remote edits from being silently deleted on concurrent updates
+
+### 2026-03-24
+
+- [`bb5764a5`](https://github.com/quarto-dev/q2/commits/bb5764a5): Add browser document storage for offline document editing
+
 ### 2026-03-23
 
 - [`14e29996`](https://github.com/quarto-dev/q2/commits/14e29996): Fix: use HMAC actor ID from first change in project creation
