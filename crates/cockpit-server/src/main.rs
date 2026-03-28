@@ -108,6 +108,9 @@ async fn main() {
         .route("/mri", get(mri_page_handler))
         .route("/api/mri/scan", get(mri_scan_handler))
         .route("/api/mri/scan/:mode", get(mri_scan_mode_handler))
+        // Meta-orchestrator — NARS RL style tuning + transparent fallback
+        .route("/api/orchestrator/status", get(orchestrator_status_handler))
+        .route("/api/orchestrator/step", post(orchestrator_step_handler))
         // Political analyst — NARS causality chains through analytical buckets
         .route("/api/analyst/buckets", get(analyst_buckets_handler))
         .route("/api/analyst/analyze/:bucket", get(analyst_analyze_handler))
@@ -576,6 +579,53 @@ async fn mri_scan_with_mode(scan_mode: notebook_query::mri::ScanMode) -> Json<se
             "health_score": 0.0,
         })),
     }
+}
+
+// ── Meta-Orchestrator — Thinking About Thinking ─────────────────────────────
+
+/// Global orchestrator instance. Persists across requests.
+static ORCHESTRATOR: std::sync::OnceLock<std::sync::Mutex<notebook_query::orchestrator::MetaOrchestrator>> =
+    std::sync::OnceLock::new();
+
+fn get_orchestrator() -> &'static std::sync::Mutex<notebook_query::orchestrator::MetaOrchestrator> {
+    ORCHESTRATOR.get_or_init(|| {
+        std::sync::Mutex::new(notebook_query::orchestrator::MetaOrchestrator::new())
+    })
+}
+
+/// GET /api/orchestrator/status — current mode, topology, efficiency, mode switches.
+async fn orchestrator_status_handler() -> Json<serde_json::Value> {
+    let orch = get_orchestrator().lock().unwrap();
+    Json(serde_json::to_value(orch.snapshot()).unwrap_or_default())
+}
+
+/// POST /api/orchestrator/step — execute one orchestration step.
+///
+/// Request body (optional): `{ "quality": 0.8 }` to record the outcome of the previous step.
+/// Response: the next style to execute + why it was chosen.
+async fn orchestrator_step_handler(
+    body: Option<Json<serde_json::Value>>,
+) -> Json<serde_json::Value> {
+    let mut orch = get_orchestrator().lock().unwrap();
+
+    // If quality is provided, record the outcome of the previous step.
+    if let Some(Json(body)) = body {
+        if let Some(quality) = body.get("quality").and_then(|v| v.as_f64()) {
+            if let Some(style_name) = body.get("style").and_then(|v| v.as_str()) {
+                let style = match style_name {
+                    "plan" => notebook_query::orchestrator::AgentStyle::Plan,
+                    "act" => notebook_query::orchestrator::AgentStyle::Act,
+                    "explore" => notebook_query::orchestrator::AgentStyle::Explore,
+                    "reflex" => notebook_query::orchestrator::AgentStyle::Reflex,
+                    _ => notebook_query::orchestrator::AgentStyle::Plan,
+                };
+                orch.record_outcome(style, quality as f32);
+            }
+        }
+    }
+
+    let result = orch.select_next();
+    Json(serde_json::to_value(result).unwrap_or_default())
 }
 
 // ── Political Analyst Savant ──────────────────────────────────────────────────
