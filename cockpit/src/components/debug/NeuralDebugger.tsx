@@ -3,6 +3,10 @@ import { useNeuralDiagnosis } from '../../hooks/useNeuralDiagnosis';
 import { NeuralMap } from './NeuralMap';
 import { NeuronGrid } from './NeuronGrid';
 import { ResonanceViz } from './viz/ResonanceViz';
+import { WaveformMode } from './viz/WaveformMode';
+import { BrainMriMode } from './viz/BrainMriMode';
+
+type VizMode = 'resonance' | 'waveform' | 'brain-mri';
 
 interface NeuralDebuggerProps {
   onBack: () => void;
@@ -12,6 +16,7 @@ export function NeuralDebugger({ onBack }: NeuralDebuggerProps) {
   const { diagnosis, loading, error, load } = useNeuralDiagnosis();
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [showViz, setShowViz] = useState(true);
+  const [vizMode, setVizMode] = useState<VizMode>('brain-mri');
 
   useEffect(() => { load(); }, [load]);
 
@@ -57,16 +62,20 @@ export function NeuralDebugger({ onBack }: NeuralDebuggerProps) {
           <span className="badge">{diagnosis.scan_duration_ms}ms scan</span>
         </div>
         <div className="neural-topbar-right">
-          <button
-            className={`pill ${showViz ? 'active' : ''}`}
-            onClick={() => setShowViz(true)}
-          >
-            Visualization
+          <button className={`pill ${showViz && vizMode === 'brain-mri' ? 'active' : ''}`}
+            onClick={() => { setShowViz(true); setVizMode('brain-mri'); }}>
+            Brain MRI
           </button>
-          <button
-            className={`pill ${!showViz ? 'active' : ''}`}
-            onClick={() => setShowViz(false)}
-          >
+          <button className={`pill ${showViz && vizMode === 'waveform' ? 'active' : ''}`}
+            onClick={() => { setShowViz(true); setVizMode('waveform'); }}>
+            Waveform
+          </button>
+          <button className={`pill ${showViz && vizMode === 'resonance' ? 'active' : ''}`}
+            onClick={() => { setShowViz(true); setVizMode('resonance'); }}>
+            Resonance
+          </button>
+          <button className={`pill ${!showViz ? 'active' : ''}`}
+            onClick={() => setShowViz(false)}>
             Module Grid
           </button>
         </div>
@@ -77,7 +86,9 @@ export function NeuralDebugger({ onBack }: NeuralDebuggerProps) {
         {showViz ? (
           <div className="neural-viz-layout">
             <div className="neural-viz-main">
-              <ResonanceViz diagnosis={diagnosis} />
+              {vizMode === 'brain-mri' && <BrainMriMode diagnosis={diagnosis} />}
+              {vizMode === 'waveform' && <WaveformMode diagnosis={diagnosis} />}
+              {vizMode === 'resonance' && <ResonanceViz diagnosis={diagnosis} />}
             </div>
             <div className="neural-viz-sidebar">
               <NeuralMap
