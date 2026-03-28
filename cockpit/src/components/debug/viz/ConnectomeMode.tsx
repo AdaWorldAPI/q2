@@ -53,8 +53,8 @@ export function ConnectomeMode({ diagnosis }: ConnectomeModeProps) {
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
-    const w = container.clientWidth;
-    const h = container.clientHeight;
+    let w = container.clientWidth;
+    let h = container.clientHeight;
     if (w === 0 || h === 0) return;
 
     const scene = new THREE.Scene();
@@ -82,6 +82,7 @@ export function ConnectomeMode({ diagnosis }: ConnectomeModeProps) {
       mesh: THREE.Mesh;
     }
     const neurons: NeuronData[] = [];
+    const rings: THREE.Mesh[] = []; // dead-neuron rings that billboard toward camera
 
     // Create neuron meshes with glow
     const neuronGeom = new THREE.SphereGeometry(1, 16, 12);
@@ -127,6 +128,7 @@ export function ConnectomeMode({ diagnosis }: ConnectomeModeProps) {
           ring.position.copy(pos);
           ring.lookAt(camera.position);
           scene.add(ring);
+          rings.push(ring);
         }
 
         neurons.push({
@@ -210,6 +212,11 @@ export function ConnectomeMode({ diagnosis }: ConnectomeModeProps) {
         baseMat.opacity = (n.state === 'healthy' ? 0.85 : 0.55) + pulse;
       }
 
+      // Billboard dead-neuron rings toward camera
+      for (const ring of rings) {
+        ring.lookAt(camera.position);
+      }
+
       // Update label positions (project 3D → 2D)
       for (const { el, neuron } of labelEls) {
         const vec = neuron.pos.clone().project(camera);
@@ -230,11 +237,11 @@ export function ConnectomeMode({ diagnosis }: ConnectomeModeProps) {
     animate();
 
     const handleResize = () => {
-      const nw = container.clientWidth;
-      const nh = container.clientHeight;
-      camera.aspect = nw / nh;
+      w = container.clientWidth;
+      h = container.clientHeight;
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      renderer.setSize(nw, nh);
+      renderer.setSize(w, h);
     };
     window.addEventListener('resize', handleResize);
 
