@@ -1,21 +1,26 @@
-//! Meta-aware agent orchestrator with NARS reinforcement learning.
+//! Meta-aware agent orchestrator with NARS reinforcement learning + MUL.
 //!
-//! Two modes, transparent switching:
+//! Three layers of self-awareness, transparent switching:
 //!
-//! 1. **Adaptive** (default): NARS topology learns which thinking style sequences
+//! 1. **MUL (Meta-Uncertainty Layer)**: Before every step, assesses epistemic state.
+//!    Dunning-Kruger position gates which styles are allowed. Trust texture modulates
+//!    exploration rate. Flow state adjusts patience thresholds. Compass can override
+//!    both adaptive and hardcoded modes.
+//!
+//! 2. **Adaptive** (default): NARS topology learns which thinking style sequences
 //!    produce good outcomes. Each style pair (A→B) gets a truth value. High-confidence
-//!    edges fire; low-confidence edges get explored. The sigma chain
-//!    Ω→Δ→Φ→Θ→Λ provides the backbone; NARS confidence determines whether
-//!    to escalate, loop, or terminate at each stage.
+//!    edges fire; low-confidence edges get explored. MUL's `free_will_modifier`
+//!    scales the topology's expected quality — low free will = distrust the learned weights.
 //!
-//! 2. **Hardcoded fallback**: When adaptive mode's efficiency drops below threshold,
-//!    the system transparently switches to the classic plan→act→explore→reflex
-//!    loop. The MRI endpoint reports which mode is active and why.
+//! 3. **Hardcoded fallback**: When MUL-adjusted efficiency drops below threshold,
+//!    transparently switches to the classic plan→act→explore→reflex loop.
+//!    The MRI endpoint reports which mode is active, MUL assessment, and why.
 //!
-//! The meta-awareness layer monitors its OWN efficiency: if the RL-tuned styles
-//! produce worse outcomes than the hardcoded baseline, it falls back. If the
-//! hardcoded baseline gets stale, it re-enables adaptive mode with an exploration
-//! burst.
+//! The meta-awareness monitors BOTH its own efficiency AND its epistemic position:
+//! - Mount Stupid detected? → Force sandbox, don't act on false confidence
+//! - Valley of Despair? → Increase exploration, the system is learning
+//! - Plateau of Mastery? → Full exploit, trust the topology
+//! - Compass says Explore? → Override topology, go to unexplored territory
 //!
 //! # Architecture
 //!
@@ -58,8 +63,214 @@ const MIN_OBSERVATIONS: usize = 5;
 /// Rolling window size for efficiency calculation.
 const WINDOW_SIZE: usize = 20;
 
-/// Exploration probability when adaptive mode has low confidence.
-const EXPLORATION_RATE: f32 = 0.15;
+/// Base exploration probability when adaptive mode has low confidence.
+const BASE_EXPLORATION_RATE: f32 = 0.15;
+
+// ============================================================================
+// MUL Assessment — Meta-Uncertainty Layer
+// ============================================================================
+
+/// Dunning-Kruger position on the confidence curve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DkPosition {
+    /// HIGH confidence, LOW experience — DANGEROUS. Block autonomous action.
+    MountStupid,
+    /// Aware of gaps, cautious. Increase exploration.
+    ValleyOfDespair,
+    /// Building real competence. Normal operation.
+    SlopeOfEnlightenment,
+    /// Calibrated confidence. Full exploit.
+    PlateauOfMastery,
+}
+
+impl DkPosition {
+    /// Humility factor: discounts confidence based on DK position.
+    pub fn humility_factor(&self) -> f32 {
+        match self {
+            Self::MountStupid => 0.3,
+            Self::ValleyOfDespair => 0.7,
+            Self::SlopeOfEnlightenment => 0.85,
+            Self::PlateauOfMastery => 1.0,
+        }
+    }
+
+    /// Exploration rate modifier: how much to explore vs exploit.
+    pub fn exploration_modifier(&self) -> f32 {
+        match self {
+            Self::MountStupid => 0.0,         // Don't explore, you're overconfident
+            Self::ValleyOfDespair => 2.0,      // Explore heavily, you're learning
+            Self::SlopeOfEnlightenment => 1.0, // Normal
+            Self::PlateauOfMastery => 0.5,     // Exploit more, you've earned it
+        }
+    }
+
+    /// Whether this position is safe for autonomous adaptive action.
+    pub fn allows_adaptive(&self) -> bool {
+        !matches!(self, Self::MountStupid)
+    }
+}
+
+/// Trust texture — how much to trust the data sources and environment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TrustTexture {
+    /// High reliability, stable environment. Trust topology weights.
+    Crystalline,
+    /// Moderate reliability. Normal operation.
+    Fibrous,
+    /// Low reliability, unstable environment. Distrust learned weights.
+    Fuzzy,
+}
+
+impl TrustTexture {
+    /// Trust factor: scales topology confidence.
+    pub fn trust_factor(&self) -> f32 {
+        match self {
+            Self::Crystalline => 1.0,
+            Self::Fibrous => 0.7,
+            Self::Fuzzy => 0.4,
+        }
+    }
+}
+
+/// Flow state — current cognitive load and engagement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FlowState {
+    /// Optimal: challenge matches skill. Normal thresholds.
+    Flow,
+    /// Under-stimulated. Widen thresholds, increase exploration.
+    Boredom,
+    /// Over-stimulated. Tighten thresholds, prefer known-good styles.
+    Anxiety,
+    /// Disengaged. Minimal processing, fast fallback.
+    Apathy,
+}
+
+impl FlowState {
+    /// Patience modifier: adjusts how long before fallback triggers.
+    pub fn patience_modifier(&self) -> f32 {
+        match self {
+            Self::Flow => 1.0,
+            Self::Boredom => 1.5,   // More patient, try more things
+            Self::Anxiety => 0.5,   // Less patient, fallback sooner
+            Self::Apathy => 0.25,   // Very impatient
+        }
+    }
+}
+
+/// Compass override — when the map runs out, the compass decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CompassDecision {
+    /// No override. Let topology/hardcoded decide.
+    None,
+    /// Force exploration regardless of topology weights.
+    ForceExplore,
+    /// Force sandbox — block all autonomous action.
+    ForceSandbox,
+}
+
+/// Complete MUL assessment for one orchestrator step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MulAssessment {
+    pub dk_position: DkPosition,
+    pub trust: TrustTexture,
+    pub flow: FlowState,
+    pub compass: CompassDecision,
+    /// Combined modifier: DK humility × trust × flow patience. Range [0.0, 1.5].
+    pub free_will_modifier: f32,
+    /// Effective exploration rate after MUL adjustment.
+    pub effective_exploration_rate: f32,
+    /// Effective fallback threshold after flow adjustment.
+    pub effective_fallback_threshold: f32,
+}
+
+impl MulAssessment {
+    /// Compute from raw signals.
+    pub fn assess(
+        felt_competence: f32,
+        demonstrated_competence: f32,
+        source_reliability: f32,
+        environment_stability: f32,
+        challenge_skill_ratio: f32,
+    ) -> Self {
+        // Dunning-Kruger detection
+        let gap = felt_competence - demonstrated_competence;
+        let dk_position = if gap > 0.3 && demonstrated_competence < 0.4 {
+            DkPosition::MountStupid
+        } else if felt_competence < 0.4 && demonstrated_competence < 0.5 {
+            DkPosition::ValleyOfDespair
+        } else if demonstrated_competence > 0.7 && gap.abs() < 0.15 {
+            DkPosition::PlateauOfMastery
+        } else {
+            DkPosition::SlopeOfEnlightenment
+        };
+
+        // Trust texture
+        let trust_score = source_reliability * 0.5 + environment_stability * 0.5;
+        let trust = if trust_score > 0.8 {
+            TrustTexture::Crystalline
+        } else if trust_score > 0.5 {
+            TrustTexture::Fibrous
+        } else {
+            TrustTexture::Fuzzy
+        };
+
+        // Flow state from challenge/skill ratio
+        let flow = if challenge_skill_ratio > 0.4 && challenge_skill_ratio < 0.7 {
+            FlowState::Flow
+        } else if challenge_skill_ratio < 0.2 {
+            FlowState::Boredom
+        } else if challenge_skill_ratio > 0.85 {
+            FlowState::Anxiety
+        } else if challenge_skill_ratio < 0.05 {
+            FlowState::Apathy
+        } else {
+            FlowState::Flow
+        };
+
+        // Compass override
+        let compass = if dk_position == DkPosition::MountStupid {
+            CompassDecision::ForceSandbox
+        } else if dk_position == DkPosition::ValleyOfDespair
+            && demonstrated_competence < 0.2
+        {
+            CompassDecision::ForceExplore
+        } else {
+            CompassDecision::None
+        };
+
+        let free_will = dk_position.humility_factor()
+            * trust.trust_factor()
+            * flow.patience_modifier();
+
+        let exploration_rate =
+            BASE_EXPLORATION_RATE * dk_position.exploration_modifier() * trust.trust_factor();
+
+        let fallback_threshold = FALLBACK_THRESHOLD / flow.patience_modifier();
+
+        Self {
+            dk_position,
+            trust,
+            flow,
+            compass,
+            free_will_modifier: free_will,
+            effective_exploration_rate: exploration_rate.clamp(0.0, 0.8),
+            effective_fallback_threshold: fallback_threshold.clamp(0.1, 0.8),
+        }
+    }
+
+    /// Quick assessment from rolling efficiency (when no external signals).
+    /// Uses efficiency as a proxy for demonstrated competence, and
+    /// topology confidence as felt competence.
+    pub fn from_efficiency(efficiency: f32, topology_confidence: f32) -> Self {
+        Self::assess(
+            topology_confidence,    // felt = how confident the topology is
+            efficiency,             // demonstrated = actual rolling efficiency
+            0.7,                    // default source reliability
+            0.8,                    // default environment stability
+            (efficiency - 0.3).abs().clamp(0.0, 1.0), // challenge ~ distance from mediocrity
+        )
+    }
+}
 
 // ============================================================================
 // Thinking Styles (maps to lance-graph-planner ThinkingStyle)
@@ -315,6 +526,8 @@ pub struct MetaOrchestrator {
     pub fallback_position: usize,
     /// Steps spent in current mode.
     pub steps_in_current_mode: usize,
+    /// Latest MUL assessment.
+    pub last_mul: MulAssessment,
 }
 
 /// The result of one orchestrator step.
@@ -326,6 +539,8 @@ pub struct StepResult {
     pub mode: OrchestratorMode,
     /// Why this style was selected.
     pub reason: StepReason,
+    /// MUL assessment at time of selection.
+    pub mul: MulAssessment,
     /// Rolling efficiency at time of selection.
     pub efficiency: f32,
     /// Step number.
@@ -335,18 +550,25 @@ pub struct StepResult {
 /// Why a particular style was chosen.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StepReason {
-    /// NARS topology selected this as highest expected quality.
+    /// NARS topology selected this as highest expected quality (scaled by MUL free_will).
     TopologyExploit {
         expected_quality: f64,
         confidence: f64,
     },
     /// Exploration: picked least-observed edge for information gain.
+    /// Exploration rate was modulated by DK position + trust texture.
     TopologyExplore {
         observations: u64,
     },
-    /// Hardcoded sequence position.
+    /// Hardcoded sequence position (fallback mode).
     HardcodedSequence {
         position: usize,
+    },
+    /// MUL compass/DK override — forced a specific style regardless of topology.
+    MulOverride {
+        dk: DkPosition,
+        compass: CompassDecision,
+        explanation: String,
     },
 }
 
@@ -362,6 +584,7 @@ impl MetaOrchestrator {
             mode_switches: Vec::new(),
             fallback_position: 0,
             steps_in_current_mode: 0,
+            last_mul: MulAssessment::from_efficiency(0.5, 0.5),
         }
     }
 
@@ -373,43 +596,123 @@ impl MetaOrchestrator {
         self.quality_window.iter().sum::<f32>() / self.quality_window.len() as f32
     }
 
-    /// Select the next style to execute.
+    /// Select the next style to execute, modulated by MUL assessment.
     ///
-    /// In adaptive mode: NARS topology selects based on learned weights.
-    /// In fallback mode: follows plan→act→explore→reflex sequence.
+    /// The MUL layer runs BEFORE style selection:
+    /// 1. Assess DK position from efficiency (demonstrated) vs topology confidence (felt)
+    /// 2. Mount Stupid? → Force sandbox (return Reflex only, block everything else)
+    /// 3. Compass says ForceExplore? → Override topology, return Explore
+    /// 4. Flow state adjusts fallback threshold and exploration rate
+    /// 5. Trust texture scales topology edge confidence
+    /// 6. Then: adaptive (NARS topology × MUL free_will) or hardcoded fallback
     pub fn select_next(&mut self) -> StepResult {
         self.step_count += 1;
         self.steps_in_current_mode += 1;
 
-        let (style, reason) = match self.mode {
-            OrchestratorMode::Adaptive => {
-                let current = self.last_style.unwrap_or(AgentStyle::Plan);
-                let next = self.topology.select_next(current, self.step_count);
-                let edge = self.topology.edge(current, next);
+        // ── MUL Assessment ──
+        let avg_confidence = self.topology.edges.values()
+            .filter(|e| e.observations > 0)
+            .map(|e| e.truth.confidence)
+            .sum::<f64>()
+            / self.topology.edges.values().filter(|e| e.observations > 0).count().max(1) as f64;
+        let mul = MulAssessment::from_efficiency(self.rolling_efficiency(), avg_confidence as f32);
+        self.last_mul = mul.clone();
 
-                let reason = if ((self.step_count.wrapping_mul(0x9E3779B97F4A7C15)) >> 56) as f32
-                    / 256.0
-                    < EXPLORATION_RATE
-                {
-                    StepReason::TopologyExplore {
-                        observations: edge.observations,
+        // ── Compass Override ──
+        if mul.compass == CompassDecision::ForceSandbox {
+            return StepResult {
+                style: AgentStyle::Reflex,
+                mode: self.mode,
+                reason: StepReason::MulOverride {
+                    dk: mul.dk_position,
+                    compass: mul.compass,
+                    explanation: "Mount Stupid detected — sandboxing to Reflex only".into(),
+                },
+                mul,
+                efficiency: self.rolling_efficiency(),
+                step: self.step_count,
+            };
+        }
+
+        if mul.compass == CompassDecision::ForceExplore {
+            return StepResult {
+                style: AgentStyle::Explore,
+                mode: self.mode,
+                reason: StepReason::MulOverride {
+                    dk: mul.dk_position,
+                    compass: mul.compass,
+                    explanation: "Valley of Despair + low competence — compass forces exploration".into(),
+                },
+                mul,
+                efficiency: self.rolling_efficiency(),
+                step: self.step_count,
+            };
+        }
+
+        // ── Mode-dependent selection with MUL modulation ──
+        let (style, reason) = match self.mode {
+            OrchestratorMode::Adaptive if mul.dk_position.allows_adaptive() => {
+                let current = self.last_style.unwrap_or(AgentStyle::Plan);
+
+                // Use MUL-adjusted exploration rate
+                let pseudo_random =
+                    ((self.step_count.wrapping_mul(0x9E3779B97F4A7C15)) >> 56) as f32 / 256.0;
+
+                if pseudo_random < mul.effective_exploration_rate {
+                    // Explore: pick least observed edge (maximize information gain)
+                    let mut best = AgentStyle::Plan;
+                    let mut min_obs = u64::MAX;
+                    for &to in AgentStyle::all() {
+                        let edge = self.topology.edge(current, to);
+                        if edge.observations < min_obs {
+                            min_obs = edge.observations;
+                            best = to;
+                        }
                     }
+                    (
+                        best,
+                        StepReason::TopologyExplore {
+                            observations: min_obs,
+                        },
+                    )
                 } else {
-                    StepReason::TopologyExploit {
-                        expected_quality: edge.expected_quality(),
-                        confidence: edge.truth.confidence,
+                    // Exploit: pick highest expected quality, SCALED by MUL free_will
+                    let mut best = AgentStyle::Plan;
+                    let mut best_eq = f64::NEG_INFINITY;
+                    for &to in AgentStyle::all() {
+                        let eq = self.topology.edge(current, to).expected_quality()
+                            * mul.free_will_modifier as f64;
+                        if eq > best_eq {
+                            best_eq = eq;
+                            best = to;
+                        }
                     }
-                };
-                (next, reason)
+                    let edge = self.topology.edge(current, best);
+                    (
+                        best,
+                        StepReason::TopologyExploit {
+                            expected_quality: best_eq,
+                            confidence: edge.truth.confidence * mul.trust.trust_factor() as f64,
+                        },
+                    )
+                }
+            }
+            // Mount Stupid in adaptive mode → force fallback
+            OrchestratorMode::Adaptive => {
+                self.switch_mode(
+                    OrchestratorMode::HardcodedFallback,
+                    format!("DK position {:?} blocks adaptive mode", mul.dk_position),
+                );
+                let seq = AgentStyle::hardcoded_sequence();
+                let pos = self.fallback_position % seq.len();
+                self.fallback_position += 1;
+                (seq[pos], StepReason::HardcodedSequence { position: pos })
             }
             OrchestratorMode::HardcodedFallback => {
                 let seq = AgentStyle::hardcoded_sequence();
                 let pos = self.fallback_position % seq.len();
                 self.fallback_position += 1;
-                (
-                    seq[pos],
-                    StepReason::HardcodedSequence { position: pos },
-                )
+                (seq[pos], StepReason::HardcodedSequence { position: pos })
             }
         };
 
@@ -417,6 +720,7 @@ impl MetaOrchestrator {
             style,
             mode: self.mode,
             reason,
+            mul,
             efficiency: self.rolling_efficiency(),
             step: self.step_count,
         }
@@ -441,24 +745,27 @@ impl MetaOrchestrator {
         self.last_style = Some(style);
 
         // Meta-awareness: check if we should switch modes.
+        // Uses MUL-adjusted thresholds (flow state modifies patience).
         if self.quality_window.len() >= MIN_OBSERVATIONS {
             let eff = self.rolling_efficiency();
+            let adjusted_fallback = self.last_mul.effective_fallback_threshold;
+            let adjusted_restore = RESTORE_THRESHOLD * self.last_mul.flow.patience_modifier();
             match self.mode {
-                OrchestratorMode::Adaptive if eff < FALLBACK_THRESHOLD => {
+                OrchestratorMode::Adaptive if eff < adjusted_fallback => {
                     self.switch_mode(
                         OrchestratorMode::HardcodedFallback,
                         format!(
-                            "Adaptive efficiency {:.2} < threshold {:.2} after {} steps",
-                            eff, FALLBACK_THRESHOLD, self.steps_in_current_mode
+                            "Adaptive efficiency {:.2} < MUL-adjusted threshold {:.2} (DK={:?}, Flow={:?}) after {} steps",
+                            eff, adjusted_fallback, self.last_mul.dk_position, self.last_mul.flow, self.steps_in_current_mode
                         ),
                     );
                 }
-                OrchestratorMode::HardcodedFallback if eff > RESTORE_THRESHOLD => {
+                OrchestratorMode::HardcodedFallback if eff > adjusted_restore => {
                     self.switch_mode(
                         OrchestratorMode::Adaptive,
                         format!(
-                            "Fallback efficiency {:.2} > restore threshold {:.2}, re-enabling adaptive",
-                            eff, RESTORE_THRESHOLD
+                            "Fallback efficiency {:.2} > MUL-adjusted restore {:.2} (DK={:?}), re-enabling adaptive",
+                            eff, adjusted_restore, self.last_mul.dk_position
                         ),
                     );
                 }
@@ -491,8 +798,9 @@ impl MetaOrchestrator {
             topology: self.topology.snapshot(),
             mode_switches: self.mode_switches.clone(),
             last_style: self.last_style.map(|s| s.name().to_string()),
-            fallback_threshold: FALLBACK_THRESHOLD,
-            restore_threshold: RESTORE_THRESHOLD,
+            mul: self.last_mul.clone(),
+            fallback_threshold: self.last_mul.effective_fallback_threshold,
+            restore_threshold: RESTORE_THRESHOLD * self.last_mul.flow.patience_modifier(),
         }
     }
 }
@@ -513,6 +821,7 @@ pub struct OrchestratorSnapshot {
     pub topology: Vec<TopologyEdgeSnapshot>,
     pub mode_switches: Vec<ModeSwitchEvent>,
     pub last_style: Option<String>,
+    pub mul: MulAssessment,
     pub fallback_threshold: f32,
     pub restore_threshold: f32,
 }
@@ -651,7 +960,7 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot() {
+    fn test_snapshot_includes_mul() {
         let mut orch = MetaOrchestrator::new();
         let r = orch.select_next();
         orch.record_outcome(r.style, 0.7);
@@ -661,6 +970,8 @@ mod tests {
         assert_eq!(snap.step_count, 1);
         // 4×4 = 16 topology edges.
         assert_eq!(snap.topology.len(), 16);
+        // MUL assessment should be present.
+        assert!(snap.mul.free_will_modifier > 0.0);
     }
 
     #[test]
@@ -674,8 +985,46 @@ mod tests {
         let last_switch = orch.mode_switches.last().unwrap();
         assert_eq!(last_switch.from, OrchestratorMode::Adaptive);
         assert_eq!(last_switch.to, OrchestratorMode::HardcodedFallback);
-        assert!(last_switch.efficiency_at_switch < FALLBACK_THRESHOLD);
-        assert!(last_switch.reason.contains("efficiency"));
+        assert!(last_switch.reason.contains("efficiency") || last_switch.reason.contains("DK"));
+    }
+
+    #[test]
+    fn test_mul_mount_stupid_forces_sandbox() {
+        let mul = MulAssessment::assess(0.95, 0.1, 0.5, 0.5, 0.5);
+        assert_eq!(mul.dk_position, DkPosition::MountStupid);
+        assert_eq!(mul.compass, CompassDecision::ForceSandbox);
+        assert!(!mul.dk_position.allows_adaptive());
+    }
+
+    #[test]
+    fn test_mul_valley_increases_exploration() {
+        let valley = MulAssessment::assess(0.2, 0.3, 0.7, 0.8, 0.5);
+        let plateau = MulAssessment::assess(0.8, 0.85, 0.9, 0.9, 0.5);
+        // Valley should have higher exploration rate than Plateau.
+        assert!(valley.effective_exploration_rate > plateau.effective_exploration_rate);
+    }
+
+    #[test]
+    fn test_mul_anxiety_tightens_fallback() {
+        let flow = MulAssessment::assess(0.6, 0.6, 0.7, 0.8, 0.5);
+        let anxious = MulAssessment::assess(0.6, 0.6, 0.7, 0.8, 0.95);
+        // Anxiety should have tighter (higher) fallback threshold.
+        assert!(anxious.effective_fallback_threshold > flow.effective_fallback_threshold);
+    }
+
+    #[test]
+    fn test_mul_crystalline_trusts_topology() {
+        let crystalline = MulAssessment::assess(0.7, 0.75, 0.95, 0.95, 0.5);
+        let fuzzy = MulAssessment::assess(0.7, 0.75, 0.3, 0.3, 0.5);
+        assert!(crystalline.free_will_modifier > fuzzy.free_will_modifier);
+    }
+
+    #[test]
+    fn test_step_result_has_mul() {
+        let mut orch = MetaOrchestrator::new();
+        let result = orch.select_next();
+        // MUL should always be present.
+        assert!(result.mul.free_will_modifier >= 0.0);
     }
 
     #[test]
