@@ -104,6 +104,10 @@ async fn main() {
         .route("/api/debug/strategies", get(strategy_check_handler))
         // Live OSINT pipeline audit — AriGraph health, NARS stats, xAI status
         .route("/api/debug/osint", get(osint_audit_handler))
+        // Brain MRI — plasticity, activation, NARS reasoning chains
+        .route("/mri", get(mri_page_handler))
+        .route("/api/mri/scan", get(mri_scan_handler))
+        .route("/api/mri/scan/:mode", get(mri_scan_mode_handler))
         // Political analyst — NARS causality chains through analytical buckets
         .route("/api/analyst/buckets", get(analyst_buckets_handler))
         .route("/api/analyst/analyze/:bucket", get(analyst_analyze_handler))
@@ -126,6 +130,7 @@ async fn main() {
     tracing::info!("  /demo   → infrastructure demo (24 seed nodes)");
     tracing::info!("  /debug  → neural debugger (18,763 functions)");
     tracing::info!("  /api/debug/osint → live OSINT pipeline audit (AriGraph + NARS + xAI)");
+    tracing::info!("  /mri             → AGI Brain MRI (plasticity, activation, reasoning)");
     tracing::info!("  /mcp/*  → MCP endpoints (lance-graph)");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -446,6 +451,129 @@ async fn osint_audit_handler() -> Json<serde_json::Value> {
         Ok(audit) => Json(serde_json::to_value(audit).unwrap_or_default()),
         Err(e) => Json(serde_json::json!({
             "error": format!("OSINT audit failed: {}", e),
+        })),
+    }
+}
+
+// ── Brain MRI ───────────────────────────────────────────────────────────────
+
+/// Serve the MRI page (SPA fallback handles rendering).
+async fn mri_page_handler() -> axum::response::Html<String> {
+    axum::response::Html(format!(
+        r#"<!DOCTYPE html>
+<html><head><title>AGI Brain MRI</title><meta charset="utf-8">
+<style>
+body {{ font-family: monospace; background: #0a0a0a; color: #00ff88; padding: 2em; }}
+h1 {{ color: #00ccff; }}
+.region {{ border: 1px solid #333; padding: 1em; margin: 0.5em 0; border-radius: 8px; }}
+.hot {{ border-color: #ff4444; background: rgba(255,68,68,0.1); }}
+.frozen {{ border-color: #4488ff; background: rgba(68,136,255,0.1); }}
+.active {{ border-color: #44ff44; background: rgba(68,255,68,0.1); }}
+.conflicted {{ border-color: #ffaa00; background: rgba(255,170,0,0.1); }}
+.bar {{ height: 12px; background: #00ff88; border-radius: 3px; transition: width 0.3s; }}
+pre {{ overflow-x: auto; font-size: 0.85em; }}
+</style></head>
+<body>
+<h1>🧠 AGI Brain MRI</h1>
+<p>Scan mode: <select id="mode" onchange="scan()">
+  <option value="structural">Structural</option>
+  <option value="functional">Functional</option>
+  <option value="full" selected>Full (DTI)</option>
+</select>
+<button onclick="scan()">🔄 Scan</button>
+<span id="status"></span></p>
+<div id="regions"></div>
+<h2>Plasticity Map</h2><div id="plasticity"></div>
+<h2>NARS Reasoning Chains</h2><div id="chains"></div>
+<h2>Findings</h2><div id="findings"></div>
+<h2>Raw JSON</h2><pre id="raw"></pre>
+<script>
+async function scan() {{
+  document.getElementById('status').textContent = 'Scanning...';
+  const mode = document.getElementById('mode').value;
+  const r = await fetch('/api/mri/scan/' + mode);
+  const data = await r.json();
+  document.getElementById('status').textContent = 'Health: ' + (data.health_score * 100).toFixed(0) + '%';
+
+  let html = '';
+  for (const reg of (data.regions || [])) {{
+    const cls = reg.plasticity > 0.5 ? 'hot' : reg.activation < 0.1 ? 'frozen' : 'active';
+    html += '<div class="region ' + cls + '"><b>' + reg.name + '</b>';
+    html += ' activation=' + (reg.activation * 100).toFixed(0) + '%';
+    html += ' plasticity=' + (reg.plasticity * 100).toFixed(0) + '%';
+    html += '<div class="bar" style="width:' + (reg.activation * 100) + '%"></div>';
+    for (const sub of (reg.sub_regions || [])) {{
+      html += '<div style="margin-left:2em">' + sub.name + ': ' + sub.calls + ' calls, ' + sub.status + '</div>';
+    }}
+    html += '</div>';
+  }}
+  document.getElementById('regions').innerHTML = html;
+
+  let phtml = '';
+  for (const p of (data.plasticity_map || [])) {{
+    const cls = p.state === 'conflicted' ? 'conflicted' : p.state === 'hot' ? 'hot' : p.state === 'frozen' ? 'frozen' : 'active';
+    phtml += '<div class="region ' + cls + '">' + p.entity + ': ' + p.state;
+    phtml += ' (conf=' + p.avg_confidence.toFixed(2) + ', rev=' + p.revisions + ', conflicts=' + p.contradictions + ')</div>';
+  }}
+  document.getElementById('plasticity').innerHTML = phtml || '<em>No entities tracked</em>';
+
+  let chtml = '';
+  for (const c of (data.reasoning_chains || [])) {{
+    chtml += '<div class="region active">Chain #' + c.id + ' (depth ' + c.depth + ', conf=' + c.final_truth.confidence.toFixed(3) + ')';
+    for (const s of c.steps) {{
+      chtml += '<div style="margin-left:2em">' + s.rule + ': ' + s.conclusion + '</div>';
+    }}
+    chtml += '</div>';
+  }}
+  document.getElementById('chains').innerHTML = chtml || '<em>No active reasoning chains</em>';
+
+  let fhtml = '<ul>';
+  for (const f of (data.findings || [])) {{
+    fhtml += '<li>' + f + '</li>';
+  }}
+  fhtml += '</ul>';
+  document.getElementById('findings').innerHTML = fhtml;
+  document.getElementById('raw').textContent = JSON.stringify(data, null, 2);
+}}
+scan();
+setInterval(scan, 5000);
+</script></body></html>"#
+    ))
+}
+
+/// JSON API: full brain MRI scan (default mode = full).
+async fn mri_scan_handler() -> Json<serde_json::Value> {
+    mri_scan_with_mode(notebook_query::mri::ScanMode::Full).await
+}
+
+/// JSON API: brain MRI scan with specific mode.
+async fn mri_scan_mode_handler(
+    axum::extract::Path(mode): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    let scan_mode = match mode.as_str() {
+        "structural" => notebook_query::mri::ScanMode::Structural,
+        "functional" => notebook_query::mri::ScanMode::Functional,
+        _ => notebook_query::mri::ScanMode::Full,
+    };
+    mri_scan_with_mode(scan_mode).await
+}
+
+async fn mri_scan_with_mode(scan_mode: notebook_query::mri::ScanMode) -> Json<serde_json::Value> {
+    let result = tokio::task::spawn_blocking(move || {
+        // In production, edges + entity_stats come from the live AriGraph.
+        // For now, return the pipeline registry data + empty graph.
+        let edges = Vec::new();
+        let entity_stats = std::collections::HashMap::new();
+        let thinking_activations = Vec::new();
+        notebook_query::mri::run_brain_mri(&edges, &entity_stats, &thinking_activations, scan_mode)
+    })
+    .await;
+
+    match result {
+        Ok(mri) => Json(serde_json::to_value(mri).unwrap_or_default()),
+        Err(e) => Json(serde_json::json!({
+            "error": format!("Brain MRI failed: {}", e),
+            "health_score": 0.0,
         })),
     }
 }
