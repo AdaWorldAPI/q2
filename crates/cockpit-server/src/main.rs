@@ -133,8 +133,11 @@ async fn main() {
     tracing::info!("  /demo   → infrastructure demo (24 seed nodes)");
     tracing::info!("  /debug  → neural debugger (18,763 functions)");
     tracing::info!("  /api/debug/osint → live OSINT pipeline audit (AriGraph + NARS + xAI)");
-    tracing::info!("  /mri             → AGI Brain MRI (plasticity, activation, reasoning)");
+    tracing::info!("  /mri             → AGI Brain MRI (pre-rendered, 500ms refresh, LazyLock double-buffer)");
     tracing::info!("  /mcp/*  → MCP endpoints (lance-graph)");
+
+    // Start background MRI pre-render (LazyLock double-buffer, 500ms refresh).
+    spawn_mri_prerender();
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app)
@@ -458,120 +461,250 @@ async fn osint_audit_handler() -> Json<serde_json::Value> {
     }
 }
 
-// ── Brain MRI ───────────────────────────────────────────────────────────────
+// ── Brain MRI — pre-rendered double-buffer (Rust 1.94 LazyLock) ─────────────
+//
+// Pattern: compute frame N+1 in background while serving frame N.
+// LazyLock initializes the cache on first access. A background tokio task
+// refreshes every 500ms. The HTTP handler reads the cached pre-rendered
+// HTML + JSON — zero compute on the request path.
+//
+// This is NOT a REST API. /mri serves a LangStudio-style web application.
+// The page arrives fully rendered (server-side) and then live-updates via
+// the pre-rendered JSON cache. No client-side fetch() on first paint.
 
-/// Serve the MRI page (SPA fallback handles rendering).
-async fn mri_page_handler() -> axum::response::Html<String> {
-    axum::response::Html(format!(
+use std::sync::LazyLock;
+use tokio::sync::RwLock as TokioRwLock;
+
+/// Pre-rendered MRI frame: HTML page + JSON data, computed in background.
+struct MriFrame {
+    /// Full HTML page with the latest scan data inlined as JSON.
+    html: String,
+    /// Raw JSON for the /api/mri/scan endpoint.
+    json: serde_json::Value,
+    /// When this frame was rendered (millis since epoch).
+    rendered_at_ms: u64,
+}
+
+impl Default for MriFrame {
+    fn default() -> Self {
+        let empty_json = serde_json::json!({
+            "scan_mode": "full",
+            "regions": [],
+            "plasticity_map": [],
+            "reasoning_chains": [],
+            "findings": ["Waiting for first scan..."],
+            "health_score": 0.0,
+            "dominant_mode": "idle",
+            "total_entities": 0,
+            "total_triplets": 0,
+            "pipeline_activation": [],
+            "thinking_styles": [],
+            "timestamp_ms": 0,
+        });
+        let html = render_mri_html(&empty_json);
+        Self { html, json: empty_json, rendered_at_ms: 0 }
+    }
+}
+
+/// Global double-buffer: LazyLock ensures one-time init, RwLock allows
+/// concurrent readers (HTTP handlers) with exclusive writer (background task).
+static MRI_CACHE: LazyLock<TokioRwLock<MriFrame>> =
+    LazyLock::new(|| TokioRwLock::new(MriFrame::default()));
+
+/// Static CSS — computed once at startup via LazyLock. Never changes.
+static MRI_CSS: LazyLock<String> = LazyLock::new(|| {
+    r#"
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'SF Mono', 'Fira Code', monospace; background: #0a0a0a; color: #00ff88; padding: 1.5em; }
+    h1 { color: #00ccff; margin-bottom: 0.5em; font-size: 1.4em; }
+    h2 { color: #888; margin: 1em 0 0.3em; font-size: 1em; border-bottom: 1px solid #222; padding-bottom: 0.2em; }
+    .header { display: flex; align-items: center; gap: 1em; margin-bottom: 1em; }
+    .header select, .header button { background: #1a1a2e; color: #00ff88; border: 1px solid #333; padding: 0.3em 0.8em; border-radius: 4px; cursor: pointer; }
+    .status { color: #ffaa00; font-size: 0.9em; }
+    .region { border: 1px solid #333; padding: 0.8em; margin: 0.3em 0; border-radius: 6px; transition: border-color 0.3s; }
+    .hot { border-color: #ff4444; background: rgba(255,68,68,0.08); }
+    .frozen { border-color: #4488ff; background: rgba(68,136,255,0.08); }
+    .active { border-color: #44ff44; background: rgba(68,255,68,0.08); }
+    .conflicted { border-color: #ffaa00; background: rgba(255,170,0,0.08); }
+    .bar { height: 8px; background: linear-gradient(90deg, #00ff88, #00ccff); border-radius: 3px; transition: width 0.5s ease-out; margin-top: 0.3em; }
+    .sub { margin-left: 1.5em; font-size: 0.85em; color: #999; }
+    .entity { display: inline-block; padding: 0.2em 0.6em; margin: 0.15em; border-radius: 4px; font-size: 0.8em; }
+    .chain { margin: 0.3em 0; padding: 0.5em; border-left: 3px solid #00ccff; }
+    .chain-step { margin-left: 1.5em; color: #aaa; font-size: 0.85em; }
+    .finding { color: #ffaa00; padding: 0.2em 0; }
+    pre { overflow-x: auto; font-size: 0.75em; background: #111; padding: 0.8em; border-radius: 4px; max-height: 300px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    "#.to_string()
+});
+
+/// Render the MRI HTML page with scan data inlined as JSON.
+/// The page loads instantly (no fetch on first paint) and then
+/// auto-refreshes by fetching the pre-rendered JSON every 500ms.
+fn render_mri_html(data: &serde_json::Value) -> String {
+    let json_str = serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string());
+    format!(
         r#"<!DOCTYPE html>
-<html><head><title>AGI Brain MRI</title><meta charset="utf-8">
-<style>
-body {{ font-family: monospace; background: #0a0a0a; color: #00ff88; padding: 2em; }}
-h1 {{ color: #00ccff; }}
-.region {{ border: 1px solid #333; padding: 1em; margin: 0.5em 0; border-radius: 8px; }}
-.hot {{ border-color: #ff4444; background: rgba(255,68,68,0.1); }}
-.frozen {{ border-color: #4488ff; background: rgba(68,136,255,0.1); }}
-.active {{ border-color: #44ff44; background: rgba(68,255,68,0.1); }}
-.conflicted {{ border-color: #ffaa00; background: rgba(255,170,0,0.1); }}
-.bar {{ height: 12px; background: #00ff88; border-radius: 3px; transition: width 0.3s; }}
-pre {{ overflow-x: auto; font-size: 0.85em; }}
-</style></head>
+<html><head><title>AGI Brain MRI</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>{css}</style></head>
 <body>
-<h1>🧠 AGI Brain MRI</h1>
-<p>Scan mode: <select id="mode" onchange="scan()">
-  <option value="structural">Structural</option>
-  <option value="functional">Functional</option>
-  <option value="full" selected>Full (DTI)</option>
-</select>
-<button onclick="scan()">🔄 Scan</button>
-<span id="status"></span></p>
-<div id="regions"></div>
-<h2>Plasticity Map</h2><div id="plasticity"></div>
+<div class="header">
+  <h1>&#129504; AGI Brain MRI</h1>
+  <select id="mode" onchange="scan()">
+    <option value="structural">Structural</option>
+    <option value="functional">Functional</option>
+    <option value="full" selected>Full (DTI)</option>
+  </select>
+  <span class="status" id="status">Pre-rendered</span>
+</div>
+<div class="grid">
+  <div><h2>Brain Regions</h2><div id="regions"></div></div>
+  <div><h2>Plasticity Map</h2><div id="plasticity"></div></div>
+</div>
 <h2>NARS Reasoning Chains</h2><div id="chains"></div>
 <h2>Findings</h2><div id="findings"></div>
-<h2>Raw JSON</h2><pre id="raw"></pre>
+<details><summary>Raw JSON</summary><pre id="raw"></pre></details>
 <script>
-async function scan() {{
-  document.getElementById('status').textContent = 'Scanning...';
-  const mode = document.getElementById('mode').value;
-  const r = await fetch('/api/mri/scan/' + mode);
-  const data = await r.json();
-  document.getElementById('status').textContent = 'Health: ' + (data.health_score * 100).toFixed(0) + '%';
+// First frame: inlined by the server (zero network latency on first paint).
+let cachedData = {json};
+render(cachedData);
+
+function render(data) {{
+  document.getElementById('status').textContent =
+    'Health: ' + (data.health_score * 100).toFixed(0) + '% | ' +
+    data.total_entities + ' entities | ' + data.total_triplets + ' triplets | ' +
+    (data.dominant_mode || 'idle');
 
   let html = '';
   for (const reg of (data.regions || [])) {{
     const cls = reg.plasticity > 0.5 ? 'hot' : reg.activation < 0.1 ? 'frozen' : 'active';
     html += '<div class="region ' + cls + '"><b>' + reg.name + '</b>';
-    html += ' activation=' + (reg.activation * 100).toFixed(0) + '%';
-    html += ' plasticity=' + (reg.plasticity * 100).toFixed(0) + '%';
-    html += '<div class="bar" style="width:' + (reg.activation * 100) + '%"></div>';
+    html += ' &nbsp; activation=' + (reg.activation * 100).toFixed(0) + '%';
+    html += ' &nbsp; plasticity=' + (reg.plasticity * 100).toFixed(0) + '%';
+    html += ' &nbsp; temp=' + (reg.temperature * 100).toFixed(0);
+    html += '<div class="bar" style="width:' + Math.max(2, reg.activation * 100) + '%"></div>';
     for (const sub of (reg.sub_regions || [])) {{
-      html += '<div style="margin-left:2em">' + sub.name + ': ' + sub.calls + ' calls, ' + sub.status + '</div>';
+      html += '<div class="sub">' + sub.name + ': ' + sub.calls + ' calls, ' + sub.avg_latency_us + 'us avg, ' + sub.status + '</div>';
     }}
     html += '</div>';
   }}
-  document.getElementById('regions').innerHTML = html;
+  document.getElementById('regions').innerHTML = html || '<em>No regions</em>';
 
   let phtml = '';
   for (const p of (data.plasticity_map || [])) {{
     const cls = p.state === 'conflicted' ? 'conflicted' : p.state === 'hot' ? 'hot' : p.state === 'frozen' ? 'frozen' : 'active';
-    phtml += '<div class="region ' + cls + '">' + p.entity + ': ' + p.state;
-    phtml += ' (conf=' + p.avg_confidence.toFixed(2) + ', rev=' + p.revisions + ', conflicts=' + p.contradictions + ')</div>';
+    phtml += '<div class="entity ' + cls + '">' + p.entity + ' <small>' + p.state;
+    phtml += ' c=' + p.avg_confidence.toFixed(2) + ' rev=' + p.revisions + '</small></div>';
   }}
   document.getElementById('plasticity').innerHTML = phtml || '<em>No entities tracked</em>';
 
   let chtml = '';
   for (const c of (data.reasoning_chains || [])) {{
-    chtml += '<div class="region active">Chain #' + c.id + ' (depth ' + c.depth + ', conf=' + c.final_truth.confidence.toFixed(3) + ')';
+    chtml += '<div class="chain">Chain #' + c.id + ' (depth ' + c.depth + ', conf=' + c.final_truth.confidence.toFixed(3) + ')';
     for (const s of c.steps) {{
-      chtml += '<div style="margin-left:2em">' + s.rule + ': ' + s.conclusion + '</div>';
+      chtml += '<div class="chain-step">' + s.rule + ': ' + s.conclusion + '</div>';
     }}
     chtml += '</div>';
   }}
-  document.getElementById('chains').innerHTML = chtml || '<em>No active reasoning chains</em>';
+  document.getElementById('chains').innerHTML = chtml || '<em>No active reasoning</em>';
 
-  let fhtml = '<ul>';
+  let fhtml = '';
   for (const f of (data.findings || [])) {{
-    fhtml += '<li>' + f + '</li>';
+    fhtml += '<div class="finding">&#x2022; ' + f + '</div>';
   }}
-  fhtml += '</ul>';
   document.getElementById('findings').innerHTML = fhtml;
   document.getElementById('raw').textContent = JSON.stringify(data, null, 2);
 }}
-scan();
-setInterval(scan, 5000);
-</script></body></html>"#
-    ))
+
+// Live refresh: fetch pre-rendered JSON every 500ms.
+// The server has already computed it — this is just a cache read.
+async function scan() {{
+  const mode = document.getElementById('mode').value;
+  try {{
+    const r = await fetch('/api/mri/scan/' + mode);
+    const data = await r.json();
+    render(data);
+  }} catch(e) {{
+    document.getElementById('status').textContent = 'Scan failed: ' + e;
+  }}
+}}
+setInterval(scan, 500);
+</script></body></html>"#,
+        css = *MRI_CSS,
+        json = json_str,
+    )
 }
 
-/// JSON API: full brain MRI scan (default mode = full).
+/// Spawn the background MRI pre-render task.
+/// Call this once during server startup. Refreshes the cache every 500ms.
+pub fn spawn_mri_prerender() {
+    tokio::spawn(async {
+        loop {
+            // Compute the scan in a blocking thread (CPU-bound).
+            let result = tokio::task::spawn_blocking(|| {
+                let edges = Vec::new();
+                let entity_stats = std::collections::HashMap::new();
+                let thinking_activations = Vec::new();
+                let mri = notebook_query::mri::run_brain_mri(
+                    &edges, &entity_stats, &thinking_activations,
+                    notebook_query::mri::ScanMode::Full,
+                );
+                serde_json::to_value(mri).unwrap_or_default()
+            })
+            .await;
+
+            if let Ok(json) = result {
+                let html = render_mri_html(&json);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let mut cache = MRI_CACHE.write().await;
+                cache.html = html;
+                cache.json = json;
+                cache.rendered_at_ms = now;
+            }
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    });
+}
+
+/// Serve the pre-rendered MRI web application. Zero compute on request path.
+async fn mri_page_handler() -> axum::response::Html<String> {
+    let cache = MRI_CACHE.read().await;
+    axum::response::Html(cache.html.clone())
+}
+
+/// JSON API: serve pre-rendered scan data. Zero compute on request path.
 async fn mri_scan_handler() -> Json<serde_json::Value> {
-    mri_scan_with_mode(notebook_query::mri::ScanMode::Full).await
+    let cache = MRI_CACHE.read().await;
+    Json(cache.json.clone())
 }
 
-/// JSON API: brain MRI scan with specific mode.
+/// JSON API: scan with mode (structural/functional/full).
+/// For non-full modes, compute on demand (they're fast enough).
 async fn mri_scan_mode_handler(
     axum::extract::Path(mode): axum::extract::Path<String>,
 ) -> Json<serde_json::Value> {
+    if mode == "full" {
+        // Serve from pre-rendered cache.
+        let cache = MRI_CACHE.read().await;
+        return Json(cache.json.clone());
+    }
+    // Structural and functional are lighter — compute on demand.
     let scan_mode = match mode.as_str() {
         "structural" => notebook_query::mri::ScanMode::Structural,
         "functional" => notebook_query::mri::ScanMode::Functional,
         _ => notebook_query::mri::ScanMode::Full,
     };
-    mri_scan_with_mode(scan_mode).await
-}
-
-async fn mri_scan_with_mode(scan_mode: notebook_query::mri::ScanMode) -> Json<serde_json::Value> {
     let result = tokio::task::spawn_blocking(move || {
-        // In production, edges + entity_stats come from the live AriGraph.
-        // For now, return the pipeline registry data + empty graph.
         let edges = Vec::new();
         let entity_stats = std::collections::HashMap::new();
         let thinking_activations = Vec::new();
         notebook_query::mri::run_brain_mri(&edges, &entity_stats, &thinking_activations, scan_mode)
     })
     .await;
-
     match result {
         Ok(mri) => Json(serde_json::to_value(mri).unwrap_or_default()),
         Err(e) => Json(serde_json::json!({
