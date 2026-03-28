@@ -27,3 +27,6 @@ ts-packages/*/dist/
 ts-packages/*/*.tsbuildinfo
 q2-demos/*/dist/
 crates/wasm-quarto-hub-client/pkg/
+
+# Git worktrees
+.worktrees/
