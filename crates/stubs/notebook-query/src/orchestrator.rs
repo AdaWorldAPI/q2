@@ -270,6 +270,340 @@ impl MulAssessment {
             (efficiency - 0.3).abs().clamp(0.0, 1.0), // challenge ~ distance from mediocrity
         )
     }
+
+    /// Self-regulated assessment from live graph signals.
+    ///
+    /// The graph's own entropy, contradiction rate, revision velocity, and
+    /// plasticity distribution become sensory input to MUL. The system's
+    /// epistemic position is derived from the knowledge it actually has,
+    /// not just from outcome quality.
+    ///
+    /// This is the self-awareness loop: graph state → DK position → style selection
+    /// → graph mutations → graph state changes → DK position shifts → ...
+    pub fn from_graph_signals(signals: &GraphSensorium, topology_confidence: f32) -> Self {
+        // Demonstrated competence: high when graph is consistent + growing.
+        // Low entropy + few contradictions + steady revision = mastery.
+        // High entropy + many contradictions + stalled revision = valley.
+        let consistency = 1.0 - signals.contradiction_rate;
+        let growth = signals.revision_velocity.clamp(0.0, 1.0);
+        let demonstrated = consistency * 0.6 + growth * 0.4;
+
+        // Felt competence: topology confidence (how sure the RL thinks it is).
+        let felt = topology_confidence;
+
+        // Source reliability: inverse of entropy. Low entropy = reliable, consistent sources.
+        let source_reliability = 1.0 - signals.truth_entropy;
+
+        // Environment stability: inverse of plasticity flux.
+        // If many entities are Hot (rapidly changing), the environment is unstable.
+        let stability = 1.0 - signals.plasticity_flux;
+
+        // Challenge/skill ratio: contradictions are the challenge,
+        // revision velocity is the skill to resolve them.
+        let challenge = signals.contradiction_rate;
+        let skill = signals.revision_velocity;
+        let challenge_skill = if skill > 0.01 {
+            (challenge / skill).clamp(0.0, 1.0)
+        } else if challenge > 0.1 {
+            0.95 // High challenge, no skill → Anxiety
+        } else {
+            0.1 // No challenge, no skill → Boredom
+        };
+
+        Self::assess(felt, demonstrated, source_reliability, stability, challenge_skill)
+    }
+}
+
+// ============================================================================
+// Graph Sensorium — real-time signals from the knowledge graph
+// ============================================================================
+
+/// Real-time signals from the knowledge graph for MUL self-regulation.
+///
+/// The graph's own state is the primary sensory input to the meta-awareness layer.
+/// These signals drive automatic style balancing: high contradiction rate
+/// triggers more Explore/Reflex; low entropy triggers more Plan/Act.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphSensorium {
+    /// Contradiction rate: contradictions / active_triplets. Range [0, 1].
+    /// High = lots of conflicting evidence → Valley of Despair, increase exploration.
+    /// Low = consistent knowledge → Slope or Plateau, increase exploitation.
+    pub contradiction_rate: f32,
+
+    /// Truth entropy: Shannon entropy of truth confidence distribution.
+    /// Normalized to [0, 1] where 0 = all triplets have same confidence,
+    /// 1 = uniform distribution across confidence bands.
+    /// High = uncertain about everything → increase exploration.
+    /// Low = confident knowledge → increase exploitation.
+    pub truth_entropy: f32,
+
+    /// Revision velocity: revisions_per_step over rolling window.
+    /// Range [0, 1] where 1 = every step produces a revision.
+    /// High = actively learning → keep current mode, the system is adapting.
+    /// Low = stagnant → either mastery (if consistent) or stuck (if inconsistent).
+    pub revision_velocity: f32,
+
+    /// Plasticity flux: fraction of entities in Hot state. Range [0, 1].
+    /// High = environment is changing rapidly → lower trust, increase exploration.
+    /// Low = stable environment → higher trust, increase exploitation.
+    pub plasticity_flux: f32,
+
+    /// Deduction yield: inferred_triplets / deduction_attempts. Range [0, 1].
+    /// High = graph structure supports rich inference → Plan/Act more.
+    /// Low = sparse graph, few chains → Explore more.
+    pub deduction_yield: f32,
+
+    /// Episodic saturation: episodes / capacity. Range [0, 1].
+    /// High = memory full → start forgetting or compressing.
+    pub episodic_saturation: f32,
+}
+
+impl GraphSensorium {
+    /// Compute from raw graph statistics.
+    pub fn compute(
+        active_triplets: usize,
+        contradictions: usize,
+        confidence_histogram: &[usize; 5], // [certain, strong, moderate, weak, unknown]
+        revisions_in_window: usize,
+        window_steps: usize,
+        hot_entities: usize,
+        total_entities: usize,
+        deduction_attempts: usize,
+        deductions_produced: usize,
+        episodic_count: usize,
+        episodic_capacity: usize,
+    ) -> Self {
+        let active = active_triplets.max(1) as f32;
+
+        let contradiction_rate = contradictions as f32 / active;
+
+        // Shannon entropy of confidence distribution
+        let total: f32 = confidence_histogram.iter().sum::<usize>() as f32;
+        let truth_entropy = if total > 0.0 {
+            let mut h = 0.0f32;
+            for &count in confidence_histogram {
+                if count > 0 {
+                    let p = count as f32 / total;
+                    h -= p * p.ln();
+                }
+            }
+            // Normalize by max entropy (ln(5) ≈ 1.609)
+            (h / 1.609).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let revision_velocity = if window_steps > 0 {
+            (revisions_in_window as f32 / window_steps as f32).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let plasticity_flux = if total_entities > 0 {
+            hot_entities as f32 / total_entities as f32
+        } else {
+            0.0
+        };
+
+        let deduction_yield = if deduction_attempts > 0 {
+            (deductions_produced as f32 / deduction_attempts as f32).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let episodic_saturation = if episodic_capacity > 0 {
+            episodic_count as f32 / episodic_capacity as f32
+        } else {
+            0.0
+        };
+
+        Self {
+            contradiction_rate,
+            truth_entropy,
+            revision_velocity,
+            plasticity_flux,
+            deduction_yield,
+            episodic_saturation,
+        }
+    }
+
+    /// What the graph signals suggest: explore more, exploit more, or panic.
+    pub fn suggested_bias(&self) -> GraphBias {
+        if self.contradiction_rate > 0.3 {
+            GraphBias::Resolve // Too many contradictions — focus on reflex/resolution
+        } else if self.truth_entropy > 0.7 {
+            GraphBias::Explore // Uncertain about everything — gather more evidence
+        } else if self.deduction_yield > 0.5 && self.truth_entropy < 0.3 {
+            GraphBias::Exploit // Rich consistent graph — exploit the knowledge
+        } else if self.plasticity_flux > 0.5 {
+            GraphBias::Adapt // Environment changing — stay flexible
+        } else if self.revision_velocity < 0.05 && self.truth_entropy > 0.4 {
+            GraphBias::Stagnant // Not learning + still uncertain — shake things up
+        } else {
+            GraphBias::Balanced // Normal operation
+        }
+    }
+}
+
+/// Graph-suggested cognitive bias.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GraphBias {
+    /// High contradictions — focus on resolution (Reflex/Metacognitive).
+    Resolve,
+    /// High entropy — gather evidence (Explore/Divergent).
+    Explore,
+    /// Rich consistent graph — use the knowledge (Plan/Act/Analytical).
+    Exploit,
+    /// High plasticity — stay flexible (Creative/Exploratory).
+    Adapt,
+    /// Low revision + high entropy — stuck, need perturbation.
+    Stagnant,
+    /// Normal — let topology decide.
+    Balanced,
+}
+
+// ============================================================================
+// NARS Auto-Heal Contingency
+// ============================================================================
+
+/// Actions the NARS auto-heal contingency can take to fix an unorganized graph.
+///
+/// When the graph has low truth scores, high entropy, or unresolved contradictions,
+/// the contingency fires automatically before the next style selection.
+/// This is the immune system: detect disease → apply remedy → measure recovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealingAction {
+    pub action: HealingType,
+    pub reason: String,
+    pub triplets_affected: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HealingType {
+    /// Run NARS revision on all triplets with very low confidence.
+    /// Sets confidence to `from_evidence(1, 0)` — weak but non-zero.
+    BootstrapTruth,
+    /// Run contradiction detection + resolution.
+    /// Contradicting triplets get their confidence reduced by revision with counter-evidence.
+    ResolveContradictions,
+    /// Run deduction to fill in missing links.
+    /// A→B and B→C produces A→C with deduced truth.
+    InferMissingLinks,
+    /// Compact soft-deleted triplets (garbage collection).
+    CompactDeleted,
+    /// Re-normalize truth values: scale all confidences so max = 0.95.
+    /// Prevents confidence inflation from repeated self-revision.
+    NormalizeTruth,
+    /// Reset topology: when the orchestrator's own learning is poisoned
+    /// by bad data, wipe the NARS edges and restart from uniform prior.
+    ResetTopology,
+}
+
+/// Determine what healing actions the graph needs.
+///
+/// Called automatically by the orchestrator when `update_sensorium()` detects
+/// graph health issues. Returns a prioritized list of healing actions.
+pub fn diagnose_healing(signals: &GraphSensorium) -> Vec<HealingAction> {
+    let mut actions = Vec::new();
+
+    // High contradiction rate → resolve contradictions first.
+    if signals.contradiction_rate > 0.15 {
+        actions.push(HealingAction {
+            action: HealingType::ResolveContradictions,
+            reason: format!(
+                "Contradiction rate {:.1}% exceeds 15% threshold",
+                signals.contradiction_rate * 100.0
+            ),
+            triplets_affected: 0, // Caller fills this in.
+        });
+    }
+
+    // High entropy + low revision = unorganized, truth scores not set properly.
+    if signals.truth_entropy > 0.6 && signals.revision_velocity < 0.1 {
+        actions.push(HealingAction {
+            action: HealingType::BootstrapTruth,
+            reason: format!(
+                "High entropy ({:.2}) + low revision velocity ({:.2}): truth values likely uninitialized",
+                signals.truth_entropy, signals.revision_velocity
+            ),
+            triplets_affected: 0,
+        });
+    }
+
+    // Low deduction yield with enough data → graph has gaps NARS can fill.
+    if signals.deduction_yield < 0.1 && signals.truth_entropy < 0.5 {
+        actions.push(HealingAction {
+            action: HealingType::InferMissingLinks,
+            reason: "Low deduction yield but consistent data — inference can fill gaps".into(),
+            triplets_affected: 0,
+        });
+    }
+
+    // High episodic saturation → compact deleted triplets to free memory.
+    if signals.episodic_saturation > 0.85 {
+        actions.push(HealingAction {
+            action: HealingType::CompactDeleted,
+            reason: format!(
+                "Episodic saturation {:.0}% — compact to free space",
+                signals.episodic_saturation * 100.0
+            ),
+            triplets_affected: 0,
+        });
+    }
+
+    // Very high truth entropy suggests truth inflation (everything at max confidence).
+    // Normalize to prevent overconfidence.
+    if signals.truth_entropy < 0.1 && signals.contradiction_rate < 0.05 {
+        actions.push(HealingAction {
+            action: HealingType::NormalizeTruth,
+            reason: "Very low entropy with few contradictions — possible truth inflation".into(),
+            triplets_affected: 0,
+        });
+    }
+
+    actions
+}
+
+impl MetaOrchestrator {
+    /// Auto-heal contingency: when graph signals indicate disease,
+    /// apply healing actions before the next thinking step.
+    ///
+    /// Returns the list of healing actions that should be applied.
+    /// The caller is responsible for executing them against the actual graph
+    /// (since the orchestrator doesn't own the graph).
+    pub fn auto_heal(&mut self) -> Vec<HealingAction> {
+        let Some(ref signals) = self.sensorium else {
+            return Vec::new();
+        };
+
+        let mut actions = diagnose_healing(signals);
+
+        // If the orchestrator's own topology is producing consistently bad results
+        // AND the graph is in bad shape, reset the topology too.
+        if self.rolling_efficiency() < 0.2
+            && self.step_count > 20
+            && signals.truth_entropy > 0.5
+        {
+            actions.push(HealingAction {
+                action: HealingType::ResetTopology,
+                reason: format!(
+                    "Orchestrator efficiency {:.2} with high entropy {:.2} after {} steps — topology likely poisoned",
+                    self.rolling_efficiency(), signals.truth_entropy, self.step_count
+                ),
+                triplets_affected: 0,
+            });
+            // Actually reset the topology.
+            self.topology = StyleTopology::new();
+            self.temperature = 0.5; // Warm restart with moderate noise.
+            self.quality_window.clear();
+            self.switch_mode(
+                OrchestratorMode::HardcodedFallback,
+                "Topology reset by auto-heal — starting from hardcoded baseline".into(),
+            );
+        }
+
+        actions
+    }
 }
 
 // ============================================================================
@@ -528,6 +862,12 @@ pub struct MetaOrchestrator {
     pub steps_in_current_mode: usize,
     /// Latest MUL assessment.
     pub last_mul: MulAssessment,
+    /// Latest graph sensorium (None until first graph signal arrives).
+    pub sensorium: Option<GraphSensorium>,
+    /// Stagnation temperature: injected noise when thinking is stale.
+    /// 0.0 = deterministic (normal). 1.0 = maximum randomness (shake things up).
+    /// Auto-increases when GraphBias::Stagnant detected, decays otherwise.
+    pub temperature: f32,
 }
 
 /// The result of one orchestrator step.
@@ -585,7 +925,36 @@ impl MetaOrchestrator {
             fallback_position: 0,
             steps_in_current_mode: 0,
             last_mul: MulAssessment::from_efficiency(0.5, 0.5),
+            sensorium: None,
+            temperature: 0.0,
         }
+    }
+
+    /// Feed real-time graph signals into the orchestrator.
+    ///
+    /// This is the sensory input loop: graph → sensorium → MUL → style selection.
+    /// Call this before `select_next()` to enable self-regulated thinking.
+    pub fn update_sensorium(&mut self, signals: GraphSensorium) {
+        // Auto-adjust temperature based on graph bias.
+        match signals.suggested_bias() {
+            GraphBias::Stagnant => {
+                // Increase temperature: thinking is stuck, inject noise.
+                self.temperature = (self.temperature + 0.15).min(0.9);
+            }
+            GraphBias::Resolve => {
+                // Moderate temperature: contradictions need diverse approaches.
+                self.temperature = (self.temperature + 0.05).min(0.5);
+            }
+            GraphBias::Exploit => {
+                // Cool down: graph is consistent, don't perturb.
+                self.temperature = (self.temperature - 0.1).max(0.0);
+            }
+            _ => {
+                // Gentle decay toward 0.
+                self.temperature = (self.temperature - 0.02).max(0.0);
+            }
+        }
+        self.sensorium = Some(signals);
     }
 
     /// Rolling efficiency: mean of quality window.
@@ -609,13 +978,17 @@ impl MetaOrchestrator {
         self.step_count += 1;
         self.steps_in_current_mode += 1;
 
-        // ── MUL Assessment ──
+        // ── MUL Assessment (self-regulated from graph signals when available) ──
         let avg_confidence = self.topology.edges.values()
             .filter(|e| e.observations > 0)
             .map(|e| e.truth.confidence)
             .sum::<f64>()
             / self.topology.edges.values().filter(|e| e.observations > 0).count().max(1) as f64;
-        let mul = MulAssessment::from_efficiency(self.rolling_efficiency(), avg_confidence as f32);
+        let mul = if let Some(ref signals) = self.sensorium {
+            MulAssessment::from_graph_signals(signals, avg_confidence as f32)
+        } else {
+            MulAssessment::from_efficiency(self.rolling_efficiency(), avg_confidence as f32)
+        };
         self.last_mul = mul.clone();
 
         // ── Compass Override ──
@@ -676,12 +1049,24 @@ impl MetaOrchestrator {
                         },
                     )
                 } else {
-                    // Exploit: pick highest expected quality, SCALED by MUL free_will
+                    // Exploit: pick highest expected quality, SCALED by MUL free_will.
+                    // When temperature > 0, inject deterministic noise to break stagnation.
+                    // Temperature acts like LLM temperature: 0 = greedy, 1 = random.
                     let mut best = AgentStyle::Plan;
                     let mut best_eq = f64::NEG_INFINITY;
                     for &to in AgentStyle::all() {
-                        let eq = self.topology.edge(current, to).expected_quality()
+                        let base_eq = self.topology.edge(current, to).expected_quality()
                             * mul.free_will_modifier as f64;
+                        // Temperature noise: deterministic from step + style index
+                        let noise = if self.temperature > 0.01 {
+                            let hash = (self.step_count.wrapping_mul(0x517cc1b727220a95)
+                                ^ (to as u64).wrapping_mul(0x6c62272e07bb0142)) >> 48;
+                            let uniform = (hash as f64) / 65536.0; // [0, 1)
+                            (uniform - 0.5) * self.temperature as f64
+                        } else {
+                            0.0
+                        };
+                        let eq = base_eq + noise;
                         if eq > best_eq {
                             best_eq = eq;
                             best = to;
@@ -1037,5 +1422,142 @@ mod tests {
             }
         }
         assert_eq!(orch.quality_window.len(), WINDOW_SIZE);
+    }
+
+    // ── Graph Sensorium tests ──
+
+    #[test]
+    fn test_graph_sensorium_healthy() {
+        let signals = GraphSensorium::compute(
+            100, 2,                  // 100 active, 2 contradictions
+            &[80, 10, 5, 3, 2],     // mostly certain
+            5, 10,                   // 5 revisions in 10 steps
+            3, 50,                   // 3/50 entities hot
+            10, 15,                  // 10 deductions from 15 attempts
+            5, 20,                   // 5/20 episodic
+        );
+        assert!(signals.contradiction_rate < 0.1);
+        assert!(signals.truth_entropy < 0.5); // mostly certain
+        assert_eq!(signals.suggested_bias(), GraphBias::Balanced);
+    }
+
+    #[test]
+    fn test_graph_sensorium_contradicted() {
+        let signals = GraphSensorium::compute(
+            100, 40,                 // 40% contradictions!
+            &[10, 10, 30, 30, 20],  // spread across bands
+            1, 10,                   // low revision
+            20, 50,                  // 40% hot
+            2, 20,                   // low deduction
+            18, 20,                  // near-full episodic
+        );
+        assert!(signals.contradiction_rate > 0.3);
+        assert_eq!(signals.suggested_bias(), GraphBias::Resolve);
+    }
+
+    #[test]
+    fn test_graph_sensorium_stagnant() {
+        let signals = GraphSensorium::compute(
+            100, 5,
+            &[20, 20, 20, 20, 20],  // uniform = high entropy
+            0, 20,                   // zero revisions = stagnant
+            2, 100,                  // low plasticity
+            0, 10,                   // zero deductions
+            5, 20,
+        );
+        assert!(signals.revision_velocity < 0.05);
+        assert!(signals.truth_entropy > 0.5);
+        assert_eq!(signals.suggested_bias(), GraphBias::Stagnant);
+    }
+
+    #[test]
+    fn test_temperature_rises_on_stagnation() {
+        let mut orch = MetaOrchestrator::new();
+        assert!((orch.temperature - 0.0).abs() < f32::EPSILON);
+
+        let stagnant = GraphSensorium::compute(
+            100, 5, &[20, 20, 20, 20, 20], 0, 20, 2, 100, 0, 10, 5, 20,
+        );
+        orch.update_sensorium(stagnant.clone());
+        assert!(orch.temperature > 0.1);
+
+        // Multiple stagnant updates should keep increasing temperature.
+        orch.update_sensorium(stagnant);
+        assert!(orch.temperature > 0.2);
+    }
+
+    #[test]
+    fn test_temperature_cools_on_exploit() {
+        let mut orch = MetaOrchestrator::new();
+        orch.temperature = 0.5;
+
+        let healthy = GraphSensorium::compute(
+            100, 1, &[90, 5, 3, 1, 1], 8, 10, 1, 100, 12, 15, 5, 20,
+        );
+        orch.update_sensorium(healthy);
+        assert!(orch.temperature < 0.5);
+    }
+
+    #[test]
+    fn test_mul_from_graph_signals() {
+        let signals = GraphSensorium::compute(
+            100, 2, &[80, 10, 5, 3, 2], 5, 10, 3, 50, 10, 15, 5, 20,
+        );
+        let mul = MulAssessment::from_graph_signals(&signals, 0.7);
+        // Healthy graph → should be Slope or Plateau.
+        assert!(mul.dk_position != DkPosition::MountStupid);
+        assert!(mul.free_will_modifier > 0.3);
+    }
+
+    #[test]
+    fn test_auto_heal_contradictions() {
+        let mut orch = MetaOrchestrator::new();
+        let sick = GraphSensorium::compute(
+            100, 30, &[10, 10, 30, 30, 20], 1, 10, 20, 50, 2, 20, 18, 20,
+        );
+        orch.update_sensorium(sick);
+        let actions = orch.auto_heal();
+        assert!(actions.iter().any(|a| a.action == HealingType::ResolveContradictions));
+    }
+
+    #[test]
+    fn test_auto_heal_bootstrap_truth() {
+        let mut orch = MetaOrchestrator::new();
+        let unset = GraphSensorium::compute(
+            100, 5, &[20, 20, 20, 20, 20], 0, 20, 2, 100, 0, 10, 5, 20,
+        );
+        orch.update_sensorium(unset);
+        let actions = orch.auto_heal();
+        assert!(actions.iter().any(|a| a.action == HealingType::BootstrapTruth));
+    }
+
+    #[test]
+    fn test_auto_heal_topology_reset() {
+        let mut orch = MetaOrchestrator::new();
+        // Simulate 25 terrible steps.
+        for _ in 0..25 {
+            let r = orch.select_next();
+            orch.record_outcome(r.style, 0.05);
+        }
+        // Now feed sick graph signals.
+        let sick = GraphSensorium::compute(
+            100, 30, &[20, 20, 20, 20, 20], 0, 20, 20, 50, 0, 20, 18, 20,
+        );
+        orch.update_sensorium(sick);
+        let actions = orch.auto_heal();
+        // Should trigger topology reset.
+        assert!(actions.iter().any(|a| a.action == HealingType::ResetTopology));
+        // Should be back in fallback mode.
+        assert_eq!(orch.mode, OrchestratorMode::HardcodedFallback);
+        // Temperature should be warm (0.5 from reset).
+        assert!((orch.temperature - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_graph_bias_exploit() {
+        let signals = GraphSensorium::compute(
+            200, 2, &[180, 10, 5, 3, 2], 15, 20, 2, 100, 15, 20, 5, 50,
+        );
+        assert_eq!(signals.suggested_bias(), GraphBias::Exploit);
     }
 }
