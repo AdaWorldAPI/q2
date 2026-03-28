@@ -11,6 +11,9 @@
 pub mod analyst;
 pub mod diagnostics;
 pub mod hydration;
+pub mod mri;
+pub mod orchestrator;
+pub mod osint_audit;
 pub mod reasoning;
 #[cfg(feature = "orchestrator")]
 pub mod thinking;

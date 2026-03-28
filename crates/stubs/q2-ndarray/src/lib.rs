@@ -10,6 +10,10 @@
 //! This gives a minimal pure-Rust fallback with the same `Array2D` API
 //! but no SIMD acceleration or ndarray dependency.
 
+// ── DeepNSM semantic analysis (always available, no feature gate) ────────────
+
+pub mod deepnsm;
+
 // ── Feature: ndarray-simd (default) ─────────────────────────────────────────
 
 #[cfg(feature = "ndarray-simd")]
