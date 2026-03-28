@@ -1,9 +1,14 @@
 import { useRef, useEffect, useCallback } from 'react';
 import * as THREE from 'three';
 import type { StackDiagnosis } from '../../../hooks/useNeuralDiagnosis';
+import { RENDER_ORBIT, CLOSE_ORBIT, FLIGHT_PATH, getFrame, type CameraFrame } from './orbit';
+
+export type OrbitMode = 'render' | 'orbit' | 'flight';
 
 interface BrainMriModeProps {
   diagnosis: StackDiagnosis;
+  /** Camera orbit mode. Default: 'render' (slow contemplative). */
+  orbitMode?: OrbitMode;
 }
 
 // ── Brain regions as 3D volumes ─────────────────────────────────────────────
@@ -98,7 +103,10 @@ function temperatureShift(baseColor: THREE.Color, temp: number): THREE.Color {
   return baseColor.clone().lerp(tint, strength);
 }
 
-export function BrainMriMode({ diagnosis }: BrainMriModeProps) {
+export function BrainMriMode({ diagnosis, orbitMode = 'render' }: BrainMriModeProps) {
+  const orbitPath = orbitMode === 'flight' ? FLIGHT_PATH
+    : orbitMode === 'orbit' ? CLOSE_ORBIT
+    : RENDER_ORBIT;
   const containerRef = useRef<HTMLDivElement>(null);
   const signalsRef = useRef<Float64Array>(new Float64Array(REGIONS.length));
   const prevCountersRef = useRef<Map<string, number>>(new Map());
@@ -267,11 +275,10 @@ export function BrainMriMode({ diagnosis }: BrainMriModeProps) {
       const signals = signalsRef.current;
       const temp = temperatureRef.current;
 
-      // Slow orbit.
-      camera.position.x = Math.sin(t) * 4;
-      camera.position.z = Math.cos(t) * 4;
-      camera.position.y = Math.sin(t * 0.4) * 1.0;
-      camera.lookAt(0, 0, 0);
+      // Pre-baked orbit — zero trig per frame, demoscene style.
+      const cf = getFrame(orbitPath, frame);
+      camera.position.set(cf.x, cf.y, cf.z);
+      camera.lookAt(cf.lx, cf.ly, cf.lz);
 
       // Update each region.
       for (let r = 0; r < regionMeshes.length; r++) {
@@ -390,7 +397,7 @@ export function BrainMriMode({ diagnosis }: BrainMriModeProps) {
       if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
       if (container.contains(labelContainer)) container.removeChild(labelContainer);
     };
-  }, [diagnosis, pollCounters]);
+  }, [diagnosis, pollCounters, orbitPath]);
 
   return (
     <div
