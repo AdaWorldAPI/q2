@@ -1128,6 +1128,117 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+// ── Public API: extract real edges from loaded graph for NARS inference ──
+
+/// Extract all edges from the loaded aiwar graph as TruthEdge values.
+///
+/// This replaces the 2 hardcoded demo edges with the REAL graph data.
+/// Each edge gets a default truth value based on its relationship type:
+/// - DEVELOPED_BY, DEPLOYED_BY: high confidence (verified relationships)
+/// - CONNECTED_TO: moderate confidence (co-occurrence based)
+/// - HIERARCHICAL: lower confidence (structural, possibly outdated)
+pub fn extract_graph_truth_edges() -> Result<Vec<reasoning::TruthEdge>, String> {
+    use arrow::array::{Array, StringArray};
+
+    let (datasets, _config) = load_aiwar_datasets()?;
+    let mut edges = Vec::new();
+
+    let edge_tables = [
+        ("CONNECTED_TO", 0.75, 0.60),
+        ("DEVELOPED_BY", 0.90, 0.85),
+        ("DEPLOYED_BY", 0.88, 0.80),
+        ("USED_IN", 0.80, 0.70),
+        ("PERSON_LINK", 0.70, 0.55),
+        ("HIERARCHICAL", 0.65, 0.50),
+    ];
+
+    for (rel_type, default_freq, default_conf) in &edge_tables {
+        if let Some(batch) = datasets.get(*rel_type) {
+            let schema = batch.schema();
+            let src_idx = schema.index_of("source").ok();
+            let tgt_idx = schema.index_of("target").ok();
+
+            if let (Some(si), Some(ti)) = (src_idx, tgt_idx) {
+                for row in 0..batch.num_rows() {
+                    let src = batch.column(si).as_any()
+                        .downcast_ref::<StringArray>()
+                        .and_then(|a| if a.is_null(row) { None } else { Some(a.value(row).to_string()) });
+                    let tgt = batch.column(ti).as_any()
+                        .downcast_ref::<StringArray>()
+                        .and_then(|a| if a.is_null(row) { None } else { Some(a.value(row).to_string()) });
+
+                    if let (Some(source), Some(target)) = (src, tgt) {
+                        // Check for weight column
+                        let (freq, conf) = if let Some(wi) = schema.index_of("weight").ok() {
+                            get_string_value(batch, wi, row)
+                                .and_then(|w| w.parse::<f64>().ok())
+                                .map(|w| (w.min(1.0).max(0.0), *default_conf))
+                                .unwrap_or((*default_freq, *default_conf))
+                        } else {
+                            (*default_freq, *default_conf)
+                        };
+
+                        edges.push(reasoning::TruthEdge {
+                            source,
+                            target,
+                            rel_type: rel_type.to_string(),
+                            truth: reasoning::TruthValue::new(freq, conf),
+                            inferred: false,
+                            via: vec![],
+                            inference_type: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(edges)
+}
+
+/// Get truth values for all edges in the loaded graph.
+///
+/// Returns a JSON-serializable summary of edge truth values, not just
+/// rendering instructions.
+pub fn get_graph_truth_summary(min_confidence: f64) -> Result<serde_json::Value, String> {
+    let edges = extract_graph_truth_edges()?;
+    let filtered: Vec<&reasoning::TruthEdge> = edges.iter()
+        .filter(|e| e.truth.confidence >= min_confidence)
+        .collect();
+
+    // Summary by relationship type
+    let mut by_type: std::collections::HashMap<&str, Vec<(f64, f64)>> = std::collections::HashMap::new();
+    for e in &filtered {
+        by_type.entry(&e.rel_type)
+            .or_default()
+            .push((e.truth.frequency, e.truth.confidence));
+    }
+
+    let type_summaries: Vec<serde_json::Value> = by_type.iter().map(|(rel_type, values)| {
+        let avg_freq = values.iter().map(|(f, _)| f).sum::<f64>() / values.len() as f64;
+        let avg_conf = values.iter().map(|(_, c)| c).sum::<f64>() / values.len() as f64;
+        serde_json::json!({
+            "rel_type": rel_type,
+            "count": values.len(),
+            "avg_frequency": (avg_freq * 1000.0).round() / 1000.0,
+            "avg_confidence": (avg_conf * 1000.0).round() / 1000.0,
+            "avg_expectation": ((avg_conf * (avg_freq - 0.5) + 0.5) * 1000.0).round() / 1000.0,
+        })
+    }).collect();
+
+    Ok(serde_json::json!({
+        "total_edges": edges.len(),
+        "filtered_edges": filtered.len(),
+        "min_confidence": min_confidence,
+        "by_relationship_type": type_summaries,
+        "edge_rendering": {
+            "opacity": "frequency",
+            "width": "confidence",
+            "threshold": min_confidence,
+        },
+    }))
+}
+
 /// Demo R table output
 fn demo_r_table() -> String {
     r#"<table class="mini-table">

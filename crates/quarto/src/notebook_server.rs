@@ -778,15 +778,18 @@ async fn handle_mcp_method(
                         .and_then(|v| v.as_f64())
                         .unwrap_or(0.0);
 
-                    Ok(serde_json::json!({
-                        "min_confidence": min_conf,
-                        "description": "NARS truth values on edges: frequency × confidence → expectation",
-                        "edge_rendering": {
-                            "opacity": "frequency",
-                            "width": "confidence",
-                            "threshold": min_conf,
-                        },
-                    }))
+                    // Real: read truth values from loaded aiwar graph
+                    match notebook_query::get_graph_truth_summary(min_conf) {
+                        Ok(summary) => Ok(summary),
+                        Err(e) => {
+                            // Fallback if graph not loaded
+                            Ok(serde_json::json!({
+                                "error": e,
+                                "min_confidence": min_conf,
+                                "description": "NARS truth values (graph not loaded)",
+                            }))
+                        }
+                    }
                 }
 
                 "graph_infer" => {
@@ -799,29 +802,18 @@ async fn handle_mcp_method(
                         .and_then(|v| v.as_u64())
                         .unwrap_or(2) as usize;
 
-                    // Demo: create sample truth edges from aiwar data
-                    let sample_edges = vec![
-                        TruthEdge {
-                            source: "Palantir".into(), target: "US_DoD".into(),
-                            rel_type: "DEVELOPED_BY".into(),
-                            truth: TruthValue::new(0.95, 0.87),
-                            inferred: false, via: vec![], inference_type: None,
-                        },
-                        TruthEdge {
-                            source: "US_DoD".into(), target: "Gotham".into(),
-                            rel_type: "DEPLOYED_BY".into(),
-                            truth: TruthValue::new(0.90, 0.82),
-                            inferred: false, via: vec![], inference_type: None,
-                        },
-                    ];
+                    // Real: extract ALL edges from loaded aiwar graph
+                    let graph_edges = notebook_query::extract_graph_truth_edges()
+                        .map_err(|e| format!("Failed to load graph edges: {e}"))?;
 
-                    let inferred = reasoning::infer_edges(&sample_edges, min_conf, max_hops);
+                    let inferred = reasoning::infer_edges(&graph_edges, min_conf, max_hops);
 
                     Ok(serde_json::json!({
+                        "source_edges": graph_edges.len(),
                         "inferred_edges": inferred.len(),
                         "min_confidence": min_conf,
                         "max_hops": max_hops,
-                        "edges": inferred.iter().map(|e| serde_json::json!({
+                        "edges": inferred.iter().take(100).map(|e| serde_json::json!({
                             "source": e.source,
                             "target": e.target,
                             "rel_type": e.rel_type,
