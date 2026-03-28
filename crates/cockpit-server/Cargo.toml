@@ -54,7 +54,11 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [features]
-default = ["embed-cockpit", "planner"]
+default = ["planner"]
+# Embed the Vite React build into the binary. Requires cockpit/dist/ to exist.
+# Build with: cd cockpit && npm run build && cd .. && cargo build -p cockpit-server --features embed-cockpit
+# The Dockerfile handles this automatically (Stage 1 builds Vite, Stage 2 builds Rust).
+# Without this feature, the binary serves a fallback HTML shell with MCP/SSE connectivity.
 embed-cockpit = ["dep:include_dir"]
 planner = ["notebook-query/planner"]
 orchestrator = ["notebook-query/orchestrator"]
