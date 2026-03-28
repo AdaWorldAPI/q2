@@ -1470,3 +1470,48 @@
   font-size: 10px;
   color: var(--muted);
 }
+
+/* ================================================================
+   ANALYST PANEL
+   ================================================================ */
+.analyst-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px; overflow: auto; }
+.analyst-buckets { display: flex; flex-wrap: wrap; gap: 6px; }
+.analyst-bucket-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.02);
+  border-radius: 8px; color: var(--text); font-size: 11px; cursor: pointer;
+  font-family: var(--sans); transition: 200ms ease;
+}
+.analyst-bucket-btn:hover { border-color: var(--border-strong); background: rgba(77,208,225,0.06); }
+.analyst-bucket-btn.active { background: rgba(77,208,225,0.10); }
+.analyst-bucket-icon { font-size: 14px; }
+.analyst-bucket-label { font-weight: 600; letter-spacing: 0.03em; }
+.analyst-loading { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 30px; color: var(--accent-2); font-size: 12px; }
+.analyst-error { padding: 12px; border: 1px solid rgba(255,99,125,0.2); border-radius: 10px; background: rgba(255,99,125,0.04); font-size: 12px; }
+.analyst-empty { padding: 30px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.analyst-result { display: flex; flex-direction: column; gap: 14px; }
+.analyst-result-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.analyst-result-header h3 { margin: 0; font-size: 15px; }
+.analyst-desc { font-size: 11px; color: var(--muted); }
+.analyst-meta { display: flex; gap: 6px; }
+.analyst-summary { display: flex; flex-direction: column; gap: 10px; }
+.analyst-summary-stats { display: flex; gap: 16px; }
+.analyst-stat { display: flex; flex-direction: column; gap: 2px; }
+.analyst-stat-value { font-size: 20px; font-weight: 700; font-family: var(--mono); }
+.analyst-stat-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.analyst-findings { display: flex; flex-direction: column; gap: 4px; }
+.analyst-finding { font-size: 11px; color: var(--muted); padding: 4px 8px; border-left: 2px solid rgba(53,208,127,0.3); background: rgba(53,208,127,0.03); }
+.analyst-blind { border-left-color: rgba(255,99,125,0.3); background: rgba(255,99,125,0.03); }
+.analyst-chains { display: flex; flex-direction: column; gap: 8px; }
+.analyst-chain { padding: 10px; border: 1px solid rgba(77,208,225,0.12); border-radius: 10px; background: rgba(77,208,225,0.03); }
+.analyst-chain-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.analyst-chain-narrative { font-size: 11px; color: var(--muted); line-height: 1.4; margin-bottom: 6px; font-family: var(--mono); }
+.analyst-chain-edges { display: flex; flex-wrap: wrap; gap: 4px; }
+.analyst-edge-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: var(--muted); }
+.analyst-inferred-badge { margin-left: 4px; color: #ffab00; font-size: 9px; font-weight: 600; }
+.analyst-queries { display: flex; flex-direction: column; gap: 6px; }
+.analyst-query { padding: 8px; border: 1px solid rgba(77,208,225,0.08); border-radius: 8px; }
+.analyst-query--error { border-color: rgba(255,99,125,0.2); }
+.analyst-query-intent { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+.analyst-query-cypher { font-size: 10px; margin: 4px 0; padding: 6px 8px; }
+.analyst-query-meta { display: flex; gap: 6px; align-items: center; }
