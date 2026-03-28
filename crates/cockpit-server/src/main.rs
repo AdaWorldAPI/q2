@@ -102,6 +102,8 @@ async fn main() {
         .route("/api/data/status", get(data_status_handler))
         // Live strategy diagnostics — runs all 16 strategies against real queries
         .route("/api/debug/strategies", get(strategy_check_handler))
+        // Live OSINT pipeline audit — AriGraph health, NARS stats, xAI status
+        .route("/api/debug/osint", get(osint_audit_handler))
         // Political analyst — NARS causality chains through analytical buckets
         .route("/api/analyst/buckets", get(analyst_buckets_handler))
         .route("/api/analyst/analyze/:bucket", get(analyst_analyze_handler))
@@ -123,6 +125,7 @@ async fn main() {
     tracing::info!("  /       → Palantir cockpit (Vite build, 221 aiwar nodes)");
     tracing::info!("  /demo   → infrastructure demo (24 seed nodes)");
     tracing::info!("  /debug  → neural debugger (18,763 functions)");
+    tracing::info!("  /api/debug/osint → live OSINT pipeline audit (AriGraph + NARS + xAI)");
     tracing::info!("  /mcp/*  → MCP endpoints (lance-graph)");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -414,6 +417,35 @@ async fn strategy_check_handler() -> Json<serde_json::Value> {
             "strategies": [],
             "operational": 0,
             "total": 0,
+        })),
+    }
+}
+
+// ── Live OSINT Pipeline Audit ────────────────────────────────────────────────
+
+/// Real-time health check of the AriGraph OSINT pipeline.
+/// Reports: pipeline stage call counts, graph truth distribution,
+/// NARS inference stats, episodic memory saturation, xAI API status.
+async fn osint_audit_handler() -> Json<serde_json::Value> {
+    let result = tokio::task::spawn_blocking(|| {
+        // In production these come from the live graph state.
+        // For now, report pipeline registry stats + env status.
+        notebook_query::osint_audit::run_osint_audit(
+            0, // graph_triplet_count — wire to live graph
+            0, // graph_active_count
+            0, // graph_entity_count
+            0, // graph_spatial_edges
+            0, // graph_contradictions
+            0, // episodic_count
+            100, // episodic_capacity
+        )
+    })
+    .await;
+
+    match result {
+        Ok(audit) => Json(serde_json::to_value(audit).unwrap_or_default()),
+        Err(e) => Json(serde_json::json!({
+            "error": format!("OSINT audit failed: {}", e),
         })),
     }
 }
