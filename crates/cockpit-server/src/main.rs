@@ -27,6 +27,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
+mod openai;
+
 // ── Embed the Vite build at compile time ─────────────────────────────────────
 // The cockpit/ directory is built by `cd cockpit && npm run build` which
 // produces dist/. We embed dist/ so the binary serves the React app directly.
@@ -94,7 +96,12 @@ async fn main() {
     let (tx, _rx) = broadcast::channel::<SseEvent>(256);
     let state = Arc::new(AppState { tx });
 
+    // OpenAI-compatible model API state
+    let openai_state = Arc::new(tokio::sync::Mutex::new(openai::OpenAiState::new()));
+
     let app = Router::new()
+        // OpenAI-compatible endpoints: /v1/models, /v1/completions, /v1/chat/completions, etc.
+        .merge(openai::openai_router(openai_state))
         // MCP endpoints — all queries route through lance-graph
         .route("/mcp/sse", get(sse_handler))
         .route("/mcp/message", post(mcp_message_handler))
@@ -135,6 +142,7 @@ async fn main() {
     tracing::info!("  /api/debug/osint → live OSINT pipeline audit (AriGraph + NARS + xAI)");
     tracing::info!("  /mri             → AGI Brain MRI (pre-rendered, 500ms refresh, LazyLock double-buffer)");
     tracing::info!("  /mcp/*  → MCP endpoints (lance-graph)");
+    tracing::info!("  /v1/*   → OpenAI-compatible API (gpt2, openchat_3.5, stable-diffusion)");
 
     // Start background MRI pre-render (LazyLock double-buffer, 500ms refresh).
     spawn_mri_prerender();
