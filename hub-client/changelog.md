@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-30
+
+- [`71ef75de`](https://github.com/quarto-dev/q2/commits/71ef75de): Share links auto-connect without manual project setup
+
 ### 2026-03-25
 
 - [`6f55d7d1`](https://github.com/quarto-dev/q2/commits/6f55d7d1): Fix: initialize IndexedDB with upgrade callback regardless of call order
