@@ -17,6 +17,101 @@ use quarto_error_reporting::DiagnosticMessage;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+
+/// Find the Python interpreter, checking `python3` first then `python`.
+/// The result is cached for the lifetime of the process.
+///
+/// On Windows, bare `python3` may resolve to the Microsoft Store stub
+/// (which exits with code 9009) rather than a real interpreter. We also
+/// probe `.bat` and `.cmd` variants so that pyenv-win and similar shim
+/// managers are found.
+fn find_python() -> &'static str {
+    static PYTHON: OnceLock<&str> = OnceLock::new();
+    *PYTHON.get_or_init(|| {
+        let candidates: &[&str] = if cfg!(windows) {
+            &[
+                "python3",
+                "python3.bat",
+                "python3.cmd",
+                "python",
+                "python.bat",
+                "python.cmd",
+            ]
+        } else {
+            &["python3", "python"]
+        };
+        for candidate in candidates {
+            if let Ok(status) = Command::new(candidate)
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+            {
+                if status.success() {
+                    return candidate;
+                }
+            }
+        }
+        "python3"
+    })
+}
+
+/// Check whether `bash` is available on PATH.
+/// The result is cached for the lifetime of the process.
+fn find_bash() -> Option<&'static str> {
+    static BASH: OnceLock<Option<&str>> = OnceLock::new();
+    *BASH.get_or_init(|| {
+        if Command::new("bash")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            Some("bash")
+        } else {
+            None
+        }
+    })
+}
+
+/// Build a [`Command`] for running a filter.
+///
+/// Uses the exists-then-dispatch pattern:
+/// - If the filter file exists on disk and we're on Windows, dispatch by
+///   file extension (`.py` → Python, `.sh`/`.bash` → bash) since Windows
+///   has no shebang support.
+/// - If the file doesn't exist, treat it as a bare command name and let
+///   the OS resolve it via PATH (e.g., `pandoc-crossref`).
+/// - On Unix, always use `Command::new` directly — shebangs work.
+fn build_filter_command(filter_path: &Path) -> Command {
+    if cfg!(windows) && filter_path.exists() {
+        if let Some(ext) = filter_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+        {
+            match ext.as_str() {
+                "py" => {
+                    let mut cmd = Command::new(find_python());
+                    cmd.arg(filter_path);
+                    return cmd;
+                }
+                "sh" | "bash" => {
+                    if let Some(bash) = find_bash() {
+                        let mut cmd = Command::new(bash);
+                        cmd.arg(filter_path);
+                        return cmd;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Command::new(filter_path)
+}
 
 /// Errors that can occur during JSON filter execution
 #[derive(Debug)]
@@ -115,7 +210,7 @@ pub fn apply_json_filter(
     )?;
 
     // 2. Spawn the filter subprocess
-    let mut child = Command::new(filter_path)
+    let mut child = build_filter_command(filter_path)
         .arg(target_format)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -500,6 +595,10 @@ print("not valid json")
 
     #[test]
     fn test_invalid_utf8_filter() {
+        if find_bash().is_none() {
+            eprintln!("skipping test_invalid_utf8_filter: bash not available");
+            return;
+        }
         let dir = TempDir::new().unwrap();
         let filter_path = dir.path().join("invalid_utf8.sh");
         // Create a shell script that outputs invalid UTF-8
@@ -526,6 +625,36 @@ printf '\xff\xfe'  # Invalid UTF-8 bytes
             JsonFilterError::InvalidUtf8Output(_) => {}
             err => panic!("Expected InvalidUtf8Output, got: {:?}", err),
         }
+    }
+
+    #[test]
+    fn test_find_python_returns_working_interpreter() {
+        let python = find_python();
+        let output = Command::new(python)
+            .arg("--version")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("failed to run python");
+        assert!(
+            output.status.success(),
+            "python --version failed with: {}",
+            python
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Python --version prints to stdout (3.4+) or stderr (older)
+        let version_output = if stdout.contains("Python") {
+            stdout
+        } else {
+            stderr
+        };
+        assert!(
+            version_output.contains("Python"),
+            "unexpected output from {}: {}",
+            python,
+            version_output
+        );
     }
 
     #[test]
