@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ProjectEntry } from '../types/project';
 import type { UserSettings } from '../services/storage/types';
-import type { PendingShareData } from '../App';
 import * as projectStorage from '../services/projectStorage';
 import * as userSettingsService from '../services/userSettings';
 import {
@@ -20,10 +19,6 @@ interface Props {
   error?: string | null;
   /** Called when a new project is created with scaffold files */
   onProjectCreated?: (files: ProjectFile[], title: string, projectType: string, syncServer: string) => void;
-  /** Pre-filled data from a shareable link (indexDocId, syncServer, optional filePath) */
-  pendingShareData?: PendingShareData | null;
-  /** Called when pending share data should be cleared (e.g., user cancels) */
-  onClearPendingShare?: () => void;
   /** Called when user signs out of Google. Only passed when auth is enabled. */
   onSignOut?: () => void;
   /** Authenticated user's email (for display). */
@@ -50,8 +45,6 @@ export default function ProjectSelector({
   isConnecting,
   error: connectionError,
   onProjectCreated,
-  pendingShareData,
-  onClearPendingShare,
   onSignOut,
   authEmail,
   authPicture,
@@ -69,8 +62,6 @@ export default function ProjectSelector({
   const [syncServer, setSyncServer] = useState(DEFAULT_SYNC_SERVER);
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
-  // Track file path from share link (to navigate after connect)
-  const [shareFilePath, setShareFilePath] = useState<string | undefined>(undefined);
 
   // Create form state
   const [createProjectType, setCreateProjectType] = useState('');
@@ -146,18 +137,6 @@ export default function ProjectSelector({
     loadProjectChoices();
   }, [loadProjects, loadUserSettings, loadProjectChoices]);
 
-  // Handle pending share data (from shareable URL)
-  useEffect(() => {
-    if (pendingShareData) {
-      // Pre-fill the connect form with share data
-      setIndexDocId(pendingShareData.indexDocId);
-      setSyncServer(pendingShareData.syncServer);
-      setShareFilePath(pendingShareData.filePath);
-      // Auto-show the connect form
-      setShowConnectForm(true);
-      setShowCreateForm(false);
-    }
-  }, [pendingShareData]);
 
   const handleStartEditName = () => {
     if (userSettings) {
@@ -254,17 +233,12 @@ export default function ProjectSelector({
         description.trim() || undefined
       );
 
-      // Capture file path before clearing state
-      const filePathToNavigate = shareFilePath;
-
       setIndexDocId('');
       setDescription('');
-      setShareFilePath(undefined);
       setShowConnectForm(false);
       await loadProjects();
 
-      // Pass the file path from share link (if any) to parent
-      onSelectProject(project, filePathToNavigate);
+      onSelectProject(project);
     } catch (err) {
       console.error('Failed to add project:', err);
       setFormError('Failed to add project. The document ID may already exist.');
@@ -274,9 +248,6 @@ export default function ProjectSelector({
   const handleCancelConnect = () => {
     setShowConnectForm(false);
     setIndexDocId('');
-    setShareFilePath(undefined);
-    // Clear pending share data if user explicitly cancels
-    onClearPendingShare?.();
   };
 
   const handleCreateProject = async (e: React.FormEvent) => {
@@ -545,11 +516,9 @@ export default function ProjectSelector({
         {/* Connect to Project form */}
         {showConnectForm && (
           <form className="add-form" onSubmit={handleConnectProject}>
-            <h2>{pendingShareData ? 'Connect to Shared Project' : 'Connect to Project'}</h2>
+            <h2>Connect to Project</h2>
             <p className="form-hint">
-              {pendingShareData
-                ? 'Someone shared this project with you. Add a name and connect.'
-                : 'Enter the document ID of an existing Automerge project'}
+              Enter the document ID of an existing Automerge project
             </p>
             <div className="form-group">
               <label htmlFor="indexDocId">Index Document ID</label>

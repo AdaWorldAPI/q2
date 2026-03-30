@@ -28,13 +28,15 @@
 
 When making changes to `hub-client/`:
 
-1. **After making TypeScript changes**, run preflight checks:
+1. **At the start of a dev session**, run `npm install` from the repo root to ensure all workspace dependencies are up to date. This is fast and prevents test failures from missing packages added by other contributors.
+
+3. **After making TypeScript changes**, run preflight checks:
    ```bash
    cd hub-client && npm run preflight
    ```
    This builds WASM and type-checks with Vite-compatible settings.
 
-2. **Type imports**: Use `import type` for type-only imports (interfaces, type aliases). Vite's esbuild transformer requires this due to `verbatimModuleSyntax: true`.
+4. **Type imports**: Use `import type` for type-only imports (interfaces, type aliases). Vite's esbuild transformer requires this due to `verbatimModuleSyntax: true`.
    ```typescript
    // Correct
    import { useCallback } from 'react';
@@ -44,7 +46,7 @@ When making changes to `hub-client/`:
    import { useCallback, RefObject } from 'react';
    ```
 
-3. **Don't use plain `tsc --noEmit`** - it uses different settings and misses errors. Always use `npm run typecheck` or `npm run preflight`.
+5. **Don't use plain `tsc --noEmit`** - it uses different settings and misses errors. Always use `npm run typecheck` or `npm run preflight`.
 
 ## WASM (wasm-quarto-hub-client)
 

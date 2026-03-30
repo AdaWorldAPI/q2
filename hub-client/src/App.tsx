@@ -46,17 +46,6 @@ async function connectAndLoadContents(
 /** Whether auth is configured (build-time env var). */
 const AUTH_ENABLED = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-/**
- * Data extracted from a shareable link, used to pre-fill the connect dialog.
- */
-export interface PendingShareData {
-  /** The Automerge index document ID (without 'automerge:' prefix) */
-  indexDocId: string;
-  /** The sync server URL */
-  syncServer: string;
-  /** Optional file path to open after connecting */
-  filePath?: string;
-}
 
 function App() {
   const { auth, loading: authLoading, logout } = useAuth();
@@ -104,8 +93,6 @@ function App() {
     });
   }, [authLoading]);
 
-  // Pending share link data (when user visits a shareable URL for a project they don't have)
-  const [pendingShareData, setPendingShareData] = useState<PendingShareData | null>(null);
 
   // Track if we've done the initial URL-based navigation
   const initialLoadRef = useRef(false);
@@ -195,43 +182,45 @@ function App() {
         navigateToProjectSelector({ replace: true });
 
         const shareRoute = route as ShareRoute;
+
+        // Validate required fields
+        if (!shareRoute.syncServer || !shareRoute.filePath || !shareRoute.name) {
+          setConnectionError(
+            'This share link is incomplete. Please ask the sender to share a new link.'
+          );
+          return;
+        }
+
         // Normalize the indexDocId (add 'automerge:' prefix if not present)
         const normalizedIndexDocId = shareRoute.indexDocId.startsWith('automerge:')
           ? shareRoute.indexDocId
           : `automerge:${shareRoute.indexDocId}`;
 
-        // Check if we already have this project locally
-        const existingProject = await projectStorage.getProjectByIndexDocId(normalizedIndexDocId);
+        // Check if we already have this project locally, or auto-create it
+        let targetProject = await projectStorage.getProjectByIndexDocId(normalizedIndexDocId);
+        if (!targetProject) {
+          targetProject = await projectStorage.addProject(
+            normalizedIndexDocId,
+            shareRoute.syncServer,
+            shareRoute.name
+          );
+        }
 
-        if (existingProject) {
-          setIsConnecting(true);
-          setConnectionError(null);
-          try {
-            const newActorId = await resolveActorId(existingProject.indexDocId);
-            if (newActorId === null) return;
-            const { files: loadedFiles, contents } = await connectAndLoadContents(existingProject.syncServer, existingProject.indexDocId, newActorId, screenName, cursorColor);
-            setProject(existingProject);
-            setFiles(loadedFiles);
-            setFileContents(contents);
-            
+        setIsConnecting(true);
+        setConnectionError(null);
+        try {
+          const newActorId = await resolveActorId(targetProject.indexDocId);
+          if (newActorId === null) return;
+          const { files: loadedFiles, contents } = await connectAndLoadContents(targetProject.syncServer, targetProject.indexDocId, newActorId, screenName, cursorColor);
+          setProject(targetProject);
+          setFiles(loadedFiles);
+          setFileContents(contents);
 
-            if (shareRoute.filePath) {
-              navigateToFile(existingProject.id, shareRoute.filePath, { replace: true });
-            } else {
-              navigateToProject(existingProject.id, { replace: true });
-            }
-          } catch (err) {
-            setConnectionError(err instanceof Error ? err.message : String(err));
-          } finally {
-            setIsConnecting(false);
-          }
-        } else {
-          // Project doesn't exist locally - show connect dialog with pre-filled data
-          setPendingShareData({
-            indexDocId: shareRoute.indexDocId,
-            syncServer: shareRoute.syncServer,
-            filePath: shareRoute.filePath,
-          });
+          navigateToFile(targetProject.id, shareRoute.filePath, { replace: true });
+        } catch (err) {
+          setConnectionError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setIsConnecting(false);
         }
         return;
       }
@@ -340,9 +329,6 @@ function App() {
   }, [project]);
 
   const handleSelectProject = useCallback(async (selectedProject: ProjectEntry, filePathOverride?: string) => {
-    // Clear any pending share data
-    setPendingShareData(null);
-
     setIsConnecting(true);
     setConnectionError(null);
 
@@ -444,10 +430,6 @@ function App() {
     }
   }, [navigateToProject, resolveActorId, screenName, cursorColor]);
 
-  const handleClearPendingShare = useCallback(() => {
-    setPendingShareData(null);
-  }, []);
-
   // Auth gate: when auth is enabled, require login before showing the app.
   // Show a loading spinner while checking auth status to avoid login flash.
   if (AUTH_ENABLED && authLoading) {
@@ -480,8 +462,6 @@ function App() {
           onProjectCreated={handleProjectCreated}
           isConnecting={isConnecting}
           error={connectionError}
-          pendingShareData={pendingShareData}
-          onClearPendingShare={handleClearPendingShare}
           onSignOut={AUTH_ENABLED ? logout : undefined}
           authEmail={auth?.email}
           authPicture={auth?.picture}

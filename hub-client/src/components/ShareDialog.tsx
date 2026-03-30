@@ -10,7 +10,7 @@ import './ShareDialog.css';
 
 export interface ShareDialogProps {
   isOpen: boolean;
-  shareableUrl: string;
+  shareableUrl: string | undefined;
   onClose: () => void;
   onCopied?: () => void;
 }
@@ -41,6 +41,7 @@ export default function ShareDialog({
   }, [isOpen]);
 
   const handleCopyLink = useCallback(async () => {
+    if (!shareableUrl) return;
     try {
       // Try modern Clipboard API first
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -80,7 +81,7 @@ export default function ShareDialog({
     [onClose, handleCopyLink]
   );
 
-  if (!isOpen) return null;
+  if (!isOpen || !shareableUrl) return null;
 
   return (
     <div className="dialog-overlay" onClick={onClose}>

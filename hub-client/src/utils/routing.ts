@@ -69,10 +69,12 @@ export interface ShareRoute {
   type: 'share';
   /** bs58-encoded Automerge document ID (without 'automerge:' prefix) */
   indexDocId: string;
-  /** Sync server URL (defaults to DEFAULT_SYNC_SERVER if not in URL) */
+  /** Sync server URL */
   syncServer: string;
-  /** Optional file path to open after connecting */
-  filePath?: string;
+  /** File path to open after connecting */
+  filePath: string;
+  /** Human-readable project name */
+  name: string;
 }
 
 /**
@@ -132,18 +134,21 @@ export function parseHashRoute(hash: string): Route {
   // Split into segments
   const segments = path.split('/');
 
-  // Parse share route: /share/<indexDocId>
+  // Parse share route: /share/<indexDocId>?server=<url>&file=<path>&name=<name>
+  // All three query parameters are required. Missing fields are set to empty
+  // strings; App.tsx validates and shows an error for malformed share links.
   if (segments[0] === 'share' && segments[1]) {
     const indexDocId = decodeURIComponent(segments[1]);
-    const syncServer = queryParams.get('server') || DEFAULT_SYNC_SERVER;
-    const fileParam = queryParams.get('file');
-    const filePath = fileParam ? decodeURIComponent(fileParam) : undefined;
+    const server = queryParams.get('server') ?? '';
+    const fileParam = queryParams.get('file') ?? '';
+    const nameParam = queryParams.get('name') ?? '';
 
     return {
       type: 'share',
       indexDocId,
-      syncServer,
-      ...(filePath && { filePath }),
+      syncServer: server,
+      filePath: fileParam ? decodeURIComponent(fileParam) : '',
+      name: nameParam ? decodeURIComponent(nameParam) : '',
     };
   }
 
@@ -217,9 +222,8 @@ export function buildHashRoute(route: Route): string {
       // Build shareable URL with query parameters
       const params = new URLSearchParams();
       params.set('server', route.syncServer);
-      if (route.filePath) {
-        params.set('file', route.filePath);
-      }
+      params.set('file', route.filePath);
+      params.set('name', route.name);
       return `#/share/${encodeURIComponent(route.indexDocId)}?${params.toString()}`;
     }
   }
@@ -250,17 +254,19 @@ export function buildFullUrl(route: Route): string {
  *
  * @param indexDocId - The Automerge document ID (without 'automerge:' prefix)
  * @param syncServer - The sync server URL
- * @param filePath - Optional file path to open after connecting
+ * @param projectName - Human-readable project name
+ * @param filePath - File path to open after connecting
  * @returns Full shareable URL
  *
  * @example
- * buildShareableUrl('4XyZabc123', 'wss://sync.automerge.org', 'docs/intro.qmd')
- *   // 'https://example.com/hub/#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org&file=docs%2Fintro.qmd'
+ * buildShareableUrl('4XyZabc123', 'wss://sync.automerge.org', 'My Project', 'docs/intro.qmd')
+ *   // 'https://example.com/hub/#/share/4XyZabc123?server=...&file=docs%2Fintro.qmd&name=My+Project'
  */
 export function buildShareableUrl(
   indexDocId: string,
   syncServer: string,
-  filePath?: string
+  projectName: string,
+  filePath: string
 ): string {
   // Remove 'automerge:' prefix if present (we store it without prefix in URLs)
   const cleanIndexDocId = indexDocId.replace(/^automerge:/, '');
@@ -269,7 +275,8 @@ export function buildShareableUrl(
     type: 'share',
     indexDocId: cleanIndexDocId,
     syncServer,
-    ...(filePath && { filePath }),
+    filePath,
+    name: projectName,
   };
 
   return buildFullUrl(route);

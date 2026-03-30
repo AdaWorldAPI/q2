@@ -10,7 +10,6 @@ import {
   sameFile,
   savePreAuthHash,
   restorePreAuthHash,
-  DEFAULT_SYNC_SERVER,
   type Route,
   type ShareRoute,
 } from './routing';
@@ -121,53 +120,51 @@ describe('parseHashRoute', () => {
   });
 
   describe('share routes', () => {
-    it('parses share route with minimal params', () => {
-      const result = parseHashRoute('#/share/4XyZabc123');
-      expect(result).toEqual({
-        type: 'share',
-        indexDocId: '4XyZabc123',
-        syncServer: DEFAULT_SYNC_SERVER,
-      });
-    });
-
-    it('parses share route with server param', () => {
-      const result = parseHashRoute('#/share/4XyZabc123?server=wss%3A%2F%2Fmy-server.com');
-      expect(result).toEqual({
-        type: 'share',
-        indexDocId: '4XyZabc123',
-        syncServer: 'wss://my-server.com',
-      });
-    });
-
-    it('parses share route with server and file params', () => {
+    it('parses share route with all required params', () => {
       const result = parseHashRoute(
-        '#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org&file=docs%2Fintro.qmd'
+        '#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org&file=docs%2Fintro.qmd&name=My+Project'
       );
       expect(result).toEqual({
         type: 'share',
         indexDocId: '4XyZabc123',
         syncServer: 'wss://sync.automerge.org',
         filePath: 'docs/intro.qmd',
+        name: 'My Project',
       });
     });
 
-    it('parses share route with file param only (uses default server)', () => {
-      const result = parseHashRoute('#/share/4XyZabc123?file=index.qmd');
+    it('parses share route with missing params as empty strings', () => {
+      const result = parseHashRoute('#/share/4XyZabc123');
       expect(result).toEqual({
         type: 'share',
         indexDocId: '4XyZabc123',
-        syncServer: DEFAULT_SYNC_SERVER,
-        filePath: 'index.qmd',
+        syncServer: '',
+        filePath: '',
+        name: '',
+      });
+    });
+
+    it('parses share route with only server param', () => {
+      const result = parseHashRoute('#/share/4XyZabc123?server=wss%3A%2F%2Fmy-server.com');
+      expect(result).toEqual({
+        type: 'share',
+        indexDocId: '4XyZabc123',
+        syncServer: 'wss://my-server.com',
+        filePath: '',
+        name: '',
       });
     });
 
     it('decodes URL-encoded indexDocId', () => {
-      // bs58 can contain characters that need encoding
-      const result = parseHashRoute('#/share/abc%2B123');
+      const result = parseHashRoute(
+        '#/share/abc%2B123?server=wss%3A%2F%2Fa.com&file=index.qmd&name=Test'
+      );
       expect(result).toEqual({
         type: 'share',
         indexDocId: 'abc+123',
-        syncServer: DEFAULT_SYNC_SERVER,
+        syncServer: 'wss://a.com',
+        filePath: 'index.qmd',
+        name: 'Test',
       });
     });
 
@@ -237,26 +234,17 @@ describe('buildHashRoute', () => {
   });
 
   describe('share routes', () => {
-    it('builds share route with server', () => {
-      const route: ShareRoute = {
-        type: 'share',
-        indexDocId: '4XyZabc123',
-        syncServer: 'wss://sync.automerge.org',
-      };
-      const result = buildHashRoute(route);
-      expect(result).toBe('#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org');
-    });
-
-    it('builds share route with server and file', () => {
+    it('builds share route with all params', () => {
       const route: ShareRoute = {
         type: 'share',
         indexDocId: '4XyZabc123',
         syncServer: 'wss://sync.automerge.org',
         filePath: 'docs/intro.qmd',
+        name: 'My Project',
       };
       const result = buildHashRoute(route);
       expect(result).toBe(
-        '#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org&file=docs%2Fintro.qmd'
+        '#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org&file=docs%2Fintro.qmd&name=My+Project'
       );
     });
 
@@ -265,9 +253,13 @@ describe('buildHashRoute', () => {
         type: 'share',
         indexDocId: 'abc+123',
         syncServer: 'wss://sync.automerge.org',
+        filePath: 'index.qmd',
+        name: 'Test',
       };
       const result = buildHashRoute(route);
-      expect(result).toBe('#/share/abc%2B123?server=wss%3A%2F%2Fsync.automerge.org');
+      expect(result).toBe(
+        '#/share/abc%2B123?server=wss%3A%2F%2Fsync.automerge.org&file=index.qmd&name=Test'
+      );
     });
   });
 });
@@ -284,11 +276,9 @@ describe('round-trip parsing', () => {
     { type: 'file', projectId: 'abc', filePath: 'docs/api.qmd', anchor: 'methods' },
     { type: 'file', projectId: 'abc', filePath: 'my file.qmd' },
     // Share routes
-    { type: 'share', indexDocId: '4XyZabc123', syncServer: 'wss://sync.automerge.org' },
-    { type: 'share', indexDocId: '4XyZabc123', syncServer: 'wss://my-server.com' },
-    { type: 'share', indexDocId: '4XyZabc123', syncServer: 'wss://sync.automerge.org', filePath: 'index.qmd' },
-    { type: 'share', indexDocId: '4XyZabc123', syncServer: 'wss://sync.automerge.org', filePath: 'docs/intro.qmd' },
-    { type: 'share', indexDocId: 'abc+123', syncServer: 'wss://sync.automerge.org' },
+    { type: 'share', indexDocId: '4XyZabc123', syncServer: 'wss://sync.automerge.org', filePath: 'index.qmd', name: 'My Project' },
+    { type: 'share', indexDocId: '4XyZabc123', syncServer: 'wss://my-server.com', filePath: 'docs/intro.qmd', name: 'Another Project' },
+    { type: 'share', indexDocId: 'abc+123', syncServer: 'wss://sync.automerge.org', filePath: 'test.qmd', name: 'Test' },
   ];
 
   for (const route of testCases) {
@@ -320,23 +310,16 @@ describe('buildShareableUrl', () => {
   });
 
   it('builds shareable URL with all params', () => {
-    const url = buildShareableUrl('4XyZabc123', 'wss://sync.automerge.org', 'docs/intro.qmd');
+    const url = buildShareableUrl('4XyZabc123', 'wss://sync.automerge.org', 'My Project', 'docs/intro.qmd');
     expect(url).toBe(
-      'https://example.com/hub/#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org&file=docs%2Fintro.qmd'
-    );
-  });
-
-  it('builds shareable URL without file path', () => {
-    const url = buildShareableUrl('4XyZabc123', 'wss://sync.automerge.org');
-    expect(url).toBe(
-      'https://example.com/hub/#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org'
+      'https://example.com/hub/#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org&file=docs%2Fintro.qmd&name=My+Project'
     );
   });
 
   it('strips automerge: prefix from indexDocId', () => {
-    const url = buildShareableUrl('automerge:4XyZabc123', 'wss://sync.automerge.org');
+    const url = buildShareableUrl('automerge:4XyZabc123', 'wss://sync.automerge.org', 'Test', 'index.qmd');
     expect(url).toBe(
-      'https://example.com/hub/#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org'
+      'https://example.com/hub/#/share/4XyZabc123?server=wss%3A%2F%2Fsync.automerge.org&file=index.qmd&name=Test'
     );
   });
 });
@@ -393,8 +376,8 @@ describe('routesEqual', () => {
   it('returns true for equal share routes', () => {
     expect(
       routesEqual(
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com' },
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com' }
+        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'x.qmd', name: 'P' },
+        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'x.qmd', name: 'P' }
       )
     ).toBe(true);
   });
@@ -402,8 +385,8 @@ describe('routesEqual', () => {
   it('returns false for different share route indexDocIds', () => {
     expect(
       routesEqual(
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com' },
-        { type: 'share', indexDocId: 'xyz', syncServer: 'wss://a.com' }
+        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'x.qmd', name: 'P' },
+        { type: 'share', indexDocId: 'xyz', syncServer: 'wss://a.com', filePath: 'x.qmd', name: 'P' }
       )
     ).toBe(false);
   });
@@ -411,26 +394,17 @@ describe('routesEqual', () => {
   it('returns false for different share route servers', () => {
     expect(
       routesEqual(
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com' },
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://b.com' }
+        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'x.qmd', name: 'P' },
+        { type: 'share', indexDocId: 'abc', syncServer: 'wss://b.com', filePath: 'x.qmd', name: 'P' }
       )
     ).toBe(false);
-  });
-
-  it('returns true for equal share routes with file paths', () => {
-    expect(
-      routesEqual(
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'x.qmd' },
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'x.qmd' }
-      )
-    ).toBe(true);
   });
 
   it('returns false for different share route file paths', () => {
     expect(
       routesEqual(
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'x.qmd' },
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'y.qmd' }
+        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'x.qmd', name: 'P' },
+        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'y.qmd', name: 'P' }
       )
     ).toBe(false);
   });
@@ -438,7 +412,7 @@ describe('routesEqual', () => {
   it('returns false for share route vs project route', () => {
     expect(
       routesEqual(
-        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com' },
+        { type: 'share', indexDocId: 'abc', syncServer: 'wss://a.com', filePath: 'x.qmd', name: 'P' },
         { type: 'project', projectId: 'abc' }
       )
     ).toBe(false);

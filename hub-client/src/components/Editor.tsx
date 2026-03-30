@@ -669,11 +669,14 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
   }, []);
 
   // Build shareable URL for the current file
-  const shareableUrl = buildShareableUrl(
-    project.indexDocId,
-    project.syncServer,
-    currentFile?.path
-  );
+  const shareableUrl = currentFile
+    ? buildShareableUrl(
+        project.indexDocId,
+        project.syncServer,
+        project.description,
+        currentFile.path
+      )
+    : undefined;
 
   // Handle opening new file dialog
   // Pre-fill the filename with the current file's directory path
