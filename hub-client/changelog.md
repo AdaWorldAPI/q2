@@ -13,6 +13,12 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-03-31
+
+- [`d984d121`](https://github.com/quarto-dev/q2/commits/d984d121): Add name labels next to remote cursors with per-peer style management
+- [`4127888b`](https://github.com/quarto-dev/q2/commits/4127888b): OT-based cursor tracking for collaborative presence
+- [`379241ed`](https://github.com/quarto-dev/q2/commits/379241ed): Fix `updateText` replaced with positional splice for CRDT sync
+
 ### 2026-03-30
 
 - [`71ef75de`](https://github.com/quarto-dev/q2/commits/71ef75de): Share links auto-connect without manual project setup
