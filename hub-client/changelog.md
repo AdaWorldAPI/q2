@@ -15,6 +15,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-03-31
 
+- [`6b2042fb`](https://github.com/quarto-dev/q2/commits/6b2042fb): Prevent characters landing at wrong positions during concurrent editing
 - [`40faca40`](https://github.com/quarto-dev/q2/commits/40faca40): Fix first character lost when typing to replace a selection
 - [`d984d121`](https://github.com/quarto-dev/q2/commits/d984d121): Add name labels next to remote cursors with per-peer style management
 - [`4127888b`](https://github.com/quarto-dev/q2/commits/4127888b): OT-based cursor tracking for collaborative presence
