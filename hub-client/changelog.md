@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-01
+
+- [`f4368a14`](https://github.com/quarto-dev/q2/commits/f4368a14): Extract useAutomergeSync hook from Editor.tsx with tests
+
 ### 2026-03-31
 
 - [`6b2042fb`](https://github.com/quarto-dev/q2/commits/6b2042fb): Prevent characters landing at wrong positions during concurrent editing
