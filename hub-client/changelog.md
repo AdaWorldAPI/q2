@@ -15,6 +15,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-04-02
 
+- [`efecf764`](https://github.com/quarto-dev/q2/commits/efecf764): Refactor color scheme to auto/dark/light with browser detection and global CSS variables
 - [`9426038b`](https://github.com/quarto-dev/q2/commits/9426038b): Add Automerge-backed project set for cross-browser project list sync
 - [`a6fefb74`](https://github.com/quarto-dev/q2/commits/a6fefb74): Fix first keystroke lost after selection in Monaco editor
 
