@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-02
+
+- [`a6fefb74`](https://github.com/quarto-dev/q2/commits/a6fefb74): Fix first keystroke lost after selection in Monaco editor
+
 ### 2026-04-01
 
 - [`f4368a14`](https://github.com/quarto-dev/q2/commits/f4368a14): Extract useAutomergeSync hook from Editor.tsx with tests
@@ -48,6 +52,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-03-20
 
+- [`7e77f715`](https://github.com/quarto-dev/q2/commits/7e77f715): Include extensions in project discovery and improve e2e tests
 - [`27ba12d6`](https://github.com/quarto-dev/q2/commits/27ba12d6): Fix: route `format: revealjs` to ReactPreview
 - [`871c5e9c`](https://github.com/quarto-dev/q2/commits/871c5e9c): revealjs and slide cursor sync improvement
 - [`78995642`](https://github.com/quarto-dev/q2/commits/78995642): Refactor preview, reactpreview, and previewrouter to handle respective concerns better
