@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { ProjectEntry, FileEntry } from './types/project';
 import ProjectSelector from './components/ProjectSelector';
+import ProjectSetSetup from './components/ProjectSetSetup';
 import Editor from './components/Editor';
 import Toast from './components/Toast';
 import { ViewModeProvider } from './components/ViewModeContext';
@@ -19,9 +20,10 @@ import type { ProjectFile } from './services/wasmRenderer';
 import * as projectStorage from './services/projectStorage';
 import { getUserIdentity, updateUserName } from './services/userSettings';
 import { useRouting } from './hooks/useRouting';
+import { useProjectSet } from './hooks/useProjectSet';
 import { useAuth } from './hooks/useAuth';
 import { fetchActorId } from './services/authService';
-import type { Route, ShareRoute } from './utils/routing';
+import type { Route, ShareRoute, LinkProjectSetRoute } from './utils/routing';
 import './App.css';
 
 /**
@@ -61,6 +63,9 @@ function App() {
   const [cursorColor, setCursorColor] = useState<string | undefined>();
   const [identities, setIdentities] = useState<Record<string, ActorIdentity>>({});
   const [isOnline, setIsOnline] = useState<boolean>(false);
+
+  // Project set management (synced project list)
+  const [projectSetState, projectSetActions] = useProjectSet();
 
   // Fetch per-project actor ID; calls logout and returns null on session expiry.
   const resolveActorId = useCallback(async (indexDocId: string): Promise<string | undefined | null> => {
@@ -176,6 +181,33 @@ function App() {
     initialLoadRef.current = true;
 
     const loadFromUrl = async () => {
+      // Handle link-project-set URLs
+      if (route.type === 'link-project-set') {
+        // SECURITY: Immediately clear the URL
+        navigateToProjectSelector({ replace: true });
+
+        const linkRoute = route as LinkProjectSetRoute;
+
+        if (!linkRoute.syncServer) {
+          setConnectionError('This project set link is incomplete.');
+          return;
+        }
+
+        // Normalize the docId
+        const normalizedDocId = linkRoute.projectSetDocId.startsWith('automerge:')
+          ? linkRoute.projectSetDocId
+          : `automerge:${linkRoute.projectSetDocId}`;
+
+        // Check if we have legacy projects to merge
+        const legacy = await projectStorage.listProjects();
+        if (legacy.length > 0) {
+          await projectSetActions.mergeIntoProjectSet(normalizedDocId, linkRoute.syncServer);
+        } else {
+          await projectSetActions.linkProjectSet(normalizedDocId, linkRoute.syncServer);
+        }
+        return;
+      }
+
       // Handle shareable link URLs
       if (route.type === 'share') {
         // SECURITY: Immediately clear the URL to prevent indexDocId from appearing
@@ -205,6 +237,19 @@ function App() {
             shareRoute.syncServer,
             shareRoute.name
           );
+        }
+
+        // Also add to the synced project set (if connected)
+        if (projectSetState.status === 'connected') {
+          try {
+            projectSetActions.addProject({
+              indexDocId: normalizedIndexDocId,
+              syncServer: shareRoute.syncServer,
+              description: shareRoute.name,
+            });
+          } catch {
+            // Non-fatal: project set update failed, but project is in IDB
+          }
         }
 
         setIsConnecting(true);
@@ -401,6 +446,18 @@ function App() {
         title
       );
 
+      // Also add to the synced project set
+      if (projectSetState.status === 'connected') {
+        try {
+          projectSetActions.addProject({
+            indexDocId: result.indexDocId,
+            syncServer,
+            description: title,
+          });
+        } catch {
+          // Non-fatal
+        }
+      }
 
       // Set up the project state
       setProject(projectEntry);
@@ -448,6 +505,58 @@ function App() {
     );
   }
 
+  // Show project set setup/migration screen if needed
+  if (
+    projectSetState.status === 'needs-setup' ||
+    projectSetState.status === 'needs-migration'
+  ) {
+    return (
+      <ProjectSetSetup
+        hasMigration={projectSetState.status === 'needs-migration'}
+        legacyProjects={projectSetState.legacyProjects}
+        error={projectSetState.error}
+        isConnecting={false}
+        onCreateProjectSet={projectSetActions.createProjectSet}
+        onLinkProjectSet={projectSetActions.linkProjectSet}
+        onMigrateProjects={projectSetActions.migrateProjects}
+        onMergeIntoProjectSet={projectSetActions.mergeIntoProjectSet}
+      />
+    );
+  }
+
+  // Show loading while project set is being checked or connected.
+  // This also covers the transient 'connecting' state during setup actions
+  // (create/migrate/link) — the hook sets status to 'connecting' which
+  // causes a re-render that lands here instead of the setup screen.
+  if (
+    projectSetState.status === 'loading' ||
+    projectSetState.status === 'connecting'
+  ) {
+    return (
+      <div className="project-selector" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+          {projectSetState.status === 'connecting' ? 'Connecting to project set...' : 'Loading...'}
+        </div>
+      </div>
+    );
+  }
+
+  // Show error if project set connection failed
+  if (projectSetState.status === 'error') {
+    return (
+      <ProjectSetSetup
+        hasMigration={false}
+        legacyProjects={[]}
+        error={projectSetState.error}
+        isConnecting={false}
+        onCreateProjectSet={projectSetActions.createProjectSet}
+        onLinkProjectSet={projectSetActions.linkProjectSet}
+        onMigrateProjects={projectSetActions.migrateProjects}
+        onMergeIntoProjectSet={projectSetActions.mergeIntoProjectSet}
+      />
+    );
+  }
+
   return (
     <>
       {!project ? (
@@ -462,6 +571,11 @@ function App() {
           onScreenNameChange={setScreenName}
           onColorChange={setCursorColor}
           authName={auth?.name}
+          projectSetDocId={projectSetActions.getProjectSetDocId()}
+          projectSetSyncServer={projectSetActions.getSyncServer()}
+          projectSetEntries={projectSetState.status === 'connected' ? projectSetState.projects : undefined}
+          onRemoveProjectFromSet={projectSetActions.removeProject}
+          onTouchProject={projectSetActions.touchProject}
         />
       ) : (
         <ViewModeProvider>

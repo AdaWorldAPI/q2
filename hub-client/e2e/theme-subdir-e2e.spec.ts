@@ -37,7 +37,7 @@ async function loadProjectFile(
   await page.goto('/');
   await expect(page.locator('body')).toBeVisible();
   const localId = await seedProjectInBrowser(page, indexDocId, serverUrl);
-  await page.goto(`/#/project/${localId}/file/${encodeURIComponent(targetFile)}`);
+  await page.goto(`/#/p/${localId}/file/${encodeURIComponent(targetFile)}`);
   await waitForPreviewRender(page, { timeout: 60000 });
   return localId;
 }

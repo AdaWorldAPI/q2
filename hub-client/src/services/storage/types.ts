@@ -13,6 +13,7 @@ export const STORES = {
   META: '_meta',
   PROJECTS: 'projects',
   USER_SETTINGS: 'userSettings',
+  PROJECT_SET: 'projectSet',
 } as const;
 
 /**
@@ -42,6 +43,21 @@ export interface MigrationError {
   version: number;
   error: string;
   occurredAt: string;
+}
+
+/**
+ * Pointer to the user's Automerge-backed project set document.
+ * Stored as a singleton in the projectSet store (key: 'projectSet').
+ *
+ * This is the only project-related data that remains in IndexedDB after
+ * migration — the actual project list lives in the Automerge document.
+ */
+export interface ProjectSetPointer {
+  key: 'projectSet';
+  /** Automerge document ID for the ProjectSetDocument. */
+  projectSetDocId: string;
+  /** Sync server URL where the project set document is hosted. */
+  syncServer: string;
 }
 
 /**

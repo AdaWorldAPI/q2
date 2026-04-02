@@ -3,10 +3,11 @@
  *
  * URL Scheme:
  *   #/                                    → Project selector
- *   #/project/<local-id>                  → Project with default file
- *   #/project/<local-id>/file/<path>      → Specific file
- *   #/project/<local-id>/file/<path>#<a>  → Specific file + anchor
+ *   #/p/<local-id>                        → Project with default file
+ *   #/p/<local-id>/file/<path>            → Specific file
+ *   #/p/<local-id>/file/<path>#<a>        → Specific file + anchor
  *   #/share/<indexDocId>?server=<url>&file=<path>  → Shareable link (temporary)
+ *   #/link-project-set/<docId>?server=<url>        → Link project set (temporary)
  *
  * Security: We use the local IndexedDB project ID (a UUID) instead of
  * the indexDocId (Automerge DocumentId). The indexDocId acts like a bearer
@@ -78,9 +79,25 @@ export interface ShareRoute {
 }
 
 /**
+ * Route from a link to join/link a project set from another browser.
+ *
+ * SECURITY: Like ShareRoute, this should only exist transiently.
+ * The URL is immediately replaced with the project-selector route.
+ *
+ * URL format: #/link-project-set/<projectSetDocId>?server=<url>
+ */
+export interface LinkProjectSetRoute {
+  type: 'link-project-set';
+  /** bs58-encoded Automerge document ID (without 'automerge:' prefix) */
+  projectSetDocId: string;
+  /** Sync server URL */
+  syncServer: string;
+}
+
+/**
  * Union of all possible routes.
  */
-export type Route = ProjectSelectorRoute | ProjectRoute | FileRoute | ShareRoute;
+export type Route = ProjectSelectorRoute | ProjectRoute | FileRoute | ShareRoute | LinkProjectSetRoute;
 
 // ============================================================================
 // URL Parsing
@@ -95,9 +112,9 @@ export type Route = ProjectSelectorRoute | ProjectRoute | FileRoute | ShareRoute
  * @example
  * parseHashRoute('')                                    // { type: 'project-selector' }
  * parseHashRoute('#/')                                  // { type: 'project-selector' }
- * parseHashRoute('#/project/abc-123')                   // { type: 'project', projectId: 'abc-123' }
- * parseHashRoute('#/project/abc-123/file/index.qmd')    // { type: 'file', projectId: 'abc-123', filePath: 'index.qmd' }
- * parseHashRoute('#/project/abc-123/file/docs%2Fintro.qmd#section')
+ * parseHashRoute('#/p/abc-123')                          // { type: 'project', projectId: 'abc-123' }
+ * parseHashRoute('#/p/abc-123/file/index.qmd')           // { type: 'file', projectId: 'abc-123', filePath: 'index.qmd' }
+ * parseHashRoute('#/p/abc-123/file/docs%2Fintro.qmd#section')
  *   // { type: 'file', projectId: 'abc-123', filePath: 'docs/intro.qmd', anchor: 'section' }
  */
 export function parseHashRoute(hash: string): Route {
@@ -152,8 +169,20 @@ export function parseHashRoute(hash: string): Route {
     };
   }
 
+  // Parse link-project-set route: /link-project-set/<docId>?server=<url>
+  if (segments[0] === 'link-project-set' && segments[1]) {
+    const projectSetDocId = decodeURIComponent(segments[1]);
+    const server = queryParams.get('server') ?? '';
+
+    return {
+      type: 'link-project-set',
+      projectSetDocId,
+      syncServer: server,
+    };
+  }
+
   // Parse route based on segments
-  if (segments[0] === 'project' && segments[1]) {
+  if (segments[0] === 'p' && segments[1]) {
     const projectId = segments[1];
 
     // Check for file path: /project/<id>/file/<path>
@@ -197,11 +226,11 @@ export function parseHashRoute(hash: string): Route {
  * buildHashRoute({ type: 'project-selector' })
  *   // '#/'
  * buildHashRoute({ type: 'project', projectId: 'abc-123' })
- *   // '#/project/abc-123'
+ *   // '#/p/abc-123'
  * buildHashRoute({ type: 'file', projectId: 'abc-123', filePath: 'index.qmd' })
- *   // '#/project/abc-123/file/index.qmd'
+ *   // '#/p/abc-123/file/index.qmd'
  * buildHashRoute({ type: 'file', projectId: 'abc-123', filePath: 'docs/intro.qmd', anchor: 'section' })
- *   // '#/project/abc-123/file/docs%2Fintro.qmd#section'
+ *   // '#/p/abc-123/file/docs%2Fintro.qmd#section'
  */
 export function buildHashRoute(route: Route): string {
   switch (route.type) {
@@ -209,12 +238,12 @@ export function buildHashRoute(route: Route): string {
       return '#/';
 
     case 'project':
-      return `#/project/${route.projectId}`;
+      return `#/p/${route.projectId}`;
 
     case 'file': {
       // Encode the file path to handle slashes and special characters
       const encodedPath = encodeURIComponent(route.filePath);
-      const base = `#/project/${route.projectId}/file/${encodedPath}`;
+      const base = `#/p/${route.projectId}/file/${encodedPath}`;
       return route.anchor ? `${base}#${route.anchor}` : base;
     }
 
@@ -225,6 +254,12 @@ export function buildHashRoute(route: Route): string {
       params.set('file', route.filePath);
       params.set('name', route.name);
       return `#/share/${encodeURIComponent(route.indexDocId)}?${params.toString()}`;
+    }
+
+    case 'link-project-set': {
+      const params = new URLSearchParams();
+      params.set('server', route.syncServer);
+      return `#/link-project-set/${encodeURIComponent(route.projectSetDocId)}?${params.toString()}`;
     }
   }
 }
@@ -277,6 +312,31 @@ export function buildShareableUrl(
     syncServer,
     filePath,
     name: projectName,
+  };
+
+  return buildFullUrl(route);
+}
+
+/**
+ * Build a shareable URL for linking a project set on another browser.
+ *
+ * Like project share URLs, this contains a bearer-token document ID
+ * and should be treated as sensitive.
+ *
+ * @param projectSetDocId - The Automerge document ID (with or without 'automerge:' prefix)
+ * @param syncServer - The sync server URL
+ * @returns Full shareable URL
+ */
+export function buildProjectSetLinkUrl(
+  projectSetDocId: string,
+  syncServer: string,
+): string {
+  const cleanDocId = projectSetDocId.replace(/^automerge:/, '');
+
+  const route: LinkProjectSetRoute = {
+    type: 'link-project-set',
+    projectSetDocId: cleanDocId,
+    syncServer,
   };
 
   return buildFullUrl(route);
@@ -346,6 +406,14 @@ export function routesEqual(a: Route, b: Route): boolean {
         a.indexDocId === bShare.indexDocId &&
         a.syncServer === bShare.syncServer &&
         a.filePath === bShare.filePath
+      );
+    }
+
+    case 'link-project-set': {
+      const bLink = b as LinkProjectSetRoute;
+      return (
+        a.projectSetDocId === bLink.projectSetDocId &&
+        a.syncServer === bLink.syncServer
       );
     }
   }

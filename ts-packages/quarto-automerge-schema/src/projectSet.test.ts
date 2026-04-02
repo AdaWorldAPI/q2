@@ -1,0 +1,194 @@
+/**
+ * Tests for ProjectSetDocument schema helpers.
+ *
+ * These test the pure functions that manipulate the project set document.
+ * In production, these run inside Automerge `change()` callbacks, but
+ * they can be tested with plain objects.
+ */
+
+import { describe, it, expect } from 'vitest';
+import {
+  CURRENT_PROJECT_SET_SCHEMA_VERSION,
+  initProjectSetDocument,
+  projectSetKey,
+  addProjectToSet,
+  removeProjectFromSet,
+  touchProjectInSet,
+} from './index.js';
+import type { ProjectSetDocument } from './index.js';
+
+function emptyDoc(): ProjectSetDocument {
+  const doc = {} as ProjectSetDocument;
+  initProjectSetDocument(doc);
+  return doc;
+}
+
+describe('ProjectSetDocument schema helpers', () => {
+  describe('initProjectSetDocument', () => {
+    it('should initialize an empty document', () => {
+      const doc = emptyDoc();
+      expect(doc.projects).toEqual({});
+      expect(doc.version).toBe(CURRENT_PROJECT_SET_SCHEMA_VERSION);
+    });
+  });
+
+  describe('projectSetKey', () => {
+    it('should strip automerge: prefix', () => {
+      expect(projectSetKey('automerge:abc123')).toBe('abc123');
+    });
+
+    it('should return as-is if no prefix', () => {
+      expect(projectSetKey('abc123')).toBe('abc123');
+    });
+  });
+
+  describe('addProjectToSet', () => {
+    it('should add a new project', () => {
+      const doc = emptyDoc();
+      const result = addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'My Project',
+      }, '2026-01-15T00:00:00.000Z');
+
+      expect(result).toBe(true);
+      expect(doc.projects['proj1']).toEqual({
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'My Project',
+        addedAt: '2026-01-15T00:00:00.000Z',
+        lastAccessed: '2026-01-15T00:00:00.000Z',
+      });
+    });
+
+    it('should return false for duplicate with same metadata', () => {
+      const doc = emptyDoc();
+      addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'My Project',
+      }, '2026-01-15T00:00:00.000Z');
+
+      const result = addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'My Project',
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('should update description if changed', () => {
+      const doc = emptyDoc();
+      addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'Old Name',
+      }, '2026-01-15T00:00:00.000Z');
+
+      const result = addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'New Name',
+      });
+
+      expect(result).toBe(true);
+      expect(doc.projects['proj1'].description).toBe('New Name');
+      // addedAt should not change
+      expect(doc.projects['proj1'].addedAt).toBe('2026-01-15T00:00:00.000Z');
+    });
+
+    it('should update syncServer if changed', () => {
+      const doc = emptyDoc();
+      addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://old-server',
+        description: 'Project',
+      });
+
+      const result = addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://new-server',
+        description: 'Project',
+      });
+
+      expect(result).toBe(true);
+      expect(doc.projects['proj1'].syncServer).toBe('wss://new-server');
+    });
+
+    it('should handle multiple projects', () => {
+      const doc = emptyDoc();
+      addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'First',
+      });
+      addProjectToSet(doc, {
+        indexDocId: 'automerge:proj2',
+        syncServer: 'wss://sync.example.com',
+        description: 'Second',
+      });
+
+      expect(Object.keys(doc.projects)).toHaveLength(2);
+      expect(doc.projects['proj1'].description).toBe('First');
+      expect(doc.projects['proj2'].description).toBe('Second');
+    });
+  });
+
+  describe('removeProjectFromSet', () => {
+    it('should remove an existing project', () => {
+      const doc = emptyDoc();
+      addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'To Remove',
+      });
+
+      const result = removeProjectFromSet(doc, 'automerge:proj1');
+      expect(result).toBe(true);
+      expect(doc.projects['proj1']).toBeUndefined();
+    });
+
+    it('should return false for non-existent project', () => {
+      const doc = emptyDoc();
+      const result = removeProjectFromSet(doc, 'automerge:nonexistent');
+      expect(result).toBe(false);
+    });
+
+    it('should handle indexDocId without prefix', () => {
+      const doc = emptyDoc();
+      addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'Project',
+      });
+
+      const result = removeProjectFromSet(doc, 'proj1');
+      expect(result).toBe(true);
+      expect(doc.projects['proj1']).toBeUndefined();
+    });
+  });
+
+  describe('touchProjectInSet', () => {
+    it('should update lastAccessed', () => {
+      const doc = emptyDoc();
+      addProjectToSet(doc, {
+        indexDocId: 'automerge:proj1',
+        syncServer: 'wss://sync.example.com',
+        description: 'Project',
+      }, '2026-01-01T00:00:00.000Z');
+
+      const result = touchProjectInSet(doc, 'automerge:proj1', '2026-06-15T12:00:00.000Z');
+      expect(result).toBe(true);
+      expect(doc.projects['proj1'].lastAccessed).toBe('2026-06-15T12:00:00.000Z');
+      // addedAt should not change
+      expect(doc.projects['proj1'].addedAt).toBe('2026-01-01T00:00:00.000Z');
+    });
+
+    it('should return false for non-existent project', () => {
+      const doc = emptyDoc();
+      const result = touchProjectInSet(doc, 'automerge:nonexistent');
+      expect(result).toBe(false);
+    });
+  });
+});

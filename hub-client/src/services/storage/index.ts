@@ -13,6 +13,7 @@ export type {
   Migration,
   ExportData,
   ProjectEntryV2,
+  ProjectSetPointer,
   HubDatabase,
 } from './types';
 

@@ -44,7 +44,7 @@ test.describe('Project Loading', () => {
     const localId = await seedProjectInBrowser(page, indexDocId, serverUrl);
 
     // Navigate to the project file
-    await page.goto(`/#/project/${localId}/file/index.qmd`);
+    await page.goto(`/#/p/${localId}/file/index.qmd`);
 
     // Wait for the preview iframe to render content (up to 30s for WASM init + render)
     const previewFrame = page.frameLocator('iframe.preview-active');

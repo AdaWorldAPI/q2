@@ -6,12 +6,14 @@ import {
   parseHashRoute,
   buildHashRoute,
   buildShareableUrl,
+  buildProjectSetLinkUrl,
   routesEqual,
   sameFile,
   savePreAuthHash,
   restorePreAuthHash,
   type Route,
   type ShareRoute,
+  type LinkProjectSetRoute,
 } from './routing';
 
 describe('parseHashRoute', () => {
@@ -36,7 +38,7 @@ describe('parseHashRoute', () => {
 
   describe('project routes', () => {
     it('parses project route with UUID', () => {
-      expect(parseHashRoute('#/project/abc-123-def')).toEqual({
+      expect(parseHashRoute('#/p/abc-123-def')).toEqual({
         type: 'project',
         projectId: 'abc-123-def',
       });
@@ -44,14 +46,14 @@ describe('parseHashRoute', () => {
 
     it('parses project route with full UUID', () => {
       const uuid = '550e8400-e29b-41d4-a716-446655440000';
-      expect(parseHashRoute(`#/project/${uuid}`)).toEqual({
+      expect(parseHashRoute(`#/p/${uuid}`)).toEqual({
         type: 'project',
         projectId: uuid,
       });
     });
 
     it('handles project route without leading #', () => {
-      expect(parseHashRoute('/project/abc-123')).toEqual({
+      expect(parseHashRoute('/p/abc-123')).toEqual({
         type: 'project',
         projectId: 'abc-123',
       });
@@ -60,7 +62,7 @@ describe('parseHashRoute', () => {
 
   describe('file routes', () => {
     it('parses simple file path', () => {
-      expect(parseHashRoute('#/project/abc-123/file/index.qmd')).toEqual({
+      expect(parseHashRoute('#/p/abc-123/file/index.qmd')).toEqual({
         type: 'file',
         projectId: 'abc-123',
         filePath: 'index.qmd',
@@ -69,7 +71,7 @@ describe('parseHashRoute', () => {
 
     it('parses encoded nested file path', () => {
       // docs/intro.qmd encoded as docs%2Fintro.qmd
-      expect(parseHashRoute('#/project/abc-123/file/docs%2Fintro.qmd')).toEqual({
+      expect(parseHashRoute('#/p/abc-123/file/docs%2Fintro.qmd')).toEqual({
         type: 'file',
         projectId: 'abc-123',
         filePath: 'docs/intro.qmd',
@@ -77,7 +79,7 @@ describe('parseHashRoute', () => {
     });
 
     it('parses file path with anchor', () => {
-      expect(parseHashRoute('#/project/abc-123/file/index.qmd#section-1')).toEqual({
+      expect(parseHashRoute('#/p/abc-123/file/index.qmd#section-1')).toEqual({
         type: 'file',
         projectId: 'abc-123',
         filePath: 'index.qmd',
@@ -86,7 +88,7 @@ describe('parseHashRoute', () => {
     });
 
     it('parses encoded path with anchor', () => {
-      expect(parseHashRoute('#/project/abc-123/file/docs%2Fchapter1.qmd#intro')).toEqual({
+      expect(parseHashRoute('#/p/abc-123/file/docs%2Fchapter1.qmd#intro')).toEqual({
         type: 'file',
         projectId: 'abc-123',
         filePath: 'docs/chapter1.qmd',
@@ -96,7 +98,7 @@ describe('parseHashRoute', () => {
 
     it('handles file path with special characters', () => {
       // Path with spaces: "my file.qmd" -> "my%20file.qmd"
-      expect(parseHashRoute('#/project/abc-123/file/my%20file.qmd')).toEqual({
+      expect(parseHashRoute('#/p/abc-123/file/my%20file.qmd')).toEqual({
         type: 'file',
         projectId: 'abc-123',
         filePath: 'my file.qmd',
@@ -104,7 +106,7 @@ describe('parseHashRoute', () => {
     });
 
     it('handles deeply nested paths', () => {
-      expect(parseHashRoute('#/project/abc/file/a%2Fb%2Fc%2Fd.qmd')).toEqual({
+      expect(parseHashRoute('#/p/abc/file/a%2Fb%2Fc%2Fd.qmd')).toEqual({
         type: 'file',
         projectId: 'abc',
         filePath: 'a/b/c/d.qmd',
@@ -112,7 +114,7 @@ describe('parseHashRoute', () => {
     });
 
     it('returns project route when file segment is empty', () => {
-      expect(parseHashRoute('#/project/abc-123/file/')).toEqual({
+      expect(parseHashRoute('#/p/abc-123/file/')).toEqual({
         type: 'project',
         projectId: 'abc-123',
       });
@@ -173,6 +175,44 @@ describe('parseHashRoute', () => {
       expect(parseHashRoute('#/share')).toEqual({ type: 'project-selector' });
     });
   });
+
+  describe('link-project-set routes', () => {
+    it('parses link-project-set route with server param', () => {
+      const result = parseHashRoute(
+        '#/link-project-set/abc123?server=wss%3A%2F%2Fsync.example.com'
+      );
+      expect(result).toEqual({
+        type: 'link-project-set',
+        projectSetDocId: 'abc123',
+        syncServer: 'wss://sync.example.com',
+      });
+    });
+
+    it('parses link-project-set route with missing server as empty string', () => {
+      const result = parseHashRoute('#/link-project-set/abc123');
+      expect(result).toEqual({
+        type: 'link-project-set',
+        projectSetDocId: 'abc123',
+        syncServer: '',
+      });
+    });
+
+    it('decodes URL-encoded projectSetDocId', () => {
+      const result = parseHashRoute(
+        '#/link-project-set/abc%2B123?server=wss%3A%2F%2Fa.com'
+      );
+      expect(result).toEqual({
+        type: 'link-project-set',
+        projectSetDocId: 'abc+123',
+        syncServer: 'wss://a.com',
+      });
+    });
+
+    it('returns project-selector when no docId provided', () => {
+      expect(parseHashRoute('#/link-project-set/')).toEqual({ type: 'project-selector' });
+      expect(parseHashRoute('#/link-project-set')).toEqual({ type: 'project-selector' });
+    });
+  });
 });
 
 describe('buildHashRoute', () => {
@@ -185,7 +225,7 @@ describe('buildHashRoute', () => {
   describe('project routes', () => {
     it('builds project route', () => {
       expect(buildHashRoute({ type: 'project', projectId: 'abc-123' })).toBe(
-        '#/project/abc-123'
+        '#/p/abc-123'
       );
     });
   });
@@ -198,7 +238,7 @@ describe('buildHashRoute', () => {
           projectId: 'abc-123',
           filePath: 'index.qmd',
         })
-      ).toBe('#/project/abc-123/file/index.qmd');
+      ).toBe('#/p/abc-123/file/index.qmd');
     });
 
     it('encodes nested file paths', () => {
@@ -208,7 +248,7 @@ describe('buildHashRoute', () => {
           projectId: 'abc-123',
           filePath: 'docs/intro.qmd',
         })
-      ).toBe('#/project/abc-123/file/docs%2Fintro.qmd');
+      ).toBe('#/p/abc-123/file/docs%2Fintro.qmd');
     });
 
     it('builds file route with anchor', () => {
@@ -219,7 +259,7 @@ describe('buildHashRoute', () => {
           filePath: 'index.qmd',
           anchor: 'section-1',
         })
-      ).toBe('#/project/abc-123/file/index.qmd#section-1');
+      ).toBe('#/p/abc-123/file/index.qmd#section-1');
     });
 
     it('encodes special characters in path', () => {
@@ -229,7 +269,7 @@ describe('buildHashRoute', () => {
           projectId: 'abc',
           filePath: 'my file.qmd',
         })
-      ).toBe('#/project/abc/file/my%20file.qmd');
+      ).toBe('#/p/abc/file/my%20file.qmd');
     });
   });
 
@@ -262,6 +302,78 @@ describe('buildHashRoute', () => {
       );
     });
   });
+
+  describe('link-project-set routes', () => {
+    it('builds link-project-set route with server param', () => {
+      const route: LinkProjectSetRoute = {
+        type: 'link-project-set',
+        projectSetDocId: 'abc123',
+        syncServer: 'wss://sync.example.com',
+      };
+      const result = buildHashRoute(route);
+      expect(result).toBe(
+        '#/link-project-set/abc123?server=wss%3A%2F%2Fsync.example.com'
+      );
+    });
+
+    it('encodes special characters in docId', () => {
+      const route: LinkProjectSetRoute = {
+        type: 'link-project-set',
+        projectSetDocId: 'abc+123',
+        syncServer: 'wss://sync.example.com',
+      };
+      const result = buildHashRoute(route);
+      expect(result).toBe(
+        '#/link-project-set/abc%2B123?server=wss%3A%2F%2Fsync.example.com'
+      );
+    });
+  });
+});
+
+describe('buildProjectSetLinkUrl', () => {
+  const originalWindow = globalThis.window;
+
+  beforeAll(() => {
+    // @ts-expect-error - mocking window in node environment
+    globalThis.window = {
+      location: {
+        origin: 'https://example.com',
+        pathname: '/hub/',
+      },
+    };
+  });
+
+  afterAll(() => {
+    // @ts-expect-error - restoring window
+    globalThis.window = originalWindow;
+  });
+
+  it('builds a full link-project-set URL', () => {
+    const url = buildProjectSetLinkUrl(
+      'automerge:abc123',
+      'wss://sync.example.com',
+    );
+    expect(url).toBe(
+      'https://example.com/hub/#/link-project-set/abc123?server=wss%3A%2F%2Fsync.example.com'
+    );
+  });
+
+  it('strips automerge: prefix from docId', () => {
+    const url = buildProjectSetLinkUrl(
+      'automerge:xyz789',
+      'wss://sync.example.com',
+    );
+    expect(url).toContain('#/link-project-set/xyz789');
+    expect(url).not.toContain('automerge%3A');
+  });
+
+  it('handles docId without prefix', () => {
+    const url = buildProjectSetLinkUrl(
+      'abc123',
+      'wss://sync.example.com',
+    );
+    expect(url).toContain('#/link-project-set/abc123');
+  });
 });
 
 describe('round-trip parsing', () => {
@@ -279,6 +391,9 @@ describe('round-trip parsing', () => {
     { type: 'share', indexDocId: '4XyZabc123', syncServer: 'wss://sync.automerge.org', filePath: 'index.qmd', name: 'My Project' },
     { type: 'share', indexDocId: '4XyZabc123', syncServer: 'wss://my-server.com', filePath: 'docs/intro.qmd', name: 'Another Project' },
     { type: 'share', indexDocId: 'abc+123', syncServer: 'wss://sync.automerge.org', filePath: 'test.qmd', name: 'Test' },
+    // Link project set routes
+    { type: 'link-project-set', projectSetDocId: 'abc123', syncServer: 'wss://sync.example.com' },
+    { type: 'link-project-set', projectSetDocId: 'xyz+789', syncServer: 'wss://other.com' },
   ];
 
   for (const route of testCases) {
@@ -533,11 +648,11 @@ describe('savePreAuthHash / restorePreAuthHash', () => {
     mockHash = '#/share/original';
     savePreAuthHash();
 
-    mockHash = '#/project/some-id';
+    mockHash = '#/p/some-id';
     const restored = restorePreAuthHash();
 
     expect(restored).toBeNull();
-    expect(mockHash).toBe('#/project/some-id');
+    expect(mockHash).toBe('#/p/some-id');
   });
 
   it('clears sessionStorage after restore', () => {
@@ -555,7 +670,7 @@ describe('savePreAuthHash / restorePreAuthHash', () => {
     mockHash = '#/share/abc123';
     savePreAuthHash();
 
-    mockHash = '#/project/other';
+    mockHash = '#/p/other';
     restorePreAuthHash();
 
     expect(mockStorage.has('quarto-hub-pre-auth-hash')).toBe(false);

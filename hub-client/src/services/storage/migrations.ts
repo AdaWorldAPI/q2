@@ -29,13 +29,13 @@ import { generateColorFromId, generateAnonymousName } from './utils';
  * Current IndexedDB version.
  * Increment this when adding/removing object stores or indexes.
  */
-export const CURRENT_DB_VERSION = 3;
+export const CURRENT_DB_VERSION = 4;
 
 /**
  * Current application schema version.
  * This is the version number after all migrations have been applied.
  */
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 /**
  * Baseline schema version for databases that existed before the migration system.
@@ -93,6 +93,19 @@ export const migrations: Migration[] = [
   {
     version: 3,
     description: 'No-op (sassCache store is now inert — caching moved to quarto-cache DB)',
+  },
+  // Migration 3→4: Add projectSet store for Automerge-backed project set pointer.
+  // The actual project list moves to an Automerge document; IndexedDB stores only
+  // a pointer to that document. The old 'projects' store is kept as a safety net
+  // for migration and will be removed in a future version.
+  {
+    version: 4,
+    description: 'Add projectSet store for synced project list pointer',
+    structural: (db) => {
+      if (!db.objectStoreNames.contains(STORES.PROJECT_SET)) {
+        db.createObjectStore(STORES.PROJECT_SET, { keyPath: 'key' });
+      }
+    },
   },
 ];
 

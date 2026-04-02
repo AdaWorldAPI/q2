@@ -13,6 +13,9 @@
 /** Current schema version for IndexDocument. */
 export const CURRENT_SCHEMA_VERSION = 1;
 
+/** Current schema version for ProjectSetDocument. */
+export const CURRENT_PROJECT_SET_SCHEMA_VERSION = 1;
+
 /**
  * Actor identity stored in the index document.
  * Older documents may store just a string (screen name); new entries
@@ -68,6 +71,138 @@ export function setIdentity(doc: IndexDocument, actorId: string, screenName: str
   doc.identities[actorId] = { name: screenName, color };
   return true;
 }
+
+// ============================================================================
+// Project Set Schema Types
+// ============================================================================
+
+/**
+ * Entry in a ProjectSetDocument representing a single project.
+ *
+ * The key in the `projects` Record is the indexDocId without the 'automerge:'
+ * prefix, which serves as a natural deduplication key — two browsers adding
+ * the same project converge automatically via Automerge CRDT merge.
+ */
+export interface ProjectSetEntry {
+  /** Automerge document ID for the project's IndexDocument (with 'automerge:' prefix). */
+  indexDocId: string;
+  /** WebSocket URL for the sync server hosting this project. */
+  syncServer: string;
+  /** User-provided project name/description. */
+  description: string;
+  /** ISO timestamp when this project was added to the set. */
+  addedAt: string;
+  /** ISO timestamp of last access from any browser. Updated on project open. */
+  lastAccessed: string;
+}
+
+/**
+ * Root document for a user's project set, synced across browsers via Automerge.
+ *
+ * This replaces the per-browser IndexedDB project list. Each browser stores
+ * only a pointer (the document ID of this ProjectSetDocument) in IndexedDB.
+ *
+ * The `projects` map is keyed by indexDocId without the 'automerge:' prefix.
+ */
+export interface ProjectSetDocument {
+  /** Map of project entries, keyed by indexDocId (without 'automerge:' prefix). */
+  projects: Record<string, ProjectSetEntry>;
+  /** Schema version for forward compatibility. */
+  version: number;
+}
+
+/**
+ * Create an empty ProjectSetDocument.
+ * Use this inside an Automerge `change()` callback to initialize a new document.
+ */
+export function initProjectSetDocument(doc: ProjectSetDocument): void {
+  doc.projects = {};
+  doc.version = CURRENT_PROJECT_SET_SCHEMA_VERSION;
+}
+
+/**
+ * Strip the 'automerge:' prefix from a document ID to get the map key.
+ */
+export function projectSetKey(indexDocId: string): string {
+  return indexDocId.replace(/^automerge:/, '');
+}
+
+/**
+ * Add or update a project in a ProjectSetDocument.
+ * Must be called inside an Automerge `change()` callback.
+ *
+ * @returns true if the entry was added or changed
+ */
+export function addProjectToSet(
+  doc: ProjectSetDocument,
+  entry: Omit<ProjectSetEntry, 'addedAt' | 'lastAccessed'>,
+  now?: string,
+): boolean {
+  const key = projectSetKey(entry.indexDocId);
+  const timestamp = now ?? new Date().toISOString();
+  const existing = doc.projects[key];
+
+  if (existing) {
+    // Update mutable fields if changed
+    let changed = false;
+    if (existing.description !== entry.description) {
+      existing.description = entry.description;
+      changed = true;
+    }
+    if (existing.syncServer !== entry.syncServer) {
+      existing.syncServer = entry.syncServer;
+      changed = true;
+    }
+    return changed;
+  }
+
+  doc.projects[key] = {
+    indexDocId: entry.indexDocId,
+    syncServer: entry.syncServer,
+    description: entry.description,
+    addedAt: timestamp,
+    lastAccessed: timestamp,
+  };
+  return true;
+}
+
+/**
+ * Remove a project from a ProjectSetDocument.
+ * Must be called inside an Automerge `change()` callback.
+ *
+ * @returns true if the entry was removed
+ */
+export function removeProjectFromSet(
+  doc: ProjectSetDocument,
+  indexDocId: string,
+): boolean {
+  const key = projectSetKey(indexDocId);
+  if (doc.projects[key]) {
+    delete doc.projects[key];
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Update the lastAccessed timestamp for a project.
+ * Must be called inside an Automerge `change()` callback.
+ */
+export function touchProjectInSet(
+  doc: ProjectSetDocument,
+  indexDocId: string,
+  now?: string,
+): boolean {
+  const key = projectSetKey(indexDocId);
+  const entry = doc.projects[key];
+  if (!entry) return false;
+  entry.lastAccessed = now ?? new Date().toISOString();
+  return true;
+}
+
+// ============================================================================
+// File Document Content Types
+// ============================================================================
 
 /**
  * Text document content (e.g., .qmd, .yml files).

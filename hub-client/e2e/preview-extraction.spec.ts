@@ -45,7 +45,7 @@ test.describe('Preview Extraction', () => {
     await page.goto('/');
     await expect(page.locator('body')).toBeVisible();
     const localId = await seedProjectInBrowser(page, indexDocId, serverUrl);
-    await page.goto(`/#/project/${localId}/file/index.qmd`);
+    await page.goto(`/#/p/${localId}/file/index.qmd`);
 
     // Wait for render
     await waitForPreviewRender(page);

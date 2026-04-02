@@ -147,7 +147,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
   const [currentFile, setCurrentFile] = useState<FileEntry | null>(getInitialFile);
 
   // Ensure URL includes the current file path on initial render
-  // This handles the case where the URL is just #/project/<id> and we select a default file
+  // This handles the case where the URL is just #/p/<id> and we select a default file
   const initialUrlSyncRef = useRef(false);
   useEffect(() => {
     if (initialUrlSyncRef.current) return;

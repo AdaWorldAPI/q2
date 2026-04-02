@@ -960,3 +960,52 @@
 .light-theme .version-info .commit-hash {
   color: var(--posit-blue);
 }
+
+/* Project Set Info */
+
+.project-set-info {
+  margin-top: 16px;
+  padding: 14px;
+  background: var(--bg-card);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.project-set-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.project-set-header h2 {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.project-set-id {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.link-browser-btn {
+  width: 100%;
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.link-browser-btn:hover {
+  border-color: var(--accent-secondary);
+  color: var(--text-primary);
+}

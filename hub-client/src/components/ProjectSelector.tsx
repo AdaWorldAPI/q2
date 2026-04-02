@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ProjectEntry } from '../types/project';
+import type { ProjectSetEntry } from '@quarto/quarto-automerge-schema';
 import type { UserSettings } from '../services/storage/types';
 import * as projectStorage from '../services/projectStorage';
 import * as userSettingsService from '../services/userSettings';
@@ -9,7 +10,8 @@ import {
   type ProjectChoice,
   type ProjectFile,
 } from '../services/wasmRenderer';
-import { DEFAULT_SYNC_SERVER } from '../utils/routing';
+import { DEFAULT_SYNC_SERVER, buildProjectSetLinkUrl } from '../utils/routing';
+import ShareDialog from './ShareDialog';
 import './ProjectSelector.css';
 
 interface Props {
@@ -31,6 +33,16 @@ interface Props {
   onColorChange?: (color: string) => void;
   /** Authenticated user's OIDC display name (for screen name reset). */
   authName?: string | null;
+  /** The document ID of the connected project set (for "Link Another Browser" UI). */
+  projectSetDocId?: string | null;
+  /** The sync server URL for the project set. */
+  projectSetSyncServer?: string | null;
+  /** Projects from the synced project set (if connected). */
+  projectSetEntries?: ProjectSetEntry[];
+  /** Remove a project from the synced set. */
+  onRemoveProjectFromSet?: (indexDocId: string) => void;
+  /** Touch a project in the synced set (update lastAccessed). */
+  onTouchProject?: (indexDocId: string) => void;
 }
 
 // Curated color palette for user selection (10 colors, single row)
@@ -51,6 +63,11 @@ export default function ProjectSelector({
   onScreenNameChange,
   onColorChange,
   authName,
+  projectSetDocId,
+  projectSetSyncServer,
+  projectSetEntries,
+  onRemoveProjectFromSet,
+  onTouchProject,
 }: Props) {
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +95,13 @@ export default function ProjectSelector({
   // Theme state
   const [lightTheme, setLightTheme] = useState(false);
 
+  // "Link Another Browser" dialog state
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
+
+  const projectSetLinkUrl = projectSetDocId && projectSetSyncServer
+    ? buildProjectSetLinkUrl(projectSetDocId, projectSetSyncServer)
+    : undefined;
+
   // Identity section collapsed state (persisted to localStorage)
   const [identityCollapsed, setIdentityCollapsed] = useState(() => {
     const saved = localStorage.getItem('qh-identity-collapsed');
@@ -92,7 +116,15 @@ export default function ProjectSelector({
     });
   };
 
+  // When using project set, derive projects from set entries
+  const useProjectSet = !!projectSetEntries;
+
   const loadProjects = useCallback(async () => {
+    if (useProjectSet) {
+      // Projects come from the project set — no need to load from IDB
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const entries = await projectStorage.listProjects();
@@ -103,7 +135,7 @@ export default function ProjectSelector({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [useProjectSet]);
 
   const loadUserSettings = useCallback(async () => {
     try {
@@ -204,7 +236,23 @@ export default function ProjectSelector({
 
   const handleSelectProject = async (project: ProjectEntry) => {
     await projectStorage.touchProject(project.id);
+    onTouchProject?.(project.indexDocId);
     onSelectProject(project);
+  };
+
+  const handleSelectProjectFromSet = async (entry: ProjectSetEntry) => {
+    // Ensure a local IDB entry exists (needed for URL routing with local IDs)
+    let localProject = await projectStorage.getProjectByIndexDocId(entry.indexDocId);
+    if (!localProject) {
+      localProject = await projectStorage.addProject(
+        entry.indexDocId,
+        entry.syncServer,
+        entry.description,
+      );
+    }
+    await projectStorage.touchProject(localProject.id);
+    onTouchProject?.(entry.indexDocId);
+    onSelectProject(localProject);
   };
 
   const handleConnectProject = async (e: React.FormEvent) => {
@@ -315,12 +363,38 @@ export default function ProjectSelector({
     e.stopPropagation();
     if (confirm(`Delete "${project.description}"?`)) {
       await projectStorage.deleteProject(project.id);
+      onRemoveProjectFromSet?.(project.indexDocId);
       await loadProjects();
     }
   };
 
+  const handleDeleteProjectFromSet = (e: React.MouseEvent, entry: ProjectSetEntry) => {
+    e.stopPropagation();
+    if (confirm(`Delete "${entry.description}"?`)) {
+      onRemoveProjectFromSet?.(entry.indexDocId);
+    }
+  };
+
   const handleExport = async () => {
-    const json = await projectStorage.exportProjects();
+    // When using project set, export from the set; otherwise from IDB
+    let json: string;
+    if (useProjectSet && projectSetEntries) {
+      const exportData = {
+        schemaVersion: 4,
+        exportedAt: new Date().toISOString(),
+        projects: projectSetEntries.map((e) => ({
+          id: '', // Not meaningful for set entries
+          indexDocId: e.indexDocId,
+          syncServer: e.syncServer,
+          description: e.description,
+          createdAt: e.addedAt,
+          lastAccessed: e.lastAccessed,
+        })),
+      };
+      json = JSON.stringify(exportData, null, 2);
+    } else {
+      json = await projectStorage.exportProjects();
+    }
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -392,31 +466,62 @@ export default function ProjectSelector({
 
         <div className="projects-list">
           <h2>Your Projects</h2>
-          {projects.length === 0 ? (
-            <p className="empty">No projects yet. Add one below.</p>
-          ) : (
-            <ul>
-              {projects.map((project) => (
-                <li key={project.id} onClick={() => handleSelectProject(project)}>
-                  <div className="project-info">
-                    <span className="project-name">{project.description}</span>
-                    <span className="project-meta">
-                      <span className="project-server">{project.syncServer}</span>
-                      <span className="project-docid" title={project.indexDocId}>
-                        {project.indexDocId.replace(/^automerge:/, '').slice(0, 8)}...
+          {useProjectSet ? (
+            // Render from synced project set
+            projectSetEntries!.length === 0 ? (
+              <p className="empty">No projects yet. Add one below.</p>
+            ) : (
+              <ul>
+                {projectSetEntries!.map((entry) => (
+                  <li key={entry.indexDocId} onClick={() => handleSelectProjectFromSet(entry)}>
+                    <div className="project-info">
+                      <span className="project-name">{entry.description}</span>
+                      <span className="project-meta">
+                        <span className="project-server">{entry.syncServer}</span>
+                        <span className="project-docid" title={entry.indexDocId}>
+                          {entry.indexDocId.replace(/^automerge:/, '').slice(0, 8)}...
+                        </span>
                       </span>
-                    </span>
-                  </div>
-                  <button
-                    className="delete-btn"
-                    onClick={(e) => handleDeleteProject(e, project)}
-                    title="Delete project"
-                  >
-                    &times;
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    </div>
+                    <button
+                      className="delete-btn"
+                      onClick={(e) => handleDeleteProjectFromSet(e, entry)}
+                      title="Delete project"
+                    >
+                      &times;
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : (
+            // Render from local IDB (legacy fallback)
+            projects.length === 0 ? (
+              <p className="empty">No projects yet. Add one below.</p>
+            ) : (
+              <ul>
+                {projects.map((project) => (
+                  <li key={project.id} onClick={() => handleSelectProject(project)}>
+                    <div className="project-info">
+                      <span className="project-name">{project.description}</span>
+                      <span className="project-meta">
+                        <span className="project-server">{project.syncServer}</span>
+                        <span className="project-docid" title={project.indexDocId}>
+                          {project.indexDocId.replace(/^automerge:/, '').slice(0, 8)}...
+                        </span>
+                      </span>
+                    </div>
+                    <button
+                      className="delete-btn"
+                      onClick={(e) => handleDeleteProject(e, project)}
+                      title="Delete project"
+                    >
+                      &times;
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )
           )}
         </div>
 
@@ -645,10 +750,35 @@ export default function ProjectSelector({
           </div>
         )}
 
+        {projectSetDocId && (
+          <div className="project-set-info">
+            <div className="project-set-header">
+              <h2>Project Set</h2>
+              <span className="project-set-id" title={projectSetDocId}>
+                {projectSetDocId.replace(/^automerge:/, '').slice(0, 12)}...
+              </span>
+            </div>
+            {projectSetLinkUrl && (
+              <button
+                className="link-browser-btn"
+                onClick={() => setShowLinkDialog(true)}
+              >
+                Link Another Browser
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="import-export">
           <button onClick={handleImport}>Import from JSON</button>
           <button onClick={handleExport}>Export to JSON</button>
         </div>
+
+        <ShareDialog
+          isOpen={showLinkDialog}
+          shareableUrl={projectSetLinkUrl}
+          onClose={() => setShowLinkDialog(false)}
+        />
 
         <div className="version-info">
           <span className="commit-hash" title={`Built: ${__BUILD_TIME__}\nCommit date: ${__GIT_COMMIT_DATE__}`}>

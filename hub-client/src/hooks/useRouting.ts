@@ -8,9 +8,9 @@
  *
  * URL Scheme:
  *   #/                                    → Project selector
- *   #/project/<local-id>                  → Project with default file
- *   #/project/<local-id>/file/<path>      → Specific file
- *   #/project/<local-id>/file/<path>#<a>  → Specific file + anchor
+ *   #/p/<local-id>                        → Project with default file
+ *   #/p/<local-id>/file/<path>            → Specific file
+ *   #/p/<local-id>/file/<path>#<a>        → Specific file + anchor
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {

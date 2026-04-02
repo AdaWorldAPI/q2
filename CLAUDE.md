@@ -298,6 +298,7 @@ The changelog is rendered in the About section of the hub-client UI.
 - **CRITICAL**: Use `cargo nextest run` instead of `cargo test`.
 - **CRITICAL**: Do NOT pipe `cargo nextest run` through `tail` or other commands - it causes hangs. Run it directly.
 - **CRITICAL**: If you'll be writing tests, read the special instructions on file claude-notes/instructions/testing.md
+- **CRITICAL**: For hub-client changes, passing tests alone is NOT sufficient. You must also verify that `npm run build:all` (from `hub-client/`) succeeds before claiming work is done. The production build (`tsc -b && vite build`) is stricter than `tsc --noEmit` and `vitest` — it uses project references mode and catches errors the other tools miss.
 - **Windows**: Some crates must be manually excluded from tests. See claude-notes/instructions/windows-dev.md for details.
 
 ## Build Commands

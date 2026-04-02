@@ -95,7 +95,7 @@ test.describe('smoke-all E2E tests', () => {
 
         // Navigate to the fixture file
         await page.goto(
-          `/#/project/${localId}/file/${encodeURIComponent(fixture.renderPath)}`,
+          `/#/p/${localId}/file/${encodeURIComponent(fixture.renderPath)}`,
         );
 
         // Wait for render (or error)
