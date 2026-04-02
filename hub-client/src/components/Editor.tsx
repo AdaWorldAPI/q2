@@ -87,6 +87,31 @@ function getLanguageForFile(filePath: string): string {
   }
 }
 
+// Stable options object — defined at module level so @monaco-editor/react
+// never sees a new reference and skips its internal updateOptions() effect.
+const editorOptions = {
+  minimap: { enabled: false },
+  fontSize: 14,
+  lineNumbers: 'on' as const,
+  wordWrap: 'on' as const,
+  padding: { top: 16 },
+  scrollBeyondLastLine: false,
+  // Disable paste-as to prevent snippet expansion (e.g., URLs from browser
+  // address bar being pasted with $0 appended). See quarto-dev/kyoto#3.
+  pasteAs: { enabled: false },
+  fixedOverflowWidgets: true,
+  // Prefer showing hover below the line — prevents diagnostic popups near
+  // the top of the editor from overlapping the navbar.
+  hover: { above: false },
+  quickSuggestions: false,
+  suggestOnTriggerCharacters: false,
+  wordBasedSuggestions: 'off' as const,
+  acceptSuggestionOnEnter: 'off' as const,
+  acceptSuggestionOnCommitCharacter: false,
+  suggest: { showWords: false, showSnippets: false },
+  inlineSuggest: { enabled: false },
+};
+
 // Select the best default file: prefer index.qmd, then first .qmd, then first file
 function selectDefaultFile(files: FileEntry[]): FileEntry | null {
   if (files.length === 0) return null;
@@ -524,6 +549,27 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
       editorHasFocusRef.current = false;
     });
 
+    // Workaround: normalize backward (RTL) selections to forward (LTR) on
+    // any printable keyDown. On some platforms the browser's input pipeline
+    // silently drops the first character typed into a backward selection
+    // because the hidden textarea's selection state confuses the OS input
+    // method. Flipping to LTR keeps the same highlighted range but places
+    // the cursor at the end, which the input method handles reliably.
+    editor.onKeyDown((e) => {
+      const sel = editor.getSelection();
+      if (!sel || sel.isEmpty() || sel.getDirection() === 0) return; // LTR or no selection
+      // Only intervene for printable characters (single char from e.browserEvent.key)
+      const key = e.browserEvent.key;
+      if (!key || key.length !== 1) return;
+      // Flip to LTR (same range, cursor moves to end)
+      editor.setSelection({
+        selectionStartLineNumber: sel.startLineNumber,
+        selectionStartColumn: sel.startColumn,
+        positionLineNumber: sel.endLineNumber,
+        positionColumn: sel.endColumn,
+      });
+    });
+
     // Track cursor position changes for slide navigation
     editor.onDidChangeCursorPosition((e) => {
       // Get the cursor line (0-based in Monaco)
@@ -956,31 +1002,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
                 beforeMount={handleBeforeMount}
                 onChange={handleEditorChange}
                 onMount={handleEditorMount}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 14,
-                  lineNumbers: 'on',
-                  wordWrap: 'on',
-                  padding: { top: 16 },
-                  scrollBeyondLastLine: false,
-                  // Disable paste-as to prevent snippet expansion (e.g., URLs from browser
-                  // address bar being pasted with $0 appended). See quarto-dev/kyoto#3.
-                  pasteAs: { enabled: false },
-                  // Move hover/diagnostic widgets to a fixed container outside the editor's
-                  // overflow:hidden boundary, preventing them from being clipped by the navbar.
-                  fixedOverflowWidgets: true,
-                  // Prefer showing hover below the line. This prevents diagnostic popups near
-                  // the top of the editor from overlapping the navbar.
-                  hover: { above: false },
-                  // Disable aggressive autocomplete/suggestions
-                  quickSuggestions: false,
-                  suggestOnTriggerCharacters: false,
-                  wordBasedSuggestions: 'off',
-                  acceptSuggestionOnEnter: 'off',
-                  acceptSuggestionOnCommitCharacter: false,
-                  suggest: { showWords: false, showSnippets: false },
-                  inlineSuggest: { enabled: false },
-                }}
+                options={editorOptions}
               />
             </div>
           </div>

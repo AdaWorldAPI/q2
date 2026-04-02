@@ -72,6 +72,11 @@ export function useAutomergeSync({
   const applyingRemoteRef = useRef(false);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 
+  // Keep a ref to currentFile so the stable handleEditorChange callback
+  // always reads the latest value without needing it as a dependency.
+  const currentFileRef = useRef(currentFile);
+  currentFileRef.current = currentFile;
+
   const onEditorMount = useCallback((editor: Monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
   }, []);
@@ -144,15 +149,18 @@ export function useAutomergeSync({
   }, [currentFile, fileContents, replayIsActive]);
 
   // ── Monaco → Automerge ───────────────────────────────────────────────
-  const handleEditorChange = (value: string | undefined, event: Monaco.editor.IModelContentChangedEvent) => {
+  //
+  // Stable callback: uses refs so the identity never changes, preventing
+  // @monaco-editor/react from re-subscribing its listener every render.
+  const handleEditorChange = useCallback((value: string | undefined, event: Monaco.editor.IModelContentChangedEvent) => {
     if (replayActiveRef.current) return;
     if (applyingRemoteRef.current) return;
 
-    if (value !== undefined && currentFile) {
+    if (value !== undefined && currentFileRef.current) {
       setContent(value);
-      onContentOperations(currentFile.path, event.changes);
+      onContentOperations(currentFileRef.current.path, event.changes);
     }
-  };
+  }, [onContentOperations]);
 
   // ── AST rewrite (through Monaco → onChange → splice path) ────────────
   const handleContentRewrite = useCallback((newContent: string) => {
