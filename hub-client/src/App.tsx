@@ -5,6 +5,7 @@ import ProjectSetSetup from './components/ProjectSetSetup';
 import Editor from './components/Editor';
 import Toast from './components/Toast';
 import { ViewModeProvider } from './components/ViewModeContext';
+import { ThemeProvider } from './components/ThemeContext';
 import { LoginScreen } from './components/auth/LoginScreen';
 import {
   connect,
@@ -558,7 +559,7 @@ function App() {
   }
 
   return (
-    <>
+    <ThemeProvider>
       {!project ? (
         <ProjectSelector
           onSelectProject={handleSelectProject}
@@ -599,7 +600,7 @@ function App() {
         visible={showSaveToast}
         onHide={() => setShowSaveToast(false)}
       />
-    </>
+    </ThemeProvider>
   );
 }
 

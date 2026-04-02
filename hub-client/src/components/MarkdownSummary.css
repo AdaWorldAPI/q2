@@ -2,7 +2,7 @@
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  background: #1e1e1e;
+  background: var(--summary-bg);
   cursor: pointer;
 }
 
@@ -12,7 +12,7 @@
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
   font-size: 6px;
   line-height: 1.4;
-  color: #d4d4d4;
+  color: var(--summary-text);
   white-space: pre-wrap;
   word-wrap: break-word;
 }
@@ -28,14 +28,14 @@
 }
 
 .markdown-summary::-webkit-scrollbar-track {
-  background: #1e1e1e;
+  background: var(--summary-scrollbar-track);
 }
 
 .markdown-summary::-webkit-scrollbar-thumb {
-  background: #4a4a4a;
+  background: var(--summary-scrollbar-thumb);
   border-radius: 3px;
 }
 
 .markdown-summary::-webkit-scrollbar-thumb:hover {
-  background: #5a5a5a;
+  background: var(--summary-scrollbar-thumb-hover);
 }

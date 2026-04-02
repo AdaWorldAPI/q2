@@ -3,8 +3,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  background: #16213e;
-  border-bottom: 1px solid #1f3460;
+  background: var(--editor-header-bg);
+  border-bottom: 1px solid var(--editor-header-border);
   min-height: 36px;
   gap: 16px;
 }
@@ -20,11 +20,11 @@
 .minimal-header .file-path {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
   font-size: 13px;
-  color: #ddd;
+  color: var(--editor-text-dim);
 }
 
 .minimal-header .file-path.empty {
-  color: #666;
+  color: var(--editor-text-muted);
   font-style: italic;
 }
 
@@ -38,7 +38,7 @@
 .header-right .project-name {
   font-size: 13px;
   font-weight: 500;
-  color: #aaa;
+  color: var(--editor-text-muted);
   min-width: 120px;
   max-width: 400px;
   overflow: hidden;
@@ -49,22 +49,22 @@
 
 .header-right .preview-btn {
   padding: 6px 16px;
-  background: #ffffff;
-  border: 2px solid #ffffff;
+  background: var(--header-preview-bg);
+  border: 2px solid var(--header-preview-bg);
   border-radius: 6px;
-  color: #1e3a8a;
+  color: var(--header-preview-text);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
-  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.3);
+  box-shadow: 0 2px 8px var(--header-preview-shadow);
 }
 
 .header-right .preview-btn:hover {
-  background: #f0f0f0;
-  border-color: #f0f0f0;
+  background: var(--header-preview-hover);
+  border-color: var(--header-preview-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 12px var(--header-preview-shadow-hover);
 }
 
 .header-right .preview-btn:active {
@@ -74,23 +74,23 @@
 .header-right .choose-project-btn {
   padding: 4px 10px;
   background: none;
-  border: 1px solid #444;
+  border: 1px solid var(--editor-disconnected-border);
   border-radius: 4px;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .header-right .choose-project-btn:hover {
-  border-color: #646cff;
-  color: #646cff;
+  border-color: var(--sidebar-active-accent);
+  color: var(--sidebar-active-accent);
 }
 
 .header-right .share-btn {
   padding: 4px 10px;
-  background: #646cff;
-  border: 1px solid #646cff;
+  background: var(--header-share-bg);
+  border: 1px solid var(--header-share-bg);
   border-radius: 4px;
   color: #fff;
   font-size: 12px;
@@ -99,6 +99,6 @@
 }
 
 .header-right .share-btn:hover {
-  background: #5558dd;
-  border-color: #5558dd;
+  background: var(--header-share-hover);
+  border-color: var(--header-share-hover);
 }

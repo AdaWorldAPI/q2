@@ -1,17 +1,6 @@
-/* Project Set Setup - uses the same color system as ProjectSelector */
+/* Theme variables are defined globally in theme.css */
 
 .project-set-setup {
-  --bg-overlay: rgba(23, 33, 43, 0.9);
-  --bg-modal: var(--posit-blue-dark-2, #213D4F);
-  --bg-input: var(--posit-blue-dark-3, #17212B);
-  --text-primary: #ffffff;
-  --text-secondary: var(--posit-blue-light-2, #A2B8CB);
-  --text-muted: var(--posit-blue-light-3, #7494B1);
-  --border-color: var(--posit-blue-dark-1, #305775);
-  --border-focus: var(--posit-blue, #447099);
-  --accent-primary: var(--posit-orange, #D44000);
-  --error-bg: var(--posit-red, #DB593B);
-
   position: fixed;
   inset: 0;
   background: var(--bg-overlay);

@@ -1,0 +1,315 @@
+/* Posit Brand Colors - always available regardless of theme */
+:root {
+  /* Primary */
+  --posit-blue: #447099;
+  --posit-blue-light-1: #D1DBE5;
+  --posit-blue-light-2: #A2B8CB;
+  --posit-blue-light-3: #7494B1;
+  --posit-blue-dark-1: #305775;
+  --posit-blue-dark-2: #213D4F;
+  --posit-blue-dark-3: #17212B;
+
+  /* Grays */
+  --posit-gray: #404041;
+  --posit-gray-light-1: #C2C2C4;
+  --posit-gray-light-2: #949494;
+  --posit-gray-light-3: #707073;
+  --posit-gray-dark-1: #333333;
+  --posit-gray-dark-2: #242426;
+  --posit-gray-dark-3: #151515;
+
+  /* Accent */
+  --posit-orange: #D44000;
+  --posit-orange-hover: #E57366;
+  --posit-teal: #419599;
+  --posit-green: #72994E;
+  --posit-red: #DB593B;
+}
+
+/* Dark Theme */
+:root.dark {
+  --bg-overlay: rgba(23, 33, 43, 0.9);
+  --bg-modal: var(--posit-blue-dark-2);
+  --bg-card: var(--posit-blue-dark-1);
+  --bg-card-hover: var(--posit-blue);
+  --bg-input: var(--posit-blue-dark-3);
+  --text-primary: #ffffff;
+  --text-secondary: var(--posit-blue-light-2);
+  --text-muted: var(--posit-blue-light-3);
+  --border-color: var(--posit-blue-dark-1);
+  --border-focus: var(--posit-blue);
+  --accent-primary: var(--posit-orange);
+  --accent-secondary: var(--posit-blue);
+  --error-bg: var(--posit-red);
+  --success-bg: var(--posit-teal);
+  --input-bg-alpha: rgba(255, 255, 255, 0.08);
+  --input-bg-alpha-hover: rgba(255, 255, 255, 0.12);
+  --logo-filter: none;
+
+  /* Editor-specific */
+  --editor-bg: #1a1a2e;
+  --editor-header-bg: #16213e;
+  --editor-header-border: #1f3460;
+  --editor-text: #fff;
+  --editor-text-dim: #ccc;
+  --editor-text-muted: #888;
+  --editor-accent-bg: #0f3460;
+  --editor-accent-border: #1f4460;
+  --editor-accent-text: #60a5fa;
+  --editor-success: #4ade80;
+  --editor-success-bg: #0a4f0a;
+  --editor-error: #f87171;
+  --editor-error-bg: #4f0a0a;
+  --editor-warning: #fbbf24;
+  --editor-info: #60a5fa;
+  --editor-note: #a5b4fc;
+  --editor-drag-accent: #4ade80;
+  --editor-disconnected-border: #333;
+
+  /* Sidebar */
+  --sidebar-bg: #16213e;
+  --sidebar-border: #1f3460;
+  --sidebar-section-bg: #12192e;
+  --sidebar-section-hover: #1a2440;
+  --sidebar-drag-bg: #1a2a4e;
+  --sidebar-active-accent: #646cff;
+  --sidebar-drop-accent: #646cff;
+
+  /* Context menu */
+  --context-menu-bg: #1e1e1e;
+  --context-menu-border: #333;
+  --context-menu-hover: #333;
+  --context-menu-shadow: rgba(0, 0, 0, 0.3);
+  --context-menu-danger: #f87171;
+  --context-menu-danger-bg: #3d2020;
+
+  /* Outline panel symbol colors */
+  --outline-header-icon: #c586c0;
+  --outline-code-icon: #9cdcfe;
+  --outline-function-icon: #dcdcaa;
+
+  /* Dialogs */
+  --dialog-bg: #1e1e1e;
+  --dialog-border: #333;
+  --dialog-shadow: rgba(0, 0, 0, 0.4);
+  --dialog-input-bg: #2d2d2d;
+  --dialog-input-border: #444;
+  --dialog-input-hover-bg: #252525;
+  --dialog-tab-active: #646cff;
+  --dialog-primary-bg: #646cff;
+  --dialog-primary-hover: #5558dd;
+  --dialog-danger-bg: #3d2020;
+  --dialog-danger-border: #5a2020;
+  --dialog-disabled-bg: #444;
+  --dialog-file-preview-bg: #2d2d2d;
+  --dialog-file-input-bg: #383838;
+  --dialog-file-input-border: #555;
+  --dialog-add-more-hover-bg: #333;
+
+  /* Warning box (share dialog) */
+  --warning-bg: #3d3020;
+  --warning-border: #5a4520;
+  --warning-icon: #f59e0b;
+  --warning-text: #fbbf24;
+  --warning-detail: #d4a644;
+  --dialog-copied-bg: #22c55e;
+
+  /* View toggle */
+  --view-toggle-bg: #1a1a2e;
+  --view-toggle-text: #8899bb;
+  --view-toggle-hover-bg: #2a3a5a;
+  --view-toggle-hover-text: #aabbdd;
+  --view-toggle-active-bg: #2a3a5a;
+  --view-toggle-active-text: #c0d0f0;
+
+  /* Replay drawer */
+  --replay-handle: #444;
+  --replay-handle-hover: #888;
+  --replay-actor-border: #666;
+  --replay-actor-me-text: #aad4ff;
+  --replay-actor-me-border: #335580;
+  --replay-actor-me-bg: rgba(51, 85, 128, 0.15);
+  --replay-tooltip-bg: #0f0f1e;
+
+  /* Minimal header */
+  --header-preview-bg: #ffffff;
+  --header-preview-text: #1e3a8a;
+  --header-preview-hover: #f0f0f0;
+  --header-preview-shadow: rgba(255, 255, 255, 0.3);
+  --header-preview-shadow-hover: rgba(255, 255, 255, 0.4);
+  --header-share-bg: #646cff;
+  --header-share-hover: #5558dd;
+
+  /* Markdown summary (minimap) */
+  --summary-bg: #1e1e1e;
+  --summary-text: #d4d4d4;
+  --summary-scrollbar-track: #1e1e1e;
+  --summary-scrollbar-thumb: #4a4a4a;
+  --summary-scrollbar-thumb-hover: #5a5a5a;
+
+  /* Preview error overlay */
+  --error-overlay-bg: #1e1e1e;
+  --error-overlay-header-bg: #2d2d2d;
+  --error-overlay-border: #333;
+  --error-overlay-text: #e0e0e0;
+  --error-overlay-dismiss: #999;
+
+  /* Diagnostics banner */
+  --diagnostics-bg: #2d1b1b;
+  --diagnostics-border: #4a2020;
+
+  /* Toast */
+  --toast-bg: #3a3a3a;
+  --toast-text: rgba(255, 255, 255, 0.87);
+  --toast-shadow: rgba(0, 0, 0, 0.3);
+
+  /* Page-level */
+  --page-bg: #242424;
+  --page-text: black;
+  --link-hover: #535bf2;
+  --button-bg: #1a1a1a;
+}
+
+/* Light Theme */
+:root.light {
+  --bg-overlay: rgba(209, 219, 229, 0.95);
+  --bg-modal: #ffffff;
+  --bg-card: var(--posit-blue-light-1);
+  --bg-card-hover: var(--posit-blue-light-2);
+  --bg-input: #ffffff;
+  --text-primary: var(--posit-blue-dark-3);
+  --text-secondary: var(--posit-blue-dark-1);
+  --text-muted: var(--posit-blue);
+  --border-color: var(--posit-blue-light-2);
+  --border-focus: var(--posit-blue);
+  --accent-primary: var(--posit-orange);
+  --accent-secondary: var(--posit-blue);
+  --error-bg: var(--posit-red);
+  --success-bg: var(--posit-teal);
+  --input-bg-alpha: rgba(68, 112, 153, 0.08);
+  --input-bg-alpha-hover: rgba(68, 112, 153, 0.15);
+  --logo-filter: none;
+
+  /* Editor-specific */
+  --editor-bg: #f5f5f5;
+  --editor-header-bg: #e8eef4;
+  --editor-header-border: #d0d8e0;
+  --editor-text: var(--posit-blue-dark-3);
+  --editor-text-dim: #555;
+  --editor-text-muted: #777;
+  --editor-accent-bg: #dce6f0;
+  --editor-accent-border: var(--posit-blue-light-2);
+  --editor-accent-text: #2563eb;
+  --editor-success: #16a34a;
+  --editor-success-bg: #dcfce7;
+  --editor-error: #dc2626;
+  --editor-error-bg: #fee2e2;
+  --editor-warning: #ca8a04;
+  --editor-info: #2563eb;
+  --editor-note: #6366f1;
+  --editor-drag-accent: #16a34a;
+  --editor-disconnected-border: #ccc;
+
+  /* Sidebar */
+  --sidebar-bg: #e8eef4;
+  --sidebar-border: #d0d8e0;
+  --sidebar-section-bg: #dce4ee;
+  --sidebar-section-hover: #d0dae8;
+  --sidebar-drag-bg: #c8d8ea;
+  --sidebar-active-accent: #4f46e5;
+  --sidebar-drop-accent: #4f46e5;
+
+  /* Context menu */
+  --context-menu-bg: #ffffff;
+  --context-menu-border: #ddd;
+  --context-menu-hover: #f0f0f0;
+  --context-menu-shadow: rgba(0, 0, 0, 0.12);
+  --context-menu-danger: #dc2626;
+  --context-menu-danger-bg: #fee2e2;
+
+  /* Outline panel symbol colors */
+  --outline-header-icon: #9333ea;
+  --outline-code-icon: #2563eb;
+  --outline-function-icon: #b45309;
+
+  /* Dialogs */
+  --dialog-bg: #ffffff;
+  --dialog-border: #ddd;
+  --dialog-shadow: rgba(0, 0, 0, 0.15);
+  --dialog-input-bg: #f5f5f5;
+  --dialog-input-border: #ccc;
+  --dialog-input-hover-bg: #f0f0f0;
+  --dialog-tab-active: #4f46e5;
+  --dialog-primary-bg: #4f46e5;
+  --dialog-primary-hover: #4338ca;
+  --dialog-danger-bg: #fee2e2;
+  --dialog-danger-border: #fca5a5;
+  --dialog-disabled-bg: #e5e5e5;
+  --dialog-file-preview-bg: #f5f5f5;
+  --dialog-file-input-bg: #f0f0f0;
+  --dialog-file-input-border: #ccc;
+  --dialog-add-more-hover-bg: #e8e8e8;
+
+  /* Warning box (share dialog) */
+  --warning-bg: #fef3c7;
+  --warning-border: #fcd34d;
+  --warning-icon: #d97706;
+  --warning-text: #92400e;
+  --warning-detail: #a16207;
+  --dialog-copied-bg: #22c55e;
+
+  /* View toggle */
+  --view-toggle-bg: #e8eef4;
+  --view-toggle-text: var(--posit-blue);
+  --view-toggle-hover-bg: #d0dae8;
+  --view-toggle-hover-text: var(--posit-blue-dark-1);
+  --view-toggle-active-bg: #d0dae8;
+  --view-toggle-active-text: var(--posit-blue-dark-2);
+
+  /* Replay drawer */
+  --replay-handle: #c0c0c0;
+  --replay-handle-hover: #888;
+  --replay-actor-border: #ccc;
+  --replay-actor-me-text: #2563eb;
+  --replay-actor-me-border: #93c5fd;
+  --replay-actor-me-bg: rgba(37, 99, 235, 0.08);
+  --replay-tooltip-bg: #ffffff;
+
+  /* Minimal header */
+  --header-preview-bg: var(--posit-blue-dark-2);
+  --header-preview-text: #ffffff;
+  --header-preview-hover: var(--posit-blue-dark-1);
+  --header-preview-shadow: rgba(0, 0, 0, 0.15);
+  --header-preview-shadow-hover: rgba(0, 0, 0, 0.25);
+  --header-share-bg: #4f46e5;
+  --header-share-hover: #4338ca;
+
+  /* Markdown summary (minimap) */
+  --summary-bg: #f0f0f0;
+  --summary-text: #333;
+  --summary-scrollbar-track: #f0f0f0;
+  --summary-scrollbar-thumb: #c0c0c0;
+  --summary-scrollbar-thumb-hover: #a0a0a0;
+
+  /* Preview error overlay */
+  --error-overlay-bg: #ffffff;
+  --error-overlay-header-bg: #f5f5f5;
+  --error-overlay-border: #ddd;
+  --error-overlay-text: #333;
+  --error-overlay-dismiss: #777;
+
+  /* Diagnostics banner */
+  --diagnostics-bg: #fee2e2;
+  --diagnostics-border: #fca5a5;
+
+  /* Toast */
+  --toast-bg: #213547;
+  --toast-text: #ffffff;
+  --toast-shadow: rgba(0, 0, 0, 0.15);
+
+  /* Page-level */
+  --page-bg: #ffffff;
+  --page-text: #213547;
+  --link-hover: #747bff;
+  --button-bg: #f9f9f9;
+}

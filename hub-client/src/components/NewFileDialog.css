@@ -9,12 +9,12 @@
 }
 
 .new-file-dialog {
-  background: #1e1e1e;
-  border: 1px solid #333;
+  background: var(--dialog-bg);
+  border: 1px solid var(--dialog-border);
   border-radius: 12px;
   width: 90%;
   max-width: 480px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 32px var(--dialog-shadow);
 }
 
 .dialog-header {
@@ -22,20 +22,20 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--dialog-border);
 }
 
 .dialog-header h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #fff;
+  color: var(--editor-text);
 }
 
 .close-btn {
   background: none;
   border: none;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 24px;
   cursor: pointer;
   padding: 0;
@@ -44,13 +44,13 @@
 }
 
 .close-btn:hover {
-  color: #fff;
+  color: var(--editor-text);
 }
 
 /* Tabs */
 .dialog-tabs {
   display: flex;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--dialog-border);
 }
 
 .dialog-tabs .tab {
@@ -58,7 +58,7 @@
   padding: 12px;
   background: none;
   border: none;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
@@ -66,13 +66,13 @@
 }
 
 .dialog-tabs .tab:hover {
-  color: #ccc;
-  background: #252525;
+  color: var(--editor-text-dim);
+  background: var(--dialog-input-hover-bg);
 }
 
 .dialog-tabs .tab.active {
-  color: #646cff;
-  border-bottom-color: #646cff;
+  color: var(--dialog-tab-active);
+  border-bottom-color: var(--dialog-tab-active);
 }
 
 /* Content */
@@ -84,29 +84,29 @@
 .text-file-form label {
   display: block;
   margin-bottom: 8px;
-  color: #ccc;
+  color: var(--editor-text-dim);
   font-size: 14px;
 }
 
 .text-file-form input {
   width: 100%;
   padding: 12px;
-  background: #2d2d2d;
-  border: 1px solid #444;
+  background: var(--dialog-input-bg);
+  border: 1px solid var(--dialog-input-border);
   border-radius: 6px;
-  color: #fff;
+  color: var(--editor-text);
   font-size: 14px;
   box-sizing: border-box;
 }
 
 .text-file-form input:focus {
   outline: none;
-  border-color: #646cff;
+  border-color: var(--dialog-tab-active);
 }
 
 /* Upload form */
 .drop-zone {
-  border: 2px dashed #444;
+  border: 2px dashed var(--dialog-input-border);
   border-radius: 8px;
   padding: 32px;
   text-align: center;
@@ -119,7 +119,7 @@
 }
 
 .drop-zone.drag-over {
-  border-color: #646cff;
+  border-color: var(--dialog-tab-active);
   background: rgba(100, 108, 255, 0.1);
 }
 
@@ -130,24 +130,24 @@
 
 .drop-zone p {
   margin: 0 0 8px;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 14px;
 }
 
 .drop-zone .hint {
-  color: #666;
+  color: var(--editor-text-muted);
   font-size: 12px;
 }
 
 .drop-zone .size-hint {
-  color: #555;
+  color: var(--editor-text-muted);
   font-size: 11px;
   margin-top: 12px;
 }
 
 .browse-btn {
   padding: 10px 20px;
-  background: #646cff;
+  background: var(--dialog-primary-bg);
   border: none;
   border-radius: 6px;
   color: #fff;
@@ -158,7 +158,7 @@
 }
 
 .browse-btn:hover {
-  background: #5558dd;
+  background: var(--dialog-primary-hover);
 }
 
 /* File previews */
@@ -171,14 +171,14 @@
   align-items: center;
   gap: 12px;
   padding: 10px;
-  background: #2d2d2d;
+  background: var(--dialog-file-preview-bg);
   border-radius: 6px;
   margin-bottom: 8px;
 }
 
 .file-preview.has-error {
-  background: #3d2020;
-  border: 1px solid #5a2020;
+  background: var(--dialog-danger-bg);
+  border: 1px solid var(--dialog-danger-border);
 }
 
 .file-preview img {
@@ -205,17 +205,17 @@
 .file-preview .file-name-input {
   width: 100%;
   padding: 4px 8px;
-  background: #383838;
-  border: 1px solid #555;
+  background: var(--dialog-file-input-bg);
+  border: 1px solid var(--dialog-file-input-border);
   border-radius: 4px;
-  color: #fff;
+  color: var(--editor-text);
   font-size: 13px;
   box-sizing: border-box;
 }
 
 .file-preview .file-name-input:focus {
   outline: none;
-  border-color: #646cff;
+  border-color: var(--dialog-tab-active);
 }
 
 .file-preview .file-name-input:disabled {
@@ -224,23 +224,23 @@
 }
 
 .file-preview.has-error .file-name-input {
-  border-color: #f87171;
+  border-color: var(--editor-error);
 }
 
 .file-preview .file-size {
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 11px;
 }
 
 .file-preview .file-error {
-  color: #f87171;
+  color: var(--editor-error);
   font-size: 11px;
 }
 
 .file-preview .remove-btn {
   background: none;
   border: none;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 20px;
   cursor: pointer;
   padding: 4px 8px;
@@ -248,34 +248,34 @@
 }
 
 .file-preview .remove-btn:hover {
-  color: #f87171;
+  color: var(--editor-error);
 }
 
 .add-more-btn {
   width: 100%;
   padding: 12px;
-  background: #2d2d2d;
-  border: 1px dashed #444;
+  background: var(--dialog-file-preview-bg);
+  border: 1px dashed var(--dialog-input-border);
   border-radius: 6px;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .add-more-btn:hover {
-  background: #333;
-  border-color: #555;
-  color: #ccc;
+  background: var(--dialog-add-more-hover-bg);
+  border-color: var(--dialog-file-input-border);
+  color: var(--editor-text-dim);
 }
 
 /* Error message */
 .error-message {
   margin-top: 8px;
   padding: 8px 12px;
-  background: #3d2020;
+  background: var(--dialog-danger-bg);
   border-radius: 4px;
-  color: #f87171;
+  color: var(--editor-error);
   font-size: 13px;
 }
 
@@ -285,29 +285,29 @@
   justify-content: flex-end;
   gap: 12px;
   padding: 16px 20px;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--dialog-border);
 }
 
 .cancel-btn {
   padding: 10px 20px;
   background: none;
-  border: 1px solid #444;
+  border: 1px solid var(--dialog-input-border);
   border-radius: 6px;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .cancel-btn:hover {
-  border-color: #666;
-  color: #ccc;
+  border-color: var(--editor-text-muted);
+  color: var(--editor-text-dim);
 }
 
 .create-btn,
 .upload-btn {
   padding: 10px 20px;
-  background: #646cff;
+  background: var(--dialog-primary-bg);
   border: none;
   border-radius: 6px;
   color: #fff;
@@ -318,13 +318,13 @@
 
 .create-btn:hover,
 .upload-btn:hover {
-  background: #5558dd;
+  background: var(--dialog-primary-hover);
 }
 
 .create-btn:disabled,
 .upload-btn:disabled {
-  background: #444;
-  color: #888;
+  background: var(--dialog-disabled-bg);
+  color: var(--editor-text-muted);
   cursor: not-allowed;
 }
 
@@ -336,17 +336,17 @@
 .template-selector label {
   display: block;
   margin-bottom: 8px;
-  color: #ccc;
+  color: var(--editor-text-dim);
   font-size: 14px;
 }
 
 .template-selector select {
   width: 100%;
   padding: 12px;
-  background: #2d2d2d;
-  border: 1px solid #444;
+  background: var(--dialog-input-bg);
+  border: 1px solid var(--dialog-input-border);
   border-radius: 6px;
-  color: #fff;
+  color: var(--editor-text);
   font-size: 14px;
   box-sizing: border-box;
   cursor: pointer;
@@ -358,7 +358,7 @@
 
 .template-selector select:focus {
   outline: none;
-  border-color: #646cff;
+  border-color: var(--dialog-tab-active);
 }
 
 .template-selector select:disabled {
@@ -373,22 +373,22 @@
 .filename-input label {
   display: block;
   margin-bottom: 8px;
-  color: #ccc;
+  color: var(--editor-text-dim);
   font-size: 14px;
 }
 
 .filename-input input {
   width: 100%;
   padding: 12px;
-  background: #2d2d2d;
-  border: 1px solid #444;
+  background: var(--dialog-input-bg);
+  border: 1px solid var(--dialog-input-border);
   border-radius: 6px;
-  color: #fff;
+  color: var(--editor-text);
   font-size: 14px;
   box-sizing: border-box;
 }
 
 .filename-input input:focus {
   outline: none;
-  border-color: #646cff;
+  border-color: var(--dialog-tab-active);
 }

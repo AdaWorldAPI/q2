@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTheme } from './ThemeContext';
 import type { ProjectEntry } from '../types/project';
 import type { ProjectSetEntry } from '@quarto/quarto-automerge-schema';
 import type { UserSettings } from '../services/storage/types';
@@ -92,8 +93,8 @@ export default function ProjectSelector({
   const [editingName, setEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
 
-  // Theme state
-  const [lightTheme, setLightTheme] = useState(false);
+  // Theme
+  const { colorScheme, cycleColorScheme } = useTheme();
 
   // "Link Another Browser" dialog state
   const [showLinkDialog, setShowLinkDialog] = useState(false);
@@ -430,7 +431,7 @@ export default function ProjectSelector({
   }
 
   return (
-    <div className={`project-selector ${lightTheme ? 'light-theme' : ''}`}>
+    <div className="project-selector">
       <div className="modal">
         <div className="modal-header">
           <div className="header-text">
@@ -452,10 +453,10 @@ export default function ProjectSelector({
             )}
             <button
               className="theme-toggle"
-              onClick={() => setLightTheme(!lightTheme)}
-              title={lightTheme ? 'Switch to dark theme' : 'Switch to light theme'}
+              onClick={cycleColorScheme}
+              title={colorScheme === 'auto' ? 'Theme: Follow system' : colorScheme === 'dark' ? 'Theme: Dark' : 'Theme: Light'}
             >
-              {lightTheme ? '🌙' : '☀️'}
+              {colorScheme === 'auto' ? '💻' : colorScheme === 'dark' ? '🌙' : '☀️'}
             </button>
           </div>
         </div>

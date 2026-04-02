@@ -1,12 +1,12 @@
 /* Share Dialog - uses common dialog-overlay from NewFileDialog.css */
 
 .share-dialog {
-  background: #1e1e1e;
-  border: 1px solid #333;
+  background: var(--dialog-bg);
+  border: 1px solid var(--dialog-border);
   border-radius: 12px;
   width: 90%;
   max-width: 520px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 32px var(--dialog-shadow);
 }
 
 .share-dialog .dialog-header {
@@ -14,20 +14,20 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--dialog-border);
 }
 
 .share-dialog .dialog-header h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #fff;
+  color: var(--editor-text);
 }
 
 .share-dialog .close-btn {
   background: none;
   border: none;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 24px;
   cursor: pointer;
   padding: 0;
@@ -36,7 +36,7 @@
 }
 
 .share-dialog .close-btn:hover {
-  color: #fff;
+  color: var(--editor-text);
 }
 
 .share-dialog .dialog-content {
@@ -45,8 +45,8 @@
 
 /* Warning box */
 .warning-box {
-  background: #3d3020;
-  border: 1px solid #5a4520;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 20px;
@@ -56,12 +56,12 @@
   display: inline-block;
   font-size: 24px;
   margin-bottom: 8px;
-  color: #f59e0b;
+  color: var(--warning-icon);
 }
 
 .warning-box p {
   margin: 0 0 8px;
-  color: #fbbf24;
+  color: var(--warning-text);
   font-size: 14px;
   line-height: 1.5;
 }
@@ -71,7 +71,7 @@
 }
 
 .warning-box .warning-detail {
-  color: #d4a644;
+  color: var(--warning-detail);
   font-size: 13px;
 }
 
@@ -83,17 +83,17 @@
 .url-field label {
   display: block;
   margin-bottom: 8px;
-  color: #ccc;
+  color: var(--editor-text-dim);
   font-size: 14px;
 }
 
 .url-field input {
   width: 100%;
   padding: 12px;
-  background: #2d2d2d;
-  border: 1px solid #444;
+  background: var(--dialog-input-bg);
+  border: 1px solid var(--dialog-input-border);
   border-radius: 6px;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 13px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   box-sizing: border-box;
@@ -102,8 +102,8 @@
 
 .url-field input:focus {
   outline: none;
-  border-color: #646cff;
-  color: #ccc;
+  border-color: var(--dialog-tab-active);
+  color: var(--editor-text-dim);
 }
 
 /* Actions */
@@ -112,28 +112,28 @@
   justify-content: flex-end;
   gap: 12px;
   padding: 16px 20px;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--dialog-border);
 }
 
 .share-dialog .cancel-btn {
   padding: 10px 20px;
   background: none;
-  border: 1px solid #444;
+  border: 1px solid var(--dialog-input-border);
   border-radius: 6px;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .share-dialog .cancel-btn:hover {
-  border-color: #666;
-  color: #ccc;
+  border-color: var(--editor-text-muted);
+  color: var(--editor-text-dim);
 }
 
 .share-dialog .copy-btn {
   padding: 10px 24px;
-  background: #646cff;
+  background: var(--dialog-primary-bg);
   border: none;
   border-radius: 6px;
   color: #fff;
@@ -144,9 +144,9 @@
 }
 
 .share-dialog .copy-btn:hover {
-  background: #5558dd;
+  background: var(--dialog-primary-hover);
 }
 
 .share-dialog .copy-btn.copied {
-  background: #22c55e;
+  background: var(--dialog-copied-bg);
 }

@@ -8,7 +8,7 @@
 }
 
 .file-sidebar.drag-over {
-  background: #1a2a4e;
+  background: var(--sidebar-drag-bg);
 }
 
 .sidebar-header {
@@ -16,23 +16,23 @@
   align-items: center;
   justify-content: flex-end;
   padding: 8px 12px;
-  border-bottom: 1px solid #1f3460;
+  border-bottom: 1px solid var(--sidebar-border);
 }
 
 .sidebar-header .new-file-btn {
   padding: 4px 10px;
-  background: #0f3460;
-  border: 1px solid #1f4460;
+  background: var(--editor-accent-bg);
+  border: 1px solid var(--editor-accent-border);
   border-radius: 4px;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .sidebar-header .new-file-btn:hover {
-  background: #1f4460;
-  color: #fff;
+  background: var(--editor-accent-border);
+  color: var(--editor-text);
 }
 
 .file-list {
@@ -44,7 +44,7 @@
 .empty-state {
   padding: 24px 16px;
   text-align: center;
-  color: #666;
+  color: var(--editor-text-muted);
 }
 
 .empty-state p {
@@ -54,7 +54,7 @@
 
 .empty-state .hint {
   font-size: 11px;
-  color: #555;
+  color: var(--editor-text-muted);
 }
 
 /* File items - paddingLeft is set inline based on depth */
@@ -68,12 +68,12 @@
 }
 
 .file-item:hover {
-  background: #1f3460;
+  background: var(--sidebar-border);
 }
 
 .file-item.active {
-  background: #0f3460;
-  border-left: 2px solid #646cff;
+  background: var(--editor-accent-bg);
+  border-left: 2px solid var(--sidebar-active-accent);
   /* Reduce paddingLeft by 2px to account for border */
   margin-left: -2px;
 }
@@ -89,14 +89,14 @@
 
 .file-name {
   font-size: 13px;
-  color: #ddd;
+  color: var(--editor-text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .file-item.active .file-name {
-  color: #fff;
+  color: var(--editor-text);
 }
 
 /* Tree folder structure */
@@ -109,21 +109,21 @@
   align-items: center;
   gap: 6px;
   padding: 4px 12px;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 12px;
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .folder-header:hover {
-  background: #1f3460;
+  background: var(--sidebar-border);
 }
 
 .folder-chevron {
   font-size: 8px;
   width: 10px;
   text-align: center;
-  color: #666;
+  color: var(--editor-text-muted);
   flex-shrink: 0;
 }
 
@@ -146,12 +146,12 @@
 /* Rename input */
 .rename-input {
   flex: 1;
-  background: #0f3460;
-  border: 1px solid #646cff;
+  background: var(--editor-accent-bg);
+  border: 1px solid var(--sidebar-active-accent);
   border-radius: 3px;
   padding: 2px 6px;
   font-size: 13px;
-  color: #fff;
+  color: var(--editor-text);
   min-width: 0;
 }
 
@@ -164,7 +164,7 @@
   position: absolute;
   inset: 0;
   background: rgba(100, 108, 255, 0.15);
-  border: 2px dashed #646cff;
+  border: 2px dashed var(--sidebar-drop-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -176,7 +176,7 @@
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  color: #646cff;
+  color: var(--sidebar-drop-accent);
   font-weight: 500;
 }
 
@@ -187,12 +187,12 @@
 /* Context menu */
 .context-menu {
   position: fixed;
-  background: #1e1e1e;
-  border: 1px solid #333;
+  background: var(--context-menu-bg);
+  border: 1px solid var(--context-menu-border);
   border-radius: 6px;
   padding: 4px 0;
   min-width: 120px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px var(--context-menu-shadow);
   z-index: 1000;
 }
 
@@ -203,20 +203,20 @@
   background: none;
   border: none;
   text-align: left;
-  color: #ddd;
+  color: var(--editor-text-dim);
   font-size: 13px;
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .context-menu button:hover {
-  background: #333;
+  background: var(--context-menu-hover);
 }
 
 .context-menu button.danger {
-  color: #f87171;
+  color: var(--context-menu-danger);
 }
 
 .context-menu button.danger:hover {
-  background: #3d2020;
+  background: var(--context-menu-danger-bg);
 }

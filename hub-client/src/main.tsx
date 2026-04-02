@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { GoogleOAuthProvider } from '@react-oauth/google'
+import './theme.css'
 import './index.css'
 import App from './App.tsx'
 import { savePreAuthHash, restorePreAuthHash } from './utils/routing'

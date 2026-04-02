@@ -19,6 +19,7 @@ import { registerIntelligenceProviders, disposeIntelligenceProviders } from '../
 import { processFileForUpload } from '../services/resourceService';
 import { usePresence } from '../hooks/usePresence';
 import { usePreference } from '../hooks/usePreference';
+import { useTheme } from './ThemeContext';
 import { useIntelligence } from '../hooks/useIntelligence';
 import { useSlideThumbnails } from '../hooks/useSlideThumbnails';
 import { useCursorToSlide } from '../hooks/useCursorToSlide';
@@ -131,6 +132,7 @@ function selectDefaultFile(files: FileEntry[]): FileEntry | null {
 export default function Editor({ project, files, fileContents, onDisconnect, onContentOperations, route, onNavigateToFile, identities, isOnline }: Props) {
   // View mode for pane sizing
   const { viewMode } = useViewMode();
+  const { effectiveTheme } = useTheme();
 
   // Select initial file based on URL route or default
   const getInitialFile = useCallback((): FileEntry | null => {
@@ -994,7 +996,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
                 key={currentFile?.path ?? ''}
                 height="100%"
                 language={getLanguageForFile(currentFile?.path ?? '')}
-                theme="vs-dark"
+                theme={effectiveTheme === 'dark' ? 'vs-dark' : 'light'}
                 // Use defaultValue instead of value to make Monaco uncontrolled.
                 // This prevents the wrapper from calling setValue() on re-renders,
                 // which would reset cursor position. We manage content via executeEdits().

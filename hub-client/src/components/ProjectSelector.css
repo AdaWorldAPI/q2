@@ -1,72 +1,4 @@
-/* Posit Brand Colors */
-:root {
-  /* Primary */
-  --posit-blue: #447099;
-  --posit-blue-light-1: #D1DBE5;
-  --posit-blue-light-2: #A2B8CB;
-  --posit-blue-light-3: #7494B1;
-  --posit-blue-dark-1: #305775;
-  --posit-blue-dark-2: #213D4F;
-  --posit-blue-dark-3: #17212B;
-
-  /* Grays */
-  --posit-gray: #404041;
-  --posit-gray-light-1: #C2C2C4;
-  --posit-gray-light-2: #949494;
-  --posit-gray-light-3: #707073;
-  --posit-gray-dark-1: #333333;
-  --posit-gray-dark-2: #242426;
-  --posit-gray-dark-3: #151515;
-
-  /* Accent */
-  --posit-orange: #D44000;
-  --posit-orange-hover: #E57366;
-  --posit-teal: #419599;
-  --posit-green: #72994E;
-  --posit-red: #DB593B;
-}
-
-/* Dark Theme (default) */
-.project-selector {
-  --bg-overlay: rgba(23, 33, 43, 0.9);
-  --bg-modal: var(--posit-blue-dark-2);
-  --bg-card: var(--posit-blue-dark-1);
-  --bg-card-hover: var(--posit-blue);
-  --bg-input: var(--posit-blue-dark-3);
-  --text-primary: #ffffff;
-  --text-secondary: var(--posit-blue-light-2);
-  --text-muted: var(--posit-blue-light-3);
-  --border-color: var(--posit-blue-dark-1);
-  --border-focus: var(--posit-blue);
-  --accent-primary: var(--posit-orange);
-  --accent-secondary: var(--posit-blue);
-  --error-bg: var(--posit-red);
-  --success-bg: var(--posit-teal);
-  --input-bg-alpha: rgba(255, 255, 255, 0.08);
-  --input-bg-alpha-hover: rgba(255, 255, 255, 0.12);
-  --logo-filter: none;
-}
-
-/* Light Theme */
-.project-selector.light-theme {
-  --bg-overlay: rgba(209, 219, 229, 0.95);
-  --bg-modal: #ffffff;
-  --bg-card: var(--posit-blue-light-1);
-  --bg-card-hover: var(--posit-blue-light-2);
-  --bg-input: #ffffff;
-  --text-primary: var(--posit-blue-dark-3);
-  --text-secondary: var(--posit-blue-dark-1);
-  --text-muted: var(--posit-blue);
-  --border-color: var(--posit-blue-light-2);
-  --border-focus: var(--posit-blue);
-  --accent-primary: var(--posit-orange);
-  --accent-secondary: var(--posit-blue);
-  --error-bg: var(--posit-red);
-  --success-bg: var(--posit-teal);
-  --input-bg-alpha: rgba(68, 112, 153, 0.08);
-  --input-bg-alpha-hover: rgba(68, 112, 153, 0.15);
-  --logo-filter: none;
-}
+/* Theme variables are defined globally in theme.css */
 
 .project-selector {
   position: fixed;
@@ -199,7 +131,7 @@
   letter-spacing: 1px;
 }
 
-.light-theme h2 {
+:root.light h2 {
   color: var(--posit-blue);
 }
 
@@ -263,11 +195,11 @@
   font-size: 17px;
 }
 
-.light-theme .project-name {
+:root.light .project-name {
   color: var(--posit-blue-dark-3);
 }
 
-.light-theme .projects-list li:hover {
+:root.light .projects-list li:hover {
   background: #BACAD8;
   border-left-color: #4A6A32;
 }
@@ -310,7 +242,7 @@
   opacity: 1;
 }
 
-.light-theme .delete-btn {
+:root.light .delete-btn {
   color: var(--posit-blue-dark-1);
 }
 
@@ -418,18 +350,18 @@
   border-color: var(--posit-blue);
 }
 
-.light-theme .action-btn.connect-btn {
+:root.light .action-btn.connect-btn {
   background: var(--posit-blue);
   border-color: var(--posit-blue);
 }
 
-.light-theme .action-btn.connect-btn .action-btn-title,
-.light-theme .action-btn.connect-btn .action-btn-hint,
-.light-theme .action-btn.connect-btn .action-btn-icon {
+:root.light .action-btn.connect-btn .action-btn-title,
+:root.light .action-btn.connect-btn .action-btn-hint,
+:root.light .action-btn.connect-btn .action-btn-icon {
   color: #ffffff;
 }
 
-.light-theme .action-btn.connect-btn:hover {
+:root.light .action-btn.connect-btn:hover {
   background: var(--posit-blue-dark-1);
   border-color: var(--posit-blue-dark-1);
 }
@@ -475,12 +407,12 @@
 }
 
 /* Light mode overrides for create form - matches project cards */
-.light-theme .add-form.create-form {
+:root.light .add-form.create-form {
   border: 1px solid transparent;
   border-left: 4px solid var(--posit-blue);
 }
 
-.light-theme .add-form.create-form:hover {
+:root.light .add-form.create-form:hover {
   background: #BACAD8;
   border-color: var(--posit-blue-light-3);
   border-left-color: #4A6A32;
@@ -495,7 +427,7 @@
   letter-spacing: 0;
 }
 
-.light-theme .add-form h2 {
+:root.light .add-form h2 {
   color: var(--posit-blue-dark-3);
 }
 
@@ -506,7 +438,7 @@
   line-height: 1.5;
 }
 
-.light-theme .form-hint {
+:root.light .form-hint {
   color: var(--posit-blue-dark-1);
 }
 
@@ -525,7 +457,7 @@
   letter-spacing: 1px;
 }
 
-.light-theme .form-group label {
+:root.light .form-group label {
   color: var(--posit-blue-dark-1);
   font-weight: 600;
 }
@@ -547,14 +479,14 @@
   border-color: var(--posit-blue);
 }
 
-.light-theme .form-group input,
-.light-theme .form-group select {
+:root.light .form-group input,
+:root.light .form-group select {
   border-color: var(--posit-blue-light-3);
   background: #ffffff;
 }
 
-.light-theme .form-group input:hover,
-.light-theme .form-group select:hover {
+:root.light .form-group input:hover,
+:root.light .form-group select:hover {
   border-color: var(--posit-blue);
 }
 
@@ -701,11 +633,11 @@
   background: var(--input-bg-alpha);
 }
 
-.light-theme .import-export button {
+:root.light .import-export button {
   color: var(--posit-blue);
 }
 
-.light-theme .import-export button:hover {
+:root.light .import-export button:hover {
   color: var(--posit-blue-dark-1);
 }
 
@@ -820,7 +752,7 @@
   color: var(--text-secondary);
 }
 
-.light-theme .identity-name .edit-hint {
+:root.light .identity-name .edit-hint {
   color: var(--posit-blue);
 }
 
@@ -957,7 +889,7 @@
   border: 1px solid var(--border-color);
 }
 
-.light-theme .version-info .commit-hash {
+:root.light .version-info .commit-hash {
   color: var(--posit-blue);
 }
 

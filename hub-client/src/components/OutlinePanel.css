@@ -46,7 +46,7 @@
   padding: 0;
   background: none;
   border: none;
-  color: #666;
+  color: var(--editor-text-muted);
   font-size: 8px;
   cursor: pointer;
   flex-shrink: 0;
@@ -56,7 +56,7 @@
 }
 
 .outline-chevron:hover {
-  color: #999;
+  color: var(--editor-text-dim);
 }
 
 /* Indent items without chevrons to align with those that have them */
@@ -77,12 +77,12 @@
   text-align: left;
   cursor: pointer;
   transition: background 0.15s;
-  color: #ddd;
+  color: var(--editor-text-dim);
   font-size: 13px;
 }
 
 .outline-row:hover {
-  background: #1f3460;
+  background: var(--sidebar-border);
 }
 
 .outline-button:focus {
@@ -131,7 +131,7 @@
   flex-shrink: 0;
   width: 16px;
   text-align: center;
-  color: #888;
+  color: var(--editor-text-muted);
 }
 
 .outline-name {
@@ -143,14 +143,14 @@
 
 .outline-detail {
   font-size: 11px;
-  color: #666;
+  color: var(--editor-text-muted);
   margin-left: 4px;
 }
 
 /* Loading state */
 .outline-loading {
   padding: 16px 12px;
-  color: #666;
+  color: var(--editor-text-muted);
   font-size: 12px;
   text-align: center;
 }
@@ -177,7 +177,7 @@
 /* Empty state */
 .outline-empty {
   padding: 16px 12px;
-  color: #666;
+  color: var(--editor-text-muted);
   font-size: 12px;
   text-align: center;
 }
@@ -185,20 +185,20 @@
 /* Error state */
 .outline-error {
   padding: 12px;
-  color: #f87171;
+  color: var(--editor-error);
   font-size: 12px;
   text-align: center;
 }
 
 /* Symbol kind colors - subtle differentiation */
 .outline-icon.header {
-  color: #c586c0;
+  color: var(--outline-header-icon);
 }
 
 .outline-icon.code {
-  color: #9cdcfe;
+  color: var(--outline-code-icon);
 }
 
 .outline-icon.function {
-  color: #dcdcaa;
+  color: var(--outline-function-icon);
 }

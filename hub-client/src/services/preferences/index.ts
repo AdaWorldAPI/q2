@@ -1,7 +1,7 @@
-import type { UserPreferences, PreferenceKey } from './schema';
+import type { UserPreferences, PreferenceKey, ColorScheme } from './schema';
 import { DEFAULT_PREFERENCES, validatePreferences } from './schema';
 
-export type { UserPreferences, PreferenceKey };
+export type { UserPreferences, PreferenceKey, ColorScheme };
 export { DEFAULT_PREFERENCES };
 
 const STORAGE_KEY = 'quarto-hub:preferences';

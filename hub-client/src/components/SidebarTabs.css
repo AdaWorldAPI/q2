@@ -2,8 +2,8 @@
   width: 220px;
   min-width: 180px;
   max-width: 300px;
-  background: #16213e;
-  border-right: 1px solid #1f3460;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -13,7 +13,7 @@
 .sidebar-section {
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid #1f3460;
+  border-bottom: 1px solid var(--sidebar-border);
 }
 
 .sidebar-section:last-child {
@@ -25,9 +25,10 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: #12192e;
+  background: var(--sidebar-section-bg);
   border: none;
-  color: #ccc;
+  border-radius: 0;
+  color: var(--editor-text-dim);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -38,12 +39,12 @@
 }
 
 .section-header:hover {
-  background: #1a2440;
+  background: var(--sidebar-section-hover);
 }
 
 .section-chevron {
   font-size: 8px;
-  color: #888;
+  color: var(--editor-text-muted);
   width: 12px;
   flex-shrink: 0;
 }
@@ -58,7 +59,7 @@
 .section-content {
   display: flex;
   flex-direction: column;
-  background: #16213e;
+  background: var(--sidebar-bg);
 }
 
 /* Dimmed state during replay mode */

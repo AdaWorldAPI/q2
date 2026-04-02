@@ -2,20 +2,20 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #1a1a2e;
+  background: var(--editor-bg);
 }
 
 .wasm-error-banner {
-  background: #ff4444;
-  color: white;
+  background: var(--error-bg);
+  color: var(--text-primary);
   padding: 12px 16px;
   font-size: 14px;
 }
 
 /* Diagnostics banner for errors without source locations */
 .diagnostics-banner {
-  background: #2d1b1b;
-  border-bottom: 1px solid #4a2020;
+  background: var(--diagnostics-bg);
+  border-bottom: 1px solid var(--diagnostics-border);
   padding: 8px 16px;
 }
 
@@ -26,19 +26,19 @@
 }
 
 .diagnostic-item.diagnostic-error {
-  color: #f87171;
+  color: var(--editor-error);
 }
 
 .diagnostic-item.diagnostic-warning {
-  color: #fbbf24;
+  color: var(--editor-warning);
 }
 
 .diagnostic-item.diagnostic-info {
-  color: #60a5fa;
+  color: var(--editor-info);
 }
 
 .diagnostic-item.diagnostic-note {
-  color: #a5b4fc;
+  color: var(--editor-note);
 }
 
 .diagnostic-code {
@@ -59,8 +59,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: #16213e;
-  border-bottom: 1px solid #1f3460;
+  background: var(--editor-header-bg);
+  border-bottom: 1px solid var(--editor-header-border);
   gap: 16px;
 }
 
@@ -74,7 +74,7 @@
   margin: 0;
   font-size: 16px;
   font-weight: 500;
-  color: #fff;
+  color: var(--editor-text);
 }
 
 .status-indicators {
@@ -90,36 +90,36 @@
 }
 
 .sync-status.connected {
-  background: #0a4f0a;
-  color: #4ade80;
+  background: var(--editor-success-bg);
+  color: var(--editor-success);
 }
 
 .sync-status.disconnected {
-  background: #4f0a0a;
-  color: #f87171;
+  background: var(--editor-error-bg);
+  color: var(--editor-error);
 }
 
 .user-count {
   font-size: 12px;
   padding: 4px 8px;
   border-radius: 4px;
-  background: #1f3460;
-  color: #60a5fa;
+  background: var(--editor-accent-bg);
+  color: var(--editor-accent-text);
   cursor: help;
 }
 
 /* Current file indicator in header */
 .current-file-indicator {
   padding: 6px 12px;
-  background: #0f3460;
-  border: 1px solid #1f4460;
+  background: var(--editor-accent-bg);
+  border: 1px solid var(--editor-accent-border);
   border-radius: 6px;
 }
 
 .current-file-indicator .file-path {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
   font-size: 13px;
-  color: #ddd;
+  color: var(--editor-text-dim);
 }
 
 .toolbar-actions {
@@ -133,17 +133,17 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  background: #0f3460;
-  border: 1px solid #1f4460;
+  background: var(--editor-accent-bg);
+  border: 1px solid var(--editor-accent-border);
   border-radius: 6px;
-  color: #ccc;
+  color: var(--editor-text-dim);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .scroll-sync-toggle:hover {
-  background: #1f4460;
+  background: var(--editor-accent-border);
 }
 
 .scroll-sync-toggle input[type="checkbox"] {
@@ -151,7 +151,7 @@
   height: 14px;
   margin: 0;
   cursor: pointer;
-  accent-color: #4ade80;
+  accent-color: var(--editor-success);
 }
 
 .scroll-sync-toggle span {
@@ -161,17 +161,17 @@
 .disconnect-btn {
   padding: 8px 16px;
   background: none;
-  border: 1px solid #333;
+  border: 1px solid var(--editor-disconnected-border);
   border-radius: 6px;
-  color: #888;
+  color: var(--editor-text-muted);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .disconnect-btn:hover {
-  border-color: #ff4444;
-  color: #ff4444;
+  border-color: var(--editor-error);
+  color: var(--editor-error);
 }
 
 .editor-main {
@@ -189,7 +189,7 @@
 /* Pane divider between editor and preview */
 .pane-divider {
   width: 1px;
-  background: #1f3460;
+  background: var(--editor-header-border);
   flex-shrink: 0;
 }
 
@@ -251,7 +251,7 @@
 
 /* Editor drag-over state for image drop */
 .editor-pane.drag-over {
-  box-shadow: inset 0 0 0 3px #4ade80;
+  box-shadow: inset 0 0 0 3px var(--editor-drag-accent);
 }
 
 .editor-pane.drag-over::after {
@@ -261,7 +261,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   background: rgba(74, 222, 128, 0.95);
-  color: #1a1a2e;
+  color: var(--editor-bg);
   padding: 16px 24px;
   border-radius: 8px;
   font-size: 16px;
@@ -355,7 +355,7 @@
     transparent 4px,
     transparent 8px
   );
-  color: #4ade80;
+  color: var(--editor-success);
   text-align: center;
   padding: 2px 0;
   font-size: 10px;
@@ -370,7 +370,7 @@
 }
 
 .monaco-editor .margin {
-  background: #1a1a2e !important;
+  background: var(--editor-bg) !important;
 }
 
 /* Preview error overlay (toast notification) */
@@ -379,13 +379,13 @@
   bottom: 16px;
   right: 16px;
   z-index: 1000;
-  background: #1e1e1e;
-  border: 1px solid #f44336;
+  background: var(--error-overlay-bg);
+  border: 1px solid var(--editor-error);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 13px;
-  color: #e0e0e0;
+  color: var(--error-overlay-text);
 }
 
 .preview-error-overlay--collapsed {
@@ -402,13 +402,13 @@
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  border-bottom: 1px solid #333;
-  background: #2d2d2d;
+  border-bottom: 1px solid var(--error-overlay-border);
+  background: var(--error-overlay-header-bg);
   border-radius: 8px 8px 0 0;
 }
 
 .preview-error-title {
-  color: #f44336;
+  color: var(--editor-error);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -423,7 +423,7 @@
 .preview-error-expand-btn {
   background: none;
   border: none;
-  color: #999;
+  color: var(--error-overlay-dismiss);
   cursor: pointer;
   font-size: 16px;
   padding: 0 4px;
@@ -433,13 +433,13 @@
 }
 
 .preview-error-expand-btn {
-  color: #f44336;
+  color: var(--editor-error);
   font-weight: 600;
 }
 
 .preview-error-collapse-btn:hover,
 .preview-error-expand-btn:hover {
-  color: #fff;
+  color: var(--editor-text);
 }
 
 .preview-error-content {
@@ -456,7 +456,7 @@
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
   font-size: 12px;
   line-height: 1.4;
-  color: #e0e0e0;
+  color: var(--error-overlay-text);
 }
 
 .preview-error-diagnostics {
@@ -471,14 +471,14 @@
 }
 
 .preview-error-diagnostics .diagnostic-line {
-  color: #fbbf24;
+  color: var(--editor-warning);
   font-weight: 500;
 }
 
 .preview-error-diagnostics .diagnostic-title {
-  color: #f87171;
+  color: var(--editor-error);
 }
 
 .preview-error-diagnostics .diagnostic-problem {
-  color: #a5b4fc;
+  color: var(--editor-note);
 }

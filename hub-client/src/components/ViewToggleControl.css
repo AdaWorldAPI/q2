@@ -11,21 +11,21 @@
   justify-content: center;
   width: 20px;
   height: 20px;
-  background: #1a1a2e;
+  background: var(--view-toggle-bg);
   border: none;
   border-radius: 2px;
-  color: #8899bb;
+  color: var(--view-toggle-text);
   cursor: pointer;
   padding: 0;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
 .view-toggle-btn:hover {
-  background: #2a3a5a;
-  color: #aabbdd;
+  background: var(--view-toggle-hover-bg);
+  color: var(--view-toggle-hover-text);
 }
 
 .view-toggle-btn.active {
-  background: #2a3a5a;
-  color: #c0d0f0;
+  background: var(--view-toggle-active-bg);
+  color: var(--view-toggle-active-text);
 }
