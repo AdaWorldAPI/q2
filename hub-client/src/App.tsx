@@ -68,6 +68,11 @@ function App() {
   // Project set management (synced project list)
   const [projectSetState, projectSetActions] = useProjectSet();
 
+  // Keep a ref so callbacks that intentionally omit projectSetState from their
+  // dependency arrays (to avoid re-creation churn) can still read the latest status.
+  const projectSetStateRef = useRef(projectSetState);
+  projectSetStateRef.current = projectSetState;
+
   // Fetch per-project actor ID; calls logout and returns null on session expiry.
   const resolveActorId = useCallback(async (indexDocId: string): Promise<string | undefined | null> => {
     if (!AUTH_ENABLED) return undefined;
@@ -241,7 +246,7 @@ function App() {
         }
 
         // Also add to the synced project set (if connected)
-        if (projectSetState.status === 'connected') {
+        if (projectSetStateRef.current.status === 'connected') {
           try {
             projectSetActions.addProject({
               indexDocId: normalizedIndexDocId,
@@ -448,7 +453,7 @@ function App() {
       );
 
       // Also add to the synced project set
-      if (projectSetState.status === 'connected') {
+      if (projectSetStateRef.current.status === 'connected') {
         try {
           projectSetActions.addProject({
             indexDocId: result.indexDocId,
