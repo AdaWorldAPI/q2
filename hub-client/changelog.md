@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-06
+
+- [`5cb7a672`](https://github.com/quarto-dev/q2/commits/5cb7a672): Fix stale closure preventing new projects from being added to synced project set
+
 ### 2026-04-02
 
 - [`efecf764`](https://github.com/quarto-dev/q2/commits/efecf764): Refactor color scheme to auto/dark/light with browser detection and global CSS variables
