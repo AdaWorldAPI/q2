@@ -1,7 +1,18 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import type { ProjectEntry, FileEntry } from './types/project';
 import ProjectSelector from './components/ProjectSelector';
 import ProjectSetSetup from './components/ProjectSetSetup';
+
+// Lazy-loaded dev harness — only fetched when navigating to #/dev/... routes.
+// In production builds, the DevRoute type is never parsed, so this code is never reached.
+const DevHarnessRaw = lazy(() => import('./components/DevHarness'));
+function DevHarnessLazy({ page }: { page: string }) {
+  return (
+    <Suspense fallback={null}>
+      <DevHarnessRaw page={page} />
+    </Suspense>
+  );
+}
 import Editor from './components/Editor';
 import Toast from './components/Toast';
 import { ViewModeProvider } from './components/ViewModeContext';
@@ -508,6 +519,16 @@ function App() {
       <div className="project-selector" style={{ alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Loading...</div>
       </div>
+    );
+  }
+
+  // Dev harness: render components in isolation for visual testing.
+  // Only available in development builds; the DevRoute type is never parsed in production.
+  if (route.type === 'dev') {
+    return (
+      <ThemeProvider>
+        <DevHarnessLazy page={route.page} />
+      </ThemeProvider>
     );
   }
 

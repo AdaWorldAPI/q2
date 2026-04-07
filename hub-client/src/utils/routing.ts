@@ -95,9 +95,19 @@ export interface LinkProjectSetRoute {
 }
 
 /**
+ * Route for dev-only harness pages (component previews, visual testing).
+ * Only parsed in development builds; in production, #/dev/... falls through to project-selector.
+ */
+export interface DevRoute {
+  type: 'dev';
+  /** The dev page to render (e.g. 'setup-migration', 'setup-fresh') */
+  page: string;
+}
+
+/**
  * Union of all possible routes.
  */
-export type Route = ProjectSelectorRoute | ProjectRoute | FileRoute | ShareRoute | LinkProjectSetRoute;
+export type Route = ProjectSelectorRoute | ProjectRoute | FileRoute | ShareRoute | LinkProjectSetRoute | DevRoute;
 
 // ============================================================================
 // URL Parsing
@@ -208,6 +218,11 @@ export function parseHashRoute(hash: string): Route {
     return { type: 'project', projectId };
   }
 
+  // Parse dev route: /dev/<page> (only in development builds)
+  if (import.meta.env.DEV && segments[0] === 'dev' && segments[1]) {
+    return { type: 'dev', page: decodeURIComponent(segments[1]) };
+  }
+
   // Unknown route format, default to project selector
   return { type: 'project-selector' };
 }
@@ -261,6 +276,9 @@ export function buildHashRoute(route: Route): string {
       params.set('server', route.syncServer);
       return `#/link-project-set/${encodeURIComponent(route.projectSetDocId)}?${params.toString()}`;
     }
+
+    case 'dev':
+      return `#/dev/${encodeURIComponent(route.page)}`;
   }
 }
 
@@ -416,6 +434,9 @@ export function routesEqual(a: Route, b: Route): boolean {
         a.syncServer === bLink.syncServer
       );
     }
+
+    case 'dev':
+      return a.page === (b as DevRoute).page;
   }
 }
 

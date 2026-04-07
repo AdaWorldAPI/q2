@@ -17,7 +17,7 @@
   padding: 40px;
   max-width: 520px;
   width: 90%;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--modal-shadow);
 }
 
 .setup-header {
@@ -50,17 +50,17 @@
 }
 
 .setup-error {
-  background: rgba(219, 89, 59, 0.15);
+  background: var(--error-bg-subtle);
   border: 1px solid var(--error-bg);
   border-radius: 6px;
-  color: #ff8a70;
+  color: var(--error-text);
   font-size: 13px;
   padding: 10px 14px;
   margin-bottom: 16px;
 }
 
 .setup-backup {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-subtle);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 14px;

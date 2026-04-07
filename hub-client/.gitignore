@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Playwright
+playwright-report/
+test-results/
+# Local visual regression snapshots — CI generates the authoritative baselines.
+# CI uses `git add -f` to commit linux snapshots, overriding this ignore.
+e2e/**/*-snapshots/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

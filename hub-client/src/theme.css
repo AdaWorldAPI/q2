@@ -41,9 +41,13 @@
   --accent-primary: var(--posit-orange);
   --accent-secondary: var(--posit-blue);
   --error-bg: var(--posit-red);
+  --error-text: #ff8a70;
+  --error-bg-subtle: rgba(219, 89, 59, 0.15);
   --success-bg: var(--posit-teal);
   --input-bg-alpha: rgba(255, 255, 255, 0.08);
   --input-bg-alpha-hover: rgba(255, 255, 255, 0.12);
+  --bg-subtle: rgba(255, 255, 255, 0.05);
+  --modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   --logo-filter: none;
 
   /* Editor-specific */
@@ -185,9 +189,13 @@
   --accent-primary: var(--posit-orange);
   --accent-secondary: var(--posit-blue);
   --error-bg: var(--posit-red);
+  --error-text: #c0392b;
+  --error-bg-subtle: rgba(219, 89, 59, 0.08);
   --success-bg: var(--posit-teal);
   --input-bg-alpha: rgba(68, 112, 153, 0.08);
   --input-bg-alpha-hover: rgba(68, 112, 153, 0.15);
+  --bg-subtle: rgba(0, 0, 0, 0.03);
+  --modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
   --logo-filter: none;
 
   /* Editor-specific */

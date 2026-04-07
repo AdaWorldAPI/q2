@@ -1,13 +1,17 @@
 name: Hub-Client E2E Tests
 
 on:
-  workflow_dispatch: # Manual trigger initially
-  # Later: enable on push when stable
-  # push:
-  #   branches: [main, kyoto]
-  #   paths:
-  #     - 'hub-client/**'
-  #     - 'crates/wasm-qmd-parser/**'
+  push:
+    branches: [main]
+    paths:
+      - 'hub-client/**'
+      - '.github/workflows/hub-client-e2e.yml'
+  workflow_dispatch:
+    inputs:
+      recreate-all-snapshots:
+        description: 'Delete and recreate ALL visual regression baselines'
+        type: boolean
+        default: false
 
 jobs:
   e2e-tests:
@@ -80,11 +84,48 @@ jobs:
           cd hub-client
           npx playwright install --with-deps chromium
 
-      # Run E2E tests
+      # Delete all snapshots if recreating from scratch
+      - name: Delete all snapshots (recreate mode)
+        if: inputs.recreate-all-snapshots == true
+        run: find hub-client/e2e -type d -name '*-snapshots' -exec rm -rf {} + || true
+
+      # Run E2E tests (functional)
       - name: Run E2E tests
         run: |
           cd hub-client
           npx playwright test
+
+      # Run visual regression tests
+      - name: Run visual tests
+        id: visual
+        continue-on-error: true
+        run: |
+          cd hub-client
+          npx playwright test --config playwright.visual.config.ts
+
+      # If visual tests failed, retry with --update-snapshots=missing
+      # This only creates baselines for NEW tests; existing mismatches still fail
+      - name: Retry visual tests (add missing baselines)
+        id: visual-retry
+        if: steps.visual.outcome == 'failure'
+        run: |
+          cd hub-client
+          npx playwright test --config playwright.visual.config.ts --update-snapshots=missing
+
+      # If retry passed (only missing baselines), commit them back
+      - name: Commit new baselines
+        if: steps.visual.outcome == 'failure' && steps.visual-retry.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f hub-client/e2e/**/*-snapshots/
+          git diff --cached --quiet || git commit -m "Add missing Playwright visual regression baselines"
+          git push
+
+      # Fail the workflow if visual retry also failed (real regression)
+      - name: Fail on visual regression
+        if: steps.visual-retry.outcome == 'failure'
+        run: exit 1
 
       # Upload test artifacts on failure
       - name: Upload Playwright report
