@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-07
+
+- [`ca8e2dc0`](https://github.com/quarto-dev/q2/commits/ca8e2dc0): Show project selector UI during project set connection instead of blank page
+
 ### 2026-04-06
 
 - [`373aa83a`](https://github.com/quarto-dev/q2/commits/373aa83a): Add async Lua execution with fetch_url support and JS fetch shim for WASM
