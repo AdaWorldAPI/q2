@@ -15,6 +15,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-04-07
 
+- [`937e6a17`](https://github.com/quarto-dev/q2/commits/937e6a17): Fix invisible buttons and text on project set migration screen in light theme
 - [`ca8e2dc0`](https://github.com/quarto-dev/q2/commits/ca8e2dc0): Show project selector UI during project set connection instead of blank page
 
 ### 2026-04-06
