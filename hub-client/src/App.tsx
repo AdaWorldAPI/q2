@@ -530,23 +530,6 @@ function App() {
     );
   }
 
-  // Show loading while project set is being checked or connected.
-  // This also covers the transient 'connecting' state during setup actions
-  // (create/migrate/link) — the hook sets status to 'connecting' which
-  // causes a re-render that lands here instead of the setup screen.
-  if (
-    projectSetState.status === 'loading' ||
-    projectSetState.status === 'connecting'
-  ) {
-    return (
-      <div className="project-selector" style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-          {projectSetState.status === 'connecting' ? 'Connecting to project set...' : 'Loading...'}
-        </div>
-      </div>
-    );
-  }
-
   // Show error if project set connection failed
   if (projectSetState.status === 'error') {
     return (
@@ -579,6 +562,7 @@ function App() {
           authName={auth?.name}
           projectSetDocId={projectSetActions.getProjectSetDocId()}
           projectSetSyncServer={projectSetActions.getSyncServer()}
+          projectSetStatus={projectSetState.status}
           projectSetEntries={projectSetState.status === 'connected' ? projectSetState.projects : undefined}
           onRemoveProjectFromSet={projectSetActions.removeProject}
           onTouchProject={projectSetActions.touchProject}

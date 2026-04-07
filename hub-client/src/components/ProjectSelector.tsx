@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTheme } from './ThemeContext';
 import type { ProjectEntry } from '../types/project';
 import type { ProjectSetEntry } from '@quarto/quarto-automerge-schema';
+import type { ProjectSetStatus } from '../hooks/useProjectSet';
 import type { UserSettings } from '../services/storage/types';
 import * as projectStorage from '../services/projectStorage';
 import * as userSettingsService from '../services/userSettings';
@@ -38,6 +39,8 @@ interface Props {
   projectSetDocId?: string | null;
   /** The sync server URL for the project set. */
   projectSetSyncServer?: string | null;
+  /** Current status of the project set connection. */
+  projectSetStatus?: ProjectSetStatus;
   /** Projects from the synced project set (if connected). */
   projectSetEntries?: ProjectSetEntry[];
   /** Remove a project from the synced set. */
@@ -66,6 +69,7 @@ export default function ProjectSelector({
   authName,
   projectSetDocId,
   projectSetSyncServer,
+  projectSetStatus,
   projectSetEntries,
   onRemoveProjectFromSet,
   onTouchProject,
@@ -117,12 +121,14 @@ export default function ProjectSelector({
     });
   };
 
-  // When using project set, derive projects from set entries
-  const useProjectSet = !!projectSetEntries;
+  // When using project set, derive projects from set entries.
+  // Also true when the project set is still loading/connecting (entries not yet available).
+  const projectSetConnecting = projectSetStatus === 'loading' || projectSetStatus === 'connecting';
+  const useProjectSet = !!projectSetEntries || projectSetConnecting;
 
   const loadProjects = useCallback(async () => {
     if (useProjectSet) {
-      // Projects come from the project set — no need to load from IDB
+      // Projects come from the project set (or it's still connecting) — no need to load from IDB
       setLoading(false);
       return;
     }
@@ -469,7 +475,9 @@ export default function ProjectSelector({
           <h2>Your Projects</h2>
           {useProjectSet ? (
             // Render from synced project set
-            projectSetEntries!.length === 0 ? (
+            projectSetConnecting ? (
+              <div className="connecting">Connecting to project set...</div>
+            ) : projectSetEntries!.length === 0 ? (
               <p className="empty">No projects yet. Add one below.</p>
             ) : (
               <ul>
@@ -526,6 +534,8 @@ export default function ProjectSelector({
           )}
         </div>
 
+        {/* Hide action buttons and forms while project set is connecting */}
+        {!projectSetConnecting && <>
         <div className="divider">
           <span>OR</span>
         </div>
@@ -662,6 +672,7 @@ export default function ProjectSelector({
             </div>
           </form>
         )}
+        </>}
 
         {userSettings && (
           <div className={`user-identity ${identityCollapsed ? 'collapsed' : ''}`}>
