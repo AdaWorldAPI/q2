@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-09
+
+- [`adc5d92c`](https://github.com/quarto-dev/q2/commits/adc5d92c): Fix remote cursor cross-line flash when typing at end of line
+
 ### 2026-04-07
 
 - [`937e6a17`](https://github.com/quarto-dev/q2/commits/937e6a17): Fix invisible buttons and text on project set migration screen in light theme
