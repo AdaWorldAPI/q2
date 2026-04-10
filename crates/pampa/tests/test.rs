@@ -373,6 +373,25 @@ where
     );
 }
 
+/// Normalize pandoc-api-version in `pandoc_json` to match the length of the
+/// version array in `our_json`. pandoc-types 1.23.1.1 emits a 4-element version
+/// array [1,23,1,1] while we emit [1,23,1]. The extra trailing component is a
+/// packaging-only bump with no AST changes, so we truncate to match.
+fn normalize_api_version(pandoc_json: &mut serde_json::Value, our_json: &serde_json::Value) {
+    let our_len = our_json
+        .get("pandoc-api-version")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len());
+    if let (Some(pandoc_ver), Some(our_len)) = (
+        pandoc_json
+            .get_mut("pandoc-api-version")
+            .and_then(|v| v.as_array_mut()),
+        our_len,
+    ) {
+        pandoc_ver.truncate(our_len);
+    }
+}
+
 fn remove_location_fields(json: &mut serde_json::Value) {
     if let Some(obj) = json.as_object_mut() {
         obj.remove("l"); // Remove the "l" field (old SourceInfo)
@@ -439,9 +458,10 @@ fn test_json_writer() {
                 // Parse both JSON outputs to compare
                 let mut our_value: serde_json::Value =
                     serde_json::from_str(&our_json).expect("Failed to parse our JSON");
-                let pandoc_value: serde_json::Value =
+                let mut pandoc_value: serde_json::Value =
                     serde_json::from_str(&pandoc_json).expect("Failed to parse Pandoc JSON");
                 remove_location_fields(&mut our_value);
+                normalize_api_version(&mut pandoc_value, &our_value);
 
                 assert_eq!(
                     our_value,
