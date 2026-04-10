@@ -119,13 +119,7 @@ impl LuaInline {
             (Inline::Code(c), "text") => c.text.clone().into_lua(lua),
             (Inline::Code(c), "attr") => attr_to_lua_table(lua, &c.attr),
             (Inline::Code(c), "identifier") => c.attr.0.clone().into_lua(lua),
-            (Inline::Code(c), "classes") => {
-                let table = lua.create_table()?;
-                for (i, class) in c.attr.1.iter().enumerate() {
-                    table.set(i + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Inline::Code(c), "classes") => string_list_to_lua_table(lua, &c.attr.1),
 
             // Math
             (Inline::Math(m), "text") => m.text.clone().into_lua(lua),
@@ -147,13 +141,7 @@ impl LuaInline {
             (Inline::Link(l), "title") => l.target.1.clone().into_lua(lua),
             (Inline::Link(l), "attr") => attr_to_lua_table(lua, &l.attr),
             (Inline::Link(l), "identifier") => l.attr.0.clone().into_lua(lua),
-            (Inline::Link(l), "classes") => {
-                let table = lua.create_table()?;
-                for (i, class) in l.attr.1.iter().enumerate() {
-                    table.set(i + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Inline::Link(l), "classes") => string_list_to_lua_table(lua, &l.attr.1),
 
             // Image
             (Inline::Image(i), "content") => inlines_to_lua_table(lua, &i.content),
@@ -161,13 +149,7 @@ impl LuaInline {
             (Inline::Image(i), "title") => i.target.1.clone().into_lua(lua),
             (Inline::Image(i), "attr") => attr_to_lua_table(lua, &i.attr),
             (Inline::Image(img), "identifier") => img.attr.0.clone().into_lua(lua),
-            (Inline::Image(img), "classes") => {
-                let table = lua.create_table()?;
-                for (j, class) in img.attr.1.iter().enumerate() {
-                    table.set(j + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Inline::Image(img), "classes") => string_list_to_lua_table(lua, &img.attr.1),
 
             // Note
             (Inline::Note(n), "content") => blocks_to_lua_table(lua, &n.content),
@@ -175,13 +157,7 @@ impl LuaInline {
             // Span (attr already covered above for other elements with attr)
             (Inline::Span(s), "attr") => attr_to_lua_table(lua, &s.attr),
             (Inline::Span(s), "identifier") => s.attr.0.clone().into_lua(lua),
-            (Inline::Span(s), "classes") => {
-                let table = lua.create_table()?;
-                for (i, class) in s.attr.1.iter().enumerate() {
-                    table.set(i + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Inline::Span(s), "classes") => string_list_to_lua_table(lua, &s.attr.1),
 
             // Cite
             (Inline::Cite(c), "content") => inlines_to_lua_table(lua, &c.content),
@@ -191,49 +167,25 @@ impl LuaInline {
             (Inline::Insert(ins), "content") => inlines_to_lua_table(lua, &ins.content),
             (Inline::Insert(ins), "attr") => attr_to_lua_table(lua, &ins.attr),
             (Inline::Insert(ins), "identifier") => ins.attr.0.clone().into_lua(lua),
-            (Inline::Insert(ins), "classes") => {
-                let table = lua.create_table()?;
-                for (j, class) in ins.attr.1.iter().enumerate() {
-                    table.set(j + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Inline::Insert(ins), "classes") => string_list_to_lua_table(lua, &ins.attr.1),
 
             // Delete (CriticMarkup-like)
             (Inline::Delete(d), "content") => inlines_to_lua_table(lua, &d.content),
             (Inline::Delete(d), "attr") => attr_to_lua_table(lua, &d.attr),
             (Inline::Delete(d), "identifier") => d.attr.0.clone().into_lua(lua),
-            (Inline::Delete(d), "classes") => {
-                let table = lua.create_table()?;
-                for (j, class) in d.attr.1.iter().enumerate() {
-                    table.set(j + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Inline::Delete(d), "classes") => string_list_to_lua_table(lua, &d.attr.1),
 
             // Highlight (CriticMarkup-like)
             (Inline::Highlight(h), "content") => inlines_to_lua_table(lua, &h.content),
             (Inline::Highlight(h), "attr") => attr_to_lua_table(lua, &h.attr),
             (Inline::Highlight(h), "identifier") => h.attr.0.clone().into_lua(lua),
-            (Inline::Highlight(h), "classes") => {
-                let table = lua.create_table()?;
-                for (j, class) in h.attr.1.iter().enumerate() {
-                    table.set(j + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Inline::Highlight(h), "classes") => string_list_to_lua_table(lua, &h.attr.1),
 
             // EditComment (CriticMarkup-like)
             (Inline::EditComment(ec), "content") => inlines_to_lua_table(lua, &ec.content),
             (Inline::EditComment(ec), "attr") => attr_to_lua_table(lua, &ec.attr),
             (Inline::EditComment(ec), "identifier") => ec.attr.0.clone().into_lua(lua),
-            (Inline::EditComment(ec), "classes") => {
-                let table = lua.create_table()?;
-                for (j, class) in ec.attr.1.iter().enumerate() {
-                    table.set(j + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Inline::EditComment(ec), "classes") => string_list_to_lua_table(lua, &ec.attr.1),
 
             // NoteReference
             (Inline::NoteReference(nr), "id") => nr.id.clone().into_lua(lua),
@@ -703,25 +655,13 @@ impl LuaBlock {
             (Block::Header(h), "content") => inlines_to_lua_table(lua, &h.content),
             (Block::Header(h), "attr") => attr_to_lua_table(lua, &h.attr),
             (Block::Header(h), "identifier") => h.attr.0.clone().into_lua(lua),
-            (Block::Header(h), "classes") => {
-                let table = lua.create_table()?;
-                for (i, class) in h.attr.1.iter().enumerate() {
-                    table.set(i + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Block::Header(h), "classes") => string_list_to_lua_table(lua, &h.attr.1),
 
             // CodeBlock
             (Block::CodeBlock(c), "text") => c.text.clone().into_lua(lua),
             (Block::CodeBlock(c), "attr") => attr_to_lua_table(lua, &c.attr),
             (Block::CodeBlock(c), "identifier") => c.attr.0.clone().into_lua(lua),
-            (Block::CodeBlock(c), "classes") => {
-                let table = lua.create_table()?;
-                for (i, class) in c.attr.1.iter().enumerate() {
-                    table.set(i + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Block::CodeBlock(c), "classes") => string_list_to_lua_table(lua, &c.attr.1),
 
             // RawBlock
             (Block::RawBlock(r), "text") => r.text.clone().into_lua(lua),
@@ -734,30 +674,26 @@ impl LuaBlock {
             (Block::Div(d), "content") => blocks_to_lua_table(lua, &d.content),
             (Block::Div(d), "attr") => attr_to_lua_table(lua, &d.attr),
             (Block::Div(d), "identifier") => d.attr.0.clone().into_lua(lua),
-            (Block::Div(d), "classes") => {
-                let table = lua.create_table()?;
-                for (i, class) in d.attr.1.iter().enumerate() {
-                    table.set(i + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            (Block::Div(d), "classes") => string_list_to_lua_table(lua, &d.attr.1),
 
             // BulletList
             (Block::BulletList(b), "content") => {
-                let table = lua.create_table()?;
-                for (i, blocks) in b.content.iter().enumerate() {
-                    table.set(i + 1, blocks_to_lua_table(lua, blocks)?)?;
-                }
-                Ok(Value::Table(table))
+                let items: Vec<Value> = b
+                    .content
+                    .iter()
+                    .map(|blocks| blocks_to_lua_table(lua, blocks))
+                    .collect::<Result<_>>()?;
+                values_to_list_table(lua, items)
             }
 
             // OrderedList
             (Block::OrderedList(o), "content") => {
-                let table = lua.create_table()?;
-                for (i, blocks) in o.content.iter().enumerate() {
-                    table.set(i + 1, blocks_to_lua_table(lua, blocks)?)?;
-                }
-                Ok(Value::Table(table))
+                let items: Vec<Value> = o
+                    .content
+                    .iter()
+                    .map(|blocks| blocks_to_lua_table(lua, blocks))
+                    .collect::<Result<_>>()?;
+                values_to_list_table(lua, items)
             }
             (Block::OrderedList(o), "start") => (o.attr.0 as i64).into_lua(lua),
             (Block::OrderedList(o), "style") => {
@@ -780,29 +716,30 @@ impl LuaBlock {
 
             // LineBlock
             (Block::LineBlock(l), "content") => {
-                let table = lua.create_table()?;
-                for (i, inlines) in l.content.iter().enumerate() {
-                    table.set(i + 1, inlines_to_lua_table(lua, inlines)?)?;
-                }
-                Ok(Value::Table(table))
+                let items: Vec<Value> = l
+                    .content
+                    .iter()
+                    .map(|inlines| inlines_to_lua_table(lua, inlines))
+                    .collect::<Result<_>>()?;
+                values_to_list_table(lua, items)
             }
 
             // DefinitionList - list of (term, definitions) pairs
             (Block::DefinitionList(d), "content") => {
-                let table = lua.create_table()?;
-                for (i, (term, defs)) in d.content.iter().enumerate() {
+                let mut items = Vec::with_capacity(d.content.len());
+                for (term, defs) in d.content.iter() {
                     let pair_table = lua.create_table()?;
                     // First element is the term (inlines)
                     pair_table.set(1, inlines_to_lua_table(lua, term)?)?;
                     // Second element is the definitions (list of blocks)
-                    let defs_table = lua.create_table()?;
-                    for (j, def_blocks) in defs.iter().enumerate() {
-                        defs_table.set(j + 1, blocks_to_lua_table(lua, def_blocks)?)?;
-                    }
-                    pair_table.set(2, defs_table)?;
-                    table.set(i + 1, pair_table)?;
+                    let def_values: Vec<Value> = defs
+                        .iter()
+                        .map(|def_blocks| blocks_to_lua_table(lua, def_blocks))
+                        .collect::<Result<_>>()?;
+                    pair_table.set(2, values_to_list_table(lua, def_values)?)?;
+                    items.push(Value::Table(pair_table));
                 }
-                Ok(Value::Table(table))
+                values_to_list_table(lua, items)
             }
 
             // Figure caption
@@ -1044,6 +981,16 @@ pub fn inlines_to_lua_table(lua: &Lua, inlines: &[Inline]) -> Result<Value> {
 /// Convert Vec<Block> to Lua table of LuaBlock userdata with Blocks metatable
 pub fn blocks_to_lua_table(lua: &Lua, blocks: &[Block]) -> Result<Value> {
     super::list::create_blocks_table(lua, blocks)
+}
+
+/// Convert a slice of strings to a Lua table with the List metatable
+fn string_list_to_lua_table(lua: &Lua, items: &[String]) -> Result<Value> {
+    super::list::create_string_list_table(lua, items)
+}
+
+/// Wrap a Vec of already-converted Lua values in a table with the List metatable
+fn values_to_list_table(lua: &Lua, values: Vec<Value>) -> Result<Value> {
+    super::list::create_list_table(lua, values)
 }
 
 /// Convert Caption to Lua table
@@ -1640,13 +1587,7 @@ impl LuaAttr {
                 let key_str: &str = borrowed.as_ref();
                 match key_str {
                     "identifier" => self.identifier().to_string().into_lua(lua),
-                    "classes" => {
-                        let table = lua.create_table()?;
-                        for (i, class) in self.classes().iter().enumerate() {
-                            table.set(i + 1, class.clone())?;
-                        }
-                        Ok(Value::Table(table))
-                    }
+                    "classes" => string_list_to_lua_table(lua, self.classes()),
                     "attributes" => {
                         let table = lua.create_table()?;
                         for (key, value) in self.attributes().iter() {

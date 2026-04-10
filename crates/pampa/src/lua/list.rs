@@ -547,6 +547,32 @@ fn create_blocks_walk_method(lua: &Lua) -> Result<Function> {
 // Public helper for creating list tables with metatables
 // ============================================================================
 
+/// Create a List table from a slice of strings (e.g., for classes fields)
+pub fn create_string_list_table(lua: &Lua, items: &[String]) -> Result<Value> {
+    let table = lua.create_table()?;
+    for (i, item) in items.iter().enumerate() {
+        table.set(i + 1, item.clone())?;
+    }
+    let mt = get_or_create_list_metatable(lua)?;
+    table.set_metatable(Some(mt))?;
+    Ok(Value::Table(table))
+}
+
+/// Create a List table from the values of another table (generic outer-list wrapper)
+///
+/// Use this when the elements are already `Value`s (e.g., tables returned by
+/// `blocks_to_lua_table` or `inlines_to_lua_table`). The resulting table carries the
+/// base `pandoc.List` metatable.
+pub fn create_list_table(lua: &Lua, values: Vec<Value>) -> Result<Value> {
+    let table = lua.create_table_with_capacity(values.len(), 0)?;
+    for (i, val) in values.into_iter().enumerate() {
+        table.set(i + 1, val)?;
+    }
+    let mt = get_or_create_list_metatable(lua)?;
+    table.set_metatable(Some(mt))?;
+    Ok(Value::Table(table))
+}
+
 /// Create a new Inlines table from a Vec<Inline>
 pub fn create_inlines_table(lua: &Lua, inlines: &[crate::pandoc::Inline]) -> Result<Value> {
     let table = lua.create_table()?;

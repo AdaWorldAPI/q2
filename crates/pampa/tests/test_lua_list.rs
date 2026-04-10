@@ -10,7 +10,10 @@
 
 use pampa::lua::apply_lua_filters;
 use pampa::pandoc::ast_context::ASTContext;
-use pampa::pandoc::{Block, Inline, Pandoc, Paragraph, Space, Str};
+use pampa::pandoc::{
+    AttrSourceInfo, Block, BulletList, DefinitionList, Div, Inline, LineBlock, ListNumberDelim,
+    ListNumberStyle, OrderedList, Pandoc, Paragraph, Plain, Space, Str,
+};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -350,6 +353,258 @@ end
         text: "test".to_string(),
         source_info: quarto_source_map::SourceInfo::default(),
     })]);
+
+    run_filter(filter_code, doc).await;
+}
+
+// ============================================================================
+// Phase 1: classes fields have List metatable
+// ============================================================================
+
+fn empty_source() -> quarto_source_map::SourceInfo {
+    quarto_source_map::SourceInfo::default()
+}
+
+fn create_div_doc(classes: Vec<&str>, content: Vec<Block>) -> Pandoc {
+    Pandoc {
+        meta: Default::default(),
+        blocks: vec![Block::Div(Div {
+            attr: (
+                String::new(),
+                classes.into_iter().map(|s| s.to_string()).collect(),
+                Default::default(),
+            ),
+            content,
+            source_info: empty_source(),
+            attr_source: AttrSourceInfo::empty(),
+        })],
+    }
+}
+
+#[tokio::test]
+async fn test_div_classes_has_list_methods() {
+    // div.classes should have pandoc.List methods like :includes()
+    let filter_code = r#"
+function Div(div)
+    -- classes should have List methods
+    assert(div.classes.includes ~= nil, "classes.includes should not be nil")
+    assert(div.classes.map ~= nil, "classes.map should not be nil")
+    assert(div.classes.filter ~= nil, "classes.filter should not be nil")
+    assert(div.classes.clone ~= nil, "classes.clone should not be nil")
+
+    -- :includes() should work
+    assert(div.classes:includes("foo"), "classes should include 'foo'")
+    assert(not div.classes:includes("missing"), "classes should not include 'missing'")
+
+    return div
+end
+"#;
+
+    let doc = create_div_doc(
+        vec!["foo", "bar"],
+        vec![Block::Paragraph(Paragraph {
+            content: vec![Inline::Str(Str {
+                text: "hello".to_string(),
+                source_info: empty_source(),
+            })],
+            source_info: empty_source(),
+        })],
+    );
+
+    run_filter(filter_code, doc).await;
+}
+
+#[tokio::test]
+async fn test_classes_map_filter() {
+    // div.classes:map() and :filter() should work
+    let filter_code = r#"
+function Div(div)
+    -- :map() should produce a new list
+    local upper = div.classes:map(function(c) return c:upper() end)
+    assert(#upper == 2, "mapped list should have 2 elements")
+    assert(upper[1] == "FOO", "first mapped element should be FOO, got: " .. tostring(upper[1]))
+    assert(upper[2] == "BAR", "second mapped element should be BAR")
+
+    -- mapped result should also have List methods
+    assert(upper.includes ~= nil, "mapped result should have List methods")
+
+    -- :filter() should work
+    local filtered = div.classes:filter(function(c) return c == "foo" end)
+    assert(#filtered == 1, "filtered list should have 1 element")
+    assert(filtered[1] == "foo", "filtered element should be 'foo'")
+
+    return div
+end
+"#;
+
+    let doc = create_div_doc(
+        vec!["foo", "bar"],
+        vec![Block::Paragraph(Paragraph {
+            content: vec![Inline::Str(Str {
+                text: "hello".to_string(),
+                source_info: empty_source(),
+            })],
+            source_info: empty_source(),
+        })],
+    );
+
+    run_filter(filter_code, doc).await;
+}
+
+#[tokio::test]
+async fn test_attr_classes_has_list_methods() {
+    // div.attr.classes should also have List methods (via LuaAttr)
+    let filter_code = r#"
+function Div(div)
+    local attr_classes = div.attr.classes
+    assert(attr_classes.includes ~= nil, "attr.classes.includes should not be nil")
+    assert(attr_classes:includes("foo"), "attr.classes should include 'foo'")
+    return div
+end
+"#;
+
+    let doc = create_div_doc(
+        vec!["foo", "bar"],
+        vec![Block::Paragraph(Paragraph {
+            content: vec![Inline::Str(Str {
+                text: "hello".to_string(),
+                source_info: empty_source(),
+            })],
+            source_info: empty_source(),
+        })],
+    );
+
+    run_filter(filter_code, doc).await;
+}
+
+// ============================================================================
+// Phase 2: Container content fields have List metatable
+// ============================================================================
+
+#[tokio::test]
+async fn test_bullet_list_content_has_list_methods() {
+    let filter_code = r#"
+function BulletList(elem)
+    -- outer content table should have List methods
+    assert(elem.content.map ~= nil, "BulletList.content should have :map()")
+    assert(elem.content.includes ~= nil, "BulletList.content should have :includes()")
+
+    local mapped = elem.content:map(function(item) return item end)
+    assert(#mapped == 2, "mapped list should have 2 items")
+
+    return elem
+end
+"#;
+
+    let make_item = |text: &str| -> Vec<Block> {
+        vec![Block::Plain(Plain {
+            content: vec![Inline::Str(Str {
+                text: text.to_string(),
+                source_info: empty_source(),
+            })],
+            source_info: empty_source(),
+        })]
+    };
+
+    let doc = Pandoc {
+        meta: Default::default(),
+        blocks: vec![Block::BulletList(BulletList {
+            content: vec![make_item("item1"), make_item("item2")],
+            source_info: empty_source(),
+        })],
+    };
+
+    run_filter(filter_code, doc).await;
+}
+
+#[tokio::test]
+async fn test_ordered_list_content_has_list_methods() {
+    let filter_code = r#"
+function OrderedList(elem)
+    assert(elem.content.map ~= nil, "OrderedList.content should have :map()")
+    local cloned = elem.content:clone()
+    assert(#cloned == 1, "cloned list should have 1 item")
+    return elem
+end
+"#;
+
+    let doc = Pandoc {
+        meta: Default::default(),
+        blocks: vec![Block::OrderedList(OrderedList {
+            attr: (1, ListNumberStyle::Decimal, ListNumberDelim::Period),
+            content: vec![vec![Block::Plain(Plain {
+                content: vec![Inline::Str(Str {
+                    text: "first".to_string(),
+                    source_info: empty_source(),
+                })],
+                source_info: empty_source(),
+            })]],
+            source_info: empty_source(),
+        })],
+    };
+
+    run_filter(filter_code, doc).await;
+}
+
+#[tokio::test]
+async fn test_line_block_content_has_list_methods() {
+    let filter_code = r#"
+function LineBlock(elem)
+    assert(elem.content.map ~= nil, "LineBlock.content should have :map()")
+    assert(#elem.content == 2, "should have 2 lines")
+    return elem
+end
+"#;
+
+    let doc = Pandoc {
+        meta: Default::default(),
+        blocks: vec![Block::LineBlock(LineBlock {
+            content: vec![
+                vec![Inline::Str(Str {
+                    text: "line1".to_string(),
+                    source_info: empty_source(),
+                })],
+                vec![Inline::Str(Str {
+                    text: "line2".to_string(),
+                    source_info: empty_source(),
+                })],
+            ],
+            source_info: empty_source(),
+        })],
+    };
+
+    run_filter(filter_code, doc).await;
+}
+
+#[tokio::test]
+async fn test_definition_list_content_has_list_methods() {
+    let filter_code = r#"
+function DefinitionList(elem)
+    assert(elem.content.map ~= nil, "DefinitionList.content should have :map()")
+    assert(#elem.content == 1, "should have 1 definition")
+    return elem
+end
+"#;
+
+    let doc = Pandoc {
+        meta: Default::default(),
+        blocks: vec![Block::DefinitionList(DefinitionList {
+            content: vec![(
+                vec![Inline::Str(Str {
+                    text: "term".to_string(),
+                    source_info: empty_source(),
+                })],
+                vec![vec![Block::Plain(Plain {
+                    content: vec![Inline::Str(Str {
+                        text: "definition".to_string(),
+                        source_info: empty_source(),
+                    })],
+                    source_info: empty_source(),
+                })]],
+            )],
+            source_info: empty_source(),
+        })],
+    };
 
     run_filter(filter_code, doc).await;
 }
