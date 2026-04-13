@@ -155,6 +155,7 @@ impl Pipeline {
         ctx.observer.on_pipeline_start(total);
 
         let mut data = input;
+        ctx.observer.on_pipeline_input(&data);
 
         for (idx, stage) in self.stages.iter().enumerate() {
             // Check cancellation before each stage
@@ -169,6 +170,7 @@ impl Pipeline {
             match stage.run(data, ctx).await {
                 Ok(output) => {
                     ctx.observer.on_stage_complete(stage.name(), idx, total);
+                    ctx.observer.on_stage_data(stage.name(), idx, &output);
                     data = output;
                 }
                 Err(e) => {

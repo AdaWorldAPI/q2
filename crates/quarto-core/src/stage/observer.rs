@@ -15,6 +15,7 @@
 //! This abstraction allows the pipeline to emit events without
 //! depending on a specific observability implementation.
 
+use super::data::PipelineData;
 use super::error::PipelineError;
 
 /// Event severity level for pipeline events.
@@ -109,6 +110,48 @@ pub trait PipelineObserver: Send + Sync {
     ///
     /// * `error` - The error that caused the failure
     fn on_pipeline_error(&self, _error: &PipelineError) {}
+
+    /// Called before the first stage with the pipeline input data.
+    ///
+    /// This allows observers to capture the initial state of the pipeline.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The input data about to be processed by the first stage
+    fn on_pipeline_input(&self, _data: &PipelineData) {}
+
+    /// Called after a stage completes successfully, with the output data.
+    ///
+    /// This allows observers to inspect or record the data flowing through
+    /// the pipeline at each stage boundary.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Human-readable name of the stage that produced this data
+    /// * `index` - Zero-based index of the stage in the pipeline
+    /// * `data` - The output data produced by the stage
+    fn on_stage_data(&self, _name: &str, _index: usize, _data: &PipelineData) {}
+
+    /// Called after an AST transform completes within `AstTransformsStage`.
+    ///
+    /// This provides finer-grained tracing of the individual transforms
+    /// (callouts, TOC, sectionize, etc.) that run inside the AST transforms
+    /// pipeline stage.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the transform (e.g., "callout", "toc-generate")
+    /// * `index` - Zero-based index of the transform in the pipeline
+    /// * `total` - Total number of transforms
+    /// * `ast` - The AST after this transform has been applied
+    fn on_transform_data(
+        &self,
+        _name: &str,
+        _index: usize,
+        _total: usize,
+        _ast: &quarto_pandoc_types::pandoc::Pandoc,
+    ) {
+    }
 }
 
 /// No-op observer implementation.
@@ -219,12 +262,16 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// Test observer that counts events
+    /// Test observer that counts events including data callbacks
     struct CountingObserver {
         starts: AtomicUsize,
         completes: AtomicUsize,
         errors: AtomicUsize,
         events: AtomicUsize,
+        pipeline_inputs: AtomicUsize,
+        stage_data_calls: AtomicUsize,
+        /// Records (stage_name, data_kind) for each on_stage_data call
+        stage_data_log: std::sync::Mutex<Vec<(String, super::super::data::PipelineDataKind)>>,
     }
 
     impl CountingObserver {
@@ -234,6 +281,9 @@ mod tests {
                 completes: AtomicUsize::new(0),
                 errors: AtomicUsize::new(0),
                 events: AtomicUsize::new(0),
+                pipeline_inputs: AtomicUsize::new(0),
+                stage_data_calls: AtomicUsize::new(0),
+                stage_data_log: std::sync::Mutex::new(Vec::new()),
             }
         }
     }
@@ -254,10 +304,24 @@ mod tests {
         fn on_event(&self, _message: &str, _level: EventLevel) {
             self.events.fetch_add(1, Ordering::SeqCst);
         }
+
+        fn on_pipeline_input(&self, _data: &PipelineData) {
+            self.pipeline_inputs.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn on_stage_data(&self, name: &str, _index: usize, data: &PipelineData) {
+            self.stage_data_calls.fetch_add(1, Ordering::SeqCst);
+            self.stage_data_log
+                .lock()
+                .unwrap()
+                .push((name.to_string(), data.kind()));
+        }
     }
 
     #[test]
     fn test_noop_observer() {
+        use super::super::data::{LoadedSource, PipelineDataKind};
+
         let observer = NoopObserver::new();
         // These should all be no-ops
         observer.on_stage_start("test", 0, 1);
@@ -267,6 +331,15 @@ mod tests {
         observer.on_pipeline_start(5);
         observer.on_pipeline_complete();
         observer.on_pipeline_error(&PipelineError::Cancelled);
+
+        // New data-bearing methods should also be no-ops
+        let data = PipelineData::LoadedSource(LoadedSource::new(
+            std::path::PathBuf::from("test.qmd"),
+            vec![],
+        ));
+        observer.on_pipeline_input(&data);
+        observer.on_stage_data("test", 0, &data);
+        assert_eq!(data.kind(), PipelineDataKind::LoadedSource);
     }
 
     #[test]
@@ -291,6 +364,31 @@ mod tests {
         assert_eq!(EventLevel::Debug.as_str(), "debug");
         assert_eq!(EventLevel::Info.as_str(), "info");
         assert_eq!(EventLevel::Warn.as_str(), "warn");
+    }
+
+    #[test]
+    fn test_counting_observer_data_callbacks() {
+        use super::super::data::{LoadedSource, PipelineDataKind};
+
+        let observer = Arc::new(CountingObserver::new());
+
+        let data = PipelineData::LoadedSource(LoadedSource::new(
+            std::path::PathBuf::from("test.qmd"),
+            vec![],
+        ));
+
+        observer.on_pipeline_input(&data);
+        assert_eq!(observer.pipeline_inputs.load(Ordering::SeqCst), 1);
+
+        observer.on_stage_data("parse", 0, &data);
+        observer.on_stage_data("transform", 1, &data);
+        assert_eq!(observer.stage_data_calls.load(Ordering::SeqCst), 2);
+
+        let log = observer.stage_data_log.lock().unwrap();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].0, "parse");
+        assert_eq!(log[0].1, PipelineDataKind::LoadedSource);
+        assert_eq!(log[1].0, "transform");
     }
 
     #[test]

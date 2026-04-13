@@ -141,9 +141,12 @@ impl TransformPipeline {
         ast: &mut quarto_pandoc_types::pandoc::Pandoc,
         ctx: &mut RenderContext<'_>,
     ) -> Result<()> {
-        for transform in &self.transforms {
+        let total = self.transforms.len();
+        for (idx, transform) in self.transforms.iter().enumerate() {
             tracing::debug!(transform = transform.name(), "Running transform");
             transform.transform(ast, ctx).await?;
+            ctx.observer
+                .on_transform_data(transform.name(), idx, total, ast);
         }
 
         Ok(())

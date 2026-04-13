@@ -31,7 +31,8 @@ use crate::extension::Extension;
 use crate::extension::discover::{find_extension, parse_format_descriptor};
 use crate::project::{adjust_paths_to_document_dir, directory_metadata_for_document};
 use crate::stage::{
-    EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, StageContext,
+    EventLevel, JsonTraceObserver, PipelineData, PipelineDataKind, PipelineError, PipelineStage,
+    StageContext, SummaryTraceObserver,
 };
 use crate::trace_event;
 
@@ -288,7 +289,57 @@ impl PipelineStage for MetadataMergeStage {
             });
         }
 
+        // Check merged metadata for trace activation.
+        // If `trace: true`, swap the observer to a tracing observer.
+        // The trace file is written to `.quarto/trace/<stem>/latest.json`.
+        activate_trace_from_metadata(&doc.ast.meta, &doc.path, ctx);
+
         Ok(PipelineData::DocumentAst(doc))
+    }
+}
+
+/// Check merged metadata for `trace: true` and activate tracing if present.
+///
+/// If `trace: true`, installs a `JsonTraceObserver` that writes to
+/// `.quarto/trace/<filename>/latest.json` relative to the project directory.
+///
+/// If `trace: "summary"`, installs a `SummaryTraceObserver` that prints
+/// to stderr.
+fn activate_trace_from_metadata(
+    meta: &ConfigValue,
+    doc_path: &std::path::Path,
+    ctx: &mut StageContext,
+) {
+    let trace_value = match meta.get("trace") {
+        Some(v) => v,
+        None => return,
+    };
+
+    // YAML values may be parsed as PandocInlines (e.g., `trace: true`
+    // becomes PandocInlines([Str("true")])), so we use is_string_value
+    // and as_plain_text which handle both Scalar and PandocInlines forms.
+
+    // trace: true -> JSON file output
+    if trace_value.as_bool() == Some(true) || trace_value.is_string_value("true") {
+        let stem = doc_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("document");
+        let trace_dir = ctx.project.dir.join(".quarto").join("trace").join(stem);
+        let trace_path = trace_dir.join("latest.json");
+
+        trace_event!(
+            ctx,
+            EventLevel::Info,
+            "Trace enabled, writing to {}",
+            trace_path.display()
+        );
+
+        ctx.observer = std::sync::Arc::new(JsonTraceObserver::new(trace_path));
+    } else if trace_value.is_string_value("summary") {
+        // trace: summary -> stderr summary
+        trace_event!(ctx, EventLevel::Info, "Trace enabled (summary mode)");
+        ctx.observer = std::sync::Arc::new(SummaryTraceObserver::new());
     }
 }
 

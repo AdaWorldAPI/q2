@@ -13,6 +13,7 @@
 //! - Writers use the context to determine output paths
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use quarto_analysis::AnalysisContext;
 use quarto_error_reporting::DiagnosticMessage;
@@ -21,7 +22,7 @@ use quarto_system_runtime::SystemRuntime;
 use crate::artifact::ArtifactStore;
 use crate::format::Format;
 use crate::project::{DocumentInfo, ProjectContext};
-use crate::stage::PandocIncludes;
+use crate::stage::{NoopObserver, PandocIncludes, PipelineObserver};
 
 /// Binary dependencies available for rendering
 #[derive(Debug, Clone, Default)]
@@ -104,6 +105,12 @@ pub struct RenderContext<'a> {
 
     /// Diagnostics (warnings, errors, info) collected during transforms
     pub diagnostics: Vec<DiagnosticMessage>,
+
+    /// Observer for pipeline tracing.
+    ///
+    /// Bridged from `StageContext` by `AstTransformsStage` so that
+    /// inner transforms can emit data trace events.
+    pub observer: Arc<dyn PipelineObserver>,
 }
 
 /// Options for rendering
@@ -139,6 +146,7 @@ impl<'a> RenderContext<'a> {
             options: RenderOptions::default(),
             includes: PandocIncludes::default(),
             diagnostics: Vec::new(),
+            observer: Arc::new(NoopObserver),
         }
     }
 

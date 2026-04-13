@@ -88,6 +88,7 @@ mod error;
 mod observer;
 mod pipeline;
 pub mod stages;
+pub mod trace;
 mod traits;
 
 // Re-export public types
@@ -99,6 +100,7 @@ pub use data::{
 pub use error::{PipelineError, PipelineValidationError};
 pub use observer::{EventLevel, NoopObserver, PipelineObserver, TracingObserver};
 pub use pipeline::Pipeline;
+pub use trace::{JsonTraceObserver, SummaryTraceObserver};
 pub use traits::PipelineStage;
 
 // Re-export concrete stages for convenience
