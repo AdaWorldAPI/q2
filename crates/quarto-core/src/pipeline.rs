@@ -119,8 +119,8 @@ pub struct AstOutput {
 ///
 /// This creates stages for:
 /// 1. `ParseDocumentStage` - Parse QMD to Pandoc AST
-/// 2. `EngineExecutionStage` - Execute code cells (jupyter, knitr, or markdown passthrough)
-/// 3. `MetadataMergeStage` - Merge project/directory/document/runtime metadata
+/// 2. `MetadataMergeStage` - Merge project/directory/document/runtime metadata
+/// 3. `EngineExecutionStage` - Execute code cells (jupyter, knitr, or markdown passthrough)
 /// 4. `CompileThemeCssStage` - Compile theme CSS from merged metadata
 /// 5. `UserFiltersStage::pre()` - Apply user filters before Quarto transforms
 /// 6. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, etc.)
@@ -130,8 +130,8 @@ pub struct AstOutput {
 pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
     vec![
         Box::new(ParseDocumentStage::new()),
-        Box::new(EngineExecutionStage::new()),
         Box::new(MetadataMergeStage::new()),
+        Box::new(EngineExecutionStage::new()),
         Box::new(CompileThemeCssStage::new()),
         Box::new(UserFiltersStage::pre()),
         Box::new(AstTransformsStage::new()),
@@ -145,8 +145,8 @@ pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
 ///
 /// This creates a pipeline with the following stages:
 /// 1. `ParseDocumentStage` - Parse QMD to Pandoc AST
-/// 2. `EngineExecutionStage` - Execute code cells (jupyter, knitr, or markdown passthrough)
-/// 3. `MetadataMergeStage` - Merge project/directory/document/runtime metadata
+/// 2. `MetadataMergeStage` - Merge project/directory/document/runtime metadata
+/// 3. `EngineExecutionStage` - Execute code cells (jupyter, knitr, or markdown passthrough)
 /// 4. `CompileThemeCssStage` - Compile theme CSS from merged metadata
 /// 5. `UserFiltersStage::pre()` - Apply user filters before Quarto transforms
 /// 6. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, etc.)
@@ -693,8 +693,8 @@ mod tests {
         let stages = build_html_pipeline_stages();
         assert_eq!(stages.len(), 9);
         assert_eq!(stages[0].name(), "parse-document");
-        assert_eq!(stages[1].name(), "engine-execution");
-        assert_eq!(stages[2].name(), "metadata-merge");
+        assert_eq!(stages[1].name(), "metadata-merge");
+        assert_eq!(stages[2].name(), "engine-execution");
         assert_eq!(stages[3].name(), "compile-theme-css");
         assert_eq!(stages[4].name(), "user-filters-pre");
         assert_eq!(stages[5].name(), "ast-transforms");
