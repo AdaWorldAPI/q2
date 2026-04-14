@@ -95,22 +95,11 @@ export function Ast({ astJson, onNavigateToDocument, setAst, registry = componen
         );
     }
 
+    const AstComponent = registry['Ast'];
+
     return (
         <RegistryContext.Provider value={{ registry }}>
-            <div className="pandoc-content-debug" style={{ padding: '20px', fontFamily: 'monospace', fontSize: '12px' }}>
-                {ast.blocks.map((block, i) =>
-                    <Node
-                        key={i}
-                        node={block}
-                        onNavigateToDocument={onNavigateToDocument}
-                        setLocalAst={(newBlock: BlockNode) => {
-                            const newBlocks = [...ast.blocks];
-                            newBlocks[i] = newBlock;
-                            setAst({ ...ast, blocks: newBlocks });
-                        }}
-                    />)
-                }
-            </div>
+            <AstComponent ast={ast} onNavigateToDocument={onNavigateToDocument} setAst={setAst} />
         </RegistryContext.Provider>
     );
 }
@@ -123,6 +112,17 @@ const renderChildrenRegistry: Record<string, (args: {
     setLocalAst: (newNode: any) => void;
     onNavigateToDocument?: (path: string, anchor: string | null) => void;
 }) => React.ReactNode> = {
+    // Ast type
+    Ast: ({ node, setLocalAst, onNavigateToDocument }) =>
+        (node as PandocAST).blocks.map((block, i) => (
+            <Node key={i} node={block} onNavigateToDocument={onNavigateToDocument}
+                setLocalAst={(newBlock: BlockNode | InlineNode) => {
+                    const newBlocks = [...(node as PandocAST).blocks];
+                    newBlocks[i] = newBlock as BlockNode;
+                    setLocalAst({ ...(node as PandocAST), blocks: newBlocks });
+                }}
+            />
+        )),
     // Inline types
     Emph: ({ node, setLocalAst, onNavigateToDocument }) =>
         (node as EmphInline).c.map((child, i) => (
@@ -227,7 +227,7 @@ const renderChildrenRegistry: Record<string, (args: {
         )),
     BulletList: ({ node, setLocalAst, onNavigateToDocument }) =>
         (node as BulletListBlock).c.map((item, i) => (
-            <>{item.map((block, j) => (
+            <li key={i}>{item.map((block, j) => (
                 <Node key={JSON.stringify([i, j])} node={block} onNavigateToDocument={onNavigateToDocument}
                     setLocalAst={(newBlock: BlockNode | InlineNode) => {
                         const newItems = [...(node as BulletListBlock).c];
@@ -237,11 +237,11 @@ const renderChildrenRegistry: Record<string, (args: {
                         setLocalAst({ t: 'BulletList', c: newItems });
                     }}
                 />
-            ))}</>
+            ))}</li>
         )),
     OrderedList: ({ node, setLocalAst, onNavigateToDocument }) =>
         (node as OrderedListBlock).c[1].map((item, i) => (
-            <>{item.map((block, j) => (
+            <li key={i}>{item.map((block, j) => (
                 <Node key={JSON.stringify([i, j])} node={block} onNavigateToDocument={onNavigateToDocument}
                     setLocalAst={(newBlock: BlockNode | InlineNode) => {
                         const newItems = [...(node as OrderedListBlock).c[1]];
@@ -251,8 +251,7 @@ const renderChildrenRegistry: Record<string, (args: {
                         setLocalAst({ t: 'OrderedList', c: [(node as OrderedListBlock).c[0], newItems] });
                     }}
                 />
-            ))}
-            </>
+            ))}</li>
         )),
     Figure: ({ node, setLocalAst, onNavigateToDocument }) => (
         <>
@@ -291,9 +290,12 @@ export function renderChildren<T extends BlockNode | InlineNode>({
     setLocalAst: (newNode: T) => void;
     onNavigateToDocument?: (path: string, anchor: string | null) => void;
 }): React.ReactNode {
-    const renderer = renderChildrenRegistry[node.t];
+    // Check if this is a PandocAST object (has blocks and pandoc-api-version)
+    const nodeType = (node as any).t || ((node as any).blocks && (node as any)['pandoc-api-version'] ? 'Ast' : undefined);
+
+    const renderer = renderChildrenRegistry[nodeType];
     if (!renderer) {
-        console.warn(`No renderer found for node type: ${node.t}`);
+        console.warn(`No renderer found for node type: ${nodeType}`);
         return null;
     }
 
@@ -482,6 +484,20 @@ const InlineComponents: Record<string, (props: any) => React.ReactNode> = {
 
 const Inline = (args: NodeArgs<InlineNode>) => renderNode(args, args.node.t)
 
+const AstRenderer = ({ ast, onNavigateToDocument, setAst }: {
+    ast: PandocAST;
+    onNavigateToDocument?: (path: string, anchor: string | null) => void;
+    setAst: (newAst: PandocAST) => void;
+}) => (
+    <div className="pandoc-content-debug" style={{ padding: '20px', fontSize: '16px' }}>
+        {renderChildren({
+            node: ast as any,
+            setLocalAst: setAst as any,
+            onNavigateToDocument
+        })}
+    </div>
+);
+
 /**
  * Unified Registry combining all Block and Inline components, plus Block and Inline wrappers
  */
@@ -490,6 +506,7 @@ export const componentRegistry: Record<string, (props: any) => React.ReactNode> 
     ...InlineComponents,
     Block,
     Inline,
+    Ast: AstRenderer,
 };
 
 /**
