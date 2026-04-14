@@ -27,6 +27,8 @@ pub struct BuildAllConfig {
     pub skip_trace_viewer_build: bool,
     /// Skip the final `cargo build --workspace` step.
     pub skip_rust_build: bool,
+    /// Pass `--release` to `cargo build`.
+    pub release: bool,
 }
 
 impl Default for BuildAllConfig {
@@ -36,6 +38,7 @@ impl Default for BuildAllConfig {
             skip_hub_build: false,
             skip_trace_viewer_build: false,
             skip_rust_build: false,
+            release: false,
         }
     }
 }
@@ -105,14 +108,17 @@ pub fn run(config: &BuildAllConfig) -> Result<()> {
     // Step: Rust workspace build
     if !config.skip_rust_build {
         step_idx += 1;
-        banner(step_idx, total, "Building Rust workspace");
-        run_command(
-            "cargo",
-            &["build", "--workspace"],
-            &project_root,
-            None,
-            "Rust build failed",
-        )?;
+        let label = if config.release {
+            "Building Rust workspace (--release)"
+        } else {
+            "Building Rust workspace"
+        };
+        banner(step_idx, total, label);
+        let mut args: Vec<&str> = vec!["build", "--workspace"];
+        if config.release {
+            args.push("--release");
+        }
+        run_command("cargo", &args, &project_root, None, "Rust build failed")?;
         println!("✓ Rust build complete");
     }
 

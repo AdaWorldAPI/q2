@@ -153,6 +153,10 @@ enum Command {
         /// Skip the Rust workspace build.
         #[arg(long)]
         skip_rust_build: bool,
+
+        /// Pass `--release` to `cargo build`.
+        #[arg(long)]
+        release: bool,
     },
 }
 
@@ -206,12 +210,14 @@ fn main() -> Result<()> {
             skip_hub_build,
             skip_trace_viewer_build,
             skip_rust_build,
+            release,
         } => {
             let config = build_all::BuildAllConfig {
                 skip_npm_install,
                 skip_hub_build,
                 skip_trace_viewer_build,
                 skip_rust_build,
+                release,
             };
             build_all::run(&config)
         }
