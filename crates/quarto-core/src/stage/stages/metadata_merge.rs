@@ -31,9 +31,10 @@ use crate::extension::Extension;
 use crate::extension::discover::{find_extension, parse_format_descriptor};
 use crate::project::{adjust_paths_to_document_dir, directory_metadata_for_document};
 use crate::stage::{
-    EventLevel, JsonTraceObserver, PipelineData, PipelineDataKind, PipelineError, PipelineStage,
-    StageContext, SummaryTraceObserver,
+    EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, StageContext,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stage::{JsonTraceObserver, SummaryTraceObserver};
 use crate::trace_event;
 
 /// Convert a `serde_json::Value` to a `ConfigValue`.
@@ -300,11 +301,16 @@ impl PipelineStage for MetadataMergeStage {
 
 /// Check merged metadata for `trace: true` and activate tracing if present.
 ///
-/// If `trace: true`, installs a `JsonTraceObserver` that writes to
-/// `.quarto/trace/<filename>/latest.json` relative to the project directory.
+/// On native targets:
+/// - `trace: true` installs a `JsonTraceObserver` that writes to
+///   `.quarto/trace/<filename>/latest.json` relative to the project directory.
+/// - `trace: "summary"` installs a `SummaryTraceObserver` that prints
+///   to stderr.
 ///
-/// If `trace: "summary"`, installs a `SummaryTraceObserver` that prints
-/// to stderr.
+/// On WASM targets: neither observer is available (both require
+/// `std::fs` / `std::time::Instant`), so the no-op observer is kept and
+/// a warning is logged. This preserves the invariant that `trace: true`
+/// in hub-client does not crash the render.
 fn activate_trace_from_metadata(
     meta: &ConfigValue,
     doc_path: &std::path::Path,
@@ -315,31 +321,55 @@ fn activate_trace_from_metadata(
         None => return,
     };
 
-    // YAML values may be parsed as PandocInlines (e.g., `trace: true`
-    // becomes PandocInlines([Str("true")])), so we use is_string_value
-    // and as_plain_text which handle both Scalar and PandocInlines forms.
+    let wants_json = trace_value.as_bool() == Some(true) || trace_value.is_string_value("true");
+    let wants_summary = trace_value.is_string_value("summary");
 
-    // trace: true -> JSON file output
-    if trace_value.as_bool() == Some(true) || trace_value.is_string_value("true") {
-        let stem = doc_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("document");
-        let trace_dir = ctx.project.dir.join(".quarto").join("trace").join(stem);
-        let trace_path = trace_dir.join("latest.json");
+    if !wants_json && !wants_summary {
+        return;
+    }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if wants_json {
+            let stem = doc_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("document");
+            let trace_dir = ctx.project.dir.join(".quarto").join("trace").join(stem);
+            let trace_path = trace_dir.join("latest.json");
+
+            trace_event!(
+                ctx,
+                EventLevel::Info,
+                "Trace enabled, writing to {}",
+                trace_path.display()
+            );
+
+            let render = quarto_trace::RenderInfo {
+                input_path: Some(doc_path.display().to_string()),
+                format_target: Some(ctx.format.target_format.clone()),
+                git_hash: Some(quarto_trace::BUILD_GIT_HASH.to_string()),
+                ..Default::default()
+            };
+
+            ctx.observer = std::sync::Arc::new(JsonTraceObserver::new(trace_path, render));
+        } else if wants_summary {
+            trace_event!(ctx, EventLevel::Info, "Trace enabled (summary mode)");
+            ctx.observer = std::sync::Arc::new(SummaryTraceObserver::new());
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Avoid unused-variable warnings in the WASM branch.
+        let _ = doc_path;
+        let _ = wants_json;
+        let _ = wants_summary;
         trace_event!(
             ctx,
-            EventLevel::Info,
-            "Trace enabled, writing to {}",
-            trace_path.display()
+            EventLevel::Warn,
+            "Trace enabled in metadata, but trace output is not yet supported in the WASM build; ignoring."
         );
-
-        ctx.observer = std::sync::Arc::new(JsonTraceObserver::new(trace_path));
-    } else if trace_value.is_string_value("summary") {
-        // trace: summary -> stderr summary
-        trace_event!(ctx, EventLevel::Info, "Trace enabled (summary mode)");
-        ctx.observer = std::sync::Arc::new(SummaryTraceObserver::new());
     }
 }
 
