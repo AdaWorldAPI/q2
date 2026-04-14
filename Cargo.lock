@@ -3315,6 +3315,7 @@ dependencies = [
  "quarto-sass",
  "quarto-system-runtime",
  "quarto-test",
+ "quarto-trace",
  "quarto-util",
  "serde_json",
  "serde_yaml",
@@ -3405,6 +3406,7 @@ dependencies = [
  "quarto-sass",
  "quarto-source-map",
  "quarto-system-runtime",
+ "quarto-trace",
  "quarto-util",
  "quarto-yaml",
  "regex",
@@ -3642,6 +3644,15 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "quarto-trace"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

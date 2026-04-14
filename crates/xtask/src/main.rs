@@ -10,7 +10,9 @@
 //! - `lint`: Run custom lint checks on the codebase
 //! - `test`: Run workspace tests with platform-appropriate crate exclusions
 //! - `verify`: Run full project verification (build + tests for Rust and hub-client)
+//! - `build-all`: Fresh-clone build orchestration (npm install + hub-client + Rust workspace)
 
+mod build_all;
 mod dev_setup;
 mod lint;
 mod test;
@@ -108,6 +110,33 @@ enum Command {
         #[arg(long)]
         no_deny_warnings: bool,
     },
+
+    /// Fresh-clone build orchestration.
+    ///
+    /// Runs the full build sequence in dependency order, serving as the source
+    /// of truth for what a fresh checkout (or CI) needs to produce a working
+    /// build:
+    /// 1. npm install at the repo root (npm workspaces)
+    /// 2. hub-client build (includes WASM)
+    /// 3. trace-viewer build (if present; Phase 4.3+)
+    /// 4. cargo build --workspace
+    BuildAll {
+        /// Skip `npm install`.
+        #[arg(long)]
+        skip_npm_install: bool,
+
+        /// Skip the hub-client build.
+        #[arg(long)]
+        skip_hub_build: bool,
+
+        /// Skip the trace-viewer build.
+        #[arg(long)]
+        skip_trace_viewer_build: bool,
+
+        /// Skip the Rust workspace build.
+        #[arg(long)]
+        skip_rust_build: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -149,6 +178,20 @@ fn main() -> Result<()> {
                 no_deny_warnings,
             };
             verify::run(&config)
+        }
+        Command::BuildAll {
+            skip_npm_install,
+            skip_hub_build,
+            skip_trace_viewer_build,
+            skip_rust_build,
+        } => {
+            let config = build_all::BuildAllConfig {
+                skip_npm_install,
+                skip_hub_build,
+                skip_trace_viewer_build,
+                skip_rust_build,
+            };
+            build_all::run(&config)
         }
     }
 }

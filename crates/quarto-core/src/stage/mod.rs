@@ -88,6 +88,7 @@ mod error;
 mod observer;
 mod pipeline;
 pub mod stages;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod trace;
 mod traits;
 
@@ -100,6 +101,7 @@ pub use data::{
 pub use error::{PipelineError, PipelineValidationError};
 pub use observer::{EventLevel, NoopObserver, PipelineObserver, TracingObserver};
 pub use pipeline::Pipeline;
+#[cfg(not(target_arch = "wasm32"))]
 pub use trace::{JsonTraceObserver, SummaryTraceObserver};
 pub use traits::PipelineStage;
 

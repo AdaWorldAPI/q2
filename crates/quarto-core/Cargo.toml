@@ -32,6 +32,7 @@ quarto-yaml.workspace = true
 quarto-ast-reconcile.workspace = true
 quarto-analysis.workspace = true
 quarto-sass.workspace = true
+quarto-trace.workspace = true
 pampa = { workspace = true, features = ["lua-filter", "json-filter"] }
 
 # Native-only dependencies (for execution engines and resource extraction)

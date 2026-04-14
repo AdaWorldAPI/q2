@@ -20,6 +20,7 @@ pub mod render;
 pub mod run;
 pub mod serve;
 pub mod tools;
+pub mod trace;
 pub mod typst;
 pub mod uninstall;
 pub mod update;
