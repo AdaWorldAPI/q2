@@ -3316,6 +3316,7 @@ dependencies = [
  "quarto-system-runtime",
  "quarto-test",
  "quarto-trace",
+ "quarto-trace-server",
  "quarto-util",
  "serde_json",
  "serde_yaml",
@@ -3653,6 +3654,26 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "quarto-trace-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "http",
+ "http-body-util",
+ "include_dir",
+ "quarto-trace",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower 0.5.3",
+ "tower-http",
+ "tracing",
 ]
 
 [[package]]

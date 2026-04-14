@@ -28,11 +28,15 @@ pub struct TraceShowArgs {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // fields consumed once Phase 4.3 implements execute_view
 pub struct TraceViewArgs {
     pub trace_dir: Option<PathBuf>,
+    /// Document to open in the viewer on startup. Reserved for future
+    /// URL-fragment wiring; not currently used.
     pub doc: Option<String>,
     pub port: Option<u16>,
+    pub host: Option<String>,
+    /// If true, do not attempt to open a browser.
+    pub no_browser: bool,
 }
 
 /// Produce the JSON value for `quarto trace list`.
@@ -147,11 +151,32 @@ pub fn execute_show(args: TraceShowArgs) -> Result<()> {
 }
 
 /// Entrypoint for `quarto trace view` — launches the SPA.
-/// Stubbed until Phase 4.3.
-pub fn execute_view(_args: TraceViewArgs) -> Result<()> {
-    bail!(
-        "`quarto trace view` is not yet implemented. Use `quarto trace list` / `quarto trace show` for now."
-    )
+///
+/// Starts the `quarto-trace-server` on a loopback address and serves the
+/// embedded SPA plus the local `.quarto/trace/` tree. Blocks until the
+/// process is signalled (Ctrl-C).
+pub fn execute_view(args: TraceViewArgs) -> Result<()> {
+    let trace_dir = resolve_trace_dir(args.trace_dir.as_deref());
+    // `doc` preselection isn't wired into the SPA yet; accept it now so
+    // the CLI shape is stable.
+    let _doc = args.doc;
+    let _no_browser = args.no_browser;
+
+    let mut config = quarto_trace_server::ServerConfig::new(trace_dir);
+    if let Some(host) = args.host {
+        config.host = host;
+    }
+    if let Some(port) = args.port {
+        config.port = port;
+    }
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("Failed to build tokio runtime")?;
+
+    runtime.block_on(quarto_trace_server::serve(config))?;
+    Ok(())
 }
 
 fn resolve_trace_dir(override_path: Option<&Path>) -> PathBuf {

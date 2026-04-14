@@ -153,6 +153,9 @@ path = "./crates/quarto-test"
 [workspace.dependencies.quarto-trace]
 path = "./crates/quarto-trace"
 
+[workspace.dependencies.quarto-trace-server]
+path = "./crates/quarto-trace-server"
+
 [workspace.lints.rust]
 # coverage_nightly is used by pampa for code coverage instrumentation on nightly Rust
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }

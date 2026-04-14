@@ -216,20 +216,23 @@ Schema tweak during implementation: `started_at` changed from RFC3339 string to 
 - [x] End-to-end smoke test against the real `q2` binary confirmed.
 
 ### Phase 4.3 — Native viewer SPA (single doc, single stage)
-- [ ] Create `trace-viewer/` Vite SPA (sibling of `hub-client/`, no collaborative/sync code).
-- [ ] `TraceSource` abstraction in TS; `HttpTraceSource` impl talking to the local server.
-- [ ] Trace list + pipeline timeline + stage detail views.
-- [ ] AST tree component (collapsible, searchable).
-- [ ] Plain monospaced text view for `DocumentSource` / `ExecutedDocument` (no syntax highlighting).
-- [ ] Syntax-highlighted HTML source view for `RenderedOutput` (no rendered preview).
-- [ ] Metadata panel for `LoadedSource`.
-- [ ] Per-stage "copy JSON" button (clipboard).
-- [ ] `cargo xtask build-trace-viewer` orchestrating `npm run build`; wire into `cargo xtask verify` and extend `cargo xtask build-all` (from Phase 4.0) to include it.
-- [ ] New `quarto-trace-server` crate that uses `include_dir!` to embed `trace-viewer/dist/` and exposes the `axum` routes. The `quarto` binary's `trace view` subcommand depends on it. Keeping this in its own crate rather than inlining into the binary keeps the binary thin and makes the server reusable (e.g. from integration tests, or future embedding scenarios).
-- [ ] `QUARTO_TRACE_VIEWER_DIR` dev-mode escape hatch to serve from disk.
-- [ ] Clear build error when `trace-viewer/dist/` is missing on fresh clones.
-- [ ] `quarto trace view` subcommand: start server, open browser.
-- [ ] (optional 4.3b) SSE endpoint for auto-refresh on `.quarto/trace/` changes.
+- [x] Create `trace-viewer/` Vite SPA (sibling of `hub-client/`, no collaborative/sync code). Added as root npm workspace.
+- [x] `TraceSource` abstraction in TS (`trace-viewer/src/trace-source.ts`); `HttpTraceSource` impl talking to the local server. 5 vitest tests.
+- [x] Trace list + pipeline timeline + stage detail views (`src/components/*.tsx`, `src/App.tsx`). 3 vitest tests for App.
+- [x] AST tree component (collapsible, searchable) — see `src/components/AstTree.tsx`.
+- [x] Plain monospaced text view for `DocumentSource` / `ExecutedDocument` (`TextView.tsx`).
+- [x] Syntax-highlighted HTML source view for `RenderedOutput` (`HtmlSourceView.tsx`, highlight.js with xml/html).
+- [x] Metadata panel for `LoadedSource` (via `StageDetail` switch on `data_kind`).
+- [x] Per-stage "copy JSON" button (`CopyJsonButton.tsx`).
+- [x] `cargo xtask build-trace-viewer` orchestrating `npm run build`; wired into `cargo xtask verify` (steps 8–9) and Phase 4.0 `build-all` picks up `trace-viewer/` automatically.
+- [x] New `quarto-trace-server` crate (`crates/quarto-trace-server/`) that uses `include_dir!("$QUARTO_TRACE_VIEWER_EMBED_DIR")` to embed `trace-viewer/dist/` and exposes the `axum` routes. 6 integration tests covering `/api/traces`, `/api/trace/<doc>`, path traversal rejection, SPA index serving, and SPA fallback.
+- [x] `QUARTO_TRACE_VIEWER_DIR` dev-mode escape hatch: when set, serves SPA assets from disk instead of the embedded bundle.
+- [x] Fresh-clone safety: `build.rs` generates a placeholder `index.html` in `OUT_DIR` when `trace-viewer/dist/` is missing and emits a `cargo:warning=...` directing users to `cargo xtask build-trace-viewer`. The build still succeeds so downstream work isn't blocked.
+- [x] `quarto trace view` subcommand: starts the server on `127.0.0.1:<port>` (port `0` picks OS-assigned), serves traces from `./.quarto/trace/` with `--trace-dir` override. Verified end-to-end via `curl` against a live server: `/api/traces`, `/api/trace/<doc>`, `/`, and SPA fallback routes all return the expected content.
+- [x] `--no-browser` flag accepted; auto-open not yet wired (browser can be opened manually at the printed URL).
+- [ ] (optional 4.3b) SSE endpoint for auto-refresh on `.quarto/trace/` changes — out of scope (D2 decision).
+
+Workspace state after 4.3: `cargo build --workspace` clean, `cargo nextest run --workspace` → 7265 passed, `hub-client npm run build:wasm` clean, `trace-viewer npm run build` → 226 KB JS / 72 KB gzipped.
 
 ### Phase 4.4 — hub-client viewer
 - [ ] `VfsTraceSource` impl reading from hub-client VFS.

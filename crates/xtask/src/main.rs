@@ -11,8 +11,10 @@
 //! - `test`: Run workspace tests with platform-appropriate crate exclusions
 //! - `verify`: Run full project verification (build + tests for Rust and hub-client)
 //! - `build-all`: Fresh-clone build orchestration (npm install + hub-client + Rust workspace)
+//! - `build-trace-viewer`: Build just the trace-viewer SPA
 
 mod build_all;
+mod build_trace_viewer;
 mod dev_setup;
 mod lint;
 mod test;
@@ -98,6 +100,14 @@ enum Command {
         #[arg(long)]
         skip_hub_tests: bool,
 
+        /// Skip trace-viewer build.
+        #[arg(long)]
+        skip_trace_viewer_build: bool,
+
+        /// Skip trace-viewer tests.
+        #[arg(long)]
+        skip_trace_viewer_tests: bool,
+
         /// Skip tree-sitter grammar tests.
         #[arg(long)]
         skip_treesitter_tests: bool,
@@ -110,6 +120,13 @@ enum Command {
         #[arg(long)]
         no_deny_warnings: bool,
     },
+
+    /// Build just the trace-viewer SPA.
+    ///
+    /// Faster than `build-all` when only the SPA source has changed. The
+    /// resulting `trace-viewer/dist/` is picked up on the next `cargo
+    /// build -p quarto-trace-server` (via `include_dir!`).
+    BuildTraceViewer {},
 
     /// Fresh-clone build orchestration.
     ///
@@ -164,6 +181,8 @@ fn main() -> Result<()> {
             skip_rust_tests,
             skip_hub_build,
             skip_hub_tests,
+            skip_trace_viewer_build,
+            skip_trace_viewer_tests,
             skip_treesitter_tests,
             e2e,
             no_deny_warnings,
@@ -173,12 +192,15 @@ fn main() -> Result<()> {
                 skip_rust_tests,
                 skip_hub_build,
                 skip_hub_tests,
+                skip_trace_viewer_build,
+                skip_trace_viewer_tests,
                 skip_treesitter_tests,
                 include_e2e: e2e,
                 no_deny_warnings,
             };
             verify::run(&config)
         }
+        Command::BuildTraceViewer {} => build_trace_viewer::run(),
         Command::BuildAll {
             skip_npm_install,
             skip_hub_build,

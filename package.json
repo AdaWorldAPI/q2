@@ -5,6 +5,7 @@
   "workspaces": [
     "ts-packages/*",
     "hub-client",
+    "trace-viewer",
     "q2-demos/*"
   ],
   "scripts": {

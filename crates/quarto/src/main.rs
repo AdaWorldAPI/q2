@@ -445,7 +445,7 @@ enum TraceCommand {
         stage: Option<String>,
     },
 
-    /// Launch the trace viewer SPA (not yet implemented).
+    /// Launch the trace viewer SPA on a local HTTP server.
     View {
         /// Override the trace directory (defaults to `./.quarto/trace/`).
         #[arg(long)]
@@ -455,9 +455,17 @@ enum TraceCommand {
         #[arg(long)]
         doc: Option<String>,
 
-        /// Port to bind the local server to.
+        /// Port to bind the local server to. `0` (default) picks an OS-assigned port.
         #[arg(long)]
         port: Option<u16>,
+
+        /// Host to bind to. Defaults to `127.0.0.1`.
+        #[arg(long)]
+        host: Option<String>,
+
+        /// Don't attempt to open the default browser on startup.
+        #[arg(long)]
+        no_browser: bool,
     },
 }
 
@@ -561,10 +569,14 @@ fn main() -> Result<()> {
                 trace_dir,
                 doc,
                 port,
+                host,
+                no_browser,
             } => commands::trace::execute_view(commands::trace::TraceViewArgs {
                 trace_dir,
                 doc,
                 port,
+                host,
+                no_browser,
             }),
         },
     }

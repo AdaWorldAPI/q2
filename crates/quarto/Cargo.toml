@@ -22,6 +22,7 @@ tokio.workspace = true
 
 quarto-core.workspace = true
 quarto-trace.workspace = true
+quarto-trace-server.workspace = true
 quarto-util.workspace = true
 quarto-system-runtime.workspace = true
 quarto-doctemplate.workspace = true
