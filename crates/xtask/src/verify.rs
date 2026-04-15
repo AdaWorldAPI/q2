@@ -16,7 +16,7 @@ use std::process::Command;
 use crate::lint;
 use crate::test;
 
-const TOTAL_STEPS: u32 = 7;
+const TOTAL_STEPS: u32 = 9;
 
 /// Configuration for the verify command.
 pub struct VerifyConfig {
@@ -28,6 +28,10 @@ pub struct VerifyConfig {
     pub skip_hub_build: bool,
     /// Skip hub-client tests.
     pub skip_hub_tests: bool,
+    /// Skip trace-viewer build.
+    pub skip_trace_viewer_build: bool,
+    /// Skip trace-viewer tests.
+    pub skip_trace_viewer_tests: bool,
     /// Skip tree-sitter grammar tests.
     pub skip_treesitter_tests: bool,
     /// Run hub-client e2e tests (slower, requires browser).
@@ -43,6 +47,8 @@ impl Default for VerifyConfig {
             skip_rust_tests: false,
             skip_hub_build: false,
             skip_hub_tests: false,
+            skip_trace_viewer_build: false,
+            skip_trace_viewer_tests: false,
             skip_treesitter_tests: false,
             include_e2e: false,
             no_deny_warnings: false,
@@ -204,6 +210,60 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
     } else {
         println!(
             "\n━━━ Step 7/{}: Skipping hub-client tests ━━━\n",
+            TOTAL_STEPS
+        );
+    }
+
+    // Step 8: Build trace-viewer SPA
+    let trace_viewer_dir = project_root.join("trace-viewer");
+    let have_trace_viewer = trace_viewer_dir.join("package.json").is_file();
+    if !config.skip_trace_viewer_build && have_trace_viewer {
+        println!(
+            "\n━━━ Step 8/{}: Building trace-viewer SPA ━━━\n",
+            TOTAL_STEPS
+        );
+        run_command(
+            "npm",
+            &["run", "build"],
+            &trace_viewer_dir,
+            None,
+            "trace-viewer build failed",
+        )?;
+        println!("✓ trace-viewer build complete");
+    } else if !have_trace_viewer {
+        println!(
+            "\n━━━ Step 8/{}: trace-viewer/ not present, skipping ━━━\n",
+            TOTAL_STEPS
+        );
+    } else {
+        println!(
+            "\n━━━ Step 8/{}: Skipping trace-viewer build ━━━\n",
+            TOTAL_STEPS
+        );
+    }
+
+    // Step 9: Run trace-viewer tests
+    if !config.skip_trace_viewer_tests && have_trace_viewer {
+        println!(
+            "\n━━━ Step 9/{}: Running trace-viewer tests ━━━\n",
+            TOTAL_STEPS
+        );
+        run_command(
+            "npm",
+            &["test"],
+            &trace_viewer_dir,
+            None,
+            "trace-viewer tests failed",
+        )?;
+        println!("✓ trace-viewer tests complete");
+    } else if !have_trace_viewer {
+        println!(
+            "\n━━━ Step 9/{}: trace-viewer/ not present, skipping ━━━\n",
+            TOTAL_STEPS
+        );
+    } else {
+        println!(
+            "\n━━━ Step 9/{}: Skipping trace-viewer tests ━━━\n",
             TOTAL_STEPS
         );
     }

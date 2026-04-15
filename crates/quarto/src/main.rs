@@ -319,6 +319,15 @@ enum Commands {
     /// Start the Quarto Language Server Protocol server
     Lsp,
 
+    /// Inspect pipeline execution traces under `.quarto/trace/`.
+    ///
+    /// Output is always JSON. Pipe to `jq`/`fx` for pretty filtering, or
+    /// use `quarto trace view` (future) for an interactive SPA.
+    Trace {
+        #[command(subcommand)]
+        command: TraceCommand,
+    },
+
     /// Start collaborative hub server for real-time editing.
     /// By default, watches the current directory (or --project path).
     /// Use --no-project to run as a standalone sync server.
@@ -411,6 +420,55 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand)]
+enum TraceCommand {
+    /// List available traces under the `.quarto/trace/` directory.
+    List {
+        /// Override the trace directory (defaults to `./.quarto/trace/`).
+        #[arg(long)]
+        trace_dir: Option<PathBuf>,
+    },
+
+    /// Print a trace or a single stage entry as JSON.
+    Show {
+        /// Override the trace directory (defaults to `./.quarto/trace/`).
+        #[arg(long)]
+        trace_dir: Option<PathBuf>,
+
+        /// Document stem to show. If omitted and exactly one trace exists,
+        /// that trace is used.
+        #[arg(long)]
+        doc: Option<String>,
+
+        /// Print only the entry for this stage name.
+        #[arg(long)]
+        stage: Option<String>,
+    },
+
+    /// Launch the trace viewer SPA on a local HTTP server.
+    View {
+        /// Override the trace directory (defaults to `./.quarto/trace/`).
+        #[arg(long)]
+        trace_dir: Option<PathBuf>,
+
+        /// Document stem to open on startup.
+        #[arg(long)]
+        doc: Option<String>,
+
+        /// Port to bind the local server to. `0` (default) picks an OS-assigned port.
+        #[arg(long)]
+        port: Option<u16>,
+
+        /// Host to bind to. Defaults to `127.0.0.1`.
+        #[arg(long)]
+        host: Option<String>,
+
+        /// Don't attempt to open the default browser on startup.
+        #[arg(long)]
+        no_browser: bool,
+    },
+}
+
 fn main() -> Result<()> {
     // Initialize logging
     tracing_subscriber::registry()
@@ -494,5 +552,32 @@ fn main() -> Result<()> {
             allowed_emails,
             allowed_domains,
         }),
+        Commands::Trace { command } => match command {
+            TraceCommand::List { trace_dir } => {
+                commands::trace::execute_list(commands::trace::TraceListArgs { trace_dir })
+            }
+            TraceCommand::Show {
+                trace_dir,
+                doc,
+                stage,
+            } => commands::trace::execute_show(commands::trace::TraceShowArgs {
+                trace_dir,
+                doc,
+                stage,
+            }),
+            TraceCommand::View {
+                trace_dir,
+                doc,
+                port,
+                host,
+                no_browser,
+            } => commands::trace::execute_view(commands::trace::TraceViewArgs {
+                trace_dir,
+                doc,
+                port,
+                host,
+                no_browser,
+            }),
+        },
     }
 }

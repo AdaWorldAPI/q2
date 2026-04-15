@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-15
+
+- [`3162a627`](https://github.com/quarto-dev/q2/commits/3162a627): Attempt silent token refresh on visibility change before logging out
+
 ### 2026-04-09
 
 - [`adc5d92c`](https://github.com/quarto-dev/q2/commits/adc5d92c): Fix remote cursor cross-line flash when typing at end of line
