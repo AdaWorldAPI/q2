@@ -79,7 +79,7 @@ enum SourceInfo {
 
 ## Error Reporting
 
-Errors use [ariadne](https://github.com/zesterer/ariadne) for precise, visually clear diagnostics:
+Errors use [ariadne](https://codeberg.org/zesterer/ariadne) for precise, visually clear diagnostics:
 
 ```
 $ echo '_hello world' | quarto-markdown-pandoc -t json
