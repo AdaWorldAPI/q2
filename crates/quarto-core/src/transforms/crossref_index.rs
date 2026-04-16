@@ -43,9 +43,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 use serde_json::json;
 
 use crate::Result;
-use crate::crossref::{
-    CrossrefEntry, CrossrefIndex, FLOAT_REF_TARGET, Order, TRACE_KIND_CROSSREF_INDEX,
-};
+use crate::crossref::{CrossrefEntry, CrossrefIndex, Order, TRACE_KIND_CROSSREF_INDEX};
 use crate::render::RenderContext;
 use crate::transform::AstTransform;
 
@@ -170,12 +168,19 @@ impl<'a> Walker<'a> {
                 _ => {}
             }
         }
-        if node.type_name == FLOAT_REF_TARGET {
-            self.index_float_ref_target(node);
+        // Any custom node that carries the standard crossref triple
+        // (ref_type + kind + non-empty identifier) is eligible for
+        // indexing. Today that's `FloatRefTarget` and `Theorem`;
+        // Callouts with crossref ids get it via the callout annotation
+        // pass. We inline the predicate rather than call
+        // `crossref_target_view` to avoid synthesizing a Block just for
+        // the check.
+        if has_crossref_plain_data(node) {
+            self.index_custom_target(node);
         }
     }
 
-    fn index_float_ref_target(&mut self, node: &mut CustomNode) {
+    fn index_custom_target(&mut self, node: &mut CustomNode) {
         let identifier = node.attr.0.clone();
         if identifier.is_empty() {
             return;
@@ -237,6 +242,27 @@ impl<'a> Walker<'a> {
         };
         self.index.insert(entry);
     }
+}
+
+/// True if `node` carries the standard crossref triple in `plain_data`
+/// (non-empty `identifier` on attr, plus `ref_type` and `kind` strings
+/// in `plain_data`). Mirrors what `crossref_target_view` checks, but
+/// avoids synthesizing a `Block` for the query.
+fn has_crossref_plain_data(node: &CustomNode) -> bool {
+    if node.attr.0.is_empty() {
+        return false;
+    }
+    let has_ref_type = node
+        .plain_data
+        .get("ref_type")
+        .and_then(|v| v.as_str())
+        .is_some();
+    let has_kind = node
+        .plain_data
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .is_some();
+    has_ref_type && has_kind
 }
 
 /// Advance the section counter stack when a header of `level` is seen.

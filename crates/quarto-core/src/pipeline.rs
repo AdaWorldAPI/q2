@@ -62,9 +62,9 @@ use crate::transform::TransformPipeline;
 use crate::transforms::{
     AppendixStructureTransform, CalloutResolveTransform, CalloutTransform, CrossrefIndexTransform,
     CrossrefRenderTransform, CrossrefResolveTransform, FloatRefTargetSugarTransform,
-    FootnotesTransform, MetadataNormalizeTransform, ResourceCollectorTransform,
-    SectionizeTransform, ShortcodeResolveTransform, TitleBlockTransform, TocGenerateTransform,
-    TocRenderTransform,
+    FootnotesTransform, MetadataNormalizeTransform, ProofSugarTransform,
+    ResourceCollectorTransform, SectionizeTransform, ShortcodeResolveTransform,
+    TheoremSugarTransform, TitleBlockTransform, TocGenerateTransform, TocRenderTransform,
 };
 
 /// Well-known path for the default CSS artifact in WASM context.
@@ -456,6 +456,12 @@ pub fn build_transform_pipeline(
     pipeline.push(Box::new(TitleBlockTransform::new()));
     pipeline.push(Box::new(SectionizeTransform::new()));
     pipeline.push(Box::new(FootnotesTransform::new()));
+    // TheoremSugarTransform / ProofSugarTransform run before
+    // FloatRefTargetSugarTransform so `Div(#thm-foo .theorem)` and
+    // `Div(.proof)` become Theorem / Proof custom nodes first; the
+    // float-target classifier only sees plain `Div` blocks.
+    pipeline.push(Box::new(TheoremSugarTransform::new()));
+    pipeline.push(Box::new(ProofSugarTransform::new()));
     pipeline.push(Box::new(FloatRefTargetSugarTransform::new()));
 
     // === CROSSREF PHASE ===

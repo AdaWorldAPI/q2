@@ -25,8 +25,6 @@ use quarto_pandoc_types::block::Block;
 use quarto_pandoc_types::custom::CustomNode;
 use quarto_source_map::SourceInfo;
 
-use super::FLOAT_REF_TARGET;
-
 /// A uniform read-only view over the crossref-relevant fields of a block.
 ///
 /// Borrowed from the underlying node — cheap to construct, cheap to pass
@@ -53,17 +51,26 @@ pub struct CrossrefTargetView<'a> {
 
 /// Return a view over the block if it is a crossref-capable target.
 ///
-/// Currently recognizes:
+/// Recognizes custom-node types whose `plain_data` carries the standard
+/// crossref triple (`ref_type`, `kind`, `identifier`):
 ///
-/// - `Block::Custom(CustomNode { type_name: "FloatRefTarget", .. })`.
+/// - `FloatRefTarget` — figures, tables, listings, custom floats.
+/// - `Theorem` — theorem-like blocks.
 ///
-/// Future work (per plan D1b) extends this to theorem-like and callout-with-id
-/// nodes. Call sites do not need to change when that happens.
+/// Callouts with an explicit crossref id are recognized too — their
+/// `plain_data` is populated during normalization (plan 2.2).
+///
+/// All supported types share the same plain-data shape, so a single
+/// read path works for every recognized category.
 pub fn crossref_target_view(block: &Block) -> Option<CrossrefTargetView<'_>> {
-    match block {
-        Block::Custom(node) if node.type_name == FLOAT_REF_TARGET => float_ref_view(node),
-        _ => None,
-    }
+    let Block::Custom(node) = block else {
+        return None;
+    };
+    // The `ref_type` field in plain_data is the signal for "this custom
+    // node participates in crossrefs". `FloatRefTarget` and `Theorem`
+    // always carry it; `Callout` gets it populated only when the user
+    // gave it a crossref id.
+    view_from_plain_data(node)
 }
 
 /// Return the ref-type prefix if the block is a crossref target.
@@ -79,12 +86,12 @@ pub fn identifier_of(block: &Block) -> Option<&str> {
     crossref_target_view(block).map(|v| v.identifier)
 }
 
-fn float_ref_view(node: &CustomNode) -> Option<CrossrefTargetView<'_>> {
+/// Read a [`CrossrefTargetView`] off a custom node's plain_data. Returns
+/// `None` for nodes that don't carry the standard crossref triple or
+/// whose identifier is empty (unnumbered / not a crossref target).
+fn view_from_plain_data(node: &CustomNode) -> Option<CrossrefTargetView<'_>> {
     let identifier = node.attr.0.as_str();
     if identifier.is_empty() {
-        // A FloatRefTarget without an identifier is a degenerate case that
-        // shouldn't exist post-sugaring — return None rather than silently
-        // inventing behavior.
         return None;
     }
     let ref_type = node.plain_data.get("ref_type")?.as_str()?;
@@ -100,6 +107,7 @@ fn float_ref_view(node: &CustomNode) -> Option<CrossrefTargetView<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crossref::FLOAT_REF_TARGET;
     use hashlink::LinkedHashMap;
     use quarto_pandoc_types::attr::empty_attr;
     use quarto_pandoc_types::block::{Block, Paragraph};
@@ -143,9 +151,44 @@ mod tests {
 
     #[test]
     fn view_none_for_unrelated_custom_node() {
+        // Callout without crossref plain_data returns None.
         let node = CustomNode::new("Callout", empty_attr(), si());
         let block = Block::Custom(node);
         assert!(crossref_target_view(&block).is_none());
+    }
+
+    #[test]
+    fn view_recognizes_theorem_custom_node() {
+        use crate::crossref::THEOREM;
+        let attr = ("thm-one".to_string(), vec![], LinkedHashMap::new());
+        let mut node = CustomNode::new(THEOREM, attr, si());
+        node.plain_data = json!({
+            "ref_type": "thm",
+            "kind": "Theorem",
+            "identifier": "thm-one",
+        });
+        let block = Block::Custom(node);
+        let view = crossref_target_view(&block).expect("theorem recognized");
+        assert_eq!(view.ref_type, "thm");
+        assert_eq!(view.kind, "Theorem");
+    }
+
+    #[test]
+    fn view_recognizes_callout_with_crossref_plain_data() {
+        // A Callout that *does* carry crossref plain_data is treated as a
+        // target (this is how Phase 2.2's callout integration works once
+        // a sugaring pass populates these fields on Callouts with
+        // crossref ids).
+        let attr = ("nte-one".to_string(), vec![], LinkedHashMap::new());
+        let mut node = CustomNode::new("Callout", attr, si());
+        node.plain_data = json!({
+            "ref_type": "nte",
+            "kind": "Note",
+            "identifier": "nte-one",
+        });
+        let block = Block::Custom(node);
+        let view = crossref_target_view(&block).expect("callout recognized");
+        assert_eq!(view.ref_type, "nte");
     }
 
     #[test]

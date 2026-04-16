@@ -361,7 +361,109 @@ fn find_first_float_ref_target(
                 return Some(node);
             }
         }
-        // Not recursing — Phase 1 fixtures have targets at top level.
     }
     None
+}
+
+// === Phase 2 fixtures: theorems, proofs ===
+
+#[tokio::test]
+async fn fixture_theorem_indexed_and_resolved() {
+    let qmd = r#"---
+title: t
+---
+
+See @thm-foo.
+
+::: {#thm-foo .theorem name="Test"}
+A theorem body.
+:::
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    let entry = idx.get("thm-foo").expect("thm-foo indexed");
+    assert_eq!(entry.ref_type, "thm");
+    assert_eq!(entry.order.order, 1);
+}
+
+#[tokio::test]
+async fn fixture_theorem_and_lemma_counted_separately() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#thm-a .theorem}
+A.
+:::
+
+::: {#thm-b .theorem}
+B.
+:::
+
+::: {#lem-c .lemma}
+C.
+:::
+"#;
+    let (_, idx, _) = run_crossref(qmd).await;
+    assert_eq!(idx.get("thm-a").unwrap().order.order, 1);
+    assert_eq!(idx.get("thm-b").unwrap().order.order, 2);
+    assert_eq!(idx.get("lem-c").unwrap().order.order, 1);
+}
+
+#[tokio::test]
+async fn fixture_theorem_section_path() {
+    let qmd = r#"---
+title: t
+---
+
+# Results
+
+::: {#thm-deep .theorem}
+Nested.
+:::
+"#;
+    let (_, idx, _) = run_crossref(qmd).await;
+    assert_eq!(idx.get("thm-deep").unwrap().order.section, vec![1]);
+}
+
+#[tokio::test]
+async fn fixture_proof_not_indexed() {
+    let qmd = r#"---
+title: t
+---
+
+::: {.proof}
+QED.
+:::
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty());
+    assert!(idx.entries.is_empty());
+}
+
+#[tokio::test]
+async fn fixture_theorem_and_figure_coexist() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#thm-one .theorem}
+A theorem.
+:::
+
+::: {#fig-one}
+![](x.png)
+
+A figure.
+:::
+
+See @thm-one and @fig-one.
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    assert_eq!(idx.get("thm-one").unwrap().ref_type, "thm");
+    assert_eq!(idx.get("fig-one").unwrap().ref_type, "fig");
+    // Both numbered independently: Theorem 1, Figure 1.
+    assert_eq!(idx.get("thm-one").unwrap().order.order, 1);
+    assert_eq!(idx.get("fig-one").unwrap().order.order, 1);
 }

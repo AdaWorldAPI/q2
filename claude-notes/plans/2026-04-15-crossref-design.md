@@ -320,10 +320,10 @@ Other engine-emitted crossref targets (non-`asis`, e.g., the standard `fig-cap` 
 
 ### Phase 2 — Block-level crossref targets
 
-- [ ] 2.1 Theorem sugaring: `Div(.theorem)` / `.lemma` / etc. → `CustomNode("Theorem", {kind, title, ...})`. Lift the **structural** logic from `theorems.lua` into a front-end transform; leave **rendering** to a back-end transform (explicit fix).
-- [ ] 2.2 Callout integration: callouts already sugarify; extend `CrossrefIndexTransform` to index callouts with explicit ids (`#nte-foo`). No implicit auto-labeling (Q1 behavior).
-- [ ] 2.3 Proofs.
-- [ ] 2.4 Back-end Theorem/Proof renderers for HTML.
+- [x] 2.1 Theorem sugaring: `Div(.theorem)` / `.lemma` / etc. → `CustomNode("Theorem", {kind, title, ...})`. Front-end `TheoremSugarTransform` handles 8 theorem-like classes (theorem, lemma, corollary, proposition, conjecture, definition, example, exercise). Extracts title from `name=` attr or first Header. Runs *before* `FloatRefTargetSugarTransform` to prevent greedy float classification. `crossref_target_view` extended to generically recognize any CustomNode carrying `plain_data.ref_type` + `kind` + non-empty identifier. `CrossrefIndexTransform` indexes Theorem nodes via `has_crossref_plain_data` predicate — no code change beyond the predicate.
+- [ ] 2.2 Callout integration: callouts already sugarify; extend to index callouts with explicit ids (`#nte-foo`). **Deferred** — requires populating `plain_data.ref_type` on the Callout CustomNode during CalloutTransform when the attr carries a crossref id. No implicit auto-labeling (Q1 behavior).
+- [x] 2.3 Proofs: `ProofSugarTransform` converts `Div(.proof)` to `CustomNode("Proof")`. Proofs intentionally *don't* populate `plain_data.ref_type`, so they are **not numbered** and not indexed. Title from `name=` or first Header. Rendered with an italicized "*Proof.*" prefix.
+- [x] 2.4 Back-end Theorem/Proof renderers: Theorem → `Div` with Strong "**Theorem N (Title).**" prepended to first Paragraph; classes `thm`/`theorem` etc. on the wrapper. Proof → `Div.proof` with Emph "*Proof.*" prepended. Both renderers share `prepend_theorem_label` for the Paragraph-insertion logic. CrossrefResolvedRef for `@thm-foo` resolves to `<a href="#thm-foo">Theorem 1</a>` as expected. End-to-end verified with `quarto render`.
 
 ### Phase 3 — Inline crossrefs: equations
 

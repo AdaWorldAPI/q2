@@ -56,6 +56,23 @@ pub use target::{CrossrefTargetView, crossref_target_view, identifier_of, ref_ty
 /// `plain_data.kind` (display name) and `plain_data.ref_type` (id prefix).
 pub const FLOAT_REF_TARGET: &str = "FloatRefTarget";
 
+/// The `type_name` used on `CustomNode` for theorem-like blocks.
+///
+/// Covers theorems, lemmas, corollaries, propositions, conjectures,
+/// definitions, examples, and exercises. The specific kind is stored in
+/// `plain_data.kind`; the id prefix in `plain_data.ref_type` (`thm`,
+/// `lem`, `cor`, `prp`, `cnj`, `def`, `exm`, `exr`).
+pub const THEOREM: &str = "Theorem";
+
+/// The `type_name` used on `CustomNode` for proof blocks.
+///
+/// Proofs are not numbered in the default Quarto flow; they render with
+/// an italicized "Proof." prefix. This custom node intentionally does
+/// **not** populate `plain_data.ref_type`, so the indexer skips it and
+/// the ref-resolver won't mistake it for a crossref target even if the
+/// author attaches an id.
+pub const PROOF: &str = "Proof";
+
 /// The `type_name` used on `CustomNode` for resolved crossref references in
 /// the front-end AST.
 ///
