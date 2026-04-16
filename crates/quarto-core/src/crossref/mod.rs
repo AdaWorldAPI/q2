@@ -36,6 +36,7 @@
 pub const TRACE_KIND_CROSSREF_INDEX: &str = "CrossrefIndex";
 
 pub mod index;
+pub mod metadata;
 pub mod registry;
 pub mod target;
 
@@ -43,6 +44,7 @@ pub mod target;
 mod roundtrip_tests;
 
 pub use index::{CrossrefEntry, CrossrefIndex, HeadingRecord, Order, PromisedId, PromisedIdSource};
+pub use metadata::{CrossrefMetadata, MetadataError};
 pub use registry::{RefTypeDef, RefTypeRegistry, RefTypeSource};
 pub use target::{CrossrefTargetView, crossref_target_view, identifier_of, ref_type_of};
 

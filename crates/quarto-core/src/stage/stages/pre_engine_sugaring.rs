@@ -22,20 +22,23 @@
 //!
 //! Phases (1) through (4) are staged:
 //!
-//! - **Current (Phase 0.1 scaffold):** seed the registry with built-ins and
-//!   pass the AST through untouched. Provides the stage wiring without
-//!   committing to a specific metadata surface or shorthand-recognition
-//!   policy — those land in Phase 1.1.
-//! - **Phase 1.1:** add code-block shorthand detection/rewriting and option
-//!   stripping, plus metadata-driven registry extension.
+//! - **Phase 0.1 scaffold:** seed the registry with built-ins and pass the
+//!   AST through untouched.
+//! - **Phase 1.a (current):** read `crossref.custom` and `crossref.ids`
+//!   from merged document metadata, extend the registry, and seed a
+//!   [`CrossrefIndex`] carrying the promised ids.
+//! - **Phase 1.1:** add code-block shorthand detection/rewriting and
+//!   option stripping.
 //!
 //! Reconciliation across the synthetic Div the future shorthand rewrite
 //! introduces is handled by `EngineExecutionStage`, which serializes the
 //! whole AST and reconciles the post-engine parse against it — see plan D2.
 
 use async_trait::async_trait;
+use quarto_error_reporting::DiagnosticMessage;
+use quarto_source_map::FileId;
 
-use crate::crossref::RefTypeRegistry;
+use crate::crossref::{CrossrefIndex, MetadataError, RefTypeRegistry, metadata};
 use crate::stage::{
     EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, StageContext,
 };
@@ -89,23 +92,63 @@ impl PipelineStage for PreEngineSugaringStage {
             ));
         };
 
-        if ctx.ref_type_registry.is_none() {
-            ctx.ref_type_registry = Some(RefTypeRegistry::builtin());
-            trace_event!(
-                ctx,
-                EventLevel::Debug,
-                "seeded ref-type registry with built-ins"
-            );
+        // Seed the ref-type registry if a caller hasn't pre-populated it
+        // (tests sometimes do).
+        let mut registry = ctx
+            .ref_type_registry
+            .take()
+            .unwrap_or_else(RefTypeRegistry::builtin);
+
+        // Extend the registry from `crossref.custom` and lift `crossref.ids`
+        // into promised-id entries. Errors are non-fatal and become
+        // diagnostics on the stage context.
+        let extracted = metadata::read(&doc.ast.meta, &mut registry);
+        for err in &extracted.errors {
+            ctx.diagnostics.push(metadata_error_to_diagnostic(err));
         }
 
-        // Phase 1.1: read `crossref.custom` from `doc.ast.meta` and extend the
-        // registry; lift `crossref.ids` into promised-id entries; detect
-        // code-block shorthand and wrap in the FloatRefTarget scaffold.
-        //
-        // For now, pass the AST through unchanged.
+        // Register prefixes from promised ids that aren't otherwise known,
+        // so the resolver can still classify them. Indexer diagnostics will
+        // still flag realized ids whose prefix lacks a proper declaration.
+        registry.extend_from_promised(&extracted.promised_ids);
+
+        trace_event!(
+            ctx,
+            EventLevel::Debug,
+            "ref-type registry finalized ({} entries), {} promised ids",
+            registry.len(),
+            extracted.promised_ids.len()
+        );
+
+        // Seed a CrossrefIndex so downstream transforms have one handle to
+        // thread. The indexer (Phase 1.3) will fill in entries / sections.
+        // Use FileId(0) — the render pipeline currently renders one document
+        // per context; multi-file namespacing is a Phase 4 concern.
+        let mut index = CrossrefIndex::new(FileId(0));
+        index.promised_ids = extracted.promised_ids;
+
+        ctx.ref_type_registry = Some(registry);
+        // Only seed the index if no prior stage has set one. Idempotent so
+        // re-running the stage in tests is harmless.
+        if ctx.crossref_index.is_none() {
+            ctx.crossref_index = Some(index);
+        }
 
         Ok(PipelineData::DocumentAst(doc))
     }
+}
+
+/// Convert a metadata extraction error into a diagnostic message.
+///
+/// Extracted into a free function so it can be unit-tested separately from
+/// the stage and so the stage's `run` remains readable.
+fn metadata_error_to_diagnostic(err: &MetadataError) -> DiagnosticMessage {
+    // The source info would ideally be passed to the diagnostic for
+    // ariadne-style rendering. That plumbing lives on `DiagnosticMessage`
+    // already but isn't convenient from this stage without a SourceContext
+    // handle — leave it as a plain warning for now and upgrade once the
+    // context bridging pattern is settled.
+    DiagnosticMessage::warning(err.to_string())
 }
 
 #[cfg(test)]
@@ -334,5 +377,159 @@ mod tests {
             .unwrap();
         let doc_out = out.into_document_ast().unwrap();
         assert_eq!(doc_out.ast, ast_before);
+    }
+
+    #[tokio::test]
+    async fn seeds_empty_crossref_index() {
+        let mut ctx = make_ctx();
+        let stage = PreEngineSugaringStage::new();
+        stage
+            .run(PipelineData::DocumentAst(make_doc_ast()), &mut ctx)
+            .await
+            .unwrap();
+        let idx = ctx.crossref_index.as_ref().expect("index seeded");
+        assert!(idx.entries.is_empty());
+        assert!(idx.promised_ids.is_empty());
+    }
+
+    fn doc_with_meta(meta: quarto_pandoc_types::ConfigValue) -> DocumentAst {
+        let ast = Pandoc {
+            meta,
+            blocks: vec![],
+        };
+        DocumentAst {
+            path: PathBuf::from("/project/test.qmd"),
+            ast,
+            ast_context: ASTContext::default(),
+            source_context: SourceContext::new(),
+            warnings: vec![],
+        }
+    }
+
+    // Builders mirroring the ones in crossref::metadata::tests. Kept local
+    // to the stage test so this test doesn't reach across module
+    // boundaries.
+    fn scalar(s: &str) -> quarto_pandoc_types::ConfigValue {
+        use quarto_pandoc_types::{ConfigValueKind, MergeOp};
+        use yaml_rust2::Yaml;
+        quarto_pandoc_types::ConfigValue {
+            value: ConfigValueKind::Scalar(Yaml::String(s.into())),
+            source_info: quarto_source_map::SourceInfo::original(FileId(0), 0, 0),
+            merge_op: MergeOp::default(),
+        }
+    }
+
+    fn map(
+        entries: Vec<(&str, quarto_pandoc_types::ConfigValue)>,
+    ) -> quarto_pandoc_types::ConfigValue {
+        use quarto_pandoc_types::{ConfigMapEntry, ConfigValueKind, MergeOp};
+        quarto_pandoc_types::ConfigValue {
+            value: ConfigValueKind::Map(
+                entries
+                    .into_iter()
+                    .map(|(k, v)| ConfigMapEntry {
+                        key: k.into(),
+                        key_source: quarto_source_map::SourceInfo::original(FileId(0), 0, 0),
+                        value: v,
+                    })
+                    .collect(),
+            ),
+            source_info: quarto_source_map::SourceInfo::original(FileId(0), 0, 0),
+            merge_op: MergeOp::default(),
+        }
+    }
+
+    fn array(items: Vec<quarto_pandoc_types::ConfigValue>) -> quarto_pandoc_types::ConfigValue {
+        use quarto_pandoc_types::{ConfigValueKind, MergeOp};
+        quarto_pandoc_types::ConfigValue {
+            value: ConfigValueKind::Array(items),
+            source_info: quarto_source_map::SourceInfo::original(FileId(0), 0, 0),
+            merge_op: MergeOp::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn registers_crossref_custom_from_metadata() {
+        let meta = map(vec![(
+            "crossref",
+            map(vec![(
+                "custom",
+                array(vec![map(vec![
+                    ("key", scalar("dia")),
+                    ("reference-prefix", scalar("Diagram")),
+                ])]),
+            )]),
+        )]);
+        let mut ctx = make_ctx();
+        let stage = PreEngineSugaringStage::new();
+        stage
+            .run(PipelineData::DocumentAst(doc_with_meta(meta)), &mut ctx)
+            .await
+            .unwrap();
+
+        let reg = ctx.ref_type_registry.as_ref().unwrap();
+        let def = reg.classify_cite_id("dia-1").expect("dia registered");
+        assert_eq!(def.kind, "Diagram");
+        assert!(ctx.diagnostics.is_empty(), "no diagnostics expected");
+    }
+
+    #[tokio::test]
+    async fn lifts_crossref_ids_into_index() {
+        let meta = map(vec![(
+            "crossref",
+            map(vec![(
+                "ids",
+                array(vec![scalar("tbl-dynamic"), scalar("fig-generated")]),
+            )]),
+        )]);
+        let mut ctx = make_ctx();
+        let stage = PreEngineSugaringStage::new();
+        stage
+            .run(PipelineData::DocumentAst(doc_with_meta(meta)), &mut ctx)
+            .await
+            .unwrap();
+        let idx = ctx.crossref_index.as_ref().unwrap();
+        assert_eq!(idx.promised_ids.len(), 2);
+        assert_eq!(idx.promised_ids[0].identifier, "tbl-dynamic");
+    }
+
+    #[tokio::test]
+    async fn malformed_crossref_custom_produces_diagnostic() {
+        let meta = map(vec![(
+            "crossref",
+            map(vec![(
+                "custom",
+                array(vec![map(vec![("key", scalar("dia"))])]), // missing reference-prefix
+            )]),
+        )]);
+        let mut ctx = make_ctx();
+        let stage = PreEngineSugaringStage::new();
+        stage
+            .run(PipelineData::DocumentAst(doc_with_meta(meta)), &mut ctx)
+            .await
+            .unwrap();
+        assert_eq!(ctx.diagnostics.len(), 1);
+        // And the registry stayed clean.
+        let reg = ctx.ref_type_registry.as_ref().unwrap();
+        assert!(!reg.contains("dia"));
+    }
+
+    #[tokio::test]
+    async fn unknown_promised_prefix_registered_as_promised() {
+        let meta = map(vec![(
+            "crossref",
+            map(vec![("ids", array(vec![scalar("mycustom-value")]))]),
+        )]);
+        let mut ctx = make_ctx();
+        let stage = PreEngineSugaringStage::new();
+        stage
+            .run(PipelineData::DocumentAst(doc_with_meta(meta)), &mut ctx)
+            .await
+            .unwrap();
+        let reg = ctx.ref_type_registry.as_ref().unwrap();
+        let def = reg
+            .classify_cite_id("mycustom-value")
+            .expect("promised prefix lookup");
+        assert_eq!(def.source, crate::crossref::RefTypeSource::Promised);
     }
 }

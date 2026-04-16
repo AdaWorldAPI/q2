@@ -304,15 +304,16 @@ Other engine-emitted crossref targets (non-`asis`, e.g., the standard `fig-cap` 
 ### Phase 1 — Floats, single file
 
 - [ ] 1.1 **Pre-engine code-block shorthand desugar** (D2): inside `PreEngineSugaringStage`, detect `CodeBlock` whose `#|` leading lines include a `label:` matching a registered ref-type prefix (via `RefTypeRegistry`), and wrap in a Div with the crossref scaffold. Rewrite `CodeBlock.text` to remove consumed options (see D2's cell-option partitioning) while leaving engine-relevant options (`echo`, `eval`, ...) in place. Preserve source info of the original code block and of the synthetic caption.
-- [ ] 1.2 **Post-engine FloatRefTarget sugaring transform** (D1): walks AST and wraps content into `CustomNode("FloatRefTarget", ..)` uniformly for all target shapes:
-  - `Div(#<reftype>-..)` containing arbitrary content (user-authored scaffold).
-  - `Figure` with a crossref id (from `![cap](img){#fig-..}` Markdown).
-  - `Div(#<reftype>-..) > Figure` — Div id wins; the inner Figure's content (image + caption) is flattened into the FloatRefTarget's `content` / `caption_long` slots.
-  - `Div(#tbl-..) > Table` — standard table crossref shape; Div id wins.
-  - Engine-emitted figure divs (post-execution output from knitr/jupyter wrapping images with their own scaffolds).
-- [ ] 1.3 **CrossrefIndexTransform** — single file scope: walks AST, collects `FloatRefTarget` nodes, assigns order+section, fills `plain_data.order`, populates `CrossrefIndex`. Reads `RefTypeRegistry` by reference.
-- [ ] 1.4 **CrossrefResolveTransform**: for each `Cite`, calls `RefTypeRegistry::classify_cite_id`; if it returns `Some`, rewrites into `CustomNode("CrossrefResolvedRef", ..)` using the index. Unknown refs (classified as crossref but not in index) emit a placeholder span + diagnostic with source info. Cites that classify as `None` are left untouched for citeproc to handle later.
-- [ ] 1.5 **HTML FloatRefTargetRenderTransform** (finalization phase, HTML-only): `CustomNode("FloatRefTarget")` → HTML structure matching TS Quarto's output (captions, numbering spans). Figures first; tables + listings follow.
+- [x] 1.a **Metadata extraction** (added during Phase 1): `PreEngineSugaringStage` now reads `crossref.custom` and `crossref.ids` from merged metadata via `crate::crossref::metadata::read`. Errors become warnings on the stage context. A `CrossrefIndex` is seeded with `PromisedId`s for the transform pipeline to consume.
+- [x] 1.2 **Post-engine FloatRefTarget sugaring transform** (D1): walks AST and wraps content into `CustomNode("FloatRefTarget", ..)` uniformly for:
+  - `Div(#<reftype>-..)` containing arbitrary content (last Paragraph becomes caption_long).
+  - `Figure` with a crossref id (Pandoc's native Figure caption lifted into slots).
+  - `Div(#<reftype>-..) > Figure` — Div id wins; the inner Figure's content and caption are flattened into the custom node's slots.
+  - `Div(#tbl-..) > Table` — Table kept as the sole content block; its caption is lifted to the target's caption slot.
+  - Nested crossref targets inside other Divs/Callouts recurse correctly.
+- [x] 1.3 **CrossrefIndexTransform** — single file scope: walks AST, maintains a section counter stack from `Header` blocks, assigns order+section to each `FloatRefTarget`, writes `plain_data.order` back into the node, populates `CrossrefIndex`. Duplicate ids emit a diagnostic and keep the first occurrence. At the end, publishes the index via `PipelineObserver::on_auxiliary_data` under `TRACE_KIND_CROSSREF_INDEX`.
+- [x] 1.4 **CrossrefResolveTransform**: walks all inlines, classifies `Cite`s via `RefTypeRegistry::classify_cite_id`, rewrites crossref Cites into `CustomNode("CrossrefResolvedRef")` with `identifier`, `ref_type`, `kind`, `resolved`, `kind_source`, and (when resolved) `order`. Unknown crossref ids emit a diagnostic and produce an unresolved placeholder. Mixed bib+crossref Cite bundles emit a warning and are left alone (citeproc handles them). Single-ref and all-crossref multi-Cites resolve to the first id (multi-crossref ranges deferred).
+- [ ] 1.5 **HTML FloatRefTargetRenderTransform** (finalization phase, HTML-only): `CustomNode("FloatRefTarget")` → HTML structure matching TS Quarto's output (captions, numbering spans). `CustomNode("CrossrefResolvedRef")` → `<a href="#id">kind N</a>`. Figures first; tables + listings follow.
 - [ ] 1.6 Tests: corpus of .qmd fixtures covering fig, tbl, lst, custom categories, all four target shapes from 1.2, mixed with non-crossref divs, duplicate-id error, unresolved-ref warning, `@`-disambiguation (crossref vs. citation with custom prefixes), engine-added output wrappers around the inner CodeBlock.
 
 **Subfloats deferred.** Handling subfloat parent/child id assignment and nested numbering (e.g., "Figure 1a") is delicate enough that it gets its own follow-up plan rather than riding in Phase 1. Q1's `parsefiguredivs.lua:41-60` is the reference starting point for that future work. Phase 1 fixtures explicitly *exclude* subfloat inputs.

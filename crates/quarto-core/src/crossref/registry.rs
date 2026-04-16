@@ -122,6 +122,17 @@ impl RefTypeRegistry {
         self.entries.contains_key(ref_type)
     }
 
+    /// Number of registered ref-types (for tracing / introspection).
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// True if the registry is empty. Note that [`Self::builtin`] — the
+    /// usual starting point — is never empty.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Look up a ref-type definition by prefix.
     pub fn get(&self, ref_type: &str) -> Option<&RefTypeDef> {
         self.entries.get(ref_type)

@@ -60,7 +60,8 @@ use crate::stage::{
 };
 use crate::transform::TransformPipeline;
 use crate::transforms::{
-    AppendixStructureTransform, CalloutResolveTransform, CalloutTransform, FootnotesTransform,
+    AppendixStructureTransform, CalloutResolveTransform, CalloutTransform, CrossrefIndexTransform,
+    CrossrefResolveTransform, FloatRefTargetSugarTransform, FootnotesTransform,
     MetadataNormalizeTransform, ResourceCollectorTransform, SectionizeTransform,
     ShortcodeResolveTransform, TitleBlockTransform, TocGenerateTransform, TocRenderTransform,
 };
@@ -424,14 +425,15 @@ pub async fn render_qmd_to_html(
 /// 5. `TitleBlockTransform` - Add title header from metadata if not present
 /// 6. `SectionizeTransform` - Wrap headers in section Divs (for HTML semantic structure)
 /// 7. `FootnotesTransform` - Extract footnotes and create footnotes section
+/// 8. `FloatRefTargetSugarTransform` - Wrap float crossref Divs / Figures in canonical CustomNode
 ///
 /// ## TOC Phase
-/// 8. `TocGenerateTransform` - Generate TOC from headers (if toc: true)
-/// 9. `TocRenderTransform` - Render TOC to HTML for template insertion
+/// 9. `TocGenerateTransform` - Generate TOC from headers (if toc: true)
+/// 10. `TocRenderTransform` - Render TOC to HTML for template insertion
 ///
 /// ## Finalization Phase
-/// 10. `AppendixStructureTransform` - Consolidate appendix content into container
-/// 11. `ResourceCollectorTransform` - Collect image dependencies
+/// 11. `AppendixStructureTransform` - Consolidate appendix content into container
+/// 12. `ResourceCollectorTransform` - Collect image dependencies
 pub fn build_transform_pipeline(
     shortcode_paths: Vec<std::path::PathBuf>,
     extensions: Vec<crate::extension::types::Extension>,
@@ -453,6 +455,11 @@ pub fn build_transform_pipeline(
     pipeline.push(Box::new(TitleBlockTransform::new()));
     pipeline.push(Box::new(SectionizeTransform::new()));
     pipeline.push(Box::new(FootnotesTransform::new()));
+    pipeline.push(Box::new(FloatRefTargetSugarTransform::new()));
+
+    // === CROSSREF PHASE ===
+    pipeline.push(Box::new(CrossrefIndexTransform::new()));
+    pipeline.push(Box::new(CrossrefResolveTransform::new()));
 
     // === TOC PHASE ===
     // Must run after SectionizeTransform so section IDs are available
