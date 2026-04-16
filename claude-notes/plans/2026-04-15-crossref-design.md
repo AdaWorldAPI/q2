@@ -6,6 +6,90 @@
 
 ---
 
+## Implementation Status (updated 2026-04-16)
+
+**Phases 0–2 complete.** Phases 3 (equations) and 4 (multi-file) remain.
+
+| Phase | Status | Commits |
+|-------|--------|---------|
+| 0 — Foundation | Done | `c5ce6bb8` |
+| 1 — Floats, single file | Done | `309500f4`, `1bd90b69` |
+| 2 — Block-level (theorems, proofs, callouts) | Done | `3280a446`, `926e3c11` |
+| 3 — Equations | Not started | — |
+| 4 — Multi-file foundations | Not started (design only) | — |
+
+### Key design validation
+
+The `plain_data` triple (`ref_type`, `kind`, `identifier`) proved to be the right integration point. Three different custom node types (FloatRefTarget, Theorem, Callout) now flow through the same indexer, resolver, and render transforms with **zero type-specific code** in those shared transforms. Adding a new crossref-capable block type is: populate three JSON fields in the sugaring transform, done.
+
+### File inventory
+
+```
+crates/quarto-core/src/crossref/
+├── mod.rs                    # Constants (FLOAT_REF_TARGET, THEOREM, PROOF, CROSSREF_RESOLVED_REF,
+│                             #   TRACE_KIND_CROSSREF_INDEX), re-exports
+├── index.rs                  # CrossrefIndex, CrossrefEntry, Order, PromisedId, HeadingRecord
+├── registry.rs               # RefTypeRegistry, RefTypeDef, RefTypeSource, RegistryError
+├── metadata.rs               # Read crossref.custom + crossref.ids from merged metadata
+├── target.rs                 # crossref_target_view() — uniform read-only view over any
+│                             #   crossref-capable CustomNode
+├── codeblock_shorthand.rs    # Pre-engine code-block desugar (#| label: → Div scaffold)
+└── roundtrip_tests.rs        # QMD serialize/parse round-trip guard for synthetic Div
+
+crates/quarto-core/src/transforms/
+├── theorem.rs                # TheoremSugarTransform (.theorem/.lemma/… → CustomNode("Theorem"))
+├── proof.rs                  # ProofSugarTransform (.proof → CustomNode("Proof"))
+├── float_ref_target.rs       # FloatRefTargetSugarTransform (Div/Figure → CustomNode("FloatRefTarget"))
+├── crossref_index.rs         # CrossrefIndexTransform (walk AST, assign order, build index)
+├── crossref_resolve.rs       # CrossrefResolveTransform (Cite → CustomNode("CrossrefResolvedRef"))
+└── crossref_render.rs        # CrossrefRenderTransform (CustomNodes → Figure/Div/Link for writer)
+
+crates/quarto-core/src/stage/stages/
+└── pre_engine_sugaring.rs    # PreEngineSugaringStage (registry build + metadata + shorthand desugar)
+
+crates/quarto-core/tests/
+└── crossref_fixtures.rs      # 21 qmd-level integration fixtures asserting over CrossrefIndex
+```
+
+### Pipeline order (normalization + crossref + finalization)
+
+```
+... existing transforms ...
+CalloutTransform            ← now injects crossref triple when id matches
+...
+TheoremSugarTransform       ← runs BEFORE FloatRefTarget to prevent greedy float claim
+ProofSugarTransform
+FloatRefTargetSugarTransform
+CrossrefIndexTransform
+CrossrefResolveTransform
+... TOC phase ...
+... AppendixStructureTransform ...
+CrossrefRenderTransform     ← finalization: CustomNodes → writer-visible shapes
+ResourceCollectorTransform
+```
+
+### Known gaps / tech debt for future sessions
+
+1. **StageProvenance (P1) not yet implemented.** The design is in the plan and the SourceInfo variant is proposed, but synthetic Divs from code-block shorthand desugar don't yet carry `StageProvenance` source info linking back to the original `#| label:` line. Diagnostics pointing at synthetic nodes will show default source locations.
+
+2. **Subfloats deferred.** Parent/child id assignment, nested numbering ("Figure 1a"), and `fig.subplots`-style engine output. Q1 reference: `parsefiguredivs.lua:41-60`. This is delicate and needs its own plan.
+
+3. **Remark / Solution blocks.** `.remark` and `.solution` have built-in ref-type prefixes (`rem`, `sol`) and could be numbered like theorems, but Q1 treats them as proof-like (optional numbering). Currently they remain plain Divs — neither theorem nor proof sugar claims them.
+
+4. **`crossref.ids` manifest post-engine validation.** The `PromisedId` entries are lifted and the registry is extended, but we do not yet verify after engine execution that every promised id was realized. The plan (D6, O6) says undeclared dynamic ids produce a diagnostic — that enforcement logic is not yet implemented.
+
+5. **Multi-crossref ranges.** `@fig-a; @fig-b` in a single bracket currently resolves to the first id only. "Figures 1-2" style range rendering is deferred.
+
+6. **Diagnostic source locations.** Metadata extraction errors and unresolved-ref warnings are plain-text `DiagnosticMessage::warning()` strings. They do not yet carry `SourceInfo` for ariadne-style rendering with file/line context. The `DiagnosticMessage` type supports it; the threading just isn't wired.
+
+7. **Success criterion #2** (engine-blissful shorthand) is implemented structurally but only tested with the markdown engine passthrough. Real Jupyter/knitr execution hasn't been tested end-to-end with the pre-engine desugar.
+
+8. **Caption short (`fig-scap` / `tbl-scap`).** The `caption_short` slot exists on FloatRefTarget but is never populated. The cell-option parser knows about `<reftype>-scap` (it's consumed), but the value isn't wired into the slot. Render code checks for it but the path is untested.
+
+9. **Equation crossrefs (Phase 3).** Completely untouched. Requires detecting `DisplayMath` + trailing `{#eq-xxx}` attr — which pampa may or may not currently produce.
+
+---
+
 ## Goals
 
 1. Implement crossref functionality for **single-file projects** in Quarto 2.
