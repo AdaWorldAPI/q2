@@ -41,12 +41,12 @@ use quarto_pandoc_types::attr::{Attr, AttrSourceInfo, TargetSourceInfo};
 use quarto_pandoc_types::block::{Block, Blocks, Div, Figure};
 use quarto_pandoc_types::caption::Caption;
 use quarto_pandoc_types::custom::{CustomNode, Slot};
-use quarto_pandoc_types::inline::{Inline, Inlines, Link, Str};
+use quarto_pandoc_types::inline::{Inline, Inlines, Link, Math, Span, Str};
 use quarto_pandoc_types::pandoc::Pandoc;
 use quarto_source_map::SourceInfo;
 
 use crate::Result;
-use crate::crossref::{CROSSREF_RESOLVED_REF, FLOAT_REF_TARGET, PROOF, THEOREM};
+use crate::crossref::{CROSSREF_RESOLVED_REF, EQUATION, FLOAT_REF_TARGET, PROOF, THEOREM};
 use crate::render::RenderContext;
 use crate::transform::AstTransform;
 
@@ -207,6 +207,8 @@ fn render_inline(inline: &mut Inline) {
     if let Inline::Custom(node) = inline {
         if node.type_name == CROSSREF_RESOLVED_REF {
             *inline = render_resolved_ref(take_custom_node(node));
+        } else if node.type_name == EQUATION {
+            *inline = render_equation(take_custom_node(node));
         }
     }
 }
@@ -524,6 +526,70 @@ fn render_proof(node: CustomNode) -> Block {
     })
 }
 
+/// Convert an Equation custom node into a `Span(id=...)` containing the
+/// original `Math(DisplayMath, ...)` with `\tag{N}` appended for MathJax
+/// numbering.
+///
+/// Output shape:
+///
+/// ```html
+/// <span id="eq-einstein">$$e = mc^2\tag{1}$$</span>
+/// ```
+///
+/// The `\tag{}` command tells MathJax/KaTeX to display the equation number
+/// in the right margin, matching Q1's approach. The Span wrapper carries
+/// the id for anchor linking from `@eq-xxx` references.
+fn render_equation(node: CustomNode) -> Inline {
+    let number = node
+        .plain_data
+        .get("order")
+        .and_then(|v| v.get("order"))
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32);
+
+    let source_info = node.source_info.clone();
+    let attr = node.attr.clone();
+
+    // Extract the math inline from the content slot.
+    let mut slots = node.slots;
+    let math_inline = match slots.remove("content") {
+        Some(Slot::Inlines(mut is)) if !is.is_empty() => is.remove(0),
+        _ => {
+            // Fallback: no content slot — return an empty Span.
+            return Inline::Span(Span {
+                attr,
+                content: vec![],
+                source_info,
+                attr_source: AttrSourceInfo::empty(),
+            });
+        }
+    };
+
+    // If we have a number, append \tag{N} to the math text.
+    let content_inline = if let Some(n) = number {
+        match math_inline {
+            Inline::Math(math) => {
+                let tagged_text = format!("{}\\tag{{{}}}", math.text, n);
+                Inline::Math(Math {
+                    math_type: math.math_type,
+                    text: tagged_text,
+                    source_info: math.source_info,
+                })
+            }
+            other => other,
+        }
+    } else {
+        math_inline
+    };
+
+    Inline::Span(Span {
+        attr,
+        content: vec![content_inline],
+        source_info,
+        attr_source: AttrSourceInfo::empty(),
+    })
+}
+
 /// Convert a CrossrefResolvedRef custom node into a `Link` inline.
 ///
 /// Link text is `"<Kind> <N>"` when the ref is resolved, or the literal
@@ -623,8 +689,8 @@ mod tests {
     use super::*;
     use crate::crossref::RefTypeRegistry;
     use crate::transforms::{
-        CrossrefIndexTransform, CrossrefResolveTransform, FloatRefTargetSugarTransform,
-        ProofSugarTransform, TheoremSugarTransform,
+        CrossrefIndexTransform, CrossrefResolveTransform, EquationLabelTransform,
+        FloatRefTargetSugarTransform, ProofSugarTransform, TheoremSugarTransform,
     };
     use hashlink::LinkedHashMap;
     use quarto_pandoc_types::block::{Block, CodeBlock, Div, Paragraph};
@@ -701,6 +767,10 @@ mod tests {
             .await
             .unwrap();
         FloatRefTargetSugarTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+        EquationLabelTransform::new()
             .transform(&mut ast, &mut ctx)
             .await
             .unwrap();
@@ -1152,5 +1222,105 @@ mod tests {
             })
             .collect();
         assert_eq!(parts, vec!["of Theorem 1", "."]);
+    }
+
+    // === Equation rendering tests ===
+
+    use quarto_pandoc_types::inline::{Math, MathType, Span};
+
+    fn eq_para(id: &str, math_text: &str) -> Block {
+        Block::Paragraph(Paragraph {
+            content: vec![Inline::Span(Span {
+                attr: (
+                    id.to_string(),
+                    vec!["quarto-math-with-attribute".to_string()],
+                    LinkedHashMap::new(),
+                ),
+                content: vec![Inline::Math(Math {
+                    math_type: MathType::DisplayMath,
+                    text: math_text.to_string(),
+                    source_info: si(),
+                })],
+                source_info: si(),
+                attr_source: AttrSourceInfo::empty(),
+            })],
+            source_info: si(),
+        })
+    }
+
+    #[tokio::test]
+    async fn equation_renders_to_span_with_tag() {
+        let ast = run_full(vec![eq_para("eq-einstein", "e = mc^2")]).await;
+        let Block::Paragraph(p) = &ast.blocks[0] else {
+            panic!("expected Paragraph, got {:?}", ast.blocks[0]);
+        };
+        // After rendering, the equation CustomNode becomes a Span with the
+        // original DisplayMath but with \tag{1} appended.
+        let Inline::Span(span) = &p.content[0] else {
+            panic!("expected Span, got {:?}", p.content[0]);
+        };
+        assert_eq!(span.attr.0, "eq-einstein");
+        assert_eq!(span.content.len(), 1);
+        let Inline::Math(math) = &span.content[0] else {
+            panic!("expected Math, got {:?}", span.content[0]);
+        };
+        assert_eq!(math.math_type, MathType::DisplayMath);
+        assert!(
+            math.text.contains("\\tag{1}"),
+            "expected \\tag{{1}} in math text, got: {}",
+            math.text
+        );
+    }
+
+    #[tokio::test]
+    async fn equation_ref_resolves_to_link() {
+        let blocks = vec![
+            eq_para("eq-x", "x^2"),
+            Block::Paragraph(Paragraph {
+                content: vec![str_inline("see "), cite("eq-x")],
+                source_info: si(),
+            }),
+        ];
+        let ast = run_full(blocks).await;
+        let Block::Paragraph(p) = &ast.blocks[1] else {
+            panic!();
+        };
+        let Inline::Link(link) = &p.content[1] else {
+            panic!("expected Link, got {:?}", p.content[1]);
+        };
+        assert_eq!(link.target.0, "#eq-x");
+        let Inline::Str(s) = &link.content[0] else {
+            panic!();
+        };
+        assert_eq!(s.text, "Equation 1");
+    }
+
+    #[tokio::test]
+    async fn multiple_equations_number_sequentially() {
+        let blocks = vec![
+            eq_para("eq-a", "a"),
+            eq_para("eq-b", "b"),
+            eq_para("eq-c", "c"),
+        ];
+        let ast = run_full(blocks).await;
+        for (i, block) in ast.blocks.iter().enumerate() {
+            let Block::Paragraph(p) = block else {
+                panic!();
+            };
+            let Inline::Span(span) = &p.content[0] else {
+                panic!();
+            };
+            let Inline::Math(math) = &span.content[0] else {
+                panic!();
+            };
+            let expected_tag = format!("\\tag{{{}}}", i + 1);
+            assert!(
+                math.text.contains(&expected_tag),
+                "eq #{}: expected {} in '{}' ",
+                i,
+                expected_tag,
+                math.text
+            );
+        }
     }
 }

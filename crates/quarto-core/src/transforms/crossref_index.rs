@@ -39,6 +39,7 @@ use quarto_analysis::AnalysisContext;
 use quarto_error_reporting::DiagnosticMessage;
 use quarto_pandoc_types::block::{Block, Blocks, Header};
 use quarto_pandoc_types::custom::{CustomNode, Slot};
+use quarto_pandoc_types::inline::{Inline, Inlines};
 use quarto_pandoc_types::pandoc::Pandoc;
 use serde_json::json;
 
@@ -116,7 +117,17 @@ impl<'a> Walker<'a> {
 
     fn visit_block(&mut self, block: &mut Block) {
         match block {
-            Block::Header(h) => self.visit_header(h),
+            Block::Header(h) => {
+                self.visit_header(h);
+                self.visit_inlines(&mut h.content);
+            }
+            Block::Paragraph(p) => self.visit_inlines(&mut p.content),
+            Block::Plain(p) => self.visit_inlines(&mut p.content),
+            Block::LineBlock(lb) => {
+                for line in &mut lb.content {
+                    self.visit_inlines(line);
+                }
+            }
             Block::Div(div) => self.visit_blocks(&mut div.content),
             Block::BlockQuote(bq) => self.visit_blocks(&mut bq.content),
             Block::OrderedList(ol) => {
@@ -130,14 +141,66 @@ impl<'a> Walker<'a> {
                 }
             }
             Block::DefinitionList(dl) => {
-                for (_term, defs) in &mut dl.content {
+                for (term, defs) in &mut dl.content {
+                    self.visit_inlines(term);
                     for def in defs {
                         self.visit_blocks(def);
                     }
                 }
             }
-            Block::Figure(fig) => self.visit_blocks(&mut fig.content),
+            Block::Figure(fig) => {
+                self.visit_blocks(&mut fig.content);
+                if let Some(long) = fig.caption.long.as_mut() {
+                    self.visit_blocks(long);
+                }
+                if let Some(short) = fig.caption.short.as_mut() {
+                    self.visit_inlines(short);
+                }
+            }
             Block::Custom(node) => self.visit_custom(node),
+            _ => {}
+        }
+    }
+
+    fn visit_inlines(&mut self, inlines: &mut Inlines) {
+        for inline in inlines.iter_mut() {
+            self.visit_inline(inline);
+        }
+    }
+
+    fn visit_inline(&mut self, inline: &mut Inline) {
+        // Recurse into container inlines.
+        match inline {
+            Inline::Emph(e) => self.visit_inlines(&mut e.content),
+            Inline::Underline(u) => self.visit_inlines(&mut u.content),
+            Inline::Strong(s) => self.visit_inlines(&mut s.content),
+            Inline::Strikeout(s) => self.visit_inlines(&mut s.content),
+            Inline::Superscript(s) => self.visit_inlines(&mut s.content),
+            Inline::Subscript(s) => self.visit_inlines(&mut s.content),
+            Inline::SmallCaps(s) => self.visit_inlines(&mut s.content),
+            Inline::Quoted(q) => self.visit_inlines(&mut q.content),
+            Inline::Link(l) => self.visit_inlines(&mut l.content),
+            Inline::Image(i) => self.visit_inlines(&mut i.content),
+            Inline::Note(n) => self.visit_blocks(&mut n.content),
+            Inline::Span(s) => self.visit_inlines(&mut s.content),
+            Inline::Insert(i) => self.visit_inlines(&mut i.content),
+            Inline::Delete(d) => self.visit_inlines(&mut d.content),
+            Inline::Highlight(h) => self.visit_inlines(&mut h.content),
+            Inline::Custom(node) => {
+                // Recurse into slots first.
+                for (_k, slot) in node.slots.iter_mut() {
+                    match slot {
+                        Slot::Block(b) => self.visit_block(b),
+                        Slot::Blocks(bs) => self.visit_blocks(bs),
+                        Slot::Inline(i) => self.visit_inline(i),
+                        Slot::Inlines(is) => self.visit_inlines(is),
+                    }
+                }
+                // Index inline custom nodes with crossref triple.
+                if has_crossref_plain_data(node) {
+                    self.index_custom_target(node);
+                }
+            }
             _ => {}
         }
     }
@@ -513,5 +576,109 @@ mod tests {
             Inline::Str(s) => assert_eq!(s.text, "Hello caption"),
             other => panic!("expected Str, got {:?}", other),
         }
+    }
+
+    /// Run equation label sugaring + float sugaring + indexing.
+    async fn run_with_equations(
+        blocks: Vec<Block>,
+    ) -> (Pandoc, CrossrefIndex, Vec<DiagnosticMessage>) {
+        use crate::format::Format;
+        use crate::project::{DocumentInfo, ProjectConfig, ProjectContext};
+        use crate::render::{BinaryDependencies, RenderContext};
+        use crate::transforms::EquationLabelTransform;
+        use std::path::PathBuf;
+
+        let project = ProjectContext {
+            dir: PathBuf::from("/project"),
+            config: ProjectConfig::default(),
+            is_single_file: true,
+            files: vec![],
+            output_dir: PathBuf::from("/project"),
+        };
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        ctx.ref_type_registry = Some(RefTypeRegistry::builtin());
+        ctx.crossref_index = Some(CrossrefIndex::new(FileId(0)));
+
+        let mut ast = Pandoc {
+            meta: quarto_pandoc_types::ConfigValue::default(),
+            blocks,
+        };
+
+        FloatRefTargetSugarTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+        EquationLabelTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+        CrossrefIndexTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        (ast, ctx.crossref_index.unwrap(), ctx.diagnostics)
+    }
+
+    fn eq_para(id: &str, math_text: &str) -> Block {
+        use quarto_pandoc_types::inline::{Math, MathType, Span};
+        Block::Paragraph(Paragraph {
+            content: vec![Inline::Span(Span {
+                attr: (
+                    id.to_string(),
+                    vec!["quarto-math-with-attribute".to_string()],
+                    LinkedHashMap::new(),
+                ),
+                content: vec![Inline::Math(Math {
+                    math_type: MathType::DisplayMath,
+                    text: math_text.to_string(),
+                    source_info: si(),
+                })],
+                source_info: si(),
+                attr_source: AttrSourceInfo::empty(),
+            })],
+            source_info: si(),
+        })
+    }
+
+    #[tokio::test]
+    async fn indexes_labelled_equation() {
+        let (_, idx, diags) = run_with_equations(vec![eq_para("eq-einstein", "e = mc^2")]).await;
+        assert!(diags.is_empty(), "no diagnostics: {:?}", diags);
+        assert_eq!(idx.entries.len(), 1);
+        let entry = idx.get("eq-einstein").unwrap();
+        assert_eq!(entry.ref_type, "eq");
+        assert_eq!(entry.order.order, 1);
+    }
+
+    #[tokio::test]
+    async fn equation_counter_independent_from_figures() {
+        let (_, idx, _) = run_with_equations(vec![
+            fig_div("fig-one", "f1"),
+            eq_para("eq-first", "x^2"),
+            fig_div("fig-two", "f2"),
+            eq_para("eq-second", "y^2"),
+        ])
+        .await;
+        assert_eq!(idx.get("fig-one").unwrap().order.order, 1);
+        assert_eq!(idx.get("fig-two").unwrap().order.order, 2);
+        assert_eq!(idx.get("eq-first").unwrap().order.order, 1);
+        assert_eq!(idx.get("eq-second").unwrap().order.order, 2);
+    }
+
+    #[tokio::test]
+    async fn equation_captures_section_path() {
+        let (_, idx, _) = run_with_equations(vec![
+            header(1, "sec1", "Section 1"),
+            eq_para("eq-a", "a"),
+            header(2, "sec1-1", "Section 1.1"),
+            eq_para("eq-b", "b"),
+        ])
+        .await;
+        assert_eq!(idx.get("eq-a").unwrap().order.section, vec![1]);
+        assert_eq!(idx.get("eq-b").unwrap().order.section, vec![1, 1]);
     }
 }

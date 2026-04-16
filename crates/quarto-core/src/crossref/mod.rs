@@ -73,6 +73,13 @@ pub const THEOREM: &str = "Theorem";
 /// author attaches an id.
 pub const PROOF: &str = "Proof";
 
+/// The `type_name` used on `CustomNode` for labelled display equations.
+///
+/// Produced by `EquationLabelTransform` from a `Span.quarto-math-with-attribute`
+/// wrapping a `DisplayMath` inline. The specific numbering is stored in
+/// `plain_data.order` (set by the indexer); the id prefix is always `"eq"`.
+pub const EQUATION: &str = "Equation";
+
 /// The `type_name` used on `CustomNode` for resolved crossref references in
 /// the front-end AST.
 ///

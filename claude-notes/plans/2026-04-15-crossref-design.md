@@ -8,19 +8,19 @@
 
 ## Implementation Status (updated 2026-04-16)
 
-**Phases 0–2 complete.** Phases 3 (equations) and 4 (multi-file) remain.
+**Phases 0–3 complete.** Phase 4 (multi-file) remains (design only in this plan).
 
 | Phase | Status | Commits |
 |-------|--------|---------|
 | 0 — Foundation | Done | `c5ce6bb8` |
 | 1 — Floats, single file | Done | `309500f4`, `1bd90b69` |
 | 2 — Block-level (theorems, proofs, callouts) | Done | `3280a446`, `926e3c11` |
-| 3 — Equations | Not started | — |
+| 3 �� Equations | Done | (pending commit) |
 | 4 — Multi-file foundations | Not started (design only) | — |
 
 ### Key design validation
 
-The `plain_data` triple (`ref_type`, `kind`, `identifier`) proved to be the right integration point. Three different custom node types (FloatRefTarget, Theorem, Callout) now flow through the same indexer, resolver, and render transforms with **zero type-specific code** in those shared transforms. Adding a new crossref-capable block type is: populate three JSON fields in the sugaring transform, done.
+The `plain_data` triple (`ref_type`, `kind`, `identifier`) proved to be the right integration point. Four different custom node types (FloatRefTarget, Theorem, Callout, Equation) now flow through the same indexer, resolver, and render transforms with **zero type-specific code** in the indexer and resolver. The indexer extension for equations required only adding inline walking — the `has_crossref_plain_data` predicate and `index_custom_target` method are shared unchanged. Adding a new crossref-capable type is: populate three JSON fields in the sugaring transform, done.
 
 ### File inventory
 
@@ -40,15 +40,16 @@ crates/quarto-core/src/transforms/
 ├── theorem.rs                # TheoremSugarTransform (.theorem/.lemma/… → CustomNode("Theorem"))
 ├── proof.rs                  # ProofSugarTransform (.proof → CustomNode("Proof"))
 ├── float_ref_target.rs       # FloatRefTargetSugarTransform (Div/Figure → CustomNode("FloatRefTarget"))
-├── crossref_index.rs         # CrossrefIndexTransform (walk AST, assign order, build index)
+├── equation_label.rs         # EquationLabelTransform (Span.quarto-math-with-attribute → CustomNode("Equation"))
+├── crossref_index.rs         # CrossrefIndexTransform (walk AST+inlines, assign order, build index)
 ├── crossref_resolve.rs       # CrossrefResolveTransform (Cite → CustomNode("CrossrefResolvedRef"))
-└── crossref_render.rs        # CrossrefRenderTransform (CustomNodes → Figure/Div/Link for writer)
+└── crossref_render.rs        # CrossrefRenderTransform (CustomNodes → Figure/Div/Span/Link for writer)
 
 crates/quarto-core/src/stage/stages/
 └── pre_engine_sugaring.rs    # PreEngineSugaringStage (registry build + metadata + shorthand desugar)
 
 crates/quarto-core/tests/
-└── crossref_fixtures.rs      # 21 qmd-level integration fixtures asserting over CrossrefIndex
+└── crossref_fixtures.rs      # 27 qmd-level integration fixtures asserting over CrossrefIndex
 ```
 
 ### Pipeline order (normalization + crossref + finalization)
@@ -57,10 +58,11 @@ crates/quarto-core/tests/
 ... existing transforms ...
 CalloutTransform            ← now injects crossref triple when id matches
 ...
-TheoremSugarTransform       ← runs BEFORE FloatRefTarget to prevent greedy float claim
+TheoremSugarTransform       �� runs BEFORE FloatRefTarget to prevent greedy float claim
 ProofSugarTransform
 FloatRefTargetSugarTransform
-CrossrefIndexTransform
+EquationLabelTransform      ← Span.quarto-math-with-attribute → Inline::Custom("Equation")
+CrossrefIndexTransform      ← now walks both blocks AND inlines
 CrossrefResolveTransform
 ... TOC phase ...
 ... AppendixStructureTransform ...
@@ -86,7 +88,7 @@ ResourceCollectorTransform
 
 8. **Caption short (`fig-scap` / `tbl-scap`).** The `caption_short` slot exists on FloatRefTarget but is never populated. The cell-option parser knows about `<reftype>-scap` (it's consumed), but the value isn't wired into the slot. Render code checks for it but the path is untested.
 
-9. **Equation crossrefs (Phase 3).** Completely untouched. Requires detecting `DisplayMath` + trailing `{#eq-xxx}` attr — which pampa may or may not currently produce.
+9. **Equation crossrefs (Phase 3).** ~~Completely untouched.~~ **Done.** pampa wraps `$$ ... $$ {#eq-xxx}` as `Span.quarto-math-with-attribute` containing `DisplayMath`. `EquationLabelTransform` converts this to `Inline::Custom("Equation")` with the crossref triple; `CrossrefIndexTransform` was extended to walk inlines; `CrossrefRenderTransform` renders equations as `Span(id) > Math(DisplayMath, text + \tag{N})` for MathJax numbering.
 
 ---
 
@@ -411,9 +413,14 @@ Other engine-emitted crossref targets (non-`asis`, e.g., the standard `fig-cap` 
 
 ### Phase 3 — Inline crossrefs: equations
 
-- [ ] 3.1 `EquationLabelTransform`: find `DisplayMath` followed by an inline `{#eq-xxx}` attr, attach the label.
-- [ ] 3.2 Indexing + resolution.
-- [ ] 3.3 HTML rendering — equation numbering via MathJax `\tag{}` or explicit span.
+Equations are **inline** elements, not block-level like floats/theorems. pampa already wraps `$$ ... $$ {#eq-xxx}` as `Span(id="eq-xxx", classes=["quarto-math-with-attribute"], [Math(DisplayMath, text)])`. The `@eq-xxx` reference is a standard `Cite` node, and "eq" is already a built-in ref type in the registry.
+
+The key architectural extension: `CrossrefIndexTransform` currently only indexes block-level `CustomNode`s. Phase 3 extends it to also scan inlines within paragraphs for equation `Inline::Custom` nodes carrying the crossref triple.
+
+- [x] 3.1 **EquationLabelTransform** (normalization phase): Walk paragraphs and convert `Span.quarto-math-with-attribute` wrapping `DisplayMath` into `Inline::Custom(CustomNode("Equation", {ref_type: "eq", kind: "Equation", identifier: "eq-xxx", content: Math(DisplayMath, text)}))`. Add constant `EQUATION` to `crossref/mod.rs`. Runs after `FloatRefTargetSugarTransform`, before `CrossrefIndexTransform`.
+- [x] 3.2 **Indexing extension**: Extend `CrossrefIndexTransform` walker to scan inlines within paragraphs (and other inline-carrying blocks) for `Inline::Custom` nodes with the crossref triple. Resolution already works — `CrossrefResolveTransform` + `RefTypeRegistry` handle `@eq-xxx` → `CrossrefResolvedRef` with no changes needed.
+- [x] 3.3 **HTML rendering**: In `CrossrefRenderTransform`, convert `Inline::Custom("Equation")` to a `Span(id="eq-xxx")` containing the original `Math(DisplayMath, text + "\\tag{N}")` where N is the equation number. This matches Q1's MathJax numbering approach. `CrossrefResolvedRef` for `@eq-xxx` already renders as a Link via the existing code path.
+- [x] 3.4 **Integration fixtures**: Add equation-specific fixtures to `crossref_fixtures.rs` covering: basic equation indexing, equation numbering independent from figures, `@eq-xxx` resolution, multiple equations with section paths, equation + figure mixed numbering.
 
 ### Phase 4 — Multi-file foundations (design only in this plan)
 

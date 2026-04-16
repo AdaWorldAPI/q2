@@ -14,7 +14,7 @@
 use quarto_core::crossref::{CrossrefEntry, CrossrefIndex, RefTypeRegistry, metadata};
 use quarto_core::transform::AstTransform;
 use quarto_core::transforms::{
-    CalloutTransform, CrossrefIndexTransform, CrossrefResolveTransform,
+    CalloutTransform, CrossrefIndexTransform, CrossrefResolveTransform, EquationLabelTransform,
     FloatRefTargetSugarTransform, ProofSugarTransform, TheoremSugarTransform,
 };
 use quarto_pandoc_types::pandoc::Pandoc;
@@ -97,6 +97,10 @@ async fn run_crossref(
         .transform(&mut ast, &mut ctx)
         .await
         .expect("float sugar");
+    EquationLabelTransform::new()
+        .transform(&mut ast, &mut ctx)
+        .await
+        .expect("equation label");
     CrossrefIndexTransform::new()
         .transform(&mut ast, &mut ctx)
         .await
@@ -578,4 +582,150 @@ A note.
     assert!(diags.is_empty(), "diagnostics: {:?}", diags);
     let entry = idx.get("nte-foo").expect("nte-foo indexed");
     assert_eq!(entry.ref_type, "nte");
+}
+
+// === Phase 3 fixtures: equations ===
+
+#[tokio::test]
+async fn fixture_equation_indexed() {
+    let qmd = r#"---
+title: t
+---
+
+$$
+e = mc^2
+$$ {#eq-einstein}
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    assert_eq!(idx.entries.len(), 1);
+    let entry = idx.get("eq-einstein").expect("eq-einstein indexed");
+    assert_eq!(entry.ref_type, "eq");
+    assert_eq!(entry.order.order, 1);
+}
+
+#[tokio::test]
+async fn fixture_equation_numbering_independent_from_figures() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#fig-one}
+![](x.png)
+
+A figure.
+:::
+
+$$
+a^2 + b^2 = c^2
+$$ {#eq-pyth}
+
+::: {#fig-two}
+![](y.png)
+
+Another figure.
+:::
+
+$$
+F = ma
+$$ {#eq-newton}
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    assert_eq!(idx.get("fig-one").unwrap().order.order, 1);
+    assert_eq!(idx.get("fig-two").unwrap().order.order, 2);
+    assert_eq!(idx.get("eq-pyth").unwrap().order.order, 1);
+    assert_eq!(idx.get("eq-newton").unwrap().order.order, 2);
+}
+
+#[tokio::test]
+async fn fixture_equation_ref_resolved() {
+    let qmd = r#"---
+title: t
+---
+
+See @eq-foo.
+
+$$
+x = 1
+$$ {#eq-foo}
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    let entry = idx.get("eq-foo").expect("eq-foo indexed");
+    assert_eq!(entry.ref_type, "eq");
+    assert_eq!(entry.order.order, 1);
+}
+
+#[tokio::test]
+async fn fixture_equation_section_path() {
+    let qmd = r#"---
+title: t
+---
+
+# Introduction
+
+$$
+a = b
+$$ {#eq-intro}
+
+## Methods
+
+$$
+c = d
+$$ {#eq-methods}
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    assert_eq!(idx.get("eq-intro").unwrap().order.section, vec![1]);
+    assert_eq!(idx.get("eq-methods").unwrap().order.section, vec![1, 1]);
+}
+
+#[tokio::test]
+async fn fixture_equation_and_theorem_coexist() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#thm-one .theorem}
+A theorem.
+:::
+
+$$
+e = mc^2
+$$ {#eq-one}
+
+See @thm-one and @eq-one.
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    assert_eq!(idx.get("thm-one").unwrap().ref_type, "thm");
+    assert_eq!(idx.get("thm-one").unwrap().order.order, 1);
+    assert_eq!(idx.get("eq-one").unwrap().ref_type, "eq");
+    assert_eq!(idx.get("eq-one").unwrap().order.order, 1);
+}
+
+#[tokio::test]
+async fn fixture_multiple_equations() {
+    let qmd = r#"---
+title: t
+---
+
+$$
+a = 1
+$$ {#eq-a}
+
+$$
+b = 2
+$$ {#eq-b}
+
+$$
+c = 3
+$$ {#eq-c}
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    assert_eq!(idx.get("eq-a").unwrap().order.order, 1);
+    assert_eq!(idx.get("eq-b").unwrap().order.order, 2);
+    assert_eq!(idx.get("eq-c").unwrap().order.order, 3);
 }
