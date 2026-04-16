@@ -1,0 +1,338 @@
+/*
+ * stage/stages/pre_engine_sugaring.rs
+ * Copyright (c) 2026 Posit, PBC
+ *
+ * Pre-engine AST sugaring for crossrefs.
+ */
+
+//! Pre-engine crossref sugaring.
+//!
+//! This stage runs after metadata merge and before engine execution. Its
+//! responsibilities, per design plan D2 + D7:
+//!
+//! 1. Build the [`RefTypeRegistry`] from built-ins plus any
+//!    `crossref.custom` entries in merged document metadata, plus any
+//!    prefixes implied by the `crossref.ids` manifest.
+//! 2. Convert the code-block crossref shorthand into the canonical
+//!    `Div(#<ref>-..) > CodeBlock` scaffold, so that engines see only plain
+//!    code blocks.
+//! 3. Strip consumed cell options from the code block body.
+//! 4. Validate that declared `crossref.ids` entries use registered ref-type
+//!    prefixes.
+//!
+//! Phases (1) through (4) are staged:
+//!
+//! - **Current (Phase 0.1 scaffold):** seed the registry with built-ins and
+//!   pass the AST through untouched. Provides the stage wiring without
+//!   committing to a specific metadata surface or shorthand-recognition
+//!   policy — those land in Phase 1.1.
+//! - **Phase 1.1:** add code-block shorthand detection/rewriting and option
+//!   stripping, plus metadata-driven registry extension.
+//!
+//! Reconciliation across the synthetic Div the future shorthand rewrite
+//! introduces is handled by `EngineExecutionStage`, which serializes the
+//! whole AST and reconciles the post-engine parse against it — see plan D2.
+
+use async_trait::async_trait;
+
+use crate::crossref::RefTypeRegistry;
+use crate::stage::{
+    EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, StageContext,
+};
+use crate::trace_event;
+
+/// Pipeline stage that performs pre-engine crossref sugaring.
+///
+/// Inserted between `MetadataMergeStage` and `EngineExecutionStage`.
+///
+/// The stage is intentionally lightweight today — it seeds the
+/// [`RefTypeRegistry`] and leaves the AST untouched. Shorthand rewriting and
+/// manifest handling land in Phase 1 of the crossref plan.
+pub struct PreEngineSugaringStage;
+
+impl PreEngineSugaringStage {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for PreEngineSugaringStage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait(?Send)]
+impl PipelineStage for PreEngineSugaringStage {
+    fn name(&self) -> &str {
+        "pre-engine-sugaring"
+    }
+
+    fn input_kind(&self) -> PipelineDataKind {
+        PipelineDataKind::DocumentAst
+    }
+
+    fn output_kind(&self) -> PipelineDataKind {
+        PipelineDataKind::DocumentAst
+    }
+
+    async fn run(
+        &self,
+        input: PipelineData,
+        ctx: &mut StageContext,
+    ) -> Result<PipelineData, PipelineError> {
+        let PipelineData::DocumentAst(doc) = input else {
+            return Err(PipelineError::unexpected_input(
+                self.name(),
+                self.input_kind(),
+                input.kind(),
+            ));
+        };
+
+        if ctx.ref_type_registry.is_none() {
+            ctx.ref_type_registry = Some(RefTypeRegistry::builtin());
+            trace_event!(
+                ctx,
+                EventLevel::Debug,
+                "seeded ref-type registry with built-ins"
+            );
+        }
+
+        // Phase 1.1: read `crossref.custom` from `doc.ast.meta` and extend the
+        // registry; lift `crossref.ids` into promised-id entries; detect
+        // code-block shorthand and wrap in the FloatRefTarget scaffold.
+        //
+        // For now, pass the AST through unchanged.
+
+        Ok(PipelineData::DocumentAst(doc))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::format::Format;
+    use crate::project::{DocumentInfo, ProjectConfig, ProjectContext};
+    use crate::stage::DocumentAst;
+    use pampa::pandoc::ASTContext;
+    use quarto_pandoc_types::pandoc::Pandoc;
+    use quarto_source_map::SourceContext;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    struct MockRuntime;
+
+    #[async_trait::async_trait]
+    impl quarto_system_runtime::SystemRuntime for MockRuntime {
+        fn file_read(&self, _p: &std::path::Path) -> quarto_system_runtime::RuntimeResult<Vec<u8>> {
+            Ok(vec![])
+        }
+        fn file_write(
+            &self,
+            _p: &std::path::Path,
+            _c: &[u8],
+        ) -> quarto_system_runtime::RuntimeResult<()> {
+            Ok(())
+        }
+        fn path_exists(
+            &self,
+            _p: &std::path::Path,
+            _k: Option<quarto_system_runtime::PathKind>,
+        ) -> quarto_system_runtime::RuntimeResult<bool> {
+            Ok(true)
+        }
+        fn canonicalize(
+            &self,
+            p: &std::path::Path,
+        ) -> quarto_system_runtime::RuntimeResult<PathBuf> {
+            Ok(p.to_path_buf())
+        }
+        fn path_metadata(
+            &self,
+            _p: &std::path::Path,
+        ) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::PathMetadata> {
+            unimplemented!()
+        }
+        fn file_copy(
+            &self,
+            _s: &std::path::Path,
+            _d: &std::path::Path,
+        ) -> quarto_system_runtime::RuntimeResult<()> {
+            Ok(())
+        }
+        fn path_rename(
+            &self,
+            _o: &std::path::Path,
+            _n: &std::path::Path,
+        ) -> quarto_system_runtime::RuntimeResult<()> {
+            Ok(())
+        }
+        fn file_remove(&self, _p: &std::path::Path) -> quarto_system_runtime::RuntimeResult<()> {
+            Ok(())
+        }
+        fn dir_create(
+            &self,
+            _p: &std::path::Path,
+            _r: bool,
+        ) -> quarto_system_runtime::RuntimeResult<()> {
+            Ok(())
+        }
+        fn dir_remove(
+            &self,
+            _p: &std::path::Path,
+            _r: bool,
+        ) -> quarto_system_runtime::RuntimeResult<()> {
+            Ok(())
+        }
+        fn dir_list(
+            &self,
+            _p: &std::path::Path,
+        ) -> quarto_system_runtime::RuntimeResult<Vec<PathBuf>> {
+            Ok(vec![])
+        }
+        fn cwd(&self) -> quarto_system_runtime::RuntimeResult<PathBuf> {
+            Ok(PathBuf::from("/"))
+        }
+        fn temp_dir(
+            &self,
+            _t: &str,
+        ) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::TempDir> {
+            Ok(quarto_system_runtime::TempDir::new(PathBuf::from(
+                "/tmp/test",
+            )))
+        }
+        fn exec_pipe(
+            &self,
+            _c: &str,
+            _a: &[&str],
+            _s: &[u8],
+        ) -> quarto_system_runtime::RuntimeResult<Vec<u8>> {
+            Ok(vec![])
+        }
+        fn exec_command(
+            &self,
+            _c: &str,
+            _a: &[&str],
+            _s: Option<&[u8]>,
+        ) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::CommandOutput> {
+            Ok(quarto_system_runtime::CommandOutput {
+                code: 0,
+                stdout: vec![],
+                stderr: vec![],
+            })
+        }
+        fn env_get(&self, _n: &str) -> quarto_system_runtime::RuntimeResult<Option<String>> {
+            Ok(None)
+        }
+        fn env_all(
+            &self,
+        ) -> quarto_system_runtime::RuntimeResult<std::collections::HashMap<String, String>>
+        {
+            Ok(std::collections::HashMap::new())
+        }
+        async fn fetch_url(
+            &self,
+            _u: &str,
+        ) -> quarto_system_runtime::RuntimeResult<(Vec<u8>, String)> {
+            Err(quarto_system_runtime::RuntimeError::NotSupported(
+                "mock".into(),
+            ))
+        }
+        fn os_name(&self) -> &'static str {
+            "mock"
+        }
+        fn arch(&self) -> &'static str {
+            "mock"
+        }
+        fn cpu_time(&self) -> quarto_system_runtime::RuntimeResult<u64> {
+            Ok(0)
+        }
+        fn xdg_dir(
+            &self,
+            _k: quarto_system_runtime::XdgDirKind,
+            _s: Option<&std::path::Path>,
+        ) -> quarto_system_runtime::RuntimeResult<PathBuf> {
+            Ok(PathBuf::from("/xdg"))
+        }
+        fn stdout_write(&self, _d: &[u8]) -> quarto_system_runtime::RuntimeResult<()> {
+            Ok(())
+        }
+        fn stderr_write(&self, _d: &[u8]) -> quarto_system_runtime::RuntimeResult<()> {
+            Ok(())
+        }
+    }
+
+    fn make_ctx() -> StageContext {
+        let runtime = Arc::new(MockRuntime);
+        let project = ProjectContext {
+            dir: PathBuf::from("/project"),
+            config: ProjectConfig::default(),
+            is_single_file: true,
+            files: vec![],
+            output_dir: PathBuf::from("/project"),
+        };
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+        StageContext::new(runtime, format, project, doc).unwrap()
+    }
+
+    fn make_doc_ast() -> DocumentAst {
+        DocumentAst {
+            path: PathBuf::from("/project/test.qmd"),
+            ast: Pandoc::default(),
+            ast_context: ASTContext::default(),
+            source_context: SourceContext::new(),
+            warnings: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn scaffold_seeds_builtin_registry() {
+        let mut ctx = make_ctx();
+        assert!(ctx.ref_type_registry.is_none());
+
+        let stage = PreEngineSugaringStage::new();
+        let out = stage
+            .run(PipelineData::DocumentAst(make_doc_ast()), &mut ctx)
+            .await
+            .expect("stage runs");
+        assert!(matches!(out, PipelineData::DocumentAst(_)));
+
+        let reg = ctx.ref_type_registry.as_ref().expect("registry seeded");
+        assert!(reg.contains("fig"));
+        assert!(reg.contains("tbl"));
+    }
+
+    #[tokio::test]
+    async fn scaffold_preserves_existing_registry() {
+        let mut ctx = make_ctx();
+        let mut pre = RefTypeRegistry::builtin();
+        pre.register_custom("dia", "Diagram", None).unwrap();
+        ctx.ref_type_registry = Some(pre);
+
+        let stage = PreEngineSugaringStage::new();
+        stage
+            .run(PipelineData::DocumentAst(make_doc_ast()), &mut ctx)
+            .await
+            .expect("stage runs");
+
+        let reg = ctx.ref_type_registry.as_ref().unwrap();
+        // Custom entry still there, not overwritten by a fresh builtin-only registry.
+        assert!(reg.contains("dia"));
+    }
+
+    #[tokio::test]
+    async fn scaffold_is_ast_passthrough() {
+        let mut ctx = make_ctx();
+        let stage = PreEngineSugaringStage::new();
+        let doc_in = make_doc_ast();
+        let ast_before = doc_in.ast.clone();
+
+        let out = stage
+            .run(PipelineData::DocumentAst(doc_in), &mut ctx)
+            .await
+            .unwrap();
+        let doc_out = out.into_document_ast().unwrap();
+        assert_eq!(doc_out.ast, ast_before);
+    }
+}

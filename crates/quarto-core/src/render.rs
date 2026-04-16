@@ -20,6 +20,7 @@ use quarto_error_reporting::DiagnosticMessage;
 use quarto_system_runtime::SystemRuntime;
 
 use crate::artifact::ArtifactStore;
+use crate::crossref::{CrossrefIndex, RefTypeRegistry};
 use crate::format::Format;
 use crate::project::{DocumentInfo, ProjectContext};
 use crate::stage::{NoopObserver, PandocIncludes, PipelineObserver};
@@ -106,6 +107,21 @@ pub struct RenderContext<'a> {
     /// Diagnostics (warnings, errors, info) collected during transforms
     pub diagnostics: Vec<DiagnosticMessage>,
 
+    /// Ref-type registry: built-in + `crossref.custom` + promised-id prefixes.
+    ///
+    /// Populated by `PreEngineSugaringStage` before the transform pipeline
+    /// runs. Bridged from `StageContext` by `AstTransformsStage`. `None` when
+    /// the pipeline is invoked directly without the pre-engine stage (e.g.
+    /// some unit tests).
+    pub ref_type_registry: Option<RefTypeRegistry>,
+
+    /// Per-document crossref index.
+    ///
+    /// Populated by `CrossrefIndexTransform` during the crossref phase;
+    /// consumed by `CrossrefResolveTransform` and later by back-end renderers.
+    /// Bridged to/from `StageContext` by `AstTransformsStage`.
+    pub crossref_index: Option<CrossrefIndex>,
+
     /// Observer for pipeline tracing.
     ///
     /// Bridged from `StageContext` by `AstTransformsStage` so that
@@ -146,6 +162,8 @@ impl<'a> RenderContext<'a> {
             options: RenderOptions::default(),
             includes: PandocIncludes::default(),
             diagnostics: Vec::new(),
+            ref_type_registry: None,
+            crossref_index: None,
             observer: Arc::new(NoopObserver),
         }
     }
