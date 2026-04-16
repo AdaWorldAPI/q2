@@ -447,9 +447,14 @@ pub unsafe extern "C" fn vsnprintf(
 
 /// Replacement for Lua's longjmp-based error throw.
 /// Called from LUAI_THROW macro in ldo.c via luaD_throw.
+///
+/// The panic payload is `crate::LuaThrow`, which the custom panic hook
+/// in `init()` uses to distinguish expected Lua control-flow panics
+/// (caught microseconds later by `rust_lua_protected_call`) from real
+/// Rust panics that should be surfaced via `console.error`.
 #[no_mangle]
 pub extern "C-unwind" fn rust_lua_throw() -> ! {
-    panic!("lua error");
+    std::panic::panic_any(crate::LuaThrow);
 }
 
 /// Replacement for Lua's setjmp-based protected call.
