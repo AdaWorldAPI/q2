@@ -14,7 +14,8 @@
 use quarto_core::crossref::{CrossrefEntry, CrossrefIndex, RefTypeRegistry, metadata};
 use quarto_core::transform::AstTransform;
 use quarto_core::transforms::{
-    CrossrefIndexTransform, CrossrefResolveTransform, FloatRefTargetSugarTransform,
+    CalloutTransform, CrossrefIndexTransform, CrossrefResolveTransform,
+    FloatRefTargetSugarTransform, ProofSugarTransform, TheoremSugarTransform,
 };
 use quarto_pandoc_types::pandoc::Pandoc;
 
@@ -78,10 +79,24 @@ async fn run_crossref(
         idx
     });
 
+    // Normalization phase: callout → theorem → proof → float.
+    // Mirrors the pipeline order in build_transform_pipeline.
+    CalloutTransform::new()
+        .transform(&mut ast, &mut ctx)
+        .await
+        .expect("callout");
+    TheoremSugarTransform::new()
+        .transform(&mut ast, &mut ctx)
+        .await
+        .expect("theorem");
+    ProofSugarTransform::new()
+        .transform(&mut ast, &mut ctx)
+        .await
+        .expect("proof");
     FloatRefTargetSugarTransform::new()
         .transform(&mut ast, &mut ctx)
         .await
-        .expect("sugar");
+        .expect("float sugar");
     CrossrefIndexTransform::new()
         .transform(&mut ast, &mut ctx)
         .await
@@ -466,4 +481,101 @@ See @thm-one and @fig-one.
     // Both numbered independently: Theorem 1, Figure 1.
     assert_eq!(idx.get("thm-one").unwrap().order.order, 1);
     assert_eq!(idx.get("fig-one").unwrap().order.order, 1);
+}
+
+// === Phase 2.2 fixtures: callout crossref indexing ===
+
+#[tokio::test]
+async fn fixture_callout_with_crossref_id_indexed() {
+    let qmd = r#"---
+title: t
+---
+
+See @nte-important.
+
+::: {#nte-important .callout-note}
+## Pay attention
+
+This is a very important note.
+:::
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    let entry = idx.get("nte-important").expect("nte-important indexed");
+    assert_eq!(entry.ref_type, "nte");
+    assert_eq!(entry.order.order, 1);
+}
+
+#[tokio::test]
+async fn fixture_callout_without_crossref_id_not_indexed() {
+    let qmd = r#"---
+title: t
+---
+
+::: {.callout-warning}
+Watch out!
+:::
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty());
+    assert!(idx.entries.is_empty());
+}
+
+#[tokio::test]
+async fn fixture_callout_with_non_crossref_id_not_indexed() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#my-callout .callout-tip}
+A tip.
+:::
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty());
+    // "my" is not a registered ref-type prefix, so not indexed.
+    assert!(idx.entries.is_empty());
+}
+
+#[tokio::test]
+async fn fixture_multiple_callout_types_numbered_separately() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#nte-a .callout-note}
+Note A.
+:::
+
+::: {#nte-b .callout-note}
+Note B.
+:::
+
+::: {#wrn-a .callout-warning}
+Warning A.
+:::
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    assert_eq!(idx.get("nte-a").unwrap().order.order, 1);
+    assert_eq!(idx.get("nte-b").unwrap().order.order, 2);
+    assert_eq!(idx.get("wrn-a").unwrap().order.order, 1);
+}
+
+#[tokio::test]
+async fn fixture_callout_ref_resolves_to_link() {
+    let qmd = r#"---
+title: t
+---
+
+See @nte-foo.
+
+::: {#nte-foo .callout-note}
+A note.
+:::
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    let entry = idx.get("nte-foo").expect("nte-foo indexed");
+    assert_eq!(entry.ref_type, "nte");
 }
