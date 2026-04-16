@@ -171,6 +171,7 @@ function ReactRenderer({
         }}>
           <Ast
             astJson={astJson}
+            currentFilePath={currentFilePath}
             onNavigateToDocument={onNavigateToDocument}
             setAst={setAst}
             registry={mergedRegistry}

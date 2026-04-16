@@ -68,8 +68,14 @@ export type InlineNode =
 
 interface PandocAstRendererProps {
     astJson: string;
+    /** Current file path for resolving relative image paths */
+    currentFilePath: string;
     onNavigateToDocument?: (path: string, anchor: string | null) => void;
     setAst: (newAst: PandocAST) => void;
+    /** Optional controlled current slide index. If provided, component uses this instead of internal state. */
+    currentSlide?: number;
+    /** Callback when current slide changes (for controlled mode). */
+    onSlideChange?: (slideIndex: number) => void;
     registry?: Record<string, (props: any) => React.ReactNode>;
 }
 
@@ -82,7 +88,7 @@ export type NodeArgs<T extends BlockNode | InlineNode> = {
 /**
  * Component that renders Pandoc AST in debug mode (uniform structure)
  */
-export function Ast({ astJson, onNavigateToDocument, setAst, registry = componentRegistry }: PandocAstRendererProps) {
+export function Ast({ astJson, currentFilePath: _currentFilePath, onNavigateToDocument, setAst, currentSlide: _currentSlide, onSlideChange: _onSlideChange, registry = componentRegistry }: PandocAstRendererProps) {
     let ast: PandocAST;
 
     try {
@@ -306,8 +312,25 @@ export const renderNode = (args: NodeArgs<BlockNode | InlineNode>, type: string)
     const registries = useContext(RegistryContext);
     const registry = registries?.registry ?? componentRegistry;
 
-    const Component = registry[type];
+    // Check if it's a Block type by looking at common block tags
+    const blockTypes = ['Para', 'Plain', 'Header', 'CodeBlock', 'BulletList', 'OrderedList', 'BlockQuote', 'Div', 'HorizontalRule', 'RawBlock', 'Figure'];
+    const isBlock = blockTypes.includes(type);
 
+    // First try to use Block/Inline wrapper (matches Node component behavior)
+    if (isBlock) {
+        const BlockComponent = registry['Block'];
+        if (BlockComponent) {
+            return <BlockComponent {...args} />;
+        }
+    } else {
+        const InlineComponent = registry['Inline'];
+        if (InlineComponent) {
+            return <InlineComponent {...args} />;
+        }
+    }
+
+    // Fall back to direct component lookup
+    const Component = registry[type];
     return Component ? <Component {...args} /> : <div style={blockStyle}><strong>Not registered: {args.node.t}</strong></div>
 }
 
@@ -416,7 +439,13 @@ const BlockComponents: Record<string, (props: any) => React.ReactNode> = {
     Figure,
 };
 
-export const Block = (args: NodeArgs<BlockNode>) => renderNode(args, args.node.t)
+export const Block = (args: NodeArgs<BlockNode>) => {
+    const registries = useContext(RegistryContext);
+    const registry = registries?.registry ?? componentRegistry;
+
+    const Component = registry[args.node.t];
+    return Component ? <Component {...args} /> : <div style={blockStyle}><strong>Not registered: {args.node.t}</strong></div>;
+}
 
 const Str = (args: NodeArgs<StrInline>) => (
     <span style={inlineStyle}><strong>Str:</strong> {args.node.c}</span>
@@ -482,7 +511,13 @@ const InlineComponents: Record<string, (props: any) => React.ReactNode> = {
     Span,
 };
 
-const Inline = (args: NodeArgs<InlineNode>) => renderNode(args, args.node.t)
+const Inline = (args: NodeArgs<InlineNode>) => {
+    const registries = useContext(RegistryContext);
+    const registry = registries?.registry ?? componentRegistry;
+
+    const Component = registry[args.node.t];
+    return Component ? <Component {...args} /> : <span style={inlineStyle}><strong>Not registered: {args.node.t}</strong></span>;
+}
 
 const AstRenderer = ({ ast, onNavigateToDocument, setAst }: {
     ast: PandocAST;

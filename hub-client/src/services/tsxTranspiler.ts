@@ -1,6 +1,9 @@
 import { transform } from '@babel/standalone';
 import * as React from 'react';
 import * as ReactAstDebugRendererModule from '../components/render/ReactAstDebugRenderer';
+import { Deck, Slide } from '@revealjs/react';
+import 'reveal.js/reveal.css';
+import 'reveal.js/theme/white.css';
 
 // EXPERIMENTAL functionality for custom render components
 
@@ -14,6 +17,7 @@ export async function transpileAndImportTSX(tsxCode: string): Promise<Record<str
     // Store modules globally for access
     (window as any).React = React;
     (window as any).__REACT_AST_DEBUG_RENDERER__ = ReactAstDebugRendererModule;
+    (window as any).RevealReact = { Deck, Slide };
 
     // Transpile TSX to JS
     const result = transform(tsxCode, {
