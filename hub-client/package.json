@@ -31,6 +31,8 @@
   "dependencies": {
     "@automerge/automerge-repo": "^2.5.1",
     "@automerge/automerge-repo-network-websocket": "^2.5.1",
+    "@automerge/automerge-repo-react-hooks": "2.5.1",
+    "@automerge/automerge-repo-storage-indexeddb": "2.5.1",
     "@babel/standalone": "^7.29.2",
     "@monaco-editor/react": "^4.7.0",
     "@quarto/quarto-automerge-schema": "*",
