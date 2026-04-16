@@ -61,9 +61,10 @@ use crate::stage::{
 use crate::transform::TransformPipeline;
 use crate::transforms::{
     AppendixStructureTransform, CalloutResolveTransform, CalloutTransform, CrossrefIndexTransform,
-    CrossrefResolveTransform, FloatRefTargetSugarTransform, FootnotesTransform,
-    MetadataNormalizeTransform, ResourceCollectorTransform, SectionizeTransform,
-    ShortcodeResolveTransform, TitleBlockTransform, TocGenerateTransform, TocRenderTransform,
+    CrossrefRenderTransform, CrossrefResolveTransform, FloatRefTargetSugarTransform,
+    FootnotesTransform, MetadataNormalizeTransform, ResourceCollectorTransform,
+    SectionizeTransform, ShortcodeResolveTransform, TitleBlockTransform, TocGenerateTransform,
+    TocRenderTransform,
 };
 
 /// Well-known path for the default CSS artifact in WASM context.
@@ -468,6 +469,7 @@ pub fn build_transform_pipeline(
 
     // === FINALIZATION PHASE ===
     pipeline.push(Box::new(AppendixStructureTransform::new()));
+    pipeline.push(Box::new(CrossrefRenderTransform::new()));
     pipeline.push(Box::new(ResourceCollectorTransform::new()));
 
     pipeline

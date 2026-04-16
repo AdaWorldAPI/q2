@@ -38,7 +38,9 @@ use async_trait::async_trait;
 use quarto_error_reporting::DiagnosticMessage;
 use quarto_source_map::FileId;
 
-use crate::crossref::{CrossrefIndex, MetadataError, RefTypeRegistry, metadata};
+use crate::crossref::{
+    CrossrefIndex, MetadataError, RefTypeRegistry, codeblock_shorthand, metadata,
+};
 use crate::stage::{
     EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, StageContext,
 };
@@ -84,7 +86,7 @@ impl PipelineStage for PreEngineSugaringStage {
         input: PipelineData,
         ctx: &mut StageContext,
     ) -> Result<PipelineData, PipelineError> {
-        let PipelineData::DocumentAst(doc) = input else {
+        let PipelineData::DocumentAst(mut doc) = input else {
             return Err(PipelineError::unexpected_input(
                 self.name(),
                 self.input_kind(),
@@ -126,6 +128,11 @@ impl PipelineStage for PreEngineSugaringStage {
         // per context; multi-file namespacing is a Phase 4 concern.
         let mut index = CrossrefIndex::new(FileId(0));
         index.promised_ids = extracted.promised_ids;
+
+        // Desugar code-block crossref shorthand into the canonical Div
+        // scaffold so engine execution sees plain code blocks. The walk
+        // uses the finalized registry so user-declared categories work.
+        codeblock_shorthand::desugar_blocks(&mut doc.ast.blocks, &registry);
 
         ctx.ref_type_registry = Some(registry);
         // Only seed the index if no prior stage has set one. Idempotent so

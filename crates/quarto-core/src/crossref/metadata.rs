@@ -127,11 +127,17 @@ fn read_custom(custom: &ConfigValue, registry: &mut RefTypeRegistry, out: &mut C
             continue;
         }
 
-        let key = entry.get("key").and_then(|v| v.as_str());
-        let ref_prefix = entry.get("reference-prefix").and_then(|v| v.as_str());
+        // `as_plain_text` so YAML values parsed as `PandocInlines` (when
+        // the document is parsed through pampa) still read as the string
+        // the user wrote. `as_str` handles only Scalar-String / Path /
+        // Glob / Expr, which misses the common case.
+        let key = entry.get("key").and_then(|v| v.as_plain_text());
+        let ref_prefix = entry
+            .get("reference-prefix")
+            .and_then(|v| v.as_plain_text());
 
         let ref_type = match key {
-            Some(s) => s.to_string(),
+            Some(s) => s,
             None => {
                 out.errors.push(MetadataError::CustomEntryMissingField {
                     missing: "key",
@@ -141,7 +147,7 @@ fn read_custom(custom: &ConfigValue, registry: &mut RefTypeRegistry, out: &mut C
             }
         };
         let kind = match ref_prefix {
-            Some(s) => s.to_string(),
+            Some(s) => s,
             None => {
                 out.errors.push(MetadataError::CustomEntryMissingField {
                     missing: "reference-prefix",
@@ -167,7 +173,7 @@ fn read_ids(ids: &ConfigValue, registry: &RefTypeRegistry, out: &mut CrossrefMet
     };
 
     for entry in entries {
-        let Some(id) = entry.as_str() else {
+        let Some(id) = entry.as_plain_text() else {
             out.errors.push(MetadataError::IdEntryNotString {
                 source_info: entry.source_info.clone(),
             });
@@ -176,20 +182,17 @@ fn read_ids(ids: &ConfigValue, registry: &RefTypeRegistry, out: &mut CrossrefMet
 
         let Some((prefix, _)) = id.split_once('-') else {
             out.errors.push(MetadataError::IdEntryMalformed {
-                id: id.to_string(),
+                id: id.clone(),
                 source_info: entry.source_info.clone(),
             });
             continue;
         };
 
-        // Don't fail on unknown prefixes — that's what `extend_from_promised`
-        // is for (upstream). We just record the intent here. But we do use
-        // the already-known registry to normalize kinds when resolving back
-        // at the indexer — the registry lookup happens later.
+        let prefix = prefix.to_string();
         let _ = registry; // retained for symmetry; currently unused.
         out.promised_ids.push(PromisedId {
-            identifier: id.to_string(),
-            ref_type: prefix.to_string(),
+            identifier: id,
+            ref_type: prefix,
             source_info: entry.source_info.clone(),
             source: PromisedIdSource::DocumentMetadata,
         });

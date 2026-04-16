@@ -35,6 +35,7 @@
 /// [`crate::stage::PipelineObserver::on_auxiliary_data`].
 pub const TRACE_KIND_CROSSREF_INDEX: &str = "CrossrefIndex";
 
+pub mod codeblock_shorthand;
 pub mod index;
 pub mod metadata;
 pub mod registry;
