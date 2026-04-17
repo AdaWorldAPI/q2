@@ -14,6 +14,16 @@
 #[cfg(target_arch = "wasm32")]
 pub mod c_shim;
 
+/// Sentinel panic payload raised by `c_shim::rust_lua_throw`.
+///
+/// On wasm32 Lua's `LUAI_THROW` macro cannot use `setjmp`/`longjmp`, so
+/// it is rewired to raise a Rust panic that `rust_lua_protected_call`
+/// catches via `catch_unwind`. This happens on every Lua runtime error —
+/// including ones caught by `pcall` — so the panic is expected control
+/// flow. The `init()` panic hook filters panics carrying this payload
+/// so they do not spam `console.error` with stack traces.
+pub struct LuaThrow;
+
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -93,8 +103,20 @@ fn populate_dir_recursive(runtime: &WasmRuntime, dir: &include_dir::Dir<'_>, pre
 
 #[wasm_bindgen(start)]
 pub fn init() {
-    // Set up panic hook for better error messages in browser console
+    // Install console_error_panic_hook as the base, then wrap it to
+    // filter out expected Lua control-flow panics (see `LuaThrow` above).
+    // Without this wrapper, every pcall-caught Lua error would leave a
+    // full panic stack trace in console.error.
+    //
+    // See claude-notes/plans/2026-04-16-suppress-lua-panic-noise.md
     console_error_panic_hook::set_once();
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if info.payload().downcast_ref::<LuaThrow>().is_some() {
+            return;
+        }
+        default_hook(info);
+    }));
 }
 
 /// Basic unwind test — no Lua, just catch_unwind.

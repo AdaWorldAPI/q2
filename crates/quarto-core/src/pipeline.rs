@@ -56,13 +56,16 @@ use crate::stage::stages::ApplyTemplateConfig;
 use crate::stage::{
     ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, EngineExecutionStage,
     LoadedSource, MetadataMergeStage, ParseDocumentStage, Pipeline, PipelineData, PipelineStage,
-    RenderHtmlBodyStage, StageContext, UserFiltersStage,
+    PreEngineSugaringStage, RenderHtmlBodyStage, StageContext, UserFiltersStage,
 };
 use crate::transform::TransformPipeline;
 use crate::transforms::{
-    AppendixStructureTransform, CalloutResolveTransform, CalloutTransform, FootnotesTransform,
-    MetadataNormalizeTransform, ResourceCollectorTransform, SectionizeTransform,
-    ShortcodeResolveTransform, TitleBlockTransform, TocGenerateTransform, TocRenderTransform,
+    AppendixStructureTransform, CalloutResolveTransform, CalloutTransform, CrossrefIndexTransform,
+    CrossrefRenderTransform, CrossrefResolveTransform, EquationLabelTransform,
+    FloatRefTargetSugarTransform, FootnotesTransform, MetadataNormalizeTransform,
+    ProofSugarTransform, ResourceCollectorTransform, SectionizeTransform,
+    ShortcodeResolveTransform, TheoremSugarTransform, TitleBlockTransform, TocGenerateTransform,
+    TocRenderTransform,
 };
 
 /// Well-known path for the default CSS artifact in WASM context.
@@ -131,6 +134,7 @@ pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
     vec![
         Box::new(ParseDocumentStage::new()),
         Box::new(MetadataMergeStage::new()),
+        Box::new(PreEngineSugaringStage::new()),
         Box::new(EngineExecutionStage::new()),
         Box::new(CompileThemeCssStage::new()),
         Box::new(UserFiltersStage::pre()),
@@ -196,6 +200,7 @@ pub fn build_wasm_html_pipeline() -> Pipeline {
         Box::new(ParseDocumentStage::new()),
         // No EngineExecutionStage - code cells pass through as-is
         Box::new(MetadataMergeStage::new()),
+        Box::new(PreEngineSugaringStage::new()),
         Box::new(CompileThemeCssStage::new()),
         Box::new(UserFiltersStage::pre()),
         Box::new(AstTransformsStage::new()),
@@ -378,6 +383,7 @@ pub async fn render_qmd_to_html(
         let stages: Vec<Box<dyn PipelineStage>> = vec![
             Box::new(ParseDocumentStage::new()),
             Box::new(MetadataMergeStage::new()),
+            Box::new(PreEngineSugaringStage::new()),
             Box::new(EngineExecutionStage::new()),
             Box::new(CompileThemeCssStage::new()),
             Box::new(UserFiltersStage::pre()),
@@ -421,14 +427,15 @@ pub async fn render_qmd_to_html(
 /// 5. `TitleBlockTransform` - Add title header from metadata if not present
 /// 6. `SectionizeTransform` - Wrap headers in section Divs (for HTML semantic structure)
 /// 7. `FootnotesTransform` - Extract footnotes and create footnotes section
+/// 8. `FloatRefTargetSugarTransform` - Wrap float crossref Divs / Figures in canonical CustomNode
 ///
 /// ## TOC Phase
-/// 8. `TocGenerateTransform` - Generate TOC from headers (if toc: true)
-/// 9. `TocRenderTransform` - Render TOC to HTML for template insertion
+/// 9. `TocGenerateTransform` - Generate TOC from headers (if toc: true)
+/// 10. `TocRenderTransform` - Render TOC to HTML for template insertion
 ///
 /// ## Finalization Phase
-/// 10. `AppendixStructureTransform` - Consolidate appendix content into container
-/// 11. `ResourceCollectorTransform` - Collect image dependencies
+/// 11. `AppendixStructureTransform` - Consolidate appendix content into container
+/// 12. `ResourceCollectorTransform` - Collect image dependencies
 pub fn build_transform_pipeline(
     shortcode_paths: Vec<std::path::PathBuf>,
     extensions: Vec<crate::extension::types::Extension>,
@@ -450,6 +457,18 @@ pub fn build_transform_pipeline(
     pipeline.push(Box::new(TitleBlockTransform::new()));
     pipeline.push(Box::new(SectionizeTransform::new()));
     pipeline.push(Box::new(FootnotesTransform::new()));
+    // TheoremSugarTransform / ProofSugarTransform run before
+    // FloatRefTargetSugarTransform so `Div(#thm-foo .theorem)` and
+    // `Div(.proof)` become Theorem / Proof custom nodes first; the
+    // float-target classifier only sees plain `Div` blocks.
+    pipeline.push(Box::new(TheoremSugarTransform::new()));
+    pipeline.push(Box::new(ProofSugarTransform::new()));
+    pipeline.push(Box::new(FloatRefTargetSugarTransform::new()));
+    pipeline.push(Box::new(EquationLabelTransform::new()));
+
+    // === CROSSREF PHASE ===
+    pipeline.push(Box::new(CrossrefIndexTransform::new()));
+    pipeline.push(Box::new(CrossrefResolveTransform::new()));
 
     // === TOC PHASE ===
     // Must run after SectionizeTransform so section IDs are available
@@ -458,6 +477,7 @@ pub fn build_transform_pipeline(
 
     // === FINALIZATION PHASE ===
     pipeline.push(Box::new(AppendixStructureTransform::new()));
+    pipeline.push(Box::new(CrossrefRenderTransform::new()));
     pipeline.push(Box::new(ResourceCollectorTransform::new()));
 
     pipeline
@@ -691,29 +711,31 @@ mod tests {
     #[test]
     fn test_build_html_pipeline_stages() {
         let stages = build_html_pipeline_stages();
-        assert_eq!(stages.len(), 9);
+        assert_eq!(stages.len(), 10);
         assert_eq!(stages[0].name(), "parse-document");
         assert_eq!(stages[1].name(), "metadata-merge");
-        assert_eq!(stages[2].name(), "engine-execution");
-        assert_eq!(stages[3].name(), "compile-theme-css");
-        assert_eq!(stages[4].name(), "user-filters-pre");
-        assert_eq!(stages[5].name(), "ast-transforms");
-        assert_eq!(stages[6].name(), "user-filters-post");
-        assert_eq!(stages[7].name(), "render-html-body");
-        assert_eq!(stages[8].name(), "apply-template");
+        assert_eq!(stages[2].name(), "pre-engine-sugaring");
+        assert_eq!(stages[3].name(), "engine-execution");
+        assert_eq!(stages[4].name(), "compile-theme-css");
+        assert_eq!(stages[5].name(), "user-filters-pre");
+        assert_eq!(stages[6].name(), "ast-transforms");
+        assert_eq!(stages[7].name(), "user-filters-post");
+        assert_eq!(stages[8].name(), "render-html-body");
+        assert_eq!(stages[9].name(), "apply-template");
     }
 
     #[test]
     fn test_build_html_pipeline() {
         let pipeline = build_html_pipeline();
-        assert_eq!(pipeline.len(), 9);
+        assert_eq!(pipeline.len(), 10);
     }
 
     #[test]
     fn test_build_wasm_html_pipeline() {
         let pipeline = build_wasm_html_pipeline();
-        // WASM pipeline has 8 stages (no engine execution, but has user filters)
-        assert_eq!(pipeline.len(), 8);
+        // WASM pipeline has 9 stages (no engine execution, but has pre-engine
+        // sugaring + user filters)
+        assert_eq!(pipeline.len(), 9);
     }
 
     #[test]

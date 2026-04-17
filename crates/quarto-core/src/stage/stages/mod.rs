@@ -24,6 +24,7 @@ mod compile_theme_css;
 mod engine_execution;
 mod metadata_merge;
 mod parse_document;
+mod pre_engine_sugaring;
 mod render_html;
 mod user_filters;
 
@@ -33,5 +34,6 @@ pub use compile_theme_css::CompileThemeCssStage;
 pub use engine_execution::EngineExecutionStage;
 pub use metadata_merge::MetadataMergeStage;
 pub use parse_document::ParseDocumentStage;
+pub use pre_engine_sugaring::PreEngineSugaringStage;
 pub use render_html::RenderHtmlBodyStage;
 pub use user_filters::UserFiltersStage;

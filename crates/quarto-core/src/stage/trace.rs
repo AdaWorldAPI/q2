@@ -204,6 +204,22 @@ impl PipelineObserver for JsonTraceObserver {
         );
     }
 
+    fn on_auxiliary_data(&self, stage: &str, index: usize, kind: &str, data: &serde_json::Value) {
+        let mut state = self.state.lock().unwrap();
+        Self::push_entry(
+            &mut state,
+            TraceEntry {
+                stage: format!("aux:{}", stage),
+                index,
+                data_kind: Some(kind.to_string()),
+                data: Some(data.clone()),
+                duration_ms: None,
+                status: StageStatus::Ok,
+                error: None,
+            },
+        );
+    }
+
     fn on_pipeline_complete(&self) {
         {
             let mut state = self.state.lock().unwrap();

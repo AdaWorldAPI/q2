@@ -15,6 +15,8 @@ be in reverse chronological order (latest first).
 
 ### 2026-04-16
 
+- [`ee5d8ca0`](https://github.com/quarto-dev/q2/commits/ee5d8ca0): Reconcile orphan IDB projects into the synced project set so share-link visits reliably appear in the project list and re-adding via Connect is idempotent
+- [`5c45260a`](https://github.com/quarto-dev/q2/commits/5c45260a): Suppress noisy 'lua error' panic stack traces in the browser console (expected Lua control flow no longer reaches console.error)
 - [`26110945`](https://github.com/quarto-dev/q2/commits/26110945): Add Automerge debugger entry at /debug.html with Server and Local IndexedDB modes
 
 ### 2026-04-15
