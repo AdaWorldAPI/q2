@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-17
+
+- [`123ea422`](https://github.com/quarto-dev/q2/commits/123ea422): Show cross-referenceable elements (figures, tables, theorems, equations, ...) in the document outline, with rendered labels like "Figure 1: caption" and absorbing inner theorem headers so they don't appear twice
+
 ### 2026-04-16
 
 - [`ee5d8ca0`](https://github.com/quarto-dev/q2/commits/ee5d8ca0): Reconcile orphan IDB projects into the synced project set so share-link visits reliably appear in the project list and re-adding via Connect is idempotent
