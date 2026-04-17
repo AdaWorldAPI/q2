@@ -23,6 +23,7 @@
 
 use quarto_pandoc_types::block::Block;
 use quarto_pandoc_types::custom::CustomNode;
+use quarto_pandoc_types::inline::Inline;
 use quarto_source_map::SourceInfo;
 
 /// A uniform read-only view over the crossref-relevant fields of a block.
@@ -70,6 +71,19 @@ pub fn crossref_target_view(block: &Block) -> Option<CrossrefTargetView<'_>> {
     // node participates in crossrefs". `FloatRefTarget` and `Theorem`
     // always carry it; `Callout` gets it populated only when the user
     // gave it a crossref id.
+    view_from_plain_data(node)
+}
+
+/// Inline-level counterpart to [`crossref_target_view`].
+///
+/// Inline crossref targets exist too — labelled display equations are
+/// `Inline::Custom("Equation")` with the standard plain_data triple. A
+/// walker that wants a uniform outline of all crossref targets (as the
+/// LSP outline does) must recognize both shapes.
+pub fn crossref_target_view_inline(inline: &Inline) -> Option<CrossrefTargetView<'_>> {
+    let Inline::Custom(node) = inline else {
+        return None;
+    };
     view_from_plain_data(node)
 }
 

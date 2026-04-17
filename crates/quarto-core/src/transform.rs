@@ -126,6 +126,11 @@ impl TransformPipeline {
         self.transforms.is_empty()
     }
 
+    /// Iterate over the transforms in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = &dyn AstTransform> {
+        self.transforms.iter().map(|t| t.as_ref())
+    }
+
     /// Execute all transforms in insertion order.
     ///
     /// # Arguments

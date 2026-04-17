@@ -246,6 +246,88 @@ pub fn build_html_pipeline_with_stages(
     Pipeline::new(stages)
 }
 
+/// Build the transform pipeline used by LSP-style document analysis.
+///
+/// This is the analysis-time equivalent of [`build_transform_pipeline`]. It
+/// runs the minimal set of transforms needed to leave the AST in an
+/// outline-ready state:
+///
+/// - Sugaring transforms (`Callout`, `Theorem`, `Proof`, `FloatRefTarget`,
+///   `EquationLabel`) so `::: {#fig-…}` / `::: {#thm-…}` / `$$ … $$ {#eq-…}`
+///   become canonical `CustomNode`s with `plain_data.ref_type`, `kind`, and
+///   `identifier`.
+/// - `CrossrefIndexTransform` so each target's `plain_data.order` carries
+///   the section-scoped number that will appear in the rendered document.
+///
+/// **Deliberately omitted** (compared to [`build_transform_pipeline`]):
+///
+/// - `ShortcodeResolveTransform` — runs Lua, costly at LSP speed. Simple
+///   `{{< meta key >}}` resolution is handled by the lightweight
+///   `quarto_analysis::MetaShortcodeTransform` in `quarto-lsp-core`.
+/// - `MetadataNormalizeTransform`, `TitleBlockTransform`, `SectionizeTransform`,
+///   `FootnotesTransform` — render-shape transforms that don't affect the
+///   outline.
+/// - `CalloutResolveTransform` — converts callout custom nodes back into
+///   render-visible Divs; the outline walker wants the custom-node form.
+/// - `CrossrefResolveTransform` — rewrites `@fig-1` citations; not needed
+///   for outline.
+/// - TOC phase — the outline *is* our TOC; no need to build another one.
+/// - Finalization phase (`AppendixStructure`, `CrossrefRender`,
+///   `ResourceCollector`) — `CrossrefRender` would destroy the crossref
+///   custom nodes we rely on; the others are render-only.
+pub fn build_analysis_transform_pipeline() -> TransformPipeline {
+    let mut pipeline: TransformPipeline = TransformPipeline::new();
+
+    // Normalization (subset): sugaring transforms only.
+    pipeline.push(Box::new(CalloutTransform::new()));
+    pipeline.push(Box::new(TheoremSugarTransform::new()));
+    pipeline.push(Box::new(ProofSugarTransform::new()));
+    pipeline.push(Box::new(FloatRefTargetSugarTransform::new()));
+    pipeline.push(Box::new(EquationLabelTransform::new()));
+
+    // Crossref indexing for section-scoped numbering.
+    pipeline.push(Box::new(CrossrefIndexTransform::new()));
+
+    pipeline
+}
+
+/// Build a pipeline suitable for LSP-style document analysis (outline,
+/// symbols, folding ranges, diagnostics) without any rendering, engine
+/// execution, or user-filter side effects.
+///
+/// ## Stages
+///
+/// 1. [`ParseDocumentStage`] — QMD → Pandoc AST
+/// 2. [`MetadataMergeStage`] — merge project / directory / document /
+///    runtime metadata into `pandoc.meta`
+/// 3. [`PreEngineSugaringStage`] — seed the [`RefTypeRegistry`] from
+///    `crossref.custom` metadata, seed a [`CrossrefIndex`], desugar
+///    code-block shorthand
+/// 4. [`AstTransformsStage`] with the [`build_analysis_transform_pipeline`]
+///    subset — apply sugaring + crossref indexing
+///
+/// After this pipeline runs, the AST is in its outline-ready state:
+/// cross-referenceable blocks are `CustomNode`s with
+/// `plain_data.{ref_type, kind, identifier, order}` populated, theorem
+/// titles have been absorbed into their CustomNode's `title` slot, and
+/// figure / table captions live in the `caption_long` / `caption_short`
+/// slots.
+///
+/// [`RefTypeRegistry`]: crate::crossref::RefTypeRegistry
+/// [`CrossrefIndex`]: crate::crossref::CrossrefIndex
+pub fn build_analysis_pipeline() -> Pipeline {
+    let stages: Vec<Box<dyn PipelineStage>> = vec![
+        Box::new(ParseDocumentStage::new()),
+        Box::new(MetadataMergeStage::new()),
+        Box::new(PreEngineSugaringStage::new()),
+        Box::new(AstTransformsStage::with_pipeline(
+            build_analysis_transform_pipeline(),
+        )),
+    ];
+
+    Pipeline::new(stages).expect("analysis pipeline stages should be compatible")
+}
+
 pub async fn run_pipeline(
     content: &[u8],
     source_name: &str,
@@ -736,6 +818,53 @@ mod tests {
         // WASM pipeline has 9 stages (no engine execution, but has pre-engine
         // sugaring + user filters)
         assert_eq!(pipeline.len(), 9);
+    }
+
+    #[test]
+    fn test_build_analysis_pipeline() {
+        use crate::stage::PipelineDataKind;
+
+        let pipeline = build_analysis_pipeline();
+        // Parse + MetadataMerge + PreEngineSugaring + AstTransforms(analysis subset)
+        assert_eq!(pipeline.len(), 4);
+        assert_eq!(pipeline.expected_input(), PipelineDataKind::LoadedSource);
+        assert_eq!(pipeline.expected_output(), PipelineDataKind::DocumentAst);
+    }
+
+    #[test]
+    fn test_build_analysis_transform_pipeline_ordering() {
+        // Lock in the order: sugaring before crossref indexing. The indexer
+        // relies on sugared CustomNodes carrying plain_data.{ref_type, kind,
+        // identifier} — if any sugar transform moves past the indexer the
+        // outline will lose numbers for that ref type.
+        let pipeline = build_analysis_transform_pipeline();
+        let names: Vec<&str> = pipeline.iter().map(|t| t.name()).collect();
+
+        let index_pos = names
+            .iter()
+            .position(|&n| n == "crossref-index")
+            .expect("crossref-index must be in analysis pipeline");
+        let theorem_pos = names
+            .iter()
+            .position(|&n| n == "theorem-sugar")
+            .expect("theorem-sugar must be in analysis pipeline");
+        let float_pos = names
+            .iter()
+            .position(|&n| n == "float-ref-target-sugar")
+            .expect("float-ref-target-sugar must be in analysis pipeline");
+        let equation_pos = names
+            .iter()
+            .position(|&n| n == "equation-label")
+            .expect("equation-label must be in analysis pipeline");
+
+        assert!(theorem_pos < index_pos);
+        assert!(float_pos < index_pos);
+        assert!(equation_pos < index_pos);
+
+        // CrossrefRenderTransform must NOT be in the analysis pipeline — it
+        // replaces crossref custom nodes with render-visible shapes, which
+        // would make the outline walker's job impossible.
+        assert!(!names.contains(&"crossref-render"));
     }
 
     #[test]

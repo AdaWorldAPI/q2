@@ -2009,9 +2009,13 @@ name = "quarto-lsp-core"
 version = "0.1.0"
 dependencies = [
  "pampa",
+ "pollster",
  "quarto-analysis",
+ "quarto-core",
  "quarto-error-reporting",
+ "quarto-pandoc-types",
  "quarto-source-map",
+ "quarto-system-runtime",
  "quarto-yaml",
  "serde",
  "serde_json",
