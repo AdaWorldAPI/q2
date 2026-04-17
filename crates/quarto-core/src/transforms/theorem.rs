@@ -40,6 +40,7 @@
 //! phase introduces kind-specific structure (e.g., example with
 //! "solution" slot), we can split then.
 
+use quarto_error_reporting::DiagnosticMessage;
 use quarto_pandoc_types::attr::{Attr, AttrSourceInfo};
 use quarto_pandoc_types::block::{Block, Blocks, Div, Header};
 use quarto_pandoc_types::custom::{CustomNode, Slot};
@@ -48,7 +49,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 use serde_json::json;
 
 use crate::Result;
-use crate::crossref::THEOREM;
+use crate::crossref::{RefTypeRegistry, THEOREM};
 use crate::render::RenderContext;
 use crate::transform::AstTransform;
 
@@ -89,46 +90,60 @@ impl AstTransform for TheoremSugarTransform {
         "theorem-sugar"
     }
 
-    async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {
-        transform_blocks(&mut ast.blocks);
+    async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {
+        // The registry is optional — in tests that don't wire it up, we
+        // degrade to class-only detection (matches pre-id-prefix behavior).
+        // Take it out of the context temporarily so we can also borrow
+        // `ctx.diagnostics` mutably for the inconsistency warnings.
+        let registry = ctx.ref_type_registry.take();
+        transform_blocks(&mut ast.blocks, registry.as_ref(), &mut ctx.diagnostics);
+        ctx.ref_type_registry = registry;
         Ok(())
     }
 }
 
-fn transform_blocks(blocks: &mut Blocks) {
+fn transform_blocks(
+    blocks: &mut Blocks,
+    registry: Option<&RefTypeRegistry>,
+    diagnostics: &mut Vec<DiagnosticMessage>,
+) {
     for block in blocks.iter_mut() {
-        transform_block(block);
+        transform_block(block, registry, diagnostics);
     }
 }
 
-fn transform_block(block: &mut Block) {
+fn transform_block(
+    block: &mut Block,
+    registry: Option<&RefTypeRegistry>,
+    diagnostics: &mut Vec<DiagnosticMessage>,
+) {
     // Recurse into children first so nested theorems are handled bottom-up.
     match block {
-        Block::BlockQuote(bq) => transform_blocks(&mut bq.content),
+        Block::BlockQuote(bq) => transform_blocks(&mut bq.content, registry, diagnostics),
         Block::OrderedList(ol) => {
             for item in &mut ol.content {
-                transform_blocks(item);
+                transform_blocks(item, registry, diagnostics);
             }
         }
         Block::BulletList(bl) => {
             for item in &mut bl.content {
-                transform_blocks(item);
+                transform_blocks(item, registry, diagnostics);
             }
         }
         Block::DefinitionList(dl) => {
             for (_term, defs) in &mut dl.content {
                 for def in defs {
-                    transform_blocks(def);
+                    transform_blocks(def, registry, diagnostics);
                 }
             }
         }
-        Block::Figure(fig) => transform_blocks(&mut fig.content),
-        Block::Div(div) => transform_blocks(&mut div.content),
+        Block::Figure(fig) => transform_blocks(&mut fig.content, registry, diagnostics),
+        Block::Div(div) => transform_blocks(&mut div.content, registry, diagnostics),
         Block::Custom(node) => {
             for (_name, slot) in node.slots.iter_mut() {
                 match slot {
-                    Slot::Block(b) => transform_block(b),
-                    Slot::Blocks(bs) => transform_blocks(bs),
+                    Slot::Block(b) => transform_block(b, registry, diagnostics),
+                    Slot::Blocks(bs) => transform_blocks(bs, registry, diagnostics),
                     _ => {}
                 }
             }
@@ -137,8 +152,39 @@ fn transform_block(block: &mut Block) {
     }
 
     // Check this node itself.
+    //
+    // Detection strategy follows Q1 (`is_theorem_div` in theorem.lua): a
+    // Div is theorem-like iff **either** its class list names a theorem
+    // flavor, **or** its id prefix classifies to a theorem ref-type via
+    // the registry. Class takes priority because the author's explicit
+    // intent is the clearer signal, but id-only (`::: {#thm-foo}`) must
+    // also trigger sugaring — otherwise `FloatRefTargetSugarTransform`
+    // greedily claims the div and renders it as a generic Div with a
+    // `Kind N:` caption instead of a theorem.
     if let Block::Div(div) = block {
-        if let Some((ref_type, kind)) = match_theorem_class(&div.attr) {
+        let class_match = match_theorem_class(&div.attr);
+        let id_match = match_theorem_id(&div.attr, registry);
+
+        // If the class says "theorem-like" but the id resolves to a
+        // non-theorem registered ref-type, flag the inconsistency (plan
+        // §D1 edge case). Sugar as a theorem with the class's ref-type —
+        // that's the visible-display intent — but record the mismatch.
+        if let (Some((class_rt, _)), Some(reg_id_def)) =
+            (class_match, registry_classify(&div.attr, registry))
+        {
+            if reg_id_def.ref_type != class_rt {
+                // The user wrote `.theorem` / `.lemma` / … but `#foo-bar`
+                // where `foo` is a registered (non-theorem) prefix like `fig`.
+                diagnostics.push(DiagnosticMessage::warning(format!(
+                    "inconsistent cross-reference specification: `{}` id prefix is incompatible with `{}` class",
+                    reg_id_def.ref_type,
+                    theorem_class_for(class_rt),
+                )));
+            }
+        }
+
+        let matched = class_match.or(id_match);
+        if let Some((ref_type, kind)) = matched {
             let converted = convert_div(
                 std::mem::replace(
                     div,
@@ -170,6 +216,39 @@ fn match_theorem_class(attr: &Attr) -> Option<(&'static str, &'static str)> {
         }
     }
     None
+}
+
+/// If this Div's id prefix classifies (via the registry) to one of the
+/// built-in theorem ref-types, return the matching `(ref_type, kind)`
+/// pair. Mirrors Q1's `has_theorem_ref` — detection purely by id prefix.
+///
+/// Returns `None` if no registry is available or the id doesn't match a
+/// theorem flavor. We filter on the fixed [`THEOREM_CLASSES`] set rather
+/// than trust the registry's `kind`, because user-defined categories
+/// could collide with theorem prefixes in exotic metadata and we want
+/// only the built-in theorem types to take this sugar path.
+fn match_theorem_id(
+    attr: &Attr,
+    registry: Option<&RefTypeRegistry>,
+) -> Option<(&'static str, &'static str)> {
+    let registry = registry?;
+    let def = registry.classify_cite_id(&attr.0)?;
+    for (_class, ref_type, kind) in THEOREM_CLASSES {
+        if *ref_type == def.ref_type {
+            return Some((ref_type, kind));
+        }
+    }
+    None
+}
+
+/// Classify the id via the registry without the theorem-flavor filter.
+/// Used by the inconsistency diagnostic to see what the *id* alone says,
+/// independent of what the class says.
+fn registry_classify<'r>(
+    attr: &Attr,
+    registry: Option<&'r RefTypeRegistry>,
+) -> Option<&'r crate::crossref::RefTypeDef> {
+    registry?.classify_cite_id(&attr.0)
 }
 
 fn empty_attr() -> Attr {
@@ -291,8 +370,17 @@ mod tests {
     }
 
     fn run(mut blocks: Vec<Block>) -> Vec<Block> {
-        transform_blocks(&mut blocks);
+        let mut diags = Vec::new();
+        transform_blocks(&mut blocks, None, &mut diags);
         blocks
+    }
+
+    /// Run with a built-in registry so id-prefix detection kicks in.
+    fn run_with_registry(mut blocks: Vec<Block>) -> (Vec<Block>, Vec<DiagnosticMessage>) {
+        let registry = RefTypeRegistry::builtin();
+        let mut diags = Vec::new();
+        transform_blocks(&mut blocks, Some(&registry), &mut diags);
+        (blocks, diags)
     }
 
     #[test]
@@ -458,5 +546,98 @@ mod tests {
             panic!()
         };
         assert_eq!(node.plain_data["identifier"], "");
+    }
+
+    #[test]
+    fn id_prefix_alone_triggers_theorem_sugar() {
+        // `::: {#thm-x}` without `.theorem` class still sugars — Q1 parity
+        // (see plan bd-gvhe §D1). Without this, FloatRefTargetSugarTransform
+        // would claim it later and render as a generic Div with a
+        // "Theorem 1: " caption on the last paragraph.
+        let div = Block::Div(Div {
+            attr: attr_id_classes("thm-x", &[]),
+            content: vec![para("body")],
+            source_info: si(),
+            attr_source: AttrSourceInfo::empty(),
+        });
+        let (out, diags) = run_with_registry(vec![div]);
+        assert!(diags.is_empty(), "unexpected diags: {diags:?}");
+        let Block::Custom(node) = &out[0] else {
+            panic!("expected Theorem custom node, got {:?}", out[0]);
+        };
+        assert_eq!(node.type_name, THEOREM);
+        assert_eq!(node.plain_data["ref_type"], "thm");
+        assert_eq!(node.plain_data["kind"], "Theorem");
+    }
+
+    #[test]
+    fn id_prefix_detects_all_theorem_flavors() {
+        for (_class, ref_type, kind) in THEOREM_CLASSES {
+            let div = Block::Div(Div {
+                attr: attr_id_classes(&format!("{ref_type}-x"), &[]),
+                content: vec![para("body")],
+                source_info: si(),
+                attr_source: AttrSourceInfo::empty(),
+            });
+            let (out, _) = run_with_registry(vec![div]);
+            let Block::Custom(node) = &out[0] else {
+                panic!("{ref_type} by id alone did not sugar");
+            };
+            assert_eq!(node.plain_data["ref_type"], *ref_type);
+            assert_eq!(node.plain_data["kind"], *kind);
+        }
+    }
+
+    #[test]
+    fn id_only_non_theorem_prefix_leaves_div_alone() {
+        // `::: {#fig-foo}` must NOT be theorem-sugared — it's a float.
+        let div = Block::Div(Div {
+            attr: attr_id_classes("fig-foo", &[]),
+            content: vec![para("caption")],
+            source_info: si(),
+            attr_source: AttrSourceInfo::empty(),
+        });
+        let (out, diags) = run_with_registry(vec![div.clone()]);
+        assert!(diags.is_empty());
+        // Still a Div, not a Custom node.
+        assert!(matches!(out[0], Block::Div(_)));
+    }
+
+    #[test]
+    fn class_id_mismatch_emits_inconsistency_diagnostic() {
+        // Plan §D1 edge case: `.theorem #fig-x` → warn. The div still
+        // sugars as a theorem (class wins for display), but the id
+        // prefix (`fig`) disagrees with the theorem flavor.
+        let div = Block::Div(Div {
+            attr: attr_id_classes("fig-x", &["theorem"]),
+            content: vec![para("body")],
+            source_info: si(),
+            attr_source: AttrSourceInfo::empty(),
+        });
+        let (out, diags) = run_with_registry(vec![div]);
+        assert!(matches!(out[0], Block::Custom(_)));
+        assert_eq!(
+            diags.len(),
+            1,
+            "expected 1 inconsistency diag, got {diags:?}"
+        );
+        let msg = format!("{:?}", diags[0]);
+        assert!(
+            msg.contains("fig") && msg.contains("theorem"),
+            "expected message naming both `fig` prefix and `theorem` class, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn class_id_match_emits_no_diagnostic() {
+        // `::: {.theorem #thm-x}` — consistent. No warning.
+        let div = Block::Div(Div {
+            attr: attr_id_classes("thm-x", &["theorem"]),
+            content: vec![para("body")],
+            source_info: si(),
+            attr_source: AttrSourceInfo::empty(),
+        });
+        let (_out, diags) = run_with_registry(vec![div]);
+        assert!(diags.is_empty(), "unexpected diags: {diags:?}");
     }
 }

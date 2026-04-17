@@ -14,8 +14,9 @@
 use quarto_core::crossref::{CrossrefEntry, CrossrefIndex, RefTypeRegistry, metadata};
 use quarto_core::transform::AstTransform;
 use quarto_core::transforms::{
-    CalloutTransform, CrossrefIndexTransform, CrossrefResolveTransform, EquationLabelTransform,
-    FloatRefTargetSugarTransform, ProofSugarTransform, TheoremSugarTransform,
+    CalloutTransform, CrossrefIndexTransform, CrossrefRenderTransform, CrossrefResolveTransform,
+    EquationLabelTransform, FloatRefTargetSugarTransform, ProofSugarTransform,
+    TheoremSugarTransform,
 };
 use quarto_pandoc_types::pandoc::Pandoc;
 
@@ -728,4 +729,407 @@ $$ {#eq-c}
     assert_eq!(idx.get("eq-a").unwrap().order.order, 1);
     assert_eq!(idx.get("eq-b").unwrap().order.order, 2);
     assert_eq!(idx.get("eq-c").unwrap().order.order, 3);
+}
+
+// === Phase A fixtures: block-crossref HTML shape (bd-gvhe) ===
+//
+// Assertions here operate on the AST *after* CrossrefRenderTransform —
+// the final shape the writer sees. Q1 renders theorems as a Div with
+// class `theorem` (+ flavor env for non-thm), where the first block is
+// a Paragraph whose content begins with
+// `Span(class=theorem-title) > Strong > ("Theorem\u{a0}N" + optional
+// " (Title)")`, followed by a space and then the original first-para
+// inlines. We target that shape byte-for-byte.
+
+/// Same as [`run_crossref`] but also runs `CrossrefRenderTransform` so
+/// fixtures can assert over writer-visible AST shapes (Div class list,
+/// inline structure of the prepended theorem-title label, resolved
+/// cross-reference link text, etc.).
+async fn run_crossref_rendered(
+    qmd: &str,
+) -> (
+    Pandoc,
+    CrossrefIndex,
+    Vec<quarto_error_reporting::DiagnosticMessage>,
+) {
+    // Re-implement run_crossref inline so we can keep the shared
+    // RenderContext across the extra render step. Duplicating a dozen
+    // lines is cheaper than refactoring the helper for every caller.
+    let (mut ast, _ast_ctx, _warnings) = pampa::readers::qmd::read(
+        qmd.as_bytes(),
+        false,
+        "<fixture>",
+        &mut std::io::sink(),
+        true,
+        None,
+    )
+    .expect("qmd parse");
+
+    let mut registry = RefTypeRegistry::builtin();
+    let extracted = metadata::read(&ast.meta, &mut registry);
+    registry.extend_from_promised(&extracted.promised_ids);
+
+    quarto_core::crossref::codeblock_shorthand::desugar_blocks(&mut ast.blocks, &registry);
+
+    use quarto_core::format::Format;
+    use quarto_core::project::{DocumentInfo, ProjectConfig, ProjectContext};
+    use quarto_core::render::{BinaryDependencies, RenderContext};
+    use std::path::PathBuf;
+
+    let project = ProjectContext {
+        dir: PathBuf::from("/p"),
+        config: ProjectConfig::default(),
+        is_single_file: true,
+        files: vec![],
+        output_dir: PathBuf::from("/p"),
+    };
+    let doc = DocumentInfo::from_path("/p/t.qmd");
+    let format = Format::html();
+    let binaries = BinaryDependencies::new();
+    let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+    ctx.ref_type_registry = Some(registry);
+    ctx.crossref_index = Some({
+        let mut idx = CrossrefIndex::new(quarto_source_map::FileId(0));
+        idx.promised_ids = extracted.promised_ids;
+        idx
+    });
+
+    for (name, transform) in [
+        (
+            "callout",
+            Box::new(CalloutTransform::new()) as Box<dyn AstTransform>,
+        ),
+        ("theorem", Box::new(TheoremSugarTransform::new())),
+        ("proof", Box::new(ProofSugarTransform::new())),
+        ("float", Box::new(FloatRefTargetSugarTransform::new())),
+        ("equation-label", Box::new(EquationLabelTransform::new())),
+        ("index", Box::new(CrossrefIndexTransform::new())),
+        ("resolve", Box::new(CrossrefResolveTransform::new())),
+        ("render", Box::new(CrossrefRenderTransform::new())),
+    ] {
+        transform
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+    }
+
+    (ast, ctx.crossref_index.unwrap(), ctx.diagnostics)
+}
+
+/// Helper: return the first Div in the AST matching the given id.
+fn find_div_by_id<'a>(
+    blocks: &'a [quarto_pandoc_types::block::Block],
+    id: &str,
+) -> Option<&'a quarto_pandoc_types::block::Div> {
+    use quarto_pandoc_types::block::Block;
+    for b in blocks {
+        if let Block::Div(d) = b {
+            if d.attr.0 == id {
+                return Some(d);
+            }
+        }
+    }
+    None
+}
+
+/// Helper: stringify an `Inlines` list into a plain string, concatenating
+/// any `Str`/`Space` content. Good enough for the span-content assertions
+/// below where we don't care about source location.
+fn flatten_inlines(inlines: &[quarto_pandoc_types::inline::Inline]) -> String {
+    use quarto_pandoc_types::inline::Inline;
+    let mut s = String::new();
+    for i in inlines {
+        match i {
+            Inline::Str(x) => s.push_str(&x.text),
+            Inline::Space(_) => s.push(' '),
+            Inline::SoftBreak(_) => s.push(' '),
+            Inline::Strong(x) => s.push_str(&flatten_inlines(&x.content)),
+            Inline::Emph(x) => s.push_str(&flatten_inlines(&x.content)),
+            Inline::Span(x) => s.push_str(&flatten_inlines(&x.content)),
+            Inline::Link(x) => s.push_str(&flatten_inlines(&x.content)),
+            _ => {}
+        }
+    }
+    s
+}
+
+/// A.1 — `::: {#thm-line}` without `.theorem` class still renders as a
+/// theorem. Today this gets claimed by FloatRefTargetSugarTransform and
+/// rendered as a generic Div with a trailing "Theorem 1: " caption
+/// paragraph; after the fix, id-prefix-only should trigger theorem
+/// sugar and produce the Q1-shape label.
+#[tokio::test]
+async fn rendered_theorem_id_only_shape() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#thm-line}
+A theorem body.
+:::
+"#;
+    let (ast, _idx, _diags) = run_crossref_rendered(qmd).await;
+    let div = find_div_by_id(&ast.blocks, "thm-line").expect("thm-line Div");
+
+    // Class list: exactly ["theorem"] for ref_type=thm (env == "theorem",
+    // so no flavor class added).
+    assert_eq!(
+        div.attr.1,
+        vec!["theorem"],
+        "expected [\"theorem\"], got {:?}",
+        div.attr.1
+    );
+
+    // First block is a Paragraph.
+    use quarto_pandoc_types::block::Block;
+    use quarto_pandoc_types::inline::Inline;
+    let Block::Paragraph(first) = div.content.first().expect("first block") else {
+        panic!("expected Paragraph, got {:?}", div.content.first());
+    };
+    // First inline is a Span with class `theorem-title`.
+    let Inline::Span(span) = &first.content[0] else {
+        panic!("expected Span, got {:?}", first.content[0]);
+    };
+    assert_eq!(
+        span.attr.1,
+        vec!["theorem-title"],
+        "expected [\"theorem-title\"], got {:?}",
+        span.attr.1
+    );
+
+    // Inside the Span: a Strong containing "Theorem\u{a0}1" (nbsp) and
+    // NOT ending with a period.
+    let Inline::Strong(strong) = &span.content[0] else {
+        panic!(
+            "expected Strong in theorem-title span, got {:?}",
+            span.content[0]
+        );
+    };
+    let strong_text = flatten_inlines(&strong.content);
+    assert_eq!(
+        strong_text, "Theorem\u{a0}1",
+        "expected 'Theorem<nbsp>1', got {strong_text:?}"
+    );
+}
+
+/// A.2 — Lemma: id prefix `lem-x`, classes should be `["theorem",
+/// "lemma"]`. Mirrors Q1's `el.attr.classes:insert("theorem")` + `if
+/// env ~= "theorem" then insert(env)` logic.
+#[tokio::test]
+async fn rendered_lemma_id_only_classes() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#lem-euclid}
+Lemma body.
+:::
+"#;
+    let (ast, _idx, _diags) = run_crossref_rendered(qmd).await;
+    let div = find_div_by_id(&ast.blocks, "lem-euclid").expect("lem-euclid Div");
+    assert_eq!(
+        div.attr.1,
+        vec!["theorem", "lemma"],
+        "expected [\"theorem\", \"lemma\"], got {:?}",
+        div.attr.1
+    );
+}
+
+/// A.3 — Header inside the theorem div is lifted to the title and
+/// appended to the label as " (Header text)".
+#[tokio::test]
+async fn rendered_theorem_header_lifted_into_title() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#thm-line}
+
+## Line
+
+Body.
+:::
+"#;
+    let (ast, _idx, _diags) = run_crossref_rendered(qmd).await;
+    let div = find_div_by_id(&ast.blocks, "thm-line").expect("thm-line Div");
+
+    // No Header anywhere in the rendered div content.
+    use quarto_pandoc_types::block::Block;
+    assert!(
+        !div.content.iter().any(|b| matches!(b, Block::Header(_))),
+        "expected no Header in rendered theorem content, got {:?}",
+        div.content
+    );
+
+    // Find the theorem-title span in the first Paragraph.
+    let Block::Paragraph(first) = div.content.first().expect("first block") else {
+        panic!()
+    };
+    use quarto_pandoc_types::inline::Inline;
+    let Inline::Span(span) = &first.content[0] else {
+        panic!();
+    };
+    let Inline::Strong(strong) = &span.content[0] else {
+        panic!()
+    };
+    let text = flatten_inlines(&strong.content);
+    // Exact target: "Theorem\u{a0}1 (Line)" (no trailing period).
+    assert_eq!(text, "Theorem\u{a0}1 (Line)", "got {text:?}");
+}
+
+/// A.4 — Resolved `@thm-x` link uses nbsp in its display text.
+#[tokio::test]
+async fn rendered_theorem_ref_link_uses_nbsp() {
+    let qmd = r#"---
+title: t
+---
+
+::: {#thm-x}
+Body.
+:::
+
+See @thm-x.
+"#;
+    let (ast, _idx, _diags) = run_crossref_rendered(qmd).await;
+
+    // Find the resolved link — it's inside the "See @thm-x." paragraph.
+    use quarto_pandoc_types::block::Block;
+    use quarto_pandoc_types::inline::Inline;
+    let mut link_text: Option<String> = None;
+    for b in &ast.blocks {
+        if let Block::Paragraph(p) = b {
+            for i in &p.content {
+                if let Inline::Link(l) = i {
+                    if l.target.0 == "#thm-x" {
+                        link_text = Some(flatten_inlines(&l.content));
+                    }
+                }
+            }
+        }
+    }
+    let link_text = link_text.expect("resolved link for thm-x");
+    assert_eq!(
+        link_text, "Theorem\u{a0}1",
+        "expected nbsp in link text, got {link_text:?}"
+    );
+}
+
+/// A.5 — Empty theorem (no content inside the div): the renderer must
+/// still produce a leading Paragraph (Q1 prepends a `\u{a0}` Para as a
+/// placeholder, then tprepends the label into it). Expected result:
+/// a single Paragraph whose content ends with `\u{a0}` after the label
+/// span + space.
+#[tokio::test]
+async fn rendered_empty_theorem_placeholder_nbsp() {
+    // `:::` immediately followed by `:::` yields an empty Div.
+    let qmd = r#"---
+title: t
+---
+
+::: {#thm-empty}
+:::
+"#;
+    let (ast, _idx, _diags) = run_crossref_rendered(qmd).await;
+    let div = find_div_by_id(&ast.blocks, "thm-empty").expect("thm-empty Div");
+
+    use quarto_pandoc_types::block::Block;
+    use quarto_pandoc_types::inline::Inline;
+    // Must have at least one block and the first must be a Paragraph.
+    let Block::Paragraph(first) = div.content.first().expect("first block") else {
+        panic!("expected leading Paragraph, got {:?}", div.content.first());
+    };
+    // Must begin with the theorem-title Span.
+    let Inline::Span(span) = &first.content[0] else {
+        panic!(
+            "expected theorem-title Span first, got {:?}",
+            first.content[0]
+        );
+    };
+    assert_eq!(span.attr.1, vec!["theorem-title"]);
+    // Must contain a nbsp Str somewhere after the label — that's the
+    // placeholder body the Q1 filter inserts.
+    let any_nbsp = first
+        .content
+        .iter()
+        .any(|i| matches!(i, Inline::Str(s) if s.text == "\u{a0}"));
+    assert!(
+        any_nbsp,
+        "expected nbsp placeholder in empty-theorem paragraph, got {:?}",
+        first.content
+    );
+}
+
+/// F.1 — One example of each Q1 theorem flavor. For each `(ref_type,
+/// env, kind)`, an id-only Div `::: {#<ref>-x}` should render as
+/// `<div class="<q1-classes>">` where `q1-classes = ["theorem"]` (for
+/// thm) or `["theorem", env]` (for everything else). Also verifies the
+/// label kind matches.
+#[tokio::test]
+async fn rendered_all_theorem_flavors_classes_and_labels() {
+    // (ref_type, env-class-if-different-from-theorem, kind).
+    let flavors: &[(&str, Option<&str>, &str)] = &[
+        ("thm", None, "Theorem"),
+        ("lem", Some("lemma"), "Lemma"),
+        ("cor", Some("corollary"), "Corollary"),
+        ("prp", Some("proposition"), "Proposition"),
+        ("cnj", Some("conjecture"), "Conjecture"),
+        ("def", Some("definition"), "Definition"),
+        ("exm", Some("example"), "Example"),
+        ("exr", Some("exercise"), "Exercise"),
+    ];
+
+    // One document exercising all flavors in sequence. Per-flavor
+    // numbering restarts at 1 since each is its own ref-type bucket.
+    let body: String = flavors
+        .iter()
+        .map(|(rt, _, _)| format!("::: {{#{rt}-x}}\nBody for {rt}.\n:::\n\n"))
+        .collect();
+    let qmd = format!("---\ntitle: t\n---\n\n{body}");
+
+    let (ast, _idx, diags) = run_crossref_rendered(&qmd).await;
+    assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
+
+    for (rt, env, kind) in flavors {
+        let id = format!("{rt}-x");
+        let div = find_div_by_id(&ast.blocks, &id)
+            .unwrap_or_else(|| panic!("Div id={id} missing from rendered AST"));
+
+        let expected_classes: Vec<String> = match env {
+            Some(e) => vec!["theorem".to_string(), (*e).to_string()],
+            None => vec!["theorem".to_string()],
+        };
+        assert_eq!(
+            div.attr.1, expected_classes,
+            "{rt}: expected classes {expected_classes:?}, got {:?}",
+            div.attr.1
+        );
+
+        // The label kind ("Theorem", "Lemma", …) is the first Str in
+        // the Strong inside the theorem-title span. Assert matches the
+        // flavor's display kind.
+        use quarto_pandoc_types::block::Block;
+        use quarto_pandoc_types::inline::Inline;
+        let Block::Paragraph(first) = div.content.first().unwrap() else {
+            panic!("{rt}: expected first Paragraph")
+        };
+        let Inline::Span(span) = &first.content[0] else {
+            panic!(
+                "{rt}: expected theorem-title Span, got {:?}",
+                first.content[0]
+            )
+        };
+        let Inline::Strong(strong) = &span.content[0] else {
+            panic!("{rt}: expected Strong in theorem-title span")
+        };
+        let Inline::Str(label) = &strong.content[0] else {
+            panic!("{rt}: expected first-Strong Str")
+        };
+        // "Kind\u{a0}1" is the expected label (single Div per flavor in
+        // this document means order=1 across the board).
+        assert_eq!(
+            label.text,
+            format!("{kind}\u{a0}1"),
+            "{rt}: wrong label text"
+        );
+    }
 }
