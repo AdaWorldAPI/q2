@@ -155,6 +155,8 @@ impl PipelineStage for AstTransformsStage {
         // Transfer mutable state to the RenderContext
         render_ctx.artifacts = std::mem::take(&mut ctx.artifacts);
         render_ctx.includes = std::mem::take(&mut ctx.includes);
+        render_ctx.ref_type_registry = ctx.ref_type_registry.take();
+        render_ctx.crossref_index = ctx.crossref_index.take();
         render_ctx.observer = ctx.observer.clone();
 
         // Execute the transform pipeline
@@ -163,6 +165,8 @@ impl PipelineStage for AstTransformsStage {
         // Transfer mutable state back to StageContext
         ctx.artifacts = render_ctx.artifacts;
         ctx.includes = render_ctx.includes;
+        ctx.ref_type_registry = render_ctx.ref_type_registry;
+        ctx.crossref_index = render_ctx.crossref_index;
 
         // Transfer any diagnostics collected during transforms
         ctx.diagnostics.extend(render_ctx.diagnostics);

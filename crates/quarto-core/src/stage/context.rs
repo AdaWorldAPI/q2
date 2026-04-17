@@ -27,6 +27,7 @@ use super::data::PandocIncludes;
 use super::error::PipelineError;
 use super::observer::{NoopObserver, PipelineObserver};
 use crate::artifact::ArtifactStore;
+use crate::crossref::{CrossrefIndex, RefTypeRegistry};
 use crate::extension::Extension;
 use crate::format::Format;
 use crate::project::{DocumentInfo, ProjectContext};
@@ -80,6 +81,19 @@ pub struct StageContext {
     /// Diagnostics (warnings, errors, info) collected during execution
     pub diagnostics: Vec<DiagnosticMessage>,
 
+    /// Ref-type registry: built-in + `crossref.custom` + promised-id prefixes.
+    ///
+    /// Populated by `PreEngineSugaringStage` after metadata merge and before
+    /// engine execution. Frozen thereafter. See design plan D7.
+    pub ref_type_registry: Option<RefTypeRegistry>,
+
+    /// Per-document crossref index.
+    ///
+    /// Populated incrementally by transforms in the crossref phase of
+    /// `AstTransformsStage` and consumed by later transforms and back-end
+    /// renderers. Bridged to/from `RenderContext` by `AstTransformsStage`.
+    pub crossref_index: Option<CrossrefIndex>,
+
     // === Observation & Control ===
     /// Observer for tracing, progress reporting, and WASM callbacks
     pub observer: Arc<dyn PipelineObserver>,
@@ -129,6 +143,8 @@ impl StageContext {
             artifacts: ArtifactStore::new(),
             includes: PandocIncludes::default(),
             diagnostics: Vec::new(),
+            ref_type_registry: None,
+            crossref_index: None,
             observer: Arc::new(NoopObserver),
             cancellation: Cancellation::new(),
         })
