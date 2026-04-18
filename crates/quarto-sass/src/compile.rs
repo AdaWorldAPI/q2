@@ -45,13 +45,16 @@ use crate::themes::{ThemeContext, process_theme_specs};
 // Native-only imports
 #[cfg(not(target_arch = "wasm32"))]
 use crate::resources::all_resources;
-#[cfg(not(target_arch = "wasm32"))]
+
 use std::sync::OnceLock;
 
 /// Cached default Bootstrap CSS (minified).
 ///
-/// This is compiled once and reused for all documents that don't specify a theme.
-#[cfg(not(target_arch = "wasm32"))]
+/// Compiled once per process and reused for every render of a document
+/// that doesn't specify a theme. Both the native and WASM entry points
+/// consult this cache; on WASM it's critical for keystroke-rate renders
+/// in hub-client because the underlying dart-sass bridge call is
+/// expensive (~100-500 ms per compile).
 static DEFAULT_CSS_CACHE: OnceLock<String> = OnceLock::new();
 
 /// Assemble the SCSS bundle for a themed configuration.
@@ -354,15 +357,31 @@ pub async fn compile_css_from_config(
 /// This compiles Bootstrap with Quarto's customizations but without any
 /// Bootswatch theme or custom SCSS.
 ///
-/// Note: Unlike the native version, this does NOT cache the result.
-/// Caching should be handled by the JavaScript layer (SassCacheManager)
-/// which uses IndexedDB for persistent caching across sessions.
+/// Cached in-process via [`DEFAULT_CSS_CACHE`] (the same `OnceLock` the
+/// native entry uses). First call per WASM module lifetime compiles;
+/// subsequent calls return a clone of the cached string in nanoseconds.
+/// The dart-sass JS bridge is expensive (~100-500 ms), so this cache is
+/// critical for hub-client's keystroke-rate renders on documents with
+/// no theme.
+///
+/// Cross-session persistence is handled at a higher layer by
+/// `CompileThemeCssStage` routing through `runtime.cache_get`/`cache_set`
+/// (see the fix plan at
+/// `claude-notes/plans/2026-04-18-wasm-scss-cache-regression.md`).
 #[cfg(target_arch = "wasm32")]
 pub async fn compile_default_css(
     runtime: &dyn SystemRuntime,
     minified: bool,
 ) -> Result<String, SassError> {
     use crate::bundle::load_title_block_layer;
+
+    // Return cached version if available (only for minified, matching
+    // native). Minified is always true in practice for hub-client.
+    if minified {
+        if let Some(cached) = DEFAULT_CSS_CACHE.get() {
+            return Ok(cached.clone());
+        }
+    }
 
     // Load title block layer - this provides styling for title block elements
     // In TS Quarto, this is always included as a user layer
@@ -375,12 +394,19 @@ pub async fn compile_default_css(
     let load_paths = default_load_paths();
 
     // Compile via JS bridge
-    runtime
+    let css = runtime
         .compile_sass(&scss, &load_paths, minified)
         .await
         .map_err(|e| SassError::CompilationFailed {
             message: e.to_string(),
-        })
+        })?;
+
+    // Cache minified result
+    if minified {
+        let _ = DEFAULT_CSS_CACHE.set(css.clone());
+    }
+
+    Ok(css)
 }
 
 #[cfg(test)]
