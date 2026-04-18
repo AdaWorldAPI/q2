@@ -1,284 +1,291 @@
-# Chess-NARS Vertical Slice — First Consumer of the lance-graph 4-Pillar Contract
+# Chess-NARS Vertical Slice — v2 (ruci + lichess-bot + AriGraph alive)
 
-> **Cross-reference:** `.claude/knowledge/session-capstone-2026-04-18.md` in
-> `AdaWorldAPI/lance-graph`. That doc explains the contract pillars and
-> loose ends. This doc plans the first end-to-end demo that exercises them.
-
----
-
-## 1. Why Chess, Why Now
-
-The 4-pillar agent contract (NARS + thinking styles + qualia + proprioception)
-just landed in `lance-graph-contract`. It compiles, tests pass, DTOs are
-clean. What's missing is **a real consumer under real load**.
-
-Chess is the ideal first domain because:
-
-- **Ground truth.** Engine evaluation is objective. Every `ProprioceptionAxes`
-  reading and every NARS inference can be validated against "was that move
-  actually good" — we know if we lied to ourselves.
-- **Bounded.** Deterministic state, finite move set, clear terminal conditions.
-  No ambiguity when testing the pipeline.
-- **Clean SPO.** Pieces are subjects, verbs are moves, squares are objects.
-  Positions are states. Games are sequences of edges. Maps onto
-  `lance-graph/graph/spo/` directly.
-- **Every pillar fires.** NARS infers, thinking styles pick opening vs endgame
-  mode, qualia surfaces as positional feel, proprioception classifies the
-  engine's own state, world_model carries opponent inference (empathy as
-  theory-of-mind), blackboard lets multiple analyst agents argue about a
-  position.
-- **Transfer.** Every piece of this architecture maps 1:1 to airwar.cloud
-  OSINT: actor ↔ piece, event ↔ move, geopolitical state ↔ position,
-  scenario ↔ game. The contract doesn't change when the domain does.
+> **Supersedes** the earlier draft of this doc.
+> **Cross-reference:** `.claude/knowledge/positioning-quarto-4d.md` (how
+> this demo fits the Neo4j-Browser-plus-Palantir-Gotham positioning) and
+> `session-capstone-2026-04-18.md` in `AdaWorldAPI/lance-graph`.
 
 ---
 
-## 2. Architecture
+## Correction to the earlier draft
+
+The first version of this plan assumed we'd be building:
+
+1. A new `chess-ingest` crate from scratch.
+2. A UCI bridge from scratch.
+3. A lichess adapter from scratch.
+4. An episodic memory retrieval policy.
+
+**All four already exist.** Inventory below.
+
+---
+
+## Existing Pieces (No Build Required)
+
+### `AdaWorldAPI/ruci` — UCI crate
+
+Fork of the public `ruci` crate. Clean UCI Engine ↔ GUI protocol, sync +
+async connections, bundles Stockfish binary.
+
+- `src/engine/` — best_move, info, id, option, registration
+- `src/gui/` — debug, go, position, register, set_option
+- `src/engine_connection{,_async}.rs` — talk-to-engine API
+- `resources/stockfish-ubuntu-x86-64-avx2` + windows build
+
+**Role:** cockpit ↔ Stockfish bridge for ground-truth evaluation.
+Add as workspace dep. Zero lines of new UCI code.
+
+### `AdaWorldAPI/lichess-bot` — Python bridge
+
+Fork of ShailChoksi's lichess-bot with a custom strategy already in place:
+
+- `strategies/stonksfish_crew.py` — Ada's custom strategy hook
+- `lib/lichess.py` — Lichess API wrapper
+- `lib/engine_wrapper.py` — UCI engine wrapper
+- `lib/conversation.py`, `lib/matchmaking.py`, `lib/timer.py`
+
+**Role:** Lichess.com ↔ our cockpit adapter. Streams game state,
+receives our move back. `stonksfish_crew.py` delegates to the cockpit
+over HTTP.
+
+### `AdaWorldAPI/lance-graph` — AriGraph (4,696 lines, SHIPPED)
+
+Located at `crates/lance-graph/src/graph/arigraph/`:
+
+| Module | Lines | Role |
+|--------|-------|------|
+| `episodic.rs` | 210 | `Episode` + `EpisodicMemory` — capacity-bounded, Hamming retrieval, NARS truth |
+| `triplet_graph.rs` | 1064 | SPO knowledge graph, NARS truth, BFS association, spatial paths |
+| `retrieval.rs` | 447 | Fingerprint-based retrieval policies |
+| `sensorium.rs` | 539 | Observation → triplets extractor (position → SPO) |
+| `orchestrator.rs` | 1562 | AriGraph coordinator |
+| `xai_client.rs` | 521 | xAI enrichment client |
+| `language.rs` | 339 | LM bridge |
+
+**Role:** the entire "position → episodic memory → retrieval" layer is
+already done. We just feed chess observations into `sensorium.rs` and
+query `EpisodicMemory` for "positions that felt similar".
+
+### `AdaWorldAPI/lance-graph` — lance-graph-osint (SHIPPED)
+
+Located at `crates/lance-graph-osint/`:
+
+- `crawler.rs` — HTTP pipeline
+- `extractor.rs` — entity / relation extraction
+- `pipeline.rs` — ingest orchestration
+- `reader.rs` — source adapter
+- `lib.rs` — crate root
+
+**Role:** OSINT counterpart to chess ingestion. Same pipeline, different
+input stream (feeds, reports, documents). Transfers in place.
+
+### `AdaWorldAPI/lance-graph` — 4-pillar contract (MERGED TO main)
+
+`nars` + `thinking` + `qualia` + `proprioception` + `world_map` +
+extended `world_model`. Any consumer inherits all five by depending on
+`lance-graph-contract`.
+
+### `AdaWorldAPI/q2` — cockpit-server (DEPLOYED at cubus.up.railway.app)
+
+Axum server with 16 routes defined in source. Currently runs in
+`palantir-demo` mode with `engine: "lance-graph (pending)"`. Tier 0.1
+(pin Cargo.toml) flips pending → live.
+
+---
+
+## Revised Architecture
 
 ```
-[lichess API / chess.com API]
-       │ PGN stream, FEN positions, engine eval
-       ▼
-┌──────────────────────────────────────────────────────────────┐
-│  chess-ingest  (new crate in q2)                             │
-│    PGN → SPO triples                                         │
-│      (Piece, moves_to, Square)                               │
-│      (White, threatens, Black_Pawn_e5)                       │
-│      (Position_A, leads_to, Position_B) + NARS truth         │
-│    Position FEN → cycle_fingerprint (content-addressable)    │
-└─────────────────────────┬────────────────────────────────────┘
-                          │
-                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│  lance-graph-contract + lance-graph                          │
-│    BindSpace row per position                                │
-│      content_fp     = FEN hash                               │
-│      cycle_fp       = engine's analysis signature            │
-│      edge           = CausalEdge64 (move + NARS f/c)         │
-│      qualia         = QualiaVector (17D observation)         │
-│      axes           = ProprioceptionAxes (11D state)         │
-│      proprioception = StateReport (engine's current mode)    │
-│    Cypher:                                                   │
-│      MATCH (p:Pos)-[m:Move]->(q:Pos)                         │
-│      WHERE q.eval > 0.9 AND m.nars_confidence > 0.7          │
-│      RETURN p, m, q                                          │
-└─────────────────────────┬────────────────────────────────────┘
-                          │
-                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│  cognitive-shader-driver  (per-move cycle)                   │
-│    ShaderDispatch (row window = candidate moves)             │
-│    CognitiveShader::cascade over position plane              │
-│    Emits:                                                    │
-│      cycle_fingerprint = analysis signature                  │
-│      CausalEdge64 per move (f,c,plane)                       │
-│      GateDecision (Flow=play, Hold=ponder, Block=blunder?)   │
-└─────────────────────────┬────────────────────────────────────┘
-                          │
-                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│  cockpit-server (already deployed at cubus.up.railway.app)   │
-│    /api/mri/scan    → WorldModelDto as JSON                  │
-│    /api/debug/osint → NARS inference chain                   │
-│    /mri             → 500ms refresh live view                │
-│    /debug           → neural-debug strategy health           │
-└─────────────────────────┬────────────────────────────────────┘
-                          │
-                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│  React 3D cockpit (new component)                            │
-│    - Board as plane (three.js, react-three-fiber)            │
-│    - Pieces as nodes                                         │
-│    - Moves as directed edges (arrow thickness = NARS conf)   │
-│    - ProprioceptionAxes as volumetric cloud above the board  │
-│        (11 colored fog layers, each axis = layer)            │
-│    - Timeline axis for move history                          │
-│    - Forks branch at each decision point                     │
-│    - "Positions that felt similar" = Hamming sweep over      │
-│        cycle_fingerprint columns in BindSpace                │
-│    - Gotham-style object explorer in sidebar                 │
-└──────────────────────────────────────────────────────────────┘
+[Lichess]
+   ▲                      WebSocket
+   │ move                 game stream
+   ▼
+[lichess-bot (Python)]
+   │ stonksfish_crew.py delegates to HTTP
+   ▼
+[cockpit-server /api/bot/move]              ← NEW endpoint (small)
+   │ POST { fen, time_ms }
+   ▼
+┌─────────────────────────────────────────────────────────────┐
+│  AriGraph (already live)                                    │
+│    sensorium.rs:  FEN → triplets (piece, moves_to, square)  │
+│    episodic.rs:   insert Episode, Hamming-retrieve similar  │
+│    triplet_graph: SPO store with NARS truth                 │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│  cognitive-shader-driver (already live)                     │
+│    ShaderDispatch over candidate-move rows                  │
+│    Emits cycle_fingerprint (analysis signature)             │
+│    ProprioceptionAxes classified into StateAnchor           │
+│    DriveMode: Explore (novelty) / Exploit (theory)          │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│  ruci (already live)                                        │
+│    UCI connection to Stockfish                              │
+│    Ground-truth eval for NARS confidence calibration        │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+[cockpit-server picks best move + packages WorldModelDto]
+                      │
+                      ▼
+   back to lichess-bot → back to Lichess
+
+[Side channel]
+   cockpit-server also pushes WorldModelDto to /mri stream
+                      │
+                      ▼
+   React 3D scene at cubus.up.railway.app/chess
 ```
+
+Every box except three is already implemented. The three are:
+
+1. `cockpit-server /api/bot/move` — small new Axum handler.
+2. The React 3D scene at `/chess`.
+3. Thin glue: tell lichess-bot's `stonksfish_crew.py` to POST to our
+   cockpit instead of running Stockfish locally.
 
 ---
 
-## 3. Tier 0 — Minimum Viable Vertical (3-5 days)
+## Revised Tier 0 — 3 days of focused work
 
-### T0.1 — Pin q2 to lance-graph post-capstone
+### T0.1 — Pin q2 to lance-graph main
 
-Edit `q2/Cargo.toml` (workspace) so `lance-graph-contract` points at the
-main commit that includes `proprioception`, `qualia`, `world_map`, and the
-extended `world_model`. Currently the cockpit build uses `engine: "lance-graph
-(pending)"`; this pin replaces the stub.
+Edit `q2/Cargo.toml`:
 
-**Acceptance:** `cargo build -p cockpit-server` completes with the new types
-importable via `lance_graph_contract::{qualia, proprioception, world_map}`.
+```toml
+[workspace.dependencies]
+lance-graph         = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+ruci                = { git = "https://github.com/AdaWorldAPI/ruci",        branch = "master" }
+```
 
-### T0.2 — chess-ingest crate
+Flip cockpit health string from `"lance-graph (pending)"` to `"lance-graph"`.
 
-New crate at `q2/crates/chess-ingest/`:
+**Acceptance:** `cargo build -p cockpit-server` compiles with AriGraph +
+contract + ruci all importable.
+
+### T0.2 — `/api/bot/move` endpoint
+
+New Axum handler in `cockpit-server/src/main.rs`:
 
 ```rust
-pub struct ChessIngestor { /* lichess token, cache, etc. */ }
+#[derive(Deserialize)]
+struct BotMoveReq { fen: String, time_ms: u64, game_id: Option<String> }
 
-impl ChessIngestor {
-    pub async fn pull_game(&self, id: &str) -> Result<Game>;
-    pub fn to_spo(&self, game: &Game) -> Vec<SpoTriple>;
-    pub fn to_edges(&self, game: &Game) -> Vec<CausalEdge64>;
-    pub fn to_positions(&self, game: &Game) -> Vec<PositionRow>;
+async fn bot_move_handler(Json(req): Json<BotMoveReq>) -> Json<BotMoveResp> {
+    // 1. FEN → sensorium → triplets → Episode
+    let triplets = arigraph::sensorium::position_to_triplets(&req.fen);
+    state.episodic.add(&req.fen, &triplets, step);
+
+    // 2. AriGraph retrieval: similar past positions (Hamming)
+    let similar = state.episodic.retrieve_similar(&req.fen, k=8);
+
+    // 3. cognitive-shader-driver dispatch over candidate moves
+    let crystal = state.driver.dispatch(&dispatch_req);
+
+    // 4. ruci: UCI sync eval against Stockfish for ground truth
+    let uci_eval = state.stockfish.evaluate(&req.fen, req.time_ms).await;
+
+    // 5. Package WorldModelDto with qualia + axes + proprioception
+    let wm = build_world_model(&crystal, &uci_eval, &similar);
+
+    // 6. Push to /mri stream channel
+    state.mri_tx.send(wm.clone()).ok();
+
+    Json(BotMoveResp {
+        move_uci: crystal.top_move_uci,
+        world_model: wm,
+    })
 }
 ```
 
-Output: a `Vec<PositionRow>` that feeds directly into `BindSpace`, one row
-per position. FEN → 16K bit content fingerprint via deterministic hash.
+**Acceptance:** `curl -X POST cubus.up.railway.app/api/bot/move -d
+'{"fen":"...startpos...","time_ms":1000}'` returns a UCI move and a
+structured WorldModelDto.
 
-**Acceptance:** ingesting 10 lichess rapid games produces ~800 rows, all
-addressable by position FEN hash, with valid CausalEdge64 moves between them.
+### T0.3 — lichess-bot hook
 
-### T0.3 — ChessRenderer
+In `lichess-bot/strategies/stonksfish_crew.py`, change the move
+computation to `POST /api/bot/move`:
 
-Drop-in `WorldMapRenderer` that relabels the generic anchors as chess phases:
-
-```rust
-impl WorldMapRenderer for ChessRenderer {
-    fn anchor_label(&self, a: StateAnchor) -> &str {
-        match a {
-            StateAnchor::Intake   => "opening",
-            StateAnchor::Focused  => "tactics",
-            StateAnchor::Rest     => "drawn_endgame",
-            StateAnchor::Flow     => "attack",
-            StateAnchor::Observer => "positional",
-            StateAnchor::Balanced => "middlegame",
-            StateAnchor::Baseline => "repertoire",
-        }
-    }
-    fn axis_label(&self, idx: usize) -> &str {
-        const L: [&str; 11] = [
-            "initiative",   // warmth
-            "certainty",    // clarity
-            "complexity",   // depth
-            "king_safety",  // safety
-            "activity",     // vitality
-            "intuition",    // insight
-            "coordination", // contact
-            "threat",       // tension
-            "novelty",      // novelty
-            "beauty",       // wonder
-            "harmony",      // attunement
-        ];
-        L.get(idx).copied().unwrap_or("")
-    }
-}
+```python
+def search(board, time_limit, ponder, draw_offered, root_moves):
+    fen = board.fen()
+    r = requests.post(
+        f"{COCKPIT_URL}/api/bot/move",
+        json={"fen": fen, "time_ms": int(time_limit.time * 1000)},
+        timeout=time_limit.time + 2
+    )
+    return chess.Move.from_uci(r.json()["move_uci"])
 ```
 
-**Acceptance:** rendered `WorldMapDto` reads as chess commentary, not
-generic state telemetry.
+Configure lichess-bot to use `stonksfish_crew` as the default strategy.
 
-### T0.4 — Wire `/api/mri/scan` to real data
+**Acceptance:** run `python3 lichess-bot.py`, accept a challenge from a
+random opponent, play a full game to completion using cockpit-computed
+moves.
 
-In `cockpit-server/src/main.rs`, replace the stub in `mri_scan_handler` with:
+### T0.4 — React 3D scene at `/chess`
 
-1. Load current position from game state.
-2. Run `cognitive-shader-driver` dispatch over candidate moves.
-3. Build `WorldModelDto` with filled `qualia`, `axes`, `proprioception`.
-4. Render via `ChessRenderer`.
-5. Return JSON.
-
-**Acceptance:** `curl cubus.up.railway.app/api/mri/scan` returns structured
-JSON with 11 named axes, anchor classification, NARS inference chain, and
-opponent-model state.
-
-### T0.5 — 3D React scene
-
-New React component in the cockpit frontend:
+Add a new route + component in the cockpit's React build:
 
 ```
 src/features/chess-mri/
   ChessBoard3D.tsx         — react-three-fiber board + pieces
-  ProprioceptionCloud.tsx  — 11 volumetric fog layers, axis-colored
-  InferenceTree.tsx        — NARS chain as branching edges
-  PositionSimilarity.tsx   — "positions that felt similar" grid
-  useMriStream.ts          — 500ms polling on /api/mri/scan
+  ProprioceptionCloud.tsx  — 11 volumetric fog layers, one per axis
+  SimilarPositions.tsx     — grid of "felt like this past game" thumbnails (AriGraph retrieval)
+  MoveInferenceTree.tsx    — NARS chain as branching edges
+  useMoveStream.ts         — WebSocket or 500ms polling on /api/mri/scan
 ```
 
-Palette: Gotham-inspired dark theme. Pieces render as glowing nodes.
-Axes as transparent colored fog (warmth=warm red, clarity=cool white,
-tension=orange, etc). NARS edges animate in/out as confidence updates.
+The ChessRenderer from the v1 plan still applies — map generic
+anchors to chess moods (opening / tactics / attack / positional /
+endgame / draw / zugzwang).
 
-**Acceptance:** loading `cubus.up.railway.app/chess` (new route) shows a
-live 3D board with ambient ProprioceptionAxes cloud, updating every 500ms.
-A human watcher can tell visually when the engine is "feeling confident"
-vs "feeling tense".
-
----
-
-## 4. Tier 1 — Additive after the vertical lands
-
-| # | Extension | Value |
-|---|-----------|-------|
-| T1.1 | Multi-game RL loop (self-play or bot matches) | NARS confidence updates across thousands of positions — the engine "learns" positional themes |
-| T1.2 | Multiple analyst agents on A2A blackboard | "Tactical analyst" and "positional analyst" argue about a move; blackboard consensus resolves |
-| T1.3 | Similarity retrieval ("this feels like that game") | Hamming sweep over cycle_fingerprint columns — first real use of BindSpace as episodic memory |
-| T1.4 | 3D Quarto cell adaptation | Each position is a notebook cell; moves are reactive dependencies; timeline is the cell graph |
-| T1.5 | Gotham object-explorer sidebar | Click any piece → see its "object page" with relationship graph (attacks, defends, pinned-by) |
-| T1.6 | Live engine thinking feed (WebSocket) | Stream NARS inferences as they fire, visualize as text + graph pulses |
-| T1.7 | airwar.cloud transfer | Replace chess ingestor with OSINT ingestor; same contract, same cockpit, real-world use case |
+**Acceptance:** visit `cubus.up.railway.app/chess` during a live bot
+game and see the board rendered in 3D with a volumetric MRI cloud
+updating every 500ms. The SimilarPositions grid shows 8 past positions
+from AriGraph's episodic memory for the current FEN.
 
 ---
 
-## 5. Validation Criteria
+## Tier 1 — After the vertical lands (additive)
 
-The vertical is "done" when all of these are true:
-
-1. `cargo build` at the q2 workspace root compiles everything including
-   `chess-ingest`, `cockpit-server` with real lance-graph, and the React
-   frontend.
-2. `cargo test -p chess-ingest` passes on a corpus of 10 lichess games.
-3. `cubus.up.railway.app/health` reports `engine: "lance-graph"` (not
-   "pending").
-4. `cubus.up.railway.app/api/mri/scan` returns a `WorldModelDto`-shaped JSON
-   with non-null qualia, axes, proprioception, cycle_fingerprint fields.
-5. `cubus.up.railway.app/chess` loads the 3D scene and refreshes every 500ms.
-6. A human watcher, without looking at the evaluation score, can tell from
-   the MRI cloud whether the engine is in a good or bad position.
-
-If criterion 6 is met, the contract's qualia/proprioception framing is
-vindicated — the engine's internal state is externally legible. That's the
-hard part of AGI reduced to a visual.
+| # | Extension | Note |
+|---|-----------|------|
+| T1.1 | Multi-game RL loop | Episodic memory already retains episodes; just add a game-result feedback that revises NARS f/c |
+| T1.2 | Multi-analyst blackboard | Contract has `a2a_blackboard`; spin up two `cognitive-shader-driver` instances with different StyleSelectors |
+| T1.3 | "This feels like that game" narration | Already in place via `EpisodicMemory::retrieve_similar`; just render nicely |
+| T1.4 | xAI enrichment on unusual positions | `xai_client.rs` is live; hook it in for positions with high `classification_distance` (novel/liminal states) |
+| T1.5 | OSINT mode switch | Swap the sensorium module from `chess-sensorium` to `osint-sensorium`; same cockpit, same pipeline, different domain. airwar.cloud use case. |
 
 ---
 
-## 6. Known Unknowns
+## Validation criteria (unchanged)
 
-- **FEN → 16K fingerprint.** Which hash function preserves positional
-  similarity? Pure SHA-256 loses it. Positional encoding via BindSpace
-  content column (piece positions as bit pattern) preserves Hamming
-  similarity between related positions — that's the right approach but
-  needs verification.
-- **Engine choice.** Stockfish via UCI vs built-in neural eval? Start with
-  lichess cloud eval (no local engine needed).
-- **NARS frequency/confidence sourcing.** From game result (white win/black
-  win/draw) aggregated over thousands of games? Or from engine eval as proxy?
-  Probably both, weighted.
-- **3D vs 2D.** 3D looks great for the demo but 2D with carefully designed
-  Gotham-style widgets may be more information-dense. Build both, let
-  usability decide.
-- **Live-thinking latency.** 500ms is cockpit default but the engine cycle
-  may be faster or slower. Double-buffer as the MRI endpoint already does.
+1. `cargo build` at q2 workspace root compiles everything.
+2. `cubus.up.railway.app/health` reports `engine: "lance-graph"`.
+3. `POST /api/bot/move` returns valid UCI move + populated WorldModelDto.
+4. lichess-bot plays a full game using cockpit-computed moves.
+5. `cubus.up.railway.app/chess` renders 3D scene, refreshes every 500ms.
+6. **A human watcher, without looking at the evaluation score, can tell
+   from the MRI cloud whether the engine is in a good or bad position.**
+
+If criterion 6 passes, the positioning ("live cognitive telemetry" as
+advanced graph-analytics feature) is validated. The demo is ready.
 
 ---
 
-## 7. Why This Matters Beyond Chess
+## Timeline
 
-If this vertical works, we have proof that:
+- T0.1 (pin): 30 min
+- T0.2 (bot endpoint): 4-6 hrs
+- T0.3 (lichess-bot hook): 1-2 hrs
+- T0.4 (React 3D): 1-2 days of frontend work
 
-1. The 4-pillar contract survives real load (thousands of positions, RL updates).
-2. The game-engine / state-estimation framing generalizes (chess → OSINT with
-   no contract changes).
-3. The Gotham-style cockpit is a viable primary UI (not just a demo).
-4. Live proprioceptive telemetry is legible to humans (criterion 6 above).
-5. BindSpace + cycle_fingerprint + WorldModelDto form a working episodic
-   memory substrate.
-
-At that point airwar.cloud becomes a swap-the-ingestor task, not a new
-architecture project.
+**Total: 2-3 days of focused execution.** Every other piece exists.
