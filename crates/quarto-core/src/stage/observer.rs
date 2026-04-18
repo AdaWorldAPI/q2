@@ -144,12 +144,16 @@ pub trait PipelineObserver: Send + Sync {
     /// * `index` - Zero-based index of the transform in the pipeline
     /// * `total` - Total number of transforms
     /// * `ast` - The AST after this transform has been applied
+    /// * `ast_context` - The AST context, carrying filename attribution and
+    ///   source-info pool for the `ast`. Required so trace observers can emit
+    ///   correct source metadata instead of falling back to anonymous files.
     fn on_transform_data(
         &self,
         _name: &str,
         _index: usize,
         _total: usize,
         _ast: &quarto_pandoc_types::pandoc::Pandoc,
+        _ast_context: &pampa::pandoc::ASTContext,
     ) {
     }
 
