@@ -3403,6 +3403,7 @@ dependencies = [
  "quarto-config",
  "quarto-doctemplate",
  "quarto-error-reporting",
+ "quarto-navigation",
  "quarto-pandoc-types",
  "quarto-sass",
  "quarto-source-map",
@@ -3549,6 +3550,15 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "quarto-navigation"
+version = "0.1.0"
+dependencies = [
+ "quarto-pandoc-types",
+ "quarto-source-map",
+ "yaml-rust2",
 ]
 
 [[package]]

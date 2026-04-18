@@ -147,6 +147,9 @@ path = "./crates/quarto-sass"
 [workspace.dependencies.quarto-hub]
 path = "./crates/quarto-hub"
 
+[workspace.dependencies.quarto-navigation]
+path = "./crates/quarto-navigation"
+
 [workspace.dependencies.quarto-test]
 path = "./crates/quarto-test"
 

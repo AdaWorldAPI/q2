@@ -11,14 +11,23 @@
 //! [`MetadataMergeStage`]), extracts the theme configuration, compiles
 //! SCSS to CSS, and stores the result as the `"css:default"` artifact.
 //!
-//! If no theme is specified, the stage stores the static `DEFAULT_CSS`
-//! without compilation. Compilation results are cached via the
-//! `SystemRuntime` cache interface to avoid expensive recompilation.
+//! Behavior by theme value (mirrors Quarto 1):
+//!
+//! - Theme **absent**: compile the default Bootstrap + Quarto customization
+//!   layer. Produces a fully functional Bootstrap stylesheet ready for
+//!   navbar / footer / TOC rendering.
+//! - `theme: none`: ship the static lightweight `DEFAULT_CSS` without any
+//!   Bootstrap. Opt-out for users who want minimal output.
+//! - `theme: cosmo` (or any other name/array): compile the named theme(s)
+//!   layered on top of Bootstrap + Quarto.
+//!
+//! Compilation results are cached via the `SystemRuntime` cache interface
+//! to avoid expensive recompilation.
 
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use quarto_sass::{ThemeConfig, ThemeContext, assemble_theme_scss};
+use quarto_sass::{ThemeConfig, ThemeContext, assemble_theme_scss, compile_default_css};
 
 use crate::artifact::Artifact;
 use crate::pipeline::DEFAULT_CSS_ARTIFACT_PATH;
@@ -148,14 +157,41 @@ impl PipelineStage for CompileThemeCssStage {
             }
         };
 
-        // No themes → use static DEFAULT_CSS (no compilation needed)
+        // `theme: none` → ship the static lightweight DEFAULT_CSS without
+        // compiling Bootstrap. This is the explicit opt-out path.
+        if theme_config.suppress_bootstrap {
+            trace_event!(
+                ctx,
+                EventLevel::Debug,
+                "theme: none set, using static DEFAULT_CSS"
+            );
+            store_default_css(ctx);
+            return Ok(PipelineData::DocumentAst(doc));
+        }
+
+        // Theme absent → compile default Bootstrap + Quarto layer. Matches
+        // Quarto 1's behavior so features like navbar/footer have the CSS
+        // classes they depend on.
         if !theme_config.has_themes() {
             trace_event!(
                 ctx,
                 EventLevel::Debug,
-                "no theme specified, using default CSS"
+                "no theme specified, compiling default Bootstrap + Quarto layer"
             );
-            store_default_css(ctx);
+            match compile_default(ctx, theme_config.minified).await {
+                Ok(css) => {
+                    store_css(ctx, css);
+                }
+                Err(e) => {
+                    trace_event!(
+                        ctx,
+                        EventLevel::Warn,
+                        "default Bootstrap compilation failed: {}, using static DEFAULT_CSS",
+                        e
+                    );
+                    store_default_css(ctx);
+                }
+            }
             return Ok(PipelineData::DocumentAst(doc));
         }
 
@@ -265,6 +301,22 @@ fn store_css(ctx: &mut StageContext, css: String) {
 ///
 /// Uses `compile_scss_with_embedded` on native (sync, via grass) and
 /// `runtime.compile_sass` on WASM (async, via dart-sass JS bridge).
+/// Compile the default Bootstrap + Quarto layer (no Bootswatch theme).
+///
+/// Native uses `grass` in-process (sync); WASM uses the dart-sass JS bridge
+/// (async). This wrapper gives the stage one call site.
+#[cfg(not(target_arch = "wasm32"))]
+async fn compile_default(ctx: &StageContext, minified: bool) -> Result<String, String> {
+    compile_default_css(ctx.runtime.as_ref(), minified).map_err(|e| e.to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn compile_default(ctx: &StageContext, minified: bool) -> Result<String, String> {
+    compile_default_css(ctx.runtime.as_ref(), minified)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 async fn compile_scss(
     ctx: &StageContext,
@@ -524,18 +576,48 @@ mod tests {
     // ── Tests ────────────────────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_no_theme_uses_default_css() {
-        let runtime = Arc::new(MockRuntime);
+    async fn test_no_theme_compiles_default_bootstrap() {
+        // Q1 parity: when `theme:` is absent, compile the full Bootstrap +
+        // Quarto customization layer. The old behavior (static 244-line
+        // DEFAULT_CSS) is now gated behind the explicit `theme: none`
+        // opt-out.
+        let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> =
+            Arc::new(quarto_system_runtime::NativeRuntime::new());
         let mut ctx = make_stage_context(runtime);
         let stage = CompileThemeCssStage::new();
 
         let input = make_doc_ast(empty_meta());
         let output = stage.run(input, &mut ctx).await.unwrap();
-
-        // Should pass through DocumentAst
         assert!(output.into_document_ast().is_some());
 
-        // Artifact should be DEFAULT_CSS
+        let css = get_css_artifact(&ctx);
+        assert_ne!(
+            css, DEFAULT_CSS,
+            "missing theme must produce compiled Bootstrap, not static DEFAULT_CSS"
+        );
+        assert!(
+            css.contains(".navbar"),
+            "compiled default CSS should include Bootstrap .navbar rules"
+        );
+        assert!(
+            css.contains(".btn"),
+            "compiled default CSS should include Bootstrap .btn rules"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_theme_none_preserves_static_default_css() {
+        // `theme: none` is the explicit opt-out from Bootstrap — the stage
+        // ships the lightweight static DEFAULT_CSS instead of compiling
+        // anything.
+        let runtime = Arc::new(MockRuntime);
+        let mut ctx = make_stage_context(runtime);
+        let stage = CompileThemeCssStage::new();
+
+        let input = make_doc_ast(meta_with_theme("none"));
+        let output = stage.run(input, &mut ctx).await.unwrap();
+        assert!(output.into_document_ast().is_some());
+
         let css = get_css_artifact(&ctx);
         assert_eq!(css, DEFAULT_CSS);
     }
@@ -607,8 +689,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_null_theme_uses_default_css() {
-        let runtime = Arc::new(MockRuntime);
+    async fn test_null_theme_compiles_default_bootstrap() {
+        // `theme: null` is treated identically to "theme absent": compile
+        // the default Bootstrap + Quarto layer. (Historically this test
+        // paired with MockRuntime and relied on compilation-failure fallback
+        // producing DEFAULT_CSS; after the Q1-parity change it asserts the
+        // real behavior on a real runtime.)
+        let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> =
+            Arc::new(quarto_system_runtime::NativeRuntime::new());
         let mut ctx = make_stage_context(runtime);
         let stage = CompileThemeCssStage::new();
 
@@ -633,7 +721,14 @@ mod tests {
         stage.run(input, &mut ctx).await.unwrap();
 
         let css = get_css_artifact(&ctx);
-        assert_eq!(css, DEFAULT_CSS);
+        assert_ne!(
+            css, DEFAULT_CSS,
+            "null theme must compile default Bootstrap, not fall through to static CSS"
+        );
+        assert!(
+            css.contains(".navbar"),
+            "null-theme compiled CSS should include Bootstrap .navbar"
+        );
     }
 
     /// Helper to create a theme array metadata (e.g., `theme: [cosmo, custom.scss]`)
@@ -738,6 +833,7 @@ mod tests {
         ThemeConfig {
             themes: vec![spec],
             minified,
+            suppress_bootstrap: false,
         }
     }
 
@@ -745,6 +841,7 @@ mod tests {
         ThemeConfig {
             themes: vec![ThemeSpec::Custom(PathBuf::from(path))],
             minified,
+            suppress_bootstrap: false,
         }
     }
 

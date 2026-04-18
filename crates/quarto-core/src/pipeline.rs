@@ -62,7 +62,8 @@ use crate::transform::TransformPipeline;
 use crate::transforms::{
     AppendixStructureTransform, CalloutResolveTransform, CalloutTransform, CrossrefIndexTransform,
     CrossrefRenderTransform, CrossrefResolveTransform, EquationLabelTransform,
-    FloatRefTargetSugarTransform, FootnotesTransform, MetadataNormalizeTransform,
+    FloatRefTargetSugarTransform, FooterGenerateTransform, FooterRenderTransform,
+    FootnotesTransform, MetadataNormalizeTransform, NavbarGenerateTransform, NavbarRenderTransform,
     ProofSugarTransform, ResourceCollectorTransform, SectionizeTransform,
     ShortcodeResolveTransform, TheoremSugarTransform, TitleBlockTransform, TocGenerateTransform,
     TocRenderTransform,
@@ -511,13 +512,24 @@ pub async fn render_qmd_to_html(
 /// 7. `FootnotesTransform` - Extract footnotes and create footnotes section
 /// 8. `FloatRefTargetSugarTransform` - Wrap float crossref Divs / Figures in canonical CustomNode
 ///
-/// ## TOC Phase
-/// 9. `TocGenerateTransform` - Generate TOC from headers (if toc: true)
-/// 10. `TocRenderTransform` - Render TOC to HTML for template insertion
+/// ## Navigation Phase
+///
+/// All `Generate` transforms run first so that by the time any renderer sees
+/// `ast.meta.navigation.*`, every structured subtree is populated. This keeps
+/// the door open for user filters (between generate and render) or future
+/// non-HTML pipelines (slideshows, dashboards) that need the structured data
+/// but emit different HTML.
+///
+/// 9. `TocGenerateTransform` - Generate TOC from headers (if `toc: true`)
+/// 10. `NavbarGenerateTransform` - Resolve `navbar:` YAML into `navigation.navbar`
+/// 11. `FooterGenerateTransform` - Resolve `page-footer:` YAML into `navigation.footer`
+/// 12. `TocRenderTransform` - Render TOC to HTML for template insertion
+/// 13. `NavbarRenderTransform` - Render navbar to HTML for template insertion
+/// 14. `FooterRenderTransform` - Render page footer to HTML for template insertion
 ///
 /// ## Finalization Phase
-/// 11. `AppendixStructureTransform` - Consolidate appendix content into container
-/// 12. `ResourceCollectorTransform` - Collect image dependencies
+/// 15. `AppendixStructureTransform` - Consolidate appendix content into container
+/// 16. `ResourceCollectorTransform` - Collect image dependencies
 pub fn build_transform_pipeline(
     shortcode_paths: Vec<std::path::PathBuf>,
     extensions: Vec<crate::extension::types::Extension>,
@@ -552,10 +564,17 @@ pub fn build_transform_pipeline(
     pipeline.push(Box::new(CrossrefIndexTransform::new()));
     pipeline.push(Box::new(CrossrefResolveTransform::new()));
 
-    // === TOC PHASE ===
-    // Must run after SectionizeTransform so section IDs are available
+    // === NAVIGATION PHASE ===
+    // All generates run before any renders so a future user filter or
+    // non-HTML pipeline sees a complete navigation.* subtree before rendering.
+    // TocGenerate must run after SectionizeTransform so section IDs are
+    // available; navbar/footer generates only read top-level metadata.
     pipeline.push(Box::new(TocGenerateTransform::new()));
+    pipeline.push(Box::new(NavbarGenerateTransform::new()));
+    pipeline.push(Box::new(FooterGenerateTransform::new()));
     pipeline.push(Box::new(TocRenderTransform::new()));
+    pipeline.push(Box::new(NavbarRenderTransform::new()));
+    pipeline.push(Box::new(FooterRenderTransform::new()));
 
     // === FINALIZATION PHASE ===
     pipeline.push(Box::new(AppendixStructureTransform::new()));
@@ -995,7 +1014,11 @@ mod tests {
     }
 
     #[test]
-    fn test_render_pipeline_no_theme_uses_default() {
+    fn test_render_pipeline_no_theme_compiles_default_bootstrap() {
+        // Q1 parity: missing `theme:` compiles the default Bootstrap +
+        // Quarto customization layer so navbar / footer / TOC CSS classes
+        // are available out of the box. The old static-DEFAULT_CSS path is
+        // now reached only via an explicit `theme: none` opt-out.
         let content = b"---\ntitle: Test\n---\n\nContent.";
 
         let project = make_test_project();
@@ -1012,6 +1035,37 @@ mod tests {
         .unwrap();
 
         let css = get_css_artifact(&ctx);
-        assert_eq!(css, DEFAULT_CSS, "no theme should produce DEFAULT_CSS");
+        assert_ne!(
+            css, DEFAULT_CSS,
+            "no theme should compile Bootstrap, not ship static DEFAULT_CSS"
+        );
+        assert!(
+            css.contains(".navbar"),
+            "compiled default CSS should contain Bootstrap .navbar"
+        );
+    }
+
+    #[test]
+    fn test_render_pipeline_theme_none_opts_out_of_bootstrap() {
+        let content = b"---\ntitle: Test\ntheme: none\n---\n\nContent.";
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        let config = HtmlRenderConfig::default();
+        let runtime = make_test_runtime();
+        let _output = pollster::block_on(render_qmd_to_html(
+            content, "test.qmd", &mut ctx, &config, runtime,
+        ))
+        .unwrap();
+
+        let css = get_css_artifact(&ctx);
+        assert_eq!(
+            css, DEFAULT_CSS,
+            "`theme: none` must ship the static DEFAULT_CSS (no Bootstrap)"
+        );
     }
 }

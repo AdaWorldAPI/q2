@@ -408,6 +408,20 @@ mod tests {
             "Should contain .quarto-title-meta class from title-block.scss"
         );
 
+        // Should have Quarto page-footer layout rules (ported from Q1).
+        assert!(
+            css.contains(".nav-footer"),
+            "Should contain .nav-footer layout from ported page-footer SCSS"
+        );
+        assert!(
+            css.contains(".nav-footer-left"),
+            "Should contain .nav-footer-left responsive rules"
+        );
+        assert!(
+            css.contains(".footer-items"),
+            "Should contain .footer-items rule for inline flex layout"
+        );
+
         // Should be minified (few newlines)
         let newlines = css.matches('\n').count();
         assert!(
