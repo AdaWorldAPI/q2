@@ -16,9 +16,9 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
+use tree_sitter_highlight::{HighlightConfiguration, Highlighter};
 
-use crate::encoding::{self, HighlightSpan};
+use crate::encoding;
 use crate::error::HighlightError;
 
 /// A single registered language: the `HighlightConfiguration` and the
@@ -96,43 +96,53 @@ impl Registry {
         let (config, names) = entry.config()?;
 
         let mut highlighter = Highlighter::new();
-        let events = highlighter.highlight(config, source.as_bytes(), None, |_| None)?;
+        let spans = collect_spans(&mut highlighter, config, names, source)?;
+        Ok(Some(encoding::encode(&spans)?))
+    }
+}
 
-        // Walk the event stream and collect `[start, end, capture]`
-        // triples. Tree-sitter emits events in byte order and nests via
-        // HighlightStart/HighlightEnd; we replay that as a stack, turning
-        // each (start, end) window paired with the active capture into a
-        // span. Multiple nested captures produce one span each, with
-        // overlapping ranges — writers decide how to render the nesting.
-        let mut spans: Vec<HighlightSpan> = Vec::new();
-        let mut stack: Vec<(usize, usize)> = Vec::new(); // (start_byte, name_index)
-        let mut cursor: usize = 0;
-        for event in events {
-            match event? {
-                HighlightEvent::Source { start, end } => {
-                    cursor = end.max(start);
-                }
-                HighlightEvent::HighlightStart(h) => {
-                    stack.push((cursor, h.0));
-                }
-                HighlightEvent::HighlightEnd => {
-                    if let Some((start_byte, name_idx)) = stack.pop() {
-                        let capture = names
-                            .get(name_idx)
-                            .cloned()
-                            .unwrap_or_else(|| String::from("unknown"));
-                        spans.push(HighlightSpan {
-                            start: start_byte,
-                            end: cursor,
-                            capture,
-                        });
-                    }
+// The span-collection walk is shared between built-in and user-grammar
+// paths. On native, `user_grammar::collect_spans` re-exports this same
+// algorithm — we route through it there to keep the two paths symmetric.
+#[cfg(not(target_arch = "wasm32"))]
+use crate::user_grammar::collect_spans;
+
+#[cfg(target_arch = "wasm32")]
+fn collect_spans(
+    highlighter: &mut Highlighter,
+    config: &HighlightConfiguration,
+    capture_names: &[String],
+    source: &str,
+) -> Result<Vec<crate::encoding::HighlightSpan>, HighlightError> {
+    use tree_sitter_highlight::HighlightEvent;
+    let events = highlighter.highlight(config, source.as_bytes(), None, |_| None)?;
+    let mut spans: Vec<crate::encoding::HighlightSpan> = Vec::new();
+    let mut stack: Vec<(usize, usize)> = Vec::new();
+    let mut cursor: usize = 0;
+    for event in events {
+        match event? {
+            HighlightEvent::Source { end, .. } => {
+                cursor = end;
+            }
+            HighlightEvent::HighlightStart(h) => {
+                stack.push((cursor, h.0));
+            }
+            HighlightEvent::HighlightEnd => {
+                if let Some((start_byte, name_idx)) = stack.pop() {
+                    let capture = capture_names
+                        .get(name_idx)
+                        .cloned()
+                        .unwrap_or_else(|| String::from("unknown"));
+                    spans.push(crate::encoding::HighlightSpan {
+                        start: start_byte,
+                        end: cursor,
+                        capture,
+                    });
                 }
             }
         }
-
-        Ok(Some(encoding::encode(&spans)?))
     }
+    Ok(spans)
 }
 
 /// List of `(canonical_key, [aliases…])` pairs.

@@ -52,6 +52,8 @@ use quarto_source_map::SourceContext;
 
 use crate::Result;
 use crate::render::RenderContext;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stage::CodeHighlightStage;
 use crate::stage::stages::ApplyTemplateConfig;
 use crate::stage::{
     ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, EngineExecutionStage,
@@ -129,10 +131,11 @@ pub struct AstOutput {
 /// 5. `UserFiltersStage::pre()` - Apply user filters before Quarto transforms
 /// 6. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, etc.)
 /// 7. `UserFiltersStage::post()` - Apply user filters after Quarto transforms
-/// 8. `RenderHtmlBodyStage` - Render AST to HTML body
-/// 9. `ApplyTemplateStage` - Apply HTML template
+/// 8. `CodeHighlightStage` - Annotate CodeBlock/Code with `data-hl-spans`
+/// 9. `RenderHtmlBodyStage` - Render AST to HTML body
+/// 10. `ApplyTemplateStage` - Apply HTML template
 pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
-    vec![
+    let mut stages: Vec<Box<dyn PipelineStage>> = vec![
         Box::new(ParseDocumentStage::new()),
         Box::new(MetadataMergeStage::new()),
         Box::new(PreEngineSugaringStage::new()),
@@ -141,9 +144,15 @@ pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
         Box::new(UserFiltersStage::pre()),
         Box::new(AstTransformsStage::new()),
         Box::new(UserFiltersStage::post()),
-        Box::new(RenderHtmlBodyStage::new()),
-        Box::new(ApplyTemplateStage::new()),
-    ]
+    ];
+    // Syntax-highlight annotation is native-only (Phase 1-2); wasm32
+    // gets it in Phase 3 of the plan. On wasm32 we currently produce
+    // no `data-hl-spans` attrs and the HTML writer emits plain code.
+    #[cfg(not(target_arch = "wasm32"))]
+    stages.push(Box::new(CodeHighlightStage::new()));
+    stages.push(Box::new(RenderHtmlBodyStage::new()));
+    stages.push(Box::new(ApplyTemplateStage::new()));
+    stages
 }
 
 /// Build the standard HTML pipeline.
@@ -197,7 +206,7 @@ pub fn build_html_pipeline() -> Pipeline {
 /// Panics if the pipeline stages have incompatible types (should never happen
 /// with the standard stages).
 pub fn build_wasm_html_pipeline() -> Pipeline {
-    let stages: Vec<Box<dyn PipelineStage>> = vec![
+    let mut stages: Vec<Box<dyn PipelineStage>> = vec![
         Box::new(ParseDocumentStage::new()),
         // No EngineExecutionStage - code cells pass through as-is
         Box::new(MetadataMergeStage::new()),
@@ -206,9 +215,14 @@ pub fn build_wasm_html_pipeline() -> Pipeline {
         Box::new(UserFiltersStage::pre()),
         Box::new(AstTransformsStage::new()),
         Box::new(UserFiltersStage::post()),
-        Box::new(RenderHtmlBodyStage::new()),
-        Box::new(ApplyTemplateStage::new()),
     ];
+    // See note in `build_html_pipeline_stages`. When this function is
+    // compiled for a native target (e.g. `cargo test`), the highlight
+    // stage is included; on wasm32 builds it's skipped.
+    #[cfg(not(target_arch = "wasm32"))]
+    stages.push(Box::new(CodeHighlightStage::new()));
+    stages.push(Box::new(RenderHtmlBodyStage::new()));
+    stages.push(Box::new(ApplyTemplateStage::new()));
 
     Pipeline::new(stages).expect("WASM HTML pipeline stages should be compatible")
 }
@@ -812,7 +826,7 @@ mod tests {
     #[test]
     fn test_build_html_pipeline_stages() {
         let stages = build_html_pipeline_stages();
-        assert_eq!(stages.len(), 10);
+        assert_eq!(stages.len(), 11);
         assert_eq!(stages[0].name(), "parse-document");
         assert_eq!(stages[1].name(), "metadata-merge");
         assert_eq!(stages[2].name(), "pre-engine-sugaring");
@@ -821,22 +835,23 @@ mod tests {
         assert_eq!(stages[5].name(), "user-filters-pre");
         assert_eq!(stages[6].name(), "ast-transforms");
         assert_eq!(stages[7].name(), "user-filters-post");
-        assert_eq!(stages[8].name(), "render-html-body");
-        assert_eq!(stages[9].name(), "apply-template");
+        assert_eq!(stages[8].name(), "code-highlight");
+        assert_eq!(stages[9].name(), "render-html-body");
+        assert_eq!(stages[10].name(), "apply-template");
     }
 
     #[test]
     fn test_build_html_pipeline() {
         let pipeline = build_html_pipeline();
-        assert_eq!(pipeline.len(), 10);
+        assert_eq!(pipeline.len(), 11);
     }
 
     #[test]
     fn test_build_wasm_html_pipeline() {
         let pipeline = build_wasm_html_pipeline();
-        // WASM pipeline has 9 stages (no engine execution, but has pre-engine
-        // sugaring + user filters)
-        assert_eq!(pipeline.len(), 9);
+        // WASM pipeline has 10 stages (no engine execution, but otherwise
+        // the same as the native HTML pipeline).
+        assert_eq!(pipeline.len(), 10);
     }
 
     #[test]

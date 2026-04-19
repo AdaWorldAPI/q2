@@ -20,6 +20,8 @@
 
 mod apply_template;
 mod ast_transforms;
+#[cfg(not(target_arch = "wasm32"))]
+mod code_highlight;
 mod compile_theme_css;
 mod engine_execution;
 mod metadata_merge;
@@ -30,6 +32,8 @@ mod user_filters;
 
 pub use apply_template::{ApplyTemplateConfig, ApplyTemplateStage};
 pub use ast_transforms::AstTransformsStage;
+#[cfg(not(target_arch = "wasm32"))]
+pub use code_highlight::CodeHighlightStage;
 pub use compile_theme_css::CompileThemeCssStage;
 pub use engine_execution::EngineExecutionStage;
 pub use metadata_merge::MetadataMergeStage;

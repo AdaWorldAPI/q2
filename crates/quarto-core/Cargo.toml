@@ -42,6 +42,11 @@ tempfile = "3"
 include_dir = "0.7"
 which = "8"
 regex = "1.12"
+# Syntax highlighting uses tree-sitter grammar crates that include C
+# scanner.c files relying on stdlib functions (e.g. towupper in
+# tree-sitter-html) not present in our wasm32 sysroot. Browser-side
+# highlighting is Phase 3 / 4 of the plan; for now it's native-only.
+quarto-highlight.workspace = true
 
 # Jupyter engine dependencies (native only)
 runtimelib = { version = "1.4", features = ["tokio-runtime"] }
