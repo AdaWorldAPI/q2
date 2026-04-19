@@ -111,7 +111,9 @@ Replace the current `<pre><code>{escaped_text}</code></pre>` path in `crates/pam
   - [x] Native user-grammar loader via `tree_sitter::WasmStore` (wasmtime always included on native). Scans a parent directory for grammar sub-dirs; each sub-dir has a `<name>.wasm` + `highlights.scm`. API: `UserGrammars::new()`, `load_from_directory()`, `load_all_from_parent()`. Public function `highlight_with_user()` composes with user grammars overriding built-ins on class collision. End-to-end test uses tree-sitter-toml v0.7.0 as a fixture (not in built-in set).
   - [x] Pipeline stage: `CodeHighlightStage` in `quarto-core`. Runs between `UserFiltersStage::post()` and `RenderHtmlBodyStage`. Annotation walker lives in `quarto_highlight::annotate_pandoc` (CodeBlock + inline Code + recursion through container blocks/inlines). Filter-authored annotations win (skip if `data-hl-spans` is already set). Highlighting failures become warning diagnostics instead of aborting the pipeline.
   - [x] **WASM/hub-client scope note**: `quarto-highlight` is gated as a native-only dep in `quarto-core` because grammar-crate scanners (e.g. `tree-sitter-html`'s `towupper`) don't compile against the hub-client's wasm32 sysroot. On wasm32 the `CodeHighlightStage` is absent from the pipeline and the HTML writer emits plain `<pre><code>`. This is consistent with Phase 3's scope: browser built-ins ship later, after wasm32 scanner issues are addressed.
-  - [ ] Golden tests: one fixture per built-in language + one fixture user grammar
+  - [x] Golden `insta` snapshots for all 13 user-facing class names + one user-grammar fixture (tree-sitter-toml). `tests/golden.rs` + `tests/snapshots/`. Locks exact capture names + byte ranges per tiny fixture snippet — upstream grammar-crate bumps surface as reviewable diffs.
+
+**Phase 1 complete.** 22 tests in `quarto-highlight` across encoding, python-basic, all-languages smoke, annotate walker, user-grammar-toml, and golden snapshots. Workspace build/tests/lint all green.
 
 - **Phase 2 — HTML writer**:
   - [ ] `data-hl-spans` parser using `pandoc.json`-compatible parse (just `serde_json` on the Rust side)
