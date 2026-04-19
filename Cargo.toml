@@ -77,6 +77,9 @@ default-features = false
 [workspace.dependencies.tree-sitter]
 version = "0.25.10"
 
+[workspace.dependencies.tree-sitter-highlight]
+version = "0.25.10"
+
 [workspace.dependencies.tree-sitter-qmd]
 path = "./crates/tree-sitter-qmd"
 
@@ -143,6 +146,9 @@ path = "./crates/quarto-lsp"
 
 [workspace.dependencies.quarto-sass]
 path = "./crates/quarto-sass"
+
+[workspace.dependencies.quarto-highlight]
+path = "./crates/quarto-highlight"
 
 [workspace.dependencies.quarto-hub]
 path = "./crates/quarto-hub"
