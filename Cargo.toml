@@ -150,6 +150,9 @@ path = "./crates/quarto-sass"
 [workspace.dependencies.quarto-highlight]
 path = "./crates/quarto-highlight"
 
+[workspace.dependencies.quarto-highlight-encoding]
+path = "./crates/quarto-highlight-encoding"
+
 [workspace.dependencies.quarto-hub]
 path = "./crates/quarto-hub"
 

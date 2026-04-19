@@ -116,12 +116,13 @@ Replace the current `<pre><code>{escaped_text}</code></pre>` path in `crates/pam
 **Phase 1 complete.** 22 tests in `quarto-highlight` across encoding, python-basic, all-languages smoke, annotate walker, user-grammar-toml, and golden snapshots. Workspace build/tests/lint all green.
 
 - **Phase 2 — HTML writer**:
-  - [ ] `data-hl-spans` parser using `pandoc.json`-compatible parse (just `serde_json` on the Rust side)
-  - [ ] Nested span emission: `<span class="hl-function-builtin">…</span>`
-  - [ ] Container still `<pre class="sourceCode language-X">` / `<code class="sourceCode language-X">` for theme hooks
-  - [ ] Default `resources/scss/_highlight.scss` covering the standard capture set
-  - [ ] SCSS pipeline integration (theme overrides color/style, never markup)
-  - [ ] Snapshot tests across the language set
+  - [x] New `quarto-highlight-encoding` crate holds the wire-format types (`HighlightSpan`, `encode`/`decode`, `SPANS_ATTR_KEY`) with no heavy deps so pampa can decode on wasm32 without pulling tree-sitter / wasmtime. `quarto-highlight` re-exports from it.
+  - [x] Nested span emission in `pampa`'s HTML writer (`crates/pampa/src/writers/html.rs`). Reads `data-hl-spans`, walks triples as a depth-ordered event stream, emits `<span class="hl-<capture-with-dots-as-hyphens>">`. Filters the raw attr off the container so it doesn't leak. 6 unit tests cover nesting, fallback, malformed JSON, inline `Code`, and dot-to-hyphen class names.
+  - [x] Container marked with `sourceCode` class whenever spans are emitted (Pandoc-compatible theming hook).
+  - [x] Default `resources/scss/html/templates/highlight.scss` covering the standard tree-sitter capture set (keyword/function/string/number/comment/type/variable/property/operator/tag/markup/…) with a solarized-inspired palette. Loaded as a built-in user layer after title-block, before user theme layers, in both `assemble_theme_scss` and `compile_default_css`.
+  - [x] End-to-end integration test in `quarto-core::pipeline::tests::test_render_code_block_is_syntax_highlighted` — qmd → full HTML pipeline → verified nested `hl-keyword` / `hl-function-builtin` spans in the output HTML with no `data-hl-spans=` leak.
+
+**Phase 2 complete.** 20 new tests across pampa, quarto-sass, quarto-highlight-encoding, and quarto-core pipeline. Full workspace passes 7595 tests; hub-client WASM + SCSS + trace-viewer builds verified green.
 
 - **Phase 3 — browser built-ins**:
   - [ ] Statically linked grammar crates compile clean into `wasm-quarto-hub-client`

@@ -22,16 +22,13 @@ pub mod user_grammar;
 
 pub use annotate::annotate_pandoc;
 
-pub use encoding::HighlightSpan;
+pub use encoding::{HighlightSpan, SPANS_ATTR_KEY};
 pub use error::HighlightError;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use user_grammar::{UserGrammarError, UserGrammars};
 
 use crate::registry::Registry;
-
-/// Attribute key used to carry highlight spans on `CodeBlock` and `Code`.
-pub const SPANS_ATTR_KEY: &str = "data-hl-spans";
 
 /// Return the JSON triple-array encoding for highlighting `source` as
 /// `language_class` using only the built-in grammar set, or `None` if

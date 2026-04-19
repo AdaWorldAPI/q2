@@ -15,6 +15,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 once_cell.workspace = true
 
+# Shared wire-format types with consumers (pampa's HTML writer, etc.).
+quarto-highlight-encoding.workspace = true
+
 # Pandoc AST types — the annotate walker touches CodeBlock / Code attrs.
 quarto-pandoc-types.workspace = true
 

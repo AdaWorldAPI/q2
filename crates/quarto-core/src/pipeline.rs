@@ -668,6 +668,59 @@ mod tests {
     }
 
     #[test]
+    fn test_render_code_block_is_syntax_highlighted() {
+        // Full-pipeline end-to-end: a Python code block should be
+        // annotated by `CodeHighlightStage` and rendered with nested
+        // `<span class="hl-*">` tags by the HTML writer.
+        let content =
+            b"---\ntitle: Test\n---\n\n```python\ndef greet(name):\n    print(name)\n```\n";
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        let config = HtmlRenderConfig::default();
+        let runtime = make_test_runtime();
+        let output = pollster::block_on(render_qmd_to_html(
+            content, "test.qmd", &mut ctx, &config, runtime,
+        ))
+        .unwrap();
+
+        // The annotation stage should have run and the HTML writer
+        // should have consumed `data-hl-spans` into nested spans.
+        assert!(
+            output
+                .html
+                .contains("<span class=\"hl-keyword\">def</span>"),
+            "expected hl-keyword span around `def`; got:\n{}",
+            &output.html,
+        );
+        assert!(
+            output
+                .html
+                .contains("<span class=\"hl-function-builtin\">print</span>"),
+            "expected hl-function-builtin span around `print`; got:\n{}",
+            &output.html,
+        );
+
+        // The raw `data-hl-spans` attribute must not leak to the container.
+        assert!(
+            !output.html.contains("data-hl-spans="),
+            "container should not carry the raw data-hl-spans attr; got:\n{}",
+            &output.html,
+        );
+
+        // The `.sourceCode` marker should be present so default themes
+        // + user themes can key off it.
+        assert!(
+            output.html.contains("sourceCode"),
+            "pre/code container should carry the `sourceCode` class",
+        );
+    }
+
+    #[test]
     fn test_render_with_meta_shortcode() {
         let content = b"---\ntitle: My Document Title\nauthor: Jane Doe\n---\n\nThe title is {{< meta title >}} by {{< meta author >}}.";
 

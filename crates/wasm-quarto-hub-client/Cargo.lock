@@ -1882,6 +1882,7 @@ dependencies = [
  "quarto-doctemplate",
  "quarto-error-message-macros",
  "quarto-error-reporting",
+ "quarto-highlight-encoding",
  "quarto-pandoc-types",
  "quarto-parse-errors",
  "quarto-source-map",
@@ -2286,6 +2287,7 @@ name = "quarto-highlight"
 version = "0.1.0"
 dependencies = [
  "once_cell",
+ "quarto-highlight-encoding",
  "quarto-pandoc-types",
  "serde",
  "serde_json",
@@ -2304,6 +2306,14 @@ dependencies = [
  "tree-sitter-sequel",
  "tree-sitter-typescript",
  "tree-sitter-yaml",
+]
+
+[[package]]
+name = "quarto-highlight-encoding"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

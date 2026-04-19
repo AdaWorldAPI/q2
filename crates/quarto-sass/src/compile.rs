@@ -73,15 +73,18 @@ pub fn assemble_theme_scss(
     config: &ThemeConfig,
     context: &ThemeContext<'_>,
 ) -> Result<(String, Vec<PathBuf>), SassError> {
-    use crate::bundle::load_title_block_layer;
+    use crate::bundle::{load_highlight_layer, load_title_block_layer};
 
     // Process theme specs into layers
     let result = process_theme_specs(&config.themes, context)?;
 
-    // Build user layers: title block layer comes first (like TS Quarto),
-    // then any theme layers
+    // Build user layers: title block + syntax-highlight defaults first
+    // (like TS Quarto's order for built-in user layers), then any theme
+    // layers from the config. User themes can override any `.hl-*` or
+    // title-block rule by declaring the same selector in a later layer.
     let title_block_layer = load_title_block_layer()?;
-    let mut user_layers = vec![title_block_layer];
+    let highlight_layer = load_highlight_layer()?;
+    let mut user_layers = vec![title_block_layer, highlight_layer];
     user_layers.extend(result.layers);
 
     // Assemble SCSS
@@ -243,7 +246,7 @@ pub fn compile_default_css(
     runtime: &dyn SystemRuntime,
     minified: bool,
 ) -> Result<String, SassError> {
-    use crate::bundle::load_title_block_layer;
+    use crate::bundle::{load_highlight_layer, load_title_block_layer};
     use quarto_system_runtime::sass_native::compile_scss_with_embedded;
 
     // Return cached version if available (only for minified)
@@ -253,12 +256,13 @@ pub fn compile_default_css(
         }
     }
 
-    // Load title block layer - this provides styling for title block elements
-    // In TS Quarto, this is always included as a user layer
+    // Load built-in user layers: title block styling + default syntax-
+    // highlight colors. Both ship with Quarto and are always included.
     let title_block_layer = load_title_block_layer()?;
+    let highlight_layer = load_highlight_layer()?;
 
-    // Assemble SCSS: Bootstrap + Quarto + title block layer
-    let scss = assemble_with_user_layers(&[title_block_layer])?;
+    // Assemble SCSS: Bootstrap + Quarto + title block + highlight defaults
+    let scss = assemble_with_user_layers(&[title_block_layer, highlight_layer])?;
 
     // Get load paths and resources
     let load_paths = default_load_paths();
@@ -432,6 +436,17 @@ mod tests {
         assert!(
             css.contains(".quarto-title-meta"),
             "Should contain .quarto-title-meta class from title-block.scss"
+        );
+
+        // Should have default syntax-highlight rules for `.hl-*` classes
+        // emitted by the HTML writer for tree-sitter captures.
+        assert!(
+            css.contains(".hl-keyword"),
+            "Should contain .hl-keyword rule from highlight.scss"
+        );
+        assert!(
+            css.contains(".hl-function-builtin"),
+            "Should contain nested-capture .hl-function-builtin rule"
         );
 
         // Should have Quarto page-footer layout rules (ported from Q1).
