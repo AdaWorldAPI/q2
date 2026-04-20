@@ -175,13 +175,12 @@ a config-conditional builder, add a regression test that hits that
 branch *and* run the binary.
 
 - **Phase 3 — browser built-ins**:
-  - [ ] Statically linked grammar crates compile clean into `wasm-quarto-hub-client`
-  - [ ] Bundle-size regression test (upper-bound per grammar)
-  - [ ] Same snapshot tests run in the WASM harness
-  - [ ] **End-to-end verification**: render a `.qmd` with a highlighted
-        code block in the actual hub-client (real browser session) and
-        confirm `hl-*` spans appear in the DOM. Record the invocation +
-        observed output in this plan's phase-complete summary.
+  - [x] Statically linked grammar crates compile clean into `wasm-quarto-hub-client`
+  - [x] Bundle-size recorded: **~32.8 MB** uncompressed WASM (~16 MB over the 17 MB pre-highlighting baseline, per-grammar average ~1.3 MB). No numeric threshold set per user guidance.
+  - [x] Same highlighting code path exercised from the WASM harness via a test-only `quarto_highlight_for_test` export that calls through to `Registry::global().highlight()`. Per-grammar coverage in `hub-client/src/services/highlight.wasm.test.ts` consumes the same fixture JSON as native `golden.rs`.
+  - [x] **End-to-end verification (2026-04-20)**: user rendered `claude-notes/fixtures/phase3-highlight-check.qmd` (no `theme:` frontmatter) via `cd hub-client && npm run dev:fresh` in Firefox. Observed `<span class="hl-keyword">def</span>` / `<span class="hl-function-builtin">print</span>` spans with colors applied; `pre > code { display: block }` honored; inline highlighted code visible. Output inspected in DevTools.
+
+**Phase 3 complete.** See `claude-notes/plans/2026-04-20-syntax-highlighting-phase-3.md` for the full story including four unplanned follow-ons: the wasm-shim merge (`tree-sitter-lua`/`tree-sitter-css` stdio conflict), the wasm32 `compile_default_css` layer-loading fix, the Firefox Quirks Mode fix in MorphIframe, and the CSS-cache invalidation fix (with `CSS_BUILD_ID` replacing the manual `_vN` version knob). Also see `claude-notes/plans/2026-04-20-wasm-shim-merge.md` sub-plan.
 
 - **Phase 4 — browser user grammars (minimal v1)**:
   - [ ] `web-tree-sitter` as npm dep in hub-client

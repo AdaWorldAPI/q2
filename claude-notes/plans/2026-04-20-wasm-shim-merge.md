@@ -2,7 +2,7 @@
 
 - **Parent plan**: `claude-notes/plans/2026-04-20-syntax-highlighting-phase-3.md` (this is a sub-plan of Phase 3.1)
 - **Beads**: bd-n7x2 (overall syntax-highlighting epic)
-- **Status**: planned 2026-04-20
+- **Status**: **complete 2026-04-20**. All work items below merged on the `feature/quarto-2-highlighting` branch. Shim crate at `crates/tree-sitter-language-wasm-shim/`, merged snprintf/vsnprintf implementation factored into the new `crates/wasm-printf-fmt/` crate (29 unit tests). c_shim.rs reduced to a thin wasm-bindgen wrapper; `fputc`/`fputs`/`fwrite` now no-op instead of panic.
 
 ## Problem
 

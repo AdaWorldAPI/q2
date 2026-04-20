@@ -83,19 +83,60 @@ Explicitly out of scope for Phase 3: user grammars on wasm32 (Phase 4), Playwrig
   - Fix: added `load_highlight_layer()` to the wasm32 `compile_default_css`, matching the native version's behavior. One-liner plus a doc comment explaining the parity with native.
   - Regression test added to `hub-client/src/services/themeCss.wasm.test.ts`: renders a theme-less document and asserts the combined CSS contains `.hl-keyword` and `.hl-function-builtin` selectors. Verified the test fails without the fix (stash → rebuild → run → fail) and passes with it.
 
-- [ ] **User verification, round 2**: confirm the fixture renders with colored highlighting in a fresh hub-client session **without** adding a `theme:` entry.
+- [x] **User verification, round 2 (2026-04-20)**: confirmed highlighting works in Firefox on the fixture with no `theme:` entry. Both code-block and inline-code paths styled correctly; `pre > code { display: block }` applies; no Quirks Mode warning.
 
 ### Phase 3.4 — Wrap-up
 
-- [ ] Record bundle size delta (3B).
-- [ ] Update parent plan (`2026-04-19-syntax-highlighting-design.md`) marking Phase 3's four checkboxes complete, with the phase-complete summary including:
-  - The exact `npm run build:wasm` invocation used.
-  - A snippet of the observed DOM from the user's verification.
-  - Explicit confirmation that output was inspected (bar from the 2026-04-20 Phase 2 post-mortem).
-- [ ] Stage and commit.
+- [x] Recorded bundle size: WASM binary ~32.8 MB (~16 MB over the 17 MB pre-highlighting baseline). Matches the per-grammar estimate from the research note. No numeric threshold was set per user guidance.
+- [x] End-to-end verification recorded:
+  - `cd hub-client && npm run dev:fresh` used to rebuild WASM + start dev server.
+  - User loaded `claude-notes/fixtures/phase3-highlight-check.qmd` (no `theme:` frontmatter) in Firefox.
+  - Observed: `<span class="hl-keyword">def</span>`, `<span class="hl-function-builtin">print</span>` etc. rendered with colors; `pre > code` block layout applied; inline `print()` highlighted.
+- [x] Parent plan (`2026-04-19-syntax-highlighting-design.md`) updated with Phase 3 complete.
+- [x] wasm-shim-merge sub-plan (`2026-04-20-wasm-shim-merge.md`) updated with all work items complete.
+
+## Unplanned work that happened during Phase 3
+
+Phase 3 turned out to have four follow-on bugs that weren't predicted in the original plan. Documenting each so future phases benefit from the lessons.
+
+### Unplanned 1: wasm-shim-merge
+
+First unplanned complication. tree-sitter-lua and tree-sitter-css ship their own `stdio.c` at compile time (via tree-sitter-language's wasm32 upstream), colliding with our `c_shim.rs`'s stdio stubs. Resolved via the `crates/tree-sitter-language-wasm-shim` local patch plus merging our shim to cover the union of format specifiers both callers need. See `2026-04-20-wasm-shim-merge.md`.
+
+### Unplanned 2: WASM default CSS missed the highlight layer
+
+The native fix to `compile_default_css` (commit 50745caa) added `load_highlight_layer()` to the native variant. The wasm32 variant in the same file was not updated in that commit, so hub-client's no-theme path produced CSS without `.hl-*` rules. Fixed in `981bda93`.
+
+### Unplanned 3: MorphIframe Firefox Quirks Mode
+
+MorphIframe's `document.open(); document.write(html); document.close();` pattern left the iframe in Quirks Mode on Firefox even when the HTML started with `<!DOCTYPE html>`. Chrome re-derived compatMode correctly; Firefox retained the initial about:blank mode. Fixed in `f57a8fef` by switching first-load to `iframe.srcdoc = html`, which parses as a standalone HTML document with DOCTYPE honored in all browsers.
+
+### Unplanned 4: Persistent IndexedDB cache served stale CSS after Rust-side upgrades
+
+The deepest and most educational. `CompileThemeCssStage`'s no-theme path uses an IndexedDB cache keyed on `"default_minified"`, with generational-purge sentinel `SCSS_RESOURCES_HASH`. That hash only covers `.scss` files; Rust-side changes to `compile_default_css` don't touch it. Users who'd warmed their IDB with pre-Phase-3 Quarto got served the old CSS forever (no purge trigger) while users on fresh profiles got the new CSS. Asymmetric and confusing; took multiple diagnostic rounds to pin down.
+
+Two-step fix:
+- Immediate (`2824fceb`): bump the cache key suffix to `_v2` so stale entries become orphans.
+- Structural (`23e020cd`): introduce `CSS_BUILD_ID` as a build-time hash of (all `.scss` files + all `crates/quarto-sass/src/*.rs` files), use it in the generational-purge sentinel. Removes the `_vN` manual knob entirely — any Rust edit that could affect compiled CSS automatically bumps the ID. Regression test `test_rust_side_change_invalidates_default_cache_via_build_id` locks the invariant in.
+
+### Unplanned 4a: Attempted cache-warm at WASM init broke Monaco
+
+A follow-on attempt to hide the per-deploy recompile cost: fire `compile_default_bootstrap_css(true)` during `initWasm()` as a fire-and-forget warm. On both Firefox and Chrome, this produced "too much recursion" errors inside Monaco's chunk — the warm forced `import("sass")` (a ~5 MB dynamic import that `sass.js` is specifically designed to lazy-load) to race with Monaco's own ~3 MB CDN load via Vite's module graph.
+
+Reverted in `35eb3828`. A comment in `wasmRenderer.ts` (`5b79af69`) warns future contributors not to re-add warm hooks at init-time.
+
+## Open follow-up: a safer warm path (deferred)
+
+We still pay a one-time ~500 ms SASS compile on the first render after a deploy that touches `CSS_BUILD_ID`. That's acceptable for interactive use, but if future telemetry shows it as a real pain point, the right shape for a warm hook is:
+
+1. **Wait until Monaco (and other critical-path JS chunks) are fully loaded.** The warm must not compete with dynamic imports on the critical path.
+2. **Trigger from an app-level idle signal, not from `initWasm()`.** Candidates: a React effect that fires once the first project's file list has mounted and the user has a file choice to make; or `requestIdleCallback` (with `setTimeout` fallback for Safari) with a minimum delay (~3 s) to let the critical path finish.
+3. **Treat dart-sass import-triggering as a scheduling concern, not a free call.** Anything that indirectly causes `import("sass")` is potentially the same class of bug. The comment in `wasmRenderer.ts` (`5b79af69`) documents this.
+
+Track as a separate beads issue if the compile cost becomes visible; otherwise leave alone.
 
 ## Design decisions made during this phase
 
 - `towupper` implementation strategy: keep it simple and correct for ASCII (which is what the tree-sitter-html scanner is actually matching — HTML tag delimiters and doctype keywords). For non-ASCII wint_t values, pass through unchanged. Matches the `towlower` shim's existing behavior.
-- `test-highlight` cargo feature vs always-on export: default to the feature-gated approach. Production WASM bundles should not carry test-only exports. `build:wasm` gets a separate invocation (or an env var) for test builds. Revisit if the plumbing burden is too large.
+- `test-highlight` cargo feature vs always-on export: decided to ship the `quarto_highlight_for_test` export unconditionally (consistent with existing `test_lua`, `test_unwind` exports). If production bundle size matters later, retrofit a feature gate — but the hub-client's build-wasm is internal tooling, not user-shipped, so the cost is zero in practice.
 - Fixture sharing: native tests use `include_str!` against the JSON; vitest reads it via `fs.readFileSync`. One source of truth.
