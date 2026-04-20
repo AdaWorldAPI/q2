@@ -86,26 +86,6 @@ export async function initWasm(): Promise<void> {
         // This allows dart-sass to read Bootstrap SCSS files from the VFS
         await setupSassVfsCallbacks();
 
-        // Fire-and-forget warm of the default (no-theme) CSS. First
-        // render after a WASM deploy normally pays a ~500ms SASS
-        // compile because `CSS_BUILD_ID` (the cache-invalidation key)
-        // changes with every deploy that touches SCSS assembly. By
-        // starting the compile now — in parallel with UI setup and
-        // project data fetch — the compile finishes during expected
-        // startup latency and the user's first render hits the cache.
-        //
-        // No `await`: we don't want init to block on compile. If the
-        // warm fails, the first real render falls back to an on-demand
-        // compile, same as before this hook existed.
-        const wasmWithCssWarm = wasm as unknown as {
-          compile_default_bootstrap_css?: (minified: boolean) => Promise<string>;
-        };
-        void wasmWithCssWarm
-          .compile_default_bootstrap_css?.(true)
-          .catch((err: unknown) => {
-            console.debug('[quarto] default-CSS cache warm failed:', err);
-          });
-
         console.log('WASM module initialized successfully, template loaded');
       } catch (err) {
         initPromise = null;
