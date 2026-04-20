@@ -13,6 +13,12 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-20
+
+- [`f57a8fef`](https://github.com/quarto-dev/q2/commits/f57a8fef): Fix Firefox Quirks Mode in preview iframe — stylesheets (including the new syntax-highlight colors) now apply correctly in Firefox, not just Chrome
+- [`981bda93`](https://github.com/quarto-dev/q2/commits/981bda93): Documents without an explicit `theme:` entry now ship the built-in syntax-highlight color rules, matching native `quarto render` behavior
+- [`2dfd24a0`](https://github.com/quarto-dev/q2/commits/2dfd24a0): Syntax highlighting for code blocks now works in the hub-client preview (12 built-in languages: bash, css, html, javascript, json, julia, lua, python, r, sql, typescript, yaml)
+
 ### 2026-04-17
 
 - [`123ea422`](https://github.com/quarto-dev/q2/commits/123ea422): Show cross-referenceable elements (figures, tables, theorems, equations, ...) in the document outline, with rendered labels like "Figure 1: caption" and absorbing inner theorem headers so they don't appear twice
