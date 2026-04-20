@@ -24,9 +24,10 @@
 use async_trait::async_trait;
 use quarto_error_reporting::DiagnosticMessage;
 
-use crate::stage::{
-    EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, StageContext,
-};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stage::EventLevel;
+use crate::stage::{PipelineData, PipelineDataKind, PipelineError, PipelineStage, StageContext};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::trace_event;
 
 /// Pipeline stage that annotates code blocks with syntax-highlight

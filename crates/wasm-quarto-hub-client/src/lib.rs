@@ -144,6 +144,32 @@ pub async fn test_lua_async() -> String {
     pampa::lua_wasm_async_test().await
 }
 
+/// Test entry point for Phase 3 of syntax highlighting — consumed by
+/// `hub-client/tests/wasm-highlight.vitest.ts`. Not used in production.
+///
+/// Calls through to `quarto_highlight::highlight()`, which is the same
+/// `Registry::global().highlight()` → `tree_sitter_highlight::Highlighter`
+/// path the native CLI uses. The return value is the JSON triple-array
+/// encoding that ends up in the `data-hl-spans` attribute, so if this
+/// matches the native golden output for the same `(class, source)`
+/// input, the native and WASM highlight paths are equivalent.
+///
+/// Returns:
+///   - `Ok(Some(json))` when the class resolves to a built-in grammar
+///     and highlighting succeeds;
+///   - `Ok(None)` when the class is not registered (matches native
+///     fall-through behavior);
+///   - `Err(msg)` if the underlying Highlighter errored — propagated
+///     back to JS as a thrown exception via wasm-bindgen.
+#[wasm_bindgen]
+pub fn quarto_highlight_for_test(
+    language_class: &str,
+    source: &str,
+) -> Result<Option<String>, JsValue> {
+    quarto_highlight::highlight(language_class, source)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 // ============================================================================
 // RESPONSE TYPES
 // ============================================================================

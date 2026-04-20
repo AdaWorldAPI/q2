@@ -106,7 +106,6 @@ pub use trace::{JsonTraceObserver, SummaryTraceObserver};
 pub use traits::PipelineStage;
 
 // Re-export concrete stages for convenience
-#[cfg(not(target_arch = "wasm32"))]
 pub use stages::CodeHighlightStage;
 pub use stages::{
     ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, EngineExecutionStage,

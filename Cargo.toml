@@ -8,7 +8,18 @@ default-members = ["crates/*", "crates/experiments/reconcile-viewer"]
 # - WASM crates: build with wasm-pack or --target wasm32-unknown-unknown
 # - pampa/fuzz: requires nightly Rust + libfuzzer-sys (Linux/macOS only), run via `cargo fuzz`
 # crates/experiments is a container directory, not a crate, so we exclude it from crates/* matching.
-exclude = ["crates/wasm-quarto-hub-client", "crates/wasm-qmd-parser", "crates/experiments", "crates/pampa/fuzz"]
+exclude = [
+    "crates/wasm-quarto-hub-client",
+    "crates/wasm-qmd-parser",
+    "crates/experiments",
+    "crates/pampa/fuzz",
+    # WASM-only drop-in replacement for tree-sitter-language; used via
+    # [patch.crates-io] in wasm-quarto-hub-client. Collides with the
+    # real tree-sitter-language crate (same `links` key) if both appear
+    # in the same workspace graph. See
+    # claude-notes/plans/2026-04-20-wasm-shim-merge.md.
+    "crates/tree-sitter-language-wasm-shim",
+]
 resolver = "2"
 
 [workspace.package]

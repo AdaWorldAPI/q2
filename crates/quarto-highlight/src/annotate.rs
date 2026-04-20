@@ -45,7 +45,9 @@ pub fn annotate_pandoc(
 /// accepts only built-ins.
 #[cfg(target_arch = "wasm32")]
 pub fn annotate_pandoc(ast: &mut Pandoc) -> Result<(), HighlightError> {
-    let mut walker = Walker {};
+    let mut walker = Walker {
+        _phantom: std::marker::PhantomData,
+    };
     walker.visit_blocks(&mut ast.blocks)
 }
 

@@ -52,7 +52,6 @@ use quarto_source_map::SourceContext;
 
 use crate::Result;
 use crate::render::RenderContext;
-#[cfg(not(target_arch = "wasm32"))]
 use crate::stage::CodeHighlightStage;
 use crate::stage::stages::ApplyTemplateConfig;
 use crate::stage::{
@@ -163,10 +162,6 @@ pub fn build_html_pipeline_stages_with_apply_config(
         Box::new(AstTransformsStage::new()),
         Box::new(UserFiltersStage::post()),
     ];
-    // Syntax-highlight annotation is native-only (Phase 1-2); wasm32
-    // gets it in Phase 3 of the plan. On wasm32 we currently produce
-    // no `data-hl-spans` attrs and the HTML writer emits plain code.
-    #[cfg(not(target_arch = "wasm32"))]
     stages.push(Box::new(CodeHighlightStage::new()));
     stages.push(Box::new(RenderHtmlBodyStage::new()));
     let apply_stage = match apply_config {
@@ -238,10 +233,6 @@ pub fn build_wasm_html_pipeline() -> Pipeline {
         Box::new(AstTransformsStage::new()),
         Box::new(UserFiltersStage::post()),
     ];
-    // See note in `build_html_pipeline_stages`. When this function is
-    // compiled for a native target (e.g. `cargo test`), the highlight
-    // stage is included; on wasm32 builds it's skipped.
-    #[cfg(not(target_arch = "wasm32"))]
     stages.push(Box::new(CodeHighlightStage::new()));
     stages.push(Box::new(RenderHtmlBodyStage::new()));
     stages.push(Box::new(ApplyTemplateStage::new()));

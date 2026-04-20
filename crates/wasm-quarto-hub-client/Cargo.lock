@@ -3622,8 +3622,6 @@ dependencies = [
 [[package]]
 name = "tree-sitter-language"
 version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 
 [[package]]
 name = "tree-sitter-lua"
@@ -3938,6 +3936,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-printf-fmt"
+version = "0.1.0"
+
+[[package]]
 name = "wasm-quarto-hub-client"
 version = "0.1.0"
 dependencies = [
@@ -3949,6 +3951,7 @@ dependencies = [
  "quarto-ast-reconcile",
  "quarto-core",
  "quarto-error-reporting",
+ "quarto-highlight",
  "quarto-lsp-core",
  "quarto-pandoc-types",
  "quarto-project-create",
@@ -3960,6 +3963,7 @@ dependencies = [
  "serde_yaml",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-printf-fmt",
  "web-sys",
  "yaml-rust2",
 ]
