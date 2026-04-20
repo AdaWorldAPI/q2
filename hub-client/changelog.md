@@ -15,7 +15,6 @@ be in reverse chronological order (latest first).
 
 ### 2026-04-20
 
-- [`8535bcba`](https://github.com/quarto-dev/q2/commits/8535bcba): Default-CSS cache is warmed during WASM init so the first render after a deploy doesn't pay a ~500ms SASS compile
 - [`23e020cd`](https://github.com/quarto-dev/q2/commits/23e020cd): CSS cache now invalidates automatically on any Rust-side SCSS-assembly change — replaces the manual `_vN` version knob with a build-time hash of quarto-sass source files
 - [`2824fceb`](https://github.com/quarto-dev/q2/commits/2824fceb): Syntax-highlight color rules now reach users whose browsers had cached the pre-fix default CSS (cache-key version bump; previously only affected users with warm IndexedDB state)
 - [`f57a8fef`](https://github.com/quarto-dev/q2/commits/f57a8fef): Fix Firefox Quirks Mode in preview iframe — stylesheets (including the new syntax-highlight colors) now apply correctly in Firefox, not just Chrome

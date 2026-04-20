@@ -86,6 +86,24 @@ export async function initWasm(): Promise<void> {
         // This allows dart-sass to read Bootstrap SCSS files from the VFS
         await setupSassVfsCallbacks();
 
+        // NOTE on pre-warming the default-CSS cache: it's tempting to
+        // fire `wasm.compile_default_bootstrap_css(true)` here so the
+        // first render after a deploy doesn't pay the ~500ms SASS
+        // compile. Do **not** do that. The SASS module in
+        // `src/wasm-js-bridge/sass.js` is intentionally lazy-loaded
+        // (~5 MB dart-sass dynamic import) to avoid blocking startup.
+        // Triggering compilation at init-time forces dart-sass to load
+        // in parallel with Monaco's own ~3 MB CDN load — on Firefox
+        // and Chrome alike this manifests as "too much recursion"
+        // errors inside Monaco's chunk (a Vite module-graph race
+        // between two overlapping dynamic imports). If pre-warming
+        // becomes valuable later, defer it to after Monaco is fully
+        // loaded (e.g. run inside a React effect that fires once the
+        // first document's file list is mounted). See the Phase 3
+        // syntax-highlighting plan at
+        // `claude-notes/plans/2026-04-20-syntax-highlighting-phase-3.md`
+        // for the incident.
+
         console.log('WASM module initialized successfully, template loaded');
       } catch (err) {
         initPromise = null;
