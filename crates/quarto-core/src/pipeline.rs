@@ -135,6 +135,24 @@ pub struct AstOutput {
 /// 9. `RenderHtmlBodyStage` - Render AST to HTML body
 /// 10. `ApplyTemplateStage` - Apply HTML template
 pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
+    build_html_pipeline_stages_with_apply_config(None)
+}
+
+/// Like [`build_html_pipeline_stages`], but allows the caller to supply
+/// a customized [`ApplyTemplateConfig`] (e.g. CSS paths and resource
+/// prefix from `render_to_file`). The rest of the pipeline — including
+/// [`CodeHighlightStage`] — is identical to [`build_html_pipeline_stages`].
+///
+/// This helper exists so that the CLI render path (which needs custom
+/// CSS paths) and the default in-memory path (which doesn't) share a
+/// single source of truth for the stage list. Without it, the two
+/// branches drift silently — in particular, a previous version of
+/// `render_qmd_to_html` inlined its own stage vec for the CSS-paths
+/// case and omitted the highlight stage, causing `quarto render` to
+/// emit un-highlighted HTML while all in-process tests passed.
+pub fn build_html_pipeline_stages_with_apply_config(
+    apply_config: Option<ApplyTemplateConfig>,
+) -> Vec<Box<dyn PipelineStage>> {
     let mut stages: Vec<Box<dyn PipelineStage>> = vec![
         Box::new(ParseDocumentStage::new()),
         Box::new(MetadataMergeStage::new()),
@@ -151,7 +169,11 @@ pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
     #[cfg(not(target_arch = "wasm32"))]
     stages.push(Box::new(CodeHighlightStage::new()));
     stages.push(Box::new(RenderHtmlBodyStage::new()));
-    stages.push(Box::new(ApplyTemplateStage::new()));
+    let apply_stage = match apply_config {
+        Some(cfg) => ApplyTemplateStage::with_config(cfg),
+        None => ApplyTemplateStage::new(),
+    };
+    stages.push(Box::new(apply_stage));
     stages
 }
 
@@ -470,26 +492,15 @@ pub async fn render_qmd_to_html(
     config: &HtmlRenderConfig<'_>,
     runtime: Arc<dyn quarto_system_runtime::SystemRuntime>,
 ) -> Result<RenderOutput> {
-    // Build pipeline based on config
-    // If custom CSS or template is specified, use a customized ApplyTemplateStage
+    // Build pipeline based on config. Both branches share the same
+    // stage list (via `build_html_pipeline_stages_with_apply_config`);
+    // the only difference is whether the final `ApplyTemplateStage`
+    // carries a custom CSS-path / resource-prefix config.
     let stages = if !config.css_paths.is_empty() {
         let apply_config = ApplyTemplateConfig::new()
             .with_css_paths(config.css_paths.to_vec())
             .with_resource_prefix(config.resource_prefix.to_string());
-
-        let stages: Vec<Box<dyn PipelineStage>> = vec![
-            Box::new(ParseDocumentStage::new()),
-            Box::new(MetadataMergeStage::new()),
-            Box::new(PreEngineSugaringStage::new()),
-            Box::new(EngineExecutionStage::new()),
-            Box::new(CompileThemeCssStage::new()),
-            Box::new(UserFiltersStage::pre()),
-            Box::new(AstTransformsStage::new()),
-            Box::new(UserFiltersStage::post()),
-            Box::new(RenderHtmlBodyStage::new()),
-            Box::new(ApplyTemplateStage::with_config(apply_config)),
-        ];
-        stages
+        build_html_pipeline_stages_with_apply_config(Some(apply_config))
     } else {
         build_html_pipeline_stages()
     };
@@ -832,6 +843,53 @@ mod tests {
 
         // Custom CSS should be in the output
         assert!(output.html.contains("custom.css"));
+    }
+
+    #[test]
+    fn test_render_code_block_is_syntax_highlighted_with_css_paths() {
+        // Regression test for the CLI render path: `render_document_to_file`
+        // always supplies a non-empty `css_paths`, which routes through the
+        // "custom ApplyTemplateStage" branch of `render_qmd_to_html`. A
+        // previous version of that branch inlined its own stage list and
+        // silently omitted `CodeHighlightStage`, so `quarto render` emitted
+        // un-highlighted HTML even though the default-config test passed.
+        // Keep this test in lockstep with `test_render_code_block_is_syntax_highlighted`.
+        let content =
+            b"---\ntitle: Test\n---\n\n```python\ndef greet(name):\n    print(name)\n```\n";
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        let css_paths = vec!["custom.css".to_string()];
+        let config = HtmlRenderConfig::with_css(&css_paths);
+        let runtime = make_test_runtime();
+        let output = pollster::block_on(render_qmd_to_html(
+            content, "test.qmd", &mut ctx, &config, runtime,
+        ))
+        .unwrap();
+
+        assert!(
+            output
+                .html
+                .contains("<span class=\"hl-keyword\">def</span>"),
+            "expected hl-keyword span around `def` on the CLI path; got:\n{}",
+            &output.html,
+        );
+        assert!(
+            output
+                .html
+                .contains("<span class=\"hl-function-builtin\">print</span>"),
+            "expected hl-function-builtin span around `print` on the CLI path; got:\n{}",
+            &output.html,
+        );
+        assert!(
+            !output.html.contains("data-hl-spans="),
+            "container should not carry the raw data-hl-spans attr; got:\n{}",
+            &output.html,
+        );
     }
 
     #[test]

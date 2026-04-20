@@ -124,10 +124,64 @@ Replace the current `<pre><code>{escaped_text}</code></pre>` path in `crates/pam
 
 **Phase 2 complete.** 20 new tests across pampa, quarto-sass, quarto-highlight-encoding, and quarto-core pipeline. Full workspace passes 7595 tests; hub-client WASM + SCSS + trace-viewer builds verified green.
 
+### Phase 2 post-mortem: CLI render path was un-highlighted (2026-04-20)
+
+Phase 2 was initially reported as complete when the in-process test
+`test_render_code_block_is_syntax_highlighted` passed. That test calls
+`render_qmd_to_html` with `HtmlRenderConfig::default()` — **empty
+`css_paths`**. Under that config, `render_qmd_to_html` delegates to
+`build_html_pipeline_stages()`, which does include `CodeHighlightStage`.
+
+The CLI render path (`render_document_to_file` → `render_qmd_to_html`)
+always supplies a **non-empty** `css_paths` (it writes `styles.css` for
+the emitted `_files/` resource dir). That took the other branch of
+`render_qmd_to_html`, which inlined its own stage `Vec` and **omitted
+`CodeHighlightStage` entirely**. Result: every `quarto render` output
+shipped without highlighting, while all tests were green.
+
+The bug was discovered by the user rendering a real `.qmd` file with
+`quarto render` and inspecting the output HTML — something neither
+session did before reporting success.
+
+**Fix** (commit on this branch):
+- `build_html_pipeline_stages_with_apply_config(Option<ApplyTemplateConfig>)`
+  in `crates/quarto-core/src/pipeline.rs` is now the single source of
+  truth for the HTML stage list. Both branches of `render_qmd_to_html`
+  call it. The highlight stage cannot drop out of one path without the
+  other.
+- New regression test `test_render_code_block_is_syntax_highlighted_with_css_paths`
+  exercises the non-empty-`css_paths` branch (the CLI path) and asserts
+  on `hl-*` spans. Verified that reverting the fix makes it fail.
+- `crates/quarto/tests/smoke-all/quarto-test/code-block.qmd` updated so
+  its `ensureFileRegexMatches` requires `hl-keyword">def</span>` and
+  `hl-function-builtin">print</span>` — the smoke suite now fails if
+  the CLI stops highlighting.
+
+**Acceptance-criterion change for all future phases** (applies to
+Phases 3–7 below): a phase is not "complete" until it has been
+exercised **end-to-end through the binary a user would actually run**
+(`quarto render` for native, a real hub-client render for browser).
+The transcript / plan update for the phase must include:
+- the exact command/invocation used to exercise the feature,
+- a snippet of the observed output demonstrating the feature works,
+- explicit confirmation that the output was inspected, not just that
+  tests passed.
+
+In-process tests that reach for `HtmlRenderConfig::default()` or build
+their own stage list do not count as end-to-end verification for a
+CLI-visible feature — they skip the config shape the real binary uses.
+When adding a feature that surfaces only through a specific branch of
+a config-conditional builder, add a regression test that hits that
+branch *and* run the binary.
+
 - **Phase 3 — browser built-ins**:
   - [ ] Statically linked grammar crates compile clean into `wasm-quarto-hub-client`
   - [ ] Bundle-size regression test (upper-bound per grammar)
   - [ ] Same snapshot tests run in the WASM harness
+  - [ ] **End-to-end verification**: render a `.qmd` with a highlighted
+        code block in the actual hub-client (real browser session) and
+        confirm `hl-*` spans appear in the DOM. Record the invocation +
+        observed output in this plan's phase-complete summary.
 
 - **Phase 4 — browser user grammars (minimal v1)**:
   - [ ] `web-tree-sitter` as npm dep in hub-client
@@ -135,20 +189,34 @@ Replace the current `<pre><code>{escaped_text}</code></pre>` path in `crates/pam
   - [ ] JS-side parse + query + span-event emission; results returned as the same `data-hl-spans` JSON
   - [ ] End-to-end test with one hand-loaded `.wasm` grammar
   - [ ] Full hub-client user-grammar UX (multi-grammar discovery, sync transport, upload flow) → Phase 6
+  - [ ] **End-to-end verification**: load a real `.wasm` user grammar
+        in a browser hub-client session and confirm its captures render
+        as `hl-*` spans. Record the fixture + observed DOM here.
 
 - **Phase 5 — extension features**:
   - [ ] Language injections
   - [ ] User-override `highlights.scm` for built-in languages
   - [ ] Line numbers and line-highlight directives (chroma-style `{linenos=inline,hl_lines=[2,3]}`)
+  - [ ] **End-to-end verification**: for each feature, render a
+        minimal fixture with `quarto render` (native) or a real
+        hub-client session (browser) and record the invocation +
+        observed output proving the feature works.
 
 - **Phase 6 — browser user-grammar UX polish** (post-v1):
   - [ ] Hub-client discovery flow for `_quarto/grammars/*.wasm`
   - [ ] Sync-channel transport of grammar `.wasm` + query files
   - [ ] Upload UX in hub-client UI
+  - [ ] **End-to-end verification**: user-flow screen-walk in a real
+        hub-client session — upload grammar, see highlighting, record
+        each step here or in a linked transcript.
 
 - **Phase 7 — Pandoc-bridge parity** (deferred until Pandoc output lands / user demands):
   - [ ] Translate `data-hl-spans` → per-format RawBlock for latex / typst / docx
   - [ ] Taxonomy-adapter layer (tree-sitter captures → skylighting token classes)
+  - [ ] **End-to-end verification**: `quarto render` a `.qmd` to each
+        target format, open the produced file in that format's
+        native viewer, and confirm highlighting. Record commands +
+        observed output.
 
 ## Grammar-loading architecture (native + browser)
 

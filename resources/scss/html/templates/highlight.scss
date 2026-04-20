@@ -14,6 +14,15 @@
 // Theme authors override by targeting the same `.hl-…` classes in a
 // later layer.
 
+// Make the code child of a pre block-level so long tokens don't
+// collapse onto the pre's baseline and so rules keyed on the code
+// element get a full-width box. Quarto 1 ships the equivalent rule in
+// `_quarto-rules.scss`; without it, bootswatch themes (and the
+// no-theme default) render code blocks as inline runs.
+pre > code {
+  display: block;
+}
+
 pre.sourceCode > code,
 code.sourceCode {
   // Keep code containers reading as code. Actual font-family is
