@@ -15,6 +15,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-04-20
 
+- [`2824fceb`](https://github.com/quarto-dev/q2/commits/2824fceb): Syntax-highlight color rules now reach users whose browsers had cached the pre-fix default CSS (cache-key version bump; previously only affected users with warm IndexedDB state)
 - [`f57a8fef`](https://github.com/quarto-dev/q2/commits/f57a8fef): Fix Firefox Quirks Mode in preview iframe — stylesheets (including the new syntax-highlight colors) now apply correctly in Firefox, not just Chrome
 - [`981bda93`](https://github.com/quarto-dev/q2/commits/981bda93): Documents without an explicit `theme:` entry now ship the built-in syntax-highlight color rules, matching native `quarto render` behavior
 - [`2dfd24a0`](https://github.com/quarto-dev/q2/commits/2dfd24a0): Syntax highlighting for code blocks now works in the hub-client preview (12 built-in languages: bash, css, html, javascript, json, julia, lua, python, r, sql, typescript, yaml)
