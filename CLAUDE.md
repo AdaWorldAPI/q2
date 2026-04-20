@@ -178,6 +178,49 @@ br import -i .beads/issues.jsonl --resolve-collisions  # Auto-resolve
 
 Only `blocks` dependencies affect the ready work queue.
 
+## Where information lives (memory vs. repo)
+
+Claude's project-memory system (`~/.claude/projects/.../memory/`) is
+**per-user and per-machine**. It does not sync to colleagues, does not
+appear in code review, and cannot be corrected via a PR. Do not put
+project-wide facts there.
+
+Before writing a `project`-type memory, ask two questions:
+
+1. **Would a colleague benefit from seeing this in their own Claude
+   session?** If yes, it belongs in the repo, not in memory.
+2. **Is it already captured in a repo artifact?** If yes, memory is
+   redundant.
+
+Where project-wide information should live instead:
+
+- **`CLAUDE.md`** — always-on guidance, project conventions, commands.
+- **`claude-notes/plans/`** — decisions, rationale, in-progress work.
+- **`claude-notes/research/`** — findings, audits, reference material.
+- **Code comments** — invariants local to specific code.
+- **Commit messages + `br`** — temporal context, who did what when.
+
+What memory is *actually* appropriate for:
+
+- `user` type — facts about the user (role, expertise, what they're
+  working on this week). Not visible in code.
+- `feedback` type — preferences the user has expressed about how I
+  should work with them (style, terseness, confirmation thresholds).
+- `reference` type — pointers to external systems (Linear project
+  IDs, dashboard URLs, Slack channels).
+- `project` type — narrow cases where something affects *my*
+  behavior with *this user* specifically and isn't already captured
+  anywhere in the repo.
+
+**Red flags** that a proposed memory should go in the repo instead:
+
+- It's an architectural decision ("we chose X over Y").
+- It's project state everyone needs ("crate Z is being removed").
+- It duplicates something already in `CLAUDE.md` or a plan/research
+  note.
+- Future agents running on a colleague's machine would be confused or
+  misled without it.
+
 ## **CRITICAL - TEST-DRIVEN DEVELOPMENT**
 
 When fixing ANY bug:
