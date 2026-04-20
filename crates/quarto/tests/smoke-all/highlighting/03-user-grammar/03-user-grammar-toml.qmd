@@ -11,10 +11,10 @@ _quarto:
         # highlights.scm produce `hl-string`, `hl-number`, `hl-operator`
         # spans — these map 1:1 from the capture names in the grammar's
         # query file.
-        - ["<pre class=\"sourceCode toml\"",
-           "hl-string\">&quot;example&quot;</span>",
-           "hl-number\">42</span>",
-           "hl-operator\">=</span>"]
+        - [!str "<pre class=\"sourceCode toml\"",
+           !str "hl-string\">&quot;example&quot;</span>",
+           !str "hl-number\">42</span>",
+           !str "hl-operator\">=</span>"]
 ---
 
 Quarto picks up tree-sitter grammars that are **not** built in but
