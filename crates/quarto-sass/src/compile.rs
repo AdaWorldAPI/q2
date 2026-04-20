@@ -377,7 +377,7 @@ pub async fn compile_default_css(
     runtime: &dyn SystemRuntime,
     minified: bool,
 ) -> Result<String, SassError> {
-    use crate::bundle::load_title_block_layer;
+    use crate::bundle::{load_highlight_layer, load_title_block_layer};
 
     // Return cached version if available (only for minified, matching
     // native). Minified is always true in practice for hub-client.
@@ -387,12 +387,17 @@ pub async fn compile_default_css(
         }
     }
 
-    // Load title block layer - this provides styling for title block elements
-    // In TS Quarto, this is always included as a user layer
+    // Load built-in user layers: title block styling + default syntax-
+    // highlight colors. Both ship with Quarto and are always included.
+    // This mirrors the native `compile_default_css`. Without the
+    // highlight layer, documents without an explicit `theme:` frontmatter
+    // entry would render code blocks with `hl-*` span classes but no
+    // associated colors.
     let title_block_layer = load_title_block_layer()?;
+    let highlight_layer = load_highlight_layer()?;
 
-    // Assemble SCSS: Bootstrap + Quarto + title block layer
-    let scss = assemble_with_user_layers(&[title_block_layer])?;
+    // Assemble SCSS: Bootstrap + Quarto + title block + highlight defaults
+    let scss = assemble_with_user_layers(&[title_block_layer, highlight_layer])?;
 
     // Get load paths (these point to VFS paths populated by wasm-quarto-hub-client)
     let load_paths = default_load_paths();
