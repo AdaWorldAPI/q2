@@ -28,7 +28,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use quarto_sass::{
-    SCSS_RESOURCES_HASH, ThemeConfig, ThemeContext, assemble_theme_scss, compile_default_css,
+    CSS_BUILD_ID, ThemeConfig, ThemeContext, assemble_theme_scss, compile_default_css,
 };
 use quarto_system_runtime::{
     SASS_CACHE_BUDGET_BYTES, SystemRuntime, cache_get_lru, cache_set_lru, ensure_namespace_version,
@@ -45,28 +45,15 @@ use crate::trace_event;
 /// Name of the cache namespace used for compiled SCSS CSS output.
 const SASS_CACHE_NAMESPACE: &str = "sass";
 
-/// Fixed cache key for the default (no-theme) compiled CSS. Including the
-/// minified flag distinguishes minified from expanded output.
-/// `SCSS_RESOURCES_HASH` is intentionally _not_ included here: the
-/// generational purge (see [`ensure_sass_cache_ready`]) invalidates the
-/// whole namespace when the hash changes, so the key stays short and
-/// readable.
-///
-/// **The `_vN` suffix is a manual version knob.** The generational purge
-/// only triggers when a `.scss` file changes. If we change the Rust
-/// code that *assembles* the default CSS layers (e.g. adding a new
-/// user-layer like `load_highlight_layer` to `compile_default_css`),
-/// the SCSS hash stays the same but the compiled CSS differs — and
-/// without a key change, existing cross-session entries in IndexedDB
-/// would keep serving stale CSS to users who upgrade their WASM
-/// binary. Bump `_vN` whenever you add, remove, or reorder a built-in
-/// user layer in `compile_default_css` (native or wasm32).
-///
-/// History:
-/// - v2 (2026-04-20, bd-n7x2 Phase 3): added `load_highlight_layer()`
-///   to the wasm32 `compile_default_css` for syntax-highlight colors.
-const DEFAULT_CACHE_KEY_MINIFIED: &str = "default_minified_v2";
-const DEFAULT_CACHE_KEY_EXPANDED: &str = "default_expanded_v2";
+/// Fixed cache key for the default (no-theme) compiled CSS. The
+/// minified flag distinguishes minified from expanded output; the
+/// generational purge ([`ensure_sass_cache_ready`]) keyed on
+/// [`CSS_BUILD_ID`] handles all other invalidation cases
+/// automatically. No manual `_vN` suffix needed — the build ID
+/// changes whenever any SCSS resource OR any Rust source in
+/// `crates/quarto-sass/src/` changes.
+const DEFAULT_CACHE_KEY_MINIFIED: &str = "default_minified";
+const DEFAULT_CACHE_KEY_EXPANDED: &str = "default_expanded";
 
 fn default_cache_key(minified: bool) -> &'static str {
     if minified {
@@ -85,13 +72,9 @@ fn default_cache_key(minified: bool) -> &'static str {
 /// between tests and between runtimes). Returns `false` if the cache
 /// layer errors out; callers fall through to compile-without-caching.
 async fn ensure_sass_cache_ready(runtime: &dyn SystemRuntime) -> bool {
-    ensure_namespace_version(
-        runtime,
-        SASS_CACHE_NAMESPACE,
-        SCSS_RESOURCES_HASH.as_bytes(),
-    )
-    .await
-    .is_ok()
+    ensure_namespace_version(runtime, SASS_CACHE_NAMESPACE, CSS_BUILD_ID.as_bytes())
+        .await
+        .is_ok()
 }
 
 /// Compile theme CSS and store as a pipeline artifact.
@@ -800,7 +783,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             version.as_deref(),
-            Some(quarto_sass::SCSS_RESOURCES_HASH.as_bytes())
+            Some(quarto_sass::CSS_BUILD_ID.as_bytes())
         );
     }
 
@@ -818,7 +801,7 @@ mod tests {
         pollster::block_on(runtime.cache_set(
             "sass",
             quarto_system_runtime::CACHE_VERSION_KEY,
-            quarto_sass::SCSS_RESOURCES_HASH.as_bytes(),
+            quarto_sass::CSS_BUILD_ID.as_bytes(),
         ))
         .unwrap();
         const SENTINEL: &str = "/* cached sentinel */";
@@ -846,43 +829,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_stale_pre_version_key_is_orphaned() {
-        // Regression guard for the Phase 3 syntax-highlighting bug. Before
-        // we bumped `DEFAULT_CACHE_KEY_MINIFIED` from `"default_minified"`
-        // to `"default_minified_v2"`, an upgrade path looked like this:
+    async fn test_rust_side_change_invalidates_default_cache_via_build_id() {
+        // Regression guard for the Phase 3 syntax-highlighting bug. The
+        // original incident:
         //
         //   1. Old Quarto assembled default CSS without `highlight.scss`
-        //      and stored it under key `"default_minified"`.
-        //   2. `SCSS_RESOURCES_HASH` stayed the same across the upgrade
-        //      (the change was in Rust, not in a `.scss` file), so the
-        //      generational purge did NOT fire.
-        //   3. New Quarto read `"default_minified"` from the cache and
-        //      served the pre-fix CSS → no syntax-highlight colors for
-        //      any user whose IndexedDB had been warmed by an older
-        //      session.
+        //      and stored it under `"default_minified"` in IndexedDB,
+        //      with the namespace version sentinel set to
+        //      `SCSS_RESOURCES_HASH` (hash of `.scss` files only).
+        //   2. We changed `compile_default_css` (Rust) to also load
+        //      `highlight_layer`. No `.scss` file changed, so
+        //      `SCSS_RESOURCES_HASH` was identical across the upgrade.
+        //   3. On next render, the generational purge compared the
+        //      stored sentinel to the (unchanged) hash, saw a match,
+        //      and left the stale entry in place. Users got served the
+        //      pre-fix CSS missing the `.hl-*` rules.
         //
-        // The fix is to include a `_vN` suffix that we bump whenever the
-        // Rust-side assembly changes. Old entries become orphans — this
-        // test verifies the stale entry is ignored on subsequent runs.
+        // The fix is to key the generational purge on `CSS_BUILD_ID`
+        // instead of `SCSS_RESOURCES_HASH`. `CSS_BUILD_ID` combines the
+        // SCSS hash with a hash of every `.rs` file under
+        // `crates/quarto-sass/src/`, so any Rust edit that could affect
+        // the compiled CSS automatically bumps the sentinel and triggers
+        // a namespace purge on next load. No manual version knob.
+        //
+        // This test simulates the same setup as the original incident:
+        // a previous deploy's CSS cached under the current key, but
+        // tagged with an OLD build-id. The generational purge must wipe
+        // it on first load despite the cache key itself being
+        // unchanged.
         let temp = tempfile::TempDir::new().unwrap();
         let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> = Arc::new(
             quarto_system_runtime::NativeRuntime::with_cache_dir(temp.path().to_path_buf()),
         );
 
-        // Seed the CORRECT version sentinel so the generational purge
-        // leaves the stale entry alone, and place a recognizable stale
-        // payload under the pre-fix key.
         pollster::block_on(runtime.cache_set(
             "sass",
             quarto_system_runtime::CACHE_VERSION_KEY,
-            quarto_sass::SCSS_RESOURCES_HASH.as_bytes(),
+            b"previous-deploy-build-id",
         ))
         .unwrap();
-        const STALE: &str = "/* stale: pre-fix default CSS without .hl-* rules */";
+        const STALE: &str = "/* stale: pre-Rust-edit default CSS without .hl-* rules */";
         pollster::block_on(quarto_system_runtime::cache_set_lru(
             runtime.as_ref(),
             "sass",
-            "default_minified", // the pre-bump key
+            DEFAULT_CACHE_KEY_MINIFIED,
             STALE.as_bytes(),
             quarto_system_runtime::SASS_CACHE_BUDGET_BYTES,
         ))
@@ -895,16 +885,27 @@ mod tests {
             .await
             .unwrap();
 
-        // The stage must recompile (not serve the stale entry) because
-        // the new key doesn't match the orphan.
+        // Build-id mismatch → namespace purged → stale entry gone →
+        // stage recompiled. Output must be the new CSS, not the stale
+        // sentinel, and must include the highlight-layer rules.
         let css = get_css_artifact(&ctx);
         assert_ne!(
             css, STALE,
-            "stage must not serve stale CSS from the pre-bump key",
+            "stage must not serve stale CSS after a Rust-side change",
         );
         assert!(
             css.contains(".hl-keyword"),
             "recompiled default CSS must include .hl-* rules from highlight.scss",
+        );
+
+        // Version sentinel was rewritten to the current build-id.
+        let version =
+            pollster::block_on(runtime.cache_get("sass", quarto_system_runtime::CACHE_VERSION_KEY))
+                .unwrap();
+        assert_eq!(
+            version.as_deref(),
+            Some(quarto_sass::CSS_BUILD_ID.as_bytes()),
+            "generational purge must rewrite the sentinel to the current CSS_BUILD_ID",
         );
     }
 
@@ -951,7 +952,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             version.as_deref(),
-            Some(quarto_sass::SCSS_RESOURCES_HASH.as_bytes())
+            Some(quarto_sass::CSS_BUILD_ID.as_bytes())
         );
     }
 
