@@ -51,8 +51,22 @@ const SASS_CACHE_NAMESPACE: &str = "sass";
 /// generational purge (see [`ensure_sass_cache_ready`]) invalidates the
 /// whole namespace when the hash changes, so the key stays short and
 /// readable.
-const DEFAULT_CACHE_KEY_MINIFIED: &str = "default_minified";
-const DEFAULT_CACHE_KEY_EXPANDED: &str = "default_expanded";
+///
+/// **The `_vN` suffix is a manual version knob.** The generational purge
+/// only triggers when a `.scss` file changes. If we change the Rust
+/// code that *assembles* the default CSS layers (e.g. adding a new
+/// user-layer like `load_highlight_layer` to `compile_default_css`),
+/// the SCSS hash stays the same but the compiled CSS differs — and
+/// without a key change, existing cross-session entries in IndexedDB
+/// would keep serving stale CSS to users who upgrade their WASM
+/// binary. Bump `_vN` whenever you add, remove, or reorder a built-in
+/// user layer in `compile_default_css` (native or wasm32).
+///
+/// History:
+/// - v2 (2026-04-20, bd-n7x2 Phase 3): added `load_highlight_layer()`
+///   to the wasm32 `compile_default_css` for syntax-highlight colors.
+const DEFAULT_CACHE_KEY_MINIFIED: &str = "default_minified_v2";
+const DEFAULT_CACHE_KEY_EXPANDED: &str = "default_expanded_v2";
 
 fn default_cache_key(minified: bool) -> &'static str {
     if minified {
@@ -774,7 +788,8 @@ mod tests {
             .unwrap();
 
         // Default-key entry present after the compile.
-        let cached = pollster::block_on(runtime.cache_get("sass", "default_minified")).unwrap();
+        let cached =
+            pollster::block_on(runtime.cache_get("sass", DEFAULT_CACHE_KEY_MINIFIED)).unwrap();
         assert!(
             cached.is_some(),
             "no-theme path should populate the default cache entry"
@@ -810,7 +825,7 @@ mod tests {
         pollster::block_on(quarto_system_runtime::cache_set_lru(
             runtime.as_ref(),
             "sass",
-            "default_minified",
+            DEFAULT_CACHE_KEY_MINIFIED,
             SENTINEL.as_bytes(),
             quarto_system_runtime::SASS_CACHE_BUDGET_BYTES,
         ))
@@ -831,6 +846,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_stale_pre_version_key_is_orphaned() {
+        // Regression guard for the Phase 3 syntax-highlighting bug. Before
+        // we bumped `DEFAULT_CACHE_KEY_MINIFIED` from `"default_minified"`
+        // to `"default_minified_v2"`, an upgrade path looked like this:
+        //
+        //   1. Old Quarto assembled default CSS without `highlight.scss`
+        //      and stored it under key `"default_minified"`.
+        //   2. `SCSS_RESOURCES_HASH` stayed the same across the upgrade
+        //      (the change was in Rust, not in a `.scss` file), so the
+        //      generational purge did NOT fire.
+        //   3. New Quarto read `"default_minified"` from the cache and
+        //      served the pre-fix CSS → no syntax-highlight colors for
+        //      any user whose IndexedDB had been warmed by an older
+        //      session.
+        //
+        // The fix is to include a `_vN` suffix that we bump whenever the
+        // Rust-side assembly changes. Old entries become orphans — this
+        // test verifies the stale entry is ignored on subsequent runs.
+        let temp = tempfile::TempDir::new().unwrap();
+        let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> = Arc::new(
+            quarto_system_runtime::NativeRuntime::with_cache_dir(temp.path().to_path_buf()),
+        );
+
+        // Seed the CORRECT version sentinel so the generational purge
+        // leaves the stale entry alone, and place a recognizable stale
+        // payload under the pre-fix key.
+        pollster::block_on(runtime.cache_set(
+            "sass",
+            quarto_system_runtime::CACHE_VERSION_KEY,
+            quarto_sass::SCSS_RESOURCES_HASH.as_bytes(),
+        ))
+        .unwrap();
+        const STALE: &str = "/* stale: pre-fix default CSS without .hl-* rules */";
+        pollster::block_on(quarto_system_runtime::cache_set_lru(
+            runtime.as_ref(),
+            "sass",
+            "default_minified", // the pre-bump key
+            STALE.as_bytes(),
+            quarto_system_runtime::SASS_CACHE_BUDGET_BYTES,
+        ))
+        .unwrap();
+
+        let mut ctx = make_stage_context(runtime.clone());
+        let stage = CompileThemeCssStage::new();
+        stage
+            .run(make_doc_ast(empty_meta()), &mut ctx)
+            .await
+            .unwrap();
+
+        // The stage must recompile (not serve the stale entry) because
+        // the new key doesn't match the orphan.
+        let css = get_css_artifact(&ctx);
+        assert_ne!(
+            css, STALE,
+            "stage must not serve stale CSS from the pre-bump key",
+        );
+        assert!(
+            css.contains(".hl-keyword"),
+            "recompiled default CSS must include .hl-* rules from highlight.scss",
+        );
+    }
+
+    #[tokio::test]
     async fn test_stale_generation_purges_old_default_entry() {
         // If a stored cache entry was produced for a different SCSS
         // generation (e.g., we bumped Bootstrap), the generational purge
@@ -847,8 +925,12 @@ mod tests {
             b"stale-hash-from-an-older-quarto",
         ))
         .unwrap();
-        pollster::block_on(runtime.cache_set("sass", "default_minified", b"/* stale css */"))
-            .unwrap();
+        pollster::block_on(runtime.cache_set(
+            "sass",
+            DEFAULT_CACHE_KEY_MINIFIED,
+            b"/* stale css */",
+        ))
+        .unwrap();
 
         let mut ctx = make_stage_context(runtime.clone());
         let stage = CompileThemeCssStage::new();
