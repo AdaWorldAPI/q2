@@ -1796,18 +1796,13 @@ impl LuaAttr {
         match key {
             // Positional access (Lua uses 1-based indexing)
             Value::Integer(1) => self.identifier().into_lua(lua),
-            Value::Integer(2) => string_list_to_lua_table(lua, &self.classes()),
+            Value::Integer(2) => {
+                let ud = lua.create_userdata(LuaClassesProxy::new(self.clone()))?;
+                Ok(Value::UserData(ud))
+            }
             Value::Integer(3) => {
-                // TODO(Phase 4): return a LuaAttributesProxy instead of a
-                // fresh table so piecewise mutation persists.
-                let table = lua.create_table()?;
-                self.with_attr(|attr| {
-                    for (k, v) in attr.2.iter() {
-                        table.set(k.clone(), v.clone())?;
-                    }
-                    Ok::<_, Error>(())
-                })?;
-                Ok(Value::Table(table))
+                let ud = lua.create_userdata(LuaAttributesProxy::new(self.clone()))?;
+                Ok(Value::UserData(ud))
             }
             // Named field access
             Value::String(s) => {
@@ -1815,18 +1810,13 @@ impl LuaAttr {
                 let key_str: &str = borrowed.as_ref();
                 match key_str {
                     "identifier" => self.identifier().into_lua(lua),
-                    // TODO(Phase 4): return a LuaClassesProxy.
-                    "classes" => string_list_to_lua_table(lua, &self.classes()),
+                    "classes" => {
+                        let ud = lua.create_userdata(LuaClassesProxy::new(self.clone()))?;
+                        Ok(Value::UserData(ud))
+                    }
                     "attributes" => {
-                        // TODO(Phase 4): return a LuaAttributesProxy.
-                        let table = lua.create_table()?;
-                        self.with_attr(|attr| {
-                            for (k, v) in attr.2.iter() {
-                                table.set(k.clone(), v.clone())?;
-                            }
-                            Ok::<_, Error>(())
-                        })?;
-                        Ok(Value::Table(table))
+                        let ud = lua.create_userdata(LuaAttributesProxy::new(self.clone()))?;
+                        Ok(Value::UserData(ud))
                     }
                     "t" | "tag" => "Attr".into_lua(lua),
                     _ => Ok(Value::Nil),
@@ -1942,6 +1932,333 @@ impl FromLua for LuaAttr {
             }
             _ => Err(Error::runtime("expected Attr userdata")),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Proxy userdata for the `attributes` map and `classes` list
+// ---------------------------------------------------------------------------
+//
+// These thin wrappers carry a `LuaAttr` enum (which resolves — via
+// `with_attr` / `with_attr_mut` — to the underlying Attr regardless of
+// whether the source is an Owned standalone, a BlockRef proxy, or an
+// InlineRef proxy). Mutations through the proxy therefore land in the
+// same cell the parent element is sharing, making
+// `cb.attr.attributes["k"] = v` persist on the block.
+//
+// Borrow discipline: each metamethod grabs `borrow()` / `borrow_mut()`
+// *inside* a short scope, never across a Lua callback. `__pairs` takes
+// a fresh key-snapshot to avoid holding an outstanding borrow between
+// `next` calls; values are fetched live on each iteration step.
+//
+// FromLua is **not** implemented for these proxies (no `cb.attr.attributes`
+// being passed back into Rust helpers — they're read/written directly
+// through Lua metamethods).
+
+/// Proxy userdata for `attr.attributes` (the key→value attribute map).
+#[derive(Debug, Clone)]
+pub struct LuaAttributesProxy(pub LuaAttr);
+
+impl LuaAttributesProxy {
+    pub fn new(attr: LuaAttr) -> Self {
+        LuaAttributesProxy(attr)
+    }
+
+    fn get(&self, key: &str) -> Option<String> {
+        self.0.with_attr(|a| a.2.get(key).cloned())
+    }
+
+    fn set(&self, key: String, value: Option<String>) {
+        self.0.with_attr_mut(|a| match value {
+            Some(v) => {
+                a.2.insert(key, v);
+            }
+            None => {
+                a.2.remove(&key);
+            }
+        });
+    }
+
+    fn len(&self) -> usize {
+        self.0.with_attr(|a| a.2.len())
+    }
+
+    fn snapshot_pairs(&self) -> Vec<(String, String)> {
+        self.0
+            .with_attr(|a| a.2.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+    }
+}
+
+impl UserData for LuaAttributesProxy {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // attrs["key"] — string read
+        methods.add_meta_method(MetaMethod::Index, |lua, this, key: Value| match key {
+            Value::String(s) => {
+                let k = s.to_str()?.to_string();
+                match this.get(&k) {
+                    Some(v) => v.into_lua(lua),
+                    None => Ok(Value::Nil),
+                }
+            }
+            _ => Ok(Value::Nil),
+        });
+
+        // attrs["key"] = "value" or attrs["key"] = nil — string write / delete
+        methods.add_meta_method(
+            MetaMethod::NewIndex,
+            |lua, this, (key, val): (Value, Value)| {
+                let k = match key {
+                    Value::String(s) => s.to_str()?.to_string(),
+                    _ => {
+                        return Err(Error::runtime(
+                            "Attr.attributes proxy: only string keys are supported",
+                        ));
+                    }
+                };
+                let v = match val {
+                    Value::Nil => None,
+                    Value::String(s) => Some(s.to_str()?.to_string()),
+                    _ => Some(String::from_lua(val, lua)?),
+                };
+                this.set(k, v);
+                Ok(())
+            },
+        );
+
+        // #attrs
+        methods.add_meta_method(MetaMethod::Len, |_, this, ()| Ok(this.len() as i64));
+
+        // pairs(attrs)
+        methods.add_meta_method(MetaMethod::Pairs, |lua, this, ()| {
+            // Snapshot keys at pairs-call time; values read live on each
+            // step so intervening writes can be observed without holding
+            // a RefCell borrow between iterations.
+            let keys: Vec<String> = this
+                .0
+                .with_attr(|a| a.2.keys().cloned().collect::<Vec<_>>());
+
+            let stateless_iter = lua.create_function(
+                move |lua, (ud, key): (UserDataRef<LuaAttributesProxy>, Value)| {
+                    let idx = match key {
+                        Value::Nil => 0,
+                        Value::String(s) => {
+                            let k = s.to_str()?;
+                            match keys.iter().position(|x| x == k.as_ref()) {
+                                Some(i) => i + 1,
+                                None => return Ok(Variadic::new()),
+                            }
+                        }
+                        _ => return Ok(Variadic::new()),
+                    };
+                    if idx < keys.len() {
+                        let k = &keys[idx];
+                        let v = ud.get(k).unwrap_or_default();
+                        Ok(Variadic::from_iter([
+                            k.clone().into_lua(lua)?,
+                            v.into_lua(lua)?,
+                        ]))
+                    } else {
+                        Ok(Variadic::new())
+                    }
+                },
+            )?;
+
+            Ok((
+                stateless_iter,
+                lua.create_userdata(this.clone())?,
+                Value::Nil,
+            ))
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            Ok(format!(
+                "Attributes({:?})",
+                this.0.with_attr(|a| a.2.clone())
+            ))
+        });
+    }
+}
+
+/// Proxy userdata for `attr.classes` (the ordered list of classes).
+#[derive(Debug, Clone)]
+pub struct LuaClassesProxy(pub LuaAttr);
+
+impl LuaClassesProxy {
+    pub fn new(attr: LuaAttr) -> Self {
+        LuaClassesProxy(attr)
+    }
+
+    fn get(&self, i: usize) -> Option<String> {
+        // 1-based Lua index → 0-based Rust.
+        if i == 0 {
+            return None;
+        }
+        self.0.with_attr(|a| a.1.get(i - 1).cloned())
+    }
+
+    /// 1-based write. Supports overwrite (1..=len), append (len+1), and
+    /// delete via `nil` (1..=len; shifts subsequent elements left).
+    /// Out-of-range writes error.
+    fn set(&self, i: usize, value: Option<String>) -> Result<()> {
+        if i == 0 {
+            return Err(Error::runtime(
+                "Attr.classes proxy: index must be >= 1 (Lua 1-based)",
+            ));
+        }
+        self.0.with_attr_mut(|a| {
+            let idx = i - 1;
+            let len = a.1.len();
+            match value {
+                Some(v) => {
+                    if idx < len {
+                        a.1[idx] = v;
+                        Ok(())
+                    } else if idx == len {
+                        a.1.push(v);
+                        Ok(())
+                    } else {
+                        Err(Error::runtime(format!(
+                            "Attr.classes proxy: index {} out of range (len = {}); \
+                             use index in 1..={} to overwrite or {} to append",
+                            i,
+                            len,
+                            len,
+                            len + 1
+                        )))
+                    }
+                }
+                None => {
+                    if idx < len {
+                        a.1.remove(idx);
+                        Ok(())
+                    } else {
+                        // Setting nil past the end is a no-op (matches Lua
+                        // tables when assigning nil to an absent key).
+                        Ok(())
+                    }
+                }
+            }
+        })
+    }
+
+    fn len(&self) -> usize {
+        self.0.with_attr(|a| a.1.len())
+    }
+}
+
+impl UserData for LuaClassesProxy {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // classes[i] — integer read; classes.<method> — look up a List
+        // method from the shared metatable and bind it to a snapshot.
+        //
+        // Why the snapshot: the List methods in `lua::list` take a
+        // `Table` as their first argument, not a userdata. We can't pass
+        // our userdata directly. Instead, at method-lookup time we copy
+        // the classes into a fresh list-backed table and return a
+        // closure that forwards `(proxy, ...)` as `(snapshot, ...)`. The
+        // snapshot is evaluated at lookup-time, so if the user does
+        // something like `local f = classes.includes; … f("foo")`, the
+        // snapshot was taken at the lookup. Read-only list methods
+        // (`includes`, `at`, `map`, `filter`, `find`, `clone`, `iter`)
+        // therefore behave as users expect. Mutating list methods
+        // (`insert`, `remove`, `sort`) operate on the snapshot only —
+        // same as pre-refactor, since classes already returned a fresh
+        // table. For persistent mutation, users write through
+        // `classes[i] = v` (which goes through __newindex on the proxy).
+        methods.add_meta_method(MetaMethod::Index, |lua, this, key: Value| match key {
+            Value::Integer(i) if i >= 1 => match this.get(i as usize) {
+                Some(v) => v.into_lua(lua),
+                None => Ok(Value::Nil),
+            },
+            Value::String(s) => {
+                let list_mt = super::list::get_or_create_list_metatable(lua)?;
+                let method: Value = list_mt.get(s.clone())?;
+                if matches!(method, Value::Nil) {
+                    return Ok(Value::Nil);
+                }
+                // Build snapshot with list metatable.
+                let snapshot = lua.create_table()?;
+                for (i, cls) in this.0.with_attr(|a| a.1.clone()).iter().enumerate() {
+                    snapshot.set(i + 1, cls.clone())?;
+                }
+                snapshot.set_metatable(Some(list_mt))?;
+                // Wrap in a closure that forwards (self_ud, ...) →
+                // method(snapshot, ...).
+                let method_fn = match method {
+                    Value::Function(f) => f,
+                    other => return Ok(other),
+                };
+                let bound = lua.create_function(
+                    move |_, args: Variadic<Value>| -> Result<Variadic<Value>> {
+                        // Discard the first arg (the userdata proxy, from `:` syntax).
+                        let mut iter = args.into_iter();
+                        let _self_ud = iter.next();
+                        let mut forward: Vec<Value> = vec![Value::Table(snapshot.clone())];
+                        forward.extend(iter);
+                        method_fn.call::<Variadic<Value>>(Variadic::from_iter(forward))
+                    },
+                )?;
+                Ok(Value::Function(bound))
+            }
+            _ => Ok(Value::Nil),
+        });
+
+        // classes[i] = value — integer write / delete
+        methods.add_meta_method(
+            MetaMethod::NewIndex,
+            |lua, this, (key, val): (Value, Value)| {
+                let i = match key {
+                    Value::Integer(i) if i >= 1 => i as usize,
+                    _ => {
+                        return Err(Error::runtime(
+                            "Attr.classes proxy: only positive integer keys are supported",
+                        ));
+                    }
+                };
+                let v = match val {
+                    Value::Nil => None,
+                    Value::String(s) => Some(s.to_str()?.to_string()),
+                    _ => Some(String::from_lua(val, lua)?),
+                };
+                this.set(i, v)
+            },
+        );
+
+        // #classes
+        methods.add_meta_method(MetaMethod::Len, |_, this, ()| Ok(this.len() as i64));
+
+        // pairs(classes) / ipairs(classes) — both return integer-indexed pairs
+        methods.add_meta_method(MetaMethod::Pairs, |lua, this, ()| {
+            let len = this.len();
+            let stateless_iter = lua.create_function(
+                move |lua, (ud, key): (UserDataRef<LuaClassesProxy>, Value)| {
+                    let next_idx = match key {
+                        Value::Nil => 1,
+                        Value::Integer(i) if i >= 0 => (i as usize) + 1,
+                        _ => return Ok(Variadic::new()),
+                    };
+                    if next_idx <= len {
+                        let v = ud.get(next_idx).unwrap_or_default();
+                        Ok(Variadic::from_iter([
+                            (next_idx as i64).into_lua(lua)?,
+                            v.into_lua(lua)?,
+                        ]))
+                    } else {
+                        Ok(Variadic::new())
+                    }
+                },
+            )?;
+
+            Ok((
+                stateless_iter,
+                lua.create_userdata(this.clone())?,
+                Value::Nil,
+            ))
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            Ok(format!("Classes({:?})", this.0.with_attr(|a| a.1.clone())))
+        });
     }
 }
 

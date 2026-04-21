@@ -234,22 +234,33 @@ idiomatic pattern and confirm it fails in the expected way.
 
 ### Phase 4 — Proxy userdata: attributes + classes tables
 
-- [ ] **4.1** Define `LuaAttributesProxy { parent: ParentRef }` and
-  `LuaClassesProxy { parent: ParentRef }` userdata, where
-  `ParentRef = Rc<RefCell<Block>> | Rc<RefCell<Inline>> | Rc<RefCell<OwnedAttr>>`.
-- [ ] **4.2** Implement metamethods on `LuaAttributesProxy`:
-  `__index` (read through to the map), `__newindex` (write through),
-  `__pairs` (iterate the map), `__len` (count entries),
-  `__tostring`.
-- [ ] **4.3** Implement metamethods on `LuaClassesProxy`:
-  `__index` with integer + string keys, `__newindex`,
-  `__ipairs`/`__pairs`, `__len`, `__tostring`.
-- [ ] **4.4** Wire `.attributes` and `.classes` reads on `LuaAttr`
-  to return proxies (rather than fresh tables).
-- [ ] **4.5** Keep whole-table assignment working: `cb.attr.attributes = {…}`
-  replaces the whole map; `cb.attr.classes = {…}` replaces the whole
-  list. These already work via `set_field` — adapt the proxy path to
-  accept table RHS.
+- [x] **4.1** `LuaAttributesProxy(LuaAttr)` and
+  `LuaClassesProxy(LuaAttr)` — each wraps a `LuaAttr` (enum with
+  Owned/BlockRef/InlineRef variants) so reads/writes naturally
+  dispatch through `with_attr`/`with_attr_mut` to the right cell.
+- [x] **4.2** `LuaAttributesProxy` metamethods: `__index` (string-key
+  read), `__newindex` (string-key write, `nil` deletes),
+  `__pairs` (iterate with key-snapshot so iteration doesn't hold a
+  borrow between `next` calls), `__len`, `__tostring`.
+- [x] **4.3** `LuaClassesProxy` metamethods: `__index` (int-key read
+  + string-key method lookup via the shared List metatable),
+  `__newindex` (int-key overwrite/append, `nil` deletes with shift),
+  `__pairs`, `__len`, `__tostring`. String-key `__index` builds a
+  snapshot-backed List table at lookup time and returns a closure
+  that forwards `(proxy, ...args)` as `(snapshot, ...args)` to the
+  metatable method — read-only list methods (`includes`, `map`,
+  `filter`, etc.) work, matching pre-refactor semantics.
+- [x] **4.4** `LuaAttr::get_field` for `.attributes` / `.classes` /
+  `attr[3]` / `attr[2]` returns the new proxies.
+- [x] **4.5** Whole-table assignment (`cb.attr.attributes = {…}`,
+  `cb.attr.classes = {…}`) already works through
+  `LuaAttr::set_field` → `lua_table_to_string_map` /
+  `lua_table_to_strings`, unchanged.
+- [x] **4.6** Tests: 3721 pass, 1 fail (the block-level
+  `cb.attributes[k]=v` shortcut, which is Phase 5's scope). The
+  other four Phase-1 regression targets — nested `cb.attr.attributes[k]=v`,
+  inline `code.attr.attributes[k]=v`, classes append, Owned Attr
+  semantics — all pass now.
 
 ### Phase 5 — Block/inline shortcuts
 
