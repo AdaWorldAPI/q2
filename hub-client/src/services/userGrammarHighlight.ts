@@ -26,6 +26,34 @@
  *   the divergence is small; for built-ins it would matter more but
  *   built-ins don't flow through this code path at all.
  *
+ * ## Known divergence from native output: nested-capture end bytes
+ *
+ * When the query has two captures that open at the same start byte
+ * (e.g. `(bare_key) @type` on the inner key node + `(pair (bare_key))
+ * @property` on the enclosing pair), `tree-sitter-highlight`'s
+ * `HighlightEvent` stream emits both `HighlightStart`s back-to-back
+ * with no intervening `Source`. The Rust `collect_spans` records
+ * both spans with the outer capture's end byte (the cursor only
+ * advances on `Source` events), so the inner span's reported range
+ * stretches to match the outer.
+ *
+ * `Query.captures()` gives node-exact ranges, so this implementation
+ * reports the inner capture with its actual node end. Rendered HTML
+ * consequently differs for same-start nested captures:
+ *
+ * - Native: `<span class="hl-property"><span class="hl-type">
+ *   name = "value"</span></span>` — outer-capture class wraps the
+ *   whole pair and the inner-capture class wraps it too.
+ * - Browser: `<span class="hl-property"><span class="hl-type">
+ *   name</span> = "value"</span>` — the inner-capture class wraps
+ *   only the key.
+ *
+ * The parity test at `userGrammarParity.wasm.test.ts` pins this down:
+ * every native capture identity (start+name) appears in the JS
+ * output and vice versa, and native end-byte is always >= JS
+ * end-byte for the same identity. Anything tighter would require
+ * porting tree-sitter-highlight's event-stream semantics to JS.
+ *
  * Output is sorted canonically `(startIndex asc, endIndex desc)` so
  * identical (grammar, source) inputs produce identical strings — useful
  * for caching and for the parity test. The HTML writer treats span

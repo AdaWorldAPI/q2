@@ -205,9 +205,10 @@ Plan is to write failing tests **before** implementing each chunk. In order:
 
 Unit-level helper, used by both the bridge tests (4.3) and the discovery scan (4.5). Kept separate so we can test the loading logic in isolation from the scan logic.
 
-- [ ] Add `hub-client/src/services/userGrammar.ts` helper: `loadUserGrammar(name, wasmBytes, highlightsScm) → { class, highlightFn }`. Uses web-tree-sitter internally.
-- [ ] Vitest: hand-construct a `JsUserGrammars` with one registered grammar, call `quarto_highlight_with_user_for_test`, assert the bridge produces spans matching the native golden.
-- [ ] Native-vs-browser parity test: same `(class, source)` → same JSON. Use the existing `crates/quarto-highlight/tests/fixtures/user-grammar-toml/` fixture. Record any known divergences here if parity can't be achieved.
+- [x] Loading helper landed in Phase 4.2 as `loadUserGrammar` in `hub-client/src/services/userGrammarHighlight.ts` — returns a `UserGrammarHighlighter` with `highlight(source)` + `dispose()`. The plan originally envisioned a separate `userGrammar.ts` loader + `userGrammarHighlight.ts` algorithm, but collapsing both into one module is cleaner — the loader owns the Parser/Query/Language lifetime, the highlighter call is a method on that handle.
+- [x] Bridge + loader tests already cover the full loading path (Phase 4.3's `userGrammarBridge.wasm.test.ts` + Phase 4.2's `userGrammarHighlight.wasm.test.ts`).
+- [x] **Native-vs-browser parity test** in `hub-client/src/services/userGrammarParity.wasm.test.ts` — 4 assertions on the TOML fixture: every native capture identity `(start, name)` appears in JS and vice versa; for shared identities, native end-byte is always >= JS end-byte (the enclosing-capture invariant documenting the divergence).
+- [x] **Documented known divergence**: native `collect_spans` uses tree-sitter-highlight's `HighlightEvent` cursor semantics. For same-start nested captures (e.g. `(bare_key) @type` + `(pair (bare_key)) @property`), tree-sitter-highlight emits both `HighlightStart`s with no intervening `Source`, so both spans get the outer capture's end byte. JS's `Query.captures()` gives node-exact ranges. Consequence: for rendered HTML, the inner `.hl-*` class covers a broader range on native than on browser. Both are semantically highlighted; browser is strictly more accurate. Documented in `userGrammarHighlight.ts`'s module doc comment and in the parity test. Fix tracked as **bd-98k6**, out of scope for Phase 4.
 
 ### Phase 4.5 — Hub-client auto-discovery
 
