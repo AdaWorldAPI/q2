@@ -266,28 +266,47 @@ idiomatic pattern and confirm it fails in the expected way.
 
 Pandoc exposes `cb.attributes`, `cb.classes`, `cb.identifier` as
 shortcuts for `cb.attr.2`, `cb.attr.1`, `cb.attr.0`. Block level
-currently has `classes` and `identifier` but not `attributes`.
+previously had `classes` and `identifier` but not `attributes`, and
+`classes` returned a snapshot table.
 
-- [ ] **5.1** Add `"attributes"` to the `field_names()` list for
-  every attr-bearing block and inline variant.
-- [ ] **5.2** Add `"attributes"` read branch in `get_field` for each
-  attr-bearing variant — returns a `LuaAttributesProxy` pointing at
-  the element's attr.
-- [ ] **5.3** Add `"attributes"` write branch in `set_field` for each
-  attr-bearing variant.
-- [ ] **5.4** (Audit only) Confirm `identifier` and `classes` writes
-  correctly route through `set_field` with the new proxy — they
-  already use raw `String::from_lua` / `lua_table_to_strings`, so
-  the existing code should work unchanged.
+- [x] **5.1** `"attributes"` added to `field_names()` for every
+  attr-bearing block (CodeBlock, Header, Div, Figure, Table) and
+  inline (Code, Link, Image, Span, Insert, Delete, Highlight,
+  EditComment). `classes` already listed; kept.
+- [x] **5.2** `get_field` for `"attributes"` returns
+  `attributes_proxy_for_block`/`_for_inline`.
+  `get_field` for `"classes"` now returns
+  `classes_proxy_for_block`/`_for_inline` (upgraded from the
+  old fresh-table path — the proxy still supports list-method
+  lookups via the snapshot-and-bind dispatch added in Phase 4, so
+  `div.classes:includes("foo")` keeps working).
+- [x] **5.3** `set_field` for `"attributes"` / `"classes"` whole-
+  table assignment added via generic pattern arms (matching any
+  `block`/`inline` with `block_attr_mut`/`inline_attr_mut` giving
+  `Some`). Piecewise writes go through the proxy's `__newindex`.
+- [x] **5.4** `identifier` writes still work unchanged — still use
+  `String::from_lua` through per-variant arms.
+- [x] **5.5** Unblocked by Phase 5: fixed `pandoc.Attr(id, classes,
+  attrs)` to accept proxy userdata for classes/attributes. Updated
+  `lua_table_to_strings` and `lua_table_to_string_map` to coerce
+  the proxies transparently. Needed because the old 04-filter
+  workaround `cb.attr = pandoc.Attr(cb.attr.identifier, cb.attr.classes, attrs)`
+  was passing proxy userdata now that `cb.attr.classes` returns a
+  proxy.
+- [x] **5.6** Tests: 3722 pass, 0 fail on `pampa` — *all* Phase 1
+  regression targets now pass.
 
 ### Phase 6 — Verify failing tests now pass
 
-- [ ] **6.1** Re-run the tests from Phase 1. They must all pass.
-- [ ] **6.2** Run `cargo nextest run -p pampa` — no regressions in
-  existing filter tests (including deep-copy semantics, walking,
-  alias behaviour).
-- [ ] **6.3** Run `cargo nextest run --workspace` — no regressions
-  downstream.
+- [x] **6.1** `cargo nextest run -p pampa --features lua-filter
+  --test test_lua_attr_mutation` — all 5 pass.
+- [x] **6.2** `cargo nextest run -p pampa --features lua-filter
+  --no-fail-fast` — 3722 passed, 0 failed, 2 skipped.
+- [x] **6.3** `cargo nextest run --workspace --no-fail-fast` —
+  7624 passed, 0 failed, 195 skipped. Including the smoke-all
+  highlighting/04-filter/04-filter-authored-spans.qmd fixture
+  (which exercises the Phase 1.5-style workaround for
+  backward-compat through `pandoc.Attr(id, cb.attr.classes, attrs)`).
 
 ### Phase 7 — Update the 04-filter fixture
 

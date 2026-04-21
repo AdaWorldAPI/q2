@@ -102,20 +102,69 @@ impl LuaInline {
             | Inline::SmallCaps(_) => &["tag", "content", "clone", "walk"],
             Inline::Quoted(_) => &["tag", "quotetype", "content", "clone", "walk"],
             Inline::Cite(_) => &["tag", "content", "citations", "clone", "walk"],
-            Inline::Code(_) => &["tag", "text", "attr", "clone", "walk"],
+            Inline::Code(_) => &[
+                "tag",
+                "text",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk",
+            ],
             Inline::Space(_) | Inline::SoftBreak(_) | Inline::LineBreak(_) => {
                 &["tag", "clone", "walk"]
             }
             Inline::Math(_) => &["tag", "mathtype", "text", "clone", "walk"],
             Inline::RawInline(_) => &["tag", "format", "text", "clone", "walk"],
-            Inline::Link(_) => &["tag", "content", "target", "title", "attr", "clone", "walk"],
-            Inline::Image(_) => &["tag", "content", "src", "title", "attr", "clone", "walk"],
+            Inline::Link(_) => &[
+                "tag",
+                "content",
+                "target",
+                "title",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk",
+            ],
+            Inline::Image(_) => &[
+                "tag",
+                "content",
+                "src",
+                "title",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk",
+            ],
             Inline::Note(_) => &["tag", "content", "clone", "walk"],
-            Inline::Span(_) => &["tag", "content", "attr", "clone", "walk"],
+            Inline::Span(_) => &[
+                "tag",
+                "content",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk",
+            ],
             Inline::Insert(_)
             | Inline::Delete(_)
             | Inline::Highlight(_)
-            | Inline::EditComment(_) => &["tag", "content", "attr", "clone", "walk"],
+            | Inline::EditComment(_) => &[
+                "tag",
+                "content",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk",
+            ],
             Inline::NoteReference(_) => &["tag", "id", "clone", "walk"],
             Inline::Shortcode(_) | Inline::Attr(_, _) => &["tag", "clone", "walk"],
             // Custom nodes are not exposed to Lua filters yet
@@ -187,7 +236,8 @@ impl LuaInline {
             (Inline::Code(c), "text") => c.text.clone().into_lua(lua),
             (Inline::Code(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Code(c), "identifier") => c.attr.0.clone().into_lua(lua),
-            (Inline::Code(c), "classes") => string_list_to_lua_table(lua, &c.attr.1),
+            (Inline::Code(_), "classes") => classes_proxy_for_inline(lua, Rc::clone(&self.0)),
+            (Inline::Code(_), "attributes") => attributes_proxy_for_inline(lua, Rc::clone(&self.0)),
 
             // Math
             (Inline::Math(m), "text") => m.text.clone().into_lua(lua),
@@ -209,7 +259,8 @@ impl LuaInline {
             (Inline::Link(l), "title") => l.target.1.clone().into_lua(lua),
             (Inline::Link(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Link(l), "identifier") => l.attr.0.clone().into_lua(lua),
-            (Inline::Link(l), "classes") => string_list_to_lua_table(lua, &l.attr.1),
+            (Inline::Link(_), "classes") => classes_proxy_for_inline(lua, Rc::clone(&self.0)),
+            (Inline::Link(_), "attributes") => attributes_proxy_for_inline(lua, Rc::clone(&self.0)),
 
             // Image
             (Inline::Image(i), "content") => inlines_to_lua_table(lua, &i.content),
@@ -217,7 +268,10 @@ impl LuaInline {
             (Inline::Image(i), "title") => i.target.1.clone().into_lua(lua),
             (Inline::Image(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Image(img), "identifier") => img.attr.0.clone().into_lua(lua),
-            (Inline::Image(img), "classes") => string_list_to_lua_table(lua, &img.attr.1),
+            (Inline::Image(_), "classes") => classes_proxy_for_inline(lua, Rc::clone(&self.0)),
+            (Inline::Image(_), "attributes") => {
+                attributes_proxy_for_inline(lua, Rc::clone(&self.0))
+            }
 
             // Note
             (Inline::Note(n), "content") => blocks_to_lua_table(lua, &n.content),
@@ -225,7 +279,8 @@ impl LuaInline {
             // Span (attr already covered above for other elements with attr)
             (Inline::Span(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Span(s), "identifier") => s.attr.0.clone().into_lua(lua),
-            (Inline::Span(s), "classes") => string_list_to_lua_table(lua, &s.attr.1),
+            (Inline::Span(_), "classes") => classes_proxy_for_inline(lua, Rc::clone(&self.0)),
+            (Inline::Span(_), "attributes") => attributes_proxy_for_inline(lua, Rc::clone(&self.0)),
 
             // Cite
             (Inline::Cite(c), "content") => inlines_to_lua_table(lua, &c.content),
@@ -235,13 +290,19 @@ impl LuaInline {
             (Inline::Insert(ins), "content") => inlines_to_lua_table(lua, &ins.content),
             (Inline::Insert(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Insert(ins), "identifier") => ins.attr.0.clone().into_lua(lua),
-            (Inline::Insert(ins), "classes") => string_list_to_lua_table(lua, &ins.attr.1),
+            (Inline::Insert(_), "classes") => classes_proxy_for_inline(lua, Rc::clone(&self.0)),
+            (Inline::Insert(_), "attributes") => {
+                attributes_proxy_for_inline(lua, Rc::clone(&self.0))
+            }
 
             // Delete (CriticMarkup-like)
             (Inline::Delete(d), "content") => inlines_to_lua_table(lua, &d.content),
             (Inline::Delete(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Delete(d), "identifier") => d.attr.0.clone().into_lua(lua),
-            (Inline::Delete(d), "classes") => string_list_to_lua_table(lua, &d.attr.1),
+            (Inline::Delete(_), "classes") => classes_proxy_for_inline(lua, Rc::clone(&self.0)),
+            (Inline::Delete(_), "attributes") => {
+                attributes_proxy_for_inline(lua, Rc::clone(&self.0))
+            }
 
             // Highlight (CriticMarkup-like)
             (Inline::Highlight(h), "content") => inlines_to_lua_table(lua, &h.content),
@@ -249,7 +310,10 @@ impl LuaInline {
                 attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0))
             }
             (Inline::Highlight(h), "identifier") => h.attr.0.clone().into_lua(lua),
-            (Inline::Highlight(h), "classes") => string_list_to_lua_table(lua, &h.attr.1),
+            (Inline::Highlight(_), "classes") => classes_proxy_for_inline(lua, Rc::clone(&self.0)),
+            (Inline::Highlight(_), "attributes") => {
+                attributes_proxy_for_inline(lua, Rc::clone(&self.0))
+            }
 
             // EditComment (CriticMarkup-like)
             (Inline::EditComment(ec), "content") => inlines_to_lua_table(lua, &ec.content),
@@ -257,7 +321,12 @@ impl LuaInline {
                 attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0))
             }
             (Inline::EditComment(ec), "identifier") => ec.attr.0.clone().into_lua(lua),
-            (Inline::EditComment(ec), "classes") => string_list_to_lua_table(lua, &ec.attr.1),
+            (Inline::EditComment(_), "classes") => {
+                classes_proxy_for_inline(lua, Rc::clone(&self.0))
+            }
+            (Inline::EditComment(_), "attributes") => {
+                attributes_proxy_for_inline(lua, Rc::clone(&self.0))
+            }
 
             // NoteReference
             (Inline::NoteReference(nr), "id") => nr.id.clone().into_lua(lua),
@@ -523,6 +592,28 @@ impl LuaInline {
                 Ok(())
             }
 
+            // Inline-level `.attributes` / `.classes` whole-assignment
+            // shortcuts for any attr-bearing inline. See the equivalent
+            // block-level arms for the rationale.
+            (inline, "attributes") => match inline_attr_mut(inline) {
+                Some(attr) => {
+                    attr.2 = lua_table_to_string_map(lua, val)?;
+                    Ok(())
+                }
+                None => Err(Error::runtime(
+                    "cannot set 'attributes' on this inline variant",
+                )),
+            },
+            (inline, "classes") => match inline_attr_mut(inline) {
+                Some(attr) => {
+                    attr.1 = lua_table_to_strings(lua, val)?;
+                    Ok(())
+                }
+                None => Err(Error::runtime(
+                    "cannot set 'classes' on this inline variant",
+                )),
+            },
+
             // Read-only fields
             (_, "tag" | "t") => Err(Error::runtime("cannot set read-only field 'tag'")),
 
@@ -684,6 +775,7 @@ impl LuaBlock {
                 "attr",
                 "identifier",
                 "classes",
+                "attributes",
                 "clone",
                 "walk",
             ],
@@ -699,17 +791,29 @@ impl LuaBlock {
                 "attr",
                 "identifier",
                 "classes",
+                "attributes",
                 "clone",
                 "walk",
             ],
             Block::HorizontalRule(_) => &["tag", "clone", "walk"],
-            Block::Table(_) => &["tag", "attr", "caption", "identifier", "clone", "walk"],
+            Block::Table(_) => &[
+                "tag",
+                "attr",
+                "caption",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk",
+            ],
             Block::Figure(_) => &[
                 "tag",
                 "content",
                 "attr",
                 "caption",
                 "identifier",
+                "classes",
+                "attributes",
                 "clone",
                 "walk",
             ],
@@ -719,6 +823,7 @@ impl LuaBlock {
                 "attr",
                 "identifier",
                 "classes",
+                "attributes",
                 "clone",
                 "walk",
             ],
@@ -771,7 +876,8 @@ impl LuaBlock {
             (Block::Header(h), "content") => inlines_to_lua_table(lua, &h.content),
             (Block::Header(_), "attr") => attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0)),
             (Block::Header(h), "identifier") => h.attr.0.clone().into_lua(lua),
-            (Block::Header(h), "classes") => string_list_to_lua_table(lua, &h.attr.1),
+            (Block::Header(_), "classes") => classes_proxy_for_block(lua, Rc::clone(&self.0)),
+            (Block::Header(_), "attributes") => attributes_proxy_for_block(lua, Rc::clone(&self.0)),
 
             // CodeBlock
             (Block::CodeBlock(c), "text") => c.text.clone().into_lua(lua),
@@ -779,7 +885,10 @@ impl LuaBlock {
                 attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0))
             }
             (Block::CodeBlock(c), "identifier") => c.attr.0.clone().into_lua(lua),
-            (Block::CodeBlock(c), "classes") => string_list_to_lua_table(lua, &c.attr.1),
+            (Block::CodeBlock(_), "classes") => classes_proxy_for_block(lua, Rc::clone(&self.0)),
+            (Block::CodeBlock(_), "attributes") => {
+                attributes_proxy_for_block(lua, Rc::clone(&self.0))
+            }
 
             // RawBlock
             (Block::RawBlock(r), "text") => r.text.clone().into_lua(lua),
@@ -792,7 +901,8 @@ impl LuaBlock {
             (Block::Div(d), "content") => blocks_to_lua_table(lua, &d.content),
             (Block::Div(_), "attr") => attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0)),
             (Block::Div(d), "identifier") => d.attr.0.clone().into_lua(lua),
-            (Block::Div(d), "classes") => string_list_to_lua_table(lua, &d.attr.1),
+            (Block::Div(_), "classes") => classes_proxy_for_block(lua, Rc::clone(&self.0)),
+            (Block::Div(_), "attributes") => attributes_proxy_for_block(lua, Rc::clone(&self.0)),
 
             // BulletList
             (Block::BulletList(b), "content") => {
@@ -831,6 +941,8 @@ impl LuaBlock {
             (Block::Figure(f), "content") => blocks_to_lua_table(lua, &f.content),
             (Block::Figure(_), "attr") => attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0)),
             (Block::Figure(f), "identifier") => f.attr.0.clone().into_lua(lua),
+            (Block::Figure(_), "classes") => classes_proxy_for_block(lua, Rc::clone(&self.0)),
+            (Block::Figure(_), "attributes") => attributes_proxy_for_block(lua, Rc::clone(&self.0)),
 
             // LineBlock
             (Block::LineBlock(l), "content") => {
@@ -867,6 +979,8 @@ impl LuaBlock {
             (Block::Table(_), "attr") => attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0)),
             (Block::Table(t), "caption") => caption_to_lua_table(lua, &t.caption),
             (Block::Table(t), "identifier") => t.attr.0.clone().into_lua(lua),
+            (Block::Table(_), "classes") => classes_proxy_for_block(lua, Rc::clone(&self.0)),
+            (Block::Table(_), "attributes") => attributes_proxy_for_block(lua, Rc::clone(&self.0)),
 
             // tag, t, clone, walk handled above the borrow.
 
@@ -982,6 +1096,30 @@ impl LuaBlock {
                 t.attr.0 = String::from_lua(val, lua)?;
                 Ok(())
             }
+
+            // Block-level `.attributes` / `.classes` whole-assignment
+            // shortcuts for any attr-bearing block. Matches Pandoc's
+            // native Lua API (`elem.attributes = {…}`). Piecewise
+            // writes (`elem.attributes["k"] = v`) are handled by the
+            // LuaAttributesProxy / LuaClassesProxy `__newindex`.
+            // NB: can't call `self.tag_name()` in the Err branch
+            // because `inner` still holds a borrow on `self.0`.
+            (block, "attributes") => match block_attr_mut(block) {
+                Some(attr) => {
+                    attr.2 = lua_table_to_string_map(lua, val)?;
+                    Ok(())
+                }
+                None => Err(Error::runtime(
+                    "cannot set 'attributes' on this block variant",
+                )),
+            },
+            (block, "classes") => match block_attr_mut(block) {
+                Some(attr) => {
+                    attr.1 = lua_table_to_strings(lua, val)?;
+                    Ok(())
+                }
+                None => Err(Error::runtime("cannot set 'classes' on this block variant")),
+            },
 
             // Read-only fields
             (_, "tag" | "t") => Err(Error::runtime("cannot set read-only field 'tag'")),
@@ -2262,8 +2400,10 @@ impl UserData for LuaClassesProxy {
     }
 }
 
-/// Convert a Lua table of strings to Vec<String>
-fn lua_table_to_strings(_lua: &Lua, val: Value) -> Result<Vec<String>> {
+/// Convert a Lua table of strings to `Vec<String>`. Also accepts a
+/// `LuaClassesProxy` userdata (so `pandoc.Attr(id, cb.attr.classes, …)`
+/// works directly without the user having to convert).
+pub(crate) fn lua_table_to_strings(_lua: &Lua, val: Value) -> Result<Vec<String>> {
     match val {
         Value::Table(table) => {
             let mut result = Vec::new();
@@ -2272,12 +2412,20 @@ fn lua_table_to_strings(_lua: &Lua, val: Value) -> Result<Vec<String>> {
             }
             Ok(result)
         }
+        Value::UserData(ud) => {
+            if let Ok(proxy) = ud.borrow::<LuaClassesProxy>() {
+                Ok(proxy.0.classes())
+            } else {
+                Err(Error::runtime("expected table of strings"))
+            }
+        }
         _ => Err(Error::runtime("expected table of strings")),
     }
 }
 
-/// Convert a Lua table to LinkedHashMap<String, String>
-fn lua_table_to_string_map(
+/// Convert a Lua table to `LinkedHashMap<String, String>`. Also accepts
+/// a `LuaAttributesProxy` userdata for the same reason.
+pub(crate) fn lua_table_to_string_map(
     _lua: &Lua,
     val: Value,
 ) -> Result<hashlink::LinkedHashMap<String, String>> {
@@ -2289,6 +2437,13 @@ fn lua_table_to_string_map(
                 result.insert(k, v);
             }
             Ok(result)
+        }
+        Value::UserData(ud) => {
+            if let Ok(proxy) = ud.borrow::<LuaAttributesProxy>() {
+                Ok(proxy.0.attributes())
+            } else {
+                Err(Error::runtime("expected table of key-value pairs"))
+            }
         }
         _ => Err(Error::runtime("expected table of key-value pairs")),
     }
@@ -2316,6 +2471,33 @@ pub fn attr_to_lua_userdata_for_block(lua: &Lua, block: Rc<RefCell<Block>>) -> R
 /// Attr.
 pub fn attr_to_lua_userdata_for_inline(lua: &Lua, inline: Rc<RefCell<Inline>>) -> Result<Value> {
     let ud = lua.create_userdata(LuaAttr::for_inline(inline))?;
+    Ok(Value::UserData(ud))
+}
+
+/// Block-level `.attributes` shortcut: a LuaAttributesProxy bound to
+/// the block's Attr. `cb.attributes[k] = v` is equivalent to
+/// `cb.attr.attributes[k] = v`.
+pub fn attributes_proxy_for_block(lua: &Lua, block: Rc<RefCell<Block>>) -> Result<Value> {
+    let ud = lua.create_userdata(LuaAttributesProxy::new(LuaAttr::for_block(block)))?;
+    Ok(Value::UserData(ud))
+}
+
+/// Block-level `.classes` shortcut: a LuaClassesProxy bound to the
+/// block's Attr.
+pub fn classes_proxy_for_block(lua: &Lua, block: Rc<RefCell<Block>>) -> Result<Value> {
+    let ud = lua.create_userdata(LuaClassesProxy::new(LuaAttr::for_block(block)))?;
+    Ok(Value::UserData(ud))
+}
+
+/// Inline-level `.attributes` shortcut.
+pub fn attributes_proxy_for_inline(lua: &Lua, inline: Rc<RefCell<Inline>>) -> Result<Value> {
+    let ud = lua.create_userdata(LuaAttributesProxy::new(LuaAttr::for_inline(inline)))?;
+    Ok(Value::UserData(ud))
+}
+
+/// Inline-level `.classes` shortcut.
+pub fn classes_proxy_for_inline(lua: &Lua, inline: Rc<RefCell<Inline>>) -> Result<Value> {
+    let ud = lua.create_userdata(LuaClassesProxy::new(LuaAttr::for_inline(inline)))?;
     Ok(Value::UserData(ud))
 }
 
@@ -2796,7 +2978,16 @@ mod tests {
         });
         assert_eq!(
             LuaInline::new(inline).field_names(),
-            &["tag", "text", "attr", "clone", "walk"]
+            &[
+                "tag",
+                "text",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk"
+            ]
         );
     }
 
@@ -2847,7 +3038,18 @@ mod tests {
         });
         assert_eq!(
             LuaInline::new(inline).field_names(),
-            &["tag", "content", "target", "title", "attr", "clone", "walk"]
+            &[
+                "tag",
+                "content",
+                "target",
+                "title",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk"
+            ]
         );
     }
 
@@ -2863,7 +3065,18 @@ mod tests {
         });
         assert_eq!(
             LuaInline::new(inline).field_names(),
-            &["tag", "content", "src", "title", "attr", "clone", "walk"]
+            &[
+                "tag",
+                "content",
+                "src",
+                "title",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk"
+            ]
         );
     }
 
@@ -2889,7 +3102,16 @@ mod tests {
         });
         assert_eq!(
             LuaInline::new(inline).field_names(),
-            &["tag", "content", "attr", "clone", "walk"]
+            &[
+                "tag",
+                "content",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk"
+            ]
         );
     }
 
@@ -2915,7 +3137,16 @@ mod tests {
         });
         assert_eq!(
             LuaInline::new(inline).field_names(),
-            &["tag", "content", "attr", "clone", "walk"]
+            &[
+                "tag",
+                "content",
+                "attr",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk"
+            ]
         );
     }
 
@@ -3162,6 +3393,7 @@ mod tests {
                 "attr",
                 "identifier",
                 "classes",
+                "attributes",
                 "clone",
                 "walk"
             ]
@@ -3199,6 +3431,7 @@ mod tests {
                 "attr",
                 "identifier",
                 "classes",
+                "attributes",
                 "clone",
                 "walk"
             ]
@@ -3244,7 +3477,16 @@ mod tests {
         });
         assert_eq!(
             LuaBlock::new(block).field_names(),
-            &["tag", "attr", "caption", "identifier", "clone", "walk"]
+            &[
+                "tag",
+                "attr",
+                "caption",
+                "identifier",
+                "classes",
+                "attributes",
+                "clone",
+                "walk"
+            ]
         );
     }
 
@@ -3265,6 +3507,8 @@ mod tests {
                 "attr",
                 "caption",
                 "identifier",
+                "classes",
+                "attributes",
                 "clone",
                 "walk"
             ]
@@ -3287,6 +3531,7 @@ mod tests {
                 "attr",
                 "identifier",
                 "classes",
+                "attributes",
                 "clone",
                 "walk"
             ]

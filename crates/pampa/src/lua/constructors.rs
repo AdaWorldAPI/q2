@@ -1281,28 +1281,20 @@ fn register_attr_constructor(lua: &Lua, pandoc: &LuaTable) -> Result<()> {
         lua.create_function(
             |lua, (identifier, classes, attributes): (Option<String>, Option<Value>, Option<Value>)| {
                 let id = identifier.unwrap_or_default();
+                // Both `classes` and `attributes` accept a plain Lua
+                // table OR a corresponding proxy userdata (so
+                // `pandoc.Attr(id, cb.attr.classes, cb.attr.attributes)`
+                // works without the user having to materialize a table
+                // first).
                 let cls = match classes {
-                    Some(Value::Table(table)) => {
-                        let mut result = Vec::new();
-                        for item in table.sequence_values::<String>() {
-                            result.push(item?);
-                        }
-                        result
-                    }
-                    Some(_) => return Err(Error::runtime("classes must be a table of strings")),
-                    None => Vec::new(),
+                    None | Some(Value::Nil) => Vec::new(),
+                    Some(v) => super::types::lua_table_to_strings(lua, v)
+                        .map_err(|_| Error::runtime("classes must be a table of strings"))?,
                 };
                 let attrs = match attributes {
-                    Some(Value::Table(table)) => {
-                        let mut result = LinkedHashMap::new();
-                        for pair in table.pairs::<String, String>() {
-                            let (k, v) = pair?;
-                            result.insert(k, v);
-                        }
-                        result
-                    }
-                    Some(_) => return Err(Error::runtime("attributes must be a table")),
-                    None => LinkedHashMap::new(),
+                    None | Some(Value::Nil) => LinkedHashMap::new(),
+                    Some(v) => super::types::lua_table_to_string_map(lua, v)
+                        .map_err(|_| Error::runtime("attributes must be a table"))?,
                 };
                 lua.create_userdata(LuaAttr::new((id, cls, attrs)))
             },
