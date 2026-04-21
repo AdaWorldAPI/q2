@@ -310,9 +310,9 @@ pub fn get_snprintf_call_count() -> usize {
 /// trait. Both snprintf (variadic) and vsnprintf (va_list argument)
 /// receive a `VaList<'_>` on current nightly rustc, so this single
 /// impl covers both entry points.
-struct VaListSource<'a, 'b>(&'a mut std::ffi::VaList<'b>);
+struct VaListSource<'a, 'b, 'c>(&'a mut std::ffi::VaList<'b, 'c>);
 
-impl<'a, 'b> wasm_printf_fmt::VaArgSource for VaListSource<'a, 'b> {
+impl<'a, 'b, 'c> wasm_printf_fmt::VaArgSource for VaListSource<'a, 'b, 'c> {
     unsafe fn next_i32(&mut self) -> i32 {
         unsafe { self.0.arg::<i32>() }
     }
@@ -396,7 +396,8 @@ pub unsafe extern "C" fn snprintf(
 
     let format_bytes = unsafe { std::ffi::CStr::from_ptr(format).to_bytes() };
     let mut out: Vec<u8> = Vec::with_capacity(size);
-    let mut source = VaListSource(&mut args);
+    let mut va = args.as_va_list();
+    let mut source = VaListSource(&mut va);
     unsafe { wasm_printf_fmt::format_into(&mut out, size, format_bytes, &mut source) };
 
     // Single slice construction is the whole FFI-boundary unsafety for
@@ -410,11 +411,11 @@ pub unsafe extern "C" fn snprintf(
 /// already-built va_list. Used by Lua's error / debug paths. Same
 /// unsafe-surface story as snprintf — see its doc comment.
 #[no_mangle]
-pub unsafe extern "C" fn vsnprintf(
+pub unsafe extern "C" fn vsnprintf<'a>(
     buf: *mut c_char,
     size: usize,
     format: *const c_char,
-    mut args: std::ffi::VaList<'_>,
+    mut args: std::ffi::VaList<'a, 'a>,
 ) -> c_int {
     if buf.is_null() || size == 0 {
         return 0;
