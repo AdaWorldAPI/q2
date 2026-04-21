@@ -33,8 +33,15 @@ interface WasmModuleExtended {
   vfs_read_binary_file: (path: string) => string;
   vfs_set_runtime_metadata: (yaml: string) => string;
   vfs_get_runtime_metadata: () => string;
-  render_qmd: (path: string) => Promise<string>;
-  render_qmd_content: (content: string, templateBundle: string) => Promise<string>;
+  render_qmd: (
+    path: string,
+    user_grammars?: unknown,
+  ) => Promise<string>;
+  render_qmd_content: (
+    content: string,
+    templateBundle: string,
+    user_grammars?: unknown,
+  ) => Promise<string>;
   get_builtin_template: (name: string) => string;
   get_project_choices: () => string;
   create_project: (choiceId: string, title: string) => Promise<string>;
@@ -311,19 +318,36 @@ export function setScrollSyncEnabled(enabled: boolean): void {
 // ============================================================================
 
 /**
- * Render a QMD file from the virtual filesystem
+ * Render a QMD file from the virtual filesystem.
+ *
+ * `userGrammars`, when provided, routes any code block whose language
+ * class it recognizes through JS-backed tree-sitter grammars before
+ * falling back to built-ins. See
+ * `hub-client/src/services/userGrammarHighlight.ts` for the JS-side
+ * highlighter and `JsUserGrammars` in `wasm-quarto-hub-client` for the
+ * Rust bridge. Construct a fresh `JsUserGrammars` per call.
  */
-export async function renderQmd(path: string): Promise<RenderResponse> {
+export async function renderQmd(
+  path: string,
+  userGrammars?: unknown,
+): Promise<RenderResponse> {
   const wasm = getWasm();
-  return JSON.parse(await wasm.render_qmd(path));
+  return JSON.parse(await wasm.render_qmd(path, userGrammars));
 }
 
 /**
- * Render QMD content directly (without VFS)
+ * Render QMD content directly (without VFS). See [`renderQmd`] for
+ * the `userGrammars` parameter's semantics.
  */
-export async function renderQmdContent(content: string, templateBundle: string = ''): Promise<RenderResponse> {
+export async function renderQmdContent(
+  content: string,
+  templateBundle: string = '',
+  userGrammars?: unknown,
+): Promise<RenderResponse> {
   const wasm = getWasm();
-  return JSON.parse(await wasm.render_qmd_content(content, templateBundle));
+  return JSON.parse(
+    await wasm.render_qmd_content(content, templateBundle, userGrammars),
+  );
 }
 
 

@@ -73,7 +73,23 @@ impl PipelineStage for CodeHighlightStage {
             ));
         };
 
-        let result = {
+        // Priority: a provider preset on the StageContext (typically the
+        // browser-side `JsUserGrammars` threaded in by hub-client) wins
+        // over the native disk-loader path. This lets both targets share
+        // one code path without cfg-gating at the call site.
+        //
+        // Manual `&mut **b` rather than `as_deref_mut()` because the
+        // latter preserves the trait-object's implicit `'static` bound,
+        // which then fights the async-trait `'static` future-lifetime
+        // check. `&mut **b` produces a fresh borrow with the natural
+        // (method-body) lifetime.
+        let result = if ctx.user_grammar_provider.is_some() {
+            let user = ctx
+                .user_grammar_provider
+                .as_mut()
+                .map(|b| &mut **b as &mut dyn quarto_highlight::UserGrammarProvider);
+            quarto_highlight::annotate_pandoc(&mut doc.ast, user)
+        } else {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let mut user = load_user_grammars(ctx);
@@ -84,7 +100,8 @@ impl PipelineStage for CodeHighlightStage {
             }
             #[cfg(target_arch = "wasm32")]
             {
-                // Phase 4.3 will thread a `JsUserGrammars` handle in here.
+                // No context-provided JS bridge and no native disk path;
+                // highlight with built-ins only.
                 quarto_highlight::annotate_pandoc(&mut doc.ast, None)
             }
         };

@@ -374,6 +374,9 @@ pub async fn run_pipeline(
 
     // Transfer artifacts from RenderContext to StageContext
     stage_ctx.artifacts = std::mem::take(&mut ctx.artifacts);
+    // Transfer user-grammar provider (browser path sets this; native CLI
+    // leaves it None and falls back to `CodeHighlightStage`'s disk scan).
+    stage_ctx.user_grammar_provider = ctx.user_grammar_provider.take();
 
     // Create input from content
     let input = PipelineData::LoadedSource(LoadedSource::new(

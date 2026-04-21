@@ -190,11 +190,16 @@ Plan is to write failing tests **before** implementing each chunk. In order:
 
 ### Phase 4.3 — wasm-bindgen bridge
 
-- [ ] Add `JsUserGrammars` struct to `crates/wasm-quarto-hub-client/src/lib.rs` with `new()` and `register(class, highlight_fn)`.
-- [ ] `impl UserGrammarProvider for JsUserGrammars` (wasm32-only). `highlight` invokes the stored JS closure, returns the string it produces.
-- [ ] Extend `render_qmd` and `render_qmd_content` to accept `Option<JsUserGrammars>`; thread it through `StageContext` to `CodeHighlightStage`.
-- [ ] Expose a new test-only `quarto_highlight_with_user_for_test(class, source, user)` to mirror `quarto_highlight_for_test`. Used by the parity test.
-- [ ] Vitest coverage for the bridge (invocation, error propagation, missing class → None).
+- [x] `JsUserGrammars` `#[wasm_bindgen]` struct in `crates/wasm-quarto-hub-client/src/lib.rs` with `constructor()` and `register(language_class, highlight_fn)`. Holds `HashMap<String, js_sys::Function>`.
+- [x] `impl quarto_highlight::UserGrammarProvider for JsUserGrammars` — calls the stored `js_sys::Function` via `call2` with `(class, source)`; null/undefined → `Ok(None)`; JS-side thrown exceptions surface as `HighlightError::Provider` with a JSON-stringified detail.
+- [x] Added `HighlightError::Provider(String)` variant in `quarto-highlight` for provider-originated failures (native WasmStore + browser JS callbacks alike).
+- [x] Added `pub user_grammar_provider: Option<Box<dyn UserGrammarProvider>>` field on `StageContext` and mirror field on `RenderContext`. `run_pipeline` transfers the latter to the former via `ctx.user_grammar_provider.take()` alongside the existing `artifacts` transfer.
+- [x] `CodeHighlightStage::run` now prefers `ctx.user_grammar_provider` (set by browser path) and falls back to the native `load_user_grammars` disk scan. Uses a manual `&mut **b as &mut dyn UserGrammarProvider` reborrow rather than `as_deref_mut()` because the latter preserves the trait-object's implicit `'static` bound that conflicts with async-trait's `'static` future bound.
+- [x] Extended `render_qmd(path, user_grammars?)` and `render_qmd_content(content, template_bundle, user_grammars?)` on the wasm-bindgen surface. Owned `Option<JsUserGrammars>` (consumed per render — fine for the hub-client pattern of constructing fresh and re-registering from a JS-side cache).
+- [x] Test-only export `quarto_highlight_with_user_for_test(class, source, user)` — exercises the bridge at the smallest layer for the parity test.
+- [x] Updated `hub-client/src/types/wasm-quarto-hub-client.d.ts` and `src/services/wasmRenderer.ts` to carry the new optional `userGrammars` parameter through.
+- [x] Bridge tests in `hub-client/src/services/userGrammarBridge.wasm.test.ts`: 5 cases covering constructor + register + callback invocation + isolation between instances + re-register-replaces semantics + null return → `undefined`.
+- [x] Full verification: `cargo nextest run --workspace` (7619), `cargo xtask verify --skip-hub-tests`, hub-client `npm run test` (502) + `npm run test:integration` (35) + `npm run test:wasm` (70 total; only pre-existing Phase-4.5 `03-user-grammar-toml.qmd` smokeAll remains) + `npm run typecheck` + `npm run build` all green.
 
 ### Phase 4.4 — JS loading helper (one-grammar, hand-wired)
 

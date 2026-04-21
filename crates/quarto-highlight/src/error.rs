@@ -10,4 +10,12 @@ pub enum HighlightError {
 
     #[error("failed to serialize highlight spans to JSON: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// A user-supplied grammar provider (native WasmStore, browser JS
+    /// callback, etc.) failed to produce output for a class it claimed
+    /// to handle. Carries a free-form message describing what went
+    /// wrong — the provider implementation is responsible for making
+    /// this diagnostic useful.
+    #[error("user-grammar provider error: {0}")]
+    Provider(String),
 }
