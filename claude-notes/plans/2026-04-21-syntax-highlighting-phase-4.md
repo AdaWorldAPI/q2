@@ -181,10 +181,12 @@ Plan is to write failing tests **before** implementing each chunk. In order:
 
 ### Phase 4.2 — JS-side highlight algorithm
 
-- [ ] Add `web-tree-sitter` to `hub-client/package.json`.
-- [ ] Implement `src/services/userGrammarHighlight.ts`: given a loaded web-tree-sitter Language + Query + source string, emit `[start, end, capture][]` JSON matching the native encoding.
-- [ ] Unit tests in vitest; fixtures reused from `crates/quarto-highlight/tests/fixtures/user-grammar-toml/`.
-- [ ] Document the simplification: what's supported, what differs from tree-sitter-highlight.
+- [x] Add `web-tree-sitter` 0.26.8 to `hub-client/package.json`. Installed via `npm install --workspace=hub-client` from repo root per workspaces convention.
+- [x] Implement `hub-client/src/services/userGrammarHighlight.ts`. Public API: `loadUserGrammar({ name, wasmBytes, highlightsScm })` returns a `UserGrammarHighlighter` with `highlight(source)` → JSON triple-array string + `dispose()`. Internally: `Parser.init()` (cached, idempotent), `Language.load(wasmBytes)`, `new Query(language, scm)`, `parser.parse(source)`, walk `query.captures(tree.rootNode)` into `[start, end, capture]` triples, sort `(start asc, end desc)` for canonical output.
+- [x] Unit tests in `hub-client/src/services/userGrammarHighlight.wasm.test.ts` (runs under `npm run test:wasm`). 5 tests covering: JSON shape, same capture presence as native (operator / string@byte-7 / property-or-type), empty source → `[]`, canonical ordering, repeatable output. Fixtures from `crates/quarto-highlight/tests/fixtures/user-grammar-toml/`.
+- [x] Browser-init path (Vite `?url` + `locateFile`) in place so production builds will find `web-tree-sitter.wasm` once the module is actually imported by hub-client in Phase 4.5. Gated on `typeof window !== 'undefined'` so node/vitest keeps its fs-based emscripten path.
+- [x] Documented simplification in the module doc comment: no tree-sitter-highlight capture-precedence/longest-match, no locals, no injections. The native user-grammar path already passes empty locals/injections (`user_grammar.rs:151`), so divergence is narrow for user grammars; built-ins don't flow through this code path at all.
+- [x] Full verification: `npm run test` (502 unit) + `npm run test:wasm` (now 64 passing; only the Phase-4.5-scoped `03-user-grammar-toml.qmd` smokeAll failure remains) + `npm run test:integration` (35) + `npm run typecheck` + `npm run build` all green.
 
 ### Phase 4.3 — wasm-bindgen bridge
 
