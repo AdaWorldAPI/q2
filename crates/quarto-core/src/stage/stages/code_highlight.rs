@@ -77,11 +77,15 @@ impl PipelineStage for CodeHighlightStage {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let mut user = load_user_grammars(ctx);
-                quarto_highlight::annotate_pandoc(&mut doc.ast, user.as_mut())
+                let user_ref = user
+                    .as_mut()
+                    .map(|u| u as &mut dyn quarto_highlight::UserGrammarProvider);
+                quarto_highlight::annotate_pandoc(&mut doc.ast, user_ref)
             }
             #[cfg(target_arch = "wasm32")]
             {
-                quarto_highlight::annotate_pandoc(&mut doc.ast)
+                // Phase 4.3 will thread a `JsUserGrammars` handle in here.
+                quarto_highlight::annotate_pandoc(&mut doc.ast, None)
             }
         };
 

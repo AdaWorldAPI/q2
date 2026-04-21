@@ -259,6 +259,16 @@ impl UserGrammars {
     }
 }
 
+impl crate::provider::UserGrammarProvider for UserGrammars {
+    fn contains(&self, class: &str) -> bool {
+        UserGrammars::contains(self, class)
+    }
+
+    fn highlight(&mut self, class: &str, source: &str) -> Result<Option<String>, HighlightError> {
+        UserGrammars::highlight(self, class, source)
+    }
+}
+
 /// Walk the HighlightEvent stream and collect `[start, end, capture]`
 /// triples. Shared between the built-in and user-grammar paths.
 pub(crate) fn collect_spans(

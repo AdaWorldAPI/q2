@@ -170,13 +170,14 @@ Plan is to write failing tests **before** implementing each chunk. In order:
 
 ### Phase 4.1 — `UserGrammarProvider` trait (native refactor)
 
-- [ ] Define `UserGrammarProvider` trait in `crates/quarto-highlight/src/lib.rs`.
-- [ ] `impl UserGrammarProvider for UserGrammars` (native).
-- [ ] Change `annotate_pandoc` signature on **both** targets to take `Option<&mut dyn UserGrammarProvider>`.
-- [ ] Collapse the five cfg-gated pairs in `annotate.rs` into a single code path (Walker struct, annotate_attr, pick_first_resolvable_class, user_mut, visit_*).
-- [ ] Update `CodeHighlightStage` on both targets to call the unified signature.
-- [ ] `cargo nextest run --workspace` green.
-- [ ] `cargo xtask verify` green.
+- [x] Define `UserGrammarProvider` trait in `crates/quarto-highlight/src/provider.rs`. Pub re-exported from `lib.rs`.
+- [x] `impl UserGrammarProvider for UserGrammars` (native) — `crates/quarto-highlight/src/user_grammar.rs:262`.
+- [x] Change `annotate_pandoc` signature on **both** targets to take `Option<&mut dyn UserGrammarProvider>`. Public wrapper uses `dyn` for `None`-ergonomics; internal `annotate_pandoc_generic` uses `P: UserGrammarProvider + ?Sized` to avoid trait-object-lifetime invariance traps in the `Walker` struct.
+- [x] Collapse the five cfg-gated pairs in `annotate.rs` into a single code path. `Walker<'a, P: ?Sized>` now works on both targets; the `#[cfg(target_arch = "wasm32")] NoUser` / `PhantomData` machinery is gone.
+- [x] Update `CodeHighlightStage` on both targets to call the unified signature. Wasm32 branch currently passes `None`; Phase 4.3 will thread a `JsUserGrammars` handle here.
+- [x] `cargo nextest run --workspace` green (7619 tests pass, 195 skipped).
+- [x] `cargo xtask verify --skip-hub-tests` green. Hub-client `npm run test:wasm` has the single pre-existing `03-user-grammar-toml.qmd` failure (Phase 4.5's acceptance gate); all other wasm tests pass (59/60).
+- [x] 5 new trait tests added in `tests/trait_provider.rs`: provider output reaches attr; provider fallthrough uses built-in; provider precedence over built-in on class collision; provider `Ok(None)` leaves attr alone; filter-authored spans still win over provider.
 
 ### Phase 4.2 — JS-side highlight algorithm
 

@@ -15,6 +15,7 @@ pub mod annotate;
 pub mod encoding;
 pub mod error;
 mod langs;
+pub mod provider;
 pub mod registry;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -24,6 +25,7 @@ pub use annotate::annotate_pandoc;
 
 pub use encoding::{HighlightSpan, SPANS_ATTR_KEY};
 pub use error::HighlightError;
+pub use provider::UserGrammarProvider;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use user_grammar::{UserGrammarError, UserGrammars};
