@@ -199,22 +199,38 @@ idiomatic pattern and confirm it fails in the expected way.
 
 ### Phase 3 — Proxy userdata: `LuaAttr` variants
 
-- [ ] **3.1** Replace `pub struct LuaAttr(pub crate::pandoc::Attr)`
-  with an enum that supports `Owned`, `BlockRef`, and `InlineRef`
-  variants. Routes `get_field`/`set_field` through the current
-  variant.
-- [ ] **3.2** `attr_to_lua_userdata(lua, &block_or_inline_rc)` now
-  takes the parent `Rc<RefCell<...>>` and returns a proxy variant.
-  Add a separate `attr_owned_to_lua_userdata(...)` used by the
-  `pandoc.Attr(...)` constructor path.
-- [ ] **3.3** Update the ~15 `attr_to_lua_table` call sites in
-  `get_field` to pass the parent Rc instead of a cloned Attr.
-- [ ] **3.4** Update the `"attr"` write path in `set_field` to
-  replace the `Attr` inside the parent cell when the RHS is an
-  `Owned` LuaAttr or a table.
-- [ ] **3.5** When the RHS is a `BlockRef`/`InlineRef` proxy
-  (rare, but e.g. `cb1.attr = cb2.attr`), copy the target's current
-  Attr value in. Proxies never share cells across elements.
+- [x] **3.1** `LuaAttr` is now an enum with three variants —
+  `Owned(Rc<RefCell<Attr>>)`, `BlockRef(Rc<RefCell<Block>>)`,
+  `InlineRef(Rc<RefCell<Inline>>)`. `with_attr` / `with_attr_mut`
+  helpers route reads/writes through the active variant via four
+  new helpers: `block_attr_ref`, `block_attr_mut`,
+  `inline_attr_ref`, `inline_attr_mut`.
+- [x] **3.2** Added `attr_to_lua_userdata_for_block` /
+  `attr_to_lua_userdata_for_inline` helpers alongside the existing
+  `attr_to_lua_userdata` (now explicitly documented as the Owned
+  path — used by `pandoc.Attr(...)` and by table-row-like wrappers
+  that produce detached snapshots).
+- [x] **3.3** All 13 `attr_to_lua_table(lua, &x.attr)` call sites
+  in `get_field` for block/inline variants now route through the
+  proxy helpers, passing `Rc::clone(&self.0)` for the parent cell.
+  The dead `attr_to_lua_table` wrapper is removed.
+- [x] **3.4** `set_field` on `"attr"` (block/inline) already went
+  through `lua_value_to_attr(val, lua)`, which was updated to call
+  `lua_attr.clone_attr()` (works across all enum variants) — so
+  assigning a `BlockRef` or `InlineRef` proxy to another element's
+  `.attr` copies the target's current Attr value in, correctly
+  detaching it from its source cell.
+- [x] **3.5** Same machinery (via `clone_attr`). No cross-cell
+  aliasing is possible because every assignment copies the value
+  through an owned `Attr`.
+- [x] **3.6** `LuaAttr::get_field` still returns *fresh Lua tables*
+  for `.attributes` and `.classes`. That deliberate decision isolates
+  Phase 4 (proxy userdata for those tables) from the Phase 3 enum
+  migration. Phase 3 tests therefore still fail — Phase 4 closes the
+  gap.
+- [x] **3.7** Build: `cargo build -p pampa --features lua-filter`
+  succeeds. Tests: 3717 pass, 5 fail (the phase-1 regression
+  targets). No new test regressions from Phase 3.
 
 ### Phase 4 — Proxy userdata: attributes + classes tables
 

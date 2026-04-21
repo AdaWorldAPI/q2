@@ -24,7 +24,7 @@
 
 use pampa::lua::apply_lua_filters;
 use pampa::pandoc::ast_context::ASTContext;
-use pampa::pandoc::{AttrSourceInfo, Block, Code, CodeBlock, Inline, Pandoc, Paragraph, Str};
+use pampa::pandoc::{AttrSourceInfo, Block, Code, CodeBlock, Inline, Pandoc, Paragraph};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -34,10 +34,6 @@ use tempfile::NamedTempFile;
 
 fn si() -> quarto_source_map::SourceInfo {
     quarto_source_map::SourceInfo::default()
-}
-
-fn empty_attr() -> pampa::pandoc::Attr {
-    ("".to_string(), vec![], hashlink::LinkedHashMap::new())
 }
 
 fn code_block_with(class: &str, text: &str) -> Block {

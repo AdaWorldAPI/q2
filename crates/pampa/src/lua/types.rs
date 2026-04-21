@@ -185,7 +185,7 @@ impl LuaInline {
 
             // Code
             (Inline::Code(c), "text") => c.text.clone().into_lua(lua),
-            (Inline::Code(c), "attr") => attr_to_lua_table(lua, &c.attr),
+            (Inline::Code(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Code(c), "identifier") => c.attr.0.clone().into_lua(lua),
             (Inline::Code(c), "classes") => string_list_to_lua_table(lua, &c.attr.1),
 
@@ -207,7 +207,7 @@ impl LuaInline {
             (Inline::Link(l), "content") => inlines_to_lua_table(lua, &l.content),
             (Inline::Link(l), "target") => l.target.0.clone().into_lua(lua),
             (Inline::Link(l), "title") => l.target.1.clone().into_lua(lua),
-            (Inline::Link(l), "attr") => attr_to_lua_table(lua, &l.attr),
+            (Inline::Link(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Link(l), "identifier") => l.attr.0.clone().into_lua(lua),
             (Inline::Link(l), "classes") => string_list_to_lua_table(lua, &l.attr.1),
 
@@ -215,7 +215,7 @@ impl LuaInline {
             (Inline::Image(i), "content") => inlines_to_lua_table(lua, &i.content),
             (Inline::Image(i), "src") => i.target.0.clone().into_lua(lua),
             (Inline::Image(i), "title") => i.target.1.clone().into_lua(lua),
-            (Inline::Image(i), "attr") => attr_to_lua_table(lua, &i.attr),
+            (Inline::Image(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Image(img), "identifier") => img.attr.0.clone().into_lua(lua),
             (Inline::Image(img), "classes") => string_list_to_lua_table(lua, &img.attr.1),
 
@@ -223,7 +223,7 @@ impl LuaInline {
             (Inline::Note(n), "content") => blocks_to_lua_table(lua, &n.content),
 
             // Span (attr already covered above for other elements with attr)
-            (Inline::Span(s), "attr") => attr_to_lua_table(lua, &s.attr),
+            (Inline::Span(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Span(s), "identifier") => s.attr.0.clone().into_lua(lua),
             (Inline::Span(s), "classes") => string_list_to_lua_table(lua, &s.attr.1),
 
@@ -233,25 +233,29 @@ impl LuaInline {
 
             // Insert (CriticMarkup-like)
             (Inline::Insert(ins), "content") => inlines_to_lua_table(lua, &ins.content),
-            (Inline::Insert(ins), "attr") => attr_to_lua_table(lua, &ins.attr),
+            (Inline::Insert(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Insert(ins), "identifier") => ins.attr.0.clone().into_lua(lua),
             (Inline::Insert(ins), "classes") => string_list_to_lua_table(lua, &ins.attr.1),
 
             // Delete (CriticMarkup-like)
             (Inline::Delete(d), "content") => inlines_to_lua_table(lua, &d.content),
-            (Inline::Delete(d), "attr") => attr_to_lua_table(lua, &d.attr),
+            (Inline::Delete(_), "attr") => attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0)),
             (Inline::Delete(d), "identifier") => d.attr.0.clone().into_lua(lua),
             (Inline::Delete(d), "classes") => string_list_to_lua_table(lua, &d.attr.1),
 
             // Highlight (CriticMarkup-like)
             (Inline::Highlight(h), "content") => inlines_to_lua_table(lua, &h.content),
-            (Inline::Highlight(h), "attr") => attr_to_lua_table(lua, &h.attr),
+            (Inline::Highlight(_), "attr") => {
+                attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0))
+            }
             (Inline::Highlight(h), "identifier") => h.attr.0.clone().into_lua(lua),
             (Inline::Highlight(h), "classes") => string_list_to_lua_table(lua, &h.attr.1),
 
             // EditComment (CriticMarkup-like)
             (Inline::EditComment(ec), "content") => inlines_to_lua_table(lua, &ec.content),
-            (Inline::EditComment(ec), "attr") => attr_to_lua_table(lua, &ec.attr),
+            (Inline::EditComment(_), "attr") => {
+                attr_to_lua_userdata_for_inline(lua, Rc::clone(&self.0))
+            }
             (Inline::EditComment(ec), "identifier") => ec.attr.0.clone().into_lua(lua),
             (Inline::EditComment(ec), "classes") => string_list_to_lua_table(lua, &ec.attr.1),
 
@@ -765,13 +769,15 @@ impl LuaBlock {
             // Header
             (Block::Header(h), "level") => (h.level as i64).into_lua(lua),
             (Block::Header(h), "content") => inlines_to_lua_table(lua, &h.content),
-            (Block::Header(h), "attr") => attr_to_lua_table(lua, &h.attr),
+            (Block::Header(_), "attr") => attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0)),
             (Block::Header(h), "identifier") => h.attr.0.clone().into_lua(lua),
             (Block::Header(h), "classes") => string_list_to_lua_table(lua, &h.attr.1),
 
             // CodeBlock
             (Block::CodeBlock(c), "text") => c.text.clone().into_lua(lua),
-            (Block::CodeBlock(c), "attr") => attr_to_lua_table(lua, &c.attr),
+            (Block::CodeBlock(_), "attr") => {
+                attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0))
+            }
             (Block::CodeBlock(c), "identifier") => c.attr.0.clone().into_lua(lua),
             (Block::CodeBlock(c), "classes") => string_list_to_lua_table(lua, &c.attr.1),
 
@@ -784,7 +790,7 @@ impl LuaBlock {
 
             // Div
             (Block::Div(d), "content") => blocks_to_lua_table(lua, &d.content),
-            (Block::Div(d), "attr") => attr_to_lua_table(lua, &d.attr),
+            (Block::Div(_), "attr") => attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0)),
             (Block::Div(d), "identifier") => d.attr.0.clone().into_lua(lua),
             (Block::Div(d), "classes") => string_list_to_lua_table(lua, &d.attr.1),
 
@@ -823,7 +829,7 @@ impl LuaBlock {
 
             // Figure
             (Block::Figure(f), "content") => blocks_to_lua_table(lua, &f.content),
-            (Block::Figure(f), "attr") => attr_to_lua_table(lua, &f.attr),
+            (Block::Figure(_), "attr") => attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0)),
             (Block::Figure(f), "identifier") => f.attr.0.clone().into_lua(lua),
 
             // LineBlock
@@ -858,7 +864,7 @@ impl LuaBlock {
             (Block::Figure(f), "caption") => caption_to_lua_table(lua, &f.caption),
 
             // Table basic fields
-            (Block::Table(t), "attr") => attr_to_lua_table(lua, &t.attr),
+            (Block::Table(_), "attr") => attr_to_lua_userdata_for_block(lua, Rc::clone(&self.0)),
             (Block::Table(t), "caption") => caption_to_lua_table(lua, &t.caption),
             (Block::Table(t), "identifier") => t.attr.0.clone().into_lua(lua),
 
@@ -1134,7 +1140,9 @@ fn lua_value_to_attr(val: Value, _lua: &Lua) -> Result<crate::pandoc::Attr> {
     match val {
         Value::UserData(ud) => {
             let lua_attr = ud.borrow::<LuaAttr>()?;
-            Ok(lua_attr.0.clone())
+            // Clone the underlying Attr regardless of the variant
+            // (Owned / BlockRef / InlineRef); the result is independent.
+            Ok(lua_attr.clone_attr())
         }
         Value::Table(table) => {
             // Try to interpret as {identifier, classes, attributes} table
@@ -1207,11 +1215,6 @@ fn lua_table_to_citations(_lua: &Lua, val: Value) -> Result<Vec<crate::pandoc::C
         }
         _ => Err(Error::runtime("expected table of citations")),
     }
-}
-
-/// Convert Attr to LuaAttr userdata (Pandoc-compatible)
-fn attr_to_lua_table(lua: &Lua, attr: &crate::pandoc::Attr) -> Result<Value> {
-    attr_to_lua_userdata(lua, attr)
 }
 
 /// Convert MetaValue to Lua value
@@ -1627,54 +1630,183 @@ pub fn filter_source_info(lua: &Lua) -> SourceInfo {
     SourceInfo::default()
 }
 
-/// Wrapper for Pandoc Attr (identifier, classes, attributes) as Lua userdata
+// ---------------------------------------------------------------------------
+// Attr-location helpers (used by LuaAttr proxy variants)
+// ---------------------------------------------------------------------------
+//
+// Given a parent Block/Inline, return a reference to its Attr (or None if
+// the variant doesn't carry an Attr). Used to read/write through the
+// shared cell when a LuaAttr is in BlockRef / InlineRef mode.
+
+pub(crate) fn block_attr_ref(block: &Block) -> Option<&crate::pandoc::Attr> {
+    match block {
+        Block::CodeBlock(c) => Some(&c.attr),
+        Block::Header(h) => Some(&h.attr),
+        Block::Div(d) => Some(&d.attr),
+        Block::Figure(f) => Some(&f.attr),
+        Block::Table(t) => Some(&t.attr),
+        _ => None,
+    }
+}
+
+pub(crate) fn block_attr_mut(block: &mut Block) -> Option<&mut crate::pandoc::Attr> {
+    match block {
+        Block::CodeBlock(c) => Some(&mut c.attr),
+        Block::Header(h) => Some(&mut h.attr),
+        Block::Div(d) => Some(&mut d.attr),
+        Block::Figure(f) => Some(&mut f.attr),
+        Block::Table(t) => Some(&mut t.attr),
+        _ => None,
+    }
+}
+
+pub(crate) fn inline_attr_ref(inline: &Inline) -> Option<&crate::pandoc::Attr> {
+    match inline {
+        Inline::Code(c) => Some(&c.attr),
+        Inline::Link(l) => Some(&l.attr),
+        Inline::Image(i) => Some(&i.attr),
+        Inline::Span(s) => Some(&s.attr),
+        Inline::Insert(x) => Some(&x.attr),
+        Inline::Delete(x) => Some(&x.attr),
+        Inline::Highlight(x) => Some(&x.attr),
+        Inline::EditComment(x) => Some(&x.attr),
+        _ => None,
+    }
+}
+
+pub(crate) fn inline_attr_mut(inline: &mut Inline) -> Option<&mut crate::pandoc::Attr> {
+    match inline {
+        Inline::Code(c) => Some(&mut c.attr),
+        Inline::Link(l) => Some(&mut l.attr),
+        Inline::Image(i) => Some(&mut i.attr),
+        Inline::Span(s) => Some(&mut s.attr),
+        Inline::Insert(x) => Some(&mut x.attr),
+        Inline::Delete(x) => Some(&mut x.attr),
+        Inline::Highlight(x) => Some(&mut x.attr),
+        Inline::EditComment(x) => Some(&mut x.attr),
+        _ => None,
+    }
+}
+
+/// Wrapper for Pandoc Attr (identifier, classes, attributes) as Lua userdata.
 ///
-/// Pandoc's Attr is a tuple: (identifier: String, classes: Vec<String>, attributes: HashMap<String, String>)
-/// This wrapper exposes it as userdata with:
-/// - Named field access: `attr.identifier`, `attr.classes`, `attr.attributes`
-/// - Positional access: `attr[1]`, `attr[2]`, `attr[3]`
-/// - Tag field: `attr.t` and `attr.tag` return "Attr"
+/// Pandoc's Attr is a tuple:
+/// `(identifier: String, classes: Vec<String>, attributes: HashMap<String, String>)`.
+/// This wrapper exposes it as userdata with named field access
+/// (`attr.identifier`, `attr.classes`, `attr.attributes`), positional
+/// access (`attr[1]..attr[3]`), and a constant `t`/`tag` of "Attr".
+///
+/// Three variants match the three ownership modes:
+///
+/// - `Owned`: the `Attr` is standalone (built via `pandoc.Attr(...)`).
+///   Its own `Rc<RefCell<Attr>>` cell. Mutations through proxies derived
+///   from this `LuaAttr` (Phase 4: `.attributes`, `.classes`) land back
+///   in this cell.
+/// - `BlockRef`: this is a *live proxy* into a parent `LuaBlock`'s
+///   `Rc<RefCell<Block>>`. Reads/writes go through the block's cell and
+///   through `block_attr_ref`/`block_attr_mut` to reach the `Attr` inside
+///   the active variant. Mutations propagate back to the parent block.
+/// - `InlineRef`: same, but for an `Inline` parent.
+///
+/// FromLua always produces an independent `Owned` variant, matching
+/// pre-refactor semantics (ownership does not cross FromLua boundaries).
 #[derive(Debug, Clone)]
-pub struct LuaAttr(pub crate::pandoc::Attr);
+pub enum LuaAttr {
+    Owned(Rc<RefCell<crate::pandoc::Attr>>),
+    BlockRef(Rc<RefCell<Block>>),
+    InlineRef(Rc<RefCell<Inline>>),
+}
 
 impl LuaAttr {
-    /// Create a new LuaAttr from an Attr tuple
+    /// Create a new standalone (Owned) LuaAttr from an Attr tuple.
     pub fn new(attr: crate::pandoc::Attr) -> Self {
-        LuaAttr(attr)
+        LuaAttr::Owned(Rc::new(RefCell::new(attr)))
     }
 
-    /// Get the identifier (first element of the tuple)
-    pub fn identifier(&self) -> &str {
-        &self.0.0
+    /// Create a proxy LuaAttr referencing the given block's Attr.
+    pub fn for_block(block: Rc<RefCell<Block>>) -> Self {
+        LuaAttr::BlockRef(block)
     }
 
-    /// Get the classes (second element of the tuple)
-    pub fn classes(&self) -> &[String] {
-        &self.0.1
+    /// Create a proxy LuaAttr referencing the given inline's Attr.
+    pub fn for_inline(inline: Rc<RefCell<Inline>>) -> Self {
+        LuaAttr::InlineRef(inline)
     }
 
-    /// Get the attributes (third element of the tuple)
-    pub fn attributes(&self) -> &hashlink::LinkedHashMap<String, String> {
-        &self.0.2
+    /// Run `f` against the underlying Attr for reading. Panics on a
+    /// structural mismatch (proxy's parent variant has no Attr) — this
+    /// indicates the parent element was mutated through a different field
+    /// in a way that invalidated the proxy, which shouldn't happen under
+    /// normal filter usage.
+    fn with_attr<R>(&self, f: impl FnOnce(&crate::pandoc::Attr) -> R) -> R {
+        match self {
+            LuaAttr::Owned(rc) => f(&rc.borrow()),
+            LuaAttr::BlockRef(rc) => {
+                let block = rc.borrow();
+                f(block_attr_ref(&block)
+                    .expect("LuaAttr::BlockRef proxy points at a block variant without an Attr"))
+            }
+            LuaAttr::InlineRef(rc) => {
+                let inline = rc.borrow();
+                f(inline_attr_ref(&inline)
+                    .expect("LuaAttr::InlineRef proxy points at an inline variant without an Attr"))
+            }
+        }
+    }
+
+    /// Run `f` against the underlying Attr for mutation.
+    fn with_attr_mut<R>(&self, f: impl FnOnce(&mut crate::pandoc::Attr) -> R) -> R {
+        match self {
+            LuaAttr::Owned(rc) => f(&mut rc.borrow_mut()),
+            LuaAttr::BlockRef(rc) => {
+                let mut block = rc.borrow_mut();
+                f(block_attr_mut(&mut block)
+                    .expect("LuaAttr::BlockRef proxy points at a block variant without an Attr"))
+            }
+            LuaAttr::InlineRef(rc) => {
+                let mut inline = rc.borrow_mut();
+                f(inline_attr_mut(&mut inline)
+                    .expect("LuaAttr::InlineRef proxy points at an inline variant without an Attr"))
+            }
+        }
+    }
+
+    /// Deep-clone the underlying Attr into an independent owned value.
+    pub fn clone_attr(&self) -> crate::pandoc::Attr {
+        self.with_attr(|attr| attr.clone())
+    }
+
+    /// Return the identifier as a String (cloned from the underlying cell).
+    pub fn identifier(&self) -> String {
+        self.with_attr(|attr| attr.0.clone())
+    }
+
+    /// Clone the classes list out.
+    pub fn classes(&self) -> Vec<String> {
+        self.with_attr(|attr| attr.1.clone())
+    }
+
+    /// Clone the attributes map out.
+    pub fn attributes(&self) -> hashlink::LinkedHashMap<String, String> {
+        self.with_attr(|attr| attr.2.clone())
     }
 
     /// Get a field value by name or index
     fn get_field(&self, lua: &Lua, key: Value) -> Result<Value> {
         match key {
             // Positional access (Lua uses 1-based indexing)
-            Value::Integer(1) => self.identifier().to_string().into_lua(lua),
-            Value::Integer(2) => {
-                let table = lua.create_table()?;
-                for (i, class) in self.classes().iter().enumerate() {
-                    table.set(i + 1, class.clone())?;
-                }
-                Ok(Value::Table(table))
-            }
+            Value::Integer(1) => self.identifier().into_lua(lua),
+            Value::Integer(2) => string_list_to_lua_table(lua, &self.classes()),
             Value::Integer(3) => {
+                // TODO(Phase 4): return a LuaAttributesProxy instead of a
+                // fresh table so piecewise mutation persists.
                 let table = lua.create_table()?;
-                for (key, value) in self.attributes().iter() {
-                    table.set(key.clone(), value.clone())?;
-                }
+                self.with_attr(|attr| {
+                    for (k, v) in attr.2.iter() {
+                        table.set(k.clone(), v.clone())?;
+                    }
+                    Ok::<_, Error>(())
+                })?;
                 Ok(Value::Table(table))
             }
             // Named field access
@@ -1682,13 +1814,18 @@ impl LuaAttr {
                 let borrowed = s.to_str()?;
                 let key_str: &str = borrowed.as_ref();
                 match key_str {
-                    "identifier" => self.identifier().to_string().into_lua(lua),
-                    "classes" => string_list_to_lua_table(lua, self.classes()),
+                    "identifier" => self.identifier().into_lua(lua),
+                    // TODO(Phase 4): return a LuaClassesProxy.
+                    "classes" => string_list_to_lua_table(lua, &self.classes()),
                     "attributes" => {
+                        // TODO(Phase 4): return a LuaAttributesProxy.
                         let table = lua.create_table()?;
-                        for (key, value) in self.attributes().iter() {
-                            table.set(key.clone(), value.clone())?;
-                        }
+                        self.with_attr(|attr| {
+                            for (k, v) in attr.2.iter() {
+                                table.set(k.clone(), v.clone())?;
+                            }
+                            Ok::<_, Error>(())
+                        })?;
                         Ok(Value::Table(table))
                     }
                     "t" | "tag" => "Attr".into_lua(lua),
@@ -1699,37 +1836,42 @@ impl LuaAttr {
         }
     }
 
-    /// Set a field value by name or index
-    fn set_field(&mut self, key: Value, val: Value, lua: &Lua) -> Result<()> {
+    /// Set a field value by name or index. Takes `&self`: mutation goes
+    /// through the appropriate `RefCell` on the enum variant.
+    fn set_field(&self, key: Value, val: Value, lua: &Lua) -> Result<()> {
         match key {
-            // Positional access
             Value::Integer(1) => {
-                self.0.0 = String::from_lua(val, lua)?;
+                let s = String::from_lua(val, lua)?;
+                self.with_attr_mut(|attr| attr.0 = s);
                 Ok(())
             }
             Value::Integer(2) => {
-                self.0.1 = lua_table_to_strings(lua, val)?;
+                let classes = lua_table_to_strings(lua, val)?;
+                self.with_attr_mut(|attr| attr.1 = classes);
                 Ok(())
             }
             Value::Integer(3) => {
-                self.0.2 = lua_table_to_string_map(lua, val)?;
+                let attrs = lua_table_to_string_map(lua, val)?;
+                self.with_attr_mut(|attr| attr.2 = attrs);
                 Ok(())
             }
-            // Named field access
             Value::String(s) => {
                 let borrowed = s.to_str()?;
                 let key_str: &str = borrowed.as_ref();
                 match key_str {
                     "identifier" => {
-                        self.0.0 = String::from_lua(val, lua)?;
+                        let id = String::from_lua(val, lua)?;
+                        self.with_attr_mut(|attr| attr.0 = id);
                         Ok(())
                     }
                     "classes" => {
-                        self.0.1 = lua_table_to_strings(lua, val)?;
+                        let classes = lua_table_to_strings(lua, val)?;
+                        self.with_attr_mut(|attr| attr.1 = classes);
                         Ok(())
                     }
                     "attributes" => {
-                        self.0.2 = lua_table_to_string_map(lua, val)?;
+                        let attrs = lua_table_to_string_map(lua, val)?;
+                        self.with_attr_mut(|attr| attr.2 = attrs);
                         Ok(())
                     }
                     "t" | "tag" => Err(Error::runtime("cannot set read-only field 'tag'")),
@@ -1746,7 +1888,10 @@ impl UserData for LuaAttr {
         // Static fields accessible on all Attrs
         fields.add_field_method_get("t", |_, _| Ok("Attr"));
         fields.add_field_method_get("tag", |_, _| Ok("Attr"));
-        fields.add_field_method_get("identifier", |_, this| Ok(this.identifier().to_string()));
+        // NB: do not register add_field_method_get("identifier", …) here —
+        // mlua dispatches fields before __index, so it would shadow our
+        // routing through get_field. The "identifier" branch inside
+        // get_field handles the read.
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -1755,15 +1900,19 @@ impl UserData for LuaAttr {
             this.get_field(lua, key)
         });
 
-        // Dynamic field assignment via __newindex
-        methods.add_meta_method_mut(
+        // Dynamic field assignment via __newindex. Uses add_meta_method
+        // (not _mut): interior mutability is on the RefCell inside the
+        // variant, so set_field takes `&self`.
+        methods.add_meta_method(
             MetaMethod::NewIndex,
             |lua, this, (key, val): (Value, Value)| this.set_field(key, val, lua),
         );
 
-        // Clone method
+        // Clone method — always produces an Owned copy, independent of
+        // the source variant (BlockRef/InlineRef clones detach the Attr
+        // from its parent, matching Pandoc's "elem.attr:clone()" shape).
         methods.add_method("clone", |lua, this, ()| {
-            lua.create_userdata(LuaAttr(this.0.clone()))
+            lua.create_userdata(LuaAttr::new(this.clone_attr()))
         });
 
         // __tostring for debugging
@@ -1786,7 +1935,10 @@ impl FromLua for LuaAttr {
         match value {
             Value::UserData(ud) => {
                 let lua_attr = ud.borrow::<LuaAttr>()?;
-                Ok(LuaAttr(lua_attr.0.clone()))
+                // Always produce an Owned clone on FromLua: detach from
+                // any parent, preserving today's "independent copy"
+                // semantics.
+                Ok(LuaAttr::new(lua_attr.clone_attr()))
             }
             _ => Err(Error::runtime("expected Attr userdata")),
         }
@@ -1825,10 +1977,28 @@ fn lua_table_to_string_map(
     }
 }
 
-/// Convert Attr to LuaAttr userdata
+/// Convert an Attr value into a fresh **Owned** LuaAttr userdata (detached
+/// from any parent element). Used by `pandoc.Attr(...)` and by container
+/// types that expose an attr snapshot (e.g. table rows/cells) where we
+/// don't yet propagate writes back.
 pub fn attr_to_lua_userdata(lua: &Lua, attr: &crate::pandoc::Attr) -> Result<Value> {
     let lua_attr = LuaAttr::new(attr.clone());
     let ud = lua.create_userdata(lua_attr)?;
+    Ok(Value::UserData(ud))
+}
+
+/// Wrap the given block cell as a BlockRef LuaAttr proxy. Writes through
+/// the returned userdata propagate back to the parent block's Attr.
+pub fn attr_to_lua_userdata_for_block(lua: &Lua, block: Rc<RefCell<Block>>) -> Result<Value> {
+    let ud = lua.create_userdata(LuaAttr::for_block(block))?;
+    Ok(Value::UserData(ud))
+}
+
+/// Wrap the given inline cell as an InlineRef LuaAttr proxy. Writes
+/// through the returned userdata propagate back to the parent inline's
+/// Attr.
+pub fn attr_to_lua_userdata_for_inline(lua: &Lua, inline: Rc<RefCell<Inline>>) -> Result<Value> {
+    let ud = lua.create_userdata(LuaAttr::for_inline(inline))?;
     Ok(Value::UserData(ud))
 }
 
@@ -2843,7 +3013,7 @@ mod tests {
     #[test]
     fn test_lua_attr_identifier() {
         let attr = ("my-id".into(), vec![], hashlink::LinkedHashMap::new());
-        let lua_attr = LuaAttr(attr);
+        let lua_attr = LuaAttr::new(attr);
         assert_eq!(lua_attr.identifier(), "my-id");
     }
 
@@ -2854,7 +3024,7 @@ mod tests {
             vec!["a".into(), "b".into()],
             hashlink::LinkedHashMap::new(),
         );
-        let lua_attr = LuaAttr(attr);
+        let lua_attr = LuaAttr::new(attr);
         assert_eq!(lua_attr.classes(), &["a".to_string(), "b".to_string()]);
     }
 
@@ -2863,7 +3033,7 @@ mod tests {
         let mut attrs = hashlink::LinkedHashMap::new();
         attrs.insert("key".into(), "value".into());
         let attr = (String::new(), vec![], attrs);
-        let lua_attr = LuaAttr(attr);
+        let lua_attr = LuaAttr::new(attr);
         assert_eq!(lua_attr.attributes().get("key"), Some(&"value".to_string()));
     }
 

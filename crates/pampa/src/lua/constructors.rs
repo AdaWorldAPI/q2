@@ -760,9 +760,10 @@ fn parse_attr(_lua: &Lua, attr: Option<Value>) -> Result<crate::pandoc::Attr> {
     match attr {
         None => Ok((String::new(), vec![], LinkedHashMap::new())),
         Some(Value::UserData(ud)) => {
-            // Support LuaAttr userdata
+            // Support LuaAttr userdata (all variants — Owned / BlockRef /
+            // InlineRef clone out to an independent Attr value)
             let lua_attr = ud.borrow::<LuaAttr>()?;
-            Ok(lua_attr.0.clone())
+            Ok(lua_attr.clone_attr())
         }
         Some(Value::Table(table)) => {
             // Support table format: {identifier, classes, attributes}
