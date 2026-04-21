@@ -310,19 +310,26 @@ previously had `classes` and `identifier` but not `attributes`, and
 
 ### Phase 7 — Update the 04-filter fixture
 
-- [ ] **7.1** Rewrite `highlight-words.lua` to use the idiomatic
+- [x] **7.1** `highlight-words.lua` rewritten to the idiomatic
   pattern:
   ```lua
   cb.attr.attributes["data-hl-spans"] = pandoc.json.encode(spans)
   return cb
   ```
-  Remove the note about the workaround.
-- [ ] **7.2** End-to-end verify per CLAUDE.md "End-to-end
-  verification": run
-  `cargo run --bin quarto -- render crates/quarto/tests/smoke-all/highlighting/04-filter/04-filter-authored-spans.qmd`
-  and inspect the rendered HTML for the expected `<span class="hl-error">` markup.
-- [ ] **7.3** Re-run the smoke-all harness that covers the 04-filter
-  fixture to confirm the test still passes with the new filter body.
+  Workaround note removed; replaced with a one-line pointer to
+  bd-195t.
+- [x] **7.2** End-to-end verified via
+  `cargo run --bin q2 -- render crates/quarto/tests/smoke-all/highlighting/04-filter/04-filter-authored-spans.qmd`
+  (note: the CLI binary is `q2`, not `quarto`, in this workspace).
+  Inspected the generated HTML:
+  ```
+  <pre class="sourceCode log"><code>2026-04-20T10:12:01 <span class="hl-error">ERROR</span> connection refused
+  2026-04-20T10:12:04 <span class="hl-warning">WARN</span> high latency detected
+  ```
+  `hl-error` appears 3×, `hl-warning` 2×, `sourceCode log` 1×.
+- [x] **7.3** `cargo nextest run -p quarto smoke_all` — 1 passed,
+  36 skipped. The 04-filter-authored-spans fixture passes with the
+  rewritten idiomatic filter.
 
 ### Phase 8 — User-facing examples
 

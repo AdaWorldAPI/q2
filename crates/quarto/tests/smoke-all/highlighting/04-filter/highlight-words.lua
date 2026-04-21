@@ -44,16 +44,9 @@ function CodeBlock(cb)
   -- and a stable input order keeps the output deterministic.
   table.sort(spans, function(a, b) return a[1] < b[1] end)
 
-  -- Note on attribute mutation: Quarto 2's current Lua bridge returns
-  -- a fresh copy of `cb.attr` (and of `cb.attr.attributes`) every time
-  -- they're accessed, so in-place mutation like
-  -- `cb.attr.attributes["k"] = v` is silently discarded. To persist
-  -- changes, rebuild the whole `attr` and assign it to `cb.attr` as
-  -- one value. Pandoc's native Lua API hides this behind proxy tables
-  -- that write back; we don't yet — see the Phase 3.5 plan for a
-  -- pointer to the follow-up task.
-  local attrs = cb.attr.attributes
-  attrs["data-hl-spans"] = pandoc.json.encode(spans)
-  cb.attr = pandoc.Attr(cb.attr.identifier, cb.attr.classes, attrs)
+  -- Idiomatic Pandoc-Lua attribute mutation: this persists on the
+  -- block because `cb.attr.attributes` is a live proxy into the
+  -- block's Attr (see bd-195t).
+  cb.attr.attributes["data-hl-spans"] = pandoc.json.encode(spans)
   return cb
 end
