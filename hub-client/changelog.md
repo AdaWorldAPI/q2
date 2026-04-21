@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-21
+
+- [`b0177b8d`](https://github.com/quarto-dev/q2/commits/b0177b8d): Generic file uploader — any binary asset (images, PDFs, `.wasm` grammars, data files, fonts) can now be added to a project via the new "Upload" button in the file sidebar, drag-drop onto the sidebar (destination derived from drop target), or drag-drop into the editor; destination paths validated against leading `/`, `.`/`..` segments, and forbidden characters
+
 ### 2026-04-20
 
 - [`23e020cd`](https://github.com/quarto-dev/q2/commits/23e020cd): CSS cache now invalidates automatically on any Rust-side SCSS-assembly change — replaces the manual `_vN` version knob with a build-time hash of quarto-sass source files
