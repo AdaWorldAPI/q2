@@ -336,15 +336,22 @@ previously had `classes` and `identifier` but not `attributes`, and
 The whole point of the fix: being able to show filter-authored
 highlighting in the docs.
 
-- [ ] **8.1** Add at least one example fixture under
-  `crates/quarto/tests/smoke-all/highlighting/` demonstrating a
-  non-trivial custom highlighting filter (TBD — candidate: highlight
-  structured log lines by severity and by timestamp pattern). Pattern:
-  idiomatic `cb.attr.attributes["data-hl-spans"] = ...` with no
-  workaround.
-- [ ] **8.2** Add a `docs/` page under the syntax-highlighting
-  section describing the Lua filter path with a copy-pasteable
-  example.
+- [x] **8.1** Added
+  `crates/quarto/tests/smoke-all/highlighting/06-filter-severity/`
+  — a structured systemd-log highlighter with multiple captures
+  (`severity.err`, `severity.warning`, `severity.info`,
+  `timestamp`). Exercises the idiomatic
+  `cb.attr.attributes["data-hl-spans"] = …` idiom end-to-end.
+  Verified the produced HTML contains `<span class="hl-severity-err">`
+  etc. Smoke-all harness passes (`cargo nextest run -p quarto
+  smoke_all`: 1/1). Updated the highlighting README's fixture table.
+- [x] **8.2** Added `docs/syntax/highlighting-filter.qmd` — a
+  standalone user-facing page describing the `data-hl-spans`
+  encoding, a copy-pasteable 15-line filter example, styling
+  guidance, pointers to the two smoke-all fixtures, and
+  when-to-use-which guidance (filter vs tree-sitter grammar).
+  Linked from `docs/syntax/index.qmd` in the Available Features
+  list.
 
 ### Phase 9 — Cross-platform verification + verification harness
 
