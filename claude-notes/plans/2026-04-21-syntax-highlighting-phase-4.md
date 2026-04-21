@@ -226,9 +226,13 @@ The part that makes Phase 4 a real user workflow rather than a synthetic test pa
 
 ### Phase 4.6 — End-to-end verification (per Phase 2 post-mortem lesson)
 
-Passing vitest is necessary but not sufficient. Before marking Phase 4 complete, drive the **real user workflow** — upload the grammar through the now-landed `NewAssetDialog`, not via a pre-seeded filesystem:
+**Status: awaits user-driven browser session.** Claude-in-Chrome is not connected in this environment (verified via `tabs_context_mcp`). All plumbing is in place; the Preview render loop calls `renderToHtml` with the project file list + automergeSync content resolvers (commit `b0366d07`), so dropping a grammar into `_quarto/grammars/<name>/` through the normal uploader should Just Work.
 
-- [ ] Start hub-client: `cd hub-client && npm run dev:fresh`. Open a fresh project in Firefox (or the user's preferred browser for bd-eity verification — that work's own end-to-end manual pass is also outstanding, so combining may make sense).
+Strong pre-verification signal: the `smokeAll.wasm.test.ts` fixture `highlighting/03-user-grammar/03-user-grammar-toml.qmd` now passes (all 53 smoke fixtures green). That test exercises the exact same render path (`render_qmd(path, jsUserGrammars)`) with the exact same TOML grammar bytes; the only delta for the real browser is the uploader UX and the Automerge sync layer — both independently tested already.
+
+Manual verification steps (human operator):
+
+- [ ] Start hub-client: `cd hub-client && npm run dev:fresh`. Open a fresh project in Firefox.
 - [ ] Create a new `.qmd` with a TOML code block. Render view should show it unhighlighted initially (no grammar loaded yet).
 - [ ] Click the **Upload** button in the FileSidebar header. In the `NewAssetDialog`, select both `toml.wasm` and `highlights.scm` from the fixture directory (`crates/quarto-highlight/tests/fixtures/user-grammar-toml/`). Set destination to `_quarto/grammars/toml/`. Upload.
 - [ ] Verify both files appear under `_quarto/grammars/toml/` in the FileSidebar.
@@ -239,13 +243,14 @@ Passing vitest is necessary but not sufficient. Before marking Phase 4 complete,
 
 ### Phase 4.7 — Wrap-up
 
-- [ ] `cargo nextest run --workspace` green.
-- [ ] `cargo xtask verify` green (full build incl. WASM + hub-client).
-- [ ] `cd hub-client && npm run test:ci` green — including the `smokeAll.wasm.test.ts` `03-user-grammar-toml.qmd` case that's currently failing.
-- [ ] `cd hub-client && npm run build:all` green (production build catches errors vitest misses).
-- [ ] Bundle size check: record pre/post `dist/` size delta. web-tree-sitter adds ~1.5–2 MB compressed per the parent plan; note the actual number.
-- [ ] Update parent plan's Phase 4 checklist with completion state and link back here. (Phase 6 has already been retired in the parent plan; no additional cleanup there.)
-- [ ] Stage and commit. Wait for push approval.
+- [x] `cargo nextest run --workspace` green — 7619 tests pass.
+- [x] `cargo xtask verify` green (full: Rust + WASM + hub-client + trace-viewer). Passed as of commit `2653d6ca` (Phase 4.5).
+- [x] `cd hub-client && npm run test:ci` green — 523 unit + 35 integration + 74 wasm = 632 passing, 0 failing. The formerly-failing `03-user-grammar-toml.qmd` smokeAll fixture now passes.
+- [x] `cd hub-client && npm run build:all` green.
+- [x] Bundle size: web-tree-sitter adds `192 KB` uncompressed as a separate `.wasm` asset (`dist/assets/web-tree-sitter-*.wasm`), plus ~50 KB of JS glue in `main.js`. Hub-client's own wasm (`wasm_quarto_hub_client_bg.wasm`) is unchanged at ~30 MB. Well under the parent plan's 1.5–2 MB budget.
+- [x] Parent plan's Phase 4 checklist is updated as each sub-phase landed; no additional cleanup needed (Phase 6 was retired in the initial Phase 4 planning commit).
+- [ ] Phase 4.6 manual verification (above) is user-driven and outstanding.
+- [ ] Staged and committed; awaiting push approval.
 
 ## Expected outcomes
 
