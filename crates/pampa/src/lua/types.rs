@@ -8,6 +8,9 @@
  * matching Pandoc 2.17+ behavior where `type(elem)` returns "userdata".
  */
 
+use std::cell::{Ref, RefCell, RefMut};
+use std::rc::Rc;
+
 use mlua::{
     Error, IntoLua, Lua, MetaMethod, Result, Table, UserData, UserDataFields, UserDataMethods,
     UserDataRef, Value, Variadic,
@@ -16,14 +19,45 @@ use quarto_source_map::SourceInfo;
 
 use crate::pandoc::{Block, Inline};
 
-/// Wrapper for Pandoc Inline elements as Lua userdata
+/// Wrapper for Pandoc Inline elements as Lua userdata.
+///
+/// The inner `Inline` lives behind `Rc<RefCell<…>>` so proxy userdata
+/// (for `elem.attr`, `elem.attr.attributes`, `elem.attr.classes`) can
+/// share ownership of the same cell and write back through the chain.
+/// See `claude-notes/plans/2026-04-21-lua-attr-mutation-proxy.md`.
+///
+/// `FromLua` and the `clone()` Lua method each produce a fresh,
+/// independent cell (deep-clone of the inner value) to preserve today's
+/// per-invocation isolation semantics across filter boundaries.
 #[derive(Debug, Clone)]
-pub struct LuaInline(pub Inline);
+pub struct LuaInline(pub Rc<RefCell<Inline>>);
+
+impl LuaInline {
+    /// Construct a `LuaInline` around a freshly-owned `Inline` in a new cell.
+    pub fn new(inline: Inline) -> Self {
+        LuaInline(Rc::new(RefCell::new(inline)))
+    }
+
+    /// Borrow the inner `Inline` immutably.
+    pub fn borrow_inline(&self) -> Ref<'_, Inline> {
+        self.0.borrow()
+    }
+
+    /// Borrow the inner `Inline` mutably.
+    pub fn borrow_inline_mut(&self) -> RefMut<'_, Inline> {
+        self.0.borrow_mut()
+    }
+
+    /// Deep-clone the inner `Inline` into an owned value.
+    pub fn clone_inline(&self) -> Inline {
+        self.0.borrow().clone()
+    }
+}
 
 impl LuaInline {
     /// Get the tag name for this inline element
     pub fn tag_name(&self) -> &'static str {
-        match &self.0 {
+        match &*self.0.borrow() {
             Inline::Str(_) => "Str",
             Inline::Emph(_) => "Emph",
             Inline::Underline(_) => "Underline",
@@ -57,7 +91,7 @@ impl LuaInline {
 
     /// Get the list of field names for this inline element (for pairs iteration)
     pub fn field_names(&self) -> &'static [&'static str] {
-        match &self.0 {
+        match &*self.0.borrow() {
             Inline::Str(_) => &["tag", "text", "clone", "walk"],
             Inline::Emph(_)
             | Inline::Strong(_)
@@ -91,7 +125,41 @@ impl LuaInline {
 
     /// Get a field value by name
     pub fn get_field(&self, lua: &Lua, key: &str) -> Result<Value> {
-        match (&self.0, key) {
+        // Special cases that need the `Rc` (to stay shared with proxies) or
+        // the userdata identity. Handle these before taking a `borrow()` so
+        // the closure-captured value isn't tied to the borrow's lifetime.
+        match key {
+            "tag" | "t" => return self.tag_name().into_lua(lua),
+            "clone" => {
+                // Snapshot the inner inline at .clone-access time (matching
+                // pre-refactor behavior). Each invocation of the returned
+                // function produces an independent LuaInline (new cell).
+                let snapshot = self.0.borrow().clone();
+                return lua
+                    .create_function(move |lua, ()| {
+                        lua.create_userdata(LuaInline::new(snapshot.clone()))
+                    })?
+                    .into_lua(lua);
+            }
+            "walk" => {
+                return lua
+                    .create_async_function(
+                        |lua, (ud, filter_table): (UserDataRef<LuaInline>, Table)| async move {
+                            // Snapshot to an owned Inline before awaiting so
+                            // we don't hold a RefCell borrow across the await.
+                            let snapshot = ud.0.borrow().clone();
+                            let filtered =
+                                walk_inline_with_filter(&lua, &snapshot, &filter_table).await?;
+                            lua.create_userdata(LuaInline::new(filtered))
+                        },
+                    )?
+                    .into_lua(lua);
+            }
+            _ => {}
+        }
+
+        let inner = self.0.borrow();
+        match (&*inner, key) {
             // Str
             (Inline::Str(s), "text") => s.text.clone().into_lua(lua),
 
@@ -190,28 +258,7 @@ impl LuaInline {
             // NoteReference
             (Inline::NoteReference(nr), "id") => nr.id.clone().into_lua(lua),
 
-            // Tag and t are always available
-            (_, "tag") => self.tag_name().into_lua(lua),
-            (_, "t") => self.tag_name().into_lua(lua),
-
-            // Methods - clone and walk are exposed as functions
-            // Clone captures self so it can be called without arguments:
-            //   elem:clone() and local f = elem.clone; f() both work
-            (_, "clone") => {
-                let inline = self.0.clone();
-                lua.create_function(move |lua, ()| lua.create_userdata(LuaInline(inline.clone())))?
-                    .into_lua(lua)
-            }
-            // Walk is called with method syntax: elem:walk { ... }
-            // Lua passes (self, filter_table) to the function
-            (_, "walk") => lua
-                .create_async_function(
-                    |lua, (ud, filter_table): (UserDataRef<LuaInline>, Table)| async move {
-                        let filtered = walk_inline_with_filter(&lua, &ud.0, &filter_table).await?;
-                        lua.create_userdata(LuaInline(filtered))
-                    },
-                )?
-                .into_lua(lua),
+            // tag, t, clone, walk were handled above the borrow.
 
             // Unknown field
             _ => Ok(Value::Nil),
@@ -219,8 +266,13 @@ impl LuaInline {
     }
 
     /// Set a field value by name
-    pub fn set_field(&mut self, key: &str, val: Value, lua: &Lua) -> Result<()> {
-        match (&mut self.0, key) {
+    ///
+    /// Takes `&self` (not `&mut self`): interior mutability is provided by
+    /// the `RefCell`. This is what lets proxies with their own `Rc` to the
+    /// same cell route writes back.
+    pub fn set_field(&self, key: &str, val: Value, lua: &Lua) -> Result<()> {
+        let mut inner = self.0.borrow_mut();
+        match (&mut *inner, key) {
             // Str
             (Inline::Str(s), "text") => {
                 s.text = String::from_lua(val, lua)?;
@@ -489,8 +541,10 @@ impl UserData for LuaInline {
             this.get_field(lua, &key)
         });
 
-        // Dynamic field assignment via __newindex
-        methods.add_meta_method_mut(
+        // Dynamic field assignment via __newindex. Now uses add_meta_method
+        // (not _mut) because interior mutability comes from the RefCell in
+        // `LuaInline.0`; set_field takes `&self`.
+        methods.add_meta_method(
             MetaMethod::NewIndex,
             |lua, this, (key, val): (String, Value)| this.set_field(&key, val, lua),
         );
@@ -505,7 +559,12 @@ impl UserData for LuaInline {
 
         // __pairs for iteration (for k, v in pairs(elem))
         methods.add_meta_method(MetaMethod::Pairs, |lua, this, ()| {
-            let inline = this.0.clone();
+            // Snapshot the inline at pairs-call time (matching pre-refactor
+            // behavior: iterating over a copy, not the live cell). Mutations
+            // to the original during iteration are not observed — this also
+            // avoids RefCell borrow conflicts if the filter mutates while
+            // iterating.
+            let snapshot = this.0.borrow().clone();
 
             // Create the iterator function following Lua's next() semantics:
             // - If control variable is nil, return first key-value pair
@@ -548,21 +607,46 @@ impl UserData for LuaInline {
             // state is the userdata, initial value is nil (start from beginning)
             Ok((
                 stateless_iter,
-                lua.create_userdata(LuaInline(inline))?,
+                lua.create_userdata(LuaInline::new(snapshot))?,
                 Value::Nil,
             ))
         });
     }
 }
 
-/// Wrapper for Pandoc Block elements as Lua userdata
+/// Wrapper for Pandoc Block elements as Lua userdata.
+///
+/// The inner `Block` lives behind `Rc<RefCell<…>>` so proxy userdata
+/// for `.attr`, `.attr.attributes`, and `.attr.classes` can share
+/// ownership of the same cell and propagate writes back. See
+/// `claude-notes/plans/2026-04-21-lua-attr-mutation-proxy.md`.
 #[derive(Debug, Clone)]
-pub struct LuaBlock(pub Block);
+pub struct LuaBlock(pub Rc<RefCell<Block>>);
 
 impl LuaBlock {
+    /// Construct a `LuaBlock` around a freshly-owned `Block` in a new cell.
+    pub fn new(block: Block) -> Self {
+        LuaBlock(Rc::new(RefCell::new(block)))
+    }
+
+    /// Borrow the inner `Block` immutably.
+    pub fn borrow_block(&self) -> Ref<'_, Block> {
+        self.0.borrow()
+    }
+
+    /// Borrow the inner `Block` mutably.
+    pub fn borrow_block_mut(&self) -> RefMut<'_, Block> {
+        self.0.borrow_mut()
+    }
+
+    /// Deep-clone the inner `Block` into an owned value.
+    pub fn clone_block(&self) -> Block {
+        self.0.borrow().clone()
+    }
+
     /// Get the tag name for this block element
     pub fn tag_name(&self) -> &'static str {
-        match &self.0 {
+        match &*self.0.borrow() {
             Block::Plain(_) => "Plain",
             Block::Paragraph(_) => "Para",
             Block::LineBlock(_) => "LineBlock",
@@ -587,7 +671,7 @@ impl LuaBlock {
 
     /// Get the list of field names for this block element (for pairs iteration)
     pub fn field_names(&self) -> &'static [&'static str] {
-        match &self.0 {
+        match &*self.0.borrow() {
             Block::Plain(_) | Block::Paragraph(_) => &["tag", "content", "clone", "walk"],
             Block::LineBlock(_) => &["tag", "content", "clone", "walk"],
             Block::CodeBlock(_) => &[
@@ -645,7 +729,35 @@ impl LuaBlock {
 
     /// Get a field value by name
     pub fn get_field(&self, lua: &Lua, key: &str) -> Result<Value> {
-        match (&self.0, key) {
+        // Handle tag, clone, walk up-front so we don't hold a borrow across
+        // closure creation or async boundaries.
+        match key {
+            "tag" | "t" => return self.tag_name().into_lua(lua),
+            "clone" => {
+                let snapshot = self.0.borrow().clone();
+                return lua
+                    .create_function(move |lua, ()| {
+                        lua.create_userdata(LuaBlock::new(snapshot.clone()))
+                    })?
+                    .into_lua(lua);
+            }
+            "walk" => {
+                return lua
+                    .create_async_function(
+                        |lua, (ud, filter_table): (UserDataRef<LuaBlock>, Table)| async move {
+                            let snapshot = ud.0.borrow().clone();
+                            let filtered =
+                                walk_block_with_filter(&lua, &snapshot, &filter_table).await?;
+                            lua.create_userdata(LuaBlock::new(filtered))
+                        },
+                    )?
+                    .into_lua(lua);
+            }
+            _ => {}
+        }
+
+        let inner = self.0.borrow();
+        match (&*inner, key) {
             // Plain and Para have content
             (Block::Plain(p), "content") => inlines_to_lua_table(lua, &p.content),
             (Block::Paragraph(p), "content") => inlines_to_lua_table(lua, &p.content),
@@ -750,28 +862,7 @@ impl LuaBlock {
             (Block::Table(t), "caption") => caption_to_lua_table(lua, &t.caption),
             (Block::Table(t), "identifier") => t.attr.0.clone().into_lua(lua),
 
-            // Tag and t are always available
-            (_, "tag") => self.tag_name().into_lua(lua),
-            (_, "t") => self.tag_name().into_lua(lua),
-
-            // Methods - clone and walk are exposed as functions
-            // Clone captures self so it can be called without arguments:
-            //   elem:clone() and local f = elem.clone; f() both work
-            (_, "clone") => {
-                let block = self.0.clone();
-                lua.create_function(move |lua, ()| lua.create_userdata(LuaBlock(block.clone())))?
-                    .into_lua(lua)
-            }
-            // Walk is called with method syntax: elem:walk { ... }
-            // Lua passes (self, filter_table) to the function
-            (_, "walk") => lua
-                .create_async_function(
-                    |lua, (ud, filter_table): (UserDataRef<LuaBlock>, Table)| async move {
-                        let filtered = walk_block_with_filter(&lua, &ud.0, &filter_table).await?;
-                        lua.create_userdata(LuaBlock(filtered))
-                    },
-                )?
-                .into_lua(lua),
+            // tag, t, clone, walk handled above the borrow.
 
             // Unknown field
             _ => Ok(Value::Nil),
@@ -779,8 +870,11 @@ impl LuaBlock {
     }
 
     /// Set a field value by name
-    pub fn set_field(&mut self, key: &str, val: Value, lua: &Lua) -> Result<()> {
-        match (&mut self.0, key) {
+    ///
+    /// Takes `&self`: interior mutability is provided by the `RefCell`.
+    pub fn set_field(&self, key: &str, val: Value, lua: &Lua) -> Result<()> {
+        let mut inner = self.0.borrow_mut();
+        match (&mut *inner, key) {
             // Plain and Para
             (Block::Plain(p), "content") => {
                 p.content = peek_inlines_fuzzy(lua, val)?;
@@ -905,8 +999,10 @@ impl UserData for LuaBlock {
             this.get_field(lua, &key)
         });
 
-        // Dynamic field assignment via __newindex
-        methods.add_meta_method_mut(
+        // Dynamic field assignment via __newindex. Uses add_meta_method
+        // (not _mut) because mutation goes through the RefCell in
+        // `LuaBlock.0`; set_field takes `&self`.
+        methods.add_meta_method(
             MetaMethod::NewIndex,
             |lua, this, (key, val): (String, Value)| this.set_field(&key, val, lua),
         );
@@ -921,7 +1017,7 @@ impl UserData for LuaBlock {
 
         // __pairs for iteration (for k, v in pairs(elem))
         methods.add_meta_method(MetaMethod::Pairs, |lua, this, ()| {
-            let block = this.0.clone();
+            let snapshot = this.0.borrow().clone();
 
             // Create the iterator function following Lua's next() semantics:
             // - If control variable is nil, return first key-value pair
@@ -964,7 +1060,7 @@ impl UserData for LuaBlock {
             // state is the userdata, initial value is nil (start from beginning)
             Ok((
                 stateless_iter,
-                lua.create_userdata(LuaBlock(block))?,
+                lua.create_userdata(LuaBlock::new(snapshot))?,
                 Value::Nil,
             ))
         });
@@ -1371,7 +1467,7 @@ pub fn peek_inline_fuzzy(lua: &Lua, val: Value) -> Result<Inline> {
         }
         Value::UserData(ud) => {
             if let Ok(lua_inline) = ud.borrow::<LuaInline>() {
-                Ok(lua_inline.0.clone())
+                Ok(lua_inline.clone_inline())
             } else {
                 Err(Error::runtime(
                     "expected Inline userdata, string, or Inline-like value",
@@ -1407,7 +1503,7 @@ pub fn peek_inlines_fuzzy(lua: &Lua, val: Value) -> Result<Vec<Inline>> {
         }
         Value::UserData(ud) => {
             if let Ok(lua_inline) = ud.borrow::<LuaInline>() {
-                Ok(vec![lua_inline.0.clone()])
+                Ok(vec![lua_inline.clone_inline()])
             } else {
                 Err(Error::runtime(
                     "expected Inline, list of Inlines, or string",
@@ -1431,7 +1527,7 @@ pub fn peek_block_fuzzy(lua: &Lua, val: Value) -> Result<Block> {
     match &val {
         Value::UserData(ud) => {
             if let Ok(lua_block) = ud.borrow::<LuaBlock>() {
-                return Ok(lua_block.0.clone());
+                return Ok(lua_block.clone_block());
             }
             // Not a block — fall through to inlines coercion
             let inlines = peek_inlines_fuzzy(lua, val)?;
@@ -1473,7 +1569,7 @@ pub fn peek_blocks_fuzzy(lua: &Lua, val: Value) -> Result<Vec<Block>> {
         }
         Value::UserData(ud) => {
             if let Ok(lua_block) = ud.borrow::<LuaBlock>() {
-                return Ok(vec![lua_block.0.clone()]);
+                return Ok(vec![lua_block.clone_block()]);
             }
             // Not a block — try inlines coercion
             let inlines = peek_inlines_fuzzy(lua, val)?;
@@ -1744,7 +1840,10 @@ impl FromLua for LuaInline {
         match value {
             Value::UserData(ud) => {
                 let lua_inline = ud.borrow::<LuaInline>()?;
-                Ok(LuaInline(lua_inline.0.clone()))
+                // Deep-clone the inner Inline into a fresh cell. This preserves
+                // pre-refactor semantics: FromLua produces an independent
+                // LuaInline, not a shared alias of the source cell.
+                Ok(LuaInline::new(lua_inline.0.borrow().clone()))
             }
             _ => Err(Error::runtime("expected Inline userdata")),
         }
@@ -1756,7 +1855,8 @@ impl FromLua for LuaBlock {
         match value {
             Value::UserData(ud) => {
                 let lua_block = ud.borrow::<LuaBlock>()?;
-                Ok(LuaBlock(lua_block.0.clone()))
+                // Deep-clone the inner Block into a fresh cell.
+                Ok(LuaBlock::new(lua_block.0.borrow().clone()))
             }
             _ => Err(Error::runtime("expected Block userdata")),
         }
@@ -1882,7 +1982,7 @@ mod tests {
             text: "hello".into(),
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Str");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Str");
     }
 
     #[test]
@@ -1891,7 +1991,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Emph");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Emph");
     }
 
     #[test]
@@ -1900,7 +2000,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Underline");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Underline");
     }
 
     #[test]
@@ -1909,7 +2009,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Strong");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Strong");
     }
 
     #[test]
@@ -1918,7 +2018,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Strikeout");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Strikeout");
     }
 
     #[test]
@@ -1927,7 +2027,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Superscript");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Superscript");
     }
 
     #[test]
@@ -1936,7 +2036,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Subscript");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Subscript");
     }
 
     #[test]
@@ -1945,7 +2045,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "SmallCaps");
+        assert_eq!(LuaInline::new(inline).tag_name(), "SmallCaps");
     }
 
     #[test]
@@ -1955,7 +2055,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Quoted");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Quoted");
     }
 
     #[test]
@@ -1965,7 +2065,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Cite");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Cite");
     }
 
     #[test]
@@ -1976,25 +2076,25 @@ mod tests {
             text: "code".into(),
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Code");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Code");
     }
 
     #[test]
     fn test_lua_inline_tag_name_space() {
         let inline = Inline::Space(Space { source_info: si() });
-        assert_eq!(LuaInline(inline).tag_name(), "Space");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Space");
     }
 
     #[test]
     fn test_lua_inline_tag_name_soft_break() {
         let inline = Inline::SoftBreak(SoftBreak { source_info: si() });
-        assert_eq!(LuaInline(inline).tag_name(), "SoftBreak");
+        assert_eq!(LuaInline::new(inline).tag_name(), "SoftBreak");
     }
 
     #[test]
     fn test_lua_inline_tag_name_line_break() {
         let inline = Inline::LineBreak(LineBreak { source_info: si() });
-        assert_eq!(LuaInline(inline).tag_name(), "LineBreak");
+        assert_eq!(LuaInline::new(inline).tag_name(), "LineBreak");
     }
 
     #[test]
@@ -2004,7 +2104,7 @@ mod tests {
             text: "x^2".into(),
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Math");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Math");
     }
 
     #[test]
@@ -2014,7 +2114,7 @@ mod tests {
             text: "<b>".into(),
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "RawInline");
+        assert_eq!(LuaInline::new(inline).tag_name(), "RawInline");
     }
 
     #[test]
@@ -2027,7 +2127,7 @@ mod tests {
             target_source: target_si(),
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Link");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Link");
     }
 
     #[test]
@@ -2040,7 +2140,7 @@ mod tests {
             target_source: target_si(),
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Image");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Image");
     }
 
     #[test]
@@ -2049,7 +2149,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Note");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Note");
     }
 
     #[test]
@@ -2060,7 +2160,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Span");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Span");
     }
 
     #[test]
@@ -2072,7 +2172,7 @@ mod tests {
             keyword_args: HashMap::new(),
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Shortcode");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Shortcode");
     }
 
     #[test]
@@ -2081,7 +2181,7 @@ mod tests {
             id: "1".into(),
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "NoteReference");
+        assert_eq!(LuaInline::new(inline).tag_name(), "NoteReference");
     }
 
     #[test]
@@ -2090,7 +2190,7 @@ mod tests {
             (String::new(), vec![], hashlink::LinkedHashMap::new()),
             attr_si(),
         );
-        assert_eq!(LuaInline(inline).tag_name(), "Attr");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Attr");
     }
 
     #[test]
@@ -2101,7 +2201,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Insert");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Insert");
     }
 
     #[test]
@@ -2112,7 +2212,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Delete");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Delete");
     }
 
     #[test]
@@ -2123,7 +2223,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "Highlight");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Highlight");
     }
 
     #[test]
@@ -2134,7 +2234,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaInline(inline).tag_name(), "EditComment");
+        assert_eq!(LuaInline::new(inline).tag_name(), "EditComment");
     }
 
     #[test]
@@ -2144,7 +2244,7 @@ mod tests {
             (String::new(), vec![], hashlink::LinkedHashMap::new()),
             si(),
         ));
-        assert_eq!(LuaInline(inline).tag_name(), "Custom");
+        assert_eq!(LuaInline::new(inline).tag_name(), "Custom");
     }
 
     // ========== LuaInline::field_names tests ==========
@@ -2156,7 +2256,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "text", "clone", "walk"]
         );
     }
@@ -2168,7 +2268,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "content", "clone", "walk"]
         );
     }
@@ -2181,7 +2281,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "quotetype", "content", "clone", "walk"]
         );
     }
@@ -2194,7 +2294,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "content", "citations", "clone", "walk"]
         );
     }
@@ -2208,7 +2308,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "text", "attr", "clone", "walk"]
         );
     }
@@ -2216,7 +2316,10 @@ mod tests {
     #[test]
     fn test_lua_inline_field_names_space() {
         let inline = Inline::Space(Space { source_info: si() });
-        assert_eq!(LuaInline(inline).field_names(), &["tag", "clone", "walk"]);
+        assert_eq!(
+            LuaInline::new(inline).field_names(),
+            &["tag", "clone", "walk"]
+        );
     }
 
     #[test]
@@ -2227,7 +2330,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "mathtype", "text", "clone", "walk"]
         );
     }
@@ -2240,7 +2343,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "format", "text", "clone", "walk"]
         );
     }
@@ -2256,7 +2359,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "content", "target", "title", "attr", "clone", "walk"]
         );
     }
@@ -2272,7 +2375,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "content", "src", "title", "attr", "clone", "walk"]
         );
     }
@@ -2284,7 +2387,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "content", "clone", "walk"]
         );
     }
@@ -2298,7 +2401,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "content", "attr", "clone", "walk"]
         );
     }
@@ -2310,7 +2413,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "id", "clone", "walk"]
         );
     }
@@ -2324,7 +2427,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaInline(inline).field_names(),
+            LuaInline::new(inline).field_names(),
             &["tag", "content", "attr", "clone", "walk"]
         );
     }
@@ -2336,7 +2439,7 @@ mod tests {
             (String::new(), vec![], hashlink::LinkedHashMap::new()),
             si(),
         ));
-        assert_eq!(LuaInline(inline).field_names(), &["tag", "clone"]);
+        assert_eq!(LuaInline::new(inline).field_names(), &["tag", "clone"]);
     }
 
     // ========== LuaBlock::tag_name tests ==========
@@ -2347,7 +2450,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "Plain");
+        assert_eq!(LuaBlock::new(block).tag_name(), "Plain");
     }
 
     #[test]
@@ -2356,7 +2459,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "Para");
+        assert_eq!(LuaBlock::new(block).tag_name(), "Para");
     }
 
     #[test]
@@ -2365,7 +2468,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "LineBlock");
+        assert_eq!(LuaBlock::new(block).tag_name(), "LineBlock");
     }
 
     #[test]
@@ -2376,7 +2479,7 @@ mod tests {
             text: "code".into(),
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "CodeBlock");
+        assert_eq!(LuaBlock::new(block).tag_name(), "CodeBlock");
     }
 
     #[test]
@@ -2386,7 +2489,7 @@ mod tests {
             text: "<div>".into(),
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "RawBlock");
+        assert_eq!(LuaBlock::new(block).tag_name(), "RawBlock");
     }
 
     #[test]
@@ -2395,7 +2498,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "BlockQuote");
+        assert_eq!(LuaBlock::new(block).tag_name(), "BlockQuote");
     }
 
     #[test]
@@ -2405,7 +2508,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "OrderedList");
+        assert_eq!(LuaBlock::new(block).tag_name(), "OrderedList");
     }
 
     #[test]
@@ -2414,7 +2517,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "BulletList");
+        assert_eq!(LuaBlock::new(block).tag_name(), "BulletList");
     }
 
     #[test]
@@ -2423,7 +2526,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "DefinitionList");
+        assert_eq!(LuaBlock::new(block).tag_name(), "DefinitionList");
     }
 
     #[test]
@@ -2435,13 +2538,13 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "Header");
+        assert_eq!(LuaBlock::new(block).tag_name(), "Header");
     }
 
     #[test]
     fn test_lua_block_tag_name_horizontal_rule() {
         let block = Block::HorizontalRule(HorizontalRule { source_info: si() });
-        assert_eq!(LuaBlock(block).tag_name(), "HorizontalRule");
+        assert_eq!(LuaBlock::new(block).tag_name(), "HorizontalRule");
     }
 
     #[test]
@@ -2456,7 +2559,7 @@ mod tests {
             foot: empty_table_foot(),
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "Table");
+        assert_eq!(LuaBlock::new(block).tag_name(), "Table");
     }
 
     #[test]
@@ -2468,7 +2571,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "Figure");
+        assert_eq!(LuaBlock::new(block).tag_name(), "Figure");
     }
 
     #[test]
@@ -2479,7 +2582,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "Div");
+        assert_eq!(LuaBlock::new(block).tag_name(), "Div");
     }
 
     #[test]
@@ -2488,7 +2591,7 @@ mod tests {
             meta: quarto_pandoc_types::ConfigValue::default(),
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "BlockMetadata");
+        assert_eq!(LuaBlock::new(block).tag_name(), "BlockMetadata");
     }
 
     #[test]
@@ -2498,7 +2601,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "NoteDefinitionPara");
+        assert_eq!(LuaBlock::new(block).tag_name(), "NoteDefinitionPara");
     }
 
     #[test]
@@ -2508,7 +2611,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "NoteDefinitionFencedBlock");
+        assert_eq!(LuaBlock::new(block).tag_name(), "NoteDefinitionFencedBlock");
     }
 
     #[test]
@@ -2517,7 +2620,7 @@ mod tests {
             content: vec![],
             source_info: si(),
         });
-        assert_eq!(LuaBlock(block).tag_name(), "CaptionBlock");
+        assert_eq!(LuaBlock::new(block).tag_name(), "CaptionBlock");
     }
 
     #[test]
@@ -2527,7 +2630,7 @@ mod tests {
             (String::new(), vec![], hashlink::LinkedHashMap::new()),
             si(),
         ));
-        assert_eq!(LuaBlock(block).tag_name(), "Custom");
+        assert_eq!(LuaBlock::new(block).tag_name(), "Custom");
     }
 
     // ========== LuaBlock::field_names tests ==========
@@ -2539,7 +2642,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &["tag", "content", "clone", "walk"]
         );
     }
@@ -2551,7 +2654,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &["tag", "content", "clone", "walk"]
         );
     }
@@ -2565,7 +2668,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &[
                 "tag",
                 "text",
@@ -2586,7 +2689,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &["tag", "format", "text", "clone", "walk"]
         );
     }
@@ -2601,7 +2704,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &[
                 "tag",
                 "level",
@@ -2623,7 +2726,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &["tag", "content", "start", "style", "clone", "walk"]
         );
     }
@@ -2635,7 +2738,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &["tag", "content", "clone", "walk"]
         );
     }
@@ -2653,7 +2756,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &["tag", "attr", "caption", "identifier", "clone", "walk"]
         );
     }
@@ -2668,7 +2771,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &[
                 "tag",
                 "content",
@@ -2690,7 +2793,7 @@ mod tests {
             source_info: si(),
         });
         assert_eq!(
-            LuaBlock(block).field_names(),
+            LuaBlock::new(block).field_names(),
             &[
                 "tag",
                 "content",
@@ -2706,7 +2809,10 @@ mod tests {
     #[test]
     fn test_lua_block_field_names_horizontal_rule() {
         let block = Block::HorizontalRule(HorizontalRule { source_info: si() });
-        assert_eq!(LuaBlock(block).field_names(), &["tag", "clone", "walk"]);
+        assert_eq!(
+            LuaBlock::new(block).field_names(),
+            &["tag", "clone", "walk"]
+        );
     }
 
     #[test]
@@ -2716,7 +2822,7 @@ mod tests {
             (String::new(), vec![], hashlink::LinkedHashMap::new()),
             si(),
         ));
-        assert_eq!(LuaBlock(block).field_names(), &["tag", "clone"]);
+        assert_eq!(LuaBlock::new(block).field_names(), &["tag", "clone"]);
     }
 
     // ========== LuaAttr tests ==========
@@ -2883,7 +2989,7 @@ mod tests {
         table
             .set(
                 1,
-                lua.create_userdata(LuaInline(Inline::Str(Str {
+                lua.create_userdata(LuaInline::new(Inline::Str(Str {
                     text: "a".into(),
                     source_info: si(),
                 })))
@@ -2893,7 +2999,7 @@ mod tests {
         table
             .set(
                 2,
-                lua.create_userdata(LuaInline(Inline::Space(Space { source_info: si() })))
+                lua.create_userdata(LuaInline::new(Inline::Space(Space { source_info: si() })))
                     .unwrap(),
             )
             .unwrap();
@@ -2909,7 +3015,7 @@ mod tests {
         table
             .set(
                 2,
-                lua.create_userdata(LuaInline(Inline::Space(Space { source_info: si() })))
+                lua.create_userdata(LuaInline::new(Inline::Space(Space { source_info: si() })))
                     .unwrap(),
             )
             .unwrap();
@@ -2925,7 +3031,7 @@ mod tests {
     fn test_peek_inlines_fuzzy_single_userdata() {
         let lua = Lua::new();
         let ud = lua
-            .create_userdata(LuaInline(Inline::Str(Str {
+            .create_userdata(LuaInline::new(Inline::Str(Str {
                 text: "solo".into(),
                 source_info: si(),
             })))
@@ -2961,7 +3067,7 @@ mod tests {
         table
             .set(
                 1,
-                lua.create_userdata(LuaBlock(Block::HorizontalRule(HorizontalRule {
+                lua.create_userdata(LuaBlock::new(Block::HorizontalRule(HorizontalRule {
                     source_info: si(),
                 })))
                 .unwrap(),
@@ -2976,7 +3082,7 @@ mod tests {
     fn test_peek_blocks_fuzzy_single_block() {
         let lua = Lua::new();
         let ud = lua
-            .create_userdata(LuaBlock(Block::HorizontalRule(HorizontalRule {
+            .create_userdata(LuaBlock::new(Block::HorizontalRule(HorizontalRule {
                 source_info: si(),
             })))
             .unwrap();
@@ -3006,7 +3112,7 @@ mod tests {
         table
             .set(
                 1,
-                lua.create_userdata(LuaInline(Inline::Str(Str {
+                lua.create_userdata(LuaInline::new(Inline::Str(Str {
                     text: "x".into(),
                     source_info: si(),
                 })))
@@ -3016,7 +3122,7 @@ mod tests {
         table
             .set(
                 2,
-                lua.create_userdata(LuaInline(Inline::Str(Str {
+                lua.create_userdata(LuaInline::new(Inline::Str(Str {
                     text: "y".into(),
                     source_info: si(),
                 })))
