@@ -15,6 +15,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-04-21
 
+- [`896a676d`](https://github.com/quarto-dev/q2/commits/896a676d): Phase 4.2 of syntax-highlighting (bd-n7x2) — adds `web-tree-sitter`-based user-grammar highlighter (`loadUserGrammar` in `src/services/userGrammarHighlight.ts`); infrastructure-only, not yet wired into the render path (Phase 4.3 + 4.5 land the wasm-bindgen bridge and hub-client auto-discovery)
 - [`b0177b8d`](https://github.com/quarto-dev/q2/commits/b0177b8d): Generic file uploader — any binary asset (images, PDFs, `.wasm` grammars, data files, fonts) can now be added to a project via the new "Upload" button in the file sidebar, drag-drop onto the sidebar (destination derived from drop target), or drag-drop into the editor; destination paths validated against leading `/`, `.`/`..` segments, and forbidden characters
 
 ### 2026-04-20
