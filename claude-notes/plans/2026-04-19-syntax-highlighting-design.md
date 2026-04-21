@@ -182,15 +182,7 @@ branch *and* run the binary.
 
 **Phase 3 complete.** See `claude-notes/plans/2026-04-20-syntax-highlighting-phase-3.md` for the full story including four unplanned follow-ons: the wasm-shim merge (`tree-sitter-lua`/`tree-sitter-css` stdio conflict), the wasm32 `compile_default_css` layer-loading fix, the Firefox Quirks Mode fix in MorphIframe, and the CSS-cache invalidation fix (with `CSS_BUILD_ID` replacing the manual `_vN` version knob). Also see `claude-notes/plans/2026-04-20-wasm-shim-merge.md` sub-plan.
 
-- **Phase 4 — browser user grammars (minimal v1)**:
-  - [ ] `web-tree-sitter` as npm dep in hub-client
-  - [ ] wasm-bindgen JS-interop shim: `load_user_grammar(name, wasm_bytes, highlights_scm)` → opaque handle
-  - [ ] JS-side parse + query + span-event emission; results returned as the same `data-hl-spans` JSON
-  - [ ] End-to-end test with one hand-loaded `.wasm` grammar
-  - [ ] Full hub-client user-grammar UX (multi-grammar discovery, sync transport, upload flow) → Phase 6
-  - [ ] **End-to-end verification**: load a real `.wasm` user grammar
-        in a browser hub-client session and confirm its captures render
-        as `hl-*` spans. Record the fixture + observed DOM here.
+- **Phase 4 — browser user grammars**: see sub-plan `claude-notes/plans/2026-04-21-syntax-highlighting-phase-4.md`. Scope covers the browser-side highlight bridge (`web-tree-sitter` + wasm-bindgen), unification of the native/browser user-grammar paths behind a `UserGrammarProvider` trait, and hub-client auto-discovery of `_quarto/grammars/*` from the project file tree. What had been scoped as Phase 6 in earlier drafts is either absorbed here (discovery) or moved out of this plan entirely (see below).
 
 - **Phase 5 — extension features**:
   - [ ] Language injections
@@ -201,13 +193,10 @@ branch *and* run the binary.
         hub-client session (browser) and record the invocation +
         observed output proving the feature works.
 
-- **Phase 6 — browser user-grammar UX polish** (post-v1):
-  - [ ] Hub-client discovery flow for `_quarto/grammars/*.wasm`
-  - [ ] Sync-channel transport of grammar `.wasm` + query files
-  - [ ] Upload UX in hub-client UI
-  - [ ] **End-to-end verification**: user-flow screen-walk in a real
-        hub-client session — upload grammar, see highlighting, record
-        each step here or in a linked transcript.
+- **~~Phase 6 — browser user-grammar UX polish~~** — **retired 2026-04-21**. The original three sub-items resolved as follows:
+  - *Hub-client discovery flow for `_quarto/grammars/*`* — absorbed into Phase 4 (auto-discovery is what makes Phase 4 testable through a real user workflow).
+  - *Sync-channel transport* — not a distinct concern. Grammar files live in the Automerge-backed project file tree like any other asset (images, PDFs, CSVs) and reach other peers through the same sync path as the rest of the project.
+  - *Upload UX in hub-client UI* — not grammar-specific. Tracked as `bd-eity` with its own plan at `claude-notes/plans/2026-04-21-generic-file-uploader.md`. Blocks Phase 4's real-browser end-to-end verification (step 4.6) but is otherwise independent of the highlighting epic.
 
 - **Phase 7 — Pandoc-bridge parity** (deferred until Pandoc output lands / user demands):
   - [ ] Translate `data-hl-spans` → per-format RawBlock for latex / typst / docx
@@ -263,9 +252,9 @@ Then `` ```my-lang `` code blocks pick up the grammar automatically. The alias �
 
 ### Phase mapping
 
-- **Phase 1 (v1 native)**: built-in statically linked grammars + **native user-grammar loading via `WasmStore`**. These share nearly all code except the loader.
-- **Phase 2 (v1 browser — built-ins)**: built-in statically linked grammars on browser.
-- **Phase 3 (v1 browser — minimal user-grammar loading)**: wire `web-tree-sitter` into hub-client via wasm-bindgen JS interop. Goal in v1: a single `.wasm` user grammar can be loaded and produces correct highlights end-to-end. Full polish (multi-grammar discovery, sync-channel transport of grammar files, hub-side upload UX) is Phase 6.
+- **Phase 1 (native built-ins + native user grammars)**: built-in statically linked grammars + **native user-grammar loading via `WasmStore`**. These share nearly all code except the loader.
+- **Phase 3 (browser built-ins)**: built-in statically linked grammars on browser.
+- **Phase 4 (browser user grammars)**: wire `web-tree-sitter` into hub-client via wasm-bindgen JS interop; auto-discover grammars from `_quarto/grammars/*` in the project file tree; unify native/browser paths behind a `UserGrammarProvider` trait. Sub-plan: `claude-notes/plans/2026-04-21-syntax-highlighting-phase-4.md`.
 
 ## Resolved decisions (log)
 
@@ -287,7 +276,7 @@ All locked 2026-04-19 unless otherwise noted. Rationale condensed; see conversat
 
 7. **New `quarto-highlight` crate**: yes. Isolates grammar crate deps + wasmtime from `quarto-core`. Exports the pipeline stage + encoding + (on native) the `WasmStore`-based loader.
 
-8. **Browser user grammars in v1**: minimal version — web-tree-sitter npm dep + wasm-bindgen JS-interop shim + one end-to-end test with a hand-loaded grammar. Full hub-client UX (discovery, sync transport, upload UI) moves to Phase 6.
+8. **Browser user grammars in v1** (revised 2026-04-21): web-tree-sitter npm dep + wasm-bindgen JS-interop shim + `UserGrammarProvider` trait unifying native/browser paths + hub-client auto-discovery of `_quarto/grammars/*` from the project file tree. Distribution between Automerge peers is not a grammar-specific concern (grammar files ride the same sync path as images/PDFs/etc). Generic file-upload UX is tracked separately under bd-eity. Sub-plan: `claude-notes/plans/2026-04-21-syntax-highlighting-phase-4.md`.
 
 9. **Wasmtime binary-size budget**: accepted as noise against the ~95 MB batteries-included baseline. No Cargo feature gate; wasm-grammar-loading always compiled into native builds.
 
@@ -296,7 +285,7 @@ All locked 2026-04-19 unless otherwise noted. Rationale condensed; see conversat
 - Language injections (e.g. JS in HTML `<script>`) — Phase 5.
 - Line numbers, line-highlight directives (`hl_lines=[2,3]`, `linenos=inline`) — Phase 5.
 - User-override `highlights.scm` for built-in languages — Phase 5.
-- Full hub-client user-grammar UX (discovery, sync transport, upload flow) — Phase 6. (v1 gets a minimal one-grammar-at-a-time JS-interop path in Phase 4.)
+- Generic file-upload UX in hub-client — tracked outside this epic as bd-eity (`claude-notes/plans/2026-04-21-generic-file-uploader.md`). Needed for Phase 4's real-browser end-to-end test, but it's a hub-client gap we already have for image assets/CSVs/PDFs/etc., not grammar-specific.
 - Pandoc-bridge parity for typst/latex/docx — Phase 7.
 - Theme import from Kate XML / Chroma XML / VS Code JSON themes.
 - Client-side (browser-runtime) highlighting in the *output document* — Quarto 2 highlights at build time, period. (Separate from hub-client, which is an authoring tool.)
