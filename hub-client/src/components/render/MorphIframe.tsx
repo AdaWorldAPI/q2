@@ -441,7 +441,6 @@ function MorphIframe({
 
       // If we couldn't find matching elements, return
       if (!startElement || !endElement || !startLoc || !endLoc) {
-        console.log('Could not find elements for selection', { startPos, endPos });
         return;
       }
 
@@ -454,8 +453,6 @@ function MorphIframe({
         textNode: endElement.firstChild!,
         offset: endPos.startCol - endLoc.startCol
       }
-
-      console.log(startElement)
 
       // Create a range and set it as the document selection
       const selection = doc.getSelection();
