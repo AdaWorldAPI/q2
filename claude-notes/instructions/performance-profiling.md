@@ -117,6 +117,57 @@ done
 
 Always use **release** builds for timing. `cargo build -p <crate> --release`.
 
+For profile-based investigations (samply, perf, flamegraph), you need
+debug symbols on top of release-level optimization. The workspace
+defines a `release-perf` profile that inherits from `release` with
+`debug = true` / `strip = false`:
+
+```bash
+cargo build --profile=release-perf -p <crate>
+# Binary lives at target/release-perf/<binary>
+```
+
+Profiling against plain `--release` gives you a forest of raw
+addresses with no symbols — don't do it.
+
+### samply workflow
+
+```bash
+# Record with presymbolication so a sidecar .syms.json is produced
+# alongside the profile. The sidecar lets you analyze offline without
+# launching the samply web UI.
+samply record -s -n --unstable-presymbolicate \
+  -o /tmp/q2-perf-profiles/<name>.json.gz -- \
+  target/release-perf/<binary> <args>
+```
+
+`-s` saves only (no web server), `-n` skips opening the browser,
+`--unstable-presymbolicate` emits `.syms.json` next to the profile.
+Default sampling rate is 1000 Hz — good enough for most runs.
+
+For offline self-time analysis, resolve the profile's address strings
+through the syms sidecar. The repo ships an analyzer for this at
+`crates/perf-harness/scripts/analyze_profile.py`:
+
+```bash
+./crates/perf-harness/scripts/analyze_profile.py \
+  /tmp/q2-perf-profiles/<name>.json.gz --top 30
+```
+
+stdlib-only Python, reads the profile + sidecar `.syms.json`, emits a
+top-N self-time table. The head of the script documents both the
+profile format and the samply sidecar structure — if samply's format
+changes, patch there.
+
+### Where native drivers live
+
+`crates/perf-harness/` — an internal (non-published, `publish = false`)
+crate that hosts native driver binaries mirroring hub-client entry
+points for profiling. Add a new binary per hot entry point as they
+come up. Prefer this over adding subcommands to the user-facing
+`quarto` CLI, because these drivers should not appear as user
+features.
+
 ### 4. Read the numbers before designing the fix
 
 Put the numbers in a table with expected shapes next to them. If you

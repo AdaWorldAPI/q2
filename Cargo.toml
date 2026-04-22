@@ -276,3 +276,13 @@ lua-src = { path = "crates/lua-src-wasm" }
 # work around "too many locals" error from wasm-pack
 # https://github.com/wasm-bindgen/wasm-bindgen/issues/3451#issuecomment-1562982835
 opt-level = "s"
+
+# Release-like profile with debug info preserved for profilers (samply, etc.).
+# Used by perf-harness drivers; see claude-notes/instructions/performance-profiling.md.
+[profile.release-perf]
+inherits = "release"
+debug = true
+# samply / perf need unstripped symbols. Also keep inlining info for meaningful
+# stacks — release's default `codegen-units` still lets LLVM inline aggressively,
+# which is what we want to profile.
+strip = false
