@@ -207,24 +207,20 @@ looking at if F1 leaves this as a relevant fraction.
 
 Each phase re-uses the perf-harness driver and the samply workflow.
 
-### Phase 1 — Build baseline, then implement F1
+### Phase 1 — Scaffolding ✅ done
 
-- [ ] Re-verify the baseline reproduces: `samply record -s -n
-      --unstable-presymbolicate` on 1× through 8×, confirm the
-      `_platform_memmove` share matches the table above (±2%).
-- [ ] Choose an incremental strategy for the `Serialize` conversion.
-      Two realistic starting points:
-       - Top-down from `write_pandoc`: emit the outer document
-         structure as a single hand-written `Serialize` that calls
-         into inner writers.
-       - Bottom-up from `Inline`: convert the leaf types first, let
-         the outer still build a Value for the parts not yet
-         converted, and watch the profile shift as conversions move
-         up.
-      Prefer bottom-up — `Inline` dominates node count, so the biggest
-      wins come earliest.
-- [ ] Add a criterion-style bench (or keep using the driver) that
-      produces before/after numbers on the same fixtures.
+- [x] Baseline profiles captured at bd-wgup investigation time; Findings
+      section above stays authoritative.
+- [x] Strategy decided (see "Selected strategy" section above):
+      `JsonStreamWriter<W>` helper wrapping `CompactFormatter`; all
+      `write_*` functions will take `&mut JsonStreamWriter<W>` in one
+      cohesive cutover rather than an incremental dual-path rollout.
+- [x] Implemented `crates/pampa/src/writers/json_stream.rs` with a
+      per-level state machine (Array/Object, first-element + in_value
+      flags) and unit tests. **12/12 pass**, including byte-identical
+      escaping vs `serde_json::Value` for tricky strings.
+- [x] Using the perf-harness driver for before/after numbers — no
+      criterion bench needed beyond that.
 
 ### Phase 2 — Incremental conversion
 
@@ -304,14 +300,68 @@ for n in 1 2 4 8; do
 done
 ```
 
-## Open questions
+## Open questions — resolved (2026-04-22)
 
-1. Is the field-ordering contract (alphabetical) a hard requirement
-   of any downstream consumer? Or can we pick any stable order? Worth
-   checking the TypeScript side of hub-client before committing to an
-   ordering.
-2. Should `ASTContext.sourceInfoPool` emit as an array (current) or
-   move to a stream-friendlier format (e.g. newline-delimited) if we
-   streaming-write? Probably no — stays an array, but flag it.
-3. Is anyone depending on exact whitespace in the output JSON? Insta
-   snapshots will tell us the first time we run.
+User provided constraints:
+
+1. **Field ordering**: not a hard requirement, but **deterministic
+   output is**. Pick any order you like; just emit the same bytes on
+   every run. We'll preserve alphabetical ordering since that matches
+   the current `#[derive(Serialize)]` behavior and minimizes snapshot
+   churn.
+2. **JSON shape**: cannot change. `sourceInfoPool` stays an array.
+   Everything else structural stays the same.
+3. **Whitespace**: free to change. The constraint is **structural
+   equality of the parsed JSON value** (deep-equal under the
+   `SameValue` terminal rule + recursive compound equality — JS's
+   "deep equal"). Snapshots will churn on whitespace; we canonicalize
+   and accept, same technique as bd-h5l7.
+
+## Selected strategy (2026-04-22)
+
+Introduce a `JsonStreamWriter<W: io::Write>` helper wrapping
+`serde_json::ser::CompactFormatter` (serde_json's own byte-level
+formatter). This gets correct string escaping and number formatting
+for free without reimplementing JSON rules. The helper exposes
+ergonomic methods: `begin_object`, `key`, `string`, `u64`,
+`begin_array`, `end_array`, etc., each tracking comma state
+internally.
+
+Convert all `write_*` functions to take `&mut JsonStreamWriter<W>`
+instead of returning `Value`. Single cohesive cutover — the caller
+and callee are tied through the `Value` return type, so an
+incremental or dual-path rollout would be messier than a clean
+switch. Outer envelope (`PandocDocumentJson`) is already streamed via
+`serde_json::to_writer` on `#[derive(Serialize)]`; we hand-roll the
+equivalent emission so the whole writer is on the same abstraction.
+
+Why not keep using `derive(Serialize)` with adapter types? The
+adapter types would need mutable access to the `SourceInfoSerializer`
+during `serialize()` (to intern sourceinfo IDs), which requires
+either `RefCell` or a pre-computation pass. Both add complexity
+without removing the fundamental cost — the point is to avoid
+allocating the intermediate tree at all, not to hide it behind serde
+adapter types.
+
+Why not bypass serde entirely with a from-scratch JSON writer?
+Reimplements escaping and float formatting. `CompactFormatter` gives
+us exactly the primitives we need without that risk.
+
+## Snapshot handling
+
+Per constraint (3) above, output whitespace can change but structural
+equality must be preserved. The canonicalizer from bd-h5l7
+(`/tmp/check_snap_diffs2.py`) already does this for pool references.
+For this session we may also need to handle:
+
+- Key order within objects — if the new streaming writer happens to
+  emit keys in a slightly different order than the old
+  `serde_json::Value` output (e.g. because `IndexMap` ordering vs
+  our explicit ordering diverge in edge cases).
+- Whitespace — `CompactFormatter` emits no whitespace, which matches
+  the current output (`serde_json::to_writer` with the default
+  compact serializer).
+
+Plan to verify: extend the canonicalizer to sort object keys before
+comparing, then run it across all snapshots after each batch of
+conversions.
