@@ -423,6 +423,11 @@ Add new rules in `crates/xtask/src/lint/`. Each rule should:
 
 When diagnosing issues, do NOT jump to conclusions (e.g., 'race condition') before gathering evidence. Check the actual error path, inspect runtime values, and verify hypotheses with targeted tests before proposing fixes.
 
+## Performance profiling
+
+- **CRITICAL**: If you're investigating a performance hotspot (Chrome profile on hub-client, slow CLI run, suspicious Big-O), read `claude-notes/instructions/performance-profiling.md` before starting. It codifies the native-proxy-first workflow we use: build a representative fixture, scale it geometrically, add env-gated counters, confirm the complexity class empirically, *then* design a fix. Do not iterate on performance fixes in the browser.
+- `QUARTO_PERF_STATS=1` is the shared env var for all perf-collection output in the tree. Individual gauges identify themselves with an output prefix like `perf.<gauge-name>` (e.g. `perf.intern` from the JSON writer's `SourceInfoSerializer` in `crates/pampa/src/writers/json.rs`, left in place after bd-h5l7 as a reference for the instrumentation pattern).
+
 ## Claude Code hooks
 
 This repository has Claude Code hooks configured in `.claude/settings.json`.

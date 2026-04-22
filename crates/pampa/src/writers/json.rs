@@ -188,51 +188,42 @@ struct SerializableSourcePiece {
 /// the same parent chains (e.g., YAML metadata with siblings).
 struct SourceInfoSerializer<'a> {
     pool: Vec<SerializableSourceInfo>,
-    id_map: HashMap<*const SourceInfo, usize>,
-    // Store clones of SourceInfo for content-based deduplication.
-    // When a clone is created (e.g., in write_config_value for Path), the pointer lookup
-    // will fail, so we fall back to checking content equality against this list.
-    content_map: Vec<(SourceInfo, usize)>,
+    // Dedup cache for `Substring` parent edges, keyed by `Arc::as_ptr(parent)`.
+    // The Arc inside a Substring is owned by AST nodes for the full serialization
+    // lifetime, so its inner address is stable — unlike a raw `*const SourceInfo`
+    // borrowed from a by-value AST field, which is what the previous design cached
+    // and what caused the 2026-01-13 memory-reuse bug.
+    arc_parent_ids: HashMap<*const SourceInfo, usize>,
     context: &'a ASTContext,
     config: &'a JsonConfig,
+    // Diagnostic counters for the intern hotspot (bd-h5l7). Printed on Drop when
+    // QUARTO_PERF_STATS=1. Free when unused.
+    stat_intern_calls: usize,
+    stat_arc_parent_hits: usize,
 }
 
 impl<'a> SourceInfoSerializer<'a> {
     fn new(context: &'a ASTContext, config: &'a JsonConfig) -> Self {
         SourceInfoSerializer {
             pool: Vec::new(),
-            id_map: HashMap::new(),
-            content_map: Vec::new(),
+            arc_parent_ids: HashMap::new(),
             context,
             config,
+            stat_intern_calls: 0,
+            stat_arc_parent_hits: 0,
         }
     }
 
     /// Intern a SourceInfo into the pool, returning its ID.
     ///
-    /// If this SourceInfo (or an Rc-equivalent) has already been interned,
-    /// returns the existing ID. Otherwise, recursively interns parents and
-    /// adds this SourceInfo to the pool with a new ID.
+    /// Each call allocates a fresh pool entry. The one cache, `arc_parent_ids`,
+    /// dedups `Substring` parent Arcs at the recursion edge — the only place
+    /// pointer identity is genuinely stable across calls. Pool entries are not
+    /// deduplicated by content: two structurally-equal SourceInfo values
+    /// arriving through different call sites will get different pool IDs. See
+    /// `claude-notes/plans/2026-04-22-sourceinfo-eq-hotspot.md` for why.
     fn intern(&mut self, source_info: &SourceInfo) -> usize {
-        // For Rc-shared SourceInfo objects, we need to detect if they point to the same
-        // underlying data. We use the data pointer address for this.
-        let ptr = source_info as *const SourceInfo;
-
-        // Check if already interned by pointer
-        if let Some(&id) = self.id_map.get(&ptr) {
-            return id;
-        }
-
-        // Fallback: check for content equality against previously interned SourceInfos.
-        // This handles cases where SourceInfo is cloned (e.g., in write_config_value for Path).
-        // Clones have different addresses but identical content.
-        for (existing, id) in &self.content_map {
-            if existing == source_info {
-                // Cache this pointer for future lookups
-                self.id_map.insert(ptr, *id);
-                return *id;
-            }
-        }
+        self.stat_intern_calls += 1;
 
         // Extract offsets and recursively intern parents to build the serializable mapping
         let (start_offset, end_offset, mapping) = match source_info {
@@ -250,7 +241,18 @@ impl<'a> SourceInfoSerializer<'a> {
                 start_offset,
                 end_offset,
             } => {
-                let parent_id = self.intern(parent);
+                // Dedup the parent edge by Arc identity. `Arc::as_ptr` is stable
+                // for the lifetime of any reference holding the Arc; here the AST
+                // owns the Arc for the whole serialization.
+                let parent_arc_ptr = std::sync::Arc::as_ptr(parent);
+                let parent_id = if let Some(&id) = self.arc_parent_ids.get(&parent_arc_ptr) {
+                    self.stat_arc_parent_hits += 1;
+                    id
+                } else {
+                    let id = self.intern(parent);
+                    self.arc_parent_ids.insert(parent_arc_ptr, id);
+                    id
+                };
                 (
                     *start_offset,
                     *end_offset,
@@ -284,22 +286,13 @@ impl<'a> SourceInfoSerializer<'a> {
             ),
         };
 
-        // Calculate ID after recursion completes
         let id = self.pool.len();
-
-        // Add to pool
         self.pool.push(SerializableSourceInfo {
             id,
             start_offset,
             end_offset,
             mapping,
         });
-
-        // Record this pointer's ID for future lookups
-        self.id_map.insert(ptr, id);
-
-        // Also store a clone for content-based deduplication of future clones
-        self.content_map.push((source_info.clone(), id));
 
         id
     }
@@ -329,6 +322,19 @@ impl<'a> SourceInfoSerializer<'a> {
     }
 }
 
+impl<'a> Drop for SourceInfoSerializer<'a> {
+    fn drop(&mut self) {
+        if std::env::var_os("QUARTO_PERF_STATS").is_some_and(|v| v == "1") {
+            eprintln!(
+                "perf.intern intern_calls={} arc_parent_hits={} pool_size={}",
+                self.stat_intern_calls,
+                self.stat_arc_parent_hits,
+                self.pool.len(),
+            );
+        }
+    }
+}
+
 /// Context for JSON writer containing both source info serialization and error collection.
 ///
 /// This struct combines the SourceInfoSerializer (for building the source info pool)
@@ -337,13 +343,6 @@ impl<'a> SourceInfoSerializer<'a> {
 struct JsonWriterContext<'a> {
     serializer: SourceInfoSerializer<'a>,
     errors: Vec<DiagnosticMessage>,
-    /// Pre-serialized JSON for ConfigValue Path/Glob/Expr variants.
-    /// Keys are pointers to original ConfigValues in the AST; values are already-serialized JSON.
-    /// This prevents memory reuse bugs where temporary Inlines created during serialization
-    /// get dropped and their memory addresses get reused by subsequent allocations.
-    /// By pre-serializing during the precomputation phase, we ensure all SourceInfos from
-    /// these variants are interned first, and we store the resulting JSON for later retrieval.
-    precomputed_json: HashMap<*const ConfigValue, Value>,
 }
 
 impl<'a> JsonWriterContext<'a> {
@@ -351,7 +350,6 @@ impl<'a> JsonWriterContext<'a> {
         JsonWriterContext {
             serializer: SourceInfoSerializer::new(ast_context, config),
             errors: Vec::new(),
-            precomputed_json: HashMap::new(),
         }
     }
 }
@@ -439,217 +437,6 @@ fn build_expr_inlines(expr: &str, source_info: &SourceInfo) -> Inlines {
         source_info: SourceInfo::default(),
         attr_source: AttrSourceInfo::empty(),
     })]
-}
-
-/// Walk a ConfigValue and pre-serialize Inlines for Path/Glob/Expr variants.
-///
-/// This function is called at the start of serialization to build all Inlines
-/// upfront, serialize them to JSON (which interns their SourceInfos into the pool),
-/// and store the resulting JSON for later retrieval.
-///
-/// CRITICAL: The `inlines_keeper` parameter collects all temporary Inlines created
-/// during precomputation. These MUST be kept alive until precomputation completes
-/// to prevent memory reuse bugs. Without this, the allocator can reuse a freed
-/// clone's address for a subsequent clone, causing the SourceInfoSerializer's
-/// pointer cache to return incorrect IDs.
-///
-/// See: claude-notes/plans/2026-01-13-precomputation-memory-reuse-bug.md
-fn precompute_config_value_json(
-    config_value: &ConfigValue,
-    ctx: &mut JsonWriterContext,
-    inlines_keeper: &mut Vec<Inlines>,
-) {
-    match &config_value.value {
-        ConfigValueKind::Path(s) => {
-            let inlines = build_path_inlines(s, &config_value.source_info);
-            let json = write_inlines(&inlines, ctx);
-            ctx.precomputed_json
-                .insert(config_value as *const ConfigValue, json);
-            inlines_keeper.push(inlines); // Keep alive until precomputation completes
-        }
-        ConfigValueKind::Glob(s) => {
-            let inlines = build_glob_inlines(s, &config_value.source_info);
-            let json = write_inlines(&inlines, ctx);
-            ctx.precomputed_json
-                .insert(config_value as *const ConfigValue, json);
-            inlines_keeper.push(inlines); // Keep alive until precomputation completes
-        }
-        ConfigValueKind::Expr(s) => {
-            let inlines = build_expr_inlines(s, &config_value.source_info);
-            let json = write_inlines(&inlines, ctx);
-            ctx.precomputed_json
-                .insert(config_value as *const ConfigValue, json);
-            inlines_keeper.push(inlines); // Keep alive until precomputation completes
-        }
-        ConfigValueKind::Map(entries) => {
-            for entry in entries {
-                precompute_config_value_json(&entry.value, ctx, inlines_keeper);
-            }
-        }
-        ConfigValueKind::Array(items) => {
-            for item in items {
-                precompute_config_value_json(item, ctx, inlines_keeper);
-            }
-        }
-        // Other variants don't need pre-computation
-        _ => {}
-    }
-}
-
-/// Walk a Block and pre-serialize JSON for any ConfigValue Path/Glob/Expr variants.
-///
-/// See `precompute_config_value_json` for why `inlines_keeper` is required.
-fn precompute_block_json(
-    block: &Block,
-    ctx: &mut JsonWriterContext,
-    inlines_keeper: &mut Vec<Inlines>,
-) {
-    match block {
-        Block::BlockMetadata(meta) => {
-            precompute_config_value_json(&meta.meta, ctx, inlines_keeper);
-        }
-        // Recursively walk blocks that contain other blocks
-        Block::BlockQuote(bq) => {
-            for b in &bq.content {
-                precompute_block_json(b, ctx, inlines_keeper);
-            }
-        }
-        Block::OrderedList(ol) => {
-            for item in &ol.content {
-                for b in item {
-                    precompute_block_json(b, ctx, inlines_keeper);
-                }
-            }
-        }
-        Block::BulletList(bl) => {
-            for item in &bl.content {
-                for b in item {
-                    precompute_block_json(b, ctx, inlines_keeper);
-                }
-            }
-        }
-        Block::DefinitionList(dl) => {
-            for (_, blocks_list) in &dl.content {
-                for blocks in blocks_list {
-                    for b in blocks {
-                        precompute_block_json(b, ctx, inlines_keeper);
-                    }
-                }
-            }
-        }
-        Block::Div(div) => {
-            for b in &div.content {
-                precompute_block_json(b, ctx, inlines_keeper);
-            }
-        }
-        Block::Figure(fig) => {
-            for b in &fig.content {
-                precompute_block_json(b, ctx, inlines_keeper);
-            }
-        }
-        Block::Table(table) => {
-            // Walk table bodies (head and body rows of each TableBody)
-            for table_body in &table.bodies {
-                for row in &table_body.head {
-                    for cell in &row.cells {
-                        for b in &cell.content {
-                            precompute_block_json(b, ctx, inlines_keeper);
-                        }
-                    }
-                }
-                for row in &table_body.body {
-                    for cell in &row.cells {
-                        for b in &cell.content {
-                            precompute_block_json(b, ctx, inlines_keeper);
-                        }
-                    }
-                }
-            }
-            // Walk table head
-            for row in &table.head.rows {
-                for cell in &row.cells {
-                    for b in &cell.content {
-                        precompute_block_json(b, ctx, inlines_keeper);
-                    }
-                }
-            }
-            // Walk table foot
-            for row in &table.foot.rows {
-                for cell in &row.cells {
-                    for b in &cell.content {
-                        precompute_block_json(b, ctx, inlines_keeper);
-                    }
-                }
-            }
-        }
-        Block::Custom(custom) => {
-            // Walk custom node slots for blocks
-            for slot in custom.slots.values() {
-                match slot {
-                    crate::pandoc::Slot::Block(b) => {
-                        precompute_block_json(b, ctx, inlines_keeper);
-                    }
-                    crate::pandoc::Slot::Blocks(blocks) => {
-                        for b in blocks {
-                            precompute_block_json(b, ctx, inlines_keeper);
-                        }
-                    }
-                    // Inlines don't contain blocks
-                    crate::pandoc::Slot::Inline(_) | crate::pandoc::Slot::Inlines(_) => {}
-                }
-            }
-        }
-        Block::NoteDefinitionFencedBlock(note) => {
-            for b in &note.content {
-                precompute_block_json(b, ctx, inlines_keeper);
-            }
-        }
-        // Leaf blocks that don't contain other blocks
-        Block::Plain(_)
-        | Block::Paragraph(_)
-        | Block::LineBlock(_)
-        | Block::CodeBlock(_)
-        | Block::RawBlock(_)
-        | Block::Header(_)
-        | Block::HorizontalRule(_)
-        | Block::NoteDefinitionPara(_)
-        | Block::CaptionBlock(_) => {}
-    }
-}
-
-/// Pre-serialize all Path/Glob/Expr ConfigValues in the entire Pandoc structure.
-///
-/// This must be called at the start of serialization. It builds temporary Inlines
-/// for Path/Glob/Expr variants, serializes them to JSON (which interns their
-/// SourceInfos into the pool), and stores the resulting JSON for later retrieval.
-///
-/// CRITICAL: All temporary Inlines are kept alive in `inlines_keeper` until this
-/// function returns. This prevents a memory reuse bug where the allocator could
-/// reuse a freed clone's address for a subsequent clone. When that happens, the
-/// SourceInfoSerializer's pointer cache (`id_map`) returns a stale ID for the
-/// new clone, causing incorrect source info references in the output.
-///
-/// The bug manifests as non-deterministic `s` values in the JSON output because
-/// memory reuse depends on allocator state, which varies between runs.
-///
-/// See: claude-notes/plans/2026-01-13-precomputation-memory-reuse-bug.md
-fn precompute_all_json(pandoc: &Pandoc, ctx: &mut JsonWriterContext) {
-    // Keep all temporary Inlines alive until precomputation is complete.
-    // This prevents memory reuse where a dropped clone's address could be
-    // reused by a subsequent clone, causing stale pointer cache hits.
-    let mut inlines_keeper: Vec<Inlines> = Vec::new();
-
-    // Walk top-level metadata
-    precompute_config_value_json(&pandoc.meta, ctx, &mut inlines_keeper);
-
-    // Walk all blocks for BlockMetadata nodes
-    for block in &pandoc.blocks {
-        precompute_block_json(block, ctx, &mut inlines_keeper);
-    }
-
-    // inlines_keeper is dropped here, AFTER all precomputation is done.
-    // At this point, all SourceInfos have been interned and their IDs are
-    // safely stored in precomputed_json. Memory can now be safely reused.
 }
 
 /// Helper to build a node JSON object with type, optional content, and source info.
@@ -1710,17 +1497,21 @@ fn write_config_value(value: &ConfigValue, ctx: &mut JsonWriterContext) -> Value
         ConfigValueKind::PandocBlocks(blocks) => {
             meta_node("MetaBlocks", write_blocks(blocks, ctx), s)
         }
-        // Path/Glob/Expr: retrieve pre-serialized JSON from the precomputation phase.
-        // The Inlines for these variants were built and serialized during precompute_all_json(),
-        // which ensures their SourceInfos are interned before any memory reuse can occur.
-        ConfigValueKind::Path(_) | ConfigValueKind::Glob(_) | ConfigValueKind::Expr(_) => {
-            let ptr = value as *const ConfigValue;
-            let precomputed_content = ctx
-                .precomputed_json
-                .get(&ptr)
-                .expect("Path/Glob/Expr ConfigValue should have precomputed JSON")
-                .clone();
-            meta_node("MetaInlines", precomputed_content, s)
+        // Path/Glob/Expr: synthesize Inlines on the fly and serialize them normally.
+        // The cloned SourceInfo inside the synthesized Str/Span will be interned as
+        // a fresh pool entry, which is fine — the `SourceInfoSerializer` no longer
+        // requires address-stable clones (see bd-h5l7).
+        ConfigValueKind::Path(p) => {
+            let inlines = build_path_inlines(p, &value.source_info);
+            meta_node("MetaInlines", write_inlines(&inlines, ctx), s)
+        }
+        ConfigValueKind::Glob(g) => {
+            let inlines = build_glob_inlines(g, &value.source_info);
+            meta_node("MetaInlines", write_inlines(&inlines, ctx), s)
+        }
+        ConfigValueKind::Expr(e) => {
+            let inlines = build_expr_inlines(e, &value.source_info);
+            meta_node("MetaInlines", write_inlines(&inlines, ctx), s)
         }
         ConfigValueKind::Array(items) => {
             let c: Vec<Value> = items
@@ -1793,16 +1584,6 @@ pub(crate) fn write_pandoc(
     // Create the JSON writer context
     let mut ctx = JsonWriterContext::new(ast_context, config);
 
-    // Pre-serialize all Path/Glob/Expr ConfigValue variants.
-    // This builds temporary Inlines, serializes them to JSON (interning their
-    // SourceInfos into the pool), and stores the resulting JSON for later retrieval.
-    // This prevents memory reuse bugs where temporary Inlines created during
-    // the main serialization pass could have their memory addresses reused by
-    // subsequent allocations, causing the SourceInfoSerializer's pointer cache
-    // to return incorrect IDs.
-    precompute_all_json(pandoc, &mut ctx);
-
-    // Phase 5: Write ConfigValue directly without MetaValueWithSourceInfo conversion
     // Serialize AST, which will build the pool
     let meta_json = write_config_value_as_meta(&pandoc.meta, &mut ctx);
     let blocks_json = write_blocks(&pandoc.blocks, &mut ctx);
@@ -1935,7 +1716,14 @@ mod tests {
 
     #[test]
     fn test_source_info_pool_original() {
-        // Test that a single Original SourceInfo is added to the pool correctly
+        // Test that a single Original SourceInfo is added to the pool correctly.
+        //
+        // Post-bd-h5l7: each intern call allocates a fresh pool entry. Only
+        // `Substring` parent Arcs get deduped (see `test_source_info_pool_deduplication`).
+        // Two by-value interns of the same SourceInfo now produce two separate
+        // pool IDs — pool-ID equality no longer implies structural equality. Consumers
+        // that need "same source range?" should resolve both IDs through the pool and
+        // compare the resulting SourceInfo values structurally.
         let context = make_test_context();
         let config = make_test_config();
         let mut serializer = SourceInfoSerializer::new(&context, &config);
@@ -1963,10 +1751,24 @@ mod tests {
             _ => panic!("Expected Original mapping"),
         }
 
-        // Interning the same SourceInfo again should return the same ID
+        // Interning the same SourceInfo again produces a fresh pool entry.
         let id2 = serializer.intern(&source_info);
-        assert_eq!(id2, 0);
-        assert_eq!(serializer.pool.len(), 1); // No new entry added
+        assert_eq!(id2, 1);
+        assert_eq!(serializer.pool.len(), 2);
+
+        // Both entries resolve to structurally-equal pool values.
+        assert_eq!(
+            serializer.pool[0].start_offset,
+            serializer.pool[1].start_offset
+        );
+        assert_eq!(serializer.pool[0].end_offset, serializer.pool[1].end_offset);
+        match (&serializer.pool[0].mapping, &serializer.pool[1].mapping) {
+            (
+                SerializableSourceMapping::Original { file_id: a },
+                SerializableSourceMapping::Original { file_id: b },
+            ) => assert_eq!(a, b),
+            _ => panic!("Expected both to be Original"),
+        }
     }
 
     #[test]
