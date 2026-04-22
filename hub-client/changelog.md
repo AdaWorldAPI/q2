@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-22
+
+- [`b0c84210`](https://github.com/quarto-dev/q2/commits/b0c84210): Remote cursor/selection tracking switched from custom OT offset transforms to Automerge cursors anchored on `['text']` — presence stays correct under concurrent edits without the transformOffset / same-line-guard machinery
+
 ### 2026-04-21
 
 - [`b0366d07`](https://github.com/quarto-dev/q2/commits/b0366d07): Phase 4.5 UI wiring (bd-n7x2) — Preview's render loop now actually passes the project file list + content resolvers into `renderToHtml`\'s user-grammars option, so auto-discovery fires on every render from the real UI (the previous commit wired the service layer; this connects it to the component tree)
