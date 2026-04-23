@@ -1,6 +1,6 @@
 # Eliminate `serde_json::Value` intermediate in pampa JSON writer
 
-Status: **investigation complete, fix plan drafted**
+Status: **landed on `perf/2026-04-22-json-sourcemap` (commits 4e7a43ec, b3e15a47); browser-verified 2026-04-22**
 
 Beads: bd-wgup. Previous session on the same file established the
 `SourceInfoSerializer` hotspot (bd-h5l7,
@@ -289,38 +289,70 @@ amortized doubling copies ~20 MB total to produce 10 MB of output.
 Tree-sitter parse as a % rose because the denominator shrank; absolute
 parse time is unchanged. Parse is still not the bottleneck.
 
-### Phase 3 — Snapshot canonicalization check
+### Phase 3 — Snapshot canonicalization check ✅ done
 
-The snapshot test infrastructure compares exact JSON byte strings. If
-we change field ordering or add/remove whitespace, all snapshots will
-churn. Use the same approach as bd-h5l7:
+- [x] Used the bd-h5l7 canonicalizer (`/tmp/check_snap_diffs2.py`)
+      unchanged. For each `.snap.new` it parses the old and new JSON,
+      walks every id-carrying field (`s`, `key_source`, `citationIdS`,
+      `attrS.{classes,id,kvs}`, `targetS`, `captionS`), resolves each
+      id through its own pool recursively, and compares the resulting
+      pool-free structures for equality. Python dict equality is
+      order-insensitive, so alphabetical-vs-legacy key order also
+      folds away for free.
+- [x] All 62 `.snap.new` files canonicalized identically to their
+      `.snap` counterparts — zero structural changes.
+- [x] Alphabetical key ordering documented inline in the streaming
+      impl ("Alphabetical key order" in each helper's docstring) as
+      the determinism contract. User constraint: not required to
+      match legacy key order, but determinism required.
 
-- [ ] Write a Python canonicalizer that parses JSON + resolves pool
-      references, and use it to verify structural equivalence before
-      accepting snapshot diffs. The one at
-      `/tmp/check_snap_diffs2.py` from the previous session is a
-      starting template.
-- [ ] Field ordering should stay identical (alphabetical) throughout
-      the migration to minimize churn. If necessary, make field
-      ordering a verified contract with a doc comment.
+### Phase 4 — Re-profile ✅ done
 
-### Phase 4 — Re-profile
+- [x] Ran `samply record -s -n --unstable-presymbolicate` on the 8×
+      fixture post-Phase-2 and analyzed with
+      `crates/perf-harness/scripts/analyze_profile.py`. Full
+      before/after table recorded under Phase 2's Findings section
+      above — `indexmap::insert_full` gone, allocator churn collapsed
+      from ~13% → ~3%, `_platform_memmove` share rose to 69% because
+      its absolute cost dropped less than the total (the output
+      `Vec<u8>` doubling now dominates). Total wall time on 8×
+      dropped 1.37s → 0.83s (1.65×).
 
-- [ ] After each phase, re-run `samply record` on 1× / 4× / 8× and
-      record the new top symbols. Expected: `_platform_memmove`
-      fraction drops substantially, `indexmap::insert_full` should
-      disappear entirely, allocator churn drops, and total wall time
-      should shrink noticeably.
-- [ ] Record the before/after table in this plan as Findings for
-      future reference.
+### Phase 5 — Full verification ✅ done
 
-### Phase 5 — Full verification
+- [x] `cargo nextest run --workspace` — 7636/7636 pass.
+- [x] `cargo xtask verify` — all verification steps passed (Rust
+      build + hub-client WASM build + vitest + trace-viewer tests).
+- [x] Hub-client browser cross-validation (2026-04-22): user Carlos
+      loaded the canonical `test.qmd`, confirmed functionality is
+      intact, and reported "performance feels markedly snappier."
+      Matches the 1.65× native speedup at the same document size.
 
-- [ ] `cargo nextest run --workspace` clean.
-- [ ] `cargo xtask verify` clean (hub-client WASM + vitest).
-- [ ] Hub-client browser cross-validation: repeat Carlos's Chrome
-      profile on the canonical `test.qmd` and confirm serde_json
-      symbols are no longer near the top.
+## Follow-ups (out of scope for bd-wgup)
+
+With the Value tree gone, the post-Phase-2 profile is dominated by
+`_platform_memmove` (69% on 8×). Root cause is no longer interning or
+serialization — it's the output `Vec<u8>` growing via capacity
+doublings to hold ~10 MB of JSON, which copies ~20 MB in aggregate.
+Candidate directions for a future session (each worth its own beads
+issue):
+
+- **Pre-size the output buffer.** Estimate JSON size from AST node
+  count (or a pre-walk) and `Vec::with_capacity`. Quick win if the
+  caller (wasm-quarto-hub-client) can be involved — otherwise a
+  heuristic inside `write_with_config`.
+- **Avoid the `String::from_utf8` re-validation** in
+  `crates/wasm-quarto-hub-client/src/lib.rs:826`. The streaming
+  writer is already producing valid UTF-8 (serde_json's escaping
+  rules guarantee it); a `String::from_utf8_unchecked` there would
+  skip another full-buffer pass, at the cost of a clearly-documented
+  invariant.
+- **Write the JSON directly into JS-owned memory** via WASM memory
+  views instead of going through an intermediate `Vec<u8>` + JS
+  string. Biggest potential win but a bigger architectural change.
+- **Second-tier symbols worth revisiting once memmove is addressed:**
+  `__vfprintf` (~5%) likely from serde_json number formatting — could
+  swap to `ryu`/`itoa` directly in the CompactFormatter wrapper.
 
 ## Reproducing this investigation
 
