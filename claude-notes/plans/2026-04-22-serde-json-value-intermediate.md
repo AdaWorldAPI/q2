@@ -222,14 +222,72 @@ Each phase re-uses the perf-harness driver and the samply workflow.
 - [x] Using the perf-harness driver for before/after numbers — no
       criterion bench needed beyond that.
 
-### Phase 2 — Incremental conversion
+### Phase 2 — Convert writer to streaming ✅ done
 
-- [ ] Convert `Inline` variants to direct `Serialize` impls. Verify
-      snapshot equivalence after each batch of related variants (see
-      below).
-- [ ] Convert `Block` variants.
-- [ ] Convert `ConfigValue` / `Meta` variants.
-- [ ] Convert the outer `Pandoc` + `ASTContext` envelope.
+Strategy deviated from the plan slightly: the original incremental
+"convert one variant at a time" approach was infeasible because
+`write_inline` / `write_block` / helpers are coupled through the
+`Value` return type — a single function changing its signature
+forces all callers. Instead did a **cohesive cutover** of the entire
+streaming implementation in one commit, alongside the legacy
+Value-returning code (which stays for HTML writer callers that need
+the Value for source-map building).
+
+- [x] All `Inline` variants (22 of them including Custom) emit via
+      streaming helpers.
+- [x] All `Block` variants (18 of them including Custom) emit via
+      streaming helpers.
+- [x] `ConfigValue` / `Meta` variants.
+- [x] Outer `Pandoc` + `ASTContext` envelope (emits `{blocks, meta,
+      pandoc-api-version, astContext}` in that order — `astContext`
+      last because `sourceInfoPool` is complete only after the walk
+      finishes).
+- [x] Snapshot churn: **62 snapshots updated**, all
+      pool-resolution-equivalent per
+      `crates/perf-harness/scripts/analyze_profile.py` workflow (i.e.
+      canonicalized JSON structure unchanged — just key-order
+      alphabetical now, and pool-ID shifts). Accepted via
+      `cargo insta accept`.
+- [x] Full pampa suite: **3734/3734 pass**.
+- [x] JSON output byte counts identical to pre-Phase-2 on all 4
+      fixture sizes.
+
+**Perf result** (before / after, on the `parse-qmd-to-ast` perf harness,
+user CPU):
+
+| Size | Before  | After  | Speedup | JSON bytes  |
+|------|--------:|-------:|--------:|------------:|
+| 1×   | 0.11 s  | 0.05 s | 2.2×    | 1,170,632   |
+| 2×   | 0.23 s  | 0.10 s | 2.3×    | 2,382,298   |
+| 4×   | 0.54 s  | 0.27 s | 2.0×    | 4,831,709   |
+| 8×   | 1.37 s  | 0.83 s | 1.65×   | 9,826,609   |
+
+~2× speedup on small fixtures, tapering toward 1.6× at 8× — the
+remaining cost becomes dominated by the output buffer's amortized
+memcpy as it grows past cache (see next section).
+
+**Profile shift (8×):**
+
+| Symbol (self-time) | Before | After  |
+|---|---:|---:|
+| `_platform_memmove` | 41.1% | **68.9%** |
+| `indexmap::Core::insert_full` | 5.3% | 0% (gone) |
+| `_nanov2_free` | 4.5% | 0.5% |
+| `nanov2_malloc_type` | 2.7% | gone |
+| `__vfprintf` | 2.3% | 4.7% |
+| `JsonStreamWriter::key` | — | 0.65% |
+| `write_escaped_str` | — | 0.74% |
+| tree-sitter parse | 1.7% | ~5% |
+| allocator family (total) | ~13% | ~3% |
+
+IndexMap and allocator churn are gone entirely. The **absolute**
+memmove time dropped (40% less total wall time, even though memmove's
+*share* rose to 68% of what's left), but now serialization is bottlenecked
+on "move 10 MB of bytes into the output `Vec<u8>`" — the buffer's
+amortized doubling copies ~20 MB total to produce 10 MB of output.
+
+Tree-sitter parse as a % rose because the denominator shrank; absolute
+parse time is unchanged. Parse is still not the bottleneck.
 
 ### Phase 3 — Snapshot canonicalization check
 
