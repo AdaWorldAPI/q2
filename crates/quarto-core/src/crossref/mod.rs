@@ -47,7 +47,10 @@ mod roundtrip_tests;
 pub use index::{CrossrefEntry, CrossrefIndex, HeadingRecord, Order, PromisedId, PromisedIdSource};
 pub use metadata::{CrossrefMetadata, MetadataError};
 pub use registry::{RefTypeDef, RefTypeRegistry, RefTypeSource};
-pub use target::{CrossrefTargetView, crossref_target_view, identifier_of, ref_type_of};
+pub use target::{
+    CrossrefTargetView, crossref_target_view, crossref_target_view_inline, identifier_of,
+    ref_type_of,
+};
 
 /// The `type_name` used on `CustomNode` for float-ref targets.
 ///

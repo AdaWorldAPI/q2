@@ -106,6 +106,7 @@ pub use trace::{JsonTraceObserver, SummaryTraceObserver};
 pub use traits::PipelineStage;
 
 // Re-export concrete stages for convenience
+pub use stages::CodeHighlightStage;
 pub use stages::{
     ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, EngineExecutionStage,
     MetadataMergeStage, ParseDocumentStage, PreEngineSugaringStage, RenderHtmlBodyStage,

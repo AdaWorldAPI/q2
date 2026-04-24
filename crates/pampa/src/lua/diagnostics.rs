@@ -216,7 +216,7 @@ fn extract_source_info_from_element(lua: &Lua, elem: &Value) -> Result<Option<Ta
     if let Value::UserData(ud) = elem {
         // Try to extract source info from Inline element
         if let Ok(lua_inline) = ud.borrow::<LuaInline>() {
-            if let Some(si) = get_inline_source_info(&lua_inline.0) {
+            if let Some(si) = get_inline_source_info(&lua_inline.borrow_inline()) {
                 return Ok(Some(source_info_to_lua_table(lua, &si)?));
             }
             // Element type without source_info (Shortcode, Attr) - return None
@@ -224,7 +224,7 @@ fn extract_source_info_from_element(lua: &Lua, elem: &Value) -> Result<Option<Ta
         }
         // Try to extract source info from Block element
         if let Ok(lua_block) = ud.borrow::<LuaBlock>() {
-            let si = get_block_source_info(&lua_block.0);
+            let si = get_block_source_info(&lua_block.borrow_block());
             return Ok(Some(source_info_to_lua_table(lua, &si)?));
         }
     }
@@ -543,7 +543,7 @@ mod tests {
         });
 
         // Register the element as Lua userdata
-        let lua_inline = LuaInline(str_inline);
+        let lua_inline = LuaInline::new(str_inline);
         lua.globals()
             .set("test_elem", lua.create_userdata(lua_inline).unwrap())
             .unwrap();
@@ -607,7 +607,7 @@ mod tests {
             source_info: substring_source_info,
         });
 
-        let lua_inline = LuaInline(str_inline);
+        let lua_inline = LuaInline::new(str_inline);
         lua.globals()
             .set("test_elem", lua.create_userdata(lua_inline).unwrap())
             .unwrap();
@@ -674,7 +674,7 @@ mod tests {
             source_info: concat_source_info,
         });
 
-        let lua_inline = LuaInline(str_inline);
+        let lua_inline = LuaInline::new(str_inline);
         lua.globals()
             .set("test_elem", lua.create_userdata(lua_inline).unwrap())
             .unwrap();
@@ -734,7 +734,7 @@ mod tests {
             source_info: original_source_info,
         });
 
-        let lua_block = LuaBlock(para_block);
+        let lua_block = LuaBlock::new(para_block);
         lua.globals()
             .set("test_block", lua.create_userdata(lua_block).unwrap())
             .unwrap();
@@ -1794,7 +1794,7 @@ mod tests {
             keyword_args: HashMap::new(),
             source_info: quarto_source_map::SourceInfo::default(),
         });
-        let lua_inline = LuaInline(shortcode);
+        let lua_inline = LuaInline::new(shortcode);
         lua.globals()
             .set("test_shortcode", lua.create_userdata(lua_inline).unwrap())
             .unwrap();
@@ -1837,7 +1837,7 @@ mod tests {
             content: vec![],
             source_info: source_info.clone(),
         });
-        let lua_inline = LuaInline(emph);
+        let lua_inline = LuaInline::new(emph);
         lua.globals()
             .set("test_emph", lua.create_userdata(lua_inline).unwrap())
             .unwrap();
@@ -1885,7 +1885,7 @@ mod tests {
             source_info: source_info.clone(),
             attr_source: AttrSourceInfo::empty(),
         });
-        let lua_block = LuaBlock(codeblock);
+        let lua_block = LuaBlock::new(codeblock);
         lua.globals()
             .set("test_codeblock", lua.create_userdata(lua_block).unwrap())
             .unwrap();

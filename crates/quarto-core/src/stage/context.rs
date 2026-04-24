@@ -100,6 +100,19 @@ pub struct StageContext {
 
     /// Cancellation token for graceful shutdown (Ctrl+C)
     pub cancellation: Cancellation,
+
+    /// Optional provider of user-defined tree-sitter grammars, consulted
+    /// by `CodeHighlightStage` before falling back to the built-in
+    /// registry. Set by the top-level render entry points:
+    ///
+    /// - **Native CLI**: typically left `None` here; the stage builds a
+    ///   native `UserGrammars` on-demand from `<project.dir>/_quarto/grammars/`.
+    ///   (An advanced native caller could set this directly to override
+    ///   the disk-scan behavior; no caller does so today.)
+    /// - **Browser (hub-client)**: set to a `JsUserGrammars` handle that
+    ///   forwards highlight requests to JS callbacks backed by
+    ///   `web-tree-sitter`. See `crates/wasm-quarto-hub-client/src/lib.rs`.
+    pub user_grammar_provider: Option<Box<dyn quarto_highlight::UserGrammarProvider>>,
 }
 
 impl StageContext {
@@ -147,6 +160,7 @@ impl StageContext {
             crossref_index: None,
             observer: Arc::new(NoopObserver),
             cancellation: Cancellation::new(),
+            user_grammar_provider: None,
         })
     }
 

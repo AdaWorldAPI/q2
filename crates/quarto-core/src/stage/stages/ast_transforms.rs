@@ -160,7 +160,9 @@ impl PipelineStage for AstTransformsStage {
         render_ctx.observer = ctx.observer.clone();
 
         // Execute the transform pipeline
-        let result = pipeline.execute(&mut doc.ast, &mut render_ctx).await;
+        let result = pipeline
+            .execute(&mut doc.ast, &doc.ast_context, &mut render_ctx)
+            .await;
 
         // Transfer mutable state back to StageContext
         ctx.artifacts = render_ctx.artifacts;

@@ -237,12 +237,25 @@ impl PipelineStage for EngineExecutionStage {
             .include_after
             .extend(result.includes.include_after);
 
-        // Step 7: Parse the executed markdown back to AST
-        let source_name = doc_ast.path.display().to_string();
-        let (executed_ast, new_ast_context, parse_warnings) = pampa::readers::qmd::read(
+        // Step 7: Parse the executed markdown back to AST.
+        //
+        // The engine runs against an intermediate `<stem>.rmarkdown` file
+        // (knitr's convention — see `knitr::postprocess_markdown`). We parse
+        // with that name so `SourceInfo` attribution on new (engine-produced)
+        // blocks points at the intermediate file rather than the original.
+        // Blocks kept from the original AST keep their original attribution
+        // after the FileId merge below.
+        //
+        // Note: `result.markdown` is the engine's *output* buffer, so the
+        // SourceInfo byte offsets technically index into that buffer rather
+        // than the on-disk `.rmarkdown`. For the current use (filename
+        // attribution in the trace), this is adequate; a future refinement
+        // could expose the on-disk intermediate via the engine interface.
+        let intermediate_name = intermediate_filename(&doc_ast.path);
+        let (mut executed_ast, executed_ast_context, parse_warnings) = pampa::readers::qmd::read(
             result.markdown.as_bytes(),
-            false,        // loose mode
-            &source_name, // filename for error messages
+            false,              // loose mode
+            &intermediate_name, // filename for error messages
             &mut std::io::sink(),
             true, // track source locations
             None, // file_id
@@ -250,6 +263,52 @@ impl PipelineStage for EngineExecutionStage {
         .map_err(|diagnostics| {
             PipelineError::stage_error_with_diagnostics(self.name(), diagnostics)
         })?;
+
+        // Step 7a: Build the merged ASTContext that covers BOTH files.
+        //
+        // Slot 0 = original `.qmd` (FileId(0) in original AST). Slot 1 =
+        // intermediate `.rmarkdown` (FileId(0) in executed AST — remapped
+        // to FileId(1) below). This keeps the reconcile contract intact:
+        // FileId in the reconciled AST identifies provenance.
+        let mut merged_ast_context = doc_ast.ast_context.clone();
+        // `executed_ast_context` has the intermediate file as FileId(0) with
+        // the right FileInformation (line breaks, total length) — carry that
+        // into the merged context at slot 1.
+        if let Some(intermediate_file) = executed_ast_context
+            .source_context
+            .get_file(quarto_source_map::FileId(0))
+            .cloned()
+        {
+            if let Some(info) = intermediate_file.file_info {
+                merged_ast_context
+                    .source_context
+                    .add_file_with_info(intermediate_name.clone(), info);
+            } else {
+                merged_ast_context
+                    .source_context
+                    .add_file(intermediate_name.clone(), None);
+            }
+        } else {
+            merged_ast_context
+                .source_context
+                .add_file(intermediate_name.clone(), None);
+        }
+        merged_ast_context.filenames.push(intermediate_name);
+        // Example-list counter is cell-ordering state tied to the executed
+        // AST. Preserve the executed parse's final value so subsequent
+        // example-list numbering stays coherent.
+        merged_ast_context
+            .example_list_counter
+            .set(executed_ast_context.example_list_counter.get());
+
+        // Step 7b: Pre-remap the executed AST so its `FileId(0)` references
+        // become `FileId(1)` (the intermediate file's slot in the merged
+        // context). After this, kept original blocks still reference
+        // `FileId(0)` (the `.qmd`) and new executed blocks reference
+        // `FileId(1)` (the intermediate).
+        quarto_ast_reconcile::remap_file_ids(&mut executed_ast, &|id| {
+            quarto_source_map::FileId(id.0 + 1)
+        });
 
         // Step 8: Reconcile source locations
         // For content that hasn't changed, preserve original source locations.
@@ -275,11 +334,21 @@ impl PipelineStage for EngineExecutionStage {
         Ok(PipelineData::DocumentAst(DocumentAst {
             path: doc_ast.path,
             ast: reconciled_ast,
-            ast_context: new_ast_context,
+            ast_context: merged_ast_context,
             source_context: doc_ast.source_context,
             warnings,
         }))
     }
+}
+
+/// Derive the intermediate filename engines see from the source path.
+///
+/// Mirrors knitr's convention: `foo.qmd` → `foo.rmarkdown`. Used only as a
+/// filename label for source attribution; no file needs to exist on disk.
+fn intermediate_filename(source_path: &std::path::Path) -> String {
+    let mut with_ext = source_path.to_path_buf();
+    with_ext.set_extension("rmarkdown");
+    with_ext.display().to_string()
 }
 
 /// Serialize a Pandoc AST to QMD text.
@@ -641,6 +710,192 @@ mod tests {
         fn is_available(&self) -> bool {
             true
         }
+    }
+
+    /// Mock engine that appends a fresh paragraph to the input — lets us
+    /// verify that blocks added by the engine get the intermediate FileId
+    /// while original blocks keep their `.qmd` FileId.
+    struct MockAppendingEngine;
+
+    impl crate::engine::ExecutionEngine for MockAppendingEngine {
+        fn name(&self) -> &str {
+            "mock-appending"
+        }
+
+        fn execute(
+            &self,
+            input: &str,
+            _ctx: &crate::engine::ExecutionContext,
+        ) -> std::result::Result<crate::engine::ExecuteResult, crate::engine::ExecutionError>
+        {
+            let appended = format!("{}\n\nEngine appended this line.\n", input);
+            Ok(crate::engine::ExecuteResult {
+                markdown: appended,
+                ..Default::default()
+            })
+        }
+
+        fn is_available(&self) -> bool {
+            true
+        }
+    }
+
+    /// Walk every `SourceInfo::Original` reachable from the AST's blocks
+    /// and collect the FileIds used. Test helper.
+    fn collect_file_ids(
+        pandoc: &quarto_pandoc_types::pandoc::Pandoc,
+    ) -> std::collections::HashSet<quarto_source_map::FileId> {
+        use quarto_pandoc_types::{Block, Inline};
+        use quarto_source_map::{FileId, SourceInfo};
+
+        fn walk_source_info(si: &SourceInfo, out: &mut std::collections::HashSet<FileId>) {
+            match si {
+                SourceInfo::Original { file_id, .. } => {
+                    out.insert(*file_id);
+                }
+                SourceInfo::Substring { parent, .. } => walk_source_info(parent, out),
+                SourceInfo::Concat { pieces } => {
+                    for p in pieces {
+                        walk_source_info(&p.source_info, out);
+                    }
+                }
+                SourceInfo::FilterProvenance { .. } => {}
+            }
+        }
+        fn walk_inline(i: &Inline, out: &mut std::collections::HashSet<FileId>) {
+            match i {
+                Inline::Str(x) => walk_source_info(&x.source_info, out),
+                Inline::Emph(x) => {
+                    for c in &x.content {
+                        walk_inline(c, out);
+                    }
+                    walk_source_info(&x.source_info, out);
+                }
+                Inline::Strong(x) => {
+                    for c in &x.content {
+                        walk_inline(c, out);
+                    }
+                    walk_source_info(&x.source_info, out);
+                }
+                Inline::Space(x) => walk_source_info(&x.source_info, out),
+                Inline::SoftBreak(x) => walk_source_info(&x.source_info, out),
+                _ => {
+                    // Other variants not needed for this test. Add as needed.
+                }
+            }
+        }
+        fn walk_block(b: &Block, out: &mut std::collections::HashSet<FileId>) {
+            match b {
+                Block::Paragraph(p) => {
+                    for i in &p.content {
+                        walk_inline(i, out);
+                    }
+                    walk_source_info(&p.source_info, out);
+                }
+                Block::Header(h) => {
+                    for i in &h.content {
+                        walk_inline(i, out);
+                    }
+                    walk_source_info(&h.source_info, out);
+                }
+                Block::Div(d) => {
+                    for b in &d.content {
+                        walk_block(b, out);
+                    }
+                    walk_source_info(&d.source_info, out);
+                }
+                _ => {
+                    // Other block types not needed for this test.
+                }
+            }
+        }
+
+        let mut ids = std::collections::HashSet::new();
+        for b in &pandoc.blocks {
+            walk_block(b, &mut ids);
+        }
+        ids
+    }
+
+    /// After engine execution appends new content, kept blocks must keep
+    /// the original `.qmd` FileId while appended blocks get the
+    /// intermediate `.rmarkdown` FileId. Regression test for bd-b0f2
+    /// Phase 2.
+    #[tokio::test]
+    async fn test_engine_execution_remaps_new_blocks_to_intermediate() {
+        let mut registry = EngineRegistry::new();
+        registry.register(Arc::new(MockAppendingEngine));
+
+        let stage = EngineExecutionStage::with_registry(registry);
+        let mut ctx = make_test_context();
+
+        let content = b"---\nengine: mock-appending\n---\n\n# Hello\n\nOriginal paragraph.";
+        let doc_ast = parse_qmd_to_ast(content, "/project/test.qmd");
+
+        let input = PipelineData::DocumentAst(doc_ast);
+        let output = stage.run(input, &mut ctx).await.unwrap();
+        let result = output.into_document_ast().expect("Should be DocumentAst");
+
+        // Filenames are the two-slot merged context.
+        assert_eq!(
+            result.ast_context.filenames,
+            vec![
+                "/project/test.qmd".to_string(),
+                "/project/test.rmarkdown".to_string(),
+            ]
+        );
+
+        // Both FileId(0) (.qmd, kept blocks) and FileId(1) (.rmarkdown,
+        // appended block) should appear in the reconciled AST.
+        let ids = collect_file_ids(&result.ast);
+        assert!(
+            ids.contains(&quarto_source_map::FileId(0)),
+            "expected FileId(0) for kept blocks, got {:?}",
+            ids
+        );
+        assert!(
+            ids.contains(&quarto_source_map::FileId(1)),
+            "expected FileId(1) for appended block, got {:?}",
+            ids
+        );
+        // No stray FileIds.
+        for id in &ids {
+            assert!(
+                id.0 < 2,
+                "unexpected FileId {:?} in reconciled AST (merged context has 2 slots)",
+                id
+            );
+        }
+    }
+
+    /// After engine execution, the merged `ASTContext` must carry BOTH the
+    /// original `.qmd` filename and the intermediate `<stem>.rmarkdown`
+    /// filename the engine saw. Regression test for bd-b0f2 Phase 2.
+    #[tokio::test]
+    async fn test_engine_execution_merges_original_and_intermediate_filenames() {
+        let mut registry = EngineRegistry::new();
+        registry.register(Arc::new(MockIncludesEngine));
+
+        let stage = EngineExecutionStage::with_registry(registry);
+        let mut ctx = make_test_context();
+
+        // Force engine: mock-includes via metadata
+        let content = b"---\ntitle: Test\nengine: mock-includes\n---\n\n# Hello\n\nWorld";
+        let doc_ast = parse_qmd_to_ast(content, "/project/test.qmd");
+
+        let input = PipelineData::DocumentAst(doc_ast);
+        let output = stage.run(input, &mut ctx).await.unwrap();
+        let result = output.into_document_ast().expect("Should be DocumentAst");
+
+        let filenames = &result.ast_context.filenames;
+        assert_eq!(
+            filenames.len(),
+            2,
+            "expected exactly two filenames (original + intermediate), got: {:?}",
+            filenames
+        );
+        assert_eq!(filenames[0], "/project/test.qmd");
+        assert_eq!(filenames[1], "/project/test.rmarkdown");
     }
 
     #[tokio::test]

@@ -127,6 +127,16 @@ pub struct RenderContext<'a> {
     /// Bridged from `StageContext` by `AstTransformsStage` so that
     /// inner transforms can emit data trace events.
     pub observer: Arc<dyn PipelineObserver>,
+
+    /// Optional provider of user-defined tree-sitter grammars. Transferred
+    /// to `StageContext` by `run_pipeline` before the pipeline starts.
+    ///
+    /// Callers: the native CLI typically leaves this `None` and lets
+    /// `CodeHighlightStage` load grammars from `_quarto/grammars/`. The
+    /// browser hub-client sets this to a `JsUserGrammars` (Phase 4.3 of
+    /// the syntax-highlighting plan) so JS-backed user grammars flow
+    /// through the same `CodeHighlightStage` code path.
+    pub user_grammar_provider: Option<Box<dyn quarto_highlight::UserGrammarProvider>>,
 }
 
 /// Options for rendering
@@ -165,6 +175,7 @@ impl<'a> RenderContext<'a> {
             ref_type_registry: None,
             crossref_index: None,
             observer: Arc::new(NoopObserver),
+            user_grammar_provider: None,
         }
     }
 
