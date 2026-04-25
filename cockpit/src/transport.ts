@@ -119,3 +119,68 @@ export async function exportNotebook(format: 'html' | 'pdf'): Promise<string> {
   const result = await callTool('notebook_export', { format });
   return result.exported;
 }
+
+// ── Live Graph Engine API (neo4j-emulating, NARS-enabled) ──────────────────
+
+export async function fetchLiveGraph(): Promise<{
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  node_count: number;
+  edge_count: number;
+  scene_version: number;
+  scene_name: string;
+  health: { total_nodes: number; total_edges: number; total_inferences: number; contradiction_count: number; confidence_avg: number };
+  nars_inferences: Array<{ source: string; target: string; relation: string; inference_type: string; truth_f: number; truth_c: number; via: string[] }>;
+} | null> {
+  try {
+    const res = await fetch('/api/graph/snapshot');
+    if (!res.ok) return null;
+    const data = await res.json();
+    // Map server field names to store field names
+    if (data.nodes) {
+      data.nodes = data.nodes.map((n: Record<string, unknown>) => ({
+        id: n.id,
+        label: n.label,
+        type: n.node_type || n.type || 'Node',
+        properties: n.properties || {},
+      }));
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export async function runNarsInference(minConfidence = 0.4, maxHops = 2) {
+  try {
+    const res = await fetch('/api/graph/infer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ min_confidence: minConfidence, max_hops: maxHops }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchGraphHealth() {
+  try {
+    const res = await fetch('/api/graph/health');
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/// Try live graph first, fall back to seed data if unavailable.
+export async function hydrateCockpit(): Promise<boolean> {
+  const live = await fetchLiveGraph();
+  if (live && live.nodes.length > 0) {
+    useStore.getState().setGraphData(live.nodes as GraphNode[], live.edges as GraphEdge[]);
+    return true; // live data
+  }
+  return false; // use seed fallback
+}
