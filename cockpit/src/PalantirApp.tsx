@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { useStore, type GraphNode, type GraphEdge } from './store';
-import { connectSSE, executeQuery } from './transport';
+import { connectSSE, executeQuery, hydrateCockpit } from './transport';
 import { QueryBar } from './components/QueryBar';
 import { GraphPanel } from './components/GraphPanel';
 import { Inspector } from './components/Inspector';
@@ -57,8 +57,16 @@ export function PalantirApp() {
     };
 
     (async () => {
+      // Strategy 0: Try live graph engine API (direct Rust, no MCP overhead)
+      let hydrated = await hydrateCockpit();
+      if (hydrated) {
+        updateSource('Aiwar Graph', {
+          status: 'loaded',
+          detail: 'live graph engine (neo4j-emulating, NARS-enabled)',
+        });
+      }
+
       // Strategy 1: Try MCP Cypher query for live data from lance-graph
-      let hydrated = false;
       try {
         const cell = await executeQuery('MATCH (n) RETURN n LIMIT 500', 'cypher');
         const graphOutput = cell.outputs.find(o => o.type === 'graph');

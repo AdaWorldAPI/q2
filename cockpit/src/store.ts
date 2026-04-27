@@ -62,34 +62,34 @@ interface CockpitState {
 
 export const useStore = create<CockpitState>((set) => ({
   connected: false,
-  setConnected: (v) => set({ connected: v }),
+  setConnected: (v: boolean) => set({ connected: v }),
 
   nodes: SEED_NODES,
   edges: SEED_EDGES,
-  setGraphData: (nodes, edges) => set({ nodes, edges }),
+  setGraphData: (nodes: GraphNode[], edges: GraphEdge[]) => set({ nodes, edges }),
 
   selectedNodeId: null,
-  selectNode: (id) =>
-    set((state) => ({
+  selectNode: (id: string | null) =>
+    set((state: CockpitState) => ({
       selectedNodeId: state.selectedNodeId === id ? null : id,
     })),
 
   cells: [],
-  setCells: (cells) => set({ cells }),
-  addCell: (cell) => set((state) => ({ cells: [...state.cells, cell] })),
-  updateCell: (cell) =>
-    set((state) => ({
-      cells: state.cells.map((c) => (c.id === cell.id ? cell : c)),
+  setCells: (cells: Cell[]) => set({ cells }),
+  addCell: (cell: Cell) => set((state: CockpitState) => ({ cells: [...state.cells, cell] })),
+  updateCell: (cell: Cell) =>
+    set((state: CockpitState) => ({
+      cells: state.cells.map((c: Cell) => (c.id === cell.id ? cell : c)),
     })),
-  removeCell: (id) =>
-    set((state) => ({ cells: state.cells.filter((c) => c.id !== id) })),
+  removeCell: (id: string) =>
+    set((state: CockpitState) => ({ cells: state.cells.filter((c: Cell) => c.id !== id) })),
 
   executing: false,
-  setExecuting: (v) => set({ executing: v }),
+  setExecuting: (v: boolean) => set({ executing: v }),
 
   filter: 'all',
-  setFilter: (f) => set({ filter: f }),
+  setFilter: (f: string) => set({ filter: f }),
 
   searchTerm: '',
-  setSearchTerm: (t) => set({ searchTerm: t }),
+  setSearchTerm: (t: string) => set({ searchTerm: t }),
 }));

@@ -1,23 +1,36 @@
 # Plan: Wire q2 to cognitive-shader-driver DTOs (parallel integration path)
 
-> Date: 2026-04-21
+> Date: 2026-04-21 (updated 2026-04-25)
 > Branch: `claude/design-graph-notebook-frontend-Pwoqh`
 > Constraint: semiring stays for external surface only — must NOT leak into StreamDto/BusDto path
+> Constraint: NO serde on internal path — same binary, direct Rust calls
+> Constraint: current stubs stay as fallback — LazyLock rendering alongside
 
 ## Architecture
 
 ```
-USER INPUT (human-timed)
-  ↓
-POST /v1/shader/ingest → StreamDto { source, codebook_indices, timestamp }
-  ↓
-SHADER LOOP (208ns/cycle, can't resist thinking)
-  BindSpace encode (bind + braid + bundle) → decode (unbind + margin + F)
-  if F > homeostasis_floor → cycle again
-  ↓
-SSE /v1/shader/stream → ResonanceDto (f32[4096] energy) | BusDto (committed thought) | ThoughtStruct (crystallized)
-  ↓
-COCKPIT (60fps, reads LazyLock double-buffer, pre-baked camera paths)
+INSIDE THE BINARY (no serde, no HTTP, direct Rust calls):
+  ShaderDriver::dispatch() → 208ns/cycle → BusDto (owned struct)
+  quarto_core::render_qmd_to_html() → PDF/HTML from graph runbooks
+  aiwar_ingest::load_from_json() → graph hydration
+  neural_debug::registry().diag() → health overlay
+
+OUTSIDE THE BINARY (serde, HTTP, for external consumers only):
+  /v1/shader/* → lab REST endpoints (bardioc R, curl, test harness)
+  /mcp/* → MCP endpoints (legacy cockpit stubs)
+  /v1/chat/completions → OpenAI-compatible (external LLM consumers)
+
+COCKPIT (React/Vite, reads LazyLock double-buffer):
+  JS stubs (seed.ts, aiwar-seed.ts) stay as immediate fallback
+  Real data from LazyLock buffer when shader is alive
+  Same UI components, two data sources, automatic fallback
+
+BBB (Blood-Brain Barrier — async rate adaptation):
+  External consumers (callcenter Supabase, bardioc R, MCP clients)
+    → BBB accumulates via Markov chain bundling roles
+    → StreamDto enters BindSpace when bundle capacity reached (N ≤ 32)
+    → Shader cycles at 208ns, commits BusDto
+    → BBB unbundles response back to external consumer clock
 ```
 
 Semiring stays at:
@@ -135,6 +148,73 @@ Semiring does NOT touch:
 - Shift-click two → side-by-side compare
 - [S] → 36-brain superposition in <2s
 - Stubs deleted, net LOC reduction
+
+## Neo4j / Gotham Features (P1 — after core wiring)
+
+### Neo4j Aura Fallback (`--features neo4j-fallback`)
+- [ ] neo4j-rs stays as fallback for live demos when lance-graph data isn't loaded
+- [ ] `neo4j-fallback` feature gate on cockpit-server — off by default
+- [ ] When enabled: queries hit Neo4j Aura if lance-graph returns empty
+- [ ] The planner still routes — neo4j-rs is a data source, not an engine
+- [ ] Gotham investigation workspace: same cockpit panels, different data source
+
+### Runbook → PDF Pipeline (quarto-core integration)
+- [ ] Wire `quarto_core::pipeline::render_qmd_to_html()` directly (same binary, no process boundary)
+- [ ] Notebook cells = runbook steps → pampa parses, quarto-core renders, deno_core executes
+- [ ] PDF export via the full 9-stage pipeline (not the simplified publisher.rs shelling out to pandoc)
+- [ ] Graph visualization in PDF: the vis-network canvas → SVG → embedded in quarto output
+- [ ] Foundry ontology export: BindSpace → .qmd with typed objects as YAML metadata
+- [ ] Gotham investigation report: selected subgraph → .qmd → PDF with NARS truth annotations
+
+### Inside vs Outside BBB (Blood-Brain Barrier)
+
+**Inside BBB** (same process, no serde, 208ns path):
+- ShaderDriver::dispatch() — direct Rust call
+- quarto_core::render_qmd_to_html() — direct Rust call
+- neural_debug::registry().diag() — direct &'static reference
+- LazyLock double-buffer — atomic swap, zero-copy read
+- All cognitive DTOs (StreamDto, ResonanceDto, BusDto, ThoughtStruct) as owned structs
+- The cockpit reads the LazyLock buffer — no HTTP round trip for data
+
+**Outside BBB** (serde boundary, for external consumers):
+- REST /v1/shader/* — lab endpoints, JSON over HTTP
+- REST /v1/chat/completions — OpenAI-compatible, external LLM consumers
+- MCP /mcp/* — legacy MCP protocol, JSON-RPC over SSE
+- Supabase realtime — callcenter BBB, async Markov bundling
+- R httr — bardioc bridge, JSON over HTTP
+- Neo4j Aura — cold fallback, network hop
+
+**The rule**: anything that crosses a process/network boundary uses serde.
+Anything inside the binary uses owned Rust structs. The BBB is the explicit
+boundary where async external input gets bundled into the internal clock.
+
+### Lab Feature Gates (codebook generation from Qwen safetensors)
+
+The cognitive-shader-driver already has rich lab endpoints behind `--features lab`:
+- `/v1/shader/calibrate` — codec calibration against real token weights
+- `/v1/shader/probe` — probe specific codebook entries
+- `/v1/shader/tensors` — raw SoA column views
+- `/v1/shader/sweep` — parameter sweep over codec candidates
+- `/v1/shader/token-agreement` — measure token decode fidelity
+
+These exist for measurement, not production. Two wiring options:
+
+**Option A: Inside BBB (compile the lab into the q2 binary)**
+- Add `cognitive-shader-driver` dep with `features = ["serve"]`
+- Mount lab router: `.nest("/v1/shader", router())`
+- Pro: one binary, no process boundary, researcher uses the same cockpit
+- Con: lab code compiles even when not used, binary size grows
+
+**Option B: Outside BBB (lab runs as separate shader-lab binary)**
+- `cargo run -p cognitive-shader-driver --features lab --bin shader-serve`
+- Cockpit proxies `/v1/shader/*` to `http://localhost:3001`
+- Pro: q2 binary stays lean, lab only runs when researcher needs it
+- Con: two processes, HTTP round trip, deployment complexity
+
+**Decision**: Option A for Railway deployment (one binary, simple),
+Option B for local dev when researcher needs the full lab. Feature-gated:
+`--features lab` compiles the endpoints in, but they're not mounted
+unless `LAB_ENABLED=true` env var is set at startup.
 
 ## LOC Budget
 

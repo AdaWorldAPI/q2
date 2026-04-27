@@ -28,6 +28,7 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 mod openai;
+mod graph_engine;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
 // The cockpit/ directory is built by `cd cockpit && npm run build` which
@@ -122,6 +123,10 @@ async fn main() {
         .route("/api/analyst/buckets", get(analyst_buckets_handler))
         .route("/api/analyst/analyze/:bucket", get(analyst_analyze_handler))
         .route("/api/analyst/full", get(analyst_full_handler))
+        // Live graph engine — neo4j-emulating renderer with AGI thinking
+        .route("/api/graph/snapshot", get(graph_engine::graph_snapshot_handler))
+        .route("/api/graph/infer", post(graph_engine::nars_infer_handler))
+        .route("/api/graph/health", get(graph_engine::graph_health_handler))
         // Health
         .route("/health", get(health_handler))
         // Static files + SPA fallback (serves the Vite React build)
@@ -143,6 +148,16 @@ async fn main() {
     tracing::info!("  /mri             → AGI Brain MRI (pre-rendered, 500ms refresh, LazyLock double-buffer)");
     tracing::info!("  /mcp/*  → MCP endpoints (lance-graph)");
     tracing::info!("  /v1/*   → OpenAI-compatible API (gpt2, openchat_3.5, stable-diffusion)");
+
+    // Hydrate live graph from aiwar data (if available).
+    if let Ok(path) = std::env::var("AIWAR_DATA_PATH") {
+        match graph_engine::hydrate_from_aiwar_json(&path).await {
+            Ok(()) => tracing::info!("  /api/graph/*     → live graph engine (neo4j-emulating, NARS-enabled)"),
+            Err(e) => tracing::warn!("  /api/graph/*     → fallback mode (hydration failed: {e})"),
+        }
+    } else {
+        tracing::info!("  /api/graph/*     → fallback mode (AIWAR_DATA_PATH not set)");
+    }
 
     // Start background MRI pre-render (LazyLock double-buffer, 500ms refresh).
     spawn_mri_prerender();
