@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-29
+
+- [`dcac202d`](https://github.com/quarto-dev/q2/commits/dcac202d): Fix replay drawer toggle so clicking the chevron or title closes the drawer
+
 ### 2026-04-24
 
 - [`542a1686`](https://github.com/quarto-dev/q2/commits/542a1686): Defer remote edit application and presence notifications while the tab is hidden to avoid replay-animation on refocus
