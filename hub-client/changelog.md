@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-04-30
+
+- [`2859733b`](https://github.com/quarto-dev/q2/commits/2859733b): Harden silent auth refresh — buffer extended from 5 to 15 minutes to absorb background-tab timer throttling, and a coalesced `triggerRefresh()` lets callers recover from mid-session 401s without logout
+
 ### 2026-04-29
 
 - [`dcac202d`](https://github.com/quarto-dev/q2/commits/dcac202d): Fix replay drawer toggle so clicking the chevron or title closes the drawer
