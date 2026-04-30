@@ -9,8 +9,8 @@
 use crate::pandoc::ast_context::ASTContext;
 use crate::pandoc::location::node_source_info_with_context;
 use crate::pandoc::{Inline, Shortcode, ShortcodeArg, Space};
+use hashlink::LinkedHashMap;
 use quarto_source_map::SourceInfo;
-use std::collections::HashMap;
 
 use super::pandocnativeintermediate::PandocNativeIntermediate;
 
@@ -84,7 +84,7 @@ pub fn process_shortcode(
 
     let mut name = String::new();
     let mut positional_args: Vec<ShortcodeArg> = Vec::new();
-    let mut keyword_args: HashMap<String, ShortcodeArg> = HashMap::new();
+    let mut keyword_args: LinkedHashMap<String, ShortcodeArg> = LinkedHashMap::new();
     for (child_node, child) in children {
         match (child_node.as_str(), child) {
             (
