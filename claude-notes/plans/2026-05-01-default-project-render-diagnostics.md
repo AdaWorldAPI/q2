@@ -236,14 +236,52 @@ output directory rather than everything.
 
 ### Phase 3: Verification
 
-- [ ] Reproduce the user's three failure modes against the fixed
-      binary and confirm they're resolved.
-- [ ] Record the end-to-end runs in this plan (per CLAUDE.md
-      end-to-end verification policy).
-- [ ] Open follow-up beads for any project-level diagnostics we
-      identified but didn't ship (e.g. "render glob matched zero
-      files" with a specific hint distinct from the empty-default
-      case).
+- [x] Reproduce the user's failure modes against the fixed binary
+      and confirm they're resolved.
+- [x] Record the end-to-end runs in this plan (see below).
+- [x] No new follow-up beads needed: the empty-glob case is the
+      same diagnostic, and the hub-client analog is covered by the
+      `ActivePage`-mode extension.
+
+#### End-to-end runs (CLAUDE.md verification policy)
+
+Tested against the user's exact fixture:
+`/Users/cscheid/Desktop/daily-log/2026/05/01/default-project-test/`
+with `_quarto.yml` containing only `project: { type: default }`
+and a single `index.qmd`.
+
+**Mode A (no args)** — pre-fix: silent exit 0, no output.
+Post-fix:
+```
+$ q2 render
+EXIT: 0
+$ ls index.html
+index.html
+$ head -2 index.html
+<!DOCTYPE html>
+<html>
+```
+
+**Mode B (file arg)** — pre-fix: `Error: …/index.qmd is excluded
+from the render list of project …`. Post-fix:
+```
+$ q2 render index.qmd
+EXIT: 0
+$ head -2 index.html
+<!DOCTYPE html>
+<html>
+```
+
+**Diagnostic (misconfigured `render:` list)** — new scenario,
+verified at `/tmp/empty-render-test/` with `render: [ghost.qmd]`:
+```
+$ q2 render
+Error [Q-PROJECT-EMPTY]: Project has no renderable files
+Project at `/private/tmp/empty-render-test` resolved to an empty render set.
+ℹ Check `project.render` in `_quarto.yml` — its globs matched no `.qmd` files.
+
+EXIT: 1
+```
 
 ## Files likely touched
 
