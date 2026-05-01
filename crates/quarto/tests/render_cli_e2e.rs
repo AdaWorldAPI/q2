@@ -563,6 +563,71 @@ fn empty_default_project_with_no_qmd_emits_diagnostic() {
     );
 }
 
+/// Regression guard for bd-87fu: native default-project renders
+/// must continue to write theme CSS to `{stem}_files/quarto/...`
+/// and embed a matching `<link>` in the HTML. The WASM-side fix
+/// (mirroring the `lib_dir` branch in `RenderToHtmlRenderer`) is
+/// orthogonal to native, but symmetric changes are easy to get
+/// wrong — this test pins native byte-locations.
+#[test]
+fn default_project_native_theme_writes_under_files_dir() {
+    let temp = TempDir::new().unwrap();
+    let project = canonical(temp.path());
+    write_file(&project.join("_quarto.yml"), "project:\n  type: default\n");
+    write_file(
+        &project.join("index.qmd"),
+        "---\ntitle: T\nformat:\n  html:\n    theme: flatly\n---\n\nhi\n",
+    );
+
+    let out = run_q2(&project, &["index.qmd"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "render should succeed; stderr: {stderr}",
+    );
+
+    let html = std::fs::read_to_string(project.join("index.html")).expect("index.html exists");
+
+    // The HTML should embed a `<link>` to a theme CSS file under
+    // `index_files/quarto/...`. Find the href.
+    let link_line = html
+        .lines()
+        .find(|line| line.contains("index_files/quarto/quarto-theme-") && line.contains(".css"))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a theme <link> referencing index_files/quarto/quarto-theme-…; html head: {}",
+                html.lines().take(40).collect::<Vec<_>>().join("\n"),
+            )
+        });
+
+    let needle = "index_files/quarto/quarto-theme-";
+    let start = link_line
+        .find(needle)
+        .expect("needle present (filter just confirmed it)");
+    let after = &link_line[start..];
+    let end_offset = after.find(".css").expect("href ends with .css") + ".css".len();
+    let rel_css_path = &link_line[start..start + end_offset];
+
+    let css_full_path = project.join(rel_css_path);
+    assert!(
+        css_full_path.exists(),
+        "theme CSS should exist at {}; got listing: {:?}",
+        css_full_path.display(),
+        std::fs::read_dir(project.join("index_files/quarto"))
+            .map(|d| d
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect::<Vec<_>>())
+            .unwrap_or_default(),
+    );
+    let bytes = std::fs::read(&css_full_path).unwrap();
+    assert!(
+        !bytes.is_empty(),
+        "theme CSS at {} should be non-empty",
+        css_full_path.display(),
+    );
+}
+
 /// Test (negative): multiple stand-alone `.qmd` files outside any
 /// project ⇒ "one project per render" error.
 #[test]

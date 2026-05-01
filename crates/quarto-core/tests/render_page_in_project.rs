@@ -517,6 +517,93 @@ fn pass1_parse_error_on_active_page_carries_diagnostics() {
     );
 }
 
+/// Regression for bd-87fu: in a default project (no `_quarto.yml`
+/// `type: website`, so `lib_dir == ""`), the WASM Pass-2 renderer
+/// must flush Project-scope artifacts (e.g. theme CSS) so the
+/// iframe post-processor can find them at the URL the rendered
+/// HTML embeds.
+///
+/// Pre-fix: `RenderToHtmlRenderer.render` always drained Project-
+/// scope artifacts into the orchestrator accumulator, but
+/// `DefaultProjectType.post_render` was a no-op — so theme bytes
+/// vanished. The HTML embedded a `<link>` to a VFS path with no
+/// matching file.
+///
+/// Post-fix: `RenderToHtmlRenderer.render` mirrors the native
+/// `render_document_to_file` lib_dir branch — when `lib_dir` is
+/// empty, Project-scope artifacts are written in-place via the
+/// per-page (vfs_root) resolver and the URL/on-disk paths
+/// round-trip.
+#[test]
+fn default_project_theme_artifact_lands_in_vfs() {
+    let temp = TempDir::new().unwrap();
+    let project_dir = canonical(temp.path());
+
+    write(
+        &project_dir.join("_quarto.yml"),
+        "project:\n  type: default\n",
+    );
+    write(
+        &project_dir.join("index.qmd"),
+        "---\ntitle: T\nformat:\n  html:\n    theme: flatly\n---\n\nhi\n",
+    );
+
+    let active = canonical(&project_dir.join("index.qmd"));
+    let output = render_active_page(&project_dir, &active);
+
+    // The HTML should embed a `<link>` to a quarto theme CSS file
+    // under the synthetic vfs root.
+    let vfs_root = project_dir.join(".quarto/project-artifacts");
+    let vfs_root_str = vfs_root.to_string_lossy().to_string();
+    let needle_prefix = format!("{}/quarto/quarto-theme-", vfs_root_str);
+    let theme_link = output
+        .html
+        .lines()
+        .filter(|line| line.contains(&needle_prefix) && line.contains(".css"))
+        .next()
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a theme <link> under {}quarto/quarto-theme-…; html: {}",
+                vfs_root_str,
+                snippet(&output.html),
+            )
+        });
+
+    // Extract the actual CSS path from the href attribute and
+    // confirm the bytes landed at that path.
+    let href_start = theme_link
+        .find(&needle_prefix)
+        .expect("needle present (filter just confirmed it)");
+    let after_prefix = &theme_link[href_start..];
+    let css_end = after_prefix
+        .find(".css")
+        .map(|i| href_start + i + ".css".len())
+        .expect("href ends with .css");
+    let css_path_str = &theme_link[href_start..css_end];
+    let css_path = PathBuf::from(css_path_str);
+
+    let runtime = NativeRuntime::new();
+    let bytes = runtime.file_read(&css_path).unwrap_or_else(|e| {
+        panic!(
+            "expected theme CSS to be flushed to {}; runtime read failed: {}",
+            css_path.display(),
+            e,
+        )
+    });
+    assert!(
+        !bytes.is_empty(),
+        "theme CSS at {} should be non-empty",
+        css_path.display(),
+    );
+    let css_text = std::str::from_utf8(&bytes).unwrap_or("");
+    assert!(
+        css_text.contains("flatly") || css_text.contains("body") || css_text.contains(":root"),
+        "theme CSS at {} should look like compiled CSS; first 200 bytes: {}",
+        css_path.display(),
+        snippet(css_text),
+    );
+}
+
 fn copy_fixture(rel: &str, dst: &Path) {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")

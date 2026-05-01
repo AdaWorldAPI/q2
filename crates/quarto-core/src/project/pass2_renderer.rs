@@ -317,24 +317,48 @@ impl Pass2Renderer for RenderToHtmlRenderer {
         ctx.project_index = Some(index);
         ctx.resource_resolver = Some(resolver.clone());
 
-        let config = HtmlRenderConfig::with_resolver(resolver);
+        let config = HtmlRenderConfig::with_resolver(resolver.clone());
         let source_name = doc_info.input.to_string_lossy().to_string();
 
-        let render_output =
-            render_qmd_to_html(&input_bytes, &source_name, &mut ctx, &config, runtime).await?;
+        let render_output = render_qmd_to_html(
+            &input_bytes,
+            &source_name,
+            &mut ctx,
+            &config,
+            runtime.clone(),
+        )
+        .await?;
 
-        // Drain Project-scoped artifacts into the orchestrator's
-        // accumulator (Phase 5 invariant). The remaining artifacts
-        // on `ctx.artifacts` are Page-scoped and travel back to JS
-        // alongside the HTML.
+        // Drain Project-scoped artifacts. Where they go next mirrors
+        // the native `render_document_to_file` lib_dir branch
+        // (`render_to_file.rs:264-297`):
+        //
+        // - **Shared lib dir** (e.g. websites, `lib_dir == "site_libs"`):
+        //   merge into the orchestrator's accumulator so
+        //   `WebsiteProjectType::post_render` can `flush_site_libs`
+        //   them once across the whole project.
+        // - **No shared lib dir** (default projects, `lib_dir == ""`):
+        //   flush in-place via the per-page (vfs_root) resolver.
+        //   `DefaultProjectType::post_render` is a no-op, so anything
+        //   we leave in the accumulator would silently disappear and
+        //   the iframe would VFS-miss on the theme `<link>` URL the
+        //   HTML embeds (bd-87fu).
+        //
+        // Page-scoped artifacts on `ctx.artifacts` travel back to JS
+        // alongside the HTML regardless of which branch fires.
         let drained = ctx.artifacts.drain_project_scoped();
-        project_artifacts.merge_into_project(drained).map_err(|e| {
-            crate::error::QuartoError::other(format!(
-                "Project-scoped artifact merge failed for {}: {}",
-                doc_info.input.display(),
-                e
-            ))
-        })?;
+        let lib_dir = super::orchestrator::project_type_for(project).lib_dir();
+        if lib_dir.is_empty() {
+            super::website_post_render::flush_site_libs(&drained, &resolver, runtime.as_ref())?;
+        } else {
+            project_artifacts.merge_into_project(drained).map_err(|e| {
+                crate::error::QuartoError::other(format!(
+                    "Project-scoped artifact merge failed for {}: {}",
+                    doc_info.input.display(),
+                    e
+                ))
+            })?;
+        }
 
         Ok(WasmPassTwoOutput {
             source_path: doc_info.input.clone(),

@@ -136,13 +136,19 @@ pub trait ProjectType {
     ///
     /// **Phase 5:** receives the orchestrator's project-wide
     /// artifact accumulator (filled by per-doc Pass-2 renders
-    /// merging their drained Project-scoped artifacts). Website
-    /// projects flush this through `resolver.on_disk_path_for(...)`,
-    /// which routes to either `{output_dir}/{lib_dir}/...` (native)
-    /// or `{vfs_root}/...` (WASM hub-client). Default projects
-    /// ignore it (single-doc renders flush per-doc inside
-    /// [`render_document_to_file`] when no orchestrator is
-    /// involved).
+    /// merging their drained Project-scoped artifacts). Project
+    /// types with a non-empty [`Self::lib_dir`] (e.g. websites)
+    /// flush this through `resolver.on_disk_path_for(...)`, which
+    /// routes to either `{output_dir}/{lib_dir}/...` (native) or
+    /// `{vfs_root}/...` (WASM hub-client).
+    ///
+    /// Project types with an empty `lib_dir` (default / book /
+    /// manuscript today) receive an empty accumulator — Pass-2
+    /// renderers detect the empty-lib-dir case and flush
+    /// Project-scoped artifacts in-place via the per-page
+    /// resolver instead of routing them through this hook
+    /// (see `render_to_file::render_document_to_file` on native
+    /// and `pass2_renderer::RenderToHtmlRenderer` on WASM).
     ///
     /// **Phase 7:** `diagnostics` is a project-level diagnostic
     /// channel surfaced through [`ProjectRenderSummary`]. The
