@@ -718,12 +718,55 @@ fn write_horizontalrule(
     Ok(())
 }
 
+/// Detect the "implicit figure" shape produced by the qmd reader's
+/// single-image-paragraph desugaring (postprocess.rs:884). Such a Figure
+/// has caption == image alt text, a single `Plain[Image]` content block,
+/// and an attr-split where the figure carries only an id and the image
+/// carries only classes/kvs. When this exact shape holds we can round-
+/// trip by emitting just the bare image syntax with the figure's id
+/// merged into the image's attr.
+fn match_implicit_figure_shape(figure: &Figure) -> Option<&crate::pandoc::Image> {
+    let [Block::Plain(plain)] = figure.content.as_slice() else {
+        return None;
+    };
+    let [Inline::Image(image)] = plain.content.as_slice() else {
+        return None;
+    };
+    if figure.caption.short.is_some() {
+        return None;
+    }
+    let long = figure.caption.long.as_ref()?;
+    let [Block::Plain(caption_plain)] = long.as_slice() else {
+        return None;
+    };
+    if caption_plain.content != image.content {
+        return None;
+    }
+    let (_fig_id, fig_classes, fig_kvs) = &figure.attr;
+    if !fig_classes.is_empty() || !fig_kvs.is_empty() {
+        return None;
+    }
+    let (img_id, _, _) = &image.attr;
+    if !img_id.is_empty() {
+        return None;
+    }
+    Some(image)
+}
+
 fn write_figure(
     figure: &Figure,
     buf: &mut dyn std::io::Write,
     ctx: &mut QmdWriterContext,
 ) -> std::io::Result<()> {
-    // Write figure using div syntax with fig- class
+    if let Some(image) = match_implicit_figure_shape(figure) {
+        let mut merged = image.clone();
+        merged.attr.0 = figure.attr.0.clone();
+        return write_image(&merged, buf, ctx);
+    }
+
+    // Non-implicit shapes fall through to a fenced-div form. The current
+    // reader has no rule that turns this back into a Figure, so this
+    // branch does not round-trip — tracked in bd-emr4 (follow-up).
     write!(buf, "::: ")?;
     write_attr(&figure.attr, buf, ctx)?;
     writeln!(buf)?;
