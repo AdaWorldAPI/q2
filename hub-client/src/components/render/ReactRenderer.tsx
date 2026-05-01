@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect, Component } from 'react';
+import { useMemo, Component } from 'react';
 import type { ReactNode } from 'react';
 import type { FileEntry } from '../../types/project';
 import { AstIframe } from './AstIframe';

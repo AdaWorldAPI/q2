@@ -23,10 +23,7 @@ const hubTarget = process.env.VITE_HUB_SERVER || 'http://localhost:3000';
 export default defineConfig({
   base: './',
   plugins: [
-    react({
-      // Exclude the iframe entry point and its dependencies from Fast Refresh
-      exclude: [/ast-renderer-entry\.tsx$/, /ReactAstDebugRenderer\.tsx$/],
-    }),
+    react(),
     wasm()
   ],
   define: {

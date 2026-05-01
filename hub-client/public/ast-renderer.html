@@ -20,6 +20,12 @@
       overflow: auto;
     }
   </style>
+  <script>
+    // Stub out React Fast Refresh runtime for iframe context
+    // Must be done before any modules load
+    window.$RefreshReg$ = function () { };
+    window.$RefreshSig$ = function () { return function (type) { return type; }; };
+  </script>
 </head>
 <body>
   <div id="root">Loading AST renderer...</div>
