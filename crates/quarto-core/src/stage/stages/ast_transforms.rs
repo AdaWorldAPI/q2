@@ -158,6 +158,15 @@ impl PipelineStage for AstTransformsStage {
         render_ctx.ref_type_registry = ctx.ref_type_registry.take();
         render_ctx.crossref_index = ctx.crossref_index.take();
         render_ctx.observer = ctx.observer.clone();
+        // `project_index` is read-only to transforms, so we clone the
+        // `Arc` instead of moving it. Leaving `ctx.project_index`
+        // untouched means later stages in the pipeline still see it.
+        render_ctx.project_index = ctx.project_index.clone();
+        // Phase 6: bridge the resource resolver in the same way —
+        // read-only to transforms, the AST-side body-link rewriter
+        // (`LinkRewriteTransform`) consumes it to compute
+        // page-relative URLs.
+        render_ctx.resource_resolver = ctx.resource_resolver.clone();
 
         // Execute the transform pipeline
         let result = pipeline
@@ -359,6 +368,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);

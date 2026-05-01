@@ -1,0 +1,60 @@
+# Phase 5 single-doc byte-identity baseline.
+#
+# Captured 2026-04-24 against commit 7881178e (pre-Phase-5 refactor).
+# Each line: "<relative-path-from-doc-dir> <sha256>"
+#
+# After Phase 5's scoped-artifact refactor, these hashes MUST remain
+# unchanged. See `claude-notes/plans/2026-04-24-websites-phase-5.md`
+# Decision 10.
+#
+# To re-capture (if intentional changes to default theme / template
+# land), render `doc.qmd` and run:
+#   shasum -a 256 doc.html doc_files/styles.css
+#
+# Re-captured 2026-04-29 (bd-mgoh): doc.html hash updated because
+# `#quarto-content` now carries the `quarto-container` class for parity
+# with Q1 (no SCSS rule selects on it; it's a defensive addition that
+# anchors the website-sidebar layout fix in template.rs).
+#
+# Re-captured 2026-04-30 (bd-bsut): doc_files/styles.css hash updated
+# because the page-nav layout SCSS (`.page-navigation { display: flex; …
+# }`, `.nav-page` family, `@media print { .nav-page { display: none } }`)
+# was ported from Q1 into `_bootstrap-rules.scss`. doc.html hash is
+# unchanged: the new selectors don't match anything in a single-doc
+# render's body, and `<head>` is unaffected (no <link> changes for
+# single-doc).
+#
+# Re-captured 2026-04-30 (bd-bsut, sidebar-link parity follow-up):
+# doc_files/styles.css hash updated again because the sidebar-link
+# styling SCSS (`.sidebar-navigation a { color: inherit }`,
+# `.sidebar-title > a`, `.sidebar-item`, `.sidebar-section`,
+# `div.sidebar-item-container { color/hover/active/disabled }`, …) was
+# ported from Q1 into `_bootstrap-rules.scss` next to the page-nav
+# block. doc.html hash unchanged for the same reason as before — none
+# of the `.sidebar-*` selectors match anything in a single-doc body.
+#
+# Re-captured 2026-04-30 (bd-bsut, .sidebar-title font-sizing): added
+# the missing `.sidebar-title { font-size: 1.3rem; line-height: 1.6rem;
+# … }` rule from Q1's `quarto-nav.scss:281` so the website's site-title
+# at the top of the sidebar reads as a heading instead of inheriting
+# the small sidebar-link font-size.
+#
+# Re-captured 2026-04-30 (bd-k8y0, sidebar appearance polish): added
+# `.quarto-container { min-height: calc(100vh - 132px) }` (so a docked
+# sidebar's vertical separator extends to the bottom of the viewport
+# on short pages) and `#quarto-sidebar > * { padding-right: 1em }` (so
+# toggle dongles aren't flush against the sidebar's right border).
+# Both ported from Q1's `quarto-nav.scss` (lines 53-55 and 623-628).
+# doc.html hash unchanged: neither selector matches anything in a
+# single-doc body (no `.quarto-container` and no `#quarto-sidebar`),
+# but they appear in the compiled CSS so the `styles.css` hash shifts.
+#
+# Re-captured 2026-05-01 (bd-f5yi follow-up, c8dcbcf6): added
+# `body.floating .sidebar.sidebar-navigation { display: none }` under
+# `media-breakpoint-down(lg)` so a floating sidebar disappears in the
+# 768–991 px range instead of collapsing to a 26-px ghost column.
+# doc.html hash unchanged: the new selector doesn't match anything in
+# a single-doc body (no `body.floating`), but it appears in the
+# compiled CSS so the `styles.css` hash shifts.
+doc.html 1ce582da03349ec421b96d42a89d3589e3e8ed753a9d6802e6454a255ea67ae1
+doc_files/styles.css 21263bc958169528a85545d23c07b2f0d12de92344b026b08546c766e84b759e

@@ -55,9 +55,10 @@ use crate::render::RenderContext;
 use crate::stage::CodeHighlightStage;
 use crate::stage::stages::ApplyTemplateConfig;
 use crate::stage::{
-    ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, EngineExecutionStage,
-    IncludeExpansionStage, LoadedSource, MetadataMergeStage, ParseDocumentStage, Pipeline,
-    PipelineData, PipelineStage, PreEngineSugaringStage, RenderHtmlBodyStage, StageContext,
+    ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, DocumentProfileStage,
+    EngineExecutionStage, IncludeExpansionStage, LinkResolutionStage, LoadedSource,
+    MetadataMergeStage, ParseDocumentStage, Pipeline, PipelineData, PipelineStage,
+    PreEngineSugaringStage, RenderHtmlBodyStage, StageContext, UnwrapProfileStage,
     UserFiltersStage,
 };
 use crate::transform::TransformPipeline;
@@ -65,10 +66,12 @@ use crate::transforms::{
     AppendixStructureTransform, CalloutResolveTransform, CalloutTransform, CrossrefIndexTransform,
     CrossrefRenderTransform, CrossrefResolveTransform, EquationLabelTransform,
     FloatRefTargetSugarTransform, FooterGenerateTransform, FooterRenderTransform,
-    FootnotesTransform, MetadataNormalizeTransform, NavbarGenerateTransform, NavbarRenderTransform,
-    ProofSugarTransform, ResourceCollectorTransform, SectionizeTransform,
-    ShortcodeResolveTransform, TheoremSugarTransform, TitleBlockTransform, TocGenerateTransform,
-    TocRenderTransform,
+    FootnotesTransform, LinkRewriteTransform, MetadataNormalizeTransform, NavbarGenerateTransform,
+    NavbarRenderTransform, PageNavGenerateTransform, PageNavRenderTransform, ProofSugarTransform,
+    ResourceCollectorTransform, SectionizeTransform, ShortcodeResolveTransform,
+    SidebarGenerateTransform, SidebarRenderTransform, TheoremSugarTransform, TitleBlockTransform,
+    TocGenerateTransform, TocRenderTransform, WebsiteBootstrapIconsTransform,
+    WebsiteCanonicalUrlTransform, WebsiteFaviconTransform, WebsiteTitlePrefixTransform,
 };
 
 /// Well-known path for the default CSS artifact in WASM context.
@@ -78,22 +81,27 @@ use crate::transforms::{
 pub const DEFAULT_CSS_ARTIFACT_PATH: &str = "/.quarto/project-artifacts/styles.css";
 
 /// Configuration for HTML rendering.
+///
+/// Phase 5: the legacy `css_paths` + `resource_prefix` pair has
+/// been replaced by an optional [`ResourceResolverContext`].
+/// When `resolver` is provided (CLI render via `render_to_file`,
+/// project pipeline, or any caller that knows where the output
+/// HTML will live on disk), every CSS / JS artifact in the store
+/// gets its `<link>` / `<script>` URL computed by the resolver.
+/// When `resolver` is absent (in-memory test renders), each
+/// artifact's bare `path` is used verbatim.
 #[derive(Debug, Default)]
-pub struct HtmlRenderConfig<'a> {
-    /// CSS paths to include in the document (relative to the output HTML).
-    /// If empty, the default CSS artifact will be used.
-    pub css_paths: &'a [String],
-    /// Prefix for extension dependency paths (e.g., `"test_files/"` for
-    /// `test.html`). Passed through to `ApplyTemplateConfig::resource_prefix`.
-    pub resource_prefix: &'a str,
+pub struct HtmlRenderConfig {
+    /// Scope-aware resolver passed through to
+    /// [`ApplyTemplateConfig::resolver`]. See its docs.
+    pub resolver: Option<crate::resource_resolver::ResourceResolverContext>,
 }
 
-impl<'a> HtmlRenderConfig<'a> {
-    /// Create a new configuration with custom CSS paths.
-    pub fn with_css(css_paths: &'a [String]) -> Self {
+impl HtmlRenderConfig {
+    /// Create a new configuration with a resolver attached.
+    pub fn with_resolver(resolver: crate::resource_resolver::ResourceResolverContext) -> Self {
         Self {
-            css_paths,
-            ..Default::default()
+            resolver: Some(resolver),
         }
     }
 }
@@ -126,14 +134,19 @@ pub struct AstOutput {
 /// This creates stages for:
 /// 1. `ParseDocumentStage` - Parse QMD to Pandoc AST
 /// 2. `MetadataMergeStage` - Merge project/directory/document/runtime metadata
-/// 3. `EngineExecutionStage` - Execute code cells (jupyter, knitr, or markdown passthrough)
-/// 4. `CompileThemeCssStage` - Compile theme CSS from merged metadata
-/// 5. `UserFiltersStage::pre()` - Apply user filters before Quarto transforms
-/// 6. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, etc.)
-/// 7. `UserFiltersStage::post()` - Apply user filters after Quarto transforms
-/// 8. `CodeHighlightStage` - Annotate CodeBlock/Code with `data-hl-spans`
-/// 9. `RenderHtmlBodyStage` - Render AST to HTML body
-/// 10. `ApplyTemplateStage` - Apply HTML template
+/// 3. `IncludeExpansionStage` - Splice in `{{< include child.qmd >}}` bodies
+/// 4. `DocumentProfileStage` - Extract the static profile at the checkpoint
+/// 5. `LinkResolutionStage` - Walk AST for cross-doc body-link targets (Phase 8)
+/// 6. `UnwrapProfileStage` - Hand the AST back to downstream stages
+/// 6. `PreEngineSugaringStage` - Seed crossref registry / desugar shorthand
+/// 7. `EngineExecutionStage` - Execute code cells (jupyter, knitr, or markdown passthrough)
+/// 8. `CompileThemeCssStage` - Compile theme CSS from merged metadata
+/// 9. `UserFiltersStage::pre()` - Apply user filters before Quarto transforms
+/// 10. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, etc.)
+/// 11. `UserFiltersStage::post()` - Apply user filters after Quarto transforms
+/// 12. `CodeHighlightStage` - Annotate CodeBlock/Code with `data-hl-spans`
+/// 13. `RenderHtmlBodyStage` - Render AST to HTML body
+/// 14. `ApplyTemplateStage` - Apply HTML template
 pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
     build_html_pipeline_stages_with_apply_config(None)
 }
@@ -156,7 +169,22 @@ pub fn build_html_pipeline_stages_with_apply_config(
     let mut stages: Vec<Box<dyn PipelineStage>> = vec![
         Box::new(ParseDocumentStage::new()),
         Box::new(MetadataMergeStage::new()),
+        // Include-shortcode expansion runs before the profile
+        // checkpoint so content spliced in via `{{< include … >}}`
+        // (headings, code blocks, crossref targets) is visible to
+        // DocumentProfile — see bd-xfwx and
+        // `claude-notes/plans/2026-04-24-include-expansion-merge.md`.
         Box::new(IncludeExpansionStage::new()),
+        // Profile checkpoint: post-merge, pre-mutation. See
+        // `claude-notes/designs/document-profile-contract.md`.
+        Box::new(DocumentProfileStage::new()),
+        // Pass-1 cross-doc body-link resolution. Walks the AST
+        // (read-only) and writes each link target into
+        // `profile.body_link_targets` so the Phase-8 dependency
+        // graph can use them. See
+        // `claude-notes/designs/body-link-resolution-contract.md`.
+        Box::new(LinkResolutionStage::new()),
+        Box::new(UnwrapProfileStage::new()),
         Box::new(PreEngineSugaringStage::new()),
         Box::new(EngineExecutionStage::new()),
         Box::new(CompileThemeCssStage::new()),
@@ -209,12 +237,16 @@ pub fn build_html_pipeline() -> Pipeline {
 /// Stages:
 /// 1. `ParseDocumentStage` - Parse QMD to Pandoc AST
 /// 2. `MetadataMergeStage` - Merge project/directory/document/runtime metadata
-/// 3. `CompileThemeCssStage` - Compile theme CSS from merged metadata
-/// 4. `UserFiltersStage::pre()` - Apply user filters before Quarto transforms
-/// 5. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, TOC, etc.)
-/// 6. `UserFiltersStage::post()` - Apply user filters after Quarto transforms
-/// 7. `RenderHtmlBodyStage` - Render AST to HTML body
-/// 8. `ApplyTemplateStage` - Apply HTML template
+/// 3. `IncludeExpansionStage` - Splice in `{{< include child.qmd >}}` bodies
+/// 4. `DocumentProfileStage` - Extract the static profile at the checkpoint
+/// 5. `LinkResolutionStage` - Walk AST for cross-doc body-link targets (Phase 8)
+/// 6. `UnwrapProfileStage` - Hand the AST back to downstream stages
+/// 6. `CompileThemeCssStage` - Compile theme CSS from merged metadata
+/// 7. `UserFiltersStage::pre()` - Apply user filters before Quarto transforms
+/// 8. `AstTransformsStage` - Run Quarto transforms (callouts, metadata, TOC, etc.)
+/// 9. `UserFiltersStage::post()` - Apply user filters after Quarto transforms
+/// 10. `RenderHtmlBodyStage` - Render AST to HTML body
+/// 11. `ApplyTemplateStage` - Apply HTML template
 ///
 /// # Returns
 ///
@@ -229,7 +261,15 @@ pub fn build_wasm_html_pipeline() -> Pipeline {
         Box::new(ParseDocumentStage::new()),
         // No EngineExecutionStage - code cells pass through as-is
         Box::new(MetadataMergeStage::new()),
+        // Include expansion before the profile checkpoint — bd-xfwx.
         Box::new(IncludeExpansionStage::new()),
+        // Profile checkpoint: post-merge, pre-mutation. Hub-client
+        // Phase 9 will intercept this variant to build project-wide
+        // nav state.
+        Box::new(DocumentProfileStage::new()),
+        // Pass-1 cross-doc body-link resolution (Phase 8 sub-phase 8.0d).
+        Box::new(LinkResolutionStage::new()),
+        Box::new(UnwrapProfileStage::new()),
         Box::new(PreEngineSugaringStage::new()),
         Box::new(CompileThemeCssStage::new()),
         Box::new(UserFiltersStage::pre()),
@@ -381,6 +421,15 @@ pub async fn run_pipeline(
     // Transfer user-grammar provider (browser path sets this; native CLI
     // leaves it None and falls back to `CodeHighlightStage`'s disk scan).
     stage_ctx.user_grammar_provider = ctx.user_grammar_provider.take();
+    // Transfer the project index (set by ProjectPipeline::pass_two).
+    // Cloning the `Arc` is cheap and keeps the RenderContext usable
+    // after the stage context is built.
+    stage_ctx.project_index = ctx.project_index.clone();
+    // Phase 6: thread the per-page resource resolver through to the
+    // stage so that `AstTransformsStage` can re-bridge it back into
+    // the inner `RenderContext` consumed by AST transforms (notably
+    // `LinkRewriteTransform`).
+    stage_ctx.resource_resolver = ctx.resource_resolver.clone();
 
     // Create input from content
     let input = PipelineData::LoadedSource(LoadedSource::new(
@@ -487,17 +536,15 @@ pub async fn render_qmd_to_html(
     content: &[u8],
     source_name: &str,
     ctx: &mut RenderContext<'_>,
-    config: &HtmlRenderConfig<'_>,
+    config: &HtmlRenderConfig,
     runtime: Arc<dyn quarto_system_runtime::SystemRuntime>,
 ) -> Result<RenderOutput> {
     // Build pipeline based on config. Both branches share the same
     // stage list (via `build_html_pipeline_stages_with_apply_config`);
     // the only difference is whether the final `ApplyTemplateStage`
-    // carries a custom CSS-path / resource-prefix config.
-    let stages = if !config.css_paths.is_empty() {
-        let apply_config = ApplyTemplateConfig::new()
-            .with_css_paths(config.css_paths.to_vec())
-            .with_resource_prefix(config.resource_prefix.to_string());
+    // carries a scope-aware resolver.
+    let stages = if let Some(resolver) = config.resolver.clone() {
+        let apply_config = ApplyTemplateConfig::new().with_resolver(resolver);
         build_html_pipeline_stages_with_apply_config(Some(apply_config))
     } else {
         build_html_pipeline_stages()
@@ -530,6 +577,15 @@ pub async fn render_qmd_to_html(
 /// 2. `CalloutResolveTransform` - Resolve CustomNodes to structured Divs
 /// 3. `ShortcodeResolveTransform` - Resolve shortcodes (e.g., `{{< meta title >}}`)
 /// 4. `MetadataNormalizeTransform` - Add derived metadata (pagetitle, etc.)
+/// 4a. `WebsiteTitlePrefixTransform` - Combine `website.title` with the page's title
+///     into the rendered `<title>` (Phase 7)
+/// 4b. `WebsiteFaviconTransform` - Append `<link rel="icon">` for `website.favicon`
+///     to the page's `header-includes` (Phase 7)
+/// 4b'. `WebsiteBootstrapIconsTransform` - For website projects, ship the
+///     vendored `bootstrap-icons.{css,woff}` to `_site/site_libs/bootstrap/`
+///     and append a `<link rel="stylesheet">` so `bi-*` icons render (bd-bsut)
+/// 4c. `WebsiteCanonicalUrlTransform` - Set `canonical-url` from
+///     `website.site-url + output_href` (Phase 7)
 /// 5. `TitleBlockTransform` - Add title header from metadata if not present
 /// 6. `SectionizeTransform` - Wrap headers in section Divs (for HTML semantic structure)
 /// 7. `FootnotesTransform` - Extract footnotes and create footnotes section
@@ -545,14 +601,18 @@ pub async fn render_qmd_to_html(
 ///
 /// 9. `TocGenerateTransform` - Generate TOC from headers (if `toc: true`)
 /// 10. `NavbarGenerateTransform` - Resolve `navbar:` YAML into `navigation.navbar`
-/// 11. `FooterGenerateTransform` - Resolve `page-footer:` YAML into `navigation.footer`
-/// 12. `TocRenderTransform` - Render TOC to HTML for template insertion
-/// 13. `NavbarRenderTransform` - Render navbar to HTML for template insertion
-/// 14. `FooterRenderTransform` - Render page footer to HTML for template insertion
+/// 11. `SidebarGenerateTransform` - Resolve `website.sidebar:` into `navigation.sidebar`
+/// 12. `FooterGenerateTransform` - Resolve `page-footer:` YAML into `navigation.footer`
+/// 13. `TocRenderTransform` - Render TOC to HTML for template insertion
+/// 14. `NavbarRenderTransform` - Render navbar to HTML for template insertion
+/// 15. `SidebarRenderTransform` - Render sidebar to HTML (w/ .qmd→.html rewrite)
+/// 16. `FooterRenderTransform` - Render page footer to HTML for template insertion
 ///
 /// ## Finalization Phase
-/// 15. `AppendixStructureTransform` - Consolidate appendix content into container
-/// 16. `ResourceCollectorTransform` - Collect image dependencies
+/// 17. `LinkRewriteTransform` - Rewrite body-content `.qmd` links to relative output URLs (Phase 6)
+/// 18. `AppendixStructureTransform` - Consolidate appendix content into container
+/// 19. `CrossrefRenderTransform` - Resolve crossref custom nodes to final HTML structure
+/// 20. `ResourceCollectorTransform` - Collect image dependencies
 pub fn build_transform_pipeline(
     shortcode_paths: Vec<std::path::PathBuf>,
     extensions: Vec<crate::extension::types::Extension>,
@@ -571,6 +631,17 @@ pub fn build_transform_pipeline(
         target_format,
     )));
     pipeline.push(Box::new(MetadataNormalizeTransform::new()));
+    // Website per-page metadata transforms (Phase 7 of the
+    // website-projects epic). Each is a no-op outside a website
+    // project. Order: title-prefix runs before favicon/canonical
+    // because the latter two read fields the former might modify
+    // in the future; today they're independent.
+    // See `claude-notes/plans/2026-04-27-websites-phase-7.md`
+    // §Decision 3.
+    pipeline.push(Box::new(WebsiteTitlePrefixTransform::new()));
+    pipeline.push(Box::new(WebsiteFaviconTransform::new()));
+    pipeline.push(Box::new(WebsiteBootstrapIconsTransform::new()));
+    pipeline.push(Box::new(WebsiteCanonicalUrlTransform::new()));
     pipeline.push(Box::new(TitleBlockTransform::new()));
     pipeline.push(Box::new(SectionizeTransform::new()));
     pipeline.push(Box::new(FootnotesTransform::new()));
@@ -594,12 +665,26 @@ pub fn build_transform_pipeline(
     // available; navbar/footer generates only read top-level metadata.
     pipeline.push(Box::new(TocGenerateTransform::new()));
     pipeline.push(Box::new(NavbarGenerateTransform::new()));
+    pipeline.push(Box::new(SidebarGenerateTransform::new()));
+    // PageNavGenerate must run after SidebarGenerate so it reads the
+    // resolved `navigation.sidebar` for the current page.
+    pipeline.push(Box::new(PageNavGenerateTransform::new()));
     pipeline.push(Box::new(FooterGenerateTransform::new()));
     pipeline.push(Box::new(TocRenderTransform::new()));
     pipeline.push(Box::new(NavbarRenderTransform::new()));
+    pipeline.push(Box::new(SidebarRenderTransform::new()));
+    pipeline.push(Box::new(PageNavRenderTransform::new()));
     pipeline.push(Box::new(FooterRenderTransform::new()));
 
     // === FINALIZATION PHASE ===
+    // LinkRewriteTransform runs first in the Finalization Phase
+    // (Phase 6 of the website-projects epic). It walks every
+    // `Inline::Link` in the body and rewrites internal `.qmd`
+    // hrefs to their page-relative output URLs via the
+    // `ProjectIndex` and `ResourceResolverContext`. Standalone
+    // renders without a `ProjectIndex` are a no-op. See
+    // `claude-notes/plans/2026-04-24-websites-phase-6.md`.
+    pipeline.push(Box::new(LinkRewriteTransform::new()));
     pipeline.push(Box::new(AppendixStructureTransform::new()));
     pipeline.push(Box::new(CrossrefRenderTransform::new()));
     pipeline.push(Box::new(ResourceCollectorTransform::new()));
@@ -822,7 +907,12 @@ mod tests {
     }
 
     #[test]
-    fn test_render_with_css_paths() {
+    fn test_render_emits_theme_css_link_via_resolver() {
+        // Phase 5: the theme CSS comes from the
+        // `css:theme:<fingerprint>` artifact stored by
+        // `CompileThemeCssStage`. With a `single_doc` resolver
+        // attached, its URL appears as
+        // `<output_stem>_files/styles.css` in the rendered HTML.
         let content = b"---\ntitle: Test\n---\n\nContent";
 
         let project = make_test_project();
@@ -831,27 +921,36 @@ mod tests {
         let binaries = BinaryDependencies::new();
         let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
 
-        let css_paths = vec!["custom.css".to_string()];
-        let config = HtmlRenderConfig::with_css(&css_paths);
+        let resolver = crate::resource_resolver::ResourceResolverContext::single_doc(
+            "/project/test.html",
+            "test",
+        );
+        let config = HtmlRenderConfig::with_resolver(resolver);
         let runtime = make_test_runtime();
         let output = pollster::block_on(render_qmd_to_html(
             content, "test.qmd", &mut ctx, &config, runtime,
         ))
         .unwrap();
 
-        // Custom CSS should be in the output
-        assert!(output.html.contains("custom.css"));
+        assert!(
+            output.html.contains("test_files/styles.css"),
+            "expected `<link href=\"test_files/styles.css\">` from the resolver; got:\n{}",
+            &output.html,
+        );
     }
 
     #[test]
-    fn test_render_code_block_is_syntax_highlighted_with_css_paths() {
+    fn test_render_code_block_is_syntax_highlighted_via_resolver() {
         // Regression test for the CLI render path: `render_document_to_file`
-        // always supplies a non-empty `css_paths`, which routes through the
-        // "custom ApplyTemplateStage" branch of `render_qmd_to_html`. A
-        // previous version of that branch inlined its own stage list and
-        // silently omitted `CodeHighlightStage`, so `quarto render` emitted
-        // un-highlighted HTML even though the default-config test passed.
-        // Keep this test in lockstep with `test_render_code_block_is_syntax_highlighted`.
+        // routes through the "resolver-attached ApplyTemplateStage"
+        // branch of `render_qmd_to_html`. A previous version of that
+        // branch inlined its own stage list and silently omitted
+        // `CodeHighlightStage`, so `quarto render` emitted
+        // un-highlighted HTML even though the default-config test
+        // passed. Phase 5 keeps both branches sharing the same stage
+        // list via `build_html_pipeline_stages_with_apply_config`;
+        // this test pins the highlighting still works under the
+        // resolver-attached config.
         let content =
             b"---\ntitle: Test\n---\n\n```python\ndef greet(name):\n    print(name)\n```\n";
 
@@ -861,8 +960,11 @@ mod tests {
         let binaries = BinaryDependencies::new();
         let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
 
-        let css_paths = vec!["custom.css".to_string()];
-        let config = HtmlRenderConfig::with_css(&css_paths);
+        let resolver = crate::resource_resolver::ResourceResolverContext::single_doc(
+            "/project/test.html",
+            "test",
+        );
+        let config = HtmlRenderConfig::with_resolver(resolver);
         let runtime = make_test_runtime();
         let output = pollster::block_on(render_qmd_to_html(
             content, "test.qmd", &mut ctx, &config, runtime,
@@ -935,34 +1037,41 @@ mod tests {
     #[test]
     fn test_build_html_pipeline_stages() {
         let stages = build_html_pipeline_stages();
-        assert_eq!(stages.len(), 12);
+        assert_eq!(stages.len(), 15);
         assert_eq!(stages[0].name(), "parse-document");
         assert_eq!(stages[1].name(), "metadata-merge");
+        // Include expansion runs before the profile checkpoint (bd-xfwx)
+        // so profiles reflect content spliced in via `{{< include ... >}}`.
         assert_eq!(stages[2].name(), "include-expansion");
-        assert_eq!(stages[3].name(), "pre-engine-sugaring");
-        assert_eq!(stages[4].name(), "engine-execution");
-        assert_eq!(stages[5].name(), "compile-theme-css");
-        assert_eq!(stages[6].name(), "user-filters-pre");
-        assert_eq!(stages[7].name(), "ast-transforms");
-        assert_eq!(stages[8].name(), "user-filters-post");
-        assert_eq!(stages[9].name(), "code-highlight");
-        assert_eq!(stages[10].name(), "render-html-body");
-        assert_eq!(stages[11].name(), "apply-template");
+        // Profile checkpoint (Phase 0 website epic, bd-f3jc).
+        assert_eq!(stages[3].name(), "document-profile");
+        // Cross-doc body-link resolution (Phase 8 sub-phase 8.0d).
+        assert_eq!(stages[4].name(), "link-resolution");
+        assert_eq!(stages[5].name(), "unwrap-profile");
+        assert_eq!(stages[6].name(), "pre-engine-sugaring");
+        assert_eq!(stages[7].name(), "engine-execution");
+        assert_eq!(stages[8].name(), "compile-theme-css");
+        assert_eq!(stages[9].name(), "user-filters-pre");
+        assert_eq!(stages[10].name(), "ast-transforms");
+        assert_eq!(stages[11].name(), "user-filters-post");
+        assert_eq!(stages[12].name(), "code-highlight");
+        assert_eq!(stages[13].name(), "render-html-body");
+        assert_eq!(stages[14].name(), "apply-template");
     }
 
     #[test]
     fn test_build_html_pipeline() {
         let pipeline = build_html_pipeline();
-        assert_eq!(pipeline.len(), 12);
+        assert_eq!(pipeline.len(), 15);
     }
 
     #[test]
     fn test_build_wasm_html_pipeline() {
         let pipeline = build_wasm_html_pipeline();
-        // WASM pipeline has 11 stages (no engine execution, but otherwise
-        // the same as the native HTML pipeline: includes include-expansion
-        // and code-highlight).
-        assert_eq!(pipeline.len(), 11);
+        // WASM pipeline now has 14 stages: same as the native HTML
+        // pipeline (include-expansion, profile checkpoint, link-resolution,
+        // code-highlight, …) minus `engine-execution`.
+        assert_eq!(pipeline.len(), 14);
     }
 
     #[test]
@@ -1078,11 +1187,16 @@ mod tests {
     }
 
     fn get_css_artifact(ctx: &crate::render::RenderContext) -> String {
-        let artifact = ctx
-            .artifacts
-            .get("css:default")
-            .expect("css:default artifact missing");
-        String::from_utf8(artifact.content.clone()).expect("CSS should be valid UTF-8")
+        // Phase 5: theme CSS is now keyed `css:theme:<fingerprint>`
+        // (one entry per distinct compiled theme).
+        let entries: Vec<_> = ctx.artifacts.get_by_prefix("css:theme:");
+        assert_eq!(
+            entries.len(),
+            1,
+            "expected exactly one css:theme:* artifact, found {}",
+            entries.len()
+        );
+        String::from_utf8(entries[0].1.content.clone()).expect("CSS should be valid UTF-8")
     }
 
     #[test]

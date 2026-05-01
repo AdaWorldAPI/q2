@@ -22,7 +22,9 @@ use quarto_system_runtime::SystemRuntime;
 use crate::artifact::ArtifactStore;
 use crate::crossref::{CrossrefIndex, RefTypeRegistry};
 use crate::format::Format;
+use crate::project::index::ProjectIndex;
 use crate::project::{DocumentInfo, ProjectContext};
+use crate::resource_resolver::ResourceResolverContext;
 use crate::stage::{NoopObserver, PandocIncludes, PipelineObserver};
 
 /// Binary dependencies available for rendering
@@ -122,6 +124,29 @@ pub struct RenderContext<'a> {
     /// Bridged to/from `StageContext` by `AstTransformsStage`.
     pub crossref_index: Option<CrossrefIndex>,
 
+    /// Project-wide index of Pass-1 profiles.
+    ///
+    /// Populated by
+    /// [`ProjectPipeline`](crate::project::orchestrator::ProjectPipeline)
+    /// before each file's Pass-2 render, transferred into
+    /// [`StageContext::project_index`](crate::stage::StageContext) by
+    /// [`run_pipeline`](crate::pipeline::run_pipeline). `None` for
+    /// standalone renders.
+    pub project_index: Option<Arc<ProjectIndex>>,
+
+    /// Per-page scope-aware resolver for HTML asset URLs and
+    /// cross-document body links.
+    ///
+    /// Populated alongside `project_index` in
+    /// [`crate::render_to_file::render_document_to_file`] (Phase 5
+    /// constructs the resolver for `HtmlRenderConfig`; Phase 6
+    /// makes the same resolver available to AST transforms via this
+    /// field). `None` when no per-page resolver has been built —
+    /// e.g. unit tests that construct a `RenderContext` directly,
+    /// or pipeline drivers that don't go through
+    /// `render_document_to_file`.
+    pub resource_resolver: Option<ResourceResolverContext>,
+
     /// Observer for pipeline tracing.
     ///
     /// Bridged from `StageContext` by `AstTransformsStage` so that
@@ -174,9 +199,34 @@ impl<'a> RenderContext<'a> {
             diagnostics: Vec::new(),
             ref_type_registry: None,
             crossref_index: None,
+            project_index: None,
+            resource_resolver: None,
             observer: Arc::new(NoopObserver),
             user_grammar_provider: None,
         }
+    }
+
+    /// Attach a project-wide [`ProjectIndex`] to this context.
+    ///
+    /// Called by
+    /// [`ProjectPipeline`](crate::project::orchestrator::ProjectPipeline)
+    /// before each file's Pass-2 render.
+    pub fn with_project_index(mut self, index: Arc<ProjectIndex>) -> Self {
+        self.project_index = Some(index);
+        self
+    }
+
+    /// Attach a [`ResourceResolverContext`] to this context.
+    ///
+    /// Production callers receive their resolver through the
+    /// `StageContext` ↔ `RenderContext` bridge inside the
+    /// pipeline; this builder is primarily for test scaffolding
+    /// and out-of-band callers (e.g. unit tests that drive a
+    /// single Render transform directly without standing up a
+    /// full pipeline).
+    pub fn with_resource_resolver(mut self, resolver: ResourceResolverContext) -> Self {
+        self.resource_resolver = Some(resolver);
+        self
     }
 
     /// Create with custom options

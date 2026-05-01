@@ -39,6 +39,7 @@
 pub mod artifact;
 pub mod crossref;
 pub mod dependency;
+pub mod document_profile;
 pub mod engine;
 pub mod error;
 pub mod extension;
@@ -49,6 +50,7 @@ pub mod project;
 pub mod render;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod render_to_file;
+pub mod resource_resolver;
 pub mod resources;
 pub mod stage;
 pub mod template;
@@ -56,7 +58,7 @@ pub mod transform;
 pub mod transforms;
 
 // Re-export commonly used types
-pub use artifact::{Artifact, ArtifactStore};
+pub use artifact::{Artifact, ArtifactMergeConflict, ArtifactScope, ArtifactStore, MergeStats};
 pub use error::{ParseError, QuartoError, Result};
 pub use format::{Format, FormatIdentifier};
 pub use pipeline::{
@@ -64,8 +66,9 @@ pub use pipeline::{
     build_html_pipeline_stages, build_html_pipeline_with_stages, build_wasm_html_pipeline,
     render_qmd_to_html,
 };
-pub use project::{DocumentInfo, ProjectConfig, ProjectContext, ProjectType};
+pub use project::{DocumentInfo, ProjectConfig, ProjectContext, ProjectKind};
 pub use render::{BinaryDependencies, RenderContext, RenderOptions, RenderResult};
+pub use resource_resolver::ResourceResolverContext;
 pub use transform::{AstTransform, TransformPipeline};
 pub use transforms::{
     CalloutResolveTransform, CalloutTransform, MetadataNormalizeTransform,

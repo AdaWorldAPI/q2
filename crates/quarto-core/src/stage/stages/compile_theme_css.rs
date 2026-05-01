@@ -9,7 +9,12 @@
 //!
 //! This stage reads the format-flattened metadata (produced by
 //! [`MetadataMergeStage`]), extracts the theme configuration, compiles
-//! SCSS to CSS, and stores the result as the `"css:default"` artifact.
+//! SCSS to CSS, and stores the result as a Project-scoped artifact
+//! keyed `css:theme:<fingerprint>` (Phase 5). The fingerprint is
+//! derived from the *output* CSS bytes so two compilations producing
+//! identical output share an artifact (deduplication across pages
+//! that use the same theme), while different output produces
+//! different keys (multi-theme websites coexist).
 //!
 //! Behavior by theme value (mirrors Quarto 1):
 //!
@@ -27,20 +32,63 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use quarto_sass::{
-    CSS_BUILD_ID, ThemeConfig, ThemeContext, assemble_theme_scss, compile_default_css,
-};
+use quarto_pandoc_types::ConfigValue;
+use quarto_sass::{CSS_BUILD_ID, SassLayer, ThemeConfig, ThemeContext, compile_default_css};
 use quarto_system_runtime::{
     SASS_CACHE_BUDGET_BYTES, SystemRuntime, cache_get_lru, cache_set_lru, ensure_namespace_version,
 };
 
-use crate::artifact::Artifact;
-use crate::pipeline::DEFAULT_CSS_ARTIFACT_PATH;
+use crate::artifact::{Artifact, ArtifactScope};
 use crate::resources::DEFAULT_CSS;
 use crate::stage::{
     EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, StageContext,
 };
 use crate::trace_event;
+
+/// Build a SCSS layer of `$variable: value;` assignments derived from
+/// per-document / project metadata.
+///
+/// The returned layer slots into `assemble_with_user_layers` as the
+/// **last** user layer, which `merge_layers()` then promotes to the
+/// front of the merged-defaults section. That places its assignments
+/// before the framework's `$variable: ... !default;` declarations, so
+/// they win the `!default` race without needing `!default` themselves.
+///
+/// **Currently emits:**
+///
+/// - `$sidebar-border` for the website's first sidebar. Mirrors Q1's
+///   `format-html-scss.ts` — defaults to `(style == "docked")`. Phase
+///   3 of the bd-k8y0 plan adds an explicit `sidebar.border:` YAML
+///   knob and threads it through here.
+///
+/// Multi-sidebar projects pick the **first** sidebar's setting, matching
+/// Q1's per-format behavior. A future pass that wants per-sidebar
+/// borders would need a different mechanism (the `$sidebar-border` rule
+/// is global by selector).
+///
+/// Returns an empty layer when no relevant metadata is present.
+pub fn derive_doc_scss_layer(meta: &ConfigValue) -> SassLayer {
+    use quarto_navigation::{Sidebar, SidebarStyle};
+
+    let mut defaults = String::new();
+
+    if let Some(sidebar_cv) = meta.get_path(&["website", "sidebar"]) {
+        let sidebars = Sidebar::parse_list_from_config(sidebar_cv);
+        if let Some(first) = sidebars.first() {
+            // Q1 parity: explicit `sidebar.border:` wins; absent → default
+            // to `(style == Docked)`. See `format-html-scss.ts:631-642`.
+            let border = first
+                .border
+                .unwrap_or_else(|| matches!(first.style, SidebarStyle::Docked));
+            defaults.push_str(&format!("$sidebar-border: {};\n", border));
+        }
+    }
+
+    SassLayer {
+        defaults,
+        ..Default::default()
+    }
+}
 
 /// Name of the cache namespace used for compiled SCSS CSS output.
 const SASS_CACHE_NAMESPACE: &str = "sass";
@@ -83,7 +131,7 @@ async fn ensure_sass_cache_ready(runtime: &dyn SystemRuntime) -> bool {
 /// 1. Extracts `ThemeConfig` from merged metadata (`doc.ast.meta`)
 /// 2. If no theme: stores `DEFAULT_CSS` and returns
 /// 3. If themed: assembles SCSS, checks cache, compiles if needed
-/// 4. Stores result as `"css:default"` artifact
+/// 4. Stores result as `"css:theme:<fingerprint>"` Project-scoped artifact
 ///
 /// The stage passes `DocumentAst` through unchanged — it only produces
 /// a side-effect artifact.
@@ -108,15 +156,21 @@ impl Default for CompileThemeCssStage {
 }
 
 /// Compute a cache key from theme specifications, the SCSS resources hash,
-/// and custom file contents.
+/// custom file contents, and any per-document SCSS variable assignments.
 ///
-/// The key is `SHA256(SCSS_RESOURCES_HASH + theme_identities + custom_file_contents + minified)`.
-/// Built-in themes contribute only their name (content is already covered by
-/// `SCSS_RESOURCES_HASH`). Custom themes contribute their resolved path and file contents.
+/// The key is `SHA256(SCSS_RESOURCES_HASH + theme_identities +
+/// custom_file_contents + doc_vars + minified)`. Built-in themes contribute
+/// only their name (content is already covered by `SCSS_RESOURCES_HASH`).
+/// Custom themes contribute their resolved path and file contents.
+/// `doc_vars` contributes its serialized `defaults` string so two
+/// documents with different per-document variables (e.g. docked vs.
+/// floating sidebar → different `$sidebar-border`) get distinct keys
+/// and don't alias each other in the runtime cache.
 fn cache_key(
     theme_config: &ThemeConfig,
     theme_context: &ThemeContext<'_>,
     runtime: &dyn quarto_system_runtime::SystemRuntime,
+    doc_vars: &SassLayer,
 ) -> Result<String, String> {
     use quarto_sass::{SCSS_RESOURCES_HASH, ThemeSpec};
     use sha2::{Digest, Sha256};
@@ -147,6 +201,14 @@ fn cache_key(
         }
         hasher.update(b"\n");
     }
+
+    // Include doc-vars layer's defaults. We hash the defaults section
+    // because that's the only section `derive_doc_scss_layer` populates
+    // today; if we ever start emitting rules / mixins from metadata,
+    // this hash should grow accordingly.
+    hasher.update(b"doc_vars:");
+    hasher.update(doc_vars.defaults.as_bytes());
+    hasher.update(b"\n");
 
     // Include minification flag
     hasher.update(if theme_config.minified { b"1" } else { b"0" });
@@ -214,10 +276,16 @@ impl PipelineStage for CompileThemeCssStage {
         // unavailable and we compile without caching.
         let cache_ok = ensure_sass_cache_ready(ctx.runtime.as_ref()).await;
 
-        // Theme absent → compile default Bootstrap + Quarto layer. Matches
-        // Quarto 1's behavior so features like navbar/footer have the CSS
-        // classes they depend on.
-        if !theme_config.has_themes() {
+        // Build the per-document SCSS variables layer (Phase 2 of bd-k8y0).
+        // Today this is just `$sidebar-border` from `website.sidebar.style`,
+        // but the same hook is the home for future `$sidebar-bg`,
+        // `$navbar-bg`, etc. injections — see the plan and `derive_doc_scss_layer`.
+        let doc_vars = derive_doc_scss_layer(&doc.ast.meta);
+
+        // Fast path: no themes AND no doc-derived variables. Use the
+        // shared, cached default-CSS bundle. This preserves byte-identity
+        // with prior behavior for plain documents (no website / no sidebar).
+        if !theme_config.has_themes() && doc_vars.is_empty() {
             // Try the runtime cache first (cross-session persistence).
             if cache_ok {
                 if let Ok(Some(cached)) = cache_get_lru(
@@ -238,7 +306,7 @@ impl PipelineStage for CompileThemeCssStage {
             trace_event!(
                 ctx,
                 EventLevel::Debug,
-                "no theme specified, compiling default Bootstrap + Quarto layer"
+                "no theme / no doc-vars, compiling default Bootstrap + Quarto layer"
             );
             match compile_default(ctx, theme_config.minified).await {
                 Ok(css) => {
@@ -267,7 +335,9 @@ impl PipelineStage for CompileThemeCssStage {
             return Ok(PipelineData::DocumentAst(doc));
         }
 
-        // Create ThemeContext (needed for both cache key and assembly)
+        // Themed and/or doc-vars-bearing path: compute fingerprinted cache
+        // key (factors in theme identities + doc-vars), check the runtime
+        // cache, then compile via `compile_with_doc_vars` on miss.
         let document_dir = doc
             .path
             .parent()
@@ -275,8 +345,12 @@ impl PipelineStage for CompileThemeCssStage {
             .unwrap_or_else(|| PathBuf::from("."));
         let theme_context = ThemeContext::new(document_dir, ctx.runtime.as_ref());
 
-        // Compute cache key BEFORE assembly (reads custom files, but skips SCSS assembly)
-        let key = match cache_key(&theme_config, &theme_context, ctx.runtime.as_ref()) {
+        let key = match cache_key(
+            &theme_config,
+            &theme_context,
+            ctx.runtime.as_ref(),
+            &doc_vars,
+        ) {
             Ok(k) => k,
             Err(e) => {
                 trace_event!(
@@ -308,30 +382,17 @@ impl PipelineStage for CompileThemeCssStage {
             }
         }
 
-        // Cache miss — assemble and compile
-        let (scss, load_paths) = match assemble_theme_scss(&theme_config, &theme_context) {
-            Ok(result) => result,
-            Err(e) => {
-                trace_event!(
-                    ctx,
-                    EventLevel::Warn,
-                    "failed to assemble theme SCSS: {}, using default CSS",
-                    e
-                );
-                store_default_css(ctx);
-                return Ok(PipelineData::DocumentAst(doc));
-            }
-        };
-
         trace_event!(
             ctx,
             EventLevel::Debug,
-            "compiling theme CSS ({} themes, key={})",
+            "compiling theme CSS ({} themes, doc_vars={} bytes, key={})",
             theme_config.themes.len(),
+            doc_vars.defaults.len(),
             key
         );
 
-        let css = compile_scss(ctx, &scss, &load_paths, theme_config.minified).await;
+        let css =
+            compile_with_doc_vars_via_runtime(ctx, &theme_config, &theme_context, &doc_vars).await;
 
         match css {
             Ok(css) => {
@@ -363,18 +424,74 @@ impl PipelineStage for CompileThemeCssStage {
     }
 }
 
+/// Length of the theme fingerprint hex prefix used in artifact
+/// keys and on-disk filenames. 16 hex chars = 64 bits = ample
+/// collision resistance for the small set of distinct themes a
+/// single project will produce.
+const THEME_FINGERPRINT_LEN: usize = 16;
+
+/// Compute a stable, content-derived fingerprint for a compiled
+/// theme CSS string. Two compilations producing identical bytes
+/// produce identical fingerprints; the merge layer
+/// ([`crate::artifact::ArtifactStore::merge_into_project`])
+/// dedupes those into a single shared artifact.
+///
+/// Hashing the *output* (rather than the inputs) sidesteps the
+/// "did we hash everything that affects the result?" problem:
+/// the SCSS pipeline can normalize / canonicalize inputs in any
+/// order it likes, and identical CSS output → identical
+/// fingerprint by construction.
+///
+/// See `claude-notes/plans/2026-04-24-websites-phase-5.md`
+/// Decision 9.
+pub fn theme_fingerprint(css: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(css.as_bytes());
+    let hash = hasher.finalize();
+    let hex = format!("{:x}", hash);
+    hex[..THEME_FINGERPRINT_LEN].to_string()
+}
+
+/// Build the artifact key + relative on-disk path from a theme
+/// CSS fingerprint.
+///
+/// **Path naming differs by project type** to preserve byte-
+/// identical single-doc behavior (see Phase 5 Decision 10):
+///
+/// - **Single-doc** (`is_single_file == true`): path is the bare
+///   `styles.css`, mirroring the pre-Phase-5 layout. Single-doc
+///   renders only ever produce one theme per render call, so a
+///   non-fingerprinted name is unambiguous.
+/// - **Multi-doc / website**: path is
+///   `quarto/quarto-theme-<fingerprint>.css`, namespaced under
+///   `quarto/` so multi-theme websites can coexist.
+///
+/// The artifact **key** is fingerprint-keyed in both cases so
+/// the project-merge dedup works whenever two pages emit the
+/// same theme bytes.
+fn theme_artifact_key_and_path(fingerprint: &str, single_doc: bool) -> (String, PathBuf) {
+    let key = format!("css:theme:{}", fingerprint);
+    let path = if single_doc {
+        PathBuf::from("styles.css")
+    } else {
+        PathBuf::from(format!("quarto/quarto-theme-{}.css", fingerprint))
+    };
+    (key, path)
+}
+
 fn store_default_css(ctx: &mut StageContext) {
-    ctx.artifacts.store(
-        "css:default",
-        Artifact::from_string(DEFAULT_CSS, "text/css")
-            .with_path(PathBuf::from(DEFAULT_CSS_ARTIFACT_PATH)),
-    );
+    store_css(ctx, DEFAULT_CSS.to_string());
 }
 
 fn store_css(ctx: &mut StageContext, css: String) {
+    let fingerprint = theme_fingerprint(&css);
+    let (key, path) = theme_artifact_key_and_path(&fingerprint, ctx.project.is_single_file);
     ctx.artifacts.store(
-        "css:default",
-        Artifact::from_string(css, "text/css").with_path(PathBuf::from(DEFAULT_CSS_ARTIFACT_PATH)),
+        key,
+        Artifact::from_string(css, "text/css")
+            .with_path(path)
+            .with_scope(ArtifactScope::Project),
     );
 }
 
@@ -398,38 +515,30 @@ async fn compile_default(ctx: &StageContext, minified: bool) -> Result<String, S
         .map_err(|e| e.to_string())
 }
 
+/// Compile a (possibly themed) bundle plus an optional doc-derived
+/// SassLayer. Native is sync (`grass`); WASM is async (dart-sass JS
+/// bridge). This wrapper gives the stage a single call site.
 #[cfg(not(target_arch = "wasm32"))]
-async fn compile_scss(
+async fn compile_with_doc_vars_via_runtime(
     ctx: &StageContext,
-    scss: &str,
-    load_paths: &[PathBuf],
-    minified: bool,
+    theme_config: &ThemeConfig,
+    theme_context: &ThemeContext<'_>,
+    doc_vars: &SassLayer,
 ) -> Result<String, String> {
-    use quarto_sass::{all_resources, default_load_paths};
-    use quarto_system_runtime::sass_native::compile_scss_with_embedded;
-
-    let resources = all_resources();
-
-    // Merge default load paths with theme-specific ones
-    let mut all_paths = default_load_paths();
-    // Avoid duplicates: assemble_theme_scss already includes default_load_paths,
-    // but compile_scss_with_embedded uses them for filesystem resolution
-    all_paths.clear();
-    all_paths.extend_from_slice(load_paths);
-
-    compile_scss_with_embedded(ctx.runtime.as_ref(), &resources, scss, &all_paths, minified)
+    let _ = ctx; // runtime is captured inside theme_context
+    quarto_sass::compile_with_doc_vars(theme_config, theme_context, doc_vars)
         .map_err(|e| e.to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn compile_scss(
+async fn compile_with_doc_vars_via_runtime(
     ctx: &StageContext,
-    scss: &str,
-    load_paths: &[PathBuf],
-    minified: bool,
+    theme_config: &ThemeConfig,
+    theme_context: &ThemeContext<'_>,
+    doc_vars: &SassLayer,
 ) -> Result<String, String> {
-    ctx.runtime
-        .compile_sass(scss, load_paths, minified)
+    let _ = ctx; // runtime is captured inside theme_context
+    quarto_sass::compile_with_doc_vars(theme_config, theme_context, doc_vars)
         .await
         .map_err(|e| e.to_string())
 }
@@ -473,6 +582,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         })
     }
 
@@ -504,11 +614,20 @@ mod tests {
         }
     }
 
+    /// Locate the (single) `css:theme:*` artifact stored by
+    /// [`CompileThemeCssStage`] and return its content as a string.
+    /// Phase 5 retires the singleton `"css:default"` key in favor
+    /// of fingerprint-keyed artifacts.
     fn get_css_artifact(ctx: &StageContext) -> String {
-        let artifact = ctx
-            .artifacts
-            .get("css:default")
-            .expect("css:default artifact missing");
+        let entries: Vec<_> = ctx.artifacts.get_by_prefix("css:theme:");
+        assert_eq!(
+            entries.len(),
+            1,
+            "expected exactly one css:theme:* artifact, found {}",
+            entries.len()
+        );
+        let artifact = entries[0].1;
+        assert_eq!(artifact.scope, ArtifactScope::Project);
         String::from_utf8(artifact.content.clone()).expect("CSS should be valid UTF-8")
     }
 
@@ -1058,6 +1177,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         })
     }
 
@@ -1136,8 +1256,8 @@ mod tests {
         let runtime = MockRuntime;
         let config = make_builtin_config("cosmo", true);
         let ctx = ThemeContext::new(PathBuf::from("/project"), &runtime);
-        let key1 = cache_key(&config, &ctx, &runtime).unwrap();
-        let key2 = cache_key(&config, &ctx, &runtime).unwrap();
+        let key1 = cache_key(&config, &ctx, &runtime, &SassLayer::default()).unwrap();
+        let key2 = cache_key(&config, &ctx, &runtime, &SassLayer::default()).unwrap();
         assert_eq!(key1, key2);
         // SHA-256 hex should be 64 chars
         assert_eq!(key1.len(), 64);
@@ -1149,8 +1269,8 @@ mod tests {
         let config_min = make_builtin_config("cosmo", true);
         let config_nomin = make_builtin_config("cosmo", false);
         let ctx = ThemeContext::new(PathBuf::from("/project"), &runtime);
-        let key_min = cache_key(&config_min, &ctx, &runtime).unwrap();
-        let key_nomin = cache_key(&config_nomin, &ctx, &runtime).unwrap();
+        let key_min = cache_key(&config_min, &ctx, &runtime, &SassLayer::default()).unwrap();
+        let key_nomin = cache_key(&config_nomin, &ctx, &runtime, &SassLayer::default()).unwrap();
         assert_ne!(key_min, key_nomin);
     }
 
@@ -1160,8 +1280,8 @@ mod tests {
         let config_cosmo = make_builtin_config("cosmo", true);
         let config_darkly = make_builtin_config("darkly", true);
         let ctx = ThemeContext::new(PathBuf::from("/project"), &runtime);
-        let key1 = cache_key(&config_cosmo, &ctx, &runtime).unwrap();
-        let key2 = cache_key(&config_darkly, &ctx, &runtime).unwrap();
+        let key1 = cache_key(&config_cosmo, &ctx, &runtime, &SassLayer::default()).unwrap();
+        let key2 = cache_key(&config_darkly, &ctx, &runtime, &SassLayer::default()).unwrap();
         assert_ne!(key1, key2);
     }
 
@@ -1174,8 +1294,8 @@ mod tests {
         let config_a = make_custom_config("theme_a.scss", true);
         let config_b = make_custom_config("theme_b.scss", true);
         let ctx = ThemeContext::new(PathBuf::from("/project"), &runtime);
-        let key_a = cache_key(&config_a, &ctx, &runtime).unwrap();
-        let key_b = cache_key(&config_b, &ctx, &runtime).unwrap();
+        let key_a = cache_key(&config_a, &ctx, &runtime, &SassLayer::default()).unwrap();
+        let key_b = cache_key(&config_b, &ctx, &runtime, &SassLayer::default()).unwrap();
         assert_ne!(key_a, key_b);
     }
 
@@ -1331,11 +1451,86 @@ mod tests {
         let runtime = ContentRuntime;
         let config = make_custom_config("theme.scss", true);
         let ctx = ThemeContext::new(PathBuf::from("/project"), &runtime);
-        let key1 = cache_key(&config, &ctx, &runtime).unwrap();
+        let key1 = cache_key(&config, &ctx, &runtime, &SassLayer::default()).unwrap();
 
         // Same config, same runtime → same key (deterministic)
-        let key2 = cache_key(&config, &ctx, &runtime).unwrap();
+        let key2 = cache_key(&config, &ctx, &runtime, &SassLayer::default()).unwrap();
         assert_eq!(key1, key2);
+    }
+
+    // === Phase 5 Decision 9: theme fingerprinting ===
+
+    /// Plan test 15a: identical CSS bytes produce identical
+    /// fingerprints across calls.
+    #[test]
+    fn fingerprint_stable_for_identical_inputs() {
+        let css = "body { color: red; }";
+        let fp1 = theme_fingerprint(css);
+        let fp2 = theme_fingerprint(css);
+        assert_eq!(fp1, fp2);
+        assert_eq!(fp1.len(), THEME_FINGERPRINT_LEN);
+    }
+
+    /// Plan test 15b: different CSS outputs produce different
+    /// fingerprints (collision-resistance sanity).
+    #[test]
+    fn fingerprint_differs_for_different_themes() {
+        let cosmo_like = ".btn-primary { background: #2780e3; }";
+        let darkly_like = ".btn-primary { background: #375a7f; }";
+        assert_ne!(
+            theme_fingerprint(cosmo_like),
+            theme_fingerprint(darkly_like)
+        );
+    }
+
+    /// Plan test 15c: adding additional rules (analogous to a
+    /// user SCSS layer added on top of `cosmo`) changes the
+    /// fingerprint. Demonstrates that the fingerprint reacts to
+    /// any output change without needing to enumerate every
+    /// possible input source.
+    #[test]
+    fn fingerprint_differs_for_added_scss_layer() {
+        let base = ".btn { padding: 0.5rem; }";
+        let with_layer = ".btn { padding: 0.5rem; } .custom-rule { color: rebeccapurple; }";
+        assert_ne!(theme_fingerprint(base), theme_fingerprint(with_layer));
+    }
+
+    /// Plan test 15d: under content-based fingerprinting, two
+    /// inputs that produce *byte-equal* CSS outputs (e.g. SCSS
+    /// pipelines that canonicalize whitespace, list ordering,
+    /// or selector ordering) get the same fingerprint regardless
+    /// of how the input differed. This is the key property that
+    /// makes the dedup work in practice without a brittle
+    /// per-input canonicalization layer.
+    #[test]
+    fn fingerprint_input_canonicalization() {
+        // Whatever upstream did to produce these strings, if both
+        // emerge byte-identical from the SCSS pipeline, the
+        // fingerprint must agree.
+        let a = ".btn{color:red}";
+        let b = ".btn{color:red}";
+        assert_eq!(theme_fingerprint(a), theme_fingerprint(b));
+    }
+
+    /// Sanity: the artifact key/path helper produces the
+    /// documented namespace + filename shape (Decision 5) and
+    /// honors the single-doc flattening rule (Decision 10).
+    #[test]
+    fn theme_artifact_key_and_path_shape() {
+        let (key_w, path_w) = theme_artifact_key_and_path("abc123", false);
+        assert_eq!(key_w, "css:theme:abc123");
+        assert_eq!(path_w, PathBuf::from("quarto/quarto-theme-abc123.css"));
+
+        let (key_s, path_s) = theme_artifact_key_and_path("abc123", true);
+        assert_eq!(
+            key_s, "css:theme:abc123",
+            "key is fingerprint-derived in both modes",
+        );
+        assert_eq!(
+            path_s,
+            PathBuf::from("styles.css"),
+            "single-doc path is the bare styles.css for byte-identity",
+        );
     }
 
     #[test]
@@ -1346,7 +1541,281 @@ mod tests {
         let runtime = MockRuntime;
         let config = make_builtin_config("cosmo", true);
         let ctx = ThemeContext::new(PathBuf::from("/project"), &runtime);
-        let key = cache_key(&config, &ctx, &runtime).unwrap();
+        let key = cache_key(&config, &ctx, &runtime, &SassLayer::default()).unwrap();
         assert_eq!(key.len(), 64); // SHA-256 hex
+    }
+
+    // ── Phase 2 of bd-k8y0: doc-derived SCSS variables seam ──────────
+
+    /// Build a `website.sidebar:` ConfigValue with the given style as a
+    /// single-sidebar list. Used by the doc-vars + stage-level tests.
+    fn meta_with_website_sidebar_style(style: &str) -> ConfigValue {
+        // Inner sidebar object: { id: "guide", style: "<style>" }
+        let style_value = ConfigValue {
+            value: ConfigValueKind::Scalar(Yaml::String(style.to_string())),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let id_value = ConfigValue {
+            value: ConfigValueKind::Scalar(Yaml::String("guide".to_string())),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let sidebar_obj = ConfigValue {
+            value: ConfigValueKind::Map(vec![
+                ConfigMapEntry {
+                    key: "id".to_string(),
+                    key_source: SourceInfo::default(),
+                    value: id_value,
+                },
+                ConfigMapEntry {
+                    key: "style".to_string(),
+                    key_source: SourceInfo::default(),
+                    value: style_value,
+                },
+            ]),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        // website.sidebar = [ sidebar_obj ]
+        let sidebar_array = ConfigValue {
+            value: ConfigValueKind::Array(vec![sidebar_obj]),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let mut meta = empty_meta();
+        meta.insert_path(&["website", "sidebar"], sidebar_array);
+        meta
+    }
+
+    #[test]
+    fn doc_scss_layer_empty_meta_is_empty() {
+        let layer = derive_doc_scss_layer(&empty_meta());
+        assert!(
+            layer.is_empty(),
+            "empty metadata should produce an empty SassLayer"
+        );
+    }
+
+    #[test]
+    fn doc_scss_layer_docked_sidebar_emits_border_true() {
+        let meta = meta_with_website_sidebar_style("docked");
+        let layer = derive_doc_scss_layer(&meta);
+        assert!(
+            layer.defaults.contains("$sidebar-border: true;"),
+            "docked sidebar should emit `$sidebar-border: true;`, got defaults: {:?}",
+            layer.defaults
+        );
+        // Must NOT have `!default` — Q1 emits unconditional assignments
+        // so they win against the framework's `false !default`.
+        assert!(
+            !layer.defaults.contains("!default"),
+            "doc-vars assignments must be unconditional (no !default), got: {:?}",
+            layer.defaults
+        );
+    }
+
+    #[test]
+    fn doc_scss_layer_floating_sidebar_emits_border_false() {
+        let meta = meta_with_website_sidebar_style("floating");
+        let layer = derive_doc_scss_layer(&meta);
+        assert!(
+            layer.defaults.contains("$sidebar-border: false;"),
+            "floating sidebar should emit `$sidebar-border: false;`, got defaults: {:?}",
+            layer.defaults
+        );
+    }
+
+    /// Build a `website.sidebar:` ConfigValue with `style` AND an
+    /// explicit `border:` boolean. Used to test the Q1 override:
+    /// `sidebar.border` wins over the implicit `style == docked` default.
+    fn meta_with_website_sidebar_style_and_border(style: &str, border: bool) -> ConfigValue {
+        let style_value = ConfigValue {
+            value: ConfigValueKind::Scalar(Yaml::String(style.to_string())),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let border_value = ConfigValue {
+            value: ConfigValueKind::Scalar(Yaml::Boolean(border)),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let id_value = ConfigValue {
+            value: ConfigValueKind::Scalar(Yaml::String("guide".to_string())),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let sidebar_obj = ConfigValue {
+            value: ConfigValueKind::Map(vec![
+                ConfigMapEntry {
+                    key: "id".to_string(),
+                    key_source: SourceInfo::default(),
+                    value: id_value,
+                },
+                ConfigMapEntry {
+                    key: "style".to_string(),
+                    key_source: SourceInfo::default(),
+                    value: style_value,
+                },
+                ConfigMapEntry {
+                    key: "border".to_string(),
+                    key_source: SourceInfo::default(),
+                    value: border_value,
+                },
+            ]),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let sidebar_array = ConfigValue {
+            value: ConfigValueKind::Array(vec![sidebar_obj]),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let mut meta = empty_meta();
+        meta.insert_path(&["website", "sidebar"], sidebar_array);
+        meta
+    }
+
+    #[test]
+    fn doc_scss_layer_explicit_border_true_overrides_floating_default() {
+        // Floating sidebars default to no border, but `border: true`
+        // forces it on. This is the Q1 override path.
+        let meta = meta_with_website_sidebar_style_and_border("floating", true);
+        let layer = derive_doc_scss_layer(&meta);
+        assert!(
+            layer.defaults.contains("$sidebar-border: true;"),
+            "explicit `border: true` must win over `style: floating`, got defaults: {:?}",
+            layer.defaults
+        );
+    }
+
+    #[test]
+    fn doc_scss_layer_explicit_border_false_overrides_docked_default() {
+        // Docked sidebars default to border on, but `border: false` suppresses.
+        let meta = meta_with_website_sidebar_style_and_border("docked", false);
+        let layer = derive_doc_scss_layer(&meta);
+        assert!(
+            layer.defaults.contains("$sidebar-border: false;"),
+            "explicit `border: false` must win over `style: docked`, got defaults: {:?}",
+            layer.defaults
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_omits_sidebar_border_rule_when_docked_overrides_to_false() {
+        // End-to-end: an explicit `border: false` on a docked sidebar
+        // must suppress the rule, even though the implicit default would
+        // emit it.
+        let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> =
+            Arc::new(quarto_system_runtime::NativeRuntime::new());
+        let mut ctx = make_stage_context(runtime);
+        let stage = CompileThemeCssStage::new();
+
+        let input = make_doc_ast(meta_with_website_sidebar_style_and_border("docked", false));
+        stage.run(input, &mut ctx).await.unwrap();
+
+        let css = get_css_artifact(&ctx);
+        assert!(
+            !css.contains(".sidebar.sidebar-navigation:not(.rollup)"),
+            "explicit `border: false` must suppress the sidebar-border rule"
+        );
+    }
+
+    /// End-to-end stage test for Phase 2 of bd-k8y0: a document whose
+    /// merged metadata declares a docked website sidebar should produce
+    /// theme CSS that includes the sidebar-border rule.
+    #[tokio::test]
+    async fn stage_emits_sidebar_border_rule_for_docked_sidebar() {
+        let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> =
+            Arc::new(quarto_system_runtime::NativeRuntime::new());
+        let mut ctx = make_stage_context(runtime);
+        let stage = CompileThemeCssStage::new();
+
+        let input = make_doc_ast(meta_with_website_sidebar_style("docked"));
+        stage.run(input, &mut ctx).await.unwrap();
+
+        let css = get_css_artifact(&ctx);
+        assert!(
+            css.contains(".sidebar.sidebar-navigation:not(.rollup)"),
+            "stage CSS for a docked sidebar must include the sidebar-border selector"
+        );
+        let idx = css
+            .find(".sidebar.sidebar-navigation:not(.rollup)")
+            .unwrap();
+        let tail = &css[idx..idx.saturating_add(400).min(css.len())];
+        assert!(
+            tail.contains("border-right:1px solid") || tail.contains("border-right: 1px solid"),
+            "rule must declare border-right:1px solid, got: {}",
+            tail
+        );
+        assert!(tail.contains("!important"), "rule must carry !important");
+    }
+
+    /// Sanity: a doc with NO website sidebar must NOT emit the
+    /// sidebar-border rule. Guards against accidentally hardcoding.
+    #[tokio::test]
+    async fn stage_does_not_emit_sidebar_border_rule_for_plain_doc() {
+        let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> =
+            Arc::new(quarto_system_runtime::NativeRuntime::new());
+        let mut ctx = make_stage_context(runtime);
+        let stage = CompileThemeCssStage::new();
+
+        let input = make_doc_ast(empty_meta());
+        stage.run(input, &mut ctx).await.unwrap();
+
+        let css = get_css_artifact(&ctx);
+        assert!(
+            !css.contains(".sidebar.sidebar-navigation:not(.rollup)"),
+            "plain doc (no website sidebar) must not emit sidebar-border rule"
+        );
+    }
+
+    /// Cache-correctness: two docs whose only difference is sidebar
+    /// style must produce DIFFERENT CSS — i.e. the cache key must
+    /// distinguish them. Without this, the no-theme path's fixed
+    /// `default_minified` key would alias them and the second doc
+    /// would get the first doc's CSS.
+    #[tokio::test]
+    async fn stage_distinguishes_docked_vs_floating_in_cache() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> = Arc::new(
+            quarto_system_runtime::NativeRuntime::with_cache_dir(temp.path().to_path_buf()),
+        );
+        let stage = CompileThemeCssStage::new();
+
+        // First: docked
+        let mut ctx_d = make_stage_context(runtime.clone());
+        stage
+            .run(
+                make_doc_ast(meta_with_website_sidebar_style("docked")),
+                &mut ctx_d,
+            )
+            .await
+            .unwrap();
+        let css_docked = get_css_artifact(&ctx_d);
+
+        // Second: floating, same project/runtime — must NOT alias
+        let mut ctx_f = make_stage_context(runtime);
+        stage
+            .run(
+                make_doc_ast(meta_with_website_sidebar_style("floating")),
+                &mut ctx_f,
+            )
+            .await
+            .unwrap();
+        let css_floating = get_css_artifact(&ctx_f);
+
+        assert_ne!(
+            css_docked, css_floating,
+            "docked and floating sidebars must produce different CSS — cache aliasing!"
+        );
+        assert!(
+            css_docked.contains(".sidebar.sidebar-navigation:not(.rollup)"),
+            "docked CSS should have the rule"
+        );
+        assert!(
+            !css_floating.contains(".sidebar.sidebar-navigation:not(.rollup)"),
+            "floating CSS should NOT have the rule"
+        );
     }
 }

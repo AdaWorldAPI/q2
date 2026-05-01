@@ -45,6 +45,14 @@ interface WasmModuleExtended {
     templateBundle: string,
     user_grammars?: unknown,
   ) => Promise<string>;
+  // Phase 9: project-aware render. Discovers the surrounding
+  // `_quarto.yml` (if any) and either falls through to the
+  // single-doc path (no project) or drives `ProjectPipeline`
+  // with `RenderMode::ActivePage(path)`.
+  render_page_in_project: (
+    path: string,
+    user_grammars?: unknown,
+  ) => Promise<string>;
   get_builtin_template: (name: string) => string;
   get_project_choices: () => string;
   create_project: (choiceId: string, title: string) => Promise<string>;
@@ -332,6 +340,29 @@ export function setScrollSyncEnabled(enabled: boolean): void {
 // ============================================================================
 
 /**
+ * Listener invoked after every {@link renderToHtml} call.
+ *
+ * Wired up by the dev-only `quartoDebug` console API
+ * (`services/debugApi.ts`) so an agent or developer can read the most
+ * recent render response from DevTools without having to instrument
+ * the editor by hand. Listener is at most one — installing replaces
+ * any previous registration; passing `null` unregisters.
+ *
+ * Listeners must not throw and must not block; the renderer logs and
+ * swallows any thrown error to avoid degrading the live preview.
+ */
+export type RenderListener = (
+  result: RenderResult,
+  options: RenderToHtmlOptions,
+) => void;
+
+let renderListener: RenderListener | null = null;
+
+export function setRenderListener(listener: RenderListener | null): void {
+  renderListener = listener;
+}
+
+/**
  * Render a QMD file from the virtual filesystem.
  *
  * `userGrammars`, when provided, routes any code block whose language
@@ -347,6 +378,27 @@ export async function renderQmd(
 ): Promise<RenderResponse> {
   const wasm = getWasm();
   return JSON.parse(await wasm.render_qmd(path, userGrammars));
+}
+
+/**
+ * Render a single page **in the context of its surrounding project**.
+ *
+ * Phase 9 entry point: discovers the surrounding `_quarto.yml` from
+ * the VFS and either falls through to the single-doc render (no
+ * project ancestor) or drives `ProjectPipeline` with
+ * `RenderMode::ActivePage(path)` so the active page renders with
+ * project-level affordances (sidebar, navbar, prev/next strip,
+ * cross-document link rewriting, deduplicated theme CSS).
+ *
+ * Returns the same `RenderResponse` shape as `renderQmd`; the
+ * project flavor is opaque to callers.
+ */
+export async function renderPageInProject(
+  path: string,
+  userGrammars?: unknown,
+): Promise<RenderResponse> {
+  const wasm = getWasm();
+  return JSON.parse(await wasm.render_page_in_project(path, userGrammars));
 }
 
 /**
@@ -612,6 +664,28 @@ export async function convert(
 /**
  * Result of rendering QMD content to HTML.
  */
+/**
+ * A Pass-1 failure (parse error / metadata error) for a project
+ * file that is not the active page (bd-rqba). Carries the failing
+ * file's path, the rendered error message (which includes the
+ * ariadne snippet for parse errors), and structured diagnostics
+ * for Monaco markers + the in-app overlay.
+ *
+ * Decision D1: this is a dedicated wire-shape field (not folded
+ * into `warnings`) so the engine can stay policy-free — the
+ * `quarto preview` / hub-client consumer renders these as
+ * warnings while the CLI consumer (bd-creo) treats them as a
+ * non-zero exit signal.
+ */
+export interface Pass1Failure {
+  /** Path of the file that failed Pass-1 (project-relative or absolute, same form as `FileEntry.path`). */
+  source_file: string;
+  /** User-facing error string, including the ariadne snippet for parse errors. */
+  error: string;
+  /** Structured diagnostics; empty for non-parse errors. */
+  diagnostics: Diagnostic[];
+}
+
 export interface RenderResult {
   html: string;
   success: boolean;
@@ -620,6 +694,15 @@ export interface RenderResult {
   diagnostics?: Diagnostic[];
   /** Structured warning diagnostics with line/column information for Monaco. */
   warnings?: Diagnostic[];
+  /**
+   * Pass-1 failures for sibling project files (bd-rqba). The
+   * overlay surfaces these with source-file attribution so a
+   * user opening `index.qmd` sees that `about.qmd` failed to
+   * parse, with line/column, instead of just the misleading
+   * navigation-side "missing document information for
+   * 'about.qmd'" warning.
+   */
+  pass1_failures?: Pass1Failure[];
 }
 
 /**
@@ -826,6 +909,20 @@ export function _resetUserGrammarCacheForTest(): void {
 export async function renderToHtml(
   options: RenderToHtmlOptions
 ): Promise<RenderResult> {
+  const result = await renderToHtmlInner(options);
+  if (renderListener) {
+    try {
+      renderListener(result, options);
+    } catch (err) {
+      console.warn('[renderToHtml] render listener threw; ignoring:', err);
+    }
+  }
+  return result;
+}
+
+async function renderToHtmlInner(
+  options: RenderToHtmlOptions,
+): Promise<RenderResult> {
   try {
     await initWasm();
 
@@ -840,8 +937,14 @@ export async function renderToHtml(
       grammarsHandle = await prepareUserGrammarsHandle(userGrammars);
     }
 
-    // Render from VFS with full project context
-    const result: RenderResponse = await renderQmd(documentPath, grammarsHandle);
+    // Phase 9: render with full project context. The WASM side
+    // handles project discovery itself — single-file projects fall
+    // through to the same path `renderQmd` used to take, so this
+    // switch is unconditional.
+    const result: RenderResponse = await renderPageInProject(
+      documentPath,
+      grammarsHandle,
+    );
 
     if (result.success) {
       // Compute CSS version from the pipeline's CSS artifact in VFS.
@@ -867,6 +970,7 @@ export async function renderToHtml(
         html: htmlWithCssVersion,
         success: true,
         warnings: result.warnings,
+        pass1_failures: result.pass1_failures,
       };
     } else {
       // Extract error message
@@ -878,6 +982,7 @@ export async function renderToHtml(
         error: errorMsg,
         diagnostics: result.diagnostics,
         warnings: result.warnings,
+        pass1_failures: result.pass1_failures,
       };
     }
   } catch (err) {

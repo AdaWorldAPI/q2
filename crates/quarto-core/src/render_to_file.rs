@@ -67,11 +67,15 @@ use tracing::debug;
 use quarto_system_runtime::SystemRuntime;
 
 use crate::Result;
+use crate::artifact::{ArtifactScope, ArtifactStore};
 use crate::error::QuartoError;
 use crate::format::Format;
 use crate::pipeline::{HtmlRenderConfig, RenderOutput, render_qmd_to_html};
+use crate::project::index::ProjectIndex;
+use crate::project::orchestrator::project_type_for;
 use crate::project::{DocumentInfo, ProjectContext};
 use crate::render::{BinaryDependencies, RenderContext};
+use crate::resource_resolver::ResourceResolverContext;
 use crate::resources;
 
 /// Options for rendering a document to a file.
@@ -121,7 +125,9 @@ pub fn render_to_file(
     options: &RenderToFileOptions,
     runtime: Arc<dyn SystemRuntime>,
 ) -> Result<RenderToFileResult> {
-    render_document_to_file(input_path, format, options, None, runtime)
+    // Standalone: pass `None` for project_artifacts so the
+    // function flushes Project-scoped artifacts via the resolver.
+    render_document_to_file(input_path, format, options, None, runtime, None, None)
 }
 
 /// Render a QMD document to a file (advanced API).
@@ -157,6 +163,8 @@ pub fn render_document_to_file(
     options: &RenderToFileOptions,
     project: Option<&ProjectContext>,
     runtime: Arc<dyn SystemRuntime>,
+    project_index: Option<Arc<ProjectIndex>>,
+    project_artifacts: Option<&mut ArtifactStore>,
 ) -> Result<RenderToFileResult> {
     debug!("Rendering: {}", input_path.display());
 
@@ -179,9 +187,14 @@ pub fn render_document_to_file(
         }
     };
 
-    // Determine output paths
+    // Determine output paths. If the options don't specify an
+    // explicit output path / dir, fall back to the project's
+    // `output-dir` (e.g. websites render into `_site/`). Single-file
+    // and default-kind projects leave `output_dir == dir`, preserving
+    // the pre-Phase-1 "beside the input" behavior.
+    let effective_options = apply_project_output_dir_to_options(options, project, input_path);
     let (output_path, output_dir, output_stem) =
-        determine_output_paths(input_path, format, options)?;
+        determine_output_paths(input_path, format, &effective_options)?;
 
     // Create output directory
     runtime.dir_create(&output_dir, true).map_err(|e| {
@@ -201,16 +214,31 @@ pub fn render_document_to_file(
     let render_format = format_from_name(format)?;
     let binaries = BinaryDependencies::new();
     let mut ctx = RenderContext::new(project, &doc_info, &render_format, &binaries);
+    if let Some(index) = project_index {
+        ctx.project_index = Some(index);
+    }
 
-    // Configure the pipeline with CSS paths and resource prefix.
-    // The resource prefix (e.g., "doc_files/") ensures extension dependency
-    // paths like "libs/kbd/kbd.css" become "doc_files/libs/kbd/kbd.css" in
-    // the HTML output, matching where the files are written on disk.
-    let resource_prefix = format!("{}_files/", output_stem);
-    let config = HtmlRenderConfig {
-        css_paths: &resource_paths.css,
-        resource_prefix: &resource_prefix,
-    };
+    // Phase 5: build a scope-aware resolver from the doc's
+    // output location and the project's lib dir. Single-doc /
+    // default projects pass `lib_dir == ""` so Project-scope
+    // artifacts resolve under the per-page resource dir
+    // (preserving pre-Phase-5 byte-identical behavior). Website
+    // projects pass `lib_dir == "site_libs"` so Project-scope
+    // artifacts resolve under `{output_dir}/site_libs/`.
+    let project_type = project_type_for(project);
+    let resolver = ResourceResolverContext::website(
+        &project.output_dir,
+        &output_path,
+        project_type.lib_dir(),
+        &output_stem,
+    );
+    // Phase 6: make the same resolver available to AST transforms
+    // via `RenderContext::resource_resolver` so the body-link
+    // rewriter (`LinkRewriteTransform`) can compute page-relative
+    // URLs the same way Phase 5's `ApplyTemplateStage` does for
+    // shared assets.
+    ctx.resource_resolver = Some(resolver.clone());
+    let config = HtmlRenderConfig::with_resolver(resolver.clone());
 
     // Run the render pipeline
     let render_output = pollster::block_on(render_qmd_to_html(
@@ -221,50 +249,50 @@ pub fn render_document_to_file(
         runtime.clone(),
     ))?;
 
-    // Write CSS from pipeline artifact (CompileThemeCssStage always produces this)
-    let css_content = ctx
-        .artifacts
-        .get("css:default")
-        .and_then(|a| a.as_str())
-        .unwrap_or(resources::DEFAULT_CSS);
-    let css_path = resource_paths.resource_dir.join("styles.css");
-    runtime
-        .file_write(&css_path, css_content.as_bytes())
-        .map_err(|e| {
-            QuartoError::other(format!(
-                "Failed to write CSS to {}: {}",
-                css_path.display(),
-                e
-            ))
-        })?;
+    // Phase 5: write Page-scoped artifacts to their per-doc
+    // location. Project-scoped artifacts are drained out of the
+    // per-doc store and either:
+    // - merged into the orchestrator's project-wide artifact
+    //   accumulator (when running under a project type that has
+    //   a shared lib dir, e.g. websites), so
+    //   `WebsiteProjectType::post_render` can flush them once
+    //   for the whole project; OR
+    // - flushed in-place via the resolver (otherwise — either
+    //   no orchestrator is involved, or the orchestrator's
+    //   project type has no shared lib dir, e.g. default
+    //   single-doc / loose-directory projects).
+    write_artifacts(
+        &ctx.artifacts,
+        &resolver,
+        ArtifactScope::Page,
+        runtime.as_ref(),
+    )?;
+    let drained = ctx.artifacts.drain_project_scoped();
 
-    // Write extension CSS/JS dependency artifacts (e.g., libs/kbd/kbd.css)
-    for (key, artifact) in ctx.artifacts.iter() {
-        if key == "css:default" {
-            continue;
+    let has_shared_lib = !project_type.lib_dir().is_empty();
+    match (project_artifacts, has_shared_lib) {
+        (Some(dest), true) => {
+            // Real multi-doc project (e.g. website): drain into
+            // the orchestrator's accumulator; post_render flushes.
+            dest.merge_into_project(drained).map_err(|e| {
+                QuartoError::other(format!(
+                    "Project-scoped artifact merge failed for {}: {}",
+                    input_path.display(),
+                    e
+                ))
+            })?;
         }
-        if (key.starts_with("css:") || key.starts_with("js:"))
-            && let Some(path) = &artifact.path
-        {
-            let output_path = resource_paths.resource_dir.join(path);
-            if let Some(parent) = output_path.parent() {
-                runtime.dir_create(parent, true).map_err(|e| {
-                    QuartoError::other(format!(
-                        "Failed to create directory {}: {}",
-                        parent.display(),
-                        e
-                    ))
-                })?;
-            }
-            runtime
-                .file_write(&output_path, &artifact.content)
-                .map_err(|e| {
-                    QuartoError::other(format!(
-                        "Failed to write dependency file {}: {}",
-                        output_path.display(),
-                        e
-                    ))
-                })?;
+        _ => {
+            // Default project or standalone call: flush Project-
+            // scoped artifacts via the resolver. For lib_dir == ""
+            // the resolver routes them under `{stem}_files/`,
+            // preserving pre-Phase-5 layout.
+            write_artifacts(
+                &drained,
+                &resolver,
+                ArtifactScope::Project,
+                runtime.as_ref(),
+            )?;
         }
     }
 
@@ -286,6 +314,80 @@ pub fn render_document_to_file(
         resources_dir: resource_paths.resource_dir,
         render_output,
     })
+}
+
+/// Write every artifact in `store` whose scope matches `scope_filter`
+/// to its resolver-determined on-disk location. Skips artifacts
+/// without a `path`.
+///
+/// Used by `render_document_to_file` (Page scope, per-doc) and by
+/// the simple `render_to_file` wrapper / `WebsiteProjectType::post_render`
+/// (Project scope, post-merge).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn write_artifacts(
+    store: &ArtifactStore,
+    resolver: &ResourceResolverContext,
+    scope_filter: ArtifactScope,
+    runtime: &dyn SystemRuntime,
+) -> Result<()> {
+    let mut entries: Vec<(&str, &crate::artifact::Artifact)> = store
+        .iter()
+        .filter(|(_, a)| a.scope == scope_filter)
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (_, artifact) in entries {
+        let Some(path) = &artifact.path else { continue };
+        let on_disk = resolver.on_disk_path_for(artifact.scope, path);
+        if let Some(parent) = on_disk.parent() {
+            runtime.dir_create(parent, true).map_err(|e| {
+                QuartoError::other(format!(
+                    "Failed to create directory {}: {}",
+                    parent.display(),
+                    e
+                ))
+            })?;
+        }
+        runtime
+            .file_write(&on_disk, &artifact.content)
+            .map_err(|e| {
+                QuartoError::other(format!(
+                    "Failed to write artifact to {}: {}",
+                    on_disk.display(),
+                    e
+                ))
+            })?;
+    }
+    Ok(())
+}
+
+/// When `options` has no explicit `output_path` / `output_dir`, fall
+/// back to the project's output dir so e.g. `_site/index.html` is
+/// produced rather than `index.html` beside the input.
+///
+/// Preserves the input's subdirectory under `project_dir` so
+/// `docs/api.qmd` in a website project renders to `_site/docs/api.html`.
+fn apply_project_output_dir_to_options(
+    options: &RenderToFileOptions,
+    project: &ProjectContext,
+    input_path: &Path,
+) -> RenderToFileOptions {
+    if options.output_path.is_some() || options.output_dir.is_some() {
+        return options.clone();
+    }
+    if project.output_dir == project.dir {
+        return options.clone();
+    }
+    let relative = input_path
+        .strip_prefix(&project.dir)
+        .ok()
+        .and_then(|r| r.parent())
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    let resolved = project.output_dir.join(relative);
+    let mut next = options.clone();
+    next.output_dir = Some(resolved);
+    next
 }
 
 /// Determine output paths from input path and options.
@@ -491,10 +593,19 @@ Content.
 
         let options = RenderToFileOptions::default();
 
-        // Render with pre-discovered project
-        let result =
-            render_document_to_file(&input_path, "html", &options, Some(&project), runtime)
-                .unwrap();
+        // Render with pre-discovered project (standalone call: no
+        // project_artifacts accumulator, so the function flushes
+        // Project-scoped artifacts via the resolver itself).
+        let result = render_document_to_file(
+            &input_path,
+            "html",
+            &options,
+            Some(&project),
+            runtime,
+            None,
+            None,
+        )
+        .unwrap();
 
         assert!(result.output_path.exists());
     }

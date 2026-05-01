@@ -28,6 +28,15 @@ body {
   margin: 0;
 }
 
+// Stretch the page area to at least viewport-height minus the navbar
+// + footer composite (~132px in default Bootstrap). Without this, a
+// short page leaves the docked sidebar (and its `$sidebar-border`
+// separator) stopping partway down the viewport, which looks broken.
+// Ported from `quarto-cli/.../quarto-nav.scss:53-55`.
+.quarto-container {
+  min-height: calc(100vh - 132px);
+}
+
 // If we're applying display: grid, we're losing our display: border-box
 // behavior, so we need to reset bottom margin for title block
 main.page-columns > header > h1.title {
@@ -154,6 +163,23 @@ main.page-columns > header > h1.title {
   body.floating {
     .page-columns {
       @include page-columns-float-mid();
+    }
+    // bd-f5yi follow-up: the `page-columns-float-mid` grid
+    // template merges `[page-start page-start-inset
+    // body-start-outset body-start]` into a single zero-width
+    // line. The author's stated intent at
+    // `_bootstrap-mixins.scss:225` ("No sidebar, only margins")
+    // was for the floating sidebar to disappear in the mid
+    // range — but no rule actually hides it, so it collapses
+    // to a ~26px ghost column with a vertical scrollbar.
+    //
+    // Hiding it explicitly matches the intent and the runtime
+    // behavior. See
+    // `claude-notes/plans/2026-05-01-website-sidebar-breakpoints.md`
+    // (Decision A, Resolution 2026-05-01) for why we ship this
+    // small fix instead of porting Q1's full hamburger rollup.
+    .sidebar.sidebar-navigation {
+      display: none;
     }
   }
 
@@ -300,6 +326,29 @@ body.docked {
   }
 }
 
+// Faint vertical separator between a docked sidebar and the main
+// content. Gated on `$sidebar-border` (default `false` in
+// `_bootstrap-variables.scss`); per-document config layers (Phase 2 of
+// the bd-k8y0 port) flip it to `true` for `style: docked`. The color
+// follows `$table-border-color` so any Bootswatch / user theme that
+// retints table borders retints the separator automatically. Ported
+// from quarto-cli `quarto-nav.scss:552-556`.
+@if $sidebar-border {
+  .sidebar.sidebar-navigation:not(.rollup) {
+    border-right: 1px solid $table-border-color !important;
+  }
+}
+
+// 1em right-side gutter between sidebar content (toggle dongles, links)
+// and the right edge of the sidebar column — visually separates the
+// controls from the `$sidebar-border` separator. Ported from
+// `quarto-cli/.../quarto-nav.scss:623-628`.
+#quarto-sidebar {
+  > * {
+    padding-right: 1em;
+  }
+}
+
 .sidebar.toc-left {
   grid-column: page-start / body-start;
   grid-row: content-top / page-bottom;
@@ -319,6 +368,157 @@ body.docked {
 .page-columns .page-navigation {
   grid-column: body-content-start / body-content-end;
   grid-row: content-bottom / page-bottom;
+}
+
+// Page-navigation strip layout (prev/next links). Ported from Q1's
+// `projects/website/navigation/quarto-nav.scss:740-768`. The `.nav-page`
+// markup is only emitted on website pages, so these rules are no-ops on
+// non-website renders. When a second website-only ruleset arrives,
+// consider promoting these into a dedicated website Sass bundle (bd-bsut).
+.page-navigation {
+  display: flex;
+  justify-content: space-between;
+}
+
+.nav-page {
+  padding-bottom: 0.75em;
+}
+
+.nav-page .bi {
+  font-size: 1.8rem;
+  vertical-align: middle;
+}
+
+.nav-page .nav-page-text {
+  padding-left: 0.25em;
+  padding-right: 0.25em;
+}
+
+.nav-page a {
+  color: $text-muted;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+}
+
+.nav-page a:hover {
+  color: $link-hover-color;
+}
+
+@media print {
+  .nav-page {
+    display: none;
+  }
+}
+
+// Sidebar navigation styling. Ported from Q1's
+// `projects/website/navigation/quarto-nav.scss:315-410, 464-541`. As with
+// the `.nav-page` rules above, the `.sidebar-navigation`/`.sidebar-link`
+// markup is only emitted on website pages, so these rules are no-ops on
+// non-website renders. (See bd-bsut for the followup task to promote
+// these into a dedicated website Sass bundle once a second website-only
+// ruleset arrives.)
+
+// Strip the default `<a>` underline from any link inside the sidebar
+// navigation list, including the `.sidebar-logo-link` "site title".
+.sidebar-logo-link {
+  text-decoration: none;
+}
+
+.sidebar-navigation a {
+  // Anchors inherit the surrounding container's color rather than the
+  // default Bootstrap link blue. The active/hover variants are scoped
+  // to `div.sidebar-item-container` further below.
+  color: inherit;
+}
+
+.sidebar-navigation li a {
+  text-decoration: none;
+}
+
+// Site title at the top of the sidebar (`<div class="sidebar-title">`).
+// Q1 sets it 1.3rem/1.6rem so it reads as a heading, not a sidebar
+// item. The Bootstrap utility `py-0`/`mb-0` already on the rendered
+// element zeros the vertical padding/margin, but the font sizing here
+// is what makes the title visually distinct from the link list below.
+.sidebar-title {
+  margin-top: 0.25rem;
+  padding-bottom: 0.5rem;
+  font-size: 1.3rem;
+  line-height: 1.6rem;
+  visibility: visible;
+}
+
+.sidebar-title > a {
+  font-size: inherit;
+  text-decoration: none;
+}
+
+// Sidebar item layout (vertical rhythm and section indent).
+$sidebar-items-gap-spacing: 0.2em !default;
+$sidebar-section-indent: 0.5em !default;
+$sidebar-section-bottom-margin: 0.2em !default;
+
+.sidebar.sidebar-navigation > * {
+  padding-top: 1em;
+}
+
+.sidebar-item {
+  margin-bottom: $sidebar-items-gap-spacing;
+  line-height: 1rem;
+  margin-top: 0.4rem;
+}
+
+.sidebar-section {
+  padding-left: $sidebar-section-indent;
+  padding-bottom: $sidebar-section-bottom-margin;
+}
+
+.sidebar-item .sidebar-item-container {
+  // Position the link and its expand/collapse "dongle" on opposite
+  // ends of the row.
+  display: flex;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.sidebar-item-text {
+  width: 100%;
+}
+
+// Sidebar text colors. The link itself inherits `color` from the
+// surrounding `div.sidebar-item-container`; the active/hover/disabled
+// states are scoped to that container too. The four `$sidebar-*-color`
+// variables are derived once here so theme overrides in
+// `_bootstrap-variables.scss` (the `$sidebar-fg`/`$sidebar-bg` pair)
+// flow through naturally.
+$sidebar-hl: if(
+  $sidebar-hl,
+  $sidebar-hl,
+  theme-contrast($nav-link-color, $sidebar-bg)
+) !default;
+$sidebar-color: rgba($sidebar-fg, 1) !default;
+$sidebar-hover-color: rgba($sidebar-hl, 0.8) !default;
+$sidebar-active-color: $sidebar-hl !default;
+$sidebar-disabled-color: rgba($sidebar-fg, 0.75) !default;
+
+div.sidebar-item-container {
+  color: $sidebar-color;
+
+  &:hover,
+  &:focus {
+    color: $sidebar-hover-color;
+  }
+
+  &.disabled {
+    color: $sidebar-disabled-color;
+  }
+
+  .active,
+  .show > .nav-link,
+  .sidebar-link > code {
+    color: $sidebar-active-color;
+  }
 }
 
 .page-columns .footer {

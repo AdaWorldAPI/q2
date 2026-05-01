@@ -13,6 +13,14 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-05-01
+
+- [`2441ad8d`](https://github.com/quarto-dev/q2/commits/2441ad8d): Fix bd-lnd3 — cross-document link clicks now switch the editor in website projects. The website pipeline rewrites `[About](about.qmd)` to `/.quarto/project-artifacts/about.html`; the iframe click handler reverse-maps that back to the source file for in-editor navigation.
+- [`c8dcbcf6`](https://github.com/quarto-dev/q2/commits/c8dcbcf6): Hide the floating sidebar below the `lg` (992px) breakpoint instead of letting it collapse to a 26px-wide ghost column at half-pane previews and 768–991px viewports
+- [`f8234d00`](https://github.com/quarto-dev/q2/commits/f8234d00): Fix bd-f5yi — narrow the iframe `nav[role="doc-toc"]` hide override to `:not(.sidebar-navigation)` so the website sidebar isn't collateral-killed by the TOC-hiding rule
+- [`d656559a`](https://github.com/quarto-dev/q2/commits/d656559a): Surface sibling-page Pass-1 failures in the preview overlay with source-file attribution (bd-rqba), plus rename the misleading "references unknown document" warning to "references missing document information for"
+- [`0f103490`](https://github.com/quarto-dev/q2/commits/0f103490): Surface active-page parse errors in the preview overlay (bd-mwtf) and add a dev-only `window.quartoDebug` console API for scripting projects from DevTools (bd-2rv8)
+
 ### 2026-04-30
 
 - [`2859733b`](https://github.com/quarto-dev/q2/commits/2859733b): Harden silent auth refresh — buffer extended from 5 to 15 minutes to absorb background-tab timer throttling, and a coalesced `triggerRefresh()` lets callers recover from mid-session 401s without logout
@@ -20,6 +28,10 @@ be in reverse chronological order (latest first).
 ### 2026-04-29
 
 - [`dcac202d`](https://github.com/quarto-dev/q2/commits/dcac202d): Fix replay drawer toggle so clicking the chevron or title closes the drawer
+
+### 2026-04-28
+
+- [`a3ef5e8f`](https://github.com/quarto-dev/q2/commits/a3ef5e8f): Phase 9 sub-phases 9.3–9.4 — `renderToHtml` now drives the new `render_page_in_project` WASM entry point so the live preview renders the active page in the context of its surrounding project (sidebar, navbar, prev/next, cross-doc link rewriting, deduplicated theme CSS); single-file projects fall through to the same path `renderQmd` used to take, so behavior is byte-identical there. `Preview` now re-renders on any sibling-file edit (Decision 6) by depending on the `fileContents` Map identity threaded through `PreviewRouter`.
 
 ### 2026-04-24
 
