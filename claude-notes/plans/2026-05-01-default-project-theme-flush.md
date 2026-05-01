@@ -290,16 +290,13 @@ clean follow-up if we want to dedupe later.
 
 ### Phase 3 — close-out
 
-- [ ] Decide whether to file follow-up beads for:
-      (a) Option C — extract the shared "drain-and-flush-or-merge"
-      helper out of `render_document_to_file` and
-      `RenderToHtmlRenderer`; the two sites now have parallel
-      logic. Marginal diff savings.
-      (b) Renaming `flush_site_libs` to something general (e.g.
-      `flush_project_artifacts`) since it's now called from both
-      `WebsiteProjectType.post_render` and the WASM Pass-2 path
-      where "site_libs" is misleading. Pure naming hygiene.
-- [ ] Close the beads issue with the verification record.
+- [x] Filed follow-up **bd-gdhk** (P3, chore): extract the
+      shared "drain-and-flush-or-merge" helper out of
+      `render_document_to_file` and `RenderToHtmlRenderer`.
+- [x] Filed follow-up **bd-v8gx** (P4, chore): rename
+      `flush_site_libs` to `flush_project_artifacts` since it's
+      now called from both website and default-project paths.
+- [x] Closed bd-87fu with the verification record.
 
 ## Files likely touched
 
