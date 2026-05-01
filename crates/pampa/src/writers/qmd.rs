@@ -1241,9 +1241,15 @@ fn escape_markdown(text: &str) -> String {
             '|' => result.push_str("\\|"),   // Tables
             '~' => result.push_str("\\~"),   // Subscript, strikeout
             '^' => result.push_str("\\^"),   // Superscript
+            '@' => result.push_str("\\@"),   // Citations: every bare @ in
+            // a Str is either a citation start (when followed by alnum/_/{)
+            // or an outright parse error (any other position). Always escape.
+            '{' => result.push_str("\\{"), // Attribute span open: bare { in
+            '}' => result.push_str("\\}"), // a Str body is always a parse
+            // error in qmd. Always escape.
 
             // Characters that don't need escaping in most contexts:
-            // . , - + ! ? @ = : ; / ( ) { } % & ' "
+            // . , - + ! ? = : ; / ( ) % & ' "
             // These are only special in very specific contexts and escaping them
             // everywhere would make output unnecessarily verbose.
             _ => result.push(ch),
