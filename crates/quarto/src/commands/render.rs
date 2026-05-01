@@ -691,6 +691,21 @@ mod tests {
         dir
     }
 
+    /// Build a `type: default` project (no `output-dir`, so the
+    /// resolved output dir equals the project root). Mirrors the
+    /// minimal `_quarto.yml` users hand-write.
+    fn make_default_project(temp: &TempDir, files: &[&str]) -> PathBuf {
+        let dir = canonical(temp.path());
+        write_file(&dir.join("_quarto.yml"), "project:\n  type: default\n");
+        for f in files {
+            write_file(
+                &dir.join(f),
+                &format!("---\ntitle: {f}\n---\n\nContent of {f}.\n"),
+            );
+        }
+        dir
+    }
+
     /// Build a loose directory (no `_quarto.yml`) with the listed
     /// `.qmd` files.
     fn make_loose_dir(temp: &TempDir, files: &[&str]) -> PathBuf {
@@ -912,6 +927,50 @@ mod tests {
         assert!(
             matches!(err, DispatchError::PathNotFound(_)),
             "expected PathNotFound, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn classify_one_qmd_in_default_project_succeeds() {
+        // Regression for the post-websites-merge bug: a
+        // `_quarto.yml` with `project: { type: default }` (no
+        // explicit render list, no output-dir) used to make
+        // discovery exclude every file because `output_dir` defaults
+        // to the project root and the walker rejected anything that
+        // started with the output dir. After the fix, naming the only
+        // `.qmd` in the project should classify successfully — and
+        // because that file is the entire project file list, it
+        // collapses to FullProject.
+        let temp = TempDir::new().unwrap();
+        let project = make_default_project(&temp, &["index.qmd"]);
+        let runtime = NativeRuntime::new();
+        let target = classify_inputs(&["index.qmd".into()], &project, &runtime).unwrap();
+        assert_eq!(
+            target,
+            RenderTarget::FullProject {
+                project_dir: project,
+            },
+        );
+    }
+
+    #[test]
+    fn classify_no_args_in_default_project_returns_full_project() {
+        // Companion to `classify_one_qmd_in_default_project_succeeds`:
+        // running `q2 render` with no args inside a default project
+        // returns FullProject. Pre-fix this also "succeeded" but with
+        // an empty file list, so the subsequent render silently
+        // produced no output. The classification step itself looks
+        // identical; the empty-render-set diagnostic in Phase 2 will
+        // catch the silent-no-output case downstream.
+        let temp = TempDir::new().unwrap();
+        let project = make_default_project(&temp, &["index.qmd", "about.qmd"]);
+        let runtime = NativeRuntime::new();
+        let target = classify_inputs(&[], &project, &runtime).unwrap();
+        assert_eq!(
+            target,
+            RenderTarget::FullProject {
+                project_dir: project,
+            },
         );
     }
 

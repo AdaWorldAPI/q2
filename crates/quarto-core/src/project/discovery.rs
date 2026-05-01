@@ -87,7 +87,12 @@ fn is_renderable_qmd(candidate: &Path, config: &DiscoveryConfig<'_>) -> bool {
     let Ok(relative) = candidate.strip_prefix(config.project_dir) else {
         return false;
     };
-    if starts_with(candidate, config.output_dir) {
+    // Default projects emit output beside the source (no `_site/` dir),
+    // so `output_dir == project_dir`. In that case the exclusion check
+    // below would reject every candidate (every file starts with the
+    // project root). Skip it when the output dir isn't a distinct
+    // subdirectory.
+    if config.output_dir != config.project_dir && starts_with(candidate, config.output_dir) {
         return false;
     }
     for component in relative.components() {
@@ -461,6 +466,65 @@ mod tests {
             .collect();
         assert!(names.contains(&"cómo estás.qmd".to_string()));
         assert!(names.contains(&"with spaces.qmd".to_string()));
+    }
+
+    #[test]
+    fn discovery_default_project_walks_when_output_dir_equals_root() {
+        // Regression for the post-websites-merge bug: a default project
+        // has `output_dir == project_dir` (no `_site`), so the
+        // output_dir-exclusion check used to reject every candidate.
+        // After the fix, the walker should return the `.qmd` files just
+        // like a website project does.
+        let temp = TempDir::new().unwrap();
+        let project_dir = canonical(temp.path());
+        write_file(&project_dir.join("index.qmd"), "# x\n");
+        write_file(&project_dir.join("about.qmd"), "# a\n");
+
+        let config = DiscoveryConfig {
+            project_dir: &project_dir,
+            output_dir: &project_dir,
+            render_patterns: &[],
+        };
+        let files = discover_project_files(&config, &native()).unwrap();
+        let mut rels: Vec<String> = files
+            .iter()
+            .map(|p| {
+                p.strip_prefix(&project_dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/")
+            })
+            .collect();
+        rels.sort();
+        assert_eq!(rels, vec!["about.qmd".to_string(), "index.qmd".to_string()],);
+    }
+
+    #[test]
+    fn discovery_excludes_real_output_dir() {
+        // Regression guard for the website case: when output_dir is a
+        // distinct subdirectory, files inside it are excluded.
+        let temp = TempDir::new().unwrap();
+        let project_dir = canonical(temp.path());
+        write_file(&project_dir.join("index.qmd"), "# x\n");
+        write_file(&project_dir.join("_site/old.qmd"), "# stale\n");
+
+        let output_dir = project_dir.join("_site");
+        let config = DiscoveryConfig {
+            project_dir: &project_dir,
+            output_dir: &output_dir,
+            render_patterns: &[],
+        };
+        let files = discover_project_files(&config, &native()).unwrap();
+        let rels: Vec<String> = files
+            .iter()
+            .map(|p| {
+                p.strip_prefix(&project_dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/")
+            })
+            .collect();
+        assert_eq!(rels, vec!["index.qmd".to_string()]);
     }
 
     #[test]

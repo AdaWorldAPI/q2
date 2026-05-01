@@ -440,6 +440,71 @@ fn pass1_failure_triggers_non_zero_exit() {
     );
 }
 
+/// Regression for the post-websites-merge default-project bug.
+///
+/// Mirrors the user repro at
+/// `/Users/cscheid/Desktop/daily-log/2026/05/01/default-project-test/`:
+/// a `_quarto.yml` containing only `project: { type: default }`
+/// next to an `index.qmd`. Pre-fix: `q2 render index.qmd` failed
+/// with "excluded from the render list", and `q2 render` (no args)
+/// silently produced no output. Post-fix: both invocations succeed
+/// and `index.html` lands beside the source.
+#[test]
+fn default_project_renders_named_file_and_produces_html() {
+    let temp = TempDir::new().unwrap();
+    let project = canonical(temp.path());
+    write_file(&project.join("_quarto.yml"), "project:\n  type: default\n");
+    write_file(
+        &project.join("index.qmd"),
+        "---\ntitle: Home\n---\n\nHome page.\n",
+    );
+
+    // Mode B: name the file explicitly.
+    let out = run_q2(&project, &["index.qmd"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "default-project Mode B render should succeed.\nstdout: {stdout}\nstderr: {stderr}",
+    );
+    let html_path = project.join("index.html");
+    assert!(
+        html_path.exists(),
+        "expected {} to exist after Mode B render; stderr: {stderr}",
+        html_path.display(),
+    );
+    let html = std::fs::read_to_string(&html_path).unwrap();
+    assert!(
+        html.contains("Home page."),
+        "rendered HTML should include the source body; got:\n{html}",
+    );
+}
+
+#[test]
+fn default_project_renders_with_no_args_and_produces_html() {
+    let temp = TempDir::new().unwrap();
+    let project = canonical(temp.path());
+    write_file(&project.join("_quarto.yml"), "project:\n  type: default\n");
+    write_file(
+        &project.join("index.qmd"),
+        "---\ntitle: Home\n---\n\nHome page.\n",
+    );
+
+    // Mode A: no args.
+    let out = run_q2(&project, &[]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "default-project Mode A render should succeed.\nstderr: {stderr}",
+    );
+    let html_path = project.join("index.html");
+    assert!(
+        html_path.exists(),
+        "expected {} to exist after Mode A render; stderr: {stderr}",
+        html_path.display(),
+    );
+}
+
 /// Test (negative): multiple stand-alone `.qmd` files outside any
 /// project ⇒ "one project per render" error.
 #[test]
