@@ -505,6 +505,64 @@ fn default_project_renders_with_no_args_and_produces_html() {
     );
 }
 
+/// Phase 2 of bd-h736: when a project's `project.render` globs
+/// match zero files, `q2 render` should not silently no-op. It
+/// should emit an Error-severity project-level diagnostic, mention
+/// the render-list misconfiguration, and exit non-zero.
+#[test]
+fn render_list_matching_no_files_emits_diagnostic_and_nonzero_exit() {
+    let temp = TempDir::new().unwrap();
+    let project = canonical(temp.path());
+    // Render pattern that matches no real `.qmd` file in the
+    // project (Phase-1 dispatcher's `Subset` branch is not
+    // reachable from here — Mode A walks the project file list
+    // straight from the orchestrator).
+    write_file(
+        &project.join("_quarto.yml"),
+        "project:\n  type: default\n  render:\n    - does-not-exist.qmd\n",
+    );
+    write_file(
+        &project.join("index.qmd"),
+        "---\ntitle: Home\n---\n\nHome.\n",
+    );
+
+    let out = run_q2(&project, &[]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !out.status.success(),
+        "expected non-zero exit on empty render set; stderr: {stderr}",
+    );
+    assert!(
+        stderr.contains("no renderable")
+            || stderr.contains("empty render set")
+            || stderr.contains("Q-PROJECT-EMPTY"),
+        "expected an empty-render-set diagnostic; got stderr: {stderr}",
+    );
+    assert!(
+        stderr.contains("project.render"),
+        "diagnostic should mention `project.render`; got stderr: {stderr}",
+    );
+}
+
+#[test]
+fn empty_default_project_with_no_qmd_emits_diagnostic() {
+    let temp = TempDir::new().unwrap();
+    let project = canonical(temp.path());
+    write_file(&project.join("_quarto.yml"), "project:\n  type: default\n");
+    // No .qmd files at all.
+
+    let out = run_q2(&project, &[]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !out.status.success(),
+        "expected non-zero exit on empty render set; stderr: {stderr}",
+    );
+    assert!(
+        stderr.contains("no renderable") || stderr.contains("render set is empty"),
+        "expected an empty-render-set diagnostic; got stderr: {stderr}",
+    );
+}
+
 /// Test (negative): multiple stand-alone `.qmd` files outside any
 /// project ⇒ "one project per render" error.
 #[test]

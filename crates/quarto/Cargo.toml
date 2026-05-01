@@ -21,6 +21,7 @@ pollster.workspace = true
 tokio.workspace = true
 
 quarto-core.workspace = true
+quarto-error-reporting.workspace = true
 quarto-trace.workspace = true
 quarto-trace-server.workspace = true
 quarto-util.workspace = true

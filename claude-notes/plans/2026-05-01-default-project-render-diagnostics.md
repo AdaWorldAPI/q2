@@ -204,17 +204,35 @@ output directory rather than everything.
 
 ### Phase 2: Project-level diagnostic surface
 
-- [ ] Add `ProjectDiagnostic { severity, code, message, hint }` and
+- [x] Add `ProjectDiagnostic { severity, code, message, hint }` and
       `RenderSummary.project_diagnostics: Vec<ProjectDiagnostic>`.
-- [ ] Emit `EmptyRenderSet` from the orchestrator when Pass-1 sees
-      zero candidate files.
-- [ ] CLI: print project diagnostics after the Pass-2 summary;
-      decide non-zero exit policy (default: non-zero on `error`
-      severity, zero on `warning`).
-- [ ] Hub-client WASM: include project diagnostics in the summary
-      returned to JS.
-- [ ] Hub-client UI: add a project-diagnostic banner above the
-      preview pane; wire it to the WASM summary.
+      **Discovered already exists**: `ProjectRenderSummary` has
+      `project_diagnostics: Vec<DiagnosticMessage>` (built for
+      Phase 7 `WebsiteProjectType.post_render`). `DiagnosticMessage`
+      already carries `code`, `kind` (severity), `title`, `problem`,
+      `hints`, `details` — superset of the planned shape. Reused
+      directly; no new type needed.
+- [x] Emit `EmptyRenderSet` from the orchestrator when it sees
+      zero candidate files. Implemented as
+      `ProjectPipeline::empty_render_set_diagnostic` (gated on
+      `Full` and `ActivePage` modes — `Subset` is dispatcher-
+      guaranteed non-empty). Diagnostic code: `Q-PROJECT-EMPTY`.
+      Hint adapts based on whether `project.render` is configured.
+- [x] CLI: print project diagnostics after the Pass-2 summary
+      (`print_render_diagnostics` already does this); add Error-
+      severity to the non-zero exit policy via new
+      `should_exit_nonzero` helper.
+- [x] Hub-client WASM: include project diagnostics in the summary
+      returned to JS. **Already wired**: `wasm-quarto-hub-client`
+      extends `all_diags` with `summary.project_diagnostics` at
+      `lib.rs:1522`, returns them in the `warnings` field.
+- [x] Hub-client UI: surfaces project diagnostics through the
+      existing `warnings → allDiagnostics → onDiagnosticsChange`
+      pipeline (`Preview.tsx:118`). **No separate banner needed**
+      — file-level and project-level diagnostics share the same
+      surface, and once a real project diagnostic flows (e.g.
+      hub-client opens a project with `render: ['ghost.qmd']`),
+      it shows up alongside file-level warnings without UI work.
 
 ### Phase 3: Verification
 

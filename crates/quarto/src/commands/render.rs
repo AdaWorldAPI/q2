@@ -497,12 +497,7 @@ fn execute_single_doc(
 
     print_render_diagnostics(&summary, args.quiet);
 
-    // Strict policy for `quarto render` (Decision D1, bd-creo).
-    // Any file that failed Pass-1 (parse / metadata error) or
-    // Pass-2 (renderer error) is a non-zero exit. The orchestrator
-    // itself stays policy-free — partial-progress leniency lives
-    // in the `quarto preview` / hub-client consumer, not here.
-    if !summary.pass1_failures.is_empty() || !summary.pass2_failures.is_empty() {
+    if should_exit_nonzero(&summary) {
         std::process::exit(1);
     }
     Ok(())
@@ -572,15 +567,33 @@ fn execute_project(
         info!("{}", line);
     }
 
-    // Strict policy for `quarto render` (Decision D1, bd-creo).
-    // Any file that failed Pass-1 (parse / metadata error) or
-    // Pass-2 (renderer error) is a non-zero exit. The orchestrator
-    // itself stays policy-free — partial-progress leniency lives
-    // in the `quarto preview` / hub-client consumer, not here.
-    if !summary.pass1_failures.is_empty() || !summary.pass2_failures.is_empty() {
+    if should_exit_nonzero(&summary) {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// Strict exit policy for `quarto render` (Decision D1, bd-creo).
+///
+/// Any file that failed Pass-1 (parse / metadata error) or Pass-2
+/// (renderer error) forces a non-zero exit. The orchestrator itself
+/// stays policy-free — partial-progress leniency lives in the
+/// `quarto preview` / hub-client consumer, not here.
+///
+/// Project-level diagnostics with [`DiagnosticKind::Error`] severity
+/// (e.g. `Q-PROJECT-EMPTY` when the render set is empty — bd-h736)
+/// also force a non-zero exit; the user almost certainly wanted the
+/// previous behavior of "render the named file" rather than a silent
+/// zero-byte success. Warning / Info severity diagnostics are
+/// printed but do not affect the exit code.
+fn should_exit_nonzero(summary: &quarto_core::project::orchestrator::ProjectRenderSummary) -> bool {
+    if !summary.pass1_failures.is_empty() || !summary.pass2_failures.is_empty() {
+        return true;
+    }
+    summary
+        .project_diagnostics
+        .iter()
+        .any(|d| d.kind == quarto_error_reporting::DiagnosticKind::Error)
 }
 
 fn print_render_diagnostics(

@@ -527,6 +527,8 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
     /// pre/post hooks). Native and WASM share the same body — only
     /// the renderer and project-type implementations differ.
     pub async fn run(&mut self) -> Result<ProjectRenderSummary<R::Output>> {
+        let initial_diagnostics = self.empty_render_set_diagnostic();
+
         let (profiles, pass1_failures) = self.pass_one().await;
         let index = Arc::new(ProjectIndex::new(profiles));
 
@@ -564,7 +566,7 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
         let lib_dir = self.project_type.lib_dir();
         let resolver = self.renderer.build_project_resolver(self.project, &lib_dir);
 
-        let mut project_diagnostics: Vec<DiagnosticMessage> = Vec::new();
+        let mut project_diagnostics: Vec<DiagnosticMessage> = initial_diagnostics;
         self.project_type
             .post_render(
                 self.project,
@@ -584,6 +586,45 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
             pass2_failures,
             project_diagnostics,
         })
+    }
+
+    /// Detect "the project will render zero files" before Pass-1
+    /// starts and emit a project-level diagnostic. Returns an empty
+    /// vec when the situation does not apply.
+    ///
+    /// Fires under [`RenderMode::Full`] (CLI no-arg case) and
+    /// [`RenderMode::ActivePage`] (hub-client live preview) when
+    /// `project.files` is empty. The CLI dispatcher already
+    /// guarantees `RenderMode::Subset` carries at least one explicit
+    /// target, so we don't fire there.
+    ///
+    /// Without this check, the orchestrator returns a successful
+    /// summary with empty `outputs` / `pass1_failures` /
+    /// `pass2_failures`, and the CLI silently exits 0 — the
+    /// confusing behavior reported in bd-h736.
+    fn empty_render_set_diagnostic(&self) -> Vec<DiagnosticMessage> {
+        if !self.project.files.is_empty() {
+            return Vec::new();
+        }
+        if matches!(self.mode, RenderMode::Subset(_)) {
+            return Vec::new();
+        }
+        let project_dir = self.project.dir.display().to_string();
+        let mut diag = DiagnosticMessage::error("Project has no renderable files");
+        diag.code = Some("Q-PROJECT-EMPTY".to_string());
+        diag.problem = Some(quarto_error_reporting::MessageContent::from(format!(
+            "Project at `{project_dir}` resolved to an empty render set.",
+        )));
+        let has_render_patterns = !self.project.config.render_patterns.is_empty();
+        let hint = if has_render_patterns {
+            "Check `project.render` in `_quarto.yml` — its globs matched no `.qmd` files."
+        } else {
+            "Add a `.qmd` file to the project, or remove `_quarto.yml` to render a single \
+             standalone document."
+        };
+        diag.hints
+            .push(quarto_error_reporting::MessageContent::from(hint));
+        vec![diag]
     }
 
     /// Advance every file to the profile checkpoint, collecting
