@@ -1058,4 +1058,134 @@ mod tests {
             assert!(mapped_end.is_some(), "End of output should resolve");
         }
     }
+
+    /// bd-45yw: replay engine integration through `EngineExecutionStage`.
+    ///
+    /// Builds a registry with `ReplayEngine` substituted under
+    /// `mock-replay-engine`, runs the stage against a `DocumentAst`
+    /// whose declared engine matches the replay engine's name, and
+    /// asserts:
+    ///
+    /// 1. The stage flows the recorded `supporting_files` into
+    ///    `ctx.resource_report` tagged `ResourceOrigin::Engine` —
+    ///    closes the bd-o8pr Phase 2 engine-channel test gap.
+    /// 2. The recorded `includes` reach `ctx.includes`.
+    /// 3. The replayed markdown reaches the downstream AST.
+    #[tokio::test]
+    async fn test_replay_engine_drives_resource_report_through_stage() {
+        use crate::engine::{EngineRegistry, ReplayEngine};
+        use crate::project_resources::ResourceOrigin;
+        use quarto_trace::EngineCapture;
+
+        // Document declares the replay engine's name verbatim. The
+        // stage will serialize this AST to QMD and hand it to the
+        // engine, so we record the serialized form as input_qmd.
+        let content = b"---\nengine: mock-replay-engine\n---\n\n# Hello\n\nWorld\n";
+        let doc_ast = parse_qmd_to_ast(content, "/project/test.qmd");
+        let (serialized_qmd, _) = serialize_ast_to_qmd(&doc_ast.ast).unwrap();
+
+        let capture = EngineCapture {
+            engine_name: "mock-replay-engine".into(),
+            input_qmd: serialized_qmd,
+            result: serde_json::json!({
+                "markdown": "# Hello\n\nReplayed body.\n",
+                "supporting_files": ["fig1.png", "data/table.csv"],
+                "filters": [],
+                "includes": {
+                    "header_includes": ["<style>.replay{}</style>"],
+                    "include_before": [],
+                    "include_after": [],
+                },
+                "needs_postprocess": false,
+            }),
+        };
+
+        let mut registry = EngineRegistry::new();
+        registry.register(Arc::new(ReplayEngine::new(capture)));
+
+        let stage = EngineExecutionStage::with_registry(registry);
+        let mut ctx = make_test_context();
+
+        let input = PipelineData::DocumentAst(doc_ast);
+        let _output = stage.run(input, &mut ctx).await.unwrap();
+
+        // 1. Resource report received the recorded supporting files,
+        //    tagged Engine with the replay engine's surfaced name.
+        assert_eq!(
+            ctx.resource_report.entries.len(),
+            2,
+            "expected two engine-tagged resource entries, got {:?}",
+            ctx.resource_report.entries
+        );
+        for entry in &ctx.resource_report.entries {
+            match &entry.origin {
+                ResourceOrigin::Engine { engine, source } => {
+                    assert_eq!(engine, "mock-replay-engine");
+                    assert_eq!(source, &PathBuf::from("/project/test.qmd"));
+                }
+                other => panic!("expected ResourceOrigin::Engine, got {:?}", other),
+            }
+        }
+        let raw_paths: Vec<_> = ctx
+            .resource_report
+            .entries
+            .iter()
+            .map(|e| e.raw_path.clone())
+            .collect();
+        assert!(raw_paths.contains(&PathBuf::from("fig1.png")));
+        assert!(raw_paths.contains(&PathBuf::from("data/table.csv")));
+
+        // 2. Recorded includes reached ctx.includes.
+        assert_eq!(
+            ctx.includes.header_includes,
+            vec!["<style>.replay{}</style>"]
+        );
+        assert!(ctx.includes.include_before.is_empty());
+        assert!(ctx.includes.include_after.is_empty());
+    }
+
+    /// bd-45yw: replay miss through the pipeline must surface as a
+    /// stage error (not as a silent passthrough).
+    #[tokio::test]
+    async fn test_replay_engine_miss_surfaces_as_stage_error() {
+        use crate::engine::{EngineRegistry, ReplayEngine};
+        use quarto_trace::EngineCapture;
+
+        let content = b"---\nengine: mock-replay-engine\n---\n\n# Real\n";
+        let doc_ast = parse_qmd_to_ast(content, "/project/test.qmd");
+
+        // Capture deliberately recorded against different input.
+        let capture = EngineCapture {
+            engine_name: "mock-replay-engine".into(),
+            input_qmd: "completely different recorded content\n".into(),
+            result: serde_json::json!({
+                "markdown": "x\n",
+                "supporting_files": [],
+                "filters": [],
+                "includes": {
+                    "header_includes": [],
+                    "include_before": [],
+                    "include_after": [],
+                },
+                "needs_postprocess": false,
+            }),
+        };
+
+        let mut registry = EngineRegistry::new();
+        registry.register(Arc::new(ReplayEngine::new(capture)));
+
+        let stage = EngineExecutionStage::with_registry(registry);
+        let mut ctx = make_test_context();
+
+        let input = PipelineData::DocumentAst(doc_ast);
+        let err = stage
+            .run(input, &mut ctx)
+            .await
+            .expect_err("replay miss must produce a stage error");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("replay miss"),
+            "expected 'replay miss' diagnostic in stage error, got: {msg}"
+        );
+    }
 }

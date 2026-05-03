@@ -3,8 +3,8 @@
 use quarto_trace::read::read_trace;
 use quarto_trace::write::write_trace;
 use quarto_trace::{
-    BUILD_GIT_HASH, RenderInfo, SCHEMA_VERSION, StageErrorInfo, StageStatus, TraceDocument,
-    TraceEntry,
+    BUILD_GIT_HASH, EngineCapture, RenderInfo, SCHEMA_VERSION, StageErrorInfo, StageStatus,
+    TraceDocument, TraceEntry,
 };
 use serde_json::json;
 
@@ -125,6 +125,58 @@ fn test_legacy_trace_without_status_defaults_to_ok() {
     }"#;
     let doc: TraceDocument = serde_json::from_str(json_text).unwrap();
     assert_eq!(doc.pipeline[0].status, StageStatus::Ok);
+}
+
+#[test]
+fn test_engine_capture_roundtrip_through_disk() {
+    // bd-45yw: traces double as replay fixtures. A TraceDocument's
+    // engine_capture must round-trip through disk losslessly.
+    let tmp = std::env::temp_dir().join("quarto-trace-engine-capture");
+    let _ = std::fs::remove_dir_all(&tmp);
+    let path = tmp.join("latest.json");
+
+    let result_json = json!({
+        "markdown": "# Hello\n\nWorld\n",
+        "supporting_files": ["fig1.png", "data/table.csv"],
+        "filters": ["quarto"],
+        "includes": {
+            "header_includes": ["<style>.x{}</style>"],
+            "include_before": [],
+            "include_after": ["<script>foo()</script>"],
+        },
+        "needs_postprocess": false,
+    });
+
+    let mut doc = TraceDocument::new(RenderInfo::default());
+    doc.engine_capture = Some(EngineCapture {
+        engine_name: "jupyter".into(),
+        input_qmd: "---\nengine: jupyter\n---\n\n# Hello\n".into(),
+        result: result_json.clone(),
+    });
+
+    write_trace(&doc, &path).unwrap();
+    let read_back = read_trace(&path).unwrap();
+
+    let capture = read_back
+        .engine_capture
+        .as_ref()
+        .expect("engine_capture should round-trip");
+    assert_eq!(capture.engine_name, "jupyter");
+    assert_eq!(capture.input_qmd, "---\nengine: jupyter\n---\n\n# Hello\n");
+    assert_eq!(capture.result, result_json);
+}
+
+#[test]
+fn test_engine_capture_absent_by_default() {
+    // Existing traces without an engine_capture field should still
+    // deserialize cleanly.
+    let json_text = r#"{
+      "schema_version": 1,
+      "render": {},
+      "pipeline": []
+    }"#;
+    let doc: TraceDocument = serde_json::from_str(json_text).unwrap();
+    assert!(doc.engine_capture.is_none());
 }
 
 #[test]

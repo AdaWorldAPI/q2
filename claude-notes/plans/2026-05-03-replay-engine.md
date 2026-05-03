@@ -77,28 +77,28 @@ The plan now extends the existing `quarto-trace` framework rather than inventing
 
 ### Phase 0 — Test plan (TDD: failing tests first)
 
-- [ ] Round-trip test in `quarto-trace`: build an in-memory `TraceDocument` carrying an engine capture (`engine_name`, `input_qmd`, full `ExecuteResult`), `write_trace` to a tempfile, `read_trace`, assert deep equality.
-- [ ] Replay-engine unit test in `quarto-core`: construct a `ReplayEngine` from an in-memory capture; call `execute(input, ctx)` with matching input; assert returned `ExecuteResult` equals the recorded one.
-- [ ] Replay-engine miss test: same as above but with non-matching input; assert `execute` returns a hard `ExecutionError` (no fallback).
-- [ ] Replay-engine integration test: build an `EngineRegistry` with `ReplayEngine` substituted under `"markdown"`, run the full `EngineExecutionStage` against a `StageContext`, assert `ctx.resource_report` receives the recorded `supporting_files` tagged `ResourceOrigin::Engine`. (Closes the specific bd-o8pr gap.)
+- [x] Round-trip test in `quarto-trace`: build an in-memory `TraceDocument` carrying an engine capture (`engine_name`, `input_qmd`, full `ExecuteResult`), `write_trace` to a tempfile, `read_trace`, assert deep equality.
+- [x] Replay-engine unit test in `quarto-core`: construct a `ReplayEngine` from an in-memory capture; call `execute(input, ctx)` with matching input; assert returned `ExecuteResult` equals the recorded one.
+- [x] Replay-engine miss test: same as above but with non-matching input; assert `execute` returns a hard `ExecutionError` (no fallback).
+- [x] Replay-engine integration test: build an `EngineRegistry` with `ReplayEngine` substituted under a synthetic engine name (`mock-replay-engine`), run the full `EngineExecutionStage` against a `StageContext`, assert `ctx.resource_report` receives the recorded `supporting_files` tagged `ResourceOrigin::Engine`. (Closes the specific bd-o8pr gap.)
 - [ ] Recording E2E test through `q2 render`: render a fixture with `trace: true`, assert the produced trace contains an engine capture with the document's input QMD and a non-empty `ExecuteResult`. Use the `markdown` engine so CI doesn't need R/Python.
 - [ ] Replay E2E test through `q2 render`: take a trace produced by the recording test, run `q2 render --replay <trace>` against the same input, assert the rendered output matches and assert the run did not invoke the real engine (verifiable by registry inspection or by replaying a trace whose engine name is one we deliberately omitted from the registry).
 - [ ] Hard-fail-on-miss E2E: replay a trace against a *different* input QMD; assert the CLI exits non-zero with a clear diagnostic.
 
 ### Phase 1 — Trace format extension
 
-- [ ] Audit `ExecuteResult` for `Serialize`/`Deserialize` derives. Specifically check `PandocIncludes` and any nested types it owns. Add derives where missing. If any field is structurally non-serializable, surface immediately — that's a Phase 1 blocker.
-- [ ] Decide `supporting_files` representation in the trace: paths-only vs. content-bundled. Per-document granularity makes bundling viable; paths-only requires the fixture dir to live alongside the trace. Default lean: bundled (self-contained traces are easier to attach to bug reports), with a size note pointing at bd-5qnj.
-- [ ] Add `EngineCapture { engine_name: String, input_qmd: String, result: ExecuteResult }` (exact field names TBD) to `quarto-trace::lib`. Attach as `Option<EngineCapture>` on `TraceDocument` (per-document, single capture). Confirm with workspace build that adding the field doesn't break existing observers/readers.
-- [ ] Round-trip tests from Phase 0 pass.
+- [x] Audit `ExecuteResult` for `Serialize`/`Deserialize` derives. **Result:** `ExecuteResult` and `PandocIncludes` were missing derives; both are pure POD (`String`, `Vec<PathBuf>`, `Vec<String>`, `bool`). Added `serde::{Serialize, Deserialize}` derives — no field needed special handling. Workspace builds clean.
+- [x] Decided `supporting_files` representation: stored as JSON paths inside the captured `ExecuteResult` (i.e., paths-only). The orchestrator drains them on replay just like a real engine run; the resolver in `project_resources::resolve_reported_resources` handles the rest. Bundling content into the trace is deferred to bd-5qnj's size investigation.
+- [x] Added `EngineCapture { engine_name, input_qmd, result }` to `quarto-trace::lib`. Attached as `Option<EngineCapture>` on `TraceDocument` with `#[serde(default, skip_serializing_if = "Option::is_none")]` — pre-existing traces deserialize cleanly. `result` is held as `serde_json::Value` so `quarto-trace` stays leaf-level.
+- [x] Round-trip tests pass (`test_engine_capture_roundtrip_through_disk`, `test_engine_capture_absent_by_default`).
 
 ### Phase 2 — `ReplayEngine` impl
 
-- [ ] New module `crates/quarto-core/src/engine/replay.rs`. Struct `ReplayEngine { capture: EngineCapture }` (or borrows the capture via `Arc`).
-- [ ] `impl ExecutionEngine`: `name()` returns the recorded engine's name (so it slots into the registry under the same name); `execute()` validates input matches recorded input verbatim (string equality is fine for v1) and returns the recorded `ExecuteResult` cloned; on mismatch returns a hard `ExecutionError`. `is_available()` returns `true`. `can_freeze()` returns `false`.
-- [ ] Source-info handling: `execute` ignores recorded provenance and ignores `ctx.source_info`. Document the limitation in module-level rustdoc; we will surface it again in Phase 6.
-- [ ] Registry helper: `EngineRegistry::with_replay(capture: EngineCapture) -> Self` (or similar) — start from a default registry and `register` the replay engine, which (per `EngineRegistry::register`'s last-write-wins semantics) replaces the real engine of the same name.
-- [ ] Phase 0 unit + miss + integration tests pass.
+- [x] New module `crates/quarto-core/src/engine/replay.rs`. `ReplayEngine` holds an `Arc<EngineCapture>`; constructors `new(EngineCapture)` and `from_arc(Arc<EngineCapture>)`.
+- [x] `impl ExecutionEngine`: `name()` returns recorded engine name; `execute()` validates input via byte-equality and returns the deserialized `ExecuteResult`; `can_freeze()` → false; `is_available()` → true. Mismatch returns `ExecutionError::ExecutionFailed` with a "replay miss" diagnostic. Malformed `result` JSON likewise returns `ExecutionFailed` with a clear message.
+- [x] Source-info handling: documented in module rustdoc as a v1 limitation. `execute()` ignores both recorded provenance and `ctx.source_info`.
+- [x] Registry helper `EngineRegistry::with_replay(capture)` — starts from a default registry and registers the replay engine; last-write-wins replacement makes the substitution transparent.
+- [x] Phase 0 unit + miss + integration tests pass (9 unit tests + 2 stage-integration tests, including an end-to-end miss assertion through the real `EngineExecutionStage`).
 
 ### Phase 3 — Recording hook
 
