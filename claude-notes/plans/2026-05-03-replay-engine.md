@@ -7,7 +7,7 @@
 
 ## Triage verdict
 
-**Ready to design (post-alignment).** The engine trait surface is small and well-shaped, the parent issue (bd-o8pr) gives concrete motivation, and a clean fixture-driven approach maps onto the existing `EngineRegistry::register` extension point without touching the pipeline. Design questions resolved with user 2026-05-03 — see "Resolved design decisions" below. Remaining work is implementation-side scoping: chiefly, deciding the integration point with the existing `quarto-trace` framework.
+**Implementation complete** as of 2026-05-03. Phases 0-5 fully landed, Phase 6 mostly done (contributor docs landed; user-facing bug-reporting docs deferred — see Phase 6 notes for rationale). All tests passing through `cargo xtask verify` (Rust + WASM + hub-client). Six commits on branch `beads/45yw-replay-engine` ready for review.
 
 ## Resolved design decisions (2026-05-03)
 
