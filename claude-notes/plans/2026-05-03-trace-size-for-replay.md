@@ -3,7 +3,7 @@
 **Date:** 2026-05-03
 **Beads:** bd-5qnj
 **Worktree:** `.worktrees/5qnj-trace-size` (branch `beads/5qnj-trace-size`, based on `main` @ `2b954d75`)
-**Status:** Investigation — pending design alignment with user. **Do not start implementation until the user gives the go-ahead.**
+**Status:** Design aligned with user 2026-05-03. Ready to implement on user go-ahead. See "Resolved design decisions" below.
 
 ## Triage verdict
 
@@ -13,6 +13,30 @@ pretty-print → gzip → dedup AST snapshots → minimal replay artifact)
 that maps onto well-defined intervention points. The remaining
 choices are policy-level questions for the user, not gaps in the
 investigation.
+
+## Resolved design decisions (2026-05-03)
+
+1. **Size budgets.** No hard targets. Provisional ceilings (≤ 100 KB
+   compressed for CI fixtures, ≤ 1 MB compressed for user-attached
+   reports) accepted as "directionally right" — the goal is to see
+   where the obvious wins land before debating numbers. Re-evaluate
+   after Phase 1+2 with measurements on real fixtures.
+2. **Unified artifact.** One trace serves both diagnostic and replay
+   roles. Phases 1+2 land first; bd-45yw's replay capture rides on
+   top of the smaller format.
+3. **Drop pretty-print on disk.** Yes. SPA formats client-side;
+   `quarto trace show --pretty` covers ad-hoc `jq` users.
+4. **Sequencing vs. bd-45yw.** Independent work streams. The
+   investigation here is wire-format only; the in-memory representation
+   on the reader side is allowed to be heavyweight (debugging context
+   tolerates memory cost). The constraint we're optimizing for is
+   **repo-at-rest growth** as regression-test fixtures accumulate, not
+   runtime memory. A non-trivial merge with bd-45yw's branch is
+   expected and acceptable.
+5. **One v2 bump.** All improvements (dedup + replay capture + any
+   diff-UI prerequisites) land together under `schema_version: 2`.
+6. **Keep no-op `transform:` entries.** Don't elide. Dedup makes them
+   nearly free, and the diff UI surface stays unchanged.
 
 The empirical numbers (full report at
 `claude-notes/plans/5qnj-trace-size-investigation/measurements.md`)
@@ -147,9 +171,10 @@ the other.
 - Gzip on disk: write `latest.json.gz` instead of `latest.json`.
   Reader detects by extension. Keep `.json` as fallback for older
   traces and for users who want to `jq` directly.
-- Decision needed: does Phase 1 land before bd-45yw starts (so
-  recording is small from day 1) or in parallel (Phase 1 ships, then
-  bd-45yw consumes the smaller artifact)?
+- Sequencing: Phase 1 is independent of bd-45yw and can land in
+  parallel. Wire-format-only changes; in-memory representation
+  unchanged. A non-trivial merge with the bd-45yw branch is
+  expected (per "Resolved design decisions" #4).
 
 ### Phase 2 — DocumentAst dedup under `schema_version: 2`
 
@@ -163,25 +188,20 @@ the other.
 - Migration: keep `schema_version: 1` reader path; new writer
   emits v2; CLI and viewer support both.
 
-### Phase 3 — Minimal replay artifact (joint design with bd-45yw)
+### Phase 3 — Replay capture in the unified artifact (joint with bd-45yw)
 
-This is the core unified-artifact-vs.-split decision. Two options:
+Decision: **unified.** One `latest.json.gz` carries both the diagnostic
+pipeline trace and the replay payload (`engine_name`, recorded input,
+`ExecuteResult`). Replay readers ignore everything outside the
+engine-capture object; diagnostic readers ignore the capture. After
+Phase 1+2, the projected size sits comfortably inside the provisional
+budgets.
 
-- **Unified.** One `latest.json.gz` carries both the diagnostic
-  pipeline trace and the replay payload (`engine_name`, recorded
-  input, `ExecuteResult`). Replay readers ignore everything outside
-  the engine-capture object; diagnostic readers ignore the capture.
-  After Phase 1+2, this fits the projected size budgets.
-- **Split.** Diagnostic trace stays at `latest.json.gz`; replay
-  artifact becomes `latest.replay.json.gz` written separately,
-  containing only the engine capture. Smaller per-fixture but two
-  artifacts to manage.
-
-Recommendation in the absence of new data: **unified, after Phase 1+2
-land.** The numbers project comfortably under both budgets
-(checked-in fixture and user-attached). But this needs user sign-off
-because it commits us to never re-introducing per-stage AST snapshots
-in fixtures — see the design questions below.
+Coordination with bd-45yw: this phase is where the merge with
+`beads/45yw-replay-engine` happens. The wire-format extension here
+(adding the engine capture object) and bd-45yw's reader/writer
+plumbing for `ExecuteResult` need to land together under
+`schema_version: 2`.
 
 ### Phase 4 — Lazy load on read (deferred)
 
@@ -200,45 +220,8 @@ needed once Phase 1+2 land.
 
 ## Open design questions for the user
 
-1. **Size budgets.** Are the provisional ceilings — ≤ 100 KB
-   (compressed) for checked-in CI fixtures, ≤ 1 MB (compressed) for
-   user-attached bug reports — the right targets? Tighter would push
-   us toward the split-artifact option; looser would let us stop at
-   Phase 1.
-2. **Unified vs. split artifact.** Recommend unified after Phase 1+2.
-   But this binds future schema choices: anything we add to the
-   trace counts against the replay-fixture budget. Comfortable with
-   that constraint, or prefer splitting now to keep replay artifacts
-   trivially small?
-3. **Pretty-print on disk: keep or drop?** Recommend dropping — the
-   SPA formats client-side and `quarto trace show --pretty` covers the
-   raw-jq use case. Any reason to keep the on-disk file
-   human-readable by default?
-4. **Sequencing relative to bd-45yw.** Three options:
-   (a) bd-5qnj Phase 1 lands first, then bd-45yw can record into a
-       smaller artifact from day 1.
-   (b) bd-45yw Phase 1 lands first with the current heavyweight format;
-       bd-5qnj Phase 1+2 land later as a size optimization.
-   (c) Land them together (one PR, schema_version: 2 + replay capture
-       in one cut). Recommend (c) only if we're confident in both
-       designs; otherwise (a) — small, schema-neutral compression wins
-       are easier to ship in isolation.
-5. **Schema bump scope.** When we bump to `schema_version: 2`, do we
-   batch in everything we know we want (AST dedup + replay capture +
-   any diff-UI prerequisites for trace-viewer Phase 4.6), or treat
-   each as its own bump? Bumps are cheap (readers gate on
-   `schema_version`); the question is whether we want the audit
-   surface of one big v2 or several smaller v2/v3/v4. Recommend one
-   v2 if all three changes can land within a few weeks of each
-   other; separate bumps if any of them is more than ~a month away.
-6. **Snapshot of `aux:` and `transform:` entries.** The trace
-   currently produces 30+ `transform:` entries plus `aux:` entries
-   (e.g. `aux:crossref-index`). With AST dedup, these become almost
-   free. Without it, do we want to elide no-op transforms entirely
-   (don't write a TraceEntry if the AST didn't change)? Risk: the
-   diff UI may want to know that a transform ran even if it was a
-   no-op; eliding makes "did it run?" indistinguishable from "did
-   it not match?".
+All resolved 2026-05-03 — see "Resolved design decisions" near the top
+of this document. No open questions remain blocking implementation.
 
 ## Risks / tradeoffs
 
@@ -253,18 +236,12 @@ needed once Phase 1+2 land.
 - **Gzipped traces aren't directly `jq`-able.** `zcat trace.json.gz |
   jq` is one extra step. We can soften with a `quarto trace cat` that
   decompresses to stdout. Not blocking.
-- **Eliding no-op stages would change the diff UI's source data.** If
-  Phase 4.6 ever ships a "what did this stage produce?" view, an
-  elided no-op stage shows nothing — which may be exactly right
-  ("the AST didn't change") or confusing ("did the stage run?").
-  Decision deferred to question 6.
-- **bd-5qnj does not in itself produce the engine-capture payload
-  bd-45yw needs.** Phase 3 does that, but only after Phase 1+2 prove
-  the size budget is achievable. If question 4 picks (b), we may
-  ship the replay capture in bd-45yw before Phase 2 dedup is in
-  place — which is fine, just worth flagging that the worst-case
-  size during that window is what bd-45yw Phase 1's "is the
-  artifact small enough?" check has to look at.
+- **Coordination with bd-45yw branch.** bd-45yw is in flight on its
+  own worktree and may evolve the engine-capture shape independently;
+  Phase 3 is where the merge happens. Wire-format-only scope here
+  reduces but does not eliminate the merge surface — expect to
+  reconcile `TraceEntry` / sibling-type choices when the branches
+  rejoin.
 - **The 16 MB → 0.6 MB result depends on the document.** Documents
   with heavy supporting_files content (jupyter outputs, plot
   PNGs as base64) will not shrink as much, because the `data`
