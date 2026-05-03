@@ -7,7 +7,16 @@
 
 ## Triage verdict
 
-**Ready to design.** The engine trait surface is small and well-shaped, the parent issue (bd-o8pr) gives concrete motivation, and a clean fixture-driven approach maps onto the existing `EngineRegistry::register` extension point without touching the pipeline. Phases below are a sketch; the open questions need user alignment before we lock the fixture format and decide what scope of "engine output" the replay covers.
+**Ready to design (post-alignment).** The engine trait surface is small and well-shaped, the parent issue (bd-o8pr) gives concrete motivation, and a clean fixture-driven approach maps onto the existing `EngineRegistry::register` extension point without touching the pipeline. Design questions resolved with user 2026-05-03 — see "Resolved design decisions" below. Remaining work is implementation-side scoping: chiefly, deciding the integration point with the existing `quarto-trace` framework.
+
+## Resolved design decisions (2026-05-03)
+
+1. **Engine name.** New name (`replay`), not an override of `jupyter`/`knitr`. The replay engine is positioned as an explicit debugging/QA tool, not a transparent stand-in. Documents (or callers) opt in via env var, metadata flag, or CLI parameter — never silently. Implication: `KNOWN_ENGINES` in `detection.rs:30` will need to either include `replay` or the activation path will bypass `detect_engine` entirely (preferred — see "Activation surface" below).
+2. **Granularity.** Per-document. This tool is for capturing the context of an execution to make CI regression tests and user bug reports faster — not a substitute for test reduction.
+3. **Recording strategy.** Recording is in v1 — merged with the existing `quarto-trace` framework (`crates/quarto-trace/`, activated via `trace: true` metadata in `metadata_merge.rs:294`). Rationale: stay as close as possible to the environment that triggered the bug; also reuses an existing observer/serialization story instead of inventing a parallel one. Implication: `TraceEntry` (or a sibling artifact) needs to carry the engine `ExecuteResult` payload, and the trace becomes the fixture format.
+4. **Miss policy.** Hard, loud fail. No quiet fallback. Replay misses on a debugging tool send investigators on wild-goose chases; we make them impossible.
+5. **v1 scope.** Recording-capable v1 is fine, even if it means more phases. Hand-authored fixtures alone don't help users reporting actual bugs; recording does.
+6. **Source-info handling.** Ignore in fixtures for v1; document explicitly that this breaks diagnostic-location tests against replayed runs. A future phase can add it back if a use case appears.
 
 ## Issue context
 
@@ -45,54 +54,66 @@ All file paths from the issue exist and are still the right entry points:
 
 There is **no existing replay/record/fixture-engine infrastructure** in the tree (`grep -rn "Replay\|replay" crates/ --include="*.rs"` returns nothing relevant). The only test-time engine pattern in the tree is the trivial `TestEngine` struct in `traits.rs:134`, which is just a passthrough used to verify the trait compiles.
 
+## Activation surface (design note)
+
+Decision: do not route replay activation through `detect_engine` / document `engine:` metadata. The replay engine is an *out-of-band* debugging mode — the document under investigation should not have to be modified to be replayed. Instead, replay is activated by a CLI flag and/or env var (e.g. `q2 render doc.qmd --replay path/to/trace.json` / `QUARTO_REPLAY=path/to/trace.json`) that overrides whatever engine the document declares. The override happens at the registry level: when replay mode is active, `EngineRegistry::register` substitutes the `ReplayEngine` for whichever name the document declared. This keeps the document untouched and gives one canonical path for activation regardless of which real engine recorded the trace.
+
+Recording is the symmetric story: activated by `trace: true` (existing) plus a new flag indicating the engine `ExecuteResult` should be captured into the trace, or by a dedicated `replay-record: true` metadata key. The exact surface is a Phase 1 detail.
+
+## Trace integration (design note)
+
+The plan now extends the existing `quarto-trace` framework rather than inventing a parallel fixture format. Touch points:
+
+- `crates/quarto-trace/src/lib.rs` — `TraceEntry` (currently per-stage, ~108) gains an optional engine-execution payload, OR a sibling type (e.g. `EngineCapture`) is added on `TraceDocument` carrying `(engine_name, input_qmd, ExecuteResult)`. Whichever design keeps `TraceEntry` clean.
+- `crates/quarto-core/src/stage/trace.rs` — `JsonTraceObserver` already serializes pipeline state; extend its `on_stage_end` (or equivalent) for `EngineExecutionStage` to capture the `ExecuteResult` if recording is enabled.
+- `crates/quarto-core/src/stage/stages/metadata_merge.rs:294` — `activate_trace_from_metadata` is the existing entry point; either extend it to also activate replay-recording, or factor out a sibling `activate_replay_from_metadata`.
+- The replay-input side is read at orchestrator/CLI level (before pipeline construction) — when `--replay <path>` is set, parse the trace and substitute `ReplayEngine` in the registry handed to `EngineExecutionStage::with_registry`.
+
+Open subquestion (lower-stakes — can be settled in Phase 1): should a recorded trace be a *single-purpose replay artifact* (one trace = one document = one replay), or should the existing per-render trace simply *also* carry the engine capture so a single trace serves both diagnostic-trace and replay roles? The latter is more elegant; the former may be simpler to bound.
+
 ## Proposed phases (draft)
 
-Skeleton only — actual phase contents wait on the design discussion.
-
 - **Phase 0 — Test plan** (TDD: write failing tests first).
-  - Round-trip test: capture an `ExecuteResult` → serialize to fixture → deserialize → assert equal. Establishes the fixture format.
-  - Replay-engine integration test: register a `ReplayEngine` in a custom `EngineRegistry`, run `EngineExecutionStage` with a fixture-backed input, assert the pipeline observes the recorded `ExecuteResult` (markdown + `supporting_files` reaching `StageContext.resource_report` are the bd-o8pr concerns).
-  - End-to-end through `q2 render` (or equivalent) using the replay engine to confirm the engine-channel resource path works without R/Python — closes the bd-o8pr Phase 2 gap.
+  - Round-trip test: capture an `ExecuteResult` → serialize through the trace format → deserialize → assert equal. Establishes the fixture format.
+  - Replay-engine integration test: register a `ReplayEngine` in a custom `EngineRegistry`, run `EngineExecutionStage` against a recorded trace, assert the pipeline observes the recorded `ExecuteResult` (markdown + `supporting_files` reaching `StageContext.resource_report` is the specific bd-o8pr concern).
+  - Recording E2E test: run `q2 render` against a fixture that uses the `markdown` engine (so CI doesn't need R/Python), with replay-recording active; assert a trace artifact is produced; replay it; assert outputs match.
+  - Hard-fail-on-miss test: replay against a trace whose recorded input doesn't match the document's input — assert the run fails loudly.
+  - End-to-end through `q2 render` using the replay engine to confirm the engine-channel resource path works without R/Python — closes the bd-o8pr Phase 2 gap.
 
-- **Phase 1 — Fixture format + serialization.**
-  - Define on-disk schema for a recorded transcript: input QMD + the full `ExecuteResult`. Likely JSON or TOML with embedded supporting-file references. Decide whether `supporting_files` are paths-only (lazily resolved against fixture dir) or content-bundled.
-  - Verify `PandocIncludes` and any other non-`Serde` fields can be serialized; add `Serialize`/`Deserialize` derives where missing.
+- **Phase 1 — Trace format extension + serialization.**
+  - Decide single-trace-serves-both vs. dedicated replay artifact (subquestion above).
+  - Extend `quarto-trace` types to carry the engine capture (`engine_name`, `input_qmd`, full `ExecuteResult`).
+  - Verify `PandocIncludes` and any other non-`Serde` `ExecuteResult` fields can be serialized; add `Serialize`/`Deserialize` derives where missing.
+  - Decide whether `supporting_files` paths are stored as paths-only (relative to a fixture-dir convention) or with bundled content. Per-document granularity makes content-bundling viable; paths-only is smaller but couples fixtures to a checked-in tree of supporting files.
 
-- **Phase 2 — `ReplayEngine` impl + lookup strategy.**
-  - Implement `ExecutionEngine` for `ReplayEngine` keyed by `(engine_name, input_hash)` against a fixture directory.
-  - Decide registry-lookup behavior: does `ReplayEngine` masquerade as `jupyter`/`knitr` (replacing them in tests) or register under its own name? Affects how docs declare it.
-  - Mismatch-on-miss policy: hard fail vs. fall back to passthrough vs. invoke real engine to record. (Each enables a different workflow.)
+- **Phase 2 — `ReplayEngine` impl.**
+  - Implement `ExecutionEngine` for `ReplayEngine`. Constructor takes a deserialized capture; `execute()` validates input matches the recorded input (hard fail otherwise) and returns the recorded `ExecuteResult`.
+  - Source-info: replay returns `ExecuteResult` with whatever provenance the recording captured, but the runtime `ExecutionContext.source_info` is whatever the current invocation provides — we explicitly do not try to reconstruct recorded provenance. Document this gap in v1.
+  - `is_available()` returns `true` always (no external runtime).
+  - Registry: a helper that takes a `Registry` and a capture, returns a registry with `ReplayEngine` substituted under the recorded engine's name, leaving everything else alone.
 
-- **Phase 3 — Recording mode (optional, decide if in scope).**
-  - A `RecordingEngine` wrapper that intercepts a real engine's call, persists the result to disk, then forwards the result. Lets users update fixtures by re-running with `QUARTO_RECORD_FIXTURES=1`.
-  - Without this, fixtures are hand-authored or produced by an offline `q2 fixture record` subcommand.
+- **Phase 3 — Recording wiring through `quarto-trace`.**
+  - Add the recording hook in `EngineExecutionStage` (or via the existing `PipelineObserver` event surface — preferable if it doesn't require contorting the observer API) so an active `JsonTraceObserver` captures the `ExecuteResult` before/after the engine runs.
+  - Activation: extend `activate_trace_from_metadata` (or sibling) to also turn on engine-capture mode when requested. Plus an env var / CLI flag for activation without modifying the document.
 
-- **Phase 4 — Migrate at least one bd-o8pr engine-channel test off the mock.**
-  - Replace the `MockRenderer` in `orchestrator_engine_channel::orchestrator_drains_engine_report_and_copies_to_output_dir` with a real-pipeline run using `ReplayEngine`. Demonstrates the tool actually closes the gap and isn't just shelfware.
+- **Phase 4 — Replay activation in CLI / orchestrator.**
+  - `q2 render --replay <trace-path>` (or `QUARTO_REPLAY=...`): parse the trace before pipeline construction; substitute `ReplayEngine` in the registry handed to `EngineExecutionStage::with_registry`.
+  - Hard-fail loudly with a clear diagnostic if the trace is malformed, the engine name doesn't match a known engine, or the recorded input doesn't match the document.
 
-- **Phase 5 — Docs.**
-  - Internal note in `claude-notes/instructions/testing.md` describing how to record and use fixtures.
+- **Phase 5 — Migrate at least one bd-o8pr engine-channel test off the mock.**
+  - Replace the `MockRenderer` in `orchestrator_engine_channel::orchestrator_drains_engine_report_and_copies_to_output_dir` with a real-pipeline run using `ReplayEngine` against a checked-in trace fixture. Demonstrates the tool actually closes the gap and isn't shelfware.
 
-## Open design questions for the user
+- **Phase 6 — Docs.**
+  - Internal note in `claude-notes/instructions/testing.md` describing how to record and replay traces, plus the source-info caveat.
+  - User-facing bug-report section: "How to attach a replay trace when filing an issue."
 
-1. **Engine-name strategy.** Should `ReplayEngine` register under the name of the engine it replaces (`jupyter`, `knitr`) — so tests can keep authoring `engine: jupyter` and the registry decides at runtime — or under its own canonical name (e.g. `replay`) — so the test author opts in explicitly via `engine: replay` (or via document metadata)? The first is more transparent for CI; the second is more honest about what's actually running.
+**Source-info caveat (must be documented in Phase 6):** replayed runs do not restore original-engine source provenance for engine-emitted content. Diagnostics that rely on source mapping into engine output (line numbers in error messages pointing at original `.ipynb` cells, etc.) will not match between a real engine run and its replay. Acceptable for v1; revisit if a use case appears.
 
-2. **Fixture granularity: per-document or per-cell?** A per-document fixture records the full `ExecuteResult` for one input QMD. A per-cell fixture records each code-cell execution (output text, mime bundles, supporting files) and the replay engine reassembles them into markdown. Per-document is dramatically simpler; per-cell is closer to what would let us reproduce flaky engine bugs at cell granularity. Which use case matters more for the first cut?
+## Risks / tradeoffs
 
-3. **Recording: live capture, offline tool, or hand-authored?**
-   - Live capture: `RecordingEngine` wraps a real engine, persists alongside running. Easy refresh, but writes during normal renders.
-   - Offline tool: a `q2 fixture record path/to/doc.qmd --engine jupyter` subcommand. Cleaner separation but more code.
-   - Hand-authored only: fixtures are checked-in JSON. Smallest scope but tedious to update.
-4. **Miss policy.** When the replay engine can't find a fixture for a given input, should it (a) hard-fail loudly, (b) fall back to passthrough (markdown engine behavior), or (c) invoke a real engine and record? Choice interacts with question 3.
-
-5. **Scope for the first cut.** Smallest useful slice is probably: hand-authored per-document fixtures + replay-only (no recording) + hard-fail on miss + replaces `jupyter`/`knitr` in test registries only. Is that the right starting point, or is there a use case (e.g. flaky-bug repro) that pushes us toward including recording in v1?
-
-6. **Source-info handling.** `ExecutionContext` carries `SourceInfo` and `Arc<SourceContext>`. Should the replay engine (a) reuse what's in `ctx` and ignore the recorded provenance, (b) restore recorded provenance to match the original engine run exactly, or (c) ignore source mapping in fixtures entirely (acceptable for resource-channel tests but breaks anything that asserts diagnostic source locations)?
-
-## Risks / tradeoffs (draft)
-
-- **`PandocIncludes` serializability is unknown.** If it isn't `Serialize`/`Deserialize` today, we either add derives (cheap) or invent a fixture-side projection (more design surface). Should be checked early in Phase 1.
-- **Engine-name collision in registry.** If a `ReplayEngine` with `name() == "jupyter"` is registered alongside the real `JupyterEngine`, current `EngineRegistry::register` replaces the existing entry (`registry.rs` line ~80 — last-write-wins). That's actually convenient for tests, but the behavior should be documented — silent replacement on a name clash is the kind of thing that bites under refactor.
-- **Fixture rot.** Recorded fixtures of real engine output drift as the engines themselves change. Without a recording mode (Phase 3), refreshing fixtures requires manual re-runs against R/Python, which partially defeats the purpose. Worth deciding up-front whether recording is in scope or punted.
-- **`KNOWN_ENGINES` is hard-coded.** If the replay engine introduces a new name (`replay`), `detect_engine` won't match a document declaring `engine: replay` — it would return the name as-is and the pipeline would fall back to markdown with a warning. Acceptable for tests, but worth deciding deliberately.
-- **Limited bd-o8pr value if scope creeps.** The originating use case is tightly scoped: exercise the engine→`supporting_files`→`resource_report` channel without R/Python. A v1 that delivers exactly that is much smaller than a general-purpose replay framework, and the latter risks becoming an unrelated infrastructure project.
+- **`ExecuteResult` serializability.** `PandocIncludes` and possibly other fields may not have `Serialize`/`Deserialize` derives today. Add them in Phase 1; if any field can't be serialized cleanly, that's a Phase 1 blocker we surface early.
+- **`quarto-trace` integration shape.** Folding the engine capture into `TraceEntry` vs. adding a sibling type is a real design choice. `TraceEntry` is currently per-stage; engine capture is logically per-engine-execution and there's only one of those per document. A sibling on `TraceDocument` is probably the cleaner shape, but it's worth a small spike before committing.
+- **Trace artifact size.** Recording an `ExecuteResult` with bundled `supporting_files` content can be large (figures, data files). For small fixtures this is fine; if real-bug traces from users get heavy, we may want compression or a tarball-on-the-side scheme. Deciding paths-only-vs.-bundled in Phase 1 sets the ceiling.
+- **Activation surface confusion.** Recording is metadata-driven (`trace: true` and friends); replay is CLI/env-driven (`--replay`). Two different surfaces is appropriate (recording lives with the document under investigation; replay is invoked by whoever is debugging) but needs a clear story in docs so users don't confuse them.
+- **Source-info gap is user-visible.** Diagnostic-location tests against replayed runs will diverge from real-engine runs. Documented limitation, but worth flagging because at least one bug report from a user will eventually involve a source-position assertion that can't be replayed.
+- **Limited bd-o8pr value if scope creeps.** The originating use case is exercising the engine→`supporting_files`→`resource_report` channel without R/Python. We've expanded scope deliberately (recording, trace integration) because hand-authored fixtures wouldn't help bug-report use cases — but each phase boundary is a checkpoint to ask whether we're still on the bd-o8pr-closing trajectory or building unrelated infrastructure.
