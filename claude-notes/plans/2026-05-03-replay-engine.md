@@ -69,45 +69,64 @@ The plan now extends the existing `quarto-trace` framework rather than inventing
 - `crates/quarto-core/src/stage/stages/metadata_merge.rs:294` — `activate_trace_from_metadata` is the existing entry point; either extend it to also activate replay-recording, or factor out a sibling `activate_replay_from_metadata`.
 - The replay-input side is read at orchestrator/CLI level (before pipeline construction) — when `--replay <path>` is set, parse the trace and substitute `ReplayEngine` in the registry handed to `EngineExecutionStage::with_registry`.
 
-Preferred shape: one trace serves both diagnostic and replay roles. The blocker is trace size — current `JsonTraceObserver` output is already heavy, and traces will be checked in as CI fixtures and attached by users to bug reports. Tracked separately as **bd-5qnj** (related to bd-45yw); the unified-artifact decision in Phase 1 depends on bd-5qnj's size investigation. If size can't be bounded, fall back to a dedicated single-purpose replay artifact.
+**Decided 2026-05-03:** unified artifact. One `TraceDocument` serves both diagnostic and replay roles, in memory and at the type level. Size is bd-5qnj's concern, addressed *only* at the serialization boundary (`quarto-trace::write` / `read`) — in-memory shape and replay code see the full structure unchanged. This keeps the replay implementation independent of size work and preserves a clean boundary between "trace storage optimization" and "trace usage in the program."
 
-## Proposed phases (draft)
+**Recording activation:** `trace: true` is the single knob. Whenever tracing is on, engine output is captured. We accept the size cost (engine output is useful diagnostic data anyway) and accept the rare-but-real case that a regression needing a huge engine capture may not be storable as a checked-in fixture; that case falls back to a different test-fixture mechanism. Replay activation remains out-of-band (CLI/env), since replay is a debugging mode the document under investigation shouldn't have to know about.
 
-- **Phase 0 — Test plan** (TDD: write failing tests first).
-  - Round-trip test: capture an `ExecuteResult` → serialize through the trace format → deserialize → assert equal. Establishes the fixture format.
-  - Replay-engine integration test: register a `ReplayEngine` in a custom `EngineRegistry`, run `EngineExecutionStage` against a recorded trace, assert the pipeline observes the recorded `ExecuteResult` (markdown + `supporting_files` reaching `StageContext.resource_report` is the specific bd-o8pr concern).
-  - Recording E2E test: run `q2 render` against a fixture that uses the `markdown` engine (so CI doesn't need R/Python), with replay-recording active; assert a trace artifact is produced; replay it; assert outputs match.
-  - Hard-fail-on-miss test: replay against a trace whose recorded input doesn't match the document's input — assert the run fails loudly.
-  - End-to-end through `q2 render` using the replay engine to confirm the engine-channel resource path works without R/Python — closes the bd-o8pr Phase 2 gap.
+## Proposed phases
 
-- **Phase 1 — Trace format extension + serialization.**
-  - Decide single-trace-serves-both vs. dedicated replay artifact (subquestion above).
-  - Extend `quarto-trace` types to carry the engine capture (`engine_name`, `input_qmd`, full `ExecuteResult`).
-  - Verify `PandocIncludes` and any other non-`Serde` `ExecuteResult` fields can be serialized; add `Serialize`/`Deserialize` derives where missing.
-  - Decide whether `supporting_files` paths are stored as paths-only (relative to a fixture-dir convention) or with bundled content. Per-document granularity makes content-bundling viable; paths-only is smaller but couples fixtures to a checked-in tree of supporting files.
+### Phase 0 — Test plan (TDD: failing tests first)
 
-- **Phase 2 — `ReplayEngine` impl.**
-  - Implement `ExecutionEngine` for `ReplayEngine`. Constructor takes a deserialized capture; `execute()` validates input matches the recorded input (hard fail otherwise) and returns the recorded `ExecuteResult`.
-  - Source-info: replay returns `ExecuteResult` with whatever provenance the recording captured, but the runtime `ExecutionContext.source_info` is whatever the current invocation provides — we explicitly do not try to reconstruct recorded provenance. Document this gap in v1.
-  - `is_available()` returns `true` always (no external runtime).
-  - Registry: a helper that takes a `Registry` and a capture, returns a registry with `ReplayEngine` substituted under the recorded engine's name, leaving everything else alone.
+- [ ] Round-trip test in `quarto-trace`: build an in-memory `TraceDocument` carrying an engine capture (`engine_name`, `input_qmd`, full `ExecuteResult`), `write_trace` to a tempfile, `read_trace`, assert deep equality.
+- [ ] Replay-engine unit test in `quarto-core`: construct a `ReplayEngine` from an in-memory capture; call `execute(input, ctx)` with matching input; assert returned `ExecuteResult` equals the recorded one.
+- [ ] Replay-engine miss test: same as above but with non-matching input; assert `execute` returns a hard `ExecutionError` (no fallback).
+- [ ] Replay-engine integration test: build an `EngineRegistry` with `ReplayEngine` substituted under `"markdown"`, run the full `EngineExecutionStage` against a `StageContext`, assert `ctx.resource_report` receives the recorded `supporting_files` tagged `ResourceOrigin::Engine`. (Closes the specific bd-o8pr gap.)
+- [ ] Recording E2E test through `q2 render`: render a fixture with `trace: true`, assert the produced trace contains an engine capture with the document's input QMD and a non-empty `ExecuteResult`. Use the `markdown` engine so CI doesn't need R/Python.
+- [ ] Replay E2E test through `q2 render`: take a trace produced by the recording test, run `q2 render --replay <trace>` against the same input, assert the rendered output matches and assert the run did not invoke the real engine (verifiable by registry inspection or by replaying a trace whose engine name is one we deliberately omitted from the registry).
+- [ ] Hard-fail-on-miss E2E: replay a trace against a *different* input QMD; assert the CLI exits non-zero with a clear diagnostic.
 
-- **Phase 3 — Recording wiring through `quarto-trace`.**
-  - Add the recording hook in `EngineExecutionStage` (or via the existing `PipelineObserver` event surface — preferable if it doesn't require contorting the observer API) so an active `JsonTraceObserver` captures the `ExecuteResult` before/after the engine runs.
-  - Activation: extend `activate_trace_from_metadata` (or sibling) to also turn on engine-capture mode when requested. Plus an env var / CLI flag for activation without modifying the document.
+### Phase 1 — Trace format extension
 
-- **Phase 4 — Replay activation in CLI / orchestrator.**
-  - `q2 render --replay <trace-path>` (or `QUARTO_REPLAY=...`): parse the trace before pipeline construction; substitute `ReplayEngine` in the registry handed to `EngineExecutionStage::with_registry`.
-  - Hard-fail loudly with a clear diagnostic if the trace is malformed, the engine name doesn't match a known engine, or the recorded input doesn't match the document.
+- [ ] Audit `ExecuteResult` for `Serialize`/`Deserialize` derives. Specifically check `PandocIncludes` and any nested types it owns. Add derives where missing. If any field is structurally non-serializable, surface immediately — that's a Phase 1 blocker.
+- [ ] Decide `supporting_files` representation in the trace: paths-only vs. content-bundled. Per-document granularity makes bundling viable; paths-only requires the fixture dir to live alongside the trace. Default lean: bundled (self-contained traces are easier to attach to bug reports), with a size note pointing at bd-5qnj.
+- [ ] Add `EngineCapture { engine_name: String, input_qmd: String, result: ExecuteResult }` (exact field names TBD) to `quarto-trace::lib`. Attach as `Option<EngineCapture>` on `TraceDocument` (per-document, single capture). Confirm with workspace build that adding the field doesn't break existing observers/readers.
+- [ ] Round-trip tests from Phase 0 pass.
 
-- **Phase 5 — Migrate at least one bd-o8pr engine-channel test off the mock.**
-  - Replace the `MockRenderer` in `orchestrator_engine_channel::orchestrator_drains_engine_report_and_copies_to_output_dir` with a real-pipeline run using `ReplayEngine` against a checked-in trace fixture. Demonstrates the tool actually closes the gap and isn't shelfware.
+### Phase 2 — `ReplayEngine` impl
 
-- **Phase 6 — Docs.**
-  - Internal note in `claude-notes/instructions/testing.md` describing how to record and replay traces, plus the source-info caveat.
-  - User-facing bug-report section: "How to attach a replay trace when filing an issue."
+- [ ] New module `crates/quarto-core/src/engine/replay.rs`. Struct `ReplayEngine { capture: EngineCapture }` (or borrows the capture via `Arc`).
+- [ ] `impl ExecutionEngine`: `name()` returns the recorded engine's name (so it slots into the registry under the same name); `execute()` validates input matches recorded input verbatim (string equality is fine for v1) and returns the recorded `ExecuteResult` cloned; on mismatch returns a hard `ExecutionError`. `is_available()` returns `true`. `can_freeze()` returns `false`.
+- [ ] Source-info handling: `execute` ignores recorded provenance and ignores `ctx.source_info`. Document the limitation in module-level rustdoc; we will surface it again in Phase 6.
+- [ ] Registry helper: `EngineRegistry::with_replay(capture: EngineCapture) -> Self` (or similar) — start from a default registry and `register` the replay engine, which (per `EngineRegistry::register`'s last-write-wins semantics) replaces the real engine of the same name.
+- [ ] Phase 0 unit + miss + integration tests pass.
 
-**Source-info caveat (must be documented in Phase 6):** replayed runs do not restore original-engine source provenance for engine-emitted content. Diagnostics that rely on source mapping into engine output (line numbers in error messages pointing at original `.ipynb` cells, etc.) will not match between a real engine run and its replay. Acceptable for v1; revisit if a use case appears.
+### Phase 3 — Recording hook
+
+- [ ] Decide hook location: extend `PipelineObserver` with an `on_engine_executed(&EngineCapture)` event vs. plumb the capture through `StageContext` and have `JsonTraceObserver` pull it at end-of-pipeline. The observer-event approach is closer to the existing tracing seam and avoids `StageContext` growth — start with that.
+- [ ] `EngineExecutionStage` emits the capture event after a successful engine run (regardless of which engine ran).
+- [ ] `JsonTraceObserver` records the capture into `TraceDocument.engine_capture`. No-op observers ignore the event.
+- [ ] Activation: no new metadata key. `trace: true` is sufficient — recording is automatic when tracing is on. Confirm `activate_trace_from_metadata` in `metadata_merge.rs:294` already covers this; if not, extend.
+- [ ] Phase 0 recording E2E test passes.
+
+### Phase 4 — Replay activation in CLI / orchestrator
+
+- [ ] CLI flag `--replay <path>` on `q2 render`. Optional env var `QUARTO_REPLAY=<path>` as a parallel surface (useful in scripted CI).
+- [ ] When set: read the trace via `quarto-trace::read::read_trace`, extract `engine_capture`, build the registry via `EngineRegistry::with_replay(capture)`, hand it to `EngineExecutionStage::with_registry` in the orchestrator path. Pipeline construction otherwise unchanged.
+- [ ] Diagnostics: trace path missing → fail loudly with a useful message. Trace lacks an engine capture → fail loudly. Document's input doesn't match recorded input → fail loudly (this is the miss-policy assertion from Phase 2 firing through the CLI).
+- [ ] Phase 0 replay E2E + hard-fail-on-miss tests pass through the real CLI.
+
+### Phase 5 — Migrate one bd-o8pr engine-channel test off the mock
+
+- [ ] Identify the test (`orchestrator_engine_channel::orchestrator_drains_engine_report_and_copies_to_output_dir`). Record a trace fixture for it (using whatever engine is convenient — `markdown` if a no-op fits the test, otherwise a real run on a development machine, checked in).
+- [ ] Replace `MockRenderer` with a real-pipeline run via `ReplayEngine` against the checked-in trace.
+- [ ] Confirm the migrated test still exercises the engine→`supporting_files`→`resource_report`→output-dir-copy path.
+
+### Phase 6 — Docs
+
+- [ ] Internal note at `claude-notes/instructions/testing.md` (or new file) covering: how to record a trace, how to replay, how to author a regression fixture from a real bug report, the source-info caveat, the size-vs.-bd-5qnj note.
+- [ ] User-facing section in the bug-reporting docs: "Attach a replay trace when filing an engine-related issue."
+
+**Source-info caveat (Phase 6 must document):** replayed runs do not restore original-engine source provenance for engine-emitted content. Diagnostics that rely on source mapping into engine output (line numbers in error messages pointing at original `.ipynb` cells, etc.) will not match between a real engine run and its replay. Acceptable for v1; revisit if a use case appears.
 
 ## Risks / tradeoffs
 
