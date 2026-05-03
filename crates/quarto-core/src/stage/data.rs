@@ -244,7 +244,7 @@ impl LoadedSource {
 ///
 /// These are additional content blocks that get injected into
 /// the document at specific locations during Pandoc processing.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct PandocIncludes {
     /// Content to include in document header
     pub header_includes: Vec<String>,

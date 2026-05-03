@@ -27,6 +27,7 @@ use quarto_trace::{RenderInfo, StageErrorInfo, StageStatus, TraceDocument, Trace
 use super::data::{PipelineData, PipelineDataKind};
 use super::error::PipelineError;
 use super::observer::{EventLevel, PipelineObserver};
+use super::stages::ENGINE_CAPTURE_KIND;
 
 // ─── JsonTraceObserver ───────────────────────────────────────────────────────
 
@@ -207,6 +208,26 @@ impl PipelineObserver for JsonTraceObserver {
 
     fn on_auxiliary_data(&self, stage: &str, index: usize, kind: &str, data: &serde_json::Value) {
         let mut state = self.state.lock().unwrap();
+        // bd-45yw: route the typed engine capture to the dedicated
+        // slot on TraceDocument so the trace doubles as a replay
+        // fixture. Other kinds stay on the open-ended pipeline aux
+        // channel.
+        if kind == ENGINE_CAPTURE_KIND {
+            match serde_json::from_value::<quarto_trace::EngineCapture>(data.clone()) {
+                Ok(capture) => {
+                    state.doc.engine_capture = Some(capture);
+                    return;
+                }
+                Err(e) => {
+                    // Malformed capture: fall through to recording it
+                    // as a generic aux entry so investigators see the
+                    // payload and a paired error message.
+                    eprintln!(
+                        "Warning: malformed EngineCapture aux payload from stage '{stage}': {e}"
+                    );
+                }
+            }
+        }
         Self::push_entry(
             &mut state,
             TraceEntry {
@@ -615,6 +636,79 @@ mod tests {
         assert_eq!(state.doc.pipeline[1].stage, "parse");
         assert_eq!(state.doc.pipeline[2].stage, "transform");
         assert_eq!(state.doc.render.input_path.as_deref(), Some("test.qmd"));
+    }
+
+    /// bd-45yw: an `on_auxiliary_data` event with kind
+    /// `"EngineCapture"` must land on `TraceDocument.engine_capture`
+    /// (the typed slot), not as a generic pipeline aux entry. Recording
+    /// the engine output is what makes a trace double as a replay
+    /// fixture.
+    #[test]
+    fn test_json_trace_observer_routes_engine_capture_aux_to_typed_slot() {
+        let observer =
+            JsonTraceObserver::new(PathBuf::from("/tmp/test-trace.json"), RenderInfo::default());
+
+        let capture_json = serde_json::json!({
+            "engine_name": "jupyter",
+            "input_qmd": "---\nengine: jupyter\n---\n",
+            "result": {
+                "markdown": "out\n",
+                "supporting_files": ["fig.png"],
+                "filters": [],
+                "includes": {
+                    "header_includes": [],
+                    "include_before": [],
+                    "include_after": [],
+                },
+                "needs_postprocess": false,
+            }
+        });
+
+        observer.on_auxiliary_data("engine-execution", 1, "EngineCapture", &capture_json);
+
+        let state = observer.state.lock().unwrap();
+        // No generic aux entry should be appended for the typed kind.
+        assert!(
+            !state
+                .doc
+                .pipeline
+                .iter()
+                .any(|e| e.stage == "aux:engine-execution"),
+            "EngineCapture should be routed to engine_capture, not pipeline aux"
+        );
+        // The typed slot must hold the capture.
+        let cap = state
+            .doc
+            .engine_capture
+            .as_ref()
+            .expect("engine_capture should be populated");
+        assert_eq!(cap.engine_name, "jupyter");
+        assert_eq!(cap.input_qmd, "---\nengine: jupyter\n---\n");
+        assert_eq!(cap.result["markdown"], "out\n");
+    }
+
+    /// Other aux kinds remain unaffected — the engine-capture special
+    /// case must not regress the generic open-ended aux channel.
+    #[test]
+    fn test_json_trace_observer_keeps_other_aux_in_pipeline() {
+        let observer =
+            JsonTraceObserver::new(PathBuf::from("/tmp/test-trace.json"), RenderInfo::default());
+
+        observer.on_auxiliary_data(
+            "crossref-index",
+            0,
+            "CrossrefIndex",
+            &serde_json::json!({"entries": []}),
+        );
+
+        let state = observer.state.lock().unwrap();
+        assert!(state.doc.engine_capture.is_none());
+        assert_eq!(state.doc.pipeline.len(), 1);
+        assert_eq!(state.doc.pipeline[0].stage, "aux:crossref-index");
+        assert_eq!(
+            state.doc.pipeline[0].data_kind.as_deref(),
+            Some("CrossrefIndex")
+        );
     }
 
     #[test]

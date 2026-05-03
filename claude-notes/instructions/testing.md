@@ -1,3 +1,4 @@
+- **Engine-channel tests** that need to exercise jupyter / knitr / a custom Jupyter kernel without requiring those runtimes: use the **replay engine** (bd-45yw). Record a trace once with `trace: true` on a development machine, check it in, and replay it via `RenderToFileOptions.replay_capture`. See `claude-notes/instructions/replay-engine.md`.
 - **CRITICAL - TEST FIRST**: When fixing bugs using tests, you MUST run the failing test BEFORE implementing any fix. This is non-negotiable. Verify the test fails in the expected way, then implement the fix, then verify the test passes.
 - Always strive for minimal test documents as small as possible. Create many small test documents instead of a few large test documents.
 - You are encouraged to spend time and tokens on thinking about good tests.

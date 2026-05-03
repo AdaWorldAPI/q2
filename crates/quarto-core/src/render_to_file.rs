@@ -87,6 +87,27 @@ pub struct RenderToFileOptions {
     pub output_dir: Option<PathBuf>,
     /// Suppress informational messages (logging).
     pub quiet: bool,
+    /// Replay engine capture loaded from a trace file (bd-45yw).
+    ///
+    /// When `Some`, the render substitutes a
+    /// [`crate::engine::ReplayEngine`] for the engine of the
+    /// recorded name in the pipeline's registry. Activated
+    /// out-of-band by the orchestrator/CLI (`--replay <trace>` /
+    /// `QUARTO_REPLAY=...`); the document under investigation does
+    /// not need to know.
+    pub replay_capture: Option<quarto_trace::EngineCapture>,
+
+    /// Direct override for the engine registry the pipeline uses
+    /// (bd-45yw, primarily for tests).
+    ///
+    /// When `Some`, takes precedence over `replay_capture`: the
+    /// caller hands the pipeline an arbitrary registry. Tests use
+    /// this seam to register probe engines that capture the QMD
+    /// `EngineExecutionStage` hands to `execute()` (so a replay
+    /// trace can be fabricated against the real pipeline rather
+    /// than a synthetic context). Production callers should prefer
+    /// `replay_capture`.
+    pub engine_registry_override: Option<crate::engine::EngineRegistry>,
 }
 
 /// Result of rendering a document to a file.
@@ -245,7 +266,16 @@ pub fn render_document_to_file(
     // URLs the same way Phase 5's `ApplyTemplateStage` does for
     // shared assets.
     ctx.resource_resolver = Some(resolver.clone());
-    let config = HtmlRenderConfig::with_resolver(resolver.clone());
+    let mut config = HtmlRenderConfig::with_resolver(resolver.clone());
+    // bd-45yw: pick the engine registry the pipeline will use.
+    // engine_registry_override takes precedence (tests / probe
+    // engines). Otherwise replay_capture builds the registry.
+    // Otherwise the pipeline builds its own default registry.
+    if let Some(reg) = options.engine_registry_override.clone() {
+        config.engine_registry = Some(reg);
+    } else if let Some(capture) = options.replay_capture.clone() {
+        config.engine_registry = Some(crate::engine::EngineRegistry::with_replay(capture));
+    }
 
     // Run the render pipeline
     let render_output = pollster::block_on(render_qmd_to_html(

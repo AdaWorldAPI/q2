@@ -58,6 +58,7 @@ mod detection;
 mod error;
 mod markdown;
 mod registry;
+mod replay;
 mod traits;
 
 // Native-only modules
@@ -72,6 +73,7 @@ pub use detection::{DetectedEngine, KNOWN_ENGINES, detect_engine, is_known_engin
 pub use error::ExecutionError;
 pub use markdown::MarkdownEngine;
 pub use registry::EngineRegistry;
+pub use replay::ReplayEngine;
 pub use traits::ExecutionEngine;
 
 // Re-export native-only engines
