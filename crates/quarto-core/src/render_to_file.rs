@@ -87,6 +87,15 @@ pub struct RenderToFileOptions {
     pub output_dir: Option<PathBuf>,
     /// Suppress informational messages (logging).
     pub quiet: bool,
+    /// Replay engine capture loaded from a trace file (bd-45yw).
+    ///
+    /// When `Some`, the render substitutes a
+    /// [`crate::engine::ReplayEngine`] for the engine of the
+    /// recorded name in the pipeline's registry. Activated
+    /// out-of-band by the orchestrator/CLI (`--replay <trace>` /
+    /// `QUARTO_REPLAY=...`); the document under investigation does
+    /// not need to know.
+    pub replay_capture: Option<quarto_trace::EngineCapture>,
 }
 
 /// Result of rendering a document to a file.
@@ -245,7 +254,14 @@ pub fn render_document_to_file(
     // URLs the same way Phase 5's `ApplyTemplateStage` does for
     // shared assets.
     ctx.resource_resolver = Some(resolver.clone());
-    let config = HtmlRenderConfig::with_resolver(resolver.clone());
+    let mut config = HtmlRenderConfig::with_resolver(resolver.clone());
+    // bd-45yw: if the caller (CLI / orchestrator) loaded a replay
+    // capture, substitute a registry that has ReplayEngine standing
+    // in for the recorded engine. Pipeline construction picks it up
+    // via HtmlRenderConfig.
+    if let Some(capture) = options.replay_capture.clone() {
+        config.engine_registry = Some(crate::engine::EngineRegistry::with_replay(capture));
+    }
 
     // Run the render pipeline
     let render_output = pollster::block_on(render_qmd_to_html(
