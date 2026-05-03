@@ -243,11 +243,17 @@ needed once Phase 1+2 land.
 
 ### Phase 5 — Docs
 
-- Internal note in `claude-notes/instructions/` describing the trace
-  format, size budgets, and how to write a regression test against a
-  small fixture trace.
-- User-facing bug-report section: "How to attach a `latest.json.gz`
-  when filing an issue, and what we'll be looking at."
+- [x] Internal note appended to `claude-notes/instructions/testing.md`
+      under "Pipeline traces (`quarto-trace`)". Covers on-disk format,
+      `quarto trace list/show/view` invocations, how to write tests
+      against a fixture trace via `quarto_trace::read::read_trace`,
+      and the provisional size budgets.
+- [ ] User-facing bug-report doc — **deferred.** The `docs/` site
+      doesn't yet have a support / bug-report section, and adding a
+      navbar entry for one is a structural choice the user should
+      weigh in on. The internal testing.md note is sufficient for
+      colleagues filing issues with traces today; a public-facing
+      page can land alongside the next docs-site IA pass.
 
 ## Open design questions for the user
 
