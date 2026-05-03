@@ -32,6 +32,7 @@ mod metadata_merge;
 mod parse_document;
 mod pre_engine_sugaring;
 mod render_html;
+mod resource_report;
 mod unwrap_profile;
 mod user_filters;
 
@@ -47,5 +48,6 @@ pub use metadata_merge::MetadataMergeStage;
 pub use parse_document::ParseDocumentStage;
 pub use pre_engine_sugaring::PreEngineSugaringStage;
 pub use render_html::RenderHtmlBodyStage;
+pub use resource_report::ResourceReportStage;
 pub use unwrap_profile::UnwrapProfileStage;
 pub use user_filters::UserFiltersStage;

@@ -243,16 +243,57 @@ impl PublishRenderer for ProjectPublishRenderer {
                 files.push(rel);
             }
 
-            // Plus any sidecar files (themes, JS deps) that landed
-            // in the output dir. The orchestrator already wrote
-            // them; we walk the output dir to pick them up. This
-            // *is* a filesystem walk on the native path — but it's
-            // bounded to the orchestrator's own output, not the
-            // user's working tree. A future ProjectRenderSummary
-            // extension that returns a manifest of sidecar files
-            // can replace the walk.
+            // bd-o8pr Phase 4: prefer the render manifest when
+            // present. The orchestrator emits
+            // `.quarto/render-manifest.json` listing every published
+            // resource (with origin metadata) right after the copy
+            // step. Reading it here is cheap, gives us the resource
+            // entries directly (no dir-walk filtering needed), and
+            // means the contract between render and publish is
+            // explicit. The manifest's `output` paths are project-
+            // relative inside `output_dir`, so they slot into
+            // `files` without further math.
+            //
+            // Falls back to dir-walk when the manifest is absent
+            // (renders from a Quarto version older than this one).
+            let manifest_path = project
+                .dir
+                .join(quarto_core::project_resources::RenderManifest::FILENAME);
+            let used_manifest = if manifest_path.exists() {
+                match std::fs::read_to_string(&manifest_path).ok().and_then(|s| {
+                    quarto_core::project_resources::RenderManifest::from_json(&s).ok()
+                }) {
+                    Some(manifest) => {
+                        for r in &manifest.resources {
+                            files.push(r.output.clone());
+                        }
+                        true
+                    }
+                    None => false,
+                }
+            } else {
+                false
+            };
+
+            // Sidecar files (themes, JS deps under site_libs/, etc.)
+            // are *not* in the manifest's `resources` array — they
+            // live in the artifact store and are flushed separately.
+            // Walk the output dir to pick them up. (The walk is
+            // bounded to the orchestrator's own output dir, not the
+            // user's working tree.)
             collect_sidecar_files(&output_dir, &mut files)
                 .map_err(|e| PublishError::Other(anyhow::anyhow!("{e}")))?;
+
+            tracing::debug!(
+                "publish: {} files via {} (output_dir={})",
+                files.len(),
+                if used_manifest {
+                    "manifest + dir-walk for sidecars"
+                } else {
+                    "dir-walk only"
+                },
+                output_dir.display()
+            );
 
             // Dedup (stable order).
             let mut seen = std::collections::HashSet::new();
@@ -312,5 +353,71 @@ mod tests {
         assert_eq!(simple_slug(""), "untitled");
         assert_eq!(simple_slug("!!!"), "untitled");
         assert_eq!(simple_slug("---"), "untitled");
+    }
+
+    /// bd-o8pr Phase 4: declared resources (project YAML +
+    /// document YAML + Lua filter) flow through the orchestrator
+    /// into `PublishFiles.files` via the render manifest.
+    ///
+    /// Exercises the production `ProjectPublishRenderer::render`
+    /// path against a tiny on-disk project.
+    // Multi-threaded runtime needed because `UserFiltersStage`
+    // calls `tokio::task::block_in_place` for the (non-Send) Lua
+    // engine, which is only valid on multi-thread.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn declared_resources_appear_in_publish_files() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let project_dir = temp
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|_| temp.path().to_path_buf());
+
+        // Project-level + document-level + Lua-filter-declared.
+        std::fs::write(
+            project_dir.join("_quarto.yml"),
+            "project:\n  type: website\n  resources:\n    - extras/notes.txt\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(project_dir.join("extras")).unwrap();
+        std::fs::write(project_dir.join("extras/notes.txt"), "ok\n").unwrap();
+        std::fs::create_dir_all(project_dir.join("blob")).unwrap();
+        std::fs::write(project_dir.join("blob/info.txt"), "post-blob\n").unwrap();
+        std::fs::write(project_dir.join("from-filter.txt"), "filter contents\n").unwrap();
+        std::fs::write(
+            project_dir.join("addres.lua"),
+            "local r=false\nfunction Para(p)\n  if not r then\n    quarto.doc.add_resource('from-filter.txt')\n    r=true\n  end\n  return p\nend\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project_dir.join("doc.qmd"),
+            "---\ntitle: Doc\nresources:\n  - blob/info.txt\nfilters:\n  - addres.lua\n---\n\nBody.\n",
+        )
+        .unwrap();
+
+        let runtime: Arc<dyn SystemRuntime> = Arc::new(NativeRuntime::new());
+        let renderer = ProjectPublishRenderer {
+            project_dir: project_dir.clone(),
+            runtime,
+        };
+
+        let files = renderer
+            .render(&PublishRenderFlags::default())
+            .await
+            .expect("render");
+
+        for expected in &["extras/notes.txt", "blob/info.txt", "from-filter.txt"] {
+            assert!(
+                files.files.iter().any(|f| f == expected),
+                "publish file list should include '{}', got: {:?}",
+                expected,
+                files.files
+            );
+        }
+        // The rendered HTML output is in there too.
+        assert!(
+            files.files.iter().any(|f| f == "doc.html"),
+            "rendered doc.html should be in publish files, got: {:?}",
+            files.files
+        );
     }
 }

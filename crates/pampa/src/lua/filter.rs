@@ -102,6 +102,10 @@ pub struct FilterOutput {
     pub diagnostics: Vec<DiagnosticMessage>,
     pub html_dependencies: Vec<super::quarto_doc::HtmlDependency>,
     pub text_includes: Vec<super::quarto_doc::TextInclude>,
+    /// Raw paths collected via `quarto.doc.add_resource(path)`
+    /// (`bd-o8pr` Phase 3). The orchestrator resolves each path
+    /// against the project root and the document's parent dir.
+    pub resources: Vec<std::path::PathBuf>,
 }
 
 /// Apply a single Lua filter to a document
@@ -226,6 +230,7 @@ pub async fn apply_lua_filter(
     let diagnostics = super::diagnostics::extract_lua_diagnostics(&lua)?;
     let html_dependencies = super::quarto_doc::extract_html_dependencies(&lua)?;
     let text_includes = super::quarto_doc::extract_text_includes(&lua)?;
+    let resources = super::quarto_doc::extract_resources(&lua)?;
 
     // Return filtered document with all extracted data
     let filtered_pandoc = Pandoc {
@@ -239,6 +244,7 @@ pub async fn apply_lua_filter(
         diagnostics,
         html_dependencies,
         text_includes,
+        resources,
     })
 }
 
@@ -258,6 +264,7 @@ pub async fn apply_lua_filters(
     let mut all_diagnostics = Vec::new();
     let mut all_html_dependencies = Vec::new();
     let mut all_text_includes = Vec::new();
+    let mut all_resources = Vec::new();
 
     for filter_path in filter_paths {
         let output = apply_lua_filter(
@@ -273,6 +280,7 @@ pub async fn apply_lua_filters(
         all_diagnostics.extend(output.diagnostics);
         all_html_dependencies.extend(output.html_dependencies);
         all_text_includes.extend(output.text_includes);
+        all_resources.extend(output.resources);
     }
 
     Ok(FilterOutput {
@@ -281,6 +289,7 @@ pub async fn apply_lua_filters(
         diagnostics: all_diagnostics,
         html_dependencies: all_html_dependencies,
         text_includes: all_text_includes,
+        resources: all_resources,
     })
 }
 

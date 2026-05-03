@@ -138,7 +138,13 @@ pub struct ExecuteResult {
     /// Supporting files produced during execution.
     ///
     /// These are typically figure images, data files, or other resources
-    /// that need to be included in the final output.
+    /// that need to be included in the final output. Each path is treated
+    /// as a published resource by the orchestrator (`bd-o8pr`): drained
+    /// from `StageContext.resource_report` after engine execution,
+    /// resolved against the project root, and copied into the project's
+    /// output directory alongside YAML- and Lua-filter-declared
+    /// resources. Paths can be absolute or anchored at the document's
+    /// parent directory.
     pub supporting_files: Vec<PathBuf>,
 
     /// Pandoc filters to apply to the document.

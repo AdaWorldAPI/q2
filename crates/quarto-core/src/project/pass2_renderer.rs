@@ -135,6 +135,21 @@ pub trait Pass2Renderer {
         project: &ProjectContext,
         lib_dir: &str,
     ) -> ResourceResolverContext;
+
+    /// Extract this output's per-document resource report for the
+    /// orchestrator to drain (`bd-o8pr` Phase 2).
+    ///
+    /// Returns `None` for renderers that don't run engines (e.g. the
+    /// WASM hub-client preview) — engine-emitted supporting files
+    /// have nowhere meaningful to land in the in-browser path. Native
+    /// renders return their per-doc report; the orchestrator resolves
+    /// each entry against the project root and merges with the
+    /// static-channel list.
+    fn extract_resource_report(
+        _output: &Self::Output,
+    ) -> Option<&crate::project_resources::DocumentResourceReport> {
+        None
+    }
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -208,6 +223,12 @@ impl<'a> Pass2Renderer for RenderToFileRenderer<'a> {
         lib_dir: &str,
     ) -> ResourceResolverContext {
         ResourceResolverContext::project_root(project.output_dir.clone(), lib_dir.to_string())
+    }
+
+    fn extract_resource_report(
+        output: &Self::Output,
+    ) -> Option<&crate::project_resources::DocumentResourceReport> {
+        Some(&output.resource_report)
     }
 }
 

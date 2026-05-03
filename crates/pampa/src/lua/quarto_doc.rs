@@ -188,6 +188,10 @@ pub fn register_quarto_doc(lua: &Lua) -> Result<()> {
     // Internal storage tables
     doc.set("_dependencies", lua.create_table()?)?;
     doc.set("_text_includes", lua.create_table()?)?;
+    // bd-o8pr Phase 3: Lua-filter-declared resources. Filters call
+    // `quarto.doc.add_resource(path)` and entries are drained back
+    // out via `extract_resources(&lua)` after each filter pass.
+    doc.set("_resources", lua.create_table()?)?;
 
     // quarto.doc.is_format(fmt) — alias-based format matching
     let is_format_fn = lua.create_function(|lua, fmt: String| {
@@ -314,6 +318,37 @@ pub fn register_quarto_doc(lua: &Lua) -> Result<()> {
     let include_text_fn: mlua::Function = doc.get("include_text")?;
     doc.set("includeText", include_text_fn)?;
 
+    // quarto.doc.add_resource(path) — bd-o8pr Phase 3.
+    //
+    // Append `path` to the per-document resource report. The path is
+    // interpreted relative to the document being processed (Q1
+    // parity). The orchestrator drains the report after the filter
+    // pass and copies the file into the output dir.
+    //
+    // Calls are append-only by design: there is no remove_resource.
+    // A filter that mutates `meta.resources` to remove an entry is
+    // still defended against by the additivity-defense in the
+    // ResourceReportStage (re-reads meta.resources, unions with the
+    // profile snapshot).
+    doc.set(
+        "add_resource",
+        lua.create_function(|lua, path: String| {
+            if path.is_empty() {
+                return Err(mlua::Error::runtime(
+                    "add_resource: path must be a non-empty string",
+                ));
+            }
+            let quarto: Table = lua.globals().get("quarto")?;
+            let doc_table: Table = quarto.get("doc")?;
+            let resources: Table = doc_table.get("_resources")?;
+            let len = resources.raw_len();
+            resources.set(len + 1, path)?;
+            Ok(())
+        })?,
+    )?;
+    let add_resource_fn: mlua::Function = doc.get("add_resource")?;
+    doc.set("addResource", add_resource_fn)?;
+
     quarto.set("doc", doc)?;
     Ok(())
 }
@@ -354,6 +389,26 @@ pub fn extract_html_dependencies(lua: &Lua) -> Result<Vec<HtmlDependency>> {
         });
     }
 
+    Ok(result)
+}
+
+/// Extract resource paths collected during Lua execution
+/// (`bd-o8pr` Phase 3).
+///
+/// Returns the raw path strings the filter passed to
+/// `quarto.doc.add_resource(...)`. Resolution against the project
+/// root happens upstream in
+/// `quarto_core::project_resources::resolve_reported_resources`.
+pub fn extract_resources(lua: &Lua) -> Result<Vec<PathBuf>> {
+    let quarto: Table = lua.globals().get("quarto")?;
+    let doc: Table = quarto.get("doc")?;
+    let resources: Table = doc.get("_resources")?;
+
+    let mut result = Vec::new();
+    for i in 1..=resources.raw_len() {
+        let path: String = resources.get(i)?;
+        result.push(PathBuf::from(path));
+    }
     Ok(result)
 }
 

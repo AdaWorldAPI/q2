@@ -185,6 +185,15 @@ impl PipelineStage for UserFiltersStage {
         crate::dependency::push_text_includes(output.text_includes, &mut ctx.includes);
         ctx.diagnostics.extend(dep_diagnostics);
 
+        // bd-o8pr Phase 3: route Lua-filter `quarto.doc.add_resource`
+        // entries into the per-doc resource report. Tagged with the
+        // document source so the orchestrator can resolve relative
+        // paths against the doc's parent dir.
+        if !output.resources.is_empty() {
+            ctx.resource_report
+                .add_lua_filter_files(&doc.path, output.resources);
+        }
+
         trace_event!(ctx, EventLevel::Debug, "user filters complete");
 
         Ok(PipelineData::DocumentAst(doc))

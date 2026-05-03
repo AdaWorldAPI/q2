@@ -218,7 +218,7 @@ impl PipelineStage for EngineExecutionStage {
         // Step 6: Execute the engine
         trace_event!(ctx, EventLevel::Info, "executing engine: {}", engine.name());
 
-        let result = engine
+        let mut result = engine
             .execute(&qmd, &exec_context)
             .map_err(|e| PipelineError::stage_error(self.name(), e.to_string()))?;
 
@@ -239,6 +239,22 @@ impl PipelineStage for EngineExecutionStage {
         ctx.includes
             .include_after
             .extend(result.includes.include_after);
+
+        // bd-o8pr Phase 2: route engine-emitted supporting files
+        // into the per-document resource report. The orchestrator
+        // drains this after Pass-2 and copies the entries into the
+        // output dir alongside static-channel resources. Engine
+        // contributions are append-only — there's no
+        // ResourceReportStage::remove. The report carries the doc
+        // source on each entry so it stays attributable after the
+        // per-doc reports are merged into the project-wide list.
+        if !result.supporting_files.is_empty() {
+            ctx.resource_report.add_engine_files(
+                engine.name(),
+                &doc_ast.path,
+                std::mem::take(&mut result.supporting_files),
+            );
+        }
 
         // Step 7: Parse the executed markdown back to AST.
         //

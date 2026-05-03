@@ -58,8 +58,8 @@ use crate::stage::{
     ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, DocumentProfileStage,
     EngineExecutionStage, IncludeExpansionStage, LinkResolutionStage, LoadedSource,
     MetadataMergeStage, ParseDocumentStage, Pipeline, PipelineData, PipelineStage,
-    PreEngineSugaringStage, RenderHtmlBodyStage, StageContext, UnwrapProfileStage,
-    UserFiltersStage,
+    PreEngineSugaringStage, RenderHtmlBodyStage, ResourceReportStage, StageContext,
+    UnwrapProfileStage, UserFiltersStage,
 };
 use crate::transform::TransformPipeline;
 use crate::transforms::{
@@ -191,6 +191,9 @@ pub fn build_html_pipeline_stages_with_apply_config(
         Box::new(UserFiltersStage::pre()),
         Box::new(AstTransformsStage::new()),
         Box::new(UserFiltersStage::post()),
+        // bd-o8pr Phase 3: finalize the per-doc resource report
+        // (defends against filters that mutate `meta.resources`).
+        Box::new(ResourceReportStage::new()),
     ];
     stages.push(Box::new(CodeHighlightStage::new()));
     stages.push(Box::new(RenderHtmlBodyStage::new()));
@@ -275,6 +278,7 @@ pub fn build_wasm_html_pipeline() -> Pipeline {
         Box::new(UserFiltersStage::pre()),
         Box::new(AstTransformsStage::new()),
         Box::new(UserFiltersStage::post()),
+        Box::new(ResourceReportStage::new()),
     ];
     stages.push(Box::new(CodeHighlightStage::new()));
     stages.push(Box::new(RenderHtmlBodyStage::new()));
@@ -430,6 +434,9 @@ pub async fn run_pipeline(
     // the inner `RenderContext` consumed by AST transforms (notably
     // `LinkRewriteTransform`).
     stage_ctx.resource_resolver = ctx.resource_resolver.clone();
+    // bd-o8pr Phase 2: transfer the per-doc resource report into
+    // the stage context so engine + filter stages can append to it.
+    stage_ctx.resource_report = std::mem::take(&mut ctx.resource_report);
 
     // Create input from content
     let input = PipelineData::LoadedSource(LoadedSource::new(
@@ -443,6 +450,9 @@ pub async fn run_pipeline(
 
     // Transfer artifacts back to RenderContext
     ctx.artifacts = stage_ctx.artifacts;
+    // bd-o8pr Phase 2: transfer engine/filter-collected resources
+    // back to the caller (`render_document_to_file` reads this).
+    ctx.resource_report = stage_ctx.resource_report;
 
     result
         .map_err(|e| match e {
@@ -1037,7 +1047,7 @@ mod tests {
     #[test]
     fn test_build_html_pipeline_stages() {
         let stages = build_html_pipeline_stages();
-        assert_eq!(stages.len(), 15);
+        assert_eq!(stages.len(), 16);
         assert_eq!(stages[0].name(), "parse-document");
         assert_eq!(stages[1].name(), "metadata-merge");
         // Include expansion runs before the profile checkpoint (bd-xfwx)
@@ -1054,24 +1064,26 @@ mod tests {
         assert_eq!(stages[9].name(), "user-filters-pre");
         assert_eq!(stages[10].name(), "ast-transforms");
         assert_eq!(stages[11].name(), "user-filters-post");
-        assert_eq!(stages[12].name(), "code-highlight");
-        assert_eq!(stages[13].name(), "render-html-body");
-        assert_eq!(stages[14].name(), "apply-template");
+        // bd-o8pr Phase 3: finalize per-doc resource report.
+        assert_eq!(stages[12].name(), "resource-report");
+        assert_eq!(stages[13].name(), "code-highlight");
+        assert_eq!(stages[14].name(), "render-html-body");
+        assert_eq!(stages[15].name(), "apply-template");
     }
 
     #[test]
     fn test_build_html_pipeline() {
         let pipeline = build_html_pipeline();
-        assert_eq!(pipeline.len(), 15);
+        assert_eq!(pipeline.len(), 16);
     }
 
     #[test]
     fn test_build_wasm_html_pipeline() {
         let pipeline = build_wasm_html_pipeline();
-        // WASM pipeline now has 14 stages: same as the native HTML
+        // WASM pipeline now has 15 stages: same as the native HTML
         // pipeline (include-expansion, profile checkpoint, link-resolution,
-        // code-highlight, …) minus `engine-execution`.
-        assert_eq!(pipeline.len(), 14);
+        // code-highlight, resource-report …) minus `engine-execution`.
+        assert_eq!(pipeline.len(), 15);
     }
 
     #[test]

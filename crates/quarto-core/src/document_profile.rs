@@ -34,7 +34,7 @@ use thiserror::Error;
 ///   `nav_dependencies` (user-declared cross-doc edges),
 ///   `always_render` (per-doc Pass-2 opt-out), and
 ///   `body_link_targets` (Pass-1-resolved cross-doc body link set).
-pub const DOCUMENT_PROFILE_VERSION: u32 = 2;
+pub const DOCUMENT_PROFILE_VERSION: u32 = 3;
 
 /// Depth used when extracting the heading outline at the profile
 /// checkpoint.
@@ -210,6 +210,19 @@ pub struct DocumentProfile {
     /// Default empty; serializer omits empty lists.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub body_link_targets: Vec<PathBuf>,
+
+    /// Document-level `resources:` patterns from YAML frontmatter
+    /// (`bd-o8pr`). Raw patterns; expansion happens at the post-
+    /// render collector. This is the *snapshot* of what the author
+    /// declared at frontmatter-freeze time — engines and Lua
+    /// filters that run later contribute through a separate channel
+    /// (`DocumentResourceReport`) and cannot retroactively shrink
+    /// this list. See plan §"Resolved design principles".
+    ///
+    /// Default empty; serializer omits empty lists. Bump from v2 →
+    /// v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<String>,
 }
 
 /// Helper for `#[serde(skip_serializing_if = ...)]` on plain bool
@@ -259,6 +272,7 @@ impl Default for DocumentProfile {
             nav_dependencies: Vec::new(),
             always_render: false,
             body_link_targets: Vec::new(),
+            resources: Vec::new(),
         }
     }
 }
@@ -313,6 +327,7 @@ impl DocumentProfile {
             nav_dependencies: extract_path_list(meta, &["project", "nav-dependencies"]),
             always_render: meta_bool_path(meta, &["project", "always-render"]).unwrap_or(false),
             body_link_targets: Vec::new(),
+            resources: crate::project_resources::extract_resource_patterns(meta, &["resources"]),
         }
     }
 
@@ -668,8 +683,9 @@ Body.
         // A v1 profile (the pre-Phase-8 shape) must be rejected by
         // from_json. v1 callers wrote profiles with profile_version: 1
         // and no `includes`/`nav_dependencies`/`always_render`/
-        // `body_link_targets` fields. After the v2 bump, those entries
-        // become invalid and Phase-8 silently regenerates them.
+        // `body_link_targets` fields. After subsequent version bumps
+        // (v2 for Phase-8, v3 for bd-o8pr resources), those entries
+        // become invalid and the cache silently regenerates them.
         let payload = r#"{
             "profile_version": 1,
             "source_path": "x.qmd",
@@ -689,7 +705,7 @@ Body.
 
         match DocumentProfile::from_json(payload) {
             Err(DocumentProfileError::VersionMismatch { expected, found }) => {
-                assert_eq!(expected, 2);
+                assert_eq!(expected, DOCUMENT_PROFILE_VERSION);
                 assert_eq!(found, 1);
             }
             other => panic!("expected VersionMismatch from v1 payload, got {:?}", other),

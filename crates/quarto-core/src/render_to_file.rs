@@ -98,6 +98,13 @@ pub struct RenderToFileResult {
     pub resources_dir: PathBuf,
     /// The full render output including HTML and diagnostics.
     pub render_output: RenderOutput,
+    /// Per-document resource report (`bd-o8pr` Phase 2). Contains
+    /// engine-emitted (and Phase 3+ Lua-filter-emitted) supporting
+    /// files. Drained by the project orchestrator after the per-doc
+    /// render completes; resolved against the project root and
+    /// merged with the static-channel list before the copy step.
+    /// Empty for renders that produced no engine/filter resources.
+    pub resource_report: crate::project_resources::DocumentResourceReport,
 }
 
 /// Render a QMD document to a file (simple API).
@@ -309,10 +316,12 @@ pub fn render_document_to_file(
 
     debug!("Output: {}", output_path.display());
 
+    let resource_report = std::mem::take(&mut ctx.resource_report);
     Ok(RenderToFileResult {
         output_path,
         resources_dir: resource_paths.resource_dir,
         render_output,
+        resource_report,
     })
 }
 

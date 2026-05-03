@@ -47,6 +47,7 @@ pub mod filter_resolve;
 pub mod format;
 pub mod pipeline;
 pub mod project;
+pub mod project_resources;
 pub mod render;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod render_to_file;

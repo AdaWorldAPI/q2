@@ -42,6 +42,10 @@ pub struct FilterOutput {
     /// Only populated by Lua filters.
     #[cfg(feature = "lua-filter")]
     pub text_includes: Vec<TextInclude>,
+    /// Raw paths registered via `quarto.doc.add_resource(path)`
+    /// (`bd-o8pr` Phase 3). Only populated by Lua filters.
+    #[cfg(feature = "lua-filter")]
+    pub resources: Vec<PathBuf>,
 }
 
 /// A filter specification parsed from a command-line argument.
@@ -219,6 +223,8 @@ pub async fn apply_filter(
                 html_dependencies: Vec::new(),
                 #[cfg(feature = "lua-filter")]
                 text_includes: Vec::new(),
+                #[cfg(feature = "lua-filter")]
+                resources: Vec::new(),
             })
         }
 
@@ -238,6 +244,7 @@ pub async fn apply_filter(
                 diagnostics: lua_output.diagnostics,
                 html_dependencies: lua_output.html_dependencies,
                 text_includes: lua_output.text_includes,
+                resources: lua_output.resources,
             })
         }
 
@@ -259,6 +266,8 @@ pub async fn apply_filter(
                 html_dependencies: Vec::new(),
                 #[cfg(feature = "lua-filter")]
                 text_includes: Vec::new(),
+                #[cfg(feature = "lua-filter")]
+                resources: Vec::new(),
             })
         }
 
@@ -289,6 +298,8 @@ pub async fn apply_filters(
     let mut all_html_dependencies = Vec::new();
     #[cfg(feature = "lua-filter")]
     let mut all_text_includes = Vec::new();
+    #[cfg(feature = "lua-filter")]
+    let mut all_resources = Vec::new();
 
     for filter in filters {
         let output = apply_filter(
@@ -306,6 +317,8 @@ pub async fn apply_filters(
         all_html_dependencies.extend(output.html_dependencies);
         #[cfg(feature = "lua-filter")]
         all_text_includes.extend(output.text_includes);
+        #[cfg(feature = "lua-filter")]
+        all_resources.extend(output.resources);
     }
 
     Ok(FilterOutput {
@@ -316,6 +329,8 @@ pub async fn apply_filters(
         html_dependencies: all_html_dependencies,
         #[cfg(feature = "lua-filter")]
         text_includes: all_text_includes,
+        #[cfg(feature = "lua-filter")]
+        resources: all_resources,
     })
 }
 

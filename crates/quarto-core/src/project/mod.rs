@@ -312,6 +312,14 @@ pub struct ProjectConfig {
     /// Input file patterns (glob patterns)
     pub render_patterns: Vec<String>,
 
+    /// Project-level `project.resources:` patterns (`bd-o8pr`).
+    ///
+    /// Raw patterns from `_quarto.yml`; glob expansion happens at
+    /// project-render time. See
+    /// [`crate::project_resources`] for the resolution helpers.
+    /// Empty when `project.resources` is absent.
+    pub resources: Vec<String>,
+
     /// Full project metadata as ConfigValue with source tracking.
     ///
     /// This is the entire `_quarto.yml` parsed with `InterpretationContext::ProjectConfig`,
@@ -598,10 +606,16 @@ impl ProjectContext {
             })
             .unwrap_or_default();
 
+        let resources = crate::project_resources::extract_resource_patterns(
+            &metadata,
+            &["project", "resources"],
+        );
+
         Ok(ProjectConfig {
             project_kind,
             output_dir,
             render_patterns,
+            resources,
             metadata: Some(metadata),
         })
     }

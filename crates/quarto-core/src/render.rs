@@ -162,6 +162,13 @@ pub struct RenderContext<'a> {
     /// the syntax-highlighting plan) so JS-backed user grammars flow
     /// through the same `CodeHighlightStage` code path.
     pub user_grammar_provider: Option<Box<dyn quarto_highlight::UserGrammarProvider>>,
+
+    /// Per-document resource report (`bd-o8pr`). Mirrors
+    /// [`crate::stage::StageContext::resource_report`]; `run_pipeline`
+    /// transfers entries from the inner stage context back here so
+    /// the caller (`render_document_to_file`) can stuff them into
+    /// the per-doc render result for the orchestrator to drain.
+    pub resource_report: crate::project_resources::DocumentResourceReport,
 }
 
 /// Options for rendering
@@ -203,6 +210,7 @@ impl<'a> RenderContext<'a> {
             resource_resolver: None,
             observer: Arc::new(NoopObserver),
             user_grammar_provider: None,
+            resource_report: crate::project_resources::DocumentResourceReport::new(),
         }
     }
 

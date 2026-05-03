@@ -96,6 +96,14 @@ pub struct StageContext {
     /// renderers. Bridged to/from `RenderContext` by `AstTransformsStage`.
     pub crossref_index: Option<CrossrefIndex>,
 
+    /// Per-document resource report (`bd-o8pr`). Engine stages and
+    /// (Phase 3) Lua-filter post-drain push raw paths into this; the
+    /// orchestrator drains it after Pass-2 render and resolves
+    /// against the project root. Static-channel resources go through
+    /// a different path (the profile + project config), so this
+    /// holds only engine + filter contributions.
+    pub resource_report: crate::project_resources::DocumentResourceReport,
+
     // === Observation & Control ===
     /// Observer for tracing, progress reporting, and WASM callbacks
     pub observer: Arc<dyn PipelineObserver>,
@@ -186,6 +194,7 @@ impl StageContext {
             diagnostics: Vec::new(),
             ref_type_registry: None,
             crossref_index: None,
+            resource_report: crate::project_resources::DocumentResourceReport::new(),
             project_index: None,
             resource_resolver: None,
             observer: Arc::new(NoopObserver),

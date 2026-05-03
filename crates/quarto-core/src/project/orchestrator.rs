@@ -586,6 +586,69 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
             .await
             .map_err(|e| QuartoError::other(format!("post_render failed: {e}")))?;
 
+        // bd-o8pr Phases 1 + 2: copy resources to the output dir.
+        // - Phase 1 (static channel): project- and document-level
+        //   YAML `resources:` declarations frozen on `ProjectConfig`
+        //   and `DocumentProfile`.
+        // - Phase 2 (engine channel): per-doc `DocumentResourceReport`
+        //   populated by `EngineExecutionStage` from
+        //   `ExecuteResult.supporting_files`. Drained here from each
+        //   per-doc output via `R::extract_resource_report`.
+        // Runs after every project type's post_render so the project
+        // type doesn't need to implement this itself. Native only —
+        // the WASM hub-client preview doesn't write to a real output
+        // dir.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut resolved =
+                crate::project_resources::collect_static_resources(self.project, &index)
+                    .map_err(|e| QuartoError::other(e.to_string()))?;
+            for output in &outputs {
+                if let Some(report) = R::extract_resource_report(output) {
+                    if report.is_empty() {
+                        continue;
+                    }
+                    let resolved_report = crate::project_resources::resolve_reported_resources(
+                        &self.project.dir,
+                        report,
+                    )
+                    .map_err(|e| QuartoError::other(e.to_string()))?;
+                    resolved.extend(resolved_report);
+                }
+            }
+            crate::project_resources::copy_resources_to_output_dir(
+                &resolved,
+                &self.project.output_dir,
+                self.runtime.as_ref(),
+            )?;
+
+            // bd-o8pr Phase 4: emit `.quarto/render-manifest.json`
+            // describing the rendered files + every published
+            // resource (with `origin` for diagnostics). Becomes the
+            // canonical input to `quarto publish`; the existing
+            // dir-walk path remains as a fallback when no manifest
+            // is present.
+            let rendered_files: Vec<String> = output_paths
+                .iter()
+                .map(|p| {
+                    p.strip_prefix(&self.project.output_dir)
+                        .unwrap_or(p)
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                })
+                .collect();
+            let manifest = crate::project_resources::RenderManifest::new(
+                &self.project.dir,
+                rendered_files,
+                &resolved,
+            );
+            crate::project_resources::write_render_manifest(
+                &self.project.dir,
+                &manifest,
+                self.runtime.as_ref(),
+            )?;
+        }
+
         Ok(ProjectRenderSummary {
             outputs,
             pass1_failures,
