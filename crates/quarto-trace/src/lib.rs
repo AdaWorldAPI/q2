@@ -10,7 +10,7 @@
 //!
 //! ```json
 //! {
-//!   "schema_version": 1,
+//!   "schema_version": 2,
 //!   "render": {
 //!     "input_path": "doc.qmd",
 //!     "output_path": "doc.html",
@@ -19,8 +19,12 @@
 //!     "git_hash": "abc1234",
 //!     "total_duration_ms": 123.4
 //!   },
+//!   "asts": {
+//!     "<hash>": { ...AST JSON... }
+//!   },
 //!   "pipeline": [
-//!     { "stage": "parse", "index": 0, "data_kind": "DocumentAst", "data": {...},
+//!     { "stage": "parse", "index": 0, "data_kind": "DocumentAst",
+//!       "data": { "path": "doc.qmd", "ast": { "$ref": "<hash>" }, "warnings_count": 0 },
 //!       "duration_ms": 1.2, "status": "ok" },
 //!     { "stage": "engine-execution", "index": 1, "status": "error",
 //!       "error": {"message": "..."} },
@@ -29,8 +33,28 @@
 //! }
 //! ```
 //!
-//! Unknown `status` values and unknown fields are tolerated by readers for
-//! forward compatibility.
+//! ## v2: AST dedup (bd-5qnj)
+//!
+//! Real traces carry the same AST in many entries — most pipeline
+//! transforms are no-ops on any given document, so 36 of 42 DocumentAst
+//! entries on a representative trace are byte-identical to the previous
+//! one (see
+//! `claude-notes/plans/5qnj-trace-size-investigation/measurements.md`).
+//! v2 collapses these to one stored copy.
+//!
+//! - The on-disk JSON has a top-level `asts` map keyed by content hash.
+//! - Inside any pipeline entry's `data`, an inline AST is replaced by
+//!   `{ "$ref": "<hash>" }`.
+//! - The reader rehydrates `$ref` sentinels into inline AST values, so
+//!   downstream consumers see a v1-equivalent in-memory
+//!   [`TraceDocument`].
+//! - Writers always emit v2; readers handle v1 (legacy traces with no
+//!   `asts` map and inline ASTs) and v2 transparently.
+//!
+//! Unknown `status` values and unknown fields are tolerated by readers
+//! for forward compatibility.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -45,16 +69,35 @@ pub const BUILD_GIT_HASH: &str = env!("QUARTO_GIT_HASH");
 
 /// Current trace schema version.
 ///
-/// Bumped only when entry-shape changes are introduced (e.g. delta-encoded
-/// `DocumentAst` entries in Phase 4.6). Additive changes (new optional
-/// fields) don't bump the version.
-pub const SCHEMA_VERSION: u32 = 1;
+/// - `1`: original wire format (inline ASTs, no `asts` map).
+/// - `2` (current): on-disk dedup of AST values via top-level `asts` map
+///   and `{ "$ref": "<hash>" }` sentinels inside entries' `data`.
+///   Reader-rehydrated [`TraceDocument`]s are v1-equivalent in shape;
+///   the dedup is a wire-format detail.
+///
+/// Bumped only when entry-shape changes are introduced. Additive
+/// changes (new optional fields) don't bump the version.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Top-level trace document.
+///
+/// In memory, the `asts` map is always empty: the writer populates it
+/// transiently during serialization and the reader folds it back into
+/// the entries during deserialization. Direct serialization of an
+/// in-memory `TraceDocument` (without going through `write::write_trace`
+/// / `read::read_trace`) bypasses the dedup pass; that's fine for tests
+/// and ad-hoc serialization, but the on-disk artifact will not have
+/// the v2 size benefits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceDocument {
     pub schema_version: u32,
     pub render: RenderInfo,
+    /// Content-addressed AST values, used as the deduplication target
+    /// for `{ "$ref": "<hash>" }` references inside entries' `data`.
+    /// Empty in-memory after `read_trace`; populated transiently by
+    /// `write_trace`. See module-level docs for the wire format.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub asts: BTreeMap<String, serde_json::Value>,
     pub pipeline: Vec<TraceEntry>,
     /// Engine execution capture for replay (bd-45yw).
     ///
@@ -75,6 +118,7 @@ impl TraceDocument {
         Self {
             schema_version: SCHEMA_VERSION,
             render,
+            asts: BTreeMap::new(),
             pipeline: Vec::new(),
             engine_capture: None,
         }

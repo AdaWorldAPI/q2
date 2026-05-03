@@ -141,17 +141,25 @@ async fn list_handler(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn show_handler(State(state): State<AppState>, AxumPath(doc): AxumPath<String>) -> Response {
-    let candidate = state.trace_dir.join(&doc).join("latest.json");
+    // Both `latest.json.gz` (post-bd-5qnj) and `latest.json` (legacy)
+    // are accepted; prefer the gzipped artifact when both are present.
+    let dir = state.trace_dir.join(&doc);
     // Refuse any path that escapes trace_dir — belt-and-suspenders against
     // path traversal. Canonicalize both sides for a robust comparison;
     // fall back to best-effort string prefix check if canonicalization
     // fails (e.g. file missing).
-    if !is_within(&state.trace_dir, &candidate) {
+    if !is_within(&state.trace_dir, &dir) {
         return (StatusCode::BAD_REQUEST, "invalid doc").into_response();
     }
-    if !candidate.is_file() {
+    let gz = dir.join("latest.json.gz");
+    let plain = dir.join("latest.json");
+    let candidate = if gz.is_file() {
+        gz
+    } else if plain.is_file() {
+        plain
+    } else {
         return (StatusCode::NOT_FOUND, "no such trace").into_response();
-    }
+    };
     match read_trace(&candidate) {
         Ok(doc) => Json(doc).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -346,7 +354,50 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
         let body = res.into_body().collect().await.unwrap().to_bytes();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(v["schema_version"], 1);
+        // Newly-written fixtures carry the current SCHEMA_VERSION (2).
+        assert_eq!(v["schema_version"], 2);
+        assert_eq!(v["pipeline"][0]["stage"], "parse");
+    }
+
+    /// bd-5qnj Phase 1b: gzipped traces (the post-Phase-1 default) must
+    /// be served identically to legacy uncompressed ones — the gzip is
+    /// purely an on-disk format detail.
+    #[tokio::test]
+    async fn api_trace_returns_gzipped_trace() {
+        let root = fixture_dir("show-gz");
+        let dir = root.join("only");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut doc = TraceDocument::new(RenderInfo {
+            input_path: Some("only.qmd".into()),
+            format_target: Some("html".into()),
+            ..Default::default()
+        });
+        doc.pipeline.push(TraceEntry {
+            stage: "parse".into(),
+            index: 0,
+            data_kind: Some("DocumentAst".into()),
+            data: Some(json!({"blocks": []})),
+            duration_ms: Some(1.0),
+            status: StageStatus::Ok,
+            error: None,
+        });
+        write_trace(&doc, &dir.join("latest.json.gz")).unwrap();
+
+        let app = router(&ServerConfig::new(root));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/trace/only")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // Newly-written fixtures carry the current SCHEMA_VERSION (2).
+        assert_eq!(v["schema_version"], 2);
         assert_eq!(v["pipeline"][0]["stage"], "parse");
     }
 

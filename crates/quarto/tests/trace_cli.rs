@@ -133,7 +133,11 @@ fn test_trace_show_full_document() {
     })
     .unwrap();
 
-    assert_eq!(value["schema_version"], 1);
+    // Writer stamps newly-written fixtures with the current
+    // SCHEMA_VERSION (2 as of bd-5qnj). Older traces with
+    // schema_version: 1 still parse via the reader's backwards-compat
+    // path, exercised in quarto-trace's `test_v2_reader_handles_v1_input`.
+    assert_eq!(value["schema_version"], 2);
     assert_eq!(value["render"]["format_target"], "html");
     assert_eq!(value["pipeline"].as_array().unwrap().len(), 3);
 }

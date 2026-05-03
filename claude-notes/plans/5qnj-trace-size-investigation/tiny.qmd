@@ -1,0 +1,12 @@
+---
+title: Tiny doc
+trace: true
+---
+
+# Hello
+
+This is a tiny document with **bold** and *italic* text.
+
+- one
+- two
+- three

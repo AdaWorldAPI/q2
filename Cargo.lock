@@ -3658,6 +3658,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "flate2",
  "glob",
  "hashlink",
  "include_dir",
@@ -3996,8 +3997,10 @@ dependencies = [
 name = "quarto-trace"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
 ]
 
