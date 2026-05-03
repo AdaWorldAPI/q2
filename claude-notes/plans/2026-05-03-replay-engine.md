@@ -125,10 +125,11 @@ The plan now extends the existing `quarto-trace` framework rather than inventing
 
 ### Phase 6 — Docs
 
-- [ ] Internal note at `claude-notes/instructions/testing.md` (or new file) covering: how to record a trace, how to replay, how to author a regression fixture from a real bug report, the source-info caveat, the size-vs.-bd-5qnj note.
-- [ ] User-facing section in the bug-reporting docs: "Attach a replay trace when filing an engine-related issue."
+- [x] New file `claude-notes/instructions/replay-engine.md` — comprehensive contributor / QA guide covering: when to use replay, recording with `trace: true`, the three activation surfaces (`--replay`, `QUARTO_REPLAY`, library-level), miss policy and source-info caveat, fixture authoring workflow, trace-size note pointing at bd-5qnj, and a code-references map.
+- [x] Pointer added to `claude-notes/instructions/testing.md` so contributors find replay when adding engine-channel tests.
+- [ ] **Deferred** — user-facing bug-reporting page ("Attach a replay trace when filing an engine-related issue"). The current `docs/` site (Quarto-markdown user docs) has no troubleshooting / bug-reporting section to slot this into; landing it cleanly would require designing that section, which is out of scope for this issue. Internal QA workflow is fully documented; user-facing front-end docs can land alongside future bug-report tooling.
 
-**Source-info caveat (Phase 6 must document):** replayed runs do not restore original-engine source provenance for engine-emitted content. Diagnostics that rely on source mapping into engine output (line numbers in error messages pointing at original `.ipynb` cells, etc.) will not match between a real engine run and its replay. Acceptable for v1; revisit if a use case appears.
+**Source-info caveat (documented in `replay-engine.md`):** replayed runs do not restore original-engine source provenance for engine-emitted content. Diagnostics that rely on source mapping into engine output (line numbers in error messages pointing at original `.ipynb` cells, etc.) will not match between a real engine run and its replay. Acceptable for v1; revisit if a use case appears.
 
 ## Risks / tradeoffs
 
