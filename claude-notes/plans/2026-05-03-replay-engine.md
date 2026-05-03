@@ -69,7 +69,7 @@ The plan now extends the existing `quarto-trace` framework rather than inventing
 - `crates/quarto-core/src/stage/stages/metadata_merge.rs:294` — `activate_trace_from_metadata` is the existing entry point; either extend it to also activate replay-recording, or factor out a sibling `activate_replay_from_metadata`.
 - The replay-input side is read at orchestrator/CLI level (before pipeline construction) — when `--replay <path>` is set, parse the trace and substitute `ReplayEngine` in the registry handed to `EngineExecutionStage::with_registry`.
 
-Open subquestion (lower-stakes — can be settled in Phase 1): should a recorded trace be a *single-purpose replay artifact* (one trace = one document = one replay), or should the existing per-render trace simply *also* carry the engine capture so a single trace serves both diagnostic-trace and replay roles? The latter is more elegant; the former may be simpler to bound.
+Preferred shape: one trace serves both diagnostic and replay roles. The blocker is trace size — current `JsonTraceObserver` output is already heavy, and traces will be checked in as CI fixtures and attached by users to bug reports. Tracked separately as **bd-5qnj** (related to bd-45yw); the unified-artifact decision in Phase 1 depends on bd-5qnj's size investigation. If size can't be bounded, fall back to a dedicated single-purpose replay artifact.
 
 ## Proposed phases (draft)
 
