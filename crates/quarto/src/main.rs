@@ -117,6 +117,18 @@ enum Commands {
         #[arg(long)]
         quiet: bool,
 
+        /// Replay engine output from a recorded trace file
+        /// (`<trace>.json`) instead of running the real engine
+        /// (bd-45yw). Useful for reproducing reported bugs and
+        /// running CI regression tests without R/Python/Jupyter.
+        /// Hard-fails if the document's content does not match the
+        /// recorded input.
+        ///
+        /// Also activated by `QUARTO_REPLAY=<trace>` if the flag is
+        /// not set.
+        #[arg(long, value_name = "TRACE")]
+        replay: Option<String>,
+
         /// Active project profile(s)
         #[arg(long)]
         profile: Vec<String>,
@@ -526,6 +538,7 @@ fn main() -> Result<()> {
             output_dir,
             clean_cache,
             quiet,
+            replay,
             debug,
             ..
         } => commands::render::execute(commands::render::RenderArgs {
@@ -535,6 +548,7 @@ fn main() -> Result<()> {
             output_dir,
             clean_cache,
             quiet,
+            replay,
             debug,
         }),
         Commands::Preview { .. } => commands::preview::execute(),

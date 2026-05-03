@@ -128,7 +128,7 @@ impl ExecutionContext {
 ///
 /// Contains the transformed markdown with execution outputs,
 /// along with any supporting files and metadata produced.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ExecuteResult {
     /// The transformed markdown content with execution outputs.
     ///

@@ -41,7 +41,7 @@ pub use ast_transforms::AstTransformsStage;
 pub use code_highlight::CodeHighlightStage;
 pub use compile_theme_css::CompileThemeCssStage;
 pub use document_profile::DocumentProfileStage;
-pub use engine_execution::EngineExecutionStage;
+pub use engine_execution::{ENGINE_CAPTURE_KIND, EngineExecutionStage};
 pub use include_expansion::IncludeExpansionStage;
 pub use link_resolution::LinkResolutionStage;
 pub use metadata_merge::MetadataMergeStage;

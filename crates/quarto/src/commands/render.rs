@@ -55,6 +55,12 @@ pub struct RenderArgs {
     pub clean_cache: bool,
     /// Suppress console output.
     pub quiet: bool,
+    /// Replay engine output from a recorded trace file instead of
+    /// running the real engine (bd-45yw). When `Some`, the path is
+    /// loaded via `quarto_trace::read::read_trace` and the recorded
+    /// `EngineCapture` is plumbed through `RenderToFileOptions`.
+    /// Falls through to the `QUARTO_REPLAY` env var if `None`.
+    pub replay: Option<String>,
     /// Leave intermediate files (not yet implemented).
     #[allow(dead_code)]
     pub debug: bool,
@@ -410,6 +416,48 @@ pub fn render_summary_line(
     Some(format!("{rendered} of {total_files} rendered"))
 }
 
+/// bd-45yw: resolve the replay activation source and load the trace.
+///
+/// `cli_replay` is the value of `--replay`. If `None`, falls through
+/// to the `QUARTO_REPLAY` environment variable. If neither is set,
+/// returns `Ok(None)` — replay is inactive.
+///
+/// Returns a hard error (no fallback) if:
+/// - The trace file cannot be read (missing path, permission denied,
+///   malformed JSON).
+/// - The trace lacks an `engine_capture` block — replaying a trace
+///   that was recorded without engine capture would silently behave
+///   like the markdown engine, which is exactly the kind of "silent
+///   degradation" the hard-fail policy guards against.
+fn load_replay_capture(cli_replay: Option<&str>) -> Result<Option<quarto_trace::EngineCapture>> {
+    let path_str = match cli_replay {
+        Some(p) => Some(p.to_string()),
+        None => std::env::var("QUARTO_REPLAY").ok(),
+    };
+    let Some(path_str) = path_str else {
+        return Ok(None);
+    };
+
+    let path = PathBuf::from(&path_str);
+    let trace = quarto_trace::read::read_trace(&path).with_context(|| {
+        format!(
+            "Failed to load replay trace from {}. \
+             Pass a path to a quarto trace JSON file (the kind produced by `trace: true`).",
+            path.display()
+        )
+    })?;
+
+    let capture = trace.engine_capture.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Trace file {} has no `engine_capture` block. \
+             Re-record the trace from a real engine run with `trace: true` set.",
+            path.display()
+        )
+    })?;
+
+    Ok(Some(capture))
+}
+
 /// Execute the render command.
 pub fn execute(args: RenderArgs) -> Result<()> {
     // Create the system runtime
@@ -435,11 +483,19 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     let target =
         classify_inputs(&args.inputs, &cwd, &runtime).map_err(|e| anyhow::anyhow!("{}", e))?;
 
+    // bd-45yw: load replay capture if --replay <path> or
+    // QUARTO_REPLAY=<path> is set. Hard-fail on read errors and on
+    // traces missing engine_capture so investigators don't waste
+    // time on a silently-degraded replay.
+    let replay_capture = load_replay_capture(args.replay.as_deref())?;
+
     // Set up render options
     let options = RenderToFileOptions {
         output_path: args.output.as_ref().map(PathBuf::from),
         output_dir: args.output_dir.as_ref().map(PathBuf::from),
         quiet: args.quiet,
+        replay_capture,
+        engine_registry_override: None,
     };
 
     match target {

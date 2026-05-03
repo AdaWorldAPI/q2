@@ -99,6 +99,16 @@ pub struct TraceDocument {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub asts: BTreeMap<String, serde_json::Value>,
     pub pipeline: Vec<TraceEntry>,
+    /// Engine execution capture for replay (bd-45yw).
+    ///
+    /// When `trace: true` is set, the pipeline records the
+    /// `ExecutionEngine`'s output here so the trace can later drive
+    /// the in-Rust replay engine for deterministic regression tests
+    /// without R/Python/Jupyter installs. Absent for traces produced
+    /// before bd-45yw landed and for renders where the markdown
+    /// engine ran (no execution to record).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_capture: Option<EngineCapture>,
 }
 
 impl TraceDocument {
@@ -110,8 +120,38 @@ impl TraceDocument {
             render,
             asts: BTreeMap::new(),
             pipeline: Vec::new(),
+            engine_capture: None,
         }
     }
+}
+
+/// Captured `ExecuteResult` from an engine run, attached to a
+/// [`TraceDocument`] for later replay (bd-45yw).
+///
+/// Stores the engine name (matching what `ExecutionEngine::name()`
+/// returned), the QMD input that was handed to `execute()`, and the
+/// full `ExecuteResult` as opaque JSON. The exact `ExecuteResult`
+/// shape lives in `quarto-core`; we keep it as a `serde_json::Value`
+/// here so this crate stays leaf-level and doesn't need to depend on
+/// `quarto-core`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EngineCapture {
+    /// Name of the engine that produced this result (e.g. `"knitr"`,
+    /// `"jupyter"`). The replay engine registers under this name so
+    /// it can stand in for the original engine without document
+    /// metadata changes.
+    pub engine_name: String,
+
+    /// Verbatim QMD text handed to `ExecutionEngine::execute()`.
+    /// Replay validates the document under investigation matches this
+    /// (string equality) and hard-fails on mismatch.
+    pub input_qmd: String,
+
+    /// Serialized `ExecuteResult` (markdown, supporting_files,
+    /// filters, includes, needs_postprocess). Treated as opaque here;
+    /// `quarto-core::engine::replay` deserializes via
+    /// `serde_json::from_value`.
+    pub result: serde_json::Value,
 }
 
 /// Top-level metadata about a render invocation.

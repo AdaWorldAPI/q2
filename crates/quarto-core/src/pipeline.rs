@@ -95,6 +95,19 @@ pub struct HtmlRenderConfig {
     /// Scope-aware resolver passed through to
     /// [`ApplyTemplateConfig::resolver`]. See its docs.
     pub resolver: Option<crate::resource_resolver::ResourceResolverContext>,
+
+    /// Engine registry override for the pipeline's
+    /// [`EngineExecutionStage`] (bd-45yw, replay activation).
+    ///
+    /// `None` (the default) means: use the standard registry that the
+    /// stage builds via `EngineRegistry::new()` — markdown plus, on
+    /// native, knitr and jupyter.
+    ///
+    /// `Some(registry)` substitutes the supplied registry. The
+    /// orchestrator/CLI's replay path constructs this via
+    /// [`crate::engine::EngineRegistry::with_replay`] from a
+    /// [`quarto_trace::EngineCapture`] loaded from a trace file.
+    pub engine_registry: Option<crate::engine::EngineRegistry>,
 }
 
 impl HtmlRenderConfig {
@@ -102,7 +115,14 @@ impl HtmlRenderConfig {
     pub fn with_resolver(resolver: crate::resource_resolver::ResourceResolverContext) -> Self {
         Self {
             resolver: Some(resolver),
+            engine_registry: None,
         }
+    }
+
+    /// Attach an engine registry override (bd-45yw replay activation).
+    pub fn with_engine_registry(mut self, registry: crate::engine::EngineRegistry) -> Self {
+        self.engine_registry = Some(registry);
+        self
     }
 }
 
@@ -166,6 +186,30 @@ pub fn build_html_pipeline_stages() -> Vec<Box<dyn PipelineStage>> {
 pub fn build_html_pipeline_stages_with_apply_config(
     apply_config: Option<ApplyTemplateConfig>,
 ) -> Vec<Box<dyn PipelineStage>> {
+    build_html_pipeline_stages_with_options(apply_config, None)
+}
+
+/// Like [`build_html_pipeline_stages_with_apply_config`], but also
+/// accepts an optional [`crate::engine::EngineRegistry`] override for
+/// the [`EngineExecutionStage`].
+///
+/// When `engine_registry` is `Some`, the stage is constructed via
+/// [`EngineExecutionStage::with_registry`] using the caller's
+/// registry — this is the seam the orchestrator/CLI replay path uses
+/// to substitute a [`crate::engine::ReplayEngine`] without touching
+/// the rest of the pipeline (bd-45yw).
+///
+/// When `engine_registry` is `None`, the stage builds its own default
+/// registry (markdown + native engines), preserving pre-bd-45yw
+/// behavior for every existing call site.
+pub fn build_html_pipeline_stages_with_options(
+    apply_config: Option<ApplyTemplateConfig>,
+    engine_registry: Option<crate::engine::EngineRegistry>,
+) -> Vec<Box<dyn PipelineStage>> {
+    let engine_stage = match engine_registry {
+        Some(reg) => EngineExecutionStage::with_registry(reg),
+        None => EngineExecutionStage::new(),
+    };
     let mut stages: Vec<Box<dyn PipelineStage>> = vec![
         Box::new(ParseDocumentStage::new()),
         Box::new(MetadataMergeStage::new()),
@@ -186,7 +230,7 @@ pub fn build_html_pipeline_stages_with_apply_config(
         Box::new(LinkResolutionStage::new()),
         Box::new(UnwrapProfileStage::new()),
         Box::new(PreEngineSugaringStage::new()),
-        Box::new(EngineExecutionStage::new()),
+        Box::new(engine_stage),
         Box::new(CompileThemeCssStage::new()),
         Box::new(UserFiltersStage::pre()),
         Box::new(AstTransformsStage::new()),
@@ -550,15 +594,22 @@ pub async fn render_qmd_to_html(
     runtime: Arc<dyn quarto_system_runtime::SystemRuntime>,
 ) -> Result<RenderOutput> {
     // Build pipeline based on config. Both branches share the same
-    // stage list (via `build_html_pipeline_stages_with_apply_config`);
-    // the only difference is whether the final `ApplyTemplateStage`
-    // carries a scope-aware resolver.
-    let stages = if let Some(resolver) = config.resolver.clone() {
-        let apply_config = ApplyTemplateConfig::new().with_resolver(resolver);
-        build_html_pipeline_stages_with_apply_config(Some(apply_config))
-    } else {
-        build_html_pipeline_stages()
-    };
+    // stage list (via `build_html_pipeline_stages_with_options`); the
+    // only differences are whether the final `ApplyTemplateStage`
+    // carries a scope-aware resolver and whether
+    // `EngineExecutionStage` runs against a replay-substituted
+    // registry (bd-45yw).
+    //
+    // Note: the engine_registry override is consumed (via Option::take
+    // on a clone path) — `HtmlRenderConfig` is borrowed `&`, so we
+    // clone the registry. EngineRegistry itself stores Arc<dyn
+    // ExecutionEngine>, so cloning is cheap.
+    let apply_config = config
+        .resolver
+        .clone()
+        .map(|r| ApplyTemplateConfig::new().with_resolver(r));
+    let engine_registry = config.engine_registry.clone();
+    let stages = build_html_pipeline_stages_with_options(apply_config, engine_registry);
 
     let (output, diagnostics) = run_pipeline(content, source_name, ctx, runtime, stages).await?;
     // Extract the rendered output
@@ -1318,6 +1369,144 @@ mod tests {
         assert_eq!(
             css, DEFAULT_CSS,
             "`theme: none` must ship the static DEFAULT_CSS (no Bootstrap)"
+        );
+    }
+
+    /// bd-45yw Phase 4a: `HtmlRenderConfig.engine_registry` overrides
+    /// the engine registry that `EngineExecutionStage` uses, so a
+    /// caller (orchestrator/CLI replay path) can substitute a
+    /// `ReplayEngine` without touching the rest of the pipeline. This
+    /// test renders a document declaring an engine that *no real
+    /// engine implements* — the only way the render can succeed is
+    /// through the replay-substituted registry.
+    #[test]
+    fn test_render_qmd_to_html_uses_replay_registry_from_config() {
+        use crate::engine::EngineRegistry;
+        use quarto_trace::EngineCapture;
+
+        // A document that declares an engine name no real engine
+        // covers — without replay substitution, the stage falls back
+        // to markdown with a warning, which would yield different
+        // output than the recorded one.
+        let content =
+            b"---\nengine: replay-only-engine\n---\n\n# Original Heading\n\nOriginal body.\n";
+
+        // The recorded ExecuteResult deliberately replaces the body
+        // with a distinct marker. Asserting the marker reaches the
+        // rendered HTML proves the replay engine ran.
+        let recorded_markdown = "---\nengine: replay-only-engine\n---\n\n# Replayed Heading\n\nReplayed body marker XYZ.\n";
+
+        // Determine the QMD that the stage will pass to execute().
+        // The recorded `input_qmd` must match this byte-for-byte.
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+
+        // Two-pass: first compute the serialized QMD by running with
+        // a probe engine, then build the real capture and rerun. We
+        // can't easily compute it without running the parse + serialize
+        // path, so we use a probe engine that records its own input.
+        use std::sync::Mutex;
+        struct ProbeEngine {
+            captured_input: Arc<Mutex<Option<String>>>,
+        }
+        impl crate::engine::ExecutionEngine for ProbeEngine {
+            fn name(&self) -> &str {
+                "replay-only-engine"
+            }
+            fn execute(
+                &self,
+                input: &str,
+                _ctx: &crate::engine::ExecutionContext,
+            ) -> std::result::Result<crate::engine::ExecuteResult, crate::engine::ExecutionError>
+            {
+                *self.captured_input.lock().unwrap() = Some(input.to_string());
+                // Return passthrough so the probe completes successfully.
+                Ok(crate::engine::ExecuteResult::passthrough(input))
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+        }
+
+        let captured = Arc::new(Mutex::new(None::<String>));
+        let probe = Arc::new(ProbeEngine {
+            captured_input: captured.clone(),
+        });
+        let mut probe_registry = EngineRegistry::new();
+        probe_registry.register(probe);
+
+        // Probe run.
+        {
+            let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+            let probe_config = HtmlRenderConfig {
+                resolver: None,
+                engine_registry: Some(probe_registry),
+            };
+            let runtime = make_test_runtime();
+            let _ = pollster::block_on(render_qmd_to_html(
+                content,
+                "test.qmd",
+                &mut ctx,
+                &probe_config,
+                runtime,
+            ))
+            .unwrap();
+        }
+
+        let recorded_input = captured
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("probe must have captured the engine's input");
+
+        // Now build the replay capture against that input and the
+        // distinct recorded markdown.
+        let capture = EngineCapture {
+            engine_name: "replay-only-engine".into(),
+            input_qmd: recorded_input,
+            result: serde_json::json!({
+                "markdown": recorded_markdown,
+                "supporting_files": [],
+                "filters": [],
+                "includes": {
+                    "header_includes": [],
+                    "include_before": [],
+                    "include_after": [],
+                },
+                "needs_postprocess": false,
+            }),
+        };
+
+        let replay_registry = EngineRegistry::with_replay(capture);
+
+        // Real run, this time through the replay-substituted registry.
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        let config = HtmlRenderConfig {
+            resolver: None,
+            engine_registry: Some(replay_registry),
+        };
+        let runtime = make_test_runtime();
+        let output = pollster::block_on(render_qmd_to_html(
+            content, "test.qmd", &mut ctx, &config, runtime,
+        ))
+        .unwrap();
+
+        assert!(
+            output.html.contains("Replayed Heading"),
+            "rendered HTML must contain the replay engine's heading; got:\n{}",
+            &output.html,
+        );
+        assert!(
+            output.html.contains("Replayed body marker XYZ"),
+            "rendered HTML must contain the replay marker; got:\n{}",
+            &output.html,
+        );
+        assert!(
+            !output.html.contains("Original body"),
+            "rendered HTML must not contain the original body — replay should override; got:\n{}",
+            &output.html,
         );
     }
 }
