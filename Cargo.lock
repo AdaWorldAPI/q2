@@ -3658,6 +3658,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "flate2",
  "glob",
  "hashlink",
  "include_dir",

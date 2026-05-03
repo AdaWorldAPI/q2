@@ -1342,6 +1342,153 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// bd-5qnj Phase 3 (unified artifact): a single `latest.json.gz`
+    /// must carry both bd-5qnj's deduped AST snapshots and bd-45yw's
+    /// replay capture. After merging the two branches, this is the
+    /// load-bearing assertion: one trace file plays both roles.
+    ///
+    /// We exercise the same `EngineExecutionStage` recording loop as
+    /// bd-45yw's `test_engine_execution_records_trace_round_trip_to_disk`,
+    /// but pre-populate the trace's pipeline with several DocumentAst
+    /// entries (the situation Phase 2's dedup pass collapses) and
+    /// write to a gzipped path. We then assert the on-disk wire
+    /// format has both `asts` and `engine_capture` fields, and that
+    /// `read_trace` rehydrates a v1-shaped doc with both intact.
+    #[tokio::test]
+    async fn test_unified_artifact_carries_dedup_and_engine_capture() {
+        use crate::stage::JsonTraceObserver;
+        use quarto_trace::RenderInfo;
+
+        let dir = std::env::temp_dir().join(format!(
+            "quarto-trace-unified-e2e-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Phase-1 on-disk format: gzipped.
+        let trace_path = dir.join("latest.json.gz");
+
+        let observer = Arc::new(JsonTraceObserver::new(
+            trace_path.clone(),
+            RenderInfo {
+                input_path: Some("/project/test.qmd".into()),
+                format_target: Some("html".into()),
+                git_hash: Some(quarto_trace::BUILD_GIT_HASH.to_string()),
+                ..Default::default()
+            },
+        ));
+
+        // Drive a few DocumentAst stage events so the dedup pass has
+        // something to collapse — three identical snapshots become one
+        // entry in the `asts` map. We go through the public observer
+        // API (`on_stage_data`) to mirror exactly what real stages do.
+        let content = b"---\nengine: mock-includes\n---\n\n# Hello\n\nWorld\n";
+        let doc_ast = parse_qmd_to_ast(content, "/project/test.qmd");
+        let pipeline_data = PipelineData::DocumentAst(doc_ast.clone());
+        for (i, stage_name) in ["metadata-merge", "include-expansion", "unwrap-profile"]
+            .iter()
+            .enumerate()
+        {
+            crate::stage::PipelineObserver::on_stage_data(
+                observer.as_ref(),
+                stage_name,
+                i,
+                &pipeline_data,
+            );
+        }
+
+        // Drive an engine that emits an EngineCapture aux event —
+        // exactly bd-45yw's recording loop. After the run, the
+        // observer should hold both pipeline AST snapshots and a
+        // populated engine_capture.
+        let mut registry = EngineRegistry::new();
+        registry.register(Arc::new(MockIncludesEngine));
+        let stage = EngineExecutionStage::with_registry(registry);
+        let mut ctx = make_test_context();
+        ctx.observer = observer.clone();
+
+        stage
+            .run(PipelineData::DocumentAst(doc_ast), &mut ctx)
+            .await
+            .unwrap();
+
+        observer.write_trace().unwrap();
+
+        // 1. On-disk wire format: both fields must appear in the
+        //    gzipped JSON, and the `asts` map must hold exactly one
+        //    entry (the three identical snapshots collapse).
+        let raw_bytes = std::fs::read(&trace_path).unwrap();
+        assert!(
+            raw_bytes.len() >= 2 && raw_bytes[0] == 0x1f && raw_bytes[1] == 0x8b,
+            "on-disk format must be gzipped (post-Phase-1)"
+        );
+        let inflated = {
+            use std::io::Read;
+            let mut s = String::new();
+            flate2::read::GzDecoder::new(&raw_bytes[..])
+                .read_to_string(&mut s)
+                .unwrap();
+            s
+        };
+        let raw_json: serde_json::Value = serde_json::from_str(&inflated).unwrap();
+        assert_eq!(raw_json["schema_version"], 2);
+        let asts = raw_json["asts"]
+            .as_object()
+            .expect("v2 unified artifact must have an `asts` map");
+        assert_eq!(
+            asts.len(),
+            1,
+            "three identical AST snapshots must collapse to one stored entry"
+        );
+        assert!(
+            !raw_json["engine_capture"].is_null(),
+            "v2 unified artifact must have an `engine_capture` field for non-markdown engines"
+        );
+        assert_eq!(raw_json["engine_capture"]["engine_name"], "mock-includes");
+
+        // 2. read_trace round-trip: rehydrated doc has both deduped
+        //    ASTs (folded back inline; `asts` empty) and the engine
+        //    capture intact.
+        let read_back = quarto_trace::read::read_trace(&trace_path).unwrap();
+        assert!(
+            read_back.asts.is_empty(),
+            "reader must clear `asts` after rehydration"
+        );
+        let capture = read_back
+            .engine_capture
+            .as_ref()
+            .expect("engine_capture must round-trip through gzipped trace");
+        assert_eq!(capture.engine_name, "mock-includes");
+        let parsed: crate::engine::ExecuteResult = serde_json::from_value(capture.result.clone())
+            .expect("result must round-trip back to ExecuteResult");
+        assert_eq!(
+            parsed.includes.header_includes,
+            vec!["<style>h1 { color: red; }</style>".to_string()],
+            "engine_capture content survives the round-trip alongside the dedup pass"
+        );
+        // The pre-populated DocumentAst entries must rehydrate to
+        // their inline form (no `$ref` visible to consumers).
+        for entry in &read_back.pipeline {
+            if entry.data_kind.as_deref() != Some("DocumentAst") {
+                continue;
+            }
+            let Some(data) = &entry.data else { continue };
+            if let Some(ast) = data.get("ast") {
+                assert!(
+                    ast.get("$ref").is_none(),
+                    "rehydrated entry {:?} still has $ref: {:?}",
+                    entry.stage,
+                    ast
+                );
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// bd-45yw: replay miss through the pipeline must surface as a
     /// stage error (not as a silent passthrough).
     #[tokio::test]

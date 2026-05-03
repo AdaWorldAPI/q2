@@ -224,15 +224,45 @@ the other.
 Decision: **unified.** One `latest.json.gz` carries both the diagnostic
 pipeline trace and the replay payload (`engine_name`, recorded input,
 `ExecuteResult`). Replay readers ignore everything outside the
-engine-capture object; diagnostic readers ignore the capture. After
-Phase 1+2, the projected size sits comfortably inside the provisional
-budgets.
+engine-capture object; diagnostic readers ignore the capture.
 
-Coordination with bd-45yw: this phase is where the merge with
-`beads/45yw-replay-engine` happens. The wire-format extension here
-(adding the engine capture object) and bd-45yw's reader/writer
-plumbing for `ExecuteResult` need to land together under
-`schema_version: 2`.
+- [x] Merged `main` (with bd-45yw's replay engine) into
+      `beads/5qnj-trace-size`. Auto-merged cleanly: bd-45yw added an
+      additive `engine_capture: Option<EngineCapture>` field to
+      `TraceDocument`, orthogonal to my `asts` field. Schema bump to 2
+      (mine) is the one merged version; bd-45yw didn't bump.
+- [x] Unified-artifact end-to-end test:
+      `test_unified_artifact_carries_dedup_and_engine_capture` in
+      `crates/quarto-core/src/stage/stages/engine_execution.rs`.
+      Drives three identical DocumentAst snapshots through the
+      observer (Phase 2 dedup pass collapses them) plus a recording
+      engine (`MockIncludesEngine`, bd-45yw machinery), writes to
+      `latest.json.gz`, and asserts the on-disk JSON has both a
+      populated `asts` map (1 entry from 3 snapshots) and a populated
+      `engine_capture`. Reader-rehydration also verified — no `$ref`
+      visible to consumers, `engine_capture.result` round-trips back
+      to a typed `ExecuteResult`.
+- [x] CLI end-to-end on the bd-5qnj fixtures (markdown engine):
+      `q2 render big.qmd` produces a 62 KB `latest.json.gz` with
+      `schema_version: 2`, 4 deduped ASTs in `asts`, and
+      `engine_capture: null` (correct: markdown engine is a no-op
+      passthrough per bd-45yw's design and doesn't emit a capture).
+- [x] No additional schema bump needed — bd-45yw's
+      `engine_capture` was additive, so v2 covers both.
+
+The merge was nearly mechanical because bd-45yw and bd-5qnj
+operated on orthogonal fields. The original plan anticipated a
+bigger Phase 3 (extending the trace format with replay capture) —
+but that extension was already done as part of bd-45yw, leaving
+this phase as a merge + verification exercise.
+
+**Outstanding follow-up** (worth its own beads issue, not this
+plan): re-measure trace size on a fixture that exercises a real
+engine (knitr/jupyter) producing significant `supporting_files`
+content. The provisional budgets were measured on markdown-engine
+fixtures where `engine_capture` is `None`; jupyter outputs as
+base64 PNGs in `supporting_files` could push the total beyond the
+100 KB CI-fixture budget.
 
 ### Phase 4 — Lazy load on read (deferred)
 
