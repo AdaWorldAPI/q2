@@ -354,7 +354,8 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
         let body = res.into_body().collect().await.unwrap().to_bytes();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(v["schema_version"], 1);
+        // Newly-written fixtures carry the current SCHEMA_VERSION (2).
+        assert_eq!(v["schema_version"], 2);
         assert_eq!(v["pipeline"][0]["stage"], "parse");
     }
 
@@ -395,7 +396,8 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
         let body = res.into_body().collect().await.unwrap().to_bytes();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(v["schema_version"], 1);
+        // Newly-written fixtures carry the current SCHEMA_VERSION (2).
+        assert_eq!(v["schema_version"], 2);
         assert_eq!(v["pipeline"][0]["stage"], "parse");
     }
 

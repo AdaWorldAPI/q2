@@ -4,6 +4,7 @@
 //! backend to load `.quarto/trace/<doc>/latest.json` (or `latest.json.gz`)
 //! files into typed [`TraceDocument`]s.
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -34,6 +35,12 @@ pub enum ReadError {
 /// decompressed transparently; otherwise it is parsed as plain JSON.
 /// Both compact and pretty-printed JSON inputs are accepted (legacy
 /// pre-bd-5qnj traces are pretty-printed).
+///
+/// `schema_version: 2` traces carry a top-level `asts` map and inline
+/// `{ "$ref": "<hash>" }` sentinels inside entries' `data`; the reader
+/// rehydrates these into inline AST values so consumers see a v1-shaped
+/// in-memory [`TraceDocument`]. v1 traces (no `asts`, no `$ref`) pass
+/// through unchanged.
 pub fn read_trace(path: &Path) -> Result<TraceDocument, ReadError> {
     let file = File::open(path).map_err(|source| ReadError::Io {
         path: path.to_path_buf(),
@@ -45,12 +52,84 @@ pub fn read_trace(path: &Path) -> Result<TraceDocument, ReadError> {
         source,
     };
 
-    if has_gz_extension(path) {
+    let mut doc: TraceDocument = if has_gz_extension(path) {
         let gz = flate2::read::GzDecoder::new(buffered);
-        serde_json::from_reader(BufReader::new(gz)).map_err(to_read_err)
+        serde_json::from_reader(BufReader::new(gz)).map_err(to_read_err)?
     } else {
-        serde_json::from_reader(buffered).map_err(to_read_err)
+        serde_json::from_reader(buffered).map_err(to_read_err)?
+    };
+
+    rehydrate(&mut doc);
+    Ok(doc)
+}
+
+/// Walk every entry's `data`, replacing `{ "$ref": "<hash>" }` sentinels
+/// with the AST value stored under that hash in `doc.asts`. After
+/// rehydration, `doc.asts` is cleared so consumers don't see (or
+/// accidentally re-emit) the dedup machinery.
+///
+/// On v1 input (`asts` absent / empty, no `$ref` sentinels) this is a
+/// no-op: nothing matches, nothing is replaced.
+fn rehydrate(doc: &mut TraceDocument) {
+    if doc.asts.is_empty() {
+        return;
     }
+    // Take ownership of the asts map so we can move values out as we
+    // resolve refs. References that point at the same hash multiple
+    // times need the value cloned for all but the last; we handle that
+    // by keeping the asts map borrowed and cloning on each replacement.
+    // (A more clever scheme would track ref counts and move the last
+    // reference's value, but at trace scale the clone cost is tiny.)
+    let asts = std::mem::take(&mut doc.asts);
+    for entry in &mut doc.pipeline {
+        if let Some(data) = entry.data.as_mut() {
+            rehydrate_value(data, &asts);
+        }
+    }
+}
+
+/// Recursively walk `value`, replacing every `{ "$ref": "<hash>" }`
+/// object whose hash appears in `asts` with the corresponding stored
+/// value. Foreign objects (no `$ref`, or `$ref` pointing at a missing
+/// hash) are left alone.
+fn rehydrate_value(value: &mut serde_json::Value, asts: &BTreeMap<String, serde_json::Value>) {
+    if let Some(hash) = match_dollar_ref(value) {
+        if let Some(target) = asts.get(&hash) {
+            *value = target.clone();
+            // Stored AST values from v2 writers don't themselves
+            // contain `$ref`s, but recurse defensively in case a future
+            // writer chains them.
+            rehydrate_value(value, asts);
+            return;
+        }
+        // Unknown hash: leave the sentinel in place. A future tool can
+        // still inspect what's missing.
+        return;
+    }
+    match value {
+        serde_json::Value::Object(map) => {
+            for v in map.values_mut() {
+                rehydrate_value(v, asts);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                rehydrate_value(v, asts);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// If `value` is exactly `{ "$ref": "<string>" }`, return the string;
+/// otherwise `None`.
+fn match_dollar_ref(value: &serde_json::Value) -> Option<String> {
+    let map = value.as_object()?;
+    if map.len() != 1 {
+        return None;
+    }
+    let r = map.get("$ref")?.as_str()?;
+    Some(r.to_string())
 }
 
 /// Discover trace files under a `.quarto/trace/` directory.

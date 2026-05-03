@@ -194,15 +194,30 @@ the other.
 
 ### Phase 2 — DocumentAst dedup under `schema_version: 2`
 
-- Replace per-entry inline AST with `{ ast_ref: <hash> }` plus a
-  top-level `asts` map keyed by content hash.
-- Optionally: when consecutive entries have the same hash, encode
-  follow-ups as `{ ast_ref: "same" }` to avoid even hash payloads.
-- Co-design with the bd-45yw `TraceEntry` extension and with the
-  Phase 4.6 diff UI of the trace-viewer plan, so that one
-  schema-version bump captures both shape changes.
-- Migration: keep `schema_version: 1` reader path; new writer
-  emits v2; CLI and viewer support both.
+- [x] Wire format: top-level `asts: { "<hash>": <AST> }` map plus
+      `{ "$ref": "<hash>" }` sentinels inside entries' `data`. Hash:
+      SHA-256 truncated to 16 hex chars (64 bits).
+- [x] Writer (`crates/quarto-trace/src/write.rs`): clones the doc
+      before serializing, walks pipeline entries, dedups
+      `data["ast"]` for wrapped DocumentAst/AtProfile entries and
+      the whole `data` for bare `transform:*` AST entries. The
+      caller's `TraceDocument` is never mutated.
+- [x] Reader (`crates/quarto-trace/src/read.rs`): rehydrates
+      `$ref` sentinels using the parsed `asts` map and clears the
+      map before returning, so consumers see a v1-shaped
+      `TraceDocument` regardless of on-disk format.
+- [x] `SCHEMA_VERSION` bumped to 2. v1 traces (pre-bd-5qnj or
+      hand-written) still parse via the rehydration no-op path.
+- [x] No SPA changes needed: `quarto-trace-server` reads via
+      `read_trace`, so the SPA receives the rehydrated (v1-shaped)
+      JSON and is unaware of the wire-format dedup.
+- End-to-end results recorded in
+  `claude-notes/plans/5qnj-trace-size-investigation/measurements.md`
+  ("Phase 2 verification" section). Big fixture: 16.3 MB → 62 KB
+  (≈265× total reduction); all three fixtures under both
+  provisional budgets.
+- bd-45yw's replay capture (Phase 3 of this plan) will ride on
+  the v2 schema additively — no further schema bump required.
 
 ### Phase 3 — Replay capture in the unified artifact (joint with bd-45yw)
 

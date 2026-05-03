@@ -165,6 +165,40 @@ stdout — that pretty-printing is `serde_json::to_string_pretty` in the
 CLI command, applied to the in-memory `TraceDocument` after gunzip +
 parse, not the disk format. Inspected and confirmed.
 
+## Phase 2 verification (2026-05-03, post-implementation)
+
+After Phase 2 (content-addressed AST dedup + `schema_version: 2`):
+
+| fixture | source | OLD (pretty) | Phase 1 (gz) | **Phase 2 (gz)** | Phase 2 inflated | pipeline / unique ASTs | budget? |
+|---------|-------:|-------------:|-------------:|-----------------:|-----------------:|-----------------------:|---------|
+| tiny    |  124 B |    620 KB    |    3.6 KB    |    **2.7 KB**    |        17 KB     |     47 / 3             | ✓ all   |
+| medium  |  4.5 KB|   15.6 MB    |   591 KB     |    **58 KB**     |       308 KB     |     47 / 4             | ✓ all   |
+| big     |  6.1 KB|   16.3 MB    |   610 KB     |    **62 KB**     |       337 KB     |     47 / 4             | ✓ all   |
+
+**All three fixtures now sit under both budgets** (100 KB
+CI-fixture, 1 MB user-attached). Total reduction vs. the original
+pretty-printed 16-MB-class baseline: ≈ 250× for medium/big, ≈ 230×
+for tiny. Phase 2's marginal contribution over Phase 1 is ~10× on
+medium/big — the AST dedup eliminates the redundant per-stage
+snapshots that gzip alone could only partially collapse.
+
+The "unique ASTs in asts map" column matches the empirical 6-distinct-
+AST count we measured pre-implementation (after dedup converges across
+the wrapped + bare AST shapes the writer handles, the count is 3–4 on
+these fixtures because some of the 6 distinct snapshots were nominal
+wrapper variations that share the same AST sub-value).
+
+End-to-end commands used (from `/tmp/bd-5qnj-postimpl/`):
+
+```bash
+$Q2 render big.qmd
+TRACE_GZ=$(find .quarto/trace -name 'latest.json.gz' | head -1)
+wc -c "$TRACE_GZ"
+gunzip -c "$TRACE_GZ" | jq '.schema_version, (.asts | length), (.pipeline | length)'
+$Q2 trace show --doc big > /tmp/show.json
+jq '.pipeline[0]' /tmp/show.json   # rehydrated: data.ast is inline, no $ref visible to consumer
+```
+
 ## Methodology
 
 Commands used (from a temp dir; preserved here for reproducibility):
