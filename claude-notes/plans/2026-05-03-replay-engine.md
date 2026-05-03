@@ -117,9 +117,11 @@ The plan now extends the existing `quarto-trace` framework rather than inventing
 
 ### Phase 5 — Migrate one bd-o8pr engine-channel test off the mock
 
-- [ ] Identify the test (`orchestrator_engine_channel::orchestrator_drains_engine_report_and_copies_to_output_dir`). Record a trace fixture for it (using whatever engine is convenient — `markdown` if a no-op fits the test, otherwise a real run on a development machine, checked in).
-- [ ] Replace `MockRenderer` with a real-pipeline run via `ReplayEngine` against the checked-in trace.
-- [ ] Confirm the migrated test still exercises the engine→`supporting_files`→`resource_report`→output-dir-copy path.
+- [x] New sibling test `orchestrator_drains_replay_engine_report_to_output_dir` in `crates/quarto-core/tests/project_resources.rs`. Drives the *real* `ProjectPipeline` + `RenderToFileRenderer` (the same path `q2 render` takes), with a `ReplayEngine` substituted via `RenderToFileOptions.replay_capture`. Asserts engine-emitted `supporting_files` reach the output dir alongside the original `MockRenderer` test.
+- [x] Probe-then-replay technique: a first `ProjectPipeline::run()` with `engine_registry_override` registers a probe engine that captures the QMD `EngineExecutionStage` hands to `execute()`; a second run uses that captured input as the recorded `EngineCapture.input_qmd`. This sidesteps the need for an R/Python install while still exercising the real pipeline (parse, profile, metadata-merge, engine, transforms, resource-report finalization).
+- [x] Confirmed: engine→`supporting_files`→`resource_report`→output-dir-copy path runs end-to-end through real code, asserting both files exist on disk and content matches.
+
+**Design note (Phase 5):** added `RenderToFileOptions.engine_registry_override` as the test-level escape hatch (precedence over `replay_capture`). Production callers should use `replay_capture`; the override is the seam tests use to plug arbitrary engines without going through the trace-roundtrip ceremony. Documented in the field's rustdoc.
 
 ### Phase 6 — Docs
 

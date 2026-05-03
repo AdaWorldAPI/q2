@@ -96,6 +96,18 @@ pub struct RenderToFileOptions {
     /// `QUARTO_REPLAY=...`); the document under investigation does
     /// not need to know.
     pub replay_capture: Option<quarto_trace::EngineCapture>,
+
+    /// Direct override for the engine registry the pipeline uses
+    /// (bd-45yw, primarily for tests).
+    ///
+    /// When `Some`, takes precedence over `replay_capture`: the
+    /// caller hands the pipeline an arbitrary registry. Tests use
+    /// this seam to register probe engines that capture the QMD
+    /// `EngineExecutionStage` hands to `execute()` (so a replay
+    /// trace can be fabricated against the real pipeline rather
+    /// than a synthetic context). Production callers should prefer
+    /// `replay_capture`.
+    pub engine_registry_override: Option<crate::engine::EngineRegistry>,
 }
 
 /// Result of rendering a document to a file.
@@ -255,11 +267,13 @@ pub fn render_document_to_file(
     // shared assets.
     ctx.resource_resolver = Some(resolver.clone());
     let mut config = HtmlRenderConfig::with_resolver(resolver.clone());
-    // bd-45yw: if the caller (CLI / orchestrator) loaded a replay
-    // capture, substitute a registry that has ReplayEngine standing
-    // in for the recorded engine. Pipeline construction picks it up
-    // via HtmlRenderConfig.
-    if let Some(capture) = options.replay_capture.clone() {
+    // bd-45yw: pick the engine registry the pipeline will use.
+    // engine_registry_override takes precedence (tests / probe
+    // engines). Otherwise replay_capture builds the registry.
+    // Otherwise the pipeline builds its own default registry.
+    if let Some(reg) = options.engine_registry_override.clone() {
+        config.engine_registry = Some(reg);
+    } else if let Some(capture) = options.replay_capture.clone() {
         config.engine_registry = Some(crate::engine::EngineRegistry::with_replay(capture));
     }
 

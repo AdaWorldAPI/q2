@@ -495,6 +495,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
         output_dir: args.output_dir.as_ref().map(PathBuf::from),
         quiet: args.quiet,
         replay_capture,
+        engine_registry_override: None,
     };
 
     match target {

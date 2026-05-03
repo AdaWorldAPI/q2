@@ -334,25 +334,26 @@ fn document_resources_out_of_project_path_is_error() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Phase 2 — engine channel (orchestrator-level integration via mock)
+// Phase 2 — engine channel (orchestrator-level integration)
 // ─────────────────────────────────────────────────────────────────────
 //
-// We can't drive the standard `q2 render` path with a stub engine
-// because `EngineExecutionStage::new()` is hardcoded into the
-// pipeline. Instead we exercise the orchestrator's Phase-2 drain by
-// implementing a `Pass2Renderer` that returns synthetic outputs with
-// a populated `DocumentResourceReport`. This covers everything the
-// orchestrator does after a per-doc render finishes:
+// Two flavors of test live here:
 //
-// - call `R::extract_resource_report` on each output,
-// - resolve the report against the project root (anchoring relatives
-//   at the doc's parent dir, validating containment),
-// - copy resolved entries into the output dir.
+// 1. The original `MockRenderer`-based test exercises the
+//    orchestrator's Phase-2 drain in isolation: it bypasses the real
+//    pipeline entirely and asserts that
+//    `R::extract_resource_report` -> resolve -> copy works
+//    end-to-end against synthetic data.
 //
-// A real-engine E2E (knitr / jupyter or a future test-injected stub
-// engine) will exercise the engine→stage_ctx wiring; for now that
-// step is covered by unit tests in `project_resources` and by direct
-// inspection of the `EngineExecutionStage` modification.
+// 2. The replay-engine test (bd-45yw) exercises the *full* stack:
+//    real pipeline (parse, profile, engine execution, transforms,
+//    resource-report finalization) with the standard
+//    `RenderToFileRenderer`. The only substitution is at the engine
+//    layer: a `ReplayEngine` stands in for the real
+//    knitr/jupyter run via `RenderToFileOptions.replay_capture`.
+//    This proves the replay engine actually closes the bd-o8pr Phase
+//    2 gap — engine-emitted `supporting_files` reach the output dir
+//    without an R or Python install.
 
 mod orchestrator_engine_channel {
     use super::*;
@@ -531,6 +532,193 @@ mod orchestrator_engine_channel {
             engine: "mock-engine".into(),
             source: project_dir.clone(),
         };
+    }
+
+    /// bd-45yw Phase 5: replay engine drives the *real* pipeline
+    /// (`RenderToFileRenderer` -> `render_document_to_file` ->
+    /// `EngineExecutionStage`) with a substituted `ReplayEngine`,
+    /// and the orchestrator's drain copies engine-emitted
+    /// `supporting_files` into the output dir. Closes the bd-o8pr
+    /// Phase 2 engine-channel test gap that previously required real
+    /// R / Python.
+    #[test]
+    fn orchestrator_drains_replay_engine_report_to_output_dir() {
+        use quarto_core::engine::{ExecuteResult, ExecutionContext, ExecutionEngine};
+        use quarto_core::render_to_file::RenderToFileOptions;
+        use quarto_trace::EngineCapture;
+
+        let temp = TempDir::new().unwrap();
+        let project_dir = canonical(temp.path());
+        let project_dir_str = project_dir.to_string_lossy().to_string();
+
+        // Materialize the engine-reported supporting files that the
+        // replay capture is going to claim. Real engines would
+        // produce these; replay just tells the pipeline they exist.
+        write(
+            &project_dir.join("doc_files/figure-html/cell-1.png"),
+            "PNG-replay",
+        );
+        write(&project_dir.join("doc_files/data/inline.csv"), "x,y\n3,4\n");
+
+        // Project + document declaring the replay engine name.
+        write(
+            &project_dir.join("_quarto.yml"),
+            "project:\n  type: default\n  output-dir: _output\n",
+        );
+        let qmd_path = project_dir.join("doc.qmd");
+        write(
+            &qmd_path,
+            "---\nengine: replay-real-pipeline-engine\ntitle: Doc\n---\n\n# Hello\n\nReplay-driven body.\n",
+        );
+
+        // Compute the QMD that EngineExecutionStage will hand to
+        // execute() by running the *same* ProjectPipeline path the
+        // real run will use, with a probe engine substituted via
+        // RenderToFileOptions.engine_registry_override. This
+        // guarantees the probe sees the same MetadataMergeStage
+        // output the real pipeline will (project config from
+        // _quarto.yml, etc.).
+        let recorded_input = {
+            use std::sync::Mutex;
+
+            struct ProbeEngine {
+                captured: Arc<Mutex<Option<String>>>,
+            }
+            impl ExecutionEngine for ProbeEngine {
+                fn name(&self) -> &str {
+                    "replay-real-pipeline-engine"
+                }
+                fn execute(
+                    &self,
+                    input: &str,
+                    _ctx: &ExecutionContext,
+                ) -> std::result::Result<ExecuteResult, quarto_core::engine::ExecutionError>
+                {
+                    *self.captured.lock().unwrap() = Some(input.to_string());
+                    Ok(ExecuteResult::passthrough(input))
+                }
+                fn is_available(&self) -> bool {
+                    true
+                }
+            }
+
+            let captured = Arc::new(Mutex::new(None::<String>));
+            let probe = Arc::new(ProbeEngine {
+                captured: captured.clone(),
+            });
+            let mut probe_registry = quarto_core::engine::EngineRegistry::new();
+            probe_registry.register(probe);
+
+            let runtime = runtime_arc();
+            let mut probe_project =
+                quarto_core::project::ProjectContext::discover(&project_dir, runtime.as_ref())
+                    .unwrap();
+
+            let probe_options = RenderToFileOptions {
+                engine_registry_override: Some(probe_registry),
+                ..Default::default()
+            };
+
+            let probe_project_type =
+                quarto_core::project::orchestrator::project_type_for(&probe_project);
+            let mut probe_pipeline = quarto_core::project::orchestrator::ProjectPipeline::new(
+                &mut probe_project,
+                probe_project_type,
+                html_format(),
+                "html",
+                &probe_options,
+                runtime.clone(),
+            );
+            let _ = pollster::block_on(probe_pipeline.run()).expect("probe run");
+
+            captured.lock().unwrap().clone().unwrap()
+        };
+
+        // Build the replay capture. supporting_files must be paths
+        // resolvable against the project root (the orchestrator
+        // anchors them at the doc's parent dir, then validates
+        // they're within the project).
+        let capture = EngineCapture {
+            engine_name: "replay-real-pipeline-engine".into(),
+            input_qmd: recorded_input,
+            result: serde_json::json!({
+                // Pass through: keep the document body as-is so the
+                // rest of the pipeline produces sensible HTML.
+                "markdown": "---\nengine: replay-real-pipeline-engine\ntitle: Doc\n---\n\n# Hello\n\nReplay-driven body.\n",
+                "supporting_files": [
+                    format!("{project_dir_str}/doc_files/figure-html/cell-1.png"),
+                    format!("{project_dir_str}/doc_files/data/inline.csv"),
+                ],
+                "filters": [],
+                "includes": {
+                    "header_includes": [],
+                    "include_before": [],
+                    "include_after": [],
+                },
+                "needs_postprocess": false,
+            }),
+        };
+
+        // Now run the *real* pipeline through ProjectPipeline::new
+        // (the constructor every CLI render uses), with the replay
+        // capture in options. The standard RenderToFileRenderer
+        // calls render_document_to_file which translates the option
+        // into HtmlRenderConfig.engine_registry — so the pipeline
+        // builder substitutes the ReplayEngine for
+        // `replay-real-pipeline-engine`.
+        let runtime = runtime_arc();
+        let mut project =
+            quarto_core::project::ProjectContext::discover(&project_dir, runtime.as_ref()).unwrap();
+
+        let options = RenderToFileOptions {
+            replay_capture: Some(capture),
+            ..Default::default()
+        };
+
+        let project_type = quarto_core::project::orchestrator::project_type_for(&project);
+        let mut pipeline = quarto_core::project::orchestrator::ProjectPipeline::new(
+            &mut project,
+            project_type,
+            html_format(),
+            "html",
+            &options,
+            runtime.clone(),
+        );
+
+        let summary = pollster::block_on(pipeline.run()).expect("run");
+        assert!(
+            summary.pass1_failures.is_empty(),
+            "pass1 failures: {:?}",
+            summary
+                .pass1_failures
+                .iter()
+                .map(|f| (&f.input, &f.error))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            summary.pass2_failures.is_empty(),
+            "pass2 failures: {:?}",
+            summary
+                .pass2_failures
+                .iter()
+                .map(|f| (&f.input, &f.error))
+                .collect::<Vec<_>>()
+        );
+
+        let out = project.output_dir.clone();
+        assert!(
+            out.join("doc_files/figure-html/cell-1.png").exists(),
+            "engine-reported figure should be copied to output dir under the real pipeline driven by ReplayEngine"
+        );
+        assert!(
+            out.join("doc_files/data/inline.csv").exists(),
+            "engine-reported data file should be copied to output dir under the real pipeline driven by ReplayEngine"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("doc_files/data/inline.csv")).unwrap(),
+            "x,y\n3,4\n",
+            "copied content matches source"
+        );
     }
 }
 
