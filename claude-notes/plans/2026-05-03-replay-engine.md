@@ -102,11 +102,11 @@ The plan now extends the existing `quarto-trace` framework rather than inventing
 
 ### Phase 3 — Recording hook
 
-- [ ] Decide hook location: extend `PipelineObserver` with an `on_engine_executed(&EngineCapture)` event vs. plumb the capture through `StageContext` and have `JsonTraceObserver` pull it at end-of-pipeline. The observer-event approach is closer to the existing tracing seam and avoids `StageContext` growth — start with that.
-- [ ] `EngineExecutionStage` emits the capture event after a successful engine run (regardless of which engine ran).
-- [ ] `JsonTraceObserver` records the capture into `TraceDocument.engine_capture`. No-op observers ignore the event.
-- [ ] Activation: no new metadata key. `trace: true` is sufficient — recording is automatic when tracing is on. Confirm `activate_trace_from_metadata` in `metadata_merge.rs:294` already covers this; if not, extend.
-- [ ] Phase 0 recording E2E test passes.
+- [x] Hook location: reused the existing open-ended `PipelineObserver::on_auxiliary_data` event. No new trait method — the kind/data API is exactly the seam designed for typed-data emission. `ENGINE_CAPTURE_KIND = "EngineCapture"` exported from `stage::stages::engine_execution` so producer and consumer share the constant.
+- [x] `EngineExecutionStage` emits the capture event immediately after `engine.execute()` returns, *before* the stage drains `result.includes` into `ctx.includes` and `mem::take`s `supporting_files`. This guarantees the capture reflects the engine's full pre-drain output. Serialization failure of `ExecuteResult` (should not happen — pure POD) is logged via `trace_event!` and does not break the render.
+- [x] `JsonTraceObserver::on_auxiliary_data` recognizes `ENGINE_CAPTURE_KIND`, deserializes the payload into `quarto_trace::EngineCapture`, and stores it on `state.doc.engine_capture` (typed slot). Other kinds remain on the open-ended pipeline-aux channel. Malformed payload falls through to the generic aux entry with a stderr warning so investigators see what arrived.
+- [x] Activation: no new metadata key. `trace: true` (handled by existing `activate_trace_from_metadata` in `metadata_merge.rs:294`) is sufficient — installing a `JsonTraceObserver` automatically captures the engine output via the aux event.
+- [x] Phase 0 recording E2E test passes (`test_engine_execution_records_trace_round_trip_to_disk`): drives `EngineExecutionStage` through a real `JsonTraceObserver`, writes to disk, reads back via `quarto_trace::read::read_trace`, asserts `engine_capture` populated and round-trips back to a usable `ExecuteResult`.
 
 ### Phase 4 — Replay activation in CLI / orchestrator
 

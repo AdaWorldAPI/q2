@@ -36,6 +36,15 @@ use crate::stage::{
 };
 use crate::trace_event;
 
+/// Stable [`PipelineObserver::on_auxiliary_data`] kind tag for the
+/// engine capture emitted by this stage (bd-45yw).
+///
+/// `JsonTraceObserver` recognizes this kind and routes the payload to
+/// `TraceDocument.engine_capture` (the typed slot) instead of to the
+/// generic pipeline aux channel. The payload's JSON shape matches
+/// [`quarto_trace::EngineCapture`].
+pub const ENGINE_CAPTURE_KIND: &str = "EngineCapture";
+
 /// Pipeline stage that executes code cells via the appropriate engine.
 ///
 /// This stage is the bridge between the AST-based pipeline and text-based
@@ -228,6 +237,37 @@ impl PipelineStage for EngineExecutionStage {
             "engine produced {} bytes of markdown",
             result.markdown.len()
         );
+
+        // bd-45yw: emit the engine capture for trace recording.
+        // Must happen before the rest of the stage mutates `result`
+        // (draining `includes`, taking `supporting_files`) so the
+        // capture reflects the engine's full output. JsonTraceObserver
+        // recognizes ENGINE_CAPTURE_KIND and routes the payload to
+        // TraceDocument.engine_capture; other observers (CLI, WASM
+        // callbacks, NoopObserver) ignore the kind and stay quiet.
+        match serde_json::to_value(&result) {
+            Ok(result_json) => {
+                let payload = serde_json::json!({
+                    "engine_name": engine.name(),
+                    "input_qmd": qmd,
+                    "result": result_json,
+                });
+                ctx.observer
+                    .on_auxiliary_data(self.name(), 0, ENGINE_CAPTURE_KIND, &payload);
+            }
+            Err(e) => {
+                // Should not happen — ExecuteResult is fully serializable —
+                // but if it ever does we surface it without breaking the
+                // render path: the capture is a recording-time concern,
+                // not a correctness-of-output concern.
+                trace_event!(
+                    ctx,
+                    EventLevel::Warn,
+                    "failed to serialize ExecuteResult for trace capture: {}",
+                    e
+                );
+            }
+        }
 
         // Save engine-produced includes (e.g., from knitr/jupyter) onto context
         ctx.includes
@@ -1142,6 +1182,164 @@ mod tests {
         );
         assert!(ctx.includes.include_before.is_empty());
         assert!(ctx.includes.include_after.is_empty());
+    }
+
+    /// bd-45yw: after a successful engine run,
+    /// `EngineExecutionStage` must emit an `on_auxiliary_data` event
+    /// with kind `"EngineCapture"` carrying the recorded engine name,
+    /// the verbatim QMD input, and the `ExecuteResult` JSON. This is
+    /// the recording side of the replay loop — without this event,
+    /// `JsonTraceObserver` has nothing to put on
+    /// `TraceDocument.engine_capture`.
+    #[tokio::test]
+    async fn test_engine_execution_emits_capture_aux_event() {
+        use std::sync::Mutex;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CapturingObserver {
+            aux_calls: AtomicUsize,
+            captures: Mutex<Vec<(String, String, serde_json::Value)>>,
+        }
+
+        impl crate::stage::PipelineObserver for CapturingObserver {
+            fn on_auxiliary_data(
+                &self,
+                stage: &str,
+                _index: usize,
+                kind: &str,
+                data: &serde_json::Value,
+            ) {
+                if kind == ENGINE_CAPTURE_KIND {
+                    self.aux_calls.fetch_add(1, Ordering::SeqCst);
+                    self.captures.lock().unwrap().push((
+                        stage.to_string(),
+                        kind.to_string(),
+                        data.clone(),
+                    ));
+                }
+            }
+        }
+
+        let observer = Arc::new(CapturingObserver {
+            aux_calls: AtomicUsize::new(0),
+            captures: Mutex::new(Vec::new()),
+        });
+
+        let mut registry = EngineRegistry::new();
+        registry.register(Arc::new(MockIncludesEngine));
+
+        let stage = EngineExecutionStage::with_registry(registry);
+        let mut ctx = make_test_context();
+        ctx.observer = observer.clone();
+
+        let content = b"---\nengine: mock-includes\n---\n\n# Hello\n\nWorld\n";
+        let doc_ast = parse_qmd_to_ast(content, "/project/test.qmd");
+
+        let input = PipelineData::DocumentAst(doc_ast);
+        stage.run(input, &mut ctx).await.unwrap();
+
+        assert_eq!(
+            observer.aux_calls.load(Ordering::SeqCst),
+            1,
+            "expected exactly one EngineCapture aux event"
+        );
+        let captures = observer.captures.lock().unwrap();
+        let (stage_name, kind, data) = &captures[0];
+        assert_eq!(stage_name, "engine-execution");
+        assert_eq!(kind, ENGINE_CAPTURE_KIND);
+
+        // The capture must carry the recorded engine name and a
+        // non-empty input QMD that was actually handed to execute().
+        assert_eq!(data["engine_name"], "mock-includes");
+        let recorded_input = data["input_qmd"]
+            .as_str()
+            .expect("input_qmd must be a string");
+        assert!(
+            !recorded_input.is_empty(),
+            "input_qmd should be the serialized QMD passed to execute()"
+        );
+
+        // The result JSON must round-trip back into ExecuteResult and
+        // preserve the recorded includes — important because the
+        // stage drains those into ctx.includes during the rest of the
+        // run, but the *capture* must reflect the pre-drain state.
+        let result_json = &data["result"];
+        let parsed: crate::engine::ExecuteResult =
+            serde_json::from_value(result_json.clone()).expect("result must round-trip");
+        assert_eq!(
+            parsed.includes.header_includes,
+            vec!["<style>h1 { color: red; }</style>".to_string()]
+        );
+        assert_eq!(
+            parsed.includes.include_before,
+            vec!["<div>before</div>".to_string()]
+        );
+    }
+
+    /// bd-45yw end-to-end: drive `EngineExecutionStage` through a
+    /// real `JsonTraceObserver`, write the trace to disk, read it
+    /// back via `quarto_trace::read::read_trace`, and verify
+    /// `engine_capture` is populated and replay-usable.
+    ///
+    /// Closes the producer↔observer wiring loop: this is what
+    /// `q2 render` with `trace: true` will produce.
+    #[tokio::test]
+    async fn test_engine_execution_records_trace_round_trip_to_disk() {
+        use crate::stage::JsonTraceObserver;
+        use quarto_trace::RenderInfo;
+
+        let dir = std::env::temp_dir().join("quarto-trace-engine-capture-e2e");
+        let _ = std::fs::remove_dir_all(&dir);
+        let trace_path = dir.join("trace.json");
+
+        let observer = Arc::new(JsonTraceObserver::new(
+            trace_path.clone(),
+            RenderInfo {
+                input_path: Some("/project/test.qmd".into()),
+                format_target: Some("html".into()),
+                git_hash: Some(quarto_trace::BUILD_GIT_HASH.to_string()),
+                ..Default::default()
+            },
+        ));
+
+        let mut registry = EngineRegistry::new();
+        registry.register(Arc::new(MockIncludesEngine));
+        let stage = EngineExecutionStage::with_registry(registry);
+
+        let mut ctx = make_test_context();
+        ctx.observer = observer.clone();
+
+        let content = b"---\nengine: mock-includes\n---\n\n# Hello\n\nWorld\n";
+        let doc_ast = parse_qmd_to_ast(content, "/project/test.qmd");
+
+        let input = PipelineData::DocumentAst(doc_ast);
+        stage.run(input, &mut ctx).await.unwrap();
+
+        // Persist the trace and read it back through the public reader.
+        observer.write_trace().unwrap();
+        let read_back = quarto_trace::read::read_trace(&trace_path).unwrap();
+
+        let capture = read_back
+            .engine_capture
+            .as_ref()
+            .expect("engine_capture must be populated");
+        assert_eq!(capture.engine_name, "mock-includes");
+        assert!(
+            !capture.input_qmd.is_empty(),
+            "input_qmd must hold the QMD that was handed to execute()"
+        );
+        let parsed: crate::engine::ExecuteResult = serde_json::from_value(capture.result.clone())
+            .expect("result must round-trip back to ExecuteResult");
+        assert_eq!(
+            parsed.includes.header_includes,
+            vec!["<style>h1 { color: red; }</style>".to_string()]
+        );
+        assert_eq!(
+            parsed.includes.include_before,
+            vec!["<div>before</div>".to_string()]
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// bd-45yw: replay miss through the pipeline must surface as a
