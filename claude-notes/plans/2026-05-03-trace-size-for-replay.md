@@ -248,12 +248,13 @@ needed once Phase 1+2 land.
       `quarto trace list/show/view` invocations, how to write tests
       against a fixture trace via `quarto_trace::read::read_trace`,
       and the provisional size budgets.
-- [ ] User-facing bug-report doc — **deferred.** The `docs/` site
-      doesn't yet have a support / bug-report section, and adding a
-      navbar entry for one is a structural choice the user should
-      weigh in on. The internal testing.md note is sufficient for
-      colleagues filing issues with traces today; a public-facing
-      page can land alongside the next docs-site IA pass.
+- [x] User-facing bug-report page at `docs/bug-reports.qmd`,
+      modelled on quarto-web's top-level `bug-reports.qmd`. Covers
+      what makes a useful bug report, how to enable `trace: true`,
+      what's in (and not in) a trace, and how to inspect one with
+      `quarto trace list/show/view`. Wired into the navbar; the
+      docs-site IA redesign will likely move it, but the content is
+      the load-bearing part.
 
 ## Open design questions for the user
 

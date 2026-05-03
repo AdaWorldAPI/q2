@@ -18,6 +18,8 @@ website:
         text: Navigation
       - href: quarto-hub/index.qmd
         text: Quarto Hub
+      - href: bug-reports.qmd
+        text: Bug reports
       - text: "Library Docs"
         menu:
           - href: ../library-docs/index.qmd
