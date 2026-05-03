@@ -35,8 +35,9 @@ use super::knitr::KnitrEngine;
 ///
 /// # Thread Safety
 ///
-/// The registry uses `Arc<dyn ExecutionEngine>` for thread-safe sharing.
-#[derive(Debug)]
+/// The registry uses `Arc<dyn ExecutionEngine>` for thread-safe sharing,
+/// which makes [`Clone`] cheap — engines are reference-counted.
+#[derive(Debug, Clone)]
 pub struct EngineRegistry {
     engines: HashMap<String, Arc<dyn ExecutionEngine>>,
 }
