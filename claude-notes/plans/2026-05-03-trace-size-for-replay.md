@@ -152,29 +152,45 @@ the other.
 
 ### Phase 0 — Tests / measurement harness (TDD)
 
-- A round-trip test that runs a small fixture through the trace
-  pipeline, gzips, reads back, and asserts the trace is byte-identical
-  to the in-memory `TraceDocument` after re-decompression. Establishes
-  that compression is schema-neutral.
-- A "size budget" test: render a small known fixture with `trace: true`,
-  assert the resulting trace's compressed size is below a chosen
-  ceiling (TBD with user). Acts as a regression gate as we add fields.
-- A dedup correctness test (only if Phase 2 happens): roundtripping
-  through the dedup encoder produces an identical `TraceDocument`.
+- [x] Round-trip through gzipped on-disk path
+      (`test_roundtrip_through_gzipped_disk` in
+      `crates/quarto-trace/tests/roundtrip.rs`).
+- [x] On-disk format is compact (no pretty-print indentation)
+      (`test_writer_emits_compact_json_on_disk`).
+- [x] Legacy uncompressed `latest.json` still parses
+      (`test_read_legacy_uncompressed_json`).
+- [x] `list_traces` discovers both `latest.json.gz` and `latest.json`,
+      preferring the gzipped one when both exist
+      (`test_list_traces_finds_gzipped_and_uncompressed`,
+      `test_list_traces_prefers_gz_when_both_present`).
+- [x] Trace-viewer server returns gzipped traces transparently
+      (`api_trace_returns_gzipped_trace` in
+      `crates/quarto-trace-server/src/lib.rs`).
+- [ ] Size-budget regression test against a small in-tree fixture —
+      deferred to a follow-up under Phase 5 docs (need a stable, tiny
+      qmd fixture in the test tree first; tracked as part of the
+      `claude-notes/instructions/testing.md` note).
+- [ ] Dedup correctness round-trip (Phase 2 only).
 
 ### Phase 1 — Cheap wins (schema-neutral)
 
-- Drop `to_writer_pretty` from the on-disk path; switch to
-  `to_writer`. Add `quarto trace show --pretty` for human inspection
-  on demand (the SPA already formats client-side, so the change is
-  invisible in the UI).
-- Gzip on disk: write `latest.json.gz` instead of `latest.json`.
-  Reader detects by extension. Keep `.json` as fallback for older
-  traces and for users who want to `jq` directly.
-- Sequencing: Phase 1 is independent of bd-45yw and can land in
+- [x] Drop `to_writer_pretty` from the on-disk path; switch to
+      `to_writer`. (Decision: no `--pretty` CLI flag added — `quarto
+      trace show` already formats stdout via `to_string_pretty` from
+      the parsed `TraceDocument`, and humans wanting raw `jq` access
+      can pipe through `gunzip -c | jq`. The wire format being
+      compact is invisible to all existing consumers.)
+- [x] Gzip on disk: writer emits `latest.json.gz`; reader detects
+      by extension; `list_traces` and the trace-viewer server both
+      handle the new format and fall back to legacy uncompressed
+      `latest.json` for backwards compatibility.
+- Sequencing: Phase 1 is independent of bd-45yw and lands in
   parallel. Wire-format-only changes; in-memory representation
   unchanged. A non-trivial merge with the bd-45yw branch is
   expected (per "Resolved design decisions" #4).
+- End-to-end results recorded in
+  `claude-notes/plans/5qnj-trace-size-investigation/measurements.md`
+  ("Phase 1 verification" section).
 
 ### Phase 2 — DocumentAst dedup under `schema_version: 2`
 

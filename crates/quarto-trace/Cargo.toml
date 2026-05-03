@@ -7,6 +7,7 @@ license.workspace = true
 description = "Typed schema and reader/writer library for Quarto pipeline execution traces."
 
 [dependencies]
+flate2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -127,6 +127,44 @@ Targets for discussion with the user:
   no-op observer (D7 invariant) sidesteps this until Phase 4.4 wires
   a VFS-backed observer.
 
+## Phase 1 verification (2026-05-03, post-implementation)
+
+Re-rendered the three fixtures with the worktree's debug `q2` binary
+after Phase 1 landed (compact JSON + gzip on disk):
+
+| fixture  | source | OLD (pretty)  | OLD (pretty.gz) | **NEW (compact+gz on disk)** | inflated (compact JSON) | reduction vs OLD on-disk |
+|----------|-------:|--------------:|----------------:|-----------------------------:|------------------------:|-------------------------:|
+| tiny     |  124 B |       620 KB  |          13 KB  |               **3.6 KB**     |                  126 KB |     172× smaller         |
+| medium   | 4.5 KB |      15.6 MB  |         845 KB  |              **591 KB**      |                 3.04 MB |      26× smaller         |
+| big      | 6.1 KB |      16.3 MB  |         926 KB  |              **610 KB**      |                 3.10 MB |      27× smaller         |
+
+All three fixtures now sit comfortably under the provisional 1 MB
+user-attached-bug-report budget. The big fixture is 6× over the
+provisional 100 KB CI-fixture budget — Phase 2 (content-addressed AST
+dedup) is the lever for closing that gap (projected < 100 KB once 36
+of 42 duplicate AST snapshots collapse to refs).
+
+End-to-end commands used (from `/tmp/bd-5qnj-postimpl/`):
+
+```bash
+$Q2 render big.qmd
+ls .quarto/trace/big/latest.json.gz       # gzip on disk
+$Q2 trace list                             # discovers .json.gz
+$Q2 trace show --doc big                   # transparently inflates and pretty-prints to stdout
+```
+
+`$Q2 trace list` reports the gzipped artifact:
+
+```json
+{ "doc": "big",
+  "path": "/private/tmp/bd-5qnj-postimpl/.quarto/trace/big/latest.json.gz" }
+```
+
+`$Q2 trace show --doc big` produces 16.27 MB of pretty-printed JSON on
+stdout — that pretty-printing is `serde_json::to_string_pretty` in the
+CLI command, applied to the in-memory `TraceDocument` after gunzip +
+parse, not the disk format. Inspected and confirmed.
+
 ## Methodology
 
 Commands used (from a temp dir; preserved here for reproducibility):
