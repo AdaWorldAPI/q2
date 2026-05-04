@@ -56,7 +56,7 @@ For each entry:
 ## Progress tracker
 
 - [x] 1. similar 2 → 3 (bd-zh24) — branch `deps/similar-3` @ `82c725f1`
-- [ ] 2. tree-sitter pair (bd-c083, bd-wjpd)
+- [x] 2. tree-sitter pair (bd-c083, bd-wjpd) — branch `deps/tree-sitter-026` @ `3c73b49d` (named_child API: usize → u32)
 - [ ] 3. RustCrypto trio (bd-gz6k, bd-znva, bd-fyuo)
 - [ ] 4. quick-xml (bd-8356)
 - [ ] 5. rand (bd-0a3b)
@@ -79,4 +79,4 @@ If a session ends mid-upgrade:
 
 ## Notes / discoveries
 
-(Populated as work proceeds — surprises, ecosystem quirks, things future sessions need to know.)
+- **tree-sitter 0.26**: `Node::named_child(i)` changed from `usize` to `u32`. `named_child_count()` still returns `usize`, so loops need a `u32::try_from(count).unwrap()` cast on the bound. Pattern used: store the count as `u32` once at loop entry. Grammar crates (tree-sitter-python 0.25, tree-sitter-r 1.2, tree-sitter-bash 0.25, tree-sitter-css 0.25, tree-sitter-html 0.23, tree-sitter-javascript 0.25, tree-sitter-typescript 0.23, tree-sitter-json 0.24, tree-sitter-yaml 0.7) are ABI-compatible with 0.26 — no grammar updates needed.
