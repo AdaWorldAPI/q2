@@ -6,7 +6,8 @@ use crate::{
 };
 use quarto_source_map::{FileId, SourceInfo};
 use quick_xml::Reader;
-use quick_xml::events::{BytesCData, BytesEnd, BytesStart, BytesText, Event};
+use quick_xml::escape::unescape;
+use quick_xml::events::{BytesCData, BytesEnd, BytesStart, Event};
 
 /// Parse XML from a string, producing an XmlWithSourceInfo tree.
 ///
@@ -165,15 +166,29 @@ impl<'a> XmlParser<'a> {
         let mut root: Option<XmlElement> = None;
         let doc_start = 0usize;
 
+        // Coalesce consecutive Text and GeneralRef events into a single text run.
+        //
+        // quick-xml 0.38+ splits entity references out of `Event::Text` and emits
+        // them as `Event::GeneralRef`, so `<a>foo&amp;bar</a>` arrives as
+        //   Text("foo"), GeneralRef("amp"), Text("bar")
+        // rather than the pre-0.38 single Text("foo&bar"). We rebuild the unified
+        // run here so downstream consumers see one `XmlChild::Text` per text
+        // region, matching the old semantics. The buffer's start position is
+        // captured at the first event of a run and held until the run is flushed
+        // by a structural event (or EOF).
+        let mut pending_text: Option<(String, usize)> = None;
+
         loop {
             // Capture position before reading the event
             let event_start = self.reader.buffer_position() as usize;
 
             match self.reader.read_event() {
                 Ok(Event::Start(e)) => {
+                    self.flush_pending_text(&mut pending_text)?;
                     self.handle_start(e, event_start)?;
                 }
                 Ok(Event::End(e)) => {
+                    self.flush_pending_text(&mut pending_text)?;
                     let element = self.handle_end(e)?;
 
                     if self.stack.is_empty() {
@@ -194,6 +209,7 @@ impl<'a> XmlParser<'a> {
                     }
                 }
                 Ok(Event::Empty(e)) => {
+                    self.flush_pending_text(&mut pending_text)?;
                     let element = self.handle_empty(e, event_start)?;
 
                     if self.stack.is_empty() {
@@ -212,18 +228,50 @@ impl<'a> XmlParser<'a> {
                     }
                 }
                 Ok(Event::Text(e)) => {
-                    self.handle_text(e, event_start)?;
+                    let decoded = e.decode().map_err(|err| Error::XmlSyntax {
+                        message: format!("Invalid text encoding: {}", err),
+                        position: Some(event_start as u64),
+                    })?;
+                    let pending = pending_text.get_or_insert_with(|| (String::new(), event_start));
+                    pending.0.push_str(&decoded);
+                }
+                Ok(Event::GeneralRef(r)) => {
+                    // BytesRef carries the content between `&` and `;` — i.e.
+                    // `amp` for `&amp;`, `#160` for `&#160;`, `#xa0` for `&#xa0;`.
+                    // Re-wrap to the full form so `unescape` can resolve both
+                    // predefined named entities and numeric character refs
+                    // through one path.
+                    let entity_body =
+                        std::str::from_utf8(r.as_ref()).map_err(|err| Error::XmlSyntax {
+                            message: format!("Invalid entity reference encoding: {}", err),
+                            position: Some(event_start as u64),
+                        })?;
+                    let wrapped = format!("&{};", entity_body);
+                    let resolved = unescape(&wrapped).map_err(|err| Error::XmlSyntax {
+                        message: format!("Unknown entity reference &{};: {}", entity_body, err),
+                        position: Some(event_start as u64),
+                    })?;
+                    let pending = pending_text.get_or_insert_with(|| (String::new(), event_start));
+                    pending.0.push_str(&resolved);
                 }
                 Ok(Event::CData(e)) => {
+                    self.flush_pending_text(&mut pending_text)?;
                     self.handle_cdata(e, event_start)?;
                 }
                 Ok(Event::Comment(_) | Event::PI(_) | Event::Decl(_)) => {
-                    // Skip comments, processing instructions, and XML declarations
+                    // Skip comments, processing instructions, and XML declarations.
+                    // Flush any pending text so that text on either side of a
+                    // comment is not coalesced (matches pre-0.38 behavior, where
+                    // each Text event became its own XmlChild::Text).
+                    self.flush_pending_text(&mut pending_text)?;
                 }
                 Ok(Event::DocType(_)) => {
-                    // Skip DOCTYPE declarations
+                    self.flush_pending_text(&mut pending_text)?;
                 }
-                Ok(Event::Eof) => break,
+                Ok(Event::Eof) => {
+                    self.flush_pending_text(&mut pending_text)?;
+                    break;
+                }
                 Err(e) => {
                     return Err(Error::XmlSyntax {
                         message: e.to_string(),
@@ -324,26 +372,25 @@ impl<'a> XmlParser<'a> {
         })
     }
 
-    fn handle_text(&mut self, e: BytesText<'_>, event_start: usize) -> Result<()> {
-        let text = e.unescape().map_err(|err| Error::XmlSyntax {
-            message: format!("Invalid text content: {}", err),
-            position: Some(event_start as u64),
-        })?;
-
-        // Compute everything before taking mutable borrow
+    /// Flush a coalesced Text + GeneralRef run into the current parent's
+    /// children, applying the same "skip whitespace-only between elements"
+    /// rule as the pre-0.38 `handle_text` did.
+    fn flush_pending_text(&mut self, pending: &mut Option<(String, usize)>) -> Result<()> {
+        let Some((text, event_start)) = pending.take() else {
+            return Ok(());
+        };
         let end_offset = self.reader.buffer_position() as usize;
         let source_info = self.make_source_info(event_start, end_offset);
-        let text_owned = text.into_owned();
 
         if let Some(node) = self.stack.last_mut() {
             // Skip whitespace-only text between elements.
             // ASCII-only per XML 1.0 §2.3 (S = #x20|#x9|#xD|#xA).
-            if text_owned.trim_ascii().is_empty() && !node.children.is_empty() {
+            if text.trim_ascii().is_empty() && !node.children.is_empty() {
                 return Ok(());
             }
 
             node.children.push(XmlChild::Text {
-                content: text_owned,
+                content: text,
                 source_info,
             });
         }
