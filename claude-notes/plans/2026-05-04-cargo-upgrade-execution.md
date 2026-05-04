@@ -58,7 +58,7 @@ For each entry:
 - [x] 1. similar 2 → 3 (bd-zh24) — branch `deps/similar-3` @ `82c725f1`
 - [x] 2. tree-sitter pair (bd-c083, bd-wjpd) — branch `deps/tree-sitter-026` @ `3c73b49d` (named_child API: usize → u32)
 - [x] 3. RustCrypto trio (bd-gz6k, bd-znva, bd-fyuo) — branch `deps/rustcrypto` @ `9ee17613` (digest 0.10→0.11: GenericArray→Array, KeyInit trait split)
-- [ ] 4. quick-xml (bd-8356)
+- [x] 4. quick-xml (bd-8356) — branch `deps/quick-xml-039` @ `3f6c765c` (BytesText::unescape removed; Event::GeneralRef coalescing)
 - [ ] 5. rand (bd-0a3b)
 - [ ] 6. scraper (bd-9h2g)
 - [ ] 7. comrak (bd-anhg)
@@ -80,5 +80,7 @@ If a session ends mid-upgrade:
 ## Notes / discoveries
 
 - **tree-sitter 0.26**: `Node::named_child(i)` changed from `usize` to `u32`. `named_child_count()` still returns `usize`, so loops need a `u32::try_from(count).unwrap()` cast on the bound. Pattern used: store the count as `u32` once at loop entry. Grammar crates (tree-sitter-python 0.25, tree-sitter-r 1.2, tree-sitter-bash 0.25, tree-sitter-css 0.25, tree-sitter-html 0.23, tree-sitter-javascript 0.25, tree-sitter-typescript 0.23, tree-sitter-json 0.24, tree-sitter-yaml 0.7) are ABI-compatible with 0.26 — no grammar updates needed.
+
+- **quick-xml 0.39**: Two breaking changes. (a) `BytesText::unescape()` removed — replace with `BytesText::decode()` (byte→str) followed by `quick_xml::escape::unescape` (entity resolution). (b) New `Event::GeneralRef(BytesRef)` event emitted separately for entity references; entities are no longer inlined into `Event::Text`. To preserve "one Text child per text run" semantics, parsers must coalesce consecutive Text + GeneralRef events into a buffer that flushes on structural events. Use `escape::unescape(&format!("&{};", entity_body))` to handle both named and numeric refs through one path. Watch out for `&#160;` (non-breaking space) — common in i18n/locale XML; `resolve_predefined_entity` won't handle it, only `unescape` does.
 
 - **digest 0.11 (sha1/sha2/hmac)**: `finalize()` returns `hybrid_array::Array<u8, _>` instead of `generic_array::GenericArray<u8, _>`. The new type **does not implement `LowerHex`**, so `format!("{:x}", hash)` no longer compiles. Migration: use `hex::encode(hash)` (or an inline `for b in &bytes[..n] { write!(s, "{:02x}", b) }` helper in build scripts to avoid a build-dep). Hex output is byte-identical to the old `LowerHex` output. Also: `Hmac::new_from_slice` moved from the `Mac` trait to the `KeyInit` trait — add `use hmac::KeyInit;`. Worth checking if any crate has captured SHA-256 baselines in tests; the `quarto-core` artifact-scoping pipeline test passing on the migrated code is the byte-identical proof.
