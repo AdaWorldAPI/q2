@@ -145,25 +145,22 @@ impl PublishHost for NativeHost {
         // pollster, so the synchronous call doesn't hurt — the only
         // alternative is to pull in tokio + reqwest which is much
         // heavier for the single-request `verify` step we have.
+        //
+        // ureq 3 unified 2xx and non-2xx into the `Ok` arm — non-2xx is
+        // no longer reported as `Error::Status`. Status is read via
+        // `.status()` (returns `http::StatusCode`, converted to u16) so
+        // callers (the gh-pages probe) can still match on 404 vs 5xx.
         let url = url.to_string();
         let response = std::thread::scope(|s| {
             s.spawn(|| -> Result<HttpResponse, anyhow::Error> {
                 match ureq::get(&url).call() {
                     Ok(resp) => {
-                        let status = resp.status();
+                        let status: u16 = resp.status().into();
                         let mut body = Vec::new();
-                        resp.into_reader()
+                        resp.into_body()
+                            .into_reader()
                             .take(32 * 1024) // .nojekyll-sized response cap
                             .read_to_end(&mut body)?;
-                        Ok(HttpResponse { status, body })
-                    }
-                    Err(ureq::Error::Status(status, resp)) => {
-                        // ureq reports non-2xx as `Status` errors.
-                        // We expose them as a regular response so
-                        // callers (the gh-pages probe) can match
-                        // on 404 vs 5xx.
-                        let mut body = Vec::new();
-                        let _ = resp.into_reader().take(32 * 1024).read_to_end(&mut body);
                         Ok(HttpResponse { status, body })
                     }
                     Err(e) => Err(anyhow::anyhow!("http error: {e}")),
