@@ -21,7 +21,7 @@ serde_yaml.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 url = "2.5"
-ureq = { version = "2", default-features = false, features = ["tls"] }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 uuid.workspace = true
 
 quarto-core.workspace = true
