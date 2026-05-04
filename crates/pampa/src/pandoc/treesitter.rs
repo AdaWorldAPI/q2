@@ -322,14 +322,14 @@ fn process_list_item(
 /// spanning multiple rows. In tree-sitter's QMD grammar, a `block_continuation`
 /// that spans multiple rows indicates it absorbed a blank line.
 fn list_item_has_blank_line_between_blocks(list_item_node: &tree_sitter::Node) -> bool {
-    let child_count = list_item_node.named_child_count();
+    let child_count = u32::try_from(list_item_node.named_child_count()).unwrap();
     for i in 0..child_count {
         let child = list_item_node.named_child(i).unwrap();
         if child.kind() == "pandoc_paragraph" && i + 1 < child_count {
             // This paragraph is followed by another block-level sibling.
             // Check if the paragraph has a block_continuation that spans
             // multiple rows (which means it absorbed a blank line).
-            let para_child_count = child.named_child_count();
+            let para_child_count = u32::try_from(child.named_child_count()).unwrap();
             for j in 0..para_child_count {
                 let para_child = child.named_child(j).unwrap();
                 if para_child.kind() == "block_continuation"
