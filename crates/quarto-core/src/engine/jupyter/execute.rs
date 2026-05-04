@@ -322,6 +322,13 @@ fn media_type_to_mime_entry(media_type: &MediaType) -> (String, serde_json::Valu
             serde_json::to_value(table.as_ref()).unwrap_or(serde_json::Value::Null),
         ),
         MediaType::Other((mime, v)) => (mime.clone(), v.clone()),
+        // `MediaType` is `#[non_exhaustive]` in jupyter-protocol 2.x.
+        // Any future variant added upstream falls through to a Null
+        // value with a synthetic mime type derived from the Debug
+        // impl — preferable to silently dropping the output and
+        // matches the spirit of `Other` (preserve unknowns rather
+        // than discard them).
+        other => (format!("{:?}", other), serde_json::Value::Null),
     }
 }
 
