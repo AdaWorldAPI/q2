@@ -61,7 +61,7 @@ For each entry:
 - [x] 4. quick-xml (bd-8356) — branch `deps/quick-xml-039` @ `3f6c765c` (BytesText::unescape removed; Event::GeneralRef coalescing)
 - [ ] 5. rand (bd-0a3b) — **deferred, blocked by bd-tv2s (automerge)**. `ThreadRng` in rand 0.10 doesn't satisfy the rand 0.9 `Rng` trait that `automerge::DocumentId::new` consumes; the upgrade only makes sense once automerge/samod move to rand 0.10.
 - [x] 6. scraper (bd-9h2g) — branch `deps/scraper-026` @ `d0d044ec` (one-line bump, no API change)
-- [ ] 7. comrak (bd-anhg)
+- [x] 7. comrak (bd-anhg) — branch `deps/comrak-052` @ `c3a96f21` (no API change)
 - [ ] 8. automerge (bd-tv2s)
 - [ ] 9. reqwest (bd-v0zm)
 - [ ] 10. ureq (bd-r9hs)
