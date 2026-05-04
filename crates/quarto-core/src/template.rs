@@ -28,7 +28,6 @@ use quarto_system_runtime::SystemRuntime;
 
 use crate::Result;
 use crate::format::{Format, is_minimal_html};
-use crate::stage::PandocIncludes;
 
 // =============================================================================
 // Runtime Resolver
@@ -306,10 +305,15 @@ pub fn render_with_template(body: &str, meta: &ConfigValue) -> Result<String> {
 /// # Arguments
 /// * `template` - A compiled template
 /// * `body` - The rendered body content (HTML)
-/// * `meta` - Document metadata from the Pandoc AST (as ConfigValue)
+/// * `meta` - Document metadata from the Pandoc AST (as ConfigValue).
+///   Include slots are read from `meta.rendered.includes.{header,
+///   before-body, after-body}` — populated upstream by
+///   [`IncludeResolveStage`](crate::stage::IncludeResolveStage). Authored
+///   `header-includes` / `include-before` / `include-after` literals at the
+///   top level are NOT read here; they are folded into `rendered.includes.*`
+///   by the resolve stage.
 /// * `css_paths` - Paths to CSS files (relative to output HTML)
 /// * `script_paths` - Paths to JS files (relative to output HTML)
-/// * `includes` - Text includes for header/before-body/after-body injection
 ///
 /// # Returns
 /// The complete HTML document as a string.
@@ -319,14 +323,16 @@ pub fn render_with_compiled_template(
     meta: &ConfigValue,
     css_paths: &[String],
     script_paths: &[String],
-    includes: &PandocIncludes,
 ) -> Result<String> {
     let mut ctx = TemplateContext::new();
     ctx.insert("body", TemplateValue::String(body.to_string()));
 
     // Add metadata, excluding keys that are handled specially or shouldn't
-    // leak into the template context as variables.
-    // Also exclude include variables — we merge metadata and programmatic values below.
+    // leak into the template context as variables. The authored
+    // `header-includes` / `include-before` / `include-after` keys (Pandoc
+    // inline-content form) are also excluded here so they don't shadow the
+    // resolved values. The resolve stage already folded them into
+    // `rendered.includes.*`; reading them again here would double-count.
     add_metadata_to_context_except(
         meta,
         &mut ctx,
@@ -362,11 +368,13 @@ pub fn render_with_compiled_template(
         ctx.insert("scripts", TemplateValue::List(scripts_list));
     }
 
-    // Build include lists (metadata values first, then programmatic values).
-    // All three use $for()$ loops matching Quarto 1 behavior.
-    set_includes_list(&mut ctx, "header-includes", meta, &includes.header_includes);
-    set_includes_list(&mut ctx, "include-before", meta, &includes.include_before);
-    set_includes_list(&mut ctx, "include-after", meta, &includes.include_after);
+    // Wire `rendered.includes.{header, before-body, after-body}` into the
+    // Pandoc-native template variable names (kept stable per
+    // claude-notes/plans/2026-05-04-includes-feature.md §Resolved questions
+    // #2 — preserves portability of custom Pandoc templates).
+    set_includes_list(&mut ctx, "header-includes", meta, "header");
+    set_includes_list(&mut ctx, "include-before", meta, "before-body");
+    set_includes_list(&mut ctx, "include-after", meta, "after-body");
 
     // Always inject full-template extras — custom templates may reference them,
     // and unused variables are harmlessly ignored.
@@ -395,50 +403,40 @@ pub fn render_with_compiled_template(
         .map_err(|e| crate::error::QuartoError::other(e.to_string()))
 }
 
-/// Set a template includes list variable, merging metadata and programmatic values.
+/// Set a template `$for(...)$`-style includes variable from the canonical
+/// `meta.rendered.includes.<slot>` location.
 ///
-/// Metadata entries come first (for backwards compatibility), then programmatic
-/// entries from the pipeline. If neither source has values, the variable is not set
-/// (so `$for(...)$` produces no output).
+/// `template_var` is the Pandoc-native template variable name (e.g.
+/// `header-includes`). `slot` is the corresponding key under
+/// `rendered.includes.*` (one of `"header"`, `"before-body"`,
+/// `"after-body"`).
+///
+/// `IncludeResolveStage` writes flat string arrays at this location,
+/// folding authored YAML keys, smart-include `{file:..}` / `{text:..}`
+/// objects, and engine-contributed `PandocIncludes`. If the array is empty
+/// or absent (resolve stage didn't run), the template variable is not set
+/// — `$for(template_var)$` then produces no output.
 fn set_includes_list(
     ctx: &mut TemplateContext,
-    key: &str,
+    template_var: &str,
     meta: &ConfigValue,
-    programmatic: &[String],
+    slot: &str,
 ) {
-    let mut list: Vec<TemplateValue> = Vec::new();
-
-    // Extract from metadata first
-    if let ConfigValueKind::Map(entries) = &meta.value {
-        for entry in entries {
-            if entry.key == key {
-                match &entry.value.value {
-                    ConfigValueKind::PandocInlines(inlines) => {
-                        list.push(TemplateValue::String(inlines_to_text(inlines)));
-                    }
-                    ConfigValueKind::Array(items) => {
-                        for item in items {
-                            list.push(config_value_to_template_value(item));
-                        }
-                    }
-                    _ => {
-                        // Scalar, Path, etc. — try as_str
-                        if let Some(s) = entry.value.as_str() {
-                            list.push(TemplateValue::String(s.to_string()));
-                        }
-                    }
-                }
-            }
-        }
+    let Some(arr) = meta
+        .get_path(&["rendered", "includes", slot])
+        .and_then(|v| v.as_array())
+    else {
+        return;
+    };
+    if arr.is_empty() {
+        return;
     }
-
-    // Add programmatic entries
-    for entry in programmatic {
-        list.push(TemplateValue::String(entry.clone()));
-    }
-
+    let list: Vec<TemplateValue> = arr
+        .iter()
+        .filter_map(|v| v.as_plain_text().map(TemplateValue::String))
+        .collect();
     if !list.is_empty() {
-        ctx.insert(key, TemplateValue::List(list));
+        ctx.insert(template_var, TemplateValue::List(list));
     }
 }
 
@@ -451,14 +449,7 @@ pub fn render_with_resources(
     css_paths: &[String],
 ) -> Result<String> {
     let template = default_html_template()?;
-    render_with_compiled_template(
-        &template,
-        body,
-        meta,
-        css_paths,
-        &[],
-        &PandocIncludes::default(),
-    )
+    render_with_compiled_template(&template, body, meta, css_paths, &[])
 }
 
 /// Render a document with format-based template selection.
@@ -473,14 +464,7 @@ pub fn render_with_format(
 ) -> Result<String> {
     let minimal = is_minimal_html(meta);
     let template = select_template(minimal)?;
-    render_with_compiled_template(
-        &template,
-        body,
-        meta,
-        css_paths,
-        &[],
-        &PandocIncludes::default(),
-    )
+    render_with_compiled_template(&template, body, meta, css_paths, &[])
 }
 
 /// Compile the appropriate built-in template (minimal or full) with a custom
@@ -1858,11 +1842,55 @@ mod tests {
     // Tests for scripts, header-includes, include-before, include-after
     // =================================================================
 
+    /// Build a `meta` value with `rendered.includes.{header, before-body,
+    /// after-body}` populated to the given lists. Used by the include-slot
+    /// tests below to exercise the post-resolve template wiring.
+    fn meta_with_rendered_includes(
+        header: &[&str],
+        before_body: &[&str],
+        after_body: &[&str],
+    ) -> ConfigValue {
+        use quarto_pandoc_types::config_value::ConfigMapEntry;
+        use quarto_source_map::SourceInfo;
+        let si = SourceInfo::default;
+        let to_array = |items: &[&str]| {
+            ConfigValue::new_array(
+                items
+                    .iter()
+                    .map(|s| ConfigValue::new_string(s.to_string(), si()))
+                    .collect(),
+                si(),
+            )
+        };
+        let includes = ConfigValue::new_map(
+            vec![
+                ConfigMapEntry {
+                    key: "header".to_string(),
+                    key_source: si(),
+                    value: to_array(header),
+                },
+                ConfigMapEntry {
+                    key: "before-body".to_string(),
+                    key_source: si(),
+                    value: to_array(before_body),
+                },
+                ConfigMapEntry {
+                    key: "after-body".to_string(),
+                    key_source: si(),
+                    value: to_array(after_body),
+                },
+            ],
+            si(),
+        );
+        let mut meta = ConfigValue::null(si());
+        meta.insert_path(&["rendered", "includes"], includes);
+        meta
+    }
+
     #[test]
     fn test_template_renders_scripts() {
         let template = minimal_html_template().unwrap();
         let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
-        let includes = PandocIncludes::default();
 
         let html = render_with_compiled_template(
             &template,
@@ -1870,7 +1898,6 @@ mod tests {
             &meta,
             &[],
             &["libs/kbd/kbd.js".to_string()],
-            &includes,
         )
         .unwrap();
 
@@ -1884,15 +1911,11 @@ mod tests {
     #[test]
     fn test_template_renders_header_includes() {
         let template = minimal_html_template().unwrap();
-        let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
-        let includes = PandocIncludes {
-            header_includes: vec!["<meta name=\"test\" content=\"value\">".to_string()],
-            ..Default::default()
-        };
+        let meta =
+            meta_with_rendered_includes(&["<meta name=\"test\" content=\"value\">"], &[], &[]);
 
         let html =
-            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[], &includes)
-                .unwrap();
+            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
 
         assert!(
             html.contains("<meta name=\"test\" content=\"value\">"),
@@ -1908,16 +1931,14 @@ mod tests {
     #[test]
     fn test_template_renders_include_before_and_after() {
         let template = minimal_html_template().unwrap();
-        let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
-        let includes = PandocIncludes {
-            include_before: vec!["<div class=\"before\">BEFORE</div>".to_string()],
-            include_after: vec!["<div class=\"after\">AFTER</div>".to_string()],
-            ..Default::default()
-        };
+        let meta = meta_with_rendered_includes(
+            &[],
+            &["<div class=\"before\">BEFORE</div>"],
+            &["<div class=\"after\">AFTER</div>"],
+        );
 
         let html =
-            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[], &includes)
-                .unwrap();
+            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
 
         let before_pos = html.find("BEFORE").unwrap();
         let body_pos = html.find("<p>body</p>").unwrap();
@@ -2006,11 +2027,9 @@ mod tests {
     fn test_template_empty_includes_produce_no_tags() {
         let template = minimal_html_template().unwrap();
         let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
-        let includes = PandocIncludes::default();
 
         let html =
-            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[], &includes)
-                .unwrap();
+            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
 
         assert!(
             !html.contains("<script"),

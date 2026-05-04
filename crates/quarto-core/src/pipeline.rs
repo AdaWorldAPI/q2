@@ -56,8 +56,8 @@ use crate::stage::CodeHighlightStage;
 use crate::stage::stages::ApplyTemplateConfig;
 use crate::stage::{
     ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, DocumentProfileStage,
-    EngineExecutionStage, IncludeExpansionStage, LinkResolutionStage, LoadedSource,
-    MetadataMergeStage, ParseDocumentStage, Pipeline, PipelineData, PipelineStage,
+    EngineExecutionStage, IncludeExpansionStage, IncludeResolveStage, LinkResolutionStage,
+    LoadedSource, MetadataMergeStage, ParseDocumentStage, Pipeline, PipelineData, PipelineStage,
     PreEngineSugaringStage, RenderHtmlBodyStage, ResourceReportStage, StageContext,
     UnwrapProfileStage, UserFiltersStage,
 };
@@ -219,6 +219,17 @@ pub fn build_html_pipeline_stages_with_options(
         // DocumentProfile — see bd-xfwx and
         // `claude-notes/plans/2026-04-24-include-expansion-merge.md`.
         Box::new(IncludeExpansionStage::new()),
+        // Resolve include-in-header / include-before-body /
+        // include-after-body authored keys (plus the legacy inline
+        // `header-includes` / `include-before` / `include-after`
+        // keys) into the canonical `rendered.includes.{header,
+        // before-body, after-body}` location. Runs *before* the
+        // profile checkpoint so file-slot dependencies are
+        // recorded into `profile.includes` for `bd-r82e` cache
+        // invalidation. Engine-contributed PandocIncludes are
+        // folded later by ApplyTemplateStage's late-drain.
+        // Plan: claude-notes/plans/2026-05-04-includes-feature.md.
+        Box::new(IncludeResolveStage::new()),
         // Profile checkpoint: post-merge, pre-mutation. See
         // `claude-notes/designs/document-profile-contract.md`.
         Box::new(DocumentProfileStage::new()),
@@ -310,6 +321,11 @@ pub fn build_wasm_html_pipeline() -> Pipeline {
         Box::new(MetadataMergeStage::new()),
         // Include expansion before the profile checkpoint — bd-xfwx.
         Box::new(IncludeExpansionStage::new()),
+        // Resolve include-in-header / before-body / after-body
+        // before the profile checkpoint so file-slot dependencies
+        // land in `profile.includes` for cache invalidation
+        // (bd-r82e). See `claude-notes/plans/2026-05-04-includes-feature.md`.
+        Box::new(IncludeResolveStage::new()),
         // Profile checkpoint: post-merge, pre-mutation. Hub-client
         // Phase 9 will intercept this variant to build project-wide
         // nav state.
@@ -1098,43 +1114,48 @@ mod tests {
     #[test]
     fn test_build_html_pipeline_stages() {
         let stages = build_html_pipeline_stages();
-        assert_eq!(stages.len(), 16);
+        assert_eq!(stages.len(), 17);
         assert_eq!(stages[0].name(), "parse-document");
         assert_eq!(stages[1].name(), "metadata-merge");
         // Include expansion runs before the profile checkpoint (bd-xfwx)
         // so profiles reflect content spliced in via `{{< include ... >}}`.
         assert_eq!(stages[2].name(), "include-expansion");
+        // include-resolve (bd-8kp3) sits between include-expansion and
+        // the profile checkpoint so file-slot include dependencies are
+        // recorded into `profile.includes` for cache invalidation.
+        assert_eq!(stages[3].name(), "include-resolve");
         // Profile checkpoint (Phase 0 website epic, bd-f3jc).
-        assert_eq!(stages[3].name(), "document-profile");
+        assert_eq!(stages[4].name(), "document-profile");
         // Cross-doc body-link resolution (Phase 8 sub-phase 8.0d).
-        assert_eq!(stages[4].name(), "link-resolution");
-        assert_eq!(stages[5].name(), "unwrap-profile");
-        assert_eq!(stages[6].name(), "pre-engine-sugaring");
-        assert_eq!(stages[7].name(), "engine-execution");
-        assert_eq!(stages[8].name(), "compile-theme-css");
-        assert_eq!(stages[9].name(), "user-filters-pre");
-        assert_eq!(stages[10].name(), "ast-transforms");
-        assert_eq!(stages[11].name(), "user-filters-post");
+        assert_eq!(stages[5].name(), "link-resolution");
+        assert_eq!(stages[6].name(), "unwrap-profile");
+        assert_eq!(stages[7].name(), "pre-engine-sugaring");
+        assert_eq!(stages[8].name(), "engine-execution");
+        assert_eq!(stages[9].name(), "compile-theme-css");
+        assert_eq!(stages[10].name(), "user-filters-pre");
+        assert_eq!(stages[11].name(), "ast-transforms");
+        assert_eq!(stages[12].name(), "user-filters-post");
         // bd-o8pr Phase 3: finalize per-doc resource report.
-        assert_eq!(stages[12].name(), "resource-report");
-        assert_eq!(stages[13].name(), "code-highlight");
-        assert_eq!(stages[14].name(), "render-html-body");
-        assert_eq!(stages[15].name(), "apply-template");
+        assert_eq!(stages[13].name(), "resource-report");
+        assert_eq!(stages[14].name(), "code-highlight");
+        assert_eq!(stages[15].name(), "render-html-body");
+        assert_eq!(stages[16].name(), "apply-template");
     }
 
     #[test]
     fn test_build_html_pipeline() {
         let pipeline = build_html_pipeline();
-        assert_eq!(pipeline.len(), 16);
+        assert_eq!(pipeline.len(), 17);
     }
 
     #[test]
     fn test_build_wasm_html_pipeline() {
         let pipeline = build_wasm_html_pipeline();
-        // WASM pipeline now has 15 stages: same as the native HTML
-        // pipeline (include-expansion, profile checkpoint, link-resolution,
-        // code-highlight, resource-report …) minus `engine-execution`.
-        assert_eq!(pipeline.len(), 15);
+        // WASM pipeline matches the native HTML pipeline minus
+        // `engine-execution`. Includes the new `include-resolve`
+        // stage (bd-8kp3) so the same `rendered.includes.*`
+        // contract holds in the browser.
+        assert_eq!(pipeline.len(), 16);
     }
 
     #[test]
