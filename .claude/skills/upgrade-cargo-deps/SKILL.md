@@ -99,14 +99,19 @@ The Bucket B entries appear because either the workspace declares a narrower ran
 
 For v1 the skill **does not** edit `Cargo.toml` to widen ranges, even for Bucket B. Bucket A only gets beads issues; no `Cargo.toml` changes.
 
-### 4. Identify excluded / vendored crates
+### 4. Identify excluded / vendored / pinned crates
 
-Don't propose changes for these — they're either upstream vendored or workspace-excluded:
+Don't propose changes for these — they're either upstream vendored, workspace-excluded, or deliberately pinned:
 
-- **`crates/wasm-bindgen-futures-patch/`** — vendored upstream `wasm-bindgen-futures` crate. The exact-version pins (`"=0.3.85"`, `"=0.2.108"`) come from upstream's auto-generated `Cargo.toml` and must not be touched. Bumping this crate means re-vendoring, which is out of scope.
+- **Read `.claude/skills/upgrade-cargo-deps/PINS.md`.** That doc is the authoritative list of every deliberate pin and every known transitive incompatibility, with a written removal condition for each. For every entry:
+  1. List it under "Skipped (pinned)" in the survey plan with a one-line "why" + a pointer to PINS.md.
+  2. **Re-evaluate the removal condition** against the current state of the repo and the upstream registry. If the condition has been met (e.g. the upstream crate is no longer reverse-deped on; a vendored patch can be re-vendored fresh; a transitive incompat has been fixed by another upgrade landing), call this out at the top of the survey plan as **"Pin can now be removed: <name>"** so the user can land a separate cleanup PR. Update the entry's "Last reviewed" date in PINS.md to today's date as part of the survey worktree's first commit.
+
+- **`crates/wasm-bindgen-futures-patch/`** — vendored upstream `wasm-bindgen-futures` crate. See PINS.md for the full pin chain (`wasm-bindgen-futures = "=0.4.58"` → transitive `wasm-bindgen = "=0.2.108"`, `js-sys = "=0.3.85"`).
+
 - **Workspace-excluded crates** (per root `Cargo.toml`): `wasm-quarto-hub-client`, `wasm-qmd-parser`, `tree-sitter-language-wasm-shim`, `pampa/fuzz`, `crates/experiments/*` (other than reconcile-viewer). Their `Cargo.lock` entries still come from the workspace lock, so `cargo update` covers them, but their `Cargo.toml` dep ranges aren't part of `--workspace` resolution for direct edits.
 
-If a major-upgrade candidate's only consumer is one of the vendored crates, list it under "Skipped" with the reason; don't file a beads issue.
+If a major-upgrade candidate's only consumer is one of the vendored/pinned crates, list it under "Skipped" with the reason; don't file a beads issue.
 
 ### 5. Create the worktree
 
@@ -307,10 +312,11 @@ Hand the worktree back to the user. They review the lockfile diff, merge or disc
 - **Branch / worktree name**: `cargo-upgrade-YYYY-MM-DD`.
 - **Plan filename**: `claude-notes/plans/YYYY-MM-DD-cargo-upgrade-survey.md`.
 - **Beads issue type/priority/labels** for majors: `chore`, `p3`, `deps,cargo`.
-- **Pinning convention** (if/when discovered): a `# pinned: <reason>` comment on the line immediately above the dependency in `Cargo.toml`. The skill reads these and lists them under "Skipped" with the reason. As of 2026-05-04, **no such pins exist** in the workspace.
+- **Pinning convention**: deliberate version pins are recorded in `.claude/skills/upgrade-cargo-deps/PINS.md`, not as `# pinned:` comments in `Cargo.toml`. PINS.md gives each pin a written reason, an explicit removal condition, and a "last reviewed" date the skill updates each run. The skill reads PINS.md as part of step 4 ("Identify excluded / vendored / pinned crates") and re-evaluates removal conditions every survey. Inline `# pinned: <reason>` comments next to a `Cargo.toml` constraint are still welcome as a local pointer, but PINS.md is the source of truth.
 
 ## See also
 
+- **`.claude/skills/upgrade-cargo-deps/PINS.md`** — every deliberate pin and known transitive incompatibility, with a removal condition the skill re-checks every run. Read this before listing the "Skipped" section of the survey plan.
 - Design plan: `claude-notes/plans/2026-05-04-cargo-dependency-upgrade-skill.md`
 - Beads epic: bd-hb8h
 - `CLAUDE.md` GIT PUSH POLICY (the skill must not push)
