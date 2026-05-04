@@ -87,10 +87,10 @@ features = ["std"]
 default-features = false
 
 [workspace.dependencies.tree-sitter]
-version = "0.25.10"
+version = "0.26"
 
 [workspace.dependencies.tree-sitter-highlight]
-version = "0.25.10"
+version = "0.26"
 
 [workspace.dependencies.tree-sitter-qmd]
 path = "./crates/tree-sitter-qmd"
