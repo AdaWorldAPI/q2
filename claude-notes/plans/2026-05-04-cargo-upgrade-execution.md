@@ -65,7 +65,7 @@ For each entry:
 - [ ] 8. automerge (bd-tv2s)
 - [x] 9. reqwest (bd-v0zm) — branch `deps/reqwest-013` @ `ebd84b30` (rustls-tls feature renamed to rustls)
 - [x] 10. ureq (bd-r9hs) — branch `deps/ureq-3` @ `24007314` (Error::Status removed, status→StatusCode, into_body() body API)
-- [ ] 11. runtimelib (bd-tanz)
+- [x] 11. runtimelib (bd-tanz) — branch `deps/runtimelib-2` @ `415999ab` (paired with jupyter-protocol 2; MediaType non_exhaustive)
 - [ ] 12. Deno pair (bd-nl5q, bd-rhs6)
 
 ## Session boundary protocol
@@ -80,6 +80,8 @@ If a session ends mid-upgrade:
 ## Notes / discoveries
 
 - **tree-sitter 0.26**: `Node::named_child(i)` changed from `usize` to `u32`. `named_child_count()` still returns `usize`, so loops need a `u32::try_from(count).unwrap()` cast on the bound. Pattern used: store the count as `u32` once at loop entry. Grammar crates (tree-sitter-python 0.25, tree-sitter-r 1.2, tree-sitter-bash 0.25, tree-sitter-css 0.25, tree-sitter-html 0.23, tree-sitter-javascript 0.25, tree-sitter-typescript 0.23, tree-sitter-json 0.24, tree-sitter-yaml 0.7) are ABI-compatible with 0.26 — no grammar updates needed.
+
+- **runtimelib 2 forces jupyter-protocol 2**: runtimelib 2 re-exports types from jupyter-protocol 2 (`ConnectionInfo`, `JupyterMessage`, `JupyterMessageContent`, `MediaType`). If our direct dep stays at jupyter-protocol 1.4, the lockfile carries both versions and same-named types from the two crates are unrelated — every `runtimelib::*` callsite that takes a `jupyter_protocol::*` type fails to typecheck. Bump both deps together. Also: `MediaType` is now `#[non_exhaustive]`; matches need a fallback arm (we used `format!("{:?}", other)` for the mime to preserve unknowns rather than panic).
 
 - **ureq 3**: Three breaking changes for callers. (a) Feature `tls` renamed to `rustls`. (b) `Error::Status(status, resp)` arm removed — non-2xx responses now arrive in the `Ok` arm; check `response.status()` yourself. (c) Response API: `status()` returns `http::StatusCode` (convert with `.into()` to `u16`), and `into_reader()` is gone — use `.into_body().into_reader()` to get an `impl Read`. The simplification of merging 2xx and non-2xx into a single arm is generally a behavior improvement.
 
