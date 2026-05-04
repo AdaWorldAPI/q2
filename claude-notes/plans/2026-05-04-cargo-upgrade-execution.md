@@ -64,7 +64,7 @@ For each entry:
 - [x] 7. comrak (bd-anhg) — branch `deps/comrak-052` @ `c3a96f21` (no API change)
 - [ ] 8. automerge (bd-tv2s)
 - [x] 9. reqwest (bd-v0zm) — branch `deps/reqwest-013` @ `ebd84b30` (rustls-tls feature renamed to rustls)
-- [ ] 10. ureq (bd-r9hs)
+- [x] 10. ureq (bd-r9hs) — branch `deps/ureq-3` @ `24007314` (Error::Status removed, status→StatusCode, into_body() body API)
 - [ ] 11. runtimelib (bd-tanz)
 - [ ] 12. Deno pair (bd-nl5q, bd-rhs6)
 
@@ -80,6 +80,8 @@ If a session ends mid-upgrade:
 ## Notes / discoveries
 
 - **tree-sitter 0.26**: `Node::named_child(i)` changed from `usize` to `u32`. `named_child_count()` still returns `usize`, so loops need a `u32::try_from(count).unwrap()` cast on the bound. Pattern used: store the count as `u32` once at loop entry. Grammar crates (tree-sitter-python 0.25, tree-sitter-r 1.2, tree-sitter-bash 0.25, tree-sitter-css 0.25, tree-sitter-html 0.23, tree-sitter-javascript 0.25, tree-sitter-typescript 0.23, tree-sitter-json 0.24, tree-sitter-yaml 0.7) are ABI-compatible with 0.26 — no grammar updates needed.
+
+- **ureq 3**: Three breaking changes for callers. (a) Feature `tls` renamed to `rustls`. (b) `Error::Status(status, resp)` arm removed — non-2xx responses now arrive in the `Ok` arm; check `response.status()` yourself. (c) Response API: `status()` returns `http::StatusCode` (convert with `.into()` to `u16`), and `into_reader()` is gone — use `.into_body().into_reader()` to get an `impl Read`. The simplification of merging 2xx and non-2xx into a single arm is generally a behavior improvement.
 
 - **reqwest 0.13**: feature flag `rustls-tls` was renamed to `rustls`. No source-code API changes. If a Cargo.toml carries `features = ["rustls-tls"]`, change it to `features = ["rustls"]`. Other features used here (`blocking`, `json`) are unchanged.
 
