@@ -214,7 +214,7 @@ fn cache_key(
     hasher.update(if theme_config.minified { b"1" } else { b"0" });
 
     let hash = hasher.finalize();
-    Ok(format!("{:x}", hash))
+    Ok(hex::encode(hash))
 }
 
 #[async_trait(?Send)]
@@ -449,7 +449,7 @@ pub fn theme_fingerprint(css: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(css.as_bytes());
     let hash = hasher.finalize();
-    let hex = format!("{:x}", hash);
+    let hex = hex::encode(hash);
     hex[..THEME_FINGERPRINT_LEN].to_string()
 }
 

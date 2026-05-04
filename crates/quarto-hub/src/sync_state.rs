@@ -138,7 +138,7 @@ impl SyncState {
 /// Compute SHA-256 hash of content, returning "sha256:<hex-digest>" format.
 pub fn sha256_hash(content: &str) -> String {
     let digest = Sha256::digest(content.as_bytes());
-    format!("sha256:{:x}", digest)
+    format!("sha256:{}", hex::encode(digest))
 }
 
 /// Parse hex-encoded heads strings back to ChangeHashes.

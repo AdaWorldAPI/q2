@@ -65,7 +65,7 @@ ariadne = "0.6"
 crossterm = { version = "0.29", optional = true }
 supports-hyperlinks = { version = "3.2", optional = true }
 mlua = { version = "0.11", features = ["lua54", "vendored", "serialize", "async"], optional = true }
-sha1 = "0.10"
+sha1 = "0.11"
 base64 = "0.22"
 
 # tokio is native-only: used by the pampa binary to block_on async filter execution.
