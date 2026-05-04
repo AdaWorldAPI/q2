@@ -11,7 +11,7 @@
 
 use axum::http::StatusCode;
 use axum_jwt_auth::RemoteJwksDecoder;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use jsonwebtoken::{Algorithm, Validation};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -458,7 +458,7 @@ pub fn sub_to_actor_id_for_project(server_secret: &[u8], sub: &str, project_id: 
     mac.update(b"\0");
     mac.update(project_id.as_bytes());
     let result = mac.finalize();
-    format!("{:x}", result.into_bytes())
+    hex::encode(result.into_bytes())
 }
 
 #[cfg(test)]

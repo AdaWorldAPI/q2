@@ -19,7 +19,7 @@ quarto-system-runtime.workspace = true
 quarto-pandoc-types.workspace = true
 
 [build-dependencies]
-sha2 = "0.10"
+sha2 = "0.11"
 
 [dev-dependencies]
 insta.workspace = true
