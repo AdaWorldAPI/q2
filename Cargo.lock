@@ -2540,7 +2540,7 @@ dependencies = [
 [[package]]
 name = "jupyter-protocol"
 version = "2.0.0"
-source = "git+https://github.com/cscheid/runtimed?rev=6647651e697ba4a086963f4398f4b2e13ad0eb08#6647651e697ba4a086963f4398f4b2e13ad0eb08"
+source = "git+https://github.com/cscheid/runtimed?rev=bee830f776c86460e704f9163b6a14cc4fa8b88a#bee830f776c86460e704f9163b6a14cc4fa8b88a"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4453,7 +4453,7 @@ dependencies = [
 [[package]]
 name = "runtimelib"
 version = "2.0.0"
-source = "git+https://github.com/cscheid/runtimed?rev=6647651e697ba4a086963f4398f4b2e13ad0eb08#6647651e697ba4a086963f4398f4b2e13ad0eb08"
+source = "git+https://github.com/cscheid/runtimed?rev=bee830f776c86460e704f9163b6a14cc4fa8b88a#bee830f776c86460e704f9163b6a14cc4fa8b88a"
 dependencies = [
  "base64 0.22.1",
  "bytes",

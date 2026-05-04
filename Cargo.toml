@@ -278,11 +278,11 @@ lua-src = { path = "crates/lua-src-wasm" }
 # and threads `searched_paths` through `RuntimeError::KernelNotFound`.
 # Pinned to a SHA on cscheid/runtimed; will be removed once the
 # upstream PR (bd-875x) lands and a release ships.
-runtimelib = { git = "https://github.com/cscheid/runtimed", rev = "6647651e697ba4a086963f4398f4b2e13ad0eb08" }
+runtimelib = { git = "https://github.com/cscheid/runtimed", rev = "bee830f776c86460e704f9163b6a14cc4fa8b88a" }
 # `runtimelib` depends on `jupyter-protocol` via the runtimed workspace,
 # so we must patch jupyter-protocol from the same SHA to avoid pulling
 # in two distinct `jupyter_protocol::JupyterMessage` types.
-jupyter-protocol = { git = "https://github.com/cscheid/runtimed", rev = "6647651e697ba4a086963f4398f4b2e13ad0eb08" }
+jupyter-protocol = { git = "https://github.com/cscheid/runtimed", rev = "bee830f776c86460e704f9163b6a14cc4fa8b88a" }
 
 # Profiles must be set at the workspace level
 [profile.dev]
