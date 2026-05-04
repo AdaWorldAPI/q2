@@ -139,8 +139,15 @@ impl PipelineStage for ApplyTemplateStage {
             rendered.content.len()
         );
 
-        // Get metadata from the rendered output
-        let metadata = rendered.metadata.clone();
+        // Get metadata from the rendered output. Drain any post-resolve
+        // additions to `ctx.includes` (shortcode resolution, Lua filters
+        // via `quarto.doc.include_text()`) into the canonical
+        // `rendered.includes.*` arrays so the template helper sees
+        // everything in one place. Engine includes were already drained
+        // by `IncludeResolveStage`; this catches the late path.
+        let mut metadata = rendered.metadata.clone();
+        let late = std::mem::take(&mut ctx.includes);
+        super::include_resolve::append_pandoc_includes(&mut metadata, &late);
 
         // Build CSS / JS URL lists from the artifact store.
         //
@@ -231,7 +238,6 @@ impl PipelineStage for ApplyTemplateStage {
                     &metadata,
                     &css_paths,
                     &script_paths,
-                    &ctx.includes,
                 )
                 .map_err(|e| PipelineError::stage_error(self.name(), e.to_string()))?
             }
@@ -252,7 +258,6 @@ impl PipelineStage for ApplyTemplateStage {
                     &metadata,
                     &css_paths,
                     &script_paths,
-                    &ctx.includes,
                 )
                 .map_err(|e| PipelineError::stage_error(self.name(), e.to_string()))?
             }
@@ -267,7 +272,6 @@ impl PipelineStage for ApplyTemplateStage {
                     &metadata,
                     &css_paths,
                     &script_paths,
-                    &ctx.includes,
                 )
                 .map_err(|e| PipelineError::stage_error(self.name(), e.to_string()))?
             }

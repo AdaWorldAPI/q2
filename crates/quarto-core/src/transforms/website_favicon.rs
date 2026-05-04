@@ -2,8 +2,8 @@
  * website_favicon.rs
  * Copyright (c) 2026 Posit, PBC
  *
- * AST transform: append a <link rel="icon"> to header-includes when
- * `website.favicon` is set.
+ * AST transform: append a <link rel="icon"> to rendered.includes.header
+ * when `website.favicon` is set.
  */
 
 //! Emit a `<link rel="icon">` tag into every page's `<head>` for
@@ -12,20 +12,27 @@
 //! This transform reads `website.favicon` from the merged metadata,
 //! resolves a page-relative href via the per-page
 //! [`ResourceResolverContext`], and appends a `<link>` element to
-//! the document's `header-includes` list. The full HTML template
-//! (`crates/quarto-core/src/template.rs`) loops over
-//! `header-includes` inside the `<head>`, so the link reaches the
-//! output without further wiring.
+//! the document's `rendered.includes.header` list. That list is the
+//! canonical post-resolve location populated by
+//! [`IncludeResolveStage`](crate::stage::IncludeResolveStage); the
+//! full HTML template (`crates/quarto-core/src/template.rs`) reads
+//! it via `$header-includes$` inside the `<head>`, so the link
+//! reaches the output without further wiring.
 //!
-//! See `claude-notes/plans/2026-04-27-websites-phase-7.md` Decision 5.
+//! Pre-`bd-8kp3` this transform appended to the authored top-level
+//! `header-includes` key. The migration to `rendered.includes.header`
+//! gives user filters a single, stable location to inspect or
+//! extend the resolved include set, mirroring how `rendered.navigation.*`
+//! is treated for the navigation features.
+//!
+//! See `claude-notes/plans/2026-04-27-websites-phase-7.md` Decision 5
+//! and `claude-notes/plans/2026-05-04-includes-feature.md` Step 3.
 //!
 //! [`ResourceResolverContext`]: crate::resource_resolver::ResourceResolverContext
 
-use quarto_pandoc_types::ConfigMapEntry;
 use quarto_pandoc_types::ConfigValue;
 use quarto_pandoc_types::config_value::ConfigValueKind;
 use quarto_pandoc_types::pandoc::Pandoc;
-use quarto_source_map::SourceInfo;
 
 use crate::Result;
 use crate::project::website_config::{normalize_favicon_path, website_favicon};
@@ -62,8 +69,8 @@ impl AstTransform for WebsiteFaviconTransform {
 }
 
 /// Append a `<link rel="icon">` tag for `website.favicon` to the
-/// `header-includes` list. No-op if the key is absent or `meta` is
-/// not a map.
+/// `rendered.includes.header` list. No-op if the key is absent or
+/// `meta` is not a map.
 fn apply_favicon(meta: &mut ConfigValue, resolver: Option<&ResourceResolverContext>) {
     let Some(raw_favicon) = website_favicon(meta) else {
         return;
@@ -81,12 +88,31 @@ fn apply_favicon(meta: &mut ConfigValue, resolver: Option<&ResourceResolverConte
     };
 
     let link = build_favicon_link(&href, &normalized);
+    append_to_rendered_header(meta, link);
+}
 
-    let source_info = meta.source_info.clone();
-    let ConfigValueKind::Map(entries) = &mut meta.value else {
+/// Append an HTML literal to the canonical
+/// `rendered.includes.header` list. Mirrors the
+/// `IncludeResolveStage` contract: the array is created if absent,
+/// existing entries are preserved.
+fn append_to_rendered_header(meta: &mut ConfigValue, html: String) {
+    if !matches!(&meta.value, ConfigValueKind::Map(_)) {
         return;
-    };
-    append_to_header_includes(entries, link, source_info);
+    }
+    let source_info = meta.source_info.clone();
+
+    if !meta.contains_path(&["rendered", "includes", "header"]) {
+        meta.insert_path(
+            &["rendered", "includes", "header"],
+            ConfigValue::new_array(vec![], source_info.clone()),
+        );
+    }
+
+    if let Some(slot) = meta.get_path_mut(&["rendered", "includes", "header"])
+        && let ConfigValueKind::Array(items) = &mut slot.value
+    {
+        items.push(ConfigValue::new_string(html, source_info));
+    }
 }
 
 /// Build a `<link rel="icon" ...>` element for the given href, with
@@ -142,51 +168,12 @@ fn escape_html_attr(s: &str) -> String {
     out
 }
 
-/// Append a `<link>` (or any HTML string) to the `header-includes`
-/// metadata list.
-///
-/// `header-includes` may be absent, a single string, an array of
-/// strings, or a PandocInlines value. We normalize to an `Array` of
-/// strings, preserving any existing entries.
-fn append_to_header_includes(
-    entries: &mut Vec<ConfigMapEntry>,
-    link_html: String,
-    source_info: SourceInfo,
-) {
-    let new_item = ConfigValue::new_string(link_html, source_info.clone());
-
-    if let Some(entry) = entries.iter_mut().find(|e| e.key == "header-includes") {
-        match &mut entry.value.value {
-            ConfigValueKind::Array(items) => {
-                items.push(new_item);
-            }
-            _ => {
-                // Promote scalar / inlines / etc. to an array of two
-                // items: the existing value followed by the new link.
-                let existing = std::mem::replace(
-                    &mut entry.value,
-                    ConfigValue::new_array(vec![], source_info.clone()),
-                );
-                let mut items = Vec::with_capacity(2);
-                items.push(existing);
-                items.push(new_item);
-                entry.value = ConfigValue::new_array(items, source_info);
-            }
-        }
-        return;
-    }
-
-    entries.push(ConfigMapEntry {
-        key: "header-includes".to_string(),
-        key_source: source_info.clone(),
-        value: ConfigValue::new_array(vec![new_item], source_info),
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::resource_resolver::ResourceResolverContext;
+    use quarto_pandoc_types::ConfigMapEntry;
+    use quarto_source_map::SourceInfo;
     use std::path::PathBuf;
 
     fn s(value: &str) -> ConfigValue {
@@ -205,20 +192,20 @@ mod tests {
         ConfigValue::new_map(entries, SourceInfo::default())
     }
 
-    /// Read `header-includes` as a list of plain strings.
+    /// Read `rendered.includes.header` (the canonical post-resolve
+    /// location) as a list of plain strings. Pre-`bd-8kp3` this read
+    /// authored top-level `header-includes`; after the migration the
+    /// favicon transform appends to the resolved location instead.
     fn header_includes_strings(meta: &ConfigValue) -> Vec<String> {
-        match meta.get("header-includes").map(|v| &v.value) {
-            Some(ConfigValueKind::Array(items)) => items
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect(),
-            Some(ConfigValueKind::Scalar(_)) => meta
-                .get("header-includes")
-                .and_then(|v| v.as_str())
-                .map(|s| vec![s.to_string()])
-                .unwrap_or_default(),
-            _ => Vec::new(),
-        }
+        meta.get_path(&["rendered", "includes", "header"])
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Site-mode resolver where `_site/index.html` is the current
@@ -311,20 +298,21 @@ mod tests {
         );
     }
 
-    /// Plan test 18: an existing `header-includes` is preserved; the
-    /// new `<link>` is appended.
+    /// Plan test 18: an existing `rendered.includes.header` array
+    /// (typically populated by `IncludeResolveStage` upstream) is
+    /// preserved; the new `<link>` is appended.
     #[test]
     fn favicon_appends_to_existing_header_includes() {
-        let mut meta = map(vec![
-            (
-                "header-includes",
-                ConfigValue::new_array(
-                    vec![s("<meta name=\"foo\" content=\"bar\">")],
-                    SourceInfo::default(),
-                ),
+        let mut meta = map(vec![("website", map(vec![("favicon", s("favicon.ico"))]))]);
+        // Simulate IncludeResolveStage having already populated the
+        // canonical location with one prior entry.
+        meta.insert_path(
+            &["rendered", "includes", "header"],
+            ConfigValue::new_array(
+                vec![s("<meta name=\"foo\" content=\"bar\">")],
+                SourceInfo::default(),
             ),
-            ("website", map(vec![("favicon", s("favicon.ico"))])),
-        ]);
+        );
         apply_favicon(&mut meta, Some(&root_page_resolver()));
         let includes = header_includes_strings(&meta);
         assert_eq!(includes.len(), 2);

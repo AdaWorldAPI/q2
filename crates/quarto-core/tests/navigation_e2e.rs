@@ -10,7 +10,6 @@
 use quarto_core::format::Format;
 use quarto_core::project::{DocumentInfo, ProjectConfig, ProjectContext};
 use quarto_core::render::{BinaryDependencies, RenderContext};
-use quarto_core::stage::PandocIncludes;
 use quarto_core::template::{full_html_template, render_with_compiled_template};
 use quarto_core::transform::AstTransform;
 use quarto_core::transforms::{
@@ -132,9 +131,8 @@ async fn navbar_from_raw_yaml_through_to_template_html() {
 
     // Feed the rendered HTML through the template and confirm positioning.
     let template = full_html_template().unwrap();
-    let includes = PandocIncludes::default();
     let final_html =
-        render_with_compiled_template(&template, "<p>Body</p>", &out, &[], &[], &includes).unwrap();
+        render_with_compiled_template(&template, "<p>Body</p>", &out, &[], &[]).unwrap();
 
     let nav_pos = final_html.find("<nav class=\"navbar").unwrap();
     let body_pos = final_html.find("<p>Body</p>").unwrap();
@@ -160,9 +158,8 @@ async fn footer_from_raw_yaml_through_to_template_html() {
     assert!(footer_html.contains("Copyright 2026"));
 
     let template = full_html_template().unwrap();
-    let includes = PandocIncludes::default();
     let final_html =
-        render_with_compiled_template(&template, "<p>Body</p>", &out, &[], &[], &includes).unwrap();
+        render_with_compiled_template(&template, "<p>Body</p>", &out, &[], &[]).unwrap();
     let body_pos = final_html.find("<p>Body</p>").unwrap();
     let footer_pos = final_html.find("<footer class=\"footer\">").unwrap();
     assert!(
