@@ -1,0 +1,82 @@
+# Cargo upgrade execution plan — 2026-05-04 majors
+
+**Survey:** `claude-notes/plans/2026-05-04-cargo-upgrade-survey.md`
+**Tracking:** bd-hb8h (parent), 16 children
+**Status:** in progress
+
+This plan tracks execution of the 16 major / pre-1.0-minor cargo upgrades surfaced by today's survey. Each upgrade is its own beads issue and gets its own worktree branch (`deps/<crate>-vX-Y`) so they can be reviewed and merged independently.
+
+## Why isolate per upgrade
+
+Some of these will be one-line bumps; some will require API migration. If a hard one fails, easy ones already merged shouldn't have to wait. Worktree-per-upgrade keeps blast radius small and lets a future session pick up any specific issue without disturbing the others.
+
+## Order (easiest → hardest)
+
+Ordered by expected migration cost and by ecosystem grouping (when crates must move together):
+
+| # | Upgrade(s) | Beads | Notes |
+|---|---|---|---|
+| 1 | similar 2 → 3 | bd-zh24 | One callsite (quarto-citeproc). Likely trivial. |
+| 2 | tree-sitter + tree-sitter-highlight 0.25 → 0.26 | bd-c083, bd-wjpd | Paired. Wide use. Grammar-crate compat to verify. |
+| 3 | sha1 + sha2 + hmac (RustCrypto trio) | bd-gz6k, bd-znva, bd-fyuo | Co-released. Ensure digest-trait compat. |
+| 4 | quick-xml 0.37 → 0.39 | bd-8356 | Workspace dep. Two minor steps. |
+| 5 | rand 0.9 → 0.10 | bd-0a3b | Common dep, breaking-changes typical. |
+| 6 | scraper 0.22 → 0.26 | bd-9h2g | HTML scraper. Four minor steps. |
+| 7 | comrak 0.50 → 0.52 | bd-anhg | Markdown parser (comrak-to-pandoc). |
+| 8 | automerge 0.8 → 0.9 | bd-tv2s | Hub-client (WASM). Needs full hub verify. |
+| 9 | reqwest 0.12 → 0.13 | bd-v0zm | HTTP client. |
+| 10 | ureq 2 → 3 | bd-r9hs | HTTP client. Largest semver jump. |
+| 11 | runtimelib 1 → 2 | bd-tanz | Jupyter runtime. |
+| 12 | deno_core + serde_v8 | bd-nl5q, bd-rhs6 | Paired. Largest internal jump (24 / 24 minor steps). Highest risk. |
+
+## Per-upgrade workflow
+
+For each entry:
+
+1. `br update <id> --status in_progress`
+2. Read upstream changelog/release notes (web fetch the crates.io release page).
+3. Find callsites: `grep -rn "<crate>" --include="*.rs" --include=Cargo.toml`.
+4. Create worktree: `git worktree add -b deps/<crate>-vX .worktrees/deps-<crate> main` (and beads redirect).
+5. Bump the version in `Cargo.toml` (workspace level if declared there, else crate level).
+6. `cargo build --workspace` — read errors, migrate APIs.
+7. `cargo nextest run --workspace` — fix test breakage.
+8. `cargo xtask verify` (skip-hub-build unless WASM-touching).
+9. Commit with a descriptive message including key API migrations.
+10. Update this plan: check off the entry, link the commit.
+11. `br close <id> --reason "merged: <commit-hash>"` (deferred until user merges branch).
+
+## Sound implementation criteria (per user request)
+
+- **Don't suppress** breaking-change warnings with `#[allow(deprecated)]` or `#[allow(...)]` when the migration path is clear. Follow the documented migration.
+- **Don't pin** to an older version with a `# pinned: <reason>` comment unless there's a real blocker (and if so, file a follow-up beads issue capturing the blocker).
+- **Update tests** that change due to behavior shifts — but only if the change is intentional per the upstream changelog. Unintentional behavior shifts mean we shouldn't merge.
+- **Keep snapshot updates documented** per CLAUDE.md — count, summary, surprising changes.
+- **End-to-end verify** any user-visible output change before declaring complete (per CLAUDE.md "End-to-end verification before declaring success").
+
+## Progress tracker
+
+- [x] 1. similar 2 → 3 (bd-zh24) — branch `deps/similar-3` @ `82c725f1`
+- [ ] 2. tree-sitter pair (bd-c083, bd-wjpd)
+- [ ] 3. RustCrypto trio (bd-gz6k, bd-znva, bd-fyuo)
+- [ ] 4. quick-xml (bd-8356)
+- [ ] 5. rand (bd-0a3b)
+- [ ] 6. scraper (bd-9h2g)
+- [ ] 7. comrak (bd-anhg)
+- [ ] 8. automerge (bd-tv2s)
+- [ ] 9. reqwest (bd-v0zm)
+- [ ] 10. ureq (bd-r9hs)
+- [ ] 11. runtimelib (bd-tanz)
+- [ ] 12. Deno pair (bd-nl5q, bd-rhs6)
+
+## Session boundary protocol
+
+If a session ends mid-upgrade:
+
+1. Leave the worktree intact.
+2. Update the in-progress entry above with what's done and what's left.
+3. Don't `br close` the issue — leave it `in_progress`.
+4. Next session resumes from this plan + the worktree branch state.
+
+## Notes / discoveries
+
+(Populated as work proceeds — surprises, ecosystem quirks, things future sessions need to know.)
