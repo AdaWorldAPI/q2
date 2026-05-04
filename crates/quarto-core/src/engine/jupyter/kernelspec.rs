@@ -48,9 +48,12 @@ impl From<KernelspecDir> for ResolvedKernel {
 
 /// List all available Jupyter kernelspecs on the system.
 ///
-/// This searches standard Jupyter data directories for installed kernels.
+/// Searches the standard Jupyter data directories *and* the data
+/// paths reported by `jupyter --paths --json`, so kernels installed
+/// inside an active Python virtualenv (under
+/// `<sys.prefix>/share/jupyter/kernels/`) are visible here.
 pub async fn list_kernelspecs() -> Vec<ResolvedKernel> {
-    runtimelib::list_kernelspecs()
+    runtimelib::list_kernelspecs_with_jupyter_paths()
         .await
         .into_iter()
         .map(ResolvedKernel::from)
@@ -59,23 +62,20 @@ pub async fn list_kernelspecs() -> Vec<ResolvedKernel> {
 
 /// Find a kernelspec by exact name.
 ///
+/// Uses the augmented search (static dirs + `jupyter --paths`) so
+/// venv-installed kernels are findable. On miss, the error carries
+/// the full set of paths that were searched and the names of every
+/// kernel that *was* discoverable, so callers can render an
+/// actionable diagnostic.
+///
 /// # Arguments
 ///
 /// * `name` - The kernel name (e.g., "python3", "ir", "julia-1.9")
-///
-/// # Returns
-///
-/// The resolved kernel if found.
 pub async fn find_kernelspec(name: &str) -> Result<ResolvedKernel> {
-    let specs = runtimelib::list_kernelspecs().await;
-
-    specs
-        .into_iter()
-        .find(|ks| ks.kernel_name == name)
+    runtimelib::find_kernelspec_with_jupyter_paths(name)
+        .await
         .map(ResolvedKernel::from)
-        .ok_or_else(|| JupyterError::KernelspecNotFound {
-            name: name.to_string(),
-        })
+        .map_err(JupyterError::from)
 }
 
 /// Find the first kernelspec that supports a given language.

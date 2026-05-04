@@ -14,8 +14,16 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum JupyterError {
     /// Kernel specification not found.
-    #[error("kernelspec '{name}' not found")]
-    KernelspecNotFound { name: String },
+    ///
+    /// Carries the directories that were searched and the kernel
+    /// names that were discoverable in those directories so the
+    /// `Display` impl can produce an actionable diagnostic.
+    #[error("{}", format_kernelspec_not_found(name, searched, available))]
+    KernelspecNotFound {
+        name: String,
+        searched: Vec<PathBuf>,
+        available: Vec<String>,
+    },
 
     /// No kernelspec matches the requested language.
     #[error("no kernel found for language '{language}'")]
@@ -87,9 +95,44 @@ pub enum JupyterError {
 
 impl From<runtimelib::RuntimeError> for JupyterError {
     fn from(err: runtimelib::RuntimeError) -> Self {
-        JupyterError::RuntimeLibError(err.to_string())
+        match err {
+            runtimelib::RuntimeError::KernelNotFound {
+                name,
+                available,
+                searched_paths,
+            } => JupyterError::KernelspecNotFound {
+                name,
+                searched: searched_paths,
+                available,
+            },
+            other => JupyterError::RuntimeLibError(other.to_string()),
+        }
     }
 }
 
 /// Result type for Jupyter operations.
 pub type Result<T> = std::result::Result<T, JupyterError>;
+
+fn format_kernelspec_not_found(name: &str, searched: &[PathBuf], available: &[String]) -> String {
+    use std::fmt::Write;
+    let mut out = format!("kernelspec '{name}' not found\n\nsearched:\n");
+    if searched.is_empty() {
+        out.push_str("  (none)\n");
+    } else {
+        for path in searched {
+            let _ = writeln!(out, "  {}", path.display());
+        }
+    }
+    if available.is_empty() {
+        out.push_str("\navailable kernels: (none)\n");
+    } else {
+        out.push_str("\navailable kernels:\n");
+        for k in available {
+            let _ = writeln!(out, "  {k}");
+        }
+    }
+    out.push_str(
+        "\nhint: if `jupyter kernelspec list` shows a kernel we missed, run quarto from the same shell where `jupyter` resolves to the kernel's environment, or set JUPYTER_PATH to include its parent directory.",
+    );
+    out
+}
