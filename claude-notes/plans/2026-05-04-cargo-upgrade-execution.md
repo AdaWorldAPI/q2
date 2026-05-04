@@ -2,7 +2,20 @@
 
 **Survey:** `claude-notes/plans/2026-05-04-cargo-upgrade-survey.md`
 **Tracking:** bd-hb8h (parent), 16 children
-**Status:** in progress
+**Status:** 12 of 16 merged to main (1 deferred, 3 paused). Stopped here per user request to avoid disturbing parallel work in the project.
+
+## Merged-to-main summary
+
+All 9 upgrade branches merged to main via `--no-ff` merge commits in
+the order they were developed. Lockfiles were regenerated as needed
+during conflict resolution. The WASM `Cargo.lock` was restored to
+origin/main's pre-merge state at the end (the merge re-resolution
+drifted it onto a wasm-bindgen 0.2.120 that conflicts with the
+locally-installed wasm-bindgen-cli 0.2.108 and the vendored
+`wasm-bindgen-futures-patch`'s `=0.2.108` pins).
+
+Final verification: `cargo xtask verify` (full, with hub-client +
+WASM + trace-viewer) passes on the merged main.
 
 This plan tracks execution of the 16 major / pre-1.0-minor cargo upgrades surfaced by today's survey. Each upgrade is its own beads issue and gets its own worktree branch (`deps/<crate>-vX-Y`) so they can be reviewed and merged independently.
 
@@ -62,11 +75,11 @@ For each entry:
 - [ ] 5. rand (bd-0a3b) — **deferred, blocked by bd-tv2s (automerge)**. `ThreadRng` in rand 0.10 doesn't satisfy the rand 0.9 `Rng` trait that `automerge::DocumentId::new` consumes; the upgrade only makes sense once automerge/samod move to rand 0.10.
 - [x] 6. scraper (bd-9h2g) — branch `deps/scraper-026` @ `d0d044ec` (one-line bump, no API change)
 - [x] 7. comrak (bd-anhg) — branch `deps/comrak-052` @ `c3a96f21` (no API change)
-- [ ] 8. automerge (bd-tv2s)
+- [ ] 8. automerge (bd-tv2s) — **paused** (parallel work in flight; revisit in a later session)
 - [x] 9. reqwest (bd-v0zm) — branch `deps/reqwest-013` @ `ebd84b30` (rustls-tls feature renamed to rustls)
 - [x] 10. ureq (bd-r9hs) — branch `deps/ureq-3` @ `24007314` (Error::Status removed, status→StatusCode, into_body() body API)
 - [x] 11. runtimelib (bd-tanz) — branch `deps/runtimelib-2` @ `415999ab` (paired with jupyter-protocol 2; MediaType non_exhaustive)
-- [ ] 12. Deno pair (bd-nl5q, bd-rhs6)
+- [ ] 12. Deno pair (bd-nl5q, bd-rhs6) — **paused** (largest semver jump; revisit when there's a dedicated session window)
 
 ## Session boundary protocol
 
