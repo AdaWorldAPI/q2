@@ -57,7 +57,7 @@ For each entry:
 
 - [x] 1. similar 2 → 3 (bd-zh24) — branch `deps/similar-3` @ `82c725f1`
 - [x] 2. tree-sitter pair (bd-c083, bd-wjpd) — branch `deps/tree-sitter-026` @ `3c73b49d` (named_child API: usize → u32)
-- [ ] 3. RustCrypto trio (bd-gz6k, bd-znva, bd-fyuo)
+- [x] 3. RustCrypto trio (bd-gz6k, bd-znva, bd-fyuo) — branch `deps/rustcrypto` @ `9ee17613` (digest 0.10→0.11: GenericArray→Array, KeyInit trait split)
 - [ ] 4. quick-xml (bd-8356)
 - [ ] 5. rand (bd-0a3b)
 - [ ] 6. scraper (bd-9h2g)
@@ -80,3 +80,5 @@ If a session ends mid-upgrade:
 ## Notes / discoveries
 
 - **tree-sitter 0.26**: `Node::named_child(i)` changed from `usize` to `u32`. `named_child_count()` still returns `usize`, so loops need a `u32::try_from(count).unwrap()` cast on the bound. Pattern used: store the count as `u32` once at loop entry. Grammar crates (tree-sitter-python 0.25, tree-sitter-r 1.2, tree-sitter-bash 0.25, tree-sitter-css 0.25, tree-sitter-html 0.23, tree-sitter-javascript 0.25, tree-sitter-typescript 0.23, tree-sitter-json 0.24, tree-sitter-yaml 0.7) are ABI-compatible with 0.26 — no grammar updates needed.
+
+- **digest 0.11 (sha1/sha2/hmac)**: `finalize()` returns `hybrid_array::Array<u8, _>` instead of `generic_array::GenericArray<u8, _>`. The new type **does not implement `LowerHex`**, so `format!("{:x}", hash)` no longer compiles. Migration: use `hex::encode(hash)` (or an inline `for b in &bytes[..n] { write!(s, "{:02x}", b) }` helper in build scripts to avoid a build-dep). Hex output is byte-identical to the old `LowerHex` output. Also: `Hmac::new_from_slice` moved from the `Mac` trait to the `KeyInit` trait — add `use hmac::KeyInit;`. Worth checking if any crate has captured SHA-256 baselines in tests; the `quarto-core` artifact-scoping pipeline test passing on the migrated code is the byte-identical proof.
