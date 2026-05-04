@@ -54,6 +54,8 @@ use crate::Result;
 use crate::render::RenderContext;
 use crate::stage::CodeHighlightStage;
 use crate::stage::stages::ApplyTemplateConfig;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stage::stages::BootstrapJsStage;
 use crate::stage::{
     ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, DocumentProfileStage,
     EngineExecutionStage, IncludeExpansionStage, IncludeResolveStage, LinkResolutionStage,
@@ -243,13 +245,21 @@ pub fn build_html_pipeline_stages_with_options(
         Box::new(PreEngineSugaringStage::new()),
         Box::new(engine_stage),
         Box::new(CompileThemeCssStage::new()),
-        Box::new(UserFiltersStage::pre()),
-        Box::new(AstTransformsStage::new()),
-        Box::new(UserFiltersStage::post()),
-        // bd-o8pr Phase 3: finalize the per-doc resource report
-        // (defends against filters that mutate `meta.resources`).
-        Box::new(ResourceReportStage::new()),
     ];
+    // Inject Bootstrap JS as a Project-scoped artifact when a
+    // Bootstrap-backed theme is active. Predicate matches
+    // CompileThemeCssStage so JS and CSS travel together.
+    // Native-only: hub-client's iframe-per-render preview blows
+    // away stateful Bootstrap components, so the WASM pipeline
+    // omits this stage. See bootstrap_js.rs for full rationale.
+    #[cfg(not(target_arch = "wasm32"))]
+    stages.push(Box::new(BootstrapJsStage::new()));
+    stages.push(Box::new(UserFiltersStage::pre()));
+    stages.push(Box::new(AstTransformsStage::new()));
+    stages.push(Box::new(UserFiltersStage::post()));
+    // bd-o8pr Phase 3: finalize the per-doc resource report
+    // (defends against filters that mutate `meta.resources`).
+    stages.push(Box::new(ResourceReportStage::new()));
     stages.push(Box::new(CodeHighlightStage::new()));
     stages.push(Box::new(RenderHtmlBodyStage::new()));
     let apply_stage = match apply_config {
@@ -1114,7 +1124,7 @@ mod tests {
     #[test]
     fn test_build_html_pipeline_stages() {
         let stages = build_html_pipeline_stages();
-        assert_eq!(stages.len(), 17);
+        assert_eq!(stages.len(), 18);
         assert_eq!(stages[0].name(), "parse-document");
         assert_eq!(stages[1].name(), "metadata-merge");
         // Include expansion runs before the profile checkpoint (bd-xfwx)
@@ -1132,30 +1142,41 @@ mod tests {
         assert_eq!(stages[7].name(), "pre-engine-sugaring");
         assert_eq!(stages[8].name(), "engine-execution");
         assert_eq!(stages[9].name(), "compile-theme-css");
-        assert_eq!(stages[10].name(), "user-filters-pre");
-        assert_eq!(stages[11].name(), "ast-transforms");
-        assert_eq!(stages[12].name(), "user-filters-post");
+        // Bootstrap JS (bd-4eyf) sits immediately after CompileThemeCssStage
+        // so the same theme predicate gates JS and CSS together.
+        assert_eq!(stages[10].name(), "bootstrap-js");
+        assert_eq!(stages[11].name(), "user-filters-pre");
+        assert_eq!(stages[12].name(), "ast-transforms");
+        assert_eq!(stages[13].name(), "user-filters-post");
         // bd-o8pr Phase 3: finalize per-doc resource report.
-        assert_eq!(stages[13].name(), "resource-report");
-        assert_eq!(stages[14].name(), "code-highlight");
-        assert_eq!(stages[15].name(), "render-html-body");
-        assert_eq!(stages[16].name(), "apply-template");
+        assert_eq!(stages[14].name(), "resource-report");
+        assert_eq!(stages[15].name(), "code-highlight");
+        assert_eq!(stages[16].name(), "render-html-body");
+        assert_eq!(stages[17].name(), "apply-template");
     }
 
     #[test]
     fn test_build_html_pipeline() {
         let pipeline = build_html_pipeline();
-        assert_eq!(pipeline.len(), 17);
+        assert_eq!(pipeline.len(), 18);
     }
 
     #[test]
     fn test_build_wasm_html_pipeline() {
         let pipeline = build_wasm_html_pipeline();
         // WASM pipeline matches the native HTML pipeline minus
-        // `engine-execution`. Includes the new `include-resolve`
-        // stage (bd-8kp3) so the same `rendered.includes.*`
-        // contract holds in the browser.
+        // `engine-execution` and `bootstrap-js`. Includes the
+        // `include-resolve` stage (bd-8kp3) so the same
+        // `rendered.includes.*` contract holds in the browser.
         assert_eq!(pipeline.len(), 16);
+        let names = pipeline.stage_names();
+        // bd-4eyf: hub-client iframe reinit blows away stateful
+        // Bootstrap components, so we deliberately omit `bootstrap-js`
+        // from the WASM pipeline. This assertion locks the omission in.
+        assert!(
+            !names.contains(&"bootstrap-js"),
+            "wasm pipeline must not include bootstrap-js (hub-client iframe reinit)"
+        );
     }
 
     #[test]

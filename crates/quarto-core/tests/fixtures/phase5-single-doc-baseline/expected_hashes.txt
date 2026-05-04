@@ -56,5 +56,14 @@
 # doc.html hash unchanged: the new selector doesn't match anything in
 # a single-doc body (no `body.floating`), but it appears in the
 # compiled CSS so the `styles.css` hash shifts.
-doc.html 1ce582da03349ec421b96d42a89d3589e3e8ed753a9d6802e6454a255ea67ae1
+#
+# Re-captured 2026-05-04 (bd-4eyf): doc.html hash updated because
+# Bootstrap-themed renders now ship a `<script
+# src="doc_files/bootstrap.bundle.min.js"></script>` in `<head>`
+# (vendored Bootstrap 5.3.1 bundle, with Popper). doc_files/styles.css
+# hash is unchanged: the new feature is JS-only and does not touch
+# the SCSS pipeline. A new file `doc_files/bootstrap.bundle.min.js`
+# is also written; we deliberately do not list it here because the
+# baseline only tracks files that previously existed.
+doc.html 2d1ecdc599b9717cc4e57e60185fec6d0bb346d9350b3712950021bcdc51433e
 doc_files/styles.css 21263bc958169528a85545d23c07b2f0d12de92344b026b08546c766e84b759e
