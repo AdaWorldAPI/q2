@@ -2515,9 +2515,9 @@ dependencies = [
 
 [[package]]
 name = "jupyter-protocol"
-version = "1.4.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4649647741f9794a7a02e3be976f1b248ba28a37dbfc626d5089316fd4fbf4c8"
+checksum = "67c8c5887974082be34e2bdac6b9b9dd8ad89951cae918b197959035b0673f6f"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4415,9 +4415,9 @@ dependencies = [
 
 [[package]]
 name = "runtimelib"
-version = "1.6.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1c46eb84b80531e9745a859f60fd599eab9f6397d0db1bda8c99720796d3000"
+checksum = "8a95a93931b98c47a6201d5edd6e5b3545758fb475703bc797ba866b089ee6dd"
 dependencies = [
  "base64 0.22.1",
  "bytes",
