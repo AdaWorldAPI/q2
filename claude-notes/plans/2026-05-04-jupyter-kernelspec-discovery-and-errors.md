@@ -65,16 +65,23 @@ runtimelib (in our own fork) and contribute upstream. This keeps the
 search semantics in one place and gives every other runtimelib consumer
 the same fix.
 
+Ordering principle: **finish all Quarto-side work first**, including
+end-to-end validation against the original failing fixture, before
+opening any upstream PR. Validating against a real workload may surface
+API tweaks; rolling those back into a public PR after the fact is
+expensive. Better to discover them while the fork is private.
+
 Sequence:
 
 1. **Upgrade runtimelib 1.4 → 2.0 in this repo** (small, isolated PR).
 2. **Fork `runtimed/runtimelib`** to `cscheid/runtimelib`, branch from
    the 2.0.0 tag, add venv discovery + searched-path-bearing error.
-3. **Patch `Cargo.toml`** to point at the fork via `[patch.crates-io]`.
-4. **Open upstream PR** from the same branch.
-5. **Quarto-side polish**: thread the new fields into
-   `JupyterError::KernelspecNotFound` and add a remediation hint in the
-   `Display` impl.
+3. **Patch `Cargo.toml`** to point at the fork via `[patch.crates-io]`,
+   thread the new fields into `JupyterError::KernelspecNotFound`,
+   render a remediation hint, and verify end-to-end against the
+   original failing fixture *and* a venv shell that has `ipykernel`.
+4. **(Last) Open upstream PR** once Phases 2 and 3 are validated and
+   the fork API has not needed any further churn.
 
 ## Phase 1 — Upgrade to runtimelib 2.0 ✅ (DONE)
 
@@ -168,8 +175,25 @@ runtimelib fork".
 Beads: **bd-fu0l** discovered-from child, "Wire venv-aware kernelspec
 discovery and improve error in Quarto".
 
-## Phase 4 — Upstream the fix
+## Phase 4 — Upstream the fix (LAST; only after Phases 2 + 3 are validated)
 
+This phase is intentionally last. We open the upstream PR only after
+Phases 2 and 3 have been merged into Quarto and verified end-to-end on
+the original failing fixture from a real venv shell. The reason is to
+avoid PR thrash: if validating against a real workload reveals an API
+tweak (renaming, signature change, additional plumbing for paths), we
+want to absorb that churn privately in our fork before exposing the
+final shape to upstream review.
+
+Entry criteria:
+- bd-34wy (fork) closed.
+- bd-ij1l (wire + diagnostics) closed.
+- End-to-end render of the original fixture from a venv shell
+  succeeds, recorded in bd-ij1l's close-out.
+- No outstanding "we'll change the fork API" follow-ups.
+
+- [ ] Squash/clean the fork branch history if it accumulated
+      validation-driven churn.
 - [ ] Open PR from `cscheid/runtimelib:feat/venv-kernelspec-discovery`
       against `runtimed/runtimelib:main`.
 - [ ] If accepted, replace the `[patch.crates-io]` block with a normal
@@ -177,8 +201,8 @@ discovery and improve error in Quarto".
 - [ ] If rejected or stalled, leave the patch in place and document
       the situation in `CLAUDE.md`.
 
-Beads: **bd-fu0l** discovered-from child, "Upstream venv-aware
-kernelspec discovery to runtimed/runtimelib".
+Beads: **bd-875x**, blocked by bd-34wy *and* bd-ij1l (deliberately —
+upstream waits on validated wiring, not just on the fork existing).
 
 ## Phase 5 (deferred) — `sys.prefix` fallback
 
