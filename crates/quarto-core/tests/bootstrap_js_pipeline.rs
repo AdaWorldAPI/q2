@@ -308,3 +308,69 @@ fn website_root_page_links_bootstrap_with_direct_path() {
         bootstrap_src
     );
 }
+
+/// Navbar dropdown menus are the primary motivating use case for
+/// shipping Bootstrap JS at all (they need `bootstrap.Dropdown` +
+/// Popper for positioning). This test guards that *both* prerequisites
+/// land in the rendered output simultaneously: the `<script>` tag that
+/// loads the runtime AND the `data-bs-toggle="dropdown"` /
+/// `.dropdown-menu` / `.dropdown-item` markup the runtime drives. If
+/// either side regresses, the menu silently breaks in a real browser.
+///
+/// We intentionally *don't* spin up a real browser here — the live
+/// dropdown-click smoke is recorded in the plan doc. This test just
+/// locks in that the necessary inputs to a working menu are emitted.
+#[test]
+fn website_navbar_dropdown_emits_bootstrap_js_and_dropdown_markup() {
+    let project_dir = render_website(|p| {
+        write_file(
+            &p.join("_quarto.yml"),
+            "project:\n  type: website\n  output-dir: _site\n\
+             navbar:\n  title: Smoke\n  left:\n    - href: index.qmd\n      text: Home\n    \
+             - text: Docs\n      menu:\n        - href: guide.qmd\n          text: Guide\n        \
+             - href: api.qmd\n          text: API\n",
+        );
+        write_file(&p.join("index.qmd"), "---\ntitle: Home\n---\n\nWelcome.\n");
+        write_file(&p.join("guide.qmd"), "---\ntitle: Guide\n---\n\nGuide.\n");
+        write_file(&p.join("api.qmd"), "---\ntitle: API\n---\n\nAPI.\n");
+    });
+
+    let index_html = read(&project_dir.join("_site").join("index.html"));
+
+    // Bootstrap JS is loaded.
+    let scripts = extract_script_srcs(&index_html);
+    assert!(
+        scripts.iter().any(|s| s.contains(BOOTSTRAP_JS_BASENAME)),
+        "navbar+dropdown page missing bootstrap.bundle.min.js <script>; scripts: {:?}",
+        scripts
+    );
+
+    // The dropdown trigger carries the data-bs-toggle attribute Bootstrap
+    // listens on. (Without it, click-to-open does nothing.)
+    assert!(
+        index_html.contains("data-bs-toggle=\"dropdown\""),
+        "navbar dropdown missing data-bs-toggle=\"dropdown\""
+    );
+
+    // The dropdown menu container is present.
+    assert!(
+        index_html.contains("class=\"dropdown-menu\"") || index_html.contains("dropdown-menu\""),
+        "navbar dropdown missing .dropdown-menu container"
+    );
+
+    // Both menu items render as dropdown-item links with rewritten hrefs.
+    assert!(
+        index_html.contains("href=\"guide.html\""),
+        "Guide menu item href not rewritten to guide.html"
+    );
+    assert!(
+        index_html.contains("href=\"api.html\""),
+        "API menu item href not rewritten to api.html"
+    );
+    let dropdown_items = index_html.matches("class=\"dropdown-item").count();
+    assert!(
+        dropdown_items >= 2,
+        "expected at least 2 dropdown-item entries, found {}",
+        dropdown_items
+    );
+}

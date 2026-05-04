@@ -157,6 +157,36 @@ website over a local `python3 -m http.server` on the three-page fixture:
   - Same checks pass. The `../site_libs/quarto/bootstrap.bundle.min.js` relative href resolves correctly to the absolute server URL.
 - Console: one 404 for `/favicon.ico` (a default-Chrome request, not emitted by Quarto). No errors from the Bootstrap script itself.
 
+**Navbar dropdown menu (the original motivation for shipping Bootstrap JS):**
+
+Built a real q2 website fixture with a navbar containing both regular
+links and a `Docs` dropdown menu (Guide / API entries). Rendered with
+`cargo run --bin q2 -- render`, served on port 8766, drove via Chromium:
+
+- Pre-click: `aria-expanded="false"`, no `show` class on `.dropdown-menu`.
+- Click on the `Docs` trigger → `aria-expanded="true"`, `.dropdown-menu` gained `show` class. Bootstrap's `Dropdown` class fired, Popper positioned the menu.
+- Menu items resolved correctly: `Guide → guide.html`, `API → api.html` (qmd-to-html href rewriting working).
+- Click again to close → cleanly back to `aria-expanded="false"`, `show` class removed.
+
+This is the live proof of the original motivation — without our
+Bootstrap JS injection, this dropdown would silently do nothing.
+
+**Navbar config-shape follow-up (filed as bd-telo):** the smoke test
+initially used `website.navbar:` (the natural project-level home,
+matching Q1 and `website.sidebar`), and silently produced no navbar
+markup — q2 today only reads the top-level `navbar:` key. Both shapes
+should work: top-level for non-website projects that want navigation,
+nested under `website:` for project-level config. Tracked separately;
+not in scope for bd-4eyf.
+
+The new integration test
+`website_navbar_dropdown_emits_bootstrap_js_and_dropdown_markup` in
+`tests/bootstrap_js_pipeline.rs` locks in that the *prerequisites* for
+a working menu (Bootstrap `<script>` tag + `data-bs-toggle="dropdown"`
++ `.dropdown-menu` + rewritten hrefs) all land in the rendered HTML
+simultaneously; if any of them regresses, the menu silently breaks in
+a real browser.
+
 #### CLI exercise log (recorded 2026-05-04)
 
 **Single-doc, themed:**
