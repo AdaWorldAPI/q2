@@ -273,22 +273,16 @@ verbose_file_reads = "warn"
 
 [patch.crates-io]
 lua-src = { path = "crates/lua-src-wasm" }
-# Local fork of runtimelib that adds venv-aware kernelspec discovery
+# Fork of runtimelib that adds venv-aware kernelspec discovery
 # (`data_dirs_with_jupyter_paths`, `find_kernelspec_with_jupyter_paths`)
 # and threads `searched_paths` through `RuntimeError::KernelNotFound`.
-#
-# DEVELOPER NOTE: this path patch only resolves on machines that have
-# `cscheid/runtimed` cloned at the sibling `~/repos/github/cscheid/runtimed`.
-# It exists to validate the fork end-to-end before pushing (bd-ij1l).
-# Before this branch can ship, the patch must be switched to a
-# `{ git = "...", rev = "..." }` form once the fork branch is pushed,
-# and ultimately removed once the upstream PR (bd-875x) lands and a
-# release ships.
-runtimelib = { path = "../../cscheid/runtimed/crates/runtimelib" }
-# `runtimelib` (above) depends on `jupyter-protocol` via workspace path,
-# so we must patch jupyter-protocol from the same workspace to avoid
-# pulling in two distinct `jupyter_protocol::JupyterMessage` types.
-jupyter-protocol = { path = "../../cscheid/runtimed/crates/jupyter-protocol" }
+# Pinned to a SHA on cscheid/runtimed; will be removed once the
+# upstream PR (bd-875x) lands and a release ships.
+runtimelib = { git = "https://github.com/cscheid/runtimed", rev = "6647651e697ba4a086963f4398f4b2e13ad0eb08" }
+# `runtimelib` depends on `jupyter-protocol` via the runtimed workspace,
+# so we must patch jupyter-protocol from the same SHA to avoid pulling
+# in two distinct `jupyter_protocol::JupyterMessage` types.
+jupyter-protocol = { git = "https://github.com/cscheid/runtimed", rev = "6647651e697ba4a086963f4398f4b2e13ad0eb08" }
 
 # Profiles must be set at the workspace level
 [profile.dev]
