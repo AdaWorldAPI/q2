@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-05-05
+
+- [`5ecdfe48`](https://github.com/quarto-dev/q2/commits/5ecdfe48): Surface doctemplate diagnostics (e.g. `Q-10-2 Undefined variable`) through `quarto render` and the hub-client preview (bd-xdnk). Custom templates referencing undefined variables now produce ariadne-rendered warnings with accurate source locations instead of being silently dropped. Also fixes a separate pre-existing bug where the `template:` YAML key was ignored under `quarto render` because the lookup didn't handle `PandocInlines`-shaped scalars.
+
 ### 2026-05-01
 
 - [`2441ad8d`](https://github.com/quarto-dev/q2/commits/2441ad8d): Fix bd-lnd3 — cross-document link clicks now switch the editor in website projects. The website pipeline rewrites `[About](about.qmd)` to `/.quarto/project-artifacts/about.html`; the iframe click handler reverse-maps that back to the source file for in-editor navigation.
