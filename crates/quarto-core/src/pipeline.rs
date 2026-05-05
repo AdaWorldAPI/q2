@@ -59,8 +59,8 @@ use crate::stage::stages::BootstrapJsStage;
 use crate::stage::{
     ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, DocumentProfileStage,
     EngineExecutionStage, IncludeExpansionStage, IncludeResolveStage, LinkResolutionStage,
-    LoadedSource, MetadataMergeStage, ParseDocumentStage, Pipeline, PipelineData, PipelineStage,
-    PreEngineSugaringStage, RenderHtmlBodyStage, ResourceReportStage, StageContext,
+    LoadedSource, MathJsStage, MetadataMergeStage, ParseDocumentStage, Pipeline, PipelineData,
+    PipelineStage, PreEngineSugaringStage, RenderHtmlBodyStage, ResourceReportStage, StageContext,
     UnwrapProfileStage, UserFiltersStage,
 };
 use crate::transform::TransformPipeline;
@@ -261,6 +261,13 @@ pub fn build_html_pipeline_stages_with_options(
     // (defends against filters that mutate `meta.resources`).
     stages.push(Box::new(ResourceReportStage::new()));
     stages.push(Box::new(CodeHighlightStage::new()));
+    // Math-mode (bd-w5ov): walk the post-transform AST and, when math
+    // is present, populate `meta.math` with the engine's config + loader
+    // markup. Sits right before render-html-body so any late-introduced
+    // math (engine output, sugar transforms, crossref `\tag{N}`
+    // injection) is visible to the walk. Included on both native and
+    // WASM pipelines — see math_js.rs module docs for the rationale.
+    stages.push(Box::new(MathJsStage::new()));
     stages.push(Box::new(RenderHtmlBodyStage::new()));
     let apply_stage = match apply_config {
         Some(cfg) => ApplyTemplateStage::with_config(cfg),
@@ -351,6 +358,12 @@ pub fn build_wasm_html_pipeline() -> Pipeline {
         Box::new(ResourceReportStage::new()),
     ];
     stages.push(Box::new(CodeHighlightStage::new()));
+    // Math-mode (bd-w5ov): unlike Bootstrap (which we omit from WASM
+    // because iframe reinit blows away stateful components), math
+    // display is safe under iframe reinit — each load gets a fresh DOM
+    // and the engine typesets once. Hub-client preview should typeset
+    // math live, so include the stage here too.
+    stages.push(Box::new(MathJsStage::new()));
     stages.push(Box::new(RenderHtmlBodyStage::new()));
     stages.push(Box::new(ApplyTemplateStage::new()));
 
@@ -1124,7 +1137,7 @@ mod tests {
     #[test]
     fn test_build_html_pipeline_stages() {
         let stages = build_html_pipeline_stages();
-        assert_eq!(stages.len(), 18);
+        assert_eq!(stages.len(), 19);
         assert_eq!(stages[0].name(), "parse-document");
         assert_eq!(stages[1].name(), "metadata-merge");
         // Include expansion runs before the profile checkpoint (bd-xfwx)
@@ -1151,14 +1164,19 @@ mod tests {
         // bd-o8pr Phase 3: finalize per-doc resource report.
         assert_eq!(stages[14].name(), "resource-report");
         assert_eq!(stages[15].name(), "code-highlight");
-        assert_eq!(stages[16].name(), "render-html-body");
-        assert_eq!(stages[17].name(), "apply-template");
+        // Math-mode (bd-w5ov) walks the post-transform AST and
+        // populates meta.math when math is present. Sits just before
+        // render-html-body so any late-introduced math (sugar, user
+        // filters, crossref `\tag{N}`) is visible.
+        assert_eq!(stages[16].name(), "math-js");
+        assert_eq!(stages[17].name(), "render-html-body");
+        assert_eq!(stages[18].name(), "apply-template");
     }
 
     #[test]
     fn test_build_html_pipeline() {
         let pipeline = build_html_pipeline();
-        assert_eq!(pipeline.len(), 18);
+        assert_eq!(pipeline.len(), 19);
     }
 
     #[test]
@@ -1168,7 +1186,9 @@ mod tests {
         // `engine-execution` and `bootstrap-js`. Includes the
         // `include-resolve` stage (bd-8kp3) so the same
         // `rendered.includes.*` contract holds in the browser.
-        assert_eq!(pipeline.len(), 16);
+        // Includes `math-js` (bd-w5ov) — math display is safe under
+        // hub-client iframe reinit and we want live math in preview.
+        assert_eq!(pipeline.len(), 17);
         let names = pipeline.stage_names();
         // bd-4eyf: hub-client iframe reinit blows away stateful
         // Bootstrap components, so we deliberately omit `bootstrap-js`
@@ -1176,6 +1196,13 @@ mod tests {
         assert!(
             !names.contains(&"bootstrap-js"),
             "wasm pipeline must not include bootstrap-js (hub-client iframe reinit)"
+        );
+        // bd-w5ov: math display IS safe under iframe reinit (each load
+        // gets a fresh DOM and the engine typesets once). The hub-client
+        // preview should typeset math live, so `math-js` is included.
+        assert!(
+            names.contains(&"math-js"),
+            "wasm pipeline must include math-js (live math in hub-client preview)"
         );
     }
 

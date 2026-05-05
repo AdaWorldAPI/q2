@@ -71,6 +71,11 @@ impl PartialResolver for RuntimeResolver<'_> {
 /// - `$css$` - CSS stylesheets (external files)
 /// - `$lang$` - document language
 /// - `$header-includes$` - additional header content
+/// - `$math$` - math-engine init markup (config block + loader script).
+///   Populated by [`crate::stage::stages::MathJsStage`] when the
+///   document contains math; rendered immediately before
+///   `$for(scripts)$` so the inline config block lands BEFORE the
+///   loader (what MathJax expects).
 const MINIMAL_HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 <html$if(lang)$ lang="$lang$"$endif$>
 <head>
@@ -82,6 +87,9 @@ $endif$
 $for(css)$
 <link rel="stylesheet" href="$css$">
 $endfor$
+$if(math)$
+$math$
+$endif$
 $for(scripts)$
 <script src="$scripts$"></script>
 $endfor$
@@ -155,6 +163,9 @@ $endif$
 $for(css)$
 <link rel="stylesheet" href="$css$">
 $endfor$
+$if(math)$
+$math$
+$endif$
 $for(scripts)$
 <script src="$scripts$"></script>
 $endfor$
