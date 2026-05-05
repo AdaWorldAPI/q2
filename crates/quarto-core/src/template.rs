@@ -23,6 +23,7 @@
 use std::path::Path;
 
 use quarto_doctemplate::{PartialResolver, Template, TemplateContext, TemplateValue};
+use quarto_error_reporting::DiagnosticMessage;
 use quarto_pandoc_types::{ConfigValue, ConfigValueKind};
 use quarto_system_runtime::SystemRuntime;
 
@@ -286,8 +287,13 @@ pub fn select_template(minimal: bool) -> Result<Template> {
 /// * `meta` - Document metadata from the Pandoc AST (as ConfigValue)
 ///
 /// # Returns
-/// The complete HTML document as a string.
-pub fn render_with_template(body: &str, meta: &ConfigValue) -> Result<String> {
+/// The complete HTML document as a string, plus any diagnostics
+/// (e.g. `Q-10-2 Undefined variable`) emitted by the doctemplate
+/// evaluator.
+pub fn render_with_template(
+    body: &str,
+    meta: &ConfigValue,
+) -> Result<(String, Vec<DiagnosticMessage>)> {
     let template = default_html_template()?;
 
     // Build template context from metadata
@@ -299,10 +305,14 @@ pub fn render_with_template(body: &str, meta: &ConfigValue) -> Result<String> {
     // Convert and add metadata
     add_metadata_to_context(meta, &mut ctx);
 
-    // Render the template
-    template
-        .render(&ctx)
-        .map_err(|e| crate::error::QuartoError::other(e.to_string()))
+    // Render the template, collecting diagnostics from the evaluator.
+    let (html, diagnostics) = template.render_with_diagnostics(&ctx);
+    let html = html.map_err(|()| {
+        crate::error::QuartoError::other(
+            "Template evaluation failed (see diagnostics for details)".to_string(),
+        )
+    })?;
+    Ok((html, diagnostics))
 }
 
 /// Render a document with a pre-compiled template.
@@ -334,7 +344,7 @@ pub fn render_with_compiled_template(
     meta: &ConfigValue,
     css_paths: &[String],
     script_paths: &[String],
-) -> Result<String> {
+) -> Result<(String, Vec<DiagnosticMessage>)> {
     let mut ctx = TemplateContext::new();
     ctx.insert("body", TemplateValue::String(body.to_string()));
 
@@ -409,9 +419,15 @@ pub fn render_with_compiled_template(
         ctx.insert("body-classes", TemplateValue::String(s));
     }
 
-    template
-        .render(&ctx)
-        .map_err(|e| crate::error::QuartoError::other(e.to_string()))
+    // Render with diagnostics so undefined-variable warnings (etc.)
+    // surface to callers instead of being silently dropped (bd-xdnk).
+    let (html, diagnostics) = template.render_with_diagnostics(&ctx);
+    let html = html.map_err(|()| {
+        crate::error::QuartoError::other(
+            "Template evaluation failed (see diagnostics for details)".to_string(),
+        )
+    })?;
+    Ok((html, diagnostics))
 }
 
 /// Set a template `$for(...)$`-style includes variable from the canonical
@@ -458,7 +474,7 @@ pub fn render_with_resources(
     body: &str,
     meta: &ConfigValue,
     css_paths: &[String],
-) -> Result<String> {
+) -> Result<(String, Vec<DiagnosticMessage>)> {
     let template = default_html_template()?;
     render_with_compiled_template(&template, body, meta, css_paths, &[])
 }
@@ -472,7 +488,7 @@ pub fn render_with_format(
     meta: &ConfigValue,
     _format: &Format,
     css_paths: &[String],
-) -> Result<String> {
+) -> Result<(String, Vec<DiagnosticMessage>)> {
     let minimal = is_minimal_html(meta);
     let template = select_template(minimal)?;
     render_with_compiled_template(&template, body, meta, css_paths, &[])
@@ -481,9 +497,14 @@ pub fn render_with_format(
 /// Compile the appropriate built-in template (minimal or full) with a custom
 /// partial resolver. Used when extension metadata provides `template-partials`
 /// without a custom `template`.
+///
+/// The `source_context` is the document's `SourceContext`; partial files
+/// loaded by the resolver are registered here so their FileIds resolve
+/// back to source slices when diagnostics reference them (bd-xdnk).
 pub fn compile_builtin_template_with_partials(
     meta: &ConfigValue,
     resolver: &impl PartialResolver,
+    source_context: &mut quarto_source_map::SourceContext,
 ) -> Result<Template> {
     let minimal = is_minimal_html(meta);
     let source = if minimal {
@@ -491,8 +512,14 @@ pub fn compile_builtin_template_with_partials(
     } else {
         FULL_HTML_TEMPLATE
     };
-    Template::compile_with_resolver(source, std::path::Path::new("<builtin>"), resolver, 0)
-        .map_err(|e| crate::error::QuartoError::other(e.to_string()))
+    Template::compile_with_resolver_and_context(
+        source,
+        std::path::Path::new("<builtin>"),
+        resolver,
+        0,
+        source_context,
+    )
+    .map_err(|e| crate::error::QuartoError::other(e.to_string()))
 }
 
 /// Add metadata from the Pandoc AST to the template context, excluding specific keys.
@@ -719,7 +746,7 @@ mod tests {
         let result = render_with_template(body, &meta);
 
         assert!(result.is_ok());
-        let html = result.unwrap();
+        let (html, _diags) = result.unwrap();
         assert!(html.contains("<title>Test Document</title>"));
         assert!(html.contains("<p>Hello, World!</p>"));
         assert!(html.contains("<!DOCTYPE html>"));
@@ -753,7 +780,7 @@ mod tests {
         let result = render_with_template(body, &meta);
 
         assert!(result.is_ok());
-        let html = result.unwrap();
+        let (html, _diags) = result.unwrap();
         assert!(html.contains(r#"<link rel="stylesheet" href="style1.css">"#));
         assert!(html.contains(r#"<link rel="stylesheet" href="style2.css">"#));
     }
@@ -773,7 +800,7 @@ mod tests {
         let result = render_with_resources("<p>Body</p>", &meta, &css_paths);
 
         assert!(result.is_ok());
-        let html = result.unwrap();
+        let (html, _diags) = result.unwrap();
         assert!(html.contains(r#"href="lib/styles.css"#));
         assert!(html.contains(r#"href="lib/theme.css"#));
     }
@@ -800,7 +827,7 @@ mod tests {
         let result = render_with_resources("<p>Body</p>", &meta, &css_paths);
 
         assert!(result.is_ok());
-        let html = result.unwrap();
+        let (html, _diags) = result.unwrap();
         // Both default and user CSS should be present
         assert!(html.contains("default.css"));
         assert!(html.contains("user.css"));
@@ -1732,7 +1759,8 @@ mod tests {
         );
         let css_paths = vec!["styles.css".to_string()];
 
-        let html = render_with_format("<p>Hello</p>", &meta, &format, &css_paths).unwrap();
+        let (html, _diags) =
+            render_with_format("<p>Hello</p>", &meta, &format, &css_paths).unwrap();
 
         // Should be minimal template
         assert!(!html.contains("quarto-content"));
@@ -1748,7 +1776,8 @@ mod tests {
         let meta = ConfigValue::null(dummy_source_info());
         let css_paths = vec!["styles.css".to_string()];
 
-        let html = render_with_format("<p>Hello</p>", &meta, &format, &css_paths).unwrap();
+        let (html, _diags) =
+            render_with_format("<p>Hello</p>", &meta, &format, &css_paths).unwrap();
 
         // Should be full template
         assert!(html.contains("quarto-content"));
@@ -1782,7 +1811,8 @@ mod tests {
         );
         let css_paths = vec![];
 
-        let html = render_with_format("<p>Content</p>", &meta, &format, &css_paths).unwrap();
+        let (html, _diags) =
+            render_with_format("<p>Content</p>", &meta, &format, &css_paths).unwrap();
 
         // Should have title block
         assert!(html.contains("<header id=\"title-block-header\""));
@@ -1903,7 +1933,7 @@ mod tests {
         let template = minimal_html_template().unwrap();
         let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
 
-        let html = render_with_compiled_template(
+        let (html, _diags) = render_with_compiled_template(
             &template,
             "<p>body</p>",
             &meta,
@@ -1925,7 +1955,7 @@ mod tests {
         let meta =
             meta_with_rendered_includes(&["<meta name=\"test\" content=\"value\">"], &[], &[]);
 
-        let html =
+        let (html, _diags) =
             render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
 
         assert!(
@@ -1948,7 +1978,7 @@ mod tests {
             &["<div class=\"after\">AFTER</div>"],
         );
 
-        let html =
+        let (html, _diags) =
             render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
 
         let before_pos = html.find("BEFORE").unwrap();
@@ -2039,7 +2069,7 @@ mod tests {
         let template = minimal_html_template().unwrap();
         let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
 
-        let html =
+        let (html, _diags) =
             render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
 
         assert!(
@@ -2056,6 +2086,37 @@ mod tests {
             !html.contains("AFTER"),
             "no include-after expected, got: {}",
             html
+        );
+    }
+
+    /// bd-xdnk: undefined-variable warnings from the doctemplate evaluator
+    /// must surface in the returned diagnostics vec, not be silently dropped.
+    #[test]
+    fn test_undefined_variable_emits_diagnostic() {
+        // Custom template with a reference to a variable the document
+        // does not provide.
+        let template_src = "<header>by $author-greeting$</header>$body$";
+        let template =
+            quarto_doctemplate::Template::compile(template_src).expect("template should compile");
+        let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
+
+        let (html, diagnostics) =
+            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
+
+        assert!(
+            html.contains("<p>body</p>"),
+            "body should still render, got: {}",
+            html
+        );
+
+        let undef = diagnostics.iter().find(|d| {
+            d.code.as_deref() == Some("Q-10-2")
+                && d.kind == quarto_error_reporting::DiagnosticKind::Warning
+        });
+        assert!(
+            undef.is_some(),
+            "expected Q-10-2 warning for undefined variable, got: {:?}",
+            diagnostics
         );
     }
 }

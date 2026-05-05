@@ -656,15 +656,14 @@ pub async fn render_qmd_to_html(
         crate::error::QuartoError::Other("Pipeline did not produce RenderedOutput".to_string())
     })?;
 
-    // Create source context for the output
-    let mut source_context = SourceContext::new();
-    let content_str = String::from_utf8_lossy(content).to_string();
-    source_context.add_file(source_name.to_string(), Some(content_str));
-
+    // bd-xdnk: forward the document's SourceContext (populated by
+    // ParseDocumentStage, IncludeExpansionStage, ApplyTemplateStage)
+    // so cross-file diagnostics — template warnings, includes — can
+    // resolve back to the right source slice when ariadne renders.
     Ok(RenderOutput {
         html: rendered.content,
         diagnostics,
-        source_context,
+        source_context: rendered.source_context,
     })
 }
 

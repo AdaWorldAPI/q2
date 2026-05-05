@@ -113,6 +113,11 @@ impl PipelineStage for RenderHtmlBodyStage {
             is_intermediate: false, // HTML body is not intermediate for HTML output
             supporting_files: vec![],
             metadata: doc.ast.meta,
+            // bd-xdnk: hand the document's SourceContext forward so
+            // ApplyTemplateStage can register template files in the
+            // same context, and so the renderer's stderr output can
+            // slice source for ariadne carets.
+            source_context: doc.source_context,
         }))
     }
 }
