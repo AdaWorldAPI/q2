@@ -1,13 +1,16 @@
+import { useState } from 'react';
 import { useShaderStream } from './hooks/useShaderStream';
 import { EnergyField } from './components/EnergyField';
 import { BusTicker } from './components/BusTicker';
 import { ThoughtLog } from './components/ThoughtLog';
 import { SceneBreadcrumb } from './components/SceneBreadcrumb';
 import { FreeEnergyDial } from './components/FreeEnergyDial';
+import { StyleSelector } from './components/StyleSelector';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DiagnosticsBadge, DiagnosticsOverlay } from './components/DiagnosticsOverlay';
 import { useEndpointHealth } from './hooks/useEndpointHealth';
 import { fmt, safeNum, safeStr } from './diagnostics/safe';
+import { setShaderStyle } from './transport';
 
 /**
  * ReasoningPage — live AGI shader stream.
@@ -20,6 +23,30 @@ import { fmt, safeNum, safeStr } from './diagnostics/safe';
 export function ReasoningPage() {
   const stream = useShaderStream('/v1/shader/stream');
   useEndpointHealth(8000);
+
+  // Phase 3 A2: locally-tracked active style (optimistic). Backend is the
+  // source of truth — `stream.lastDispatch.style` confirms the round-trip
+  // and is rendered inside the StyleSelector head.
+  const [activeStyle, setActiveStyle] = useState<string | null>(null);
+  const [styleError, setStyleError] = useState<string | null>(null);
+
+  const handleStyleSelect = (style: string | null) => {
+    setActiveStyle(style);
+    setStyleError(null);
+    // null → "Auto" → keep optimistic state but skip the POST. Backend
+    // already falls back to its automatic picker when no override is set;
+    // the manual clear-override hook isn't owned by Agent #A2.
+    if (style === null) return;
+    setShaderStyle(style).then((ok) => {
+      if (!ok) {
+        setStyleError(`POST /v1/shader/style failed for "${style}"`);
+      }
+    });
+  };
+
+  const lastDispatchStyle = stream.lastDispatch
+    ? safeStr(stream.lastDispatch.style, '', 'dispatch.style') || null
+    : null;
 
   return (
     <div className="shell reasoning-shell">
@@ -49,6 +76,18 @@ export function ReasoningPage() {
           <DiagnosticsBadge />
           <a href="/" className="badge" style={{ textDecoration: 'none' }}>← cockpit</a>
         </div>
+      </section>
+
+      {/* Style selector row: 36-brain cognitive lens picker (Phase 3 A2) */}
+      <section className="style-selector-row">
+        <ErrorBoundary scope="StyleSelector">
+          <StyleSelector
+            active={activeStyle}
+            onSelect={handleStyleSelect}
+            lastDispatchStyle={lastDispatchStyle}
+            errorText={styleError}
+          />
+        </ErrorBoundary>
       </section>
 
       {/* Main row: EnergyField · BusTicker · FreeEnergyDial */}

@@ -31,6 +31,7 @@ mod openai;
 mod graph_engine;
 mod scene_player;
 mod shader_stream;
+mod style_state;
 mod dto_bridge;
 mod codebook;
 mod mock_driver;
@@ -124,6 +125,10 @@ async fn main() {
         // Shader stream — DTO pipeline SSE (Φ StreamDto → Ψ ResonanceDto → B BusDto → Γ ThoughtStruct)
         .route("/v1/shader/stream", get(shader_stream::shader_stream_handler).with_state(scene_state_for_routes.clone()))
         .route("/v1/shader/status", get(shader_stream::shader_status_handler).with_state(scene_state_for_routes))
+        // Shader style selection — POST { "style": "Focused" } sets the
+        // process-global StyleSelector that shader_stream reads when
+        // building each ShaderDispatch (overrides default Auto).
+        .route("/v1/shader/style", post(style_handler))
         // MCP endpoints — all queries route through lance-graph
         .route("/mcp/sse", get(sse_handler))
         .route("/mcp/message", post(mcp_message_handler))
@@ -456,6 +461,34 @@ fn build_outputs(result: &notebook_query::QueryResult) -> Vec<serde_json::Value>
         outputs.push(serde_json::json!({ "type": "text", "content": result.raw_output }));
     }
     outputs
+}
+
+// ── Shader style selection ───────────────────────────────────────────────────
+
+/// POST /v1/shader/style — set the process-global thinking style.
+///
+/// Request body: `{ "style": "Focused" }` (or any of the 36 canonical
+/// `ThinkingStyle` names; "Auto" returns to driver-routed selection).
+/// On success the next `ShaderDispatch` built by the SSE loop will use
+/// the new selector — see `style_state::current_dispatch`.
+async fn style_handler(
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let style_name = body
+        .get("style")
+        .and_then(|v| v.as_str())
+        .ok_or((StatusCode::BAD_REQUEST, "missing 'style' field".to_string()))?;
+    let parsed = style_state::parse_style_name(style_name).ok_or((
+        StatusCode::BAD_REQUEST,
+        format!("unknown style: {style_name}"),
+    ))?;
+    style_state::set_style(parsed);
+    let canonical = style_state::current_style_name();
+    Ok(Json(serde_json::json!({
+        "style": style_name,
+        "canonical": canonical,
+        "applied": true,
+    })))
 }
 
 // ── Live strategy diagnostics ─────────────────────────────────────────────────
