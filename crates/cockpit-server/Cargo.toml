@@ -28,11 +28,15 @@ serde_json = "1"
 # semiring algebra, HHTL cascade. ALL queries route through here.
 lance-graph.workspace = true
 
-# Real thinking engine + cognitive cycle (replaces fabricated DTOs)
-thinking-engine.workspace = true
-cognitive-shader-driver.workspace = true
+# Canonical R1 cycle surface: ShaderDispatch → ShaderResonance → ShaderBus → ShaderCrystal.
+# Phase 2B dropped `thinking-engine` and `cognitive-shader-driver` — they're
+# THINK-1 spaghetti duplicates per the lance-graph entropy ledger. The
+# zero-dep contract is the canonical surface; cockpit-server impls
+# `CognitiveShaderDriver` itself (see `mock_driver.rs`).
 lance-graph-contract.workspace = true
+# NARS truth-revision algebra (canonical TruthValue::deduction).
 lance-graph-planner.workspace = true
+# Causal edge protocol (CausalEdge64 wire format).
 causal-edge.workspace = true
 
 # Query routing layer — dispatches Cypher/Gremlin/SPARQL to lance-graph
