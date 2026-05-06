@@ -33,6 +33,7 @@ mod scene_player;
 mod shader_stream;
 mod dto_bridge;
 mod codebook;
+mod mock_driver;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
 // The cockpit/ directory is built by `cd cockpit && npm run build` which

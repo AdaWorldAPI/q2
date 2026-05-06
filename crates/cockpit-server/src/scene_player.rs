@@ -1,4 +1,4 @@
-//! Scene player: Cypher-file → real `thinking_engine::dto::StreamDto`.
+//! Scene player: Cypher-file → CypherStream { codebook_indices, source, timestamp }.
 //!
 //! This module replaces the fabricated `hash(content) % 4096` codebook indices
 //! that lived in `shader_stream.rs` with real ones derived from the lance-graph
@@ -16,7 +16,7 @@
 //!      StreamDto.
 //!
 //! The mapping is DETERMINISTIC: same token text → same codebook index
-//! across processes / runs. `SourceType::AriGraph` flags the provenance so
+//! across processes / runs. `source: "AriGraph"` flags the provenance so
 //! downstream sensors can attribute the perturbation correctly.
 
 use std::collections::hash_map::DefaultHasher;
@@ -29,9 +29,21 @@ use lance_graph::ast::{
     UnwindClause, ValueExpression, WhereClause, WithClause,
 };
 use lance_graph::parser::parse_cypher_query;
-use thinking_engine::dto::{SourceType, StreamDto};
 
-/// Codebook size — keep in sync with `thinking_engine::engine::CODEBOOK_SIZE`.
+/// Output of `cypher_to_stream` — the codebook indices a Cypher act produced,
+/// plus provenance. This is a local struct so cockpit-server can drop its
+/// `thinking-engine` dep entirely; the canonical R1 surface uses
+/// `lance_graph_contract::cognitive_shader::*` for the cycle DTOs, and the
+/// driver consumes raw `&[u16]` indices via `MockShaderDriver::perturb`.
+#[derive(Clone, Debug)]
+pub struct CypherStream {
+    /// Provenance label ("AriGraph" for graph-derived perturbations).
+    pub source: &'static str,
+    pub codebook_indices: Vec<u16>,
+    pub timestamp: u64,
+}
+
+/// Codebook size — keep in sync with `lance_graph_contract::codebook` width.
 const CODEBOOK_SIZE: u32 = 4096;
 
 // ── Public types ────────────────────────────────────────────────────────────
@@ -110,7 +122,7 @@ pub fn cypher_preview(content: &str) -> String {
 ///
 /// Each token is mapped via stable `DefaultHasher % 4096` to a codebook index.
 /// Source is `AriGraph` (these are graph-derived perturbations).
-pub fn cypher_to_stream(content: &str, ts: u64) -> StreamDto {
+pub fn cypher_to_stream(content: &str, ts: u64) -> CypherStream {
     let mut tokens: Vec<String> = Vec::new();
 
     match parse_cypher_query(content) {
@@ -134,8 +146,8 @@ pub fn cypher_to_stream(content: &str, ts: u64) -> StreamDto {
         }
     }
 
-    StreamDto {
-        source: SourceType::AriGraph,
+    CypherStream {
+        source: "AriGraph",
         codebook_indices: indices,
         timestamp: ts,
     }
@@ -444,7 +456,7 @@ mod tests {
     fn cypher_to_stream_real_query() {
         let cypher = "MATCH (p:Person)-[r:KNOWS]->(c:City) WHERE p.age > 30 RETURN p.name, c.name";
         let stream = cypher_to_stream(cypher, 12345);
-        assert_eq!(stream.source, SourceType::AriGraph);
+        assert_eq!(stream.source, "AriGraph");
         assert_eq!(stream.timestamp, 12345);
         assert!(!stream.codebook_indices.is_empty(), "expected indices for Person/KNOWS/City/age/name");
         // All indices in range.
@@ -463,7 +475,7 @@ mod tests {
         // Malformed Cypher — fallback should still extract identifiers.
         let bad = "this is not :: valid cypher but Person KNOWS City should still extract";
         let stream = cypher_to_stream(bad, 99);
-        assert_eq!(stream.source, SourceType::AriGraph);
+        assert_eq!(stream.source, "AriGraph");
         assert!(!stream.codebook_indices.is_empty());
         assert!(stream.codebook_indices.contains(&stable_codebook_index("Person")));
         assert!(stream.codebook_indices.contains(&stable_codebook_index("City")));

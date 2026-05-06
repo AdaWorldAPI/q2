@@ -7,7 +7,7 @@ import { FreeEnergyDial } from './components/FreeEnergyDial';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DiagnosticsBadge, DiagnosticsOverlay } from './components/DiagnosticsOverlay';
 import { useEndpointHealth } from './hooks/useEndpointHealth';
-import { fmt, safeNum } from './diagnostics/safe';
+import { fmt, safeNum, safeStr } from './diagnostics/safe';
 
 /**
  * ReasoningPage — live AGI shader stream.
@@ -67,31 +67,31 @@ export function ReasoningPage() {
           <ErrorBoundary scope="FreeEnergyDial">
             <FreeEnergyDial freeEnergy={stream.freeEnergy} />
           </ErrorBoundary>
-          {/* Stream source info — defensive against missing fields */}
-          {stream.lastStream ? (
+          {/* Dispatch info — defensive against missing fields */}
+          {stream.lastDispatch ? (
             <div style={{ padding: '8px', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-              <div style={{ fontSize: '10px', color: 'var(--muted)', marginBottom: 4 }}>Φ last stream</div>
+              <div style={{ fontSize: '10px', color: 'var(--muted)', marginBottom: 4 }}>Φ last dispatch</div>
               <div style={{ fontSize: '11px', fontFamily: 'var(--mono)', color: 'var(--text)' }}>
-                src: {stream.lastStream.source ?? 'unknown'}
+                style: {safeStr(stream.lastDispatch.style, 'unknown', 'dispatch.style')}
               </div>
               <div style={{ fontSize: '11px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
-                indices: [{Array.isArray(stream.lastStream.codebook_indices)
-                  ? stream.lastStream.codebook_indices.slice(0, 4).join(', ')
-                  : '—'}…]
+                radius: {fmt(stream.lastDispatch.radius, 2, 'dispatch.radius')}
+                {' · '}
+                max_cycles: {safeNum(stream.lastDispatch.max_cycles, 0, 'dispatch.max_cycles')}
               </div>
             </div>
           ) : (
             <div style={{ padding: '8px', borderTop: '1px solid var(--border)', marginTop: 8, fontSize: '10px', color: '#666' }}>
-              Φ awaiting first stream event
+              Φ awaiting first dispatch event
             </div>
           )}
         </div>
       </section>
 
-      {/* Thought log — full width */}
+      {/* Crystal log — full width */}
       <section className="reasoning-bottom">
         <ErrorBoundary scope="ThoughtLog">
-          <ThoughtLog thoughts={stream.thoughtHistory} maxItems={80} />
+          <ThoughtLog crystals={stream.crystalHistory} maxItems={80} />
         </ErrorBoundary>
       </section>
 
@@ -103,7 +103,7 @@ export function ReasoningPage() {
           <span className="status-sep" />
           <span>Φ→Ψ→B→Γ pipeline</span>
           <span className="status-sep" />
-          <span>{stream.thoughtHistory.length} thoughts · {stream.busHistory.length} bus commits</span>
+          <span>{stream.crystalHistory.length} crystals · {stream.busHistory.length} bus commits</span>
           {stream.currentScene && (
             <>
               <span className="status-sep" />
