@@ -15,12 +15,12 @@
 //! (frequency, confidence) rather than bare `(f32, f32)` pairs. The
 //! inference-type label uses `lance_graph_contract::nars::InferenceType`.
 //!
-//! `NarsTruth::revision` is provided by the contract; `deduction` is
-//! NOT in the contract today (the canonical impl lives in
-//! `lance-graph-planner::nars::truth::TruthValue::deduction`, which is
-//! not yet wired through to cockpit-server). We therefore compute the
-//! NARS deduction formula `(f = f1*f2, c = f1*f2*c1*c2)` locally as a
-//! free function over `NarsTruth`. See `nars_deduction()` below.
+//! `NarsTruth::revision` is provided by the contract. NARS deduction
+//! now bridges to `lance_graph_planner::nars::truth::TruthValue::deduction`
+//! — the canonical truth-revision algebra. The local arithmetic is
+//! unchanged in Phase 2B (same `f = f1*f2, c = f1*f2*c1*c2` formula);
+//! the change is *which crate computes it*. Resolves TRUTH-1 ledger row
+//! from copy #4 to canonical. See `nars_deduction()` below.
 //!
 //! Wire JSON keeps the historical field names `truth_f` / `truth_c` so
 //! the cockpit React frontend keeps working unchanged.
@@ -44,25 +44,21 @@ pub fn live_graph() -> &'static Arc<RwLock<GraphSnapshot>> {
     LIVE_GRAPH.get_or_init(|| Arc::new(RwLock::new(GraphSnapshot::empty())))
 }
 
-/// NARS deduction over `NarsTruth` (local fallback).
+/// NARS deduction `A→B, B→C ⊢ A→C` via the canonical
+/// `lance_graph_planner::nars::truth::TruthValue::deduction`.
 ///
-/// The contract's `NarsTruth` exposes `revision` but not `deduction`. The
-/// canonical `deduction` lives in `lance-graph-planner::nars::truth` which
-/// cockpit-server does not currently depend on. Until that crate is exposed
-/// to cockpit-server, this function implements the standard NARS-1.x
-/// deduction rule `A→B, B→C ⊢ A→C` directly:
-///
-/// ```text
-/// f = f1 * f2
-/// c = f1 * f2 * c1 * c2
-/// ```
-///
-/// Inputs and outputs are contract-side `NarsTruth`, so callers do not
-/// see bare `f32` truth pairs.
+/// Bridges between the contract's `NarsTruth { frequency, confidence }`
+/// (used by GraphEdge in this crate) and the planner's `TruthValue`
+/// (which carries the canonical revision/deduction/induction/abduction
+/// semiring). Both use the same f,c pair on the wire — the bridge is
+/// just a struct conversion, not a math change. Replaces the local
+/// fallback that lived here through Phase 2A.
 fn nars_deduction(ab: &NarsTruth, bc: &NarsTruth) -> NarsTruth {
-    let f = ab.frequency * bc.frequency;
-    let c = ab.frequency * bc.frequency * ab.confidence * bc.confidence;
-    NarsTruth::new(f, c)
+    use lance_graph_planner::nars::truth::TruthValue;
+    let ab_t = TruthValue::new(ab.frequency, ab.confidence);
+    let bc_t = TruthValue::new(bc.frequency, bc.confidence);
+    let result = ab_t.deduction(&bc_t);
+    NarsTruth::new(result.frequency, result.confidence)
 }
 
 /// String label for an `InferenceType` (wire JSON compat).
@@ -292,9 +288,9 @@ pub async fn hydrate_from_aiwar_json(path: &str) -> Result<(), String> {
 /// For every A→B + B→C chain, infer A→C with truth deduction.
 ///
 /// Truth-value algebra is `lance_graph_contract::exploration::NarsTruth`.
-/// Deduction uses `nars_deduction()` (local fallback for the formula
-/// `f = f1*f2, c = f1*f2*c1*c2`) — see module docs for why this is not
-/// yet routed through `lance-graph-planner`'s canonical impl.
+/// Deduction is delegated to `nars_deduction()`, which bridges to
+/// `lance_graph_planner::nars::truth::TruthValue::deduction` — the
+/// canonical NARS-1.x formula `f = f1*f2, c = f1*f2*c1*c2`.
 pub async fn run_nars_deduction(min_confidence: f32, max_hops: usize) -> Vec<NarsInference> {
     let graph = live_graph();
     let state = graph.read().await;
@@ -326,7 +322,7 @@ pub async fn run_nars_deduction(min_confidence: f32, max_hops: usize) -> Vec<Nar
                         if bc_truth.confidence < min_confidence { continue; }
                         if *a == c_node || existing.contains(&(a, c_node)) { continue; }
 
-                        // NARS deduction via contract NarsTruth (local fallback impl).
+                        // NARS deduction via canonical planner TruthValue::deduction.
                         let inferred = nars_deduction(&ab_truth, &bc_truth);
 
                         if inferred.confidence >= min_confidence * 0.5 {
@@ -393,4 +389,18 @@ pub async fn graph_health_handler() -> axum::Json<GraphHealth> {
     let graph = live_graph();
     let state = graph.read().await;
     axum::Json(state.health.clone())
+}
+
+#[cfg(test)]
+mod nars_planner_bridge_tests {
+    use super::*;
+    #[test]
+    fn deduction_matches_planner_canonical() {
+        let ab = NarsTruth::new(0.9, 0.8);
+        let bc = NarsTruth::new(0.7, 0.6);
+        let result = nars_deduction(&ab, &bc);
+        // Canonical NARS: f = f1*f2 = 0.63, c = f1*f2*c1*c2 = 0.3024
+        assert!((result.frequency - 0.63).abs() < 0.01, "f={}", result.frequency);
+        assert!((result.confidence - 0.3024).abs() < 0.01, "c={}", result.confidence);
+    }
 }

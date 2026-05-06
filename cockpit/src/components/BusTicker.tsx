@@ -1,10 +1,19 @@
 import { useEffect, useRef } from 'react';
-import type { WireBusDto } from '../hooks/useShaderStream';
-import { clamp, fmt, safeNum } from '../diagnostics/safe';
+import type { WireShaderBus } from '../hooks/useShaderStream';
+import { clamp, fmt, safeNum, safeStr } from '../diagnostics/safe';
 
 interface BusTickerProps {
-  items: WireBusDto[];
+  items: WireShaderBus[];
   maxItems?: number;
+}
+
+/** Format a u64-like fingerprint hash as a short hex tag. */
+function fpHex(n: number): string {
+  if (!Number.isFinite(n)) return '????????';
+  // JS numbers can't hold full u64 — the bridge folds to a hash anyway.
+  // Take low 32 bits of the absolute value as a stable display tag.
+  const u = (n >>> 0).toString(16).padStart(8, '0');
+  return u;
 }
 
 export function BusTicker({ items, maxItems = 20 }: BusTickerProps) {
@@ -37,23 +46,25 @@ export function BusTicker({ items, maxItems = 20 }: BusTickerProps) {
         ) : (
           visible.map((bus, i) => {
             if (!bus || typeof bus !== 'object') return null;
-            const idx = safeNum(bus.codebook_index, -1, 'bus.codebook_index');
-            const energy = clamp(bus.energy, 0, 1, 'bus.energy');
-            const cycleCount = safeNum(bus.cycle_count, 0, 'bus.cycle_count');
-            const converged = bus.converged === true;
-            const topKList = Array.isArray(bus.top_k) ? bus.top_k : [];
-            const tip = topKList
-              .map((entry) => {
-                if (!Array.isArray(entry) || entry.length !== 2) return null;
-                const [eIdx, eEng] = entry;
-                return `${safeNum(eIdx, 0)}=${fmt(eEng, 2)}`;
+            const fpHash = safeNum(bus.cycle_fingerprint_hash, 0, 'bus.cycle_fingerprint_hash');
+            const fpTag = fpHex(fpHash);
+            const top = Array.isArray(bus.resonance?.top_k) ? bus.resonance.top_k : [];
+            const energy = clamp(top[0]?.resonance, 0, 1, 'bus.resonance.top_k[0].resonance');
+            const cyclesUsed = safeNum(bus.resonance?.cycles_used, 0, 'bus.resonance.cycles_used');
+            const merge = safeStr(bus.gate?.merge, '—', 'bus.gate.merge');
+            const edges = safeNum(bus.emitted_edge_count, 0, 'bus.emitted_edge_count');
+            const tip = top
+              .slice(0, 5)
+              .map((h) => {
+                if (!h || typeof h !== 'object') return null;
+                return `${safeNum(h.row, 0)}=${fmt(h.resonance, 2)}`;
               })
               .filter(Boolean)
               .join(', ');
             return (
-              <div key={i} className={`bus-ticker-row ${converged ? 'converged' : ''}`}>
+              <div key={i} className={`bus-ticker-row ${merge !== '—' ? 'converged' : ''}`}>
                 <span className="bus-codebook" title={tip || 'no top-k'}>
-                  [{idx >= 0 ? String(idx).padStart(4, '0') : '????'}]
+                  [{fpTag}]
                 </span>
                 <span className="bus-energy-bar">
                   <span
@@ -61,9 +72,11 @@ export function BusTicker({ items, maxItems = 20 }: BusTickerProps) {
                     style={{ width: `${Math.round(energy * 100)}%` }}
                   />
                 </span>
-                <span className="bus-energy-val">{fmt(energy, 3, 'bus.energy')}</span>
-                <span className="bus-cycle">{cycleCount}c</span>
-                {converged && <span className="bus-converged">✓</span>}
+                <span className="bus-energy-val">{fmt(energy, 3, 'bus.resonance.top_k[0].resonance')}</span>
+                <span className="bus-cycle">{cyclesUsed}c</span>
+                <span className="bus-converged" title={`merge=${merge} · edges=${edges}`}>
+                  {merge}
+                </span>
               </div>
             );
           })

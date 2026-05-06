@@ -1,38 +1,46 @@
 import { useRef, useEffect } from 'react';
-import type { WireThoughtStruct } from '../hooks/useShaderStream';
-import { fmt, safeNum, safeStr } from '../diagnostics/safe';
+import type { WireShaderCrystal } from '../hooks/useShaderStream';
+import { fmt, safeNum } from '../diagnostics/safe';
 
 interface ThoughtLogProps {
-  thoughts: WireThoughtStruct[];
+  crystals: WireShaderCrystal[];
   maxItems?: number;
 }
 
-const STYLE_COLORS: Record<string, string> = {
-  Exploiting: '#35d07f',
-  Focused: '#00d4ff',
-  Exploring: '#ffb547',
-  Abstract: '#e040fb',
-};
+/** Fold a numeric fingerprint hash into a short hex signature. */
+function signature(n: number): string {
+  if (!Number.isFinite(n)) return '????????';
+  return (n >>> 0).toString(16).padStart(8, '0');
+}
 
-export function ThoughtLog({ thoughts, maxItems = 50 }: ThoughtLogProps) {
+/** Color a crystal row by meta confidence. */
+function confColor(c: number): string {
+  if (!Number.isFinite(c)) return 'var(--muted)';
+  if (c >= 0.8) return '#35d07f';
+  if (c >= 0.6) return '#00d4ff';
+  if (c >= 0.4) return '#ffb547';
+  return '#e040fb';
+}
+
+export function ThoughtLog({ crystals, maxItems = 50 }: ThoughtLogProps) {
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
-  }, [thoughts]);
+  }, [crystals]);
 
-  const safeThoughts = Array.isArray(thoughts) ? thoughts : [];
-  const visible = safeThoughts.slice(-maxItems);
+  const safeCrystals = Array.isArray(crystals) ? crystals : [];
+  const visible = safeCrystals.slice(-maxItems);
 
   return (
     <div className="thought-log">
       <div className="panel-header" style={{ padding: '4px 8px' }}>
         <div className="panel-title">
-          <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Γ crystallized thoughts</span>
+          <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Γ crystallized cycles</span>
           <span style={{ fontSize: '10px', color: 'var(--muted)', marginLeft: 8 }}>
-            {safeThoughts.length} committed
+            {safeCrystals.length} committed
           </span>
         </div>
       </div>
@@ -42,29 +50,36 @@ export function ThoughtLog({ thoughts, maxItems = 50 }: ThoughtLogProps) {
             awaiting convergence… <small style={{ color: '#666' }}>(Shift+D for diagnostics)</small>
           </div>
         ) : (
-          visible.map((t, i) => {
-            if (!t || typeof t !== 'object') return null;
-            const styleStr = safeStr(t.style, 'idle', 'thought.style');
-            const bus = t.bus ?? null;
-            const codebookIdx = bus ? safeNum(bus.codebook_index, -1, 'thought.bus.codebook_index') : -1;
-            const energy = bus ? safeNum(bus.energy, 0, 'thought.bus.energy') : 0;
-            const text = safeStr(
-              t.text ?? null,
-              codebookIdx >= 0 ? `codebook[${codebookIdx}] e=${fmt(energy, 3)}` : 'no bus payload',
-              'thought.text',
-            );
+          visible.map((crystal, i) => {
+            if (!crystal || typeof crystal !== 'object') return null;
+            const bus = crystal.bus ?? null;
+            const meta = crystal.meta ?? null;
+            const conf = meta ? safeNum(meta.confidence, 0, 'crystal.meta.confidence') : 0;
+            const fpHash = bus ? safeNum(bus.cycle_fingerprint_hash, 0, 'crystal.bus.cycle_fingerprint_hash') : 0;
+            const sig = signature(fpHash);
+            const top = bus && Array.isArray(bus.resonance?.top_k) ? bus.resonance.top_k : [];
+            const topRow = top[0]?.row ?? null;
+            const persisted = crystal.persisted_row;
+            const admit = meta?.should_admit_ignorance === true;
             return (
               <div key={i} className="thought-row">
                 <span
                   className="thought-style"
-                  style={{ color: STYLE_COLORS[styleStr] ?? 'var(--muted)' }}
+                  style={{ color: confColor(conf) }}
+                  title={`confidence=${fmt(conf, 3)}${admit ? ' · admit ignorance' : ''}`}
                 >
-                  {styleStr.slice(0, 3)}
+                  c={fmt(conf, 2, 'crystal.meta.confidence')}
                 </span>
-                <span className="thought-codebook">
-                  [{codebookIdx >= 0 ? codebookIdx : '????'}]
+                <span className="thought-codebook" title={`fingerprint=${sig}`}>
+                  [{topRow !== null && Number.isFinite(topRow) ? topRow : '????'}]
                 </span>
-                <span className="thought-text">{text}</span>
+                <span className="thought-text">
+                  sig {sig}
+                  {persisted !== null && persisted !== undefined && (
+                    <span style={{ color: 'var(--muted)', marginLeft: 6 }}>· row {persisted}</span>
+                  )}
+                  {admit && <span style={{ color: '#ffb547', marginLeft: 6 }}>· ⚠ ignorance</span>}
+                </span>
               </div>
             );
           })

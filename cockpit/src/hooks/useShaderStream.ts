@@ -2,63 +2,86 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDiagnostics } from '../diagnostics/store';
 import { validateByType } from '../diagnostics/validate';
 
-// ── Wire DTO types (mirror of Rust shader_stream.rs) ─────────────────────────
+// ── Wire DTO types (mirror of Rust dto_bridge.rs — canonical R1 from
+//    `lance_graph_contract::cognitive_shader`) ───────────────────────────────
 
-export interface WireStreamDto {
-  source: string;
-  codebook_indices: number[];
-  timestamp: number;
+/** Single hit in a resonance top_k vector. Mirrors `ShaderHit`. */
+export interface WireShaderHit {
+  row: number;
+  distance: number;
+  predicates: number;
+  resonance: number;
+  cycle_index: number;
 }
 
-export interface WireResonanceDto {
-  top_k: [number, number][];
-  cycle_count: number;
-  converged: boolean;
+/** Resonance summary. Mirrors `ShaderResonance`. */
+export interface WireShaderResonance {
+  top_k: WireShaderHit[];
+  hit_count: number;
+  cycles_used: number;
   entropy: number;
-  active_count: number;
+  std_dev: number;
+  style_ord: number;
 }
 
-export interface WireBusDto {
-  codebook_index: number;
-  energy: number;
-  top_k: [number, number][];
-  cycle_count: number;
-  converged: boolean;
+/** Gate decision. Mirrors `GateDecision` from `collapse_gate.rs`. */
+export interface WireGateDecision {
+  /** u8 — see GateDecision constants in collapse_gate.rs */
+  gate: number;
+  /** 'Xor' | 'Bundle' | 'Superposition' | 'AlphaFrontToBack' */
+  merge: string;
 }
 
 /**
- * Mirrors `ThoughtStruct` from `lance-graph/crates/thinking-engine/src/dto.rs`.
+ * Bus snapshot. Mirrors `ShaderBus`.
  *
- * The Rust shape is:
- *   pub struct ThoughtStruct {
- *       pub bus: BusDto,
- *       pub text: Option<String>,
- *       pub sensor_contributions: Vec<(SourceType, Vec<u16>)>,
- *       pub tension_history: Vec<Vec<f32>>,
- *       pub style_trajectory: Vec<ThinkingScale>,
- *   }
- *
- * `dto_bridge.rs` (the serde-serializing wire layer) is expected to:
- *   - emit field names verbatim (snake_case via `#[serde(rename_all = "snake_case")]`)
- *   - serialize `(SourceType, Vec<u16>)` tuples as JSON 2-tuples `[string, number[]]`
- *   - serialize `ThinkingScale` enum variants as their string names
- *   - replace `tension_history: Vec<Vec<f32>>` with `tension_history_len: u32`
- *     (the cockpit only needs the depth; full per-cycle energy snapshots are
- *     too large to ship over SSE per thought). The legacy `style: string`
- *     field is retained as the *last* `style_trajectory` entry for back-compat
- *     with `ThoughtLog`.
+ * Note: `cycle_fingerprint_hash` is an XOR-fold of the full `[u64; 256]`
+ * fingerprint history — the cockpit never sees the raw array (too large
+ * for SSE). The fold preserves identity-equality for de-duping.
  */
-export interface WireThoughtStruct {
-  bus: WireBusDto;
-  text: string | null;
-  /** Last entry of `style_trajectory`, retained for ThoughtLog back-compat. */
+export interface WireShaderBus {
+  cycle_fingerprint_hash: number;
+  emitted_edge_count: number;
+  gate: WireGateDecision;
+  resonance: WireShaderResonance;
+}
+
+/** Meta-cognition summary. Mirrors `MetaSummary`. */
+export interface WireMetaSummary {
+  confidence: number;
+  meta_confidence: number;
+  brier: number;
+  should_admit_ignorance: boolean;
+}
+
+/** Alpha-front-to-back composite. Mirrors `AlphaComposite`. */
+export interface WireAlphaComposite {
+  alpha_acc: number;
+  hits_consumed: number;
+  saturated: boolean;
+  color_acc_active_dims: number;
+}
+
+/**
+ * A crystallized shader cycle. Mirrors `ShaderCrystal` — the canonical
+ * "thought-equivalent" in R1. Replaces the old `ThoughtStruct`.
+ */
+export interface WireShaderCrystal {
+  bus: WireShaderBus;
+  persisted_row: number | null;
+  meta: WireMetaSummary;
+  alpha_composite: WireAlphaComposite | null;
+}
+
+/** Dispatch parameters. Mirrors `ShaderDispatch`. */
+export interface WireShaderDispatch {
+  layer_mask: number;
+  radius: number;
   style: string;
-  /** Vec<(SourceType, Vec<u16>)> serialized as JSON 2-tuples. */
-  sensor_contributions: [string, number[]][];
-  /** Length of `Vec<Vec<f32>>`; full data is intentionally omitted. */
-  tension_history_len: number;
-  /** ThinkingScale variants serialized as strings. */
-  style_trajectory: string[];
+  max_cycles: number;
+  entropy_floor: number;
+  emit: string;
+  merge_override: string | null;
 }
 
 export interface WireSceneAct {
@@ -77,7 +100,7 @@ export interface WireFreeEnergy {
 }
 
 export interface ShaderEvent {
-  type: 'stream' | 'resonance' | 'bus' | 'thought' | 'scene' | 'health';
+  type: 'dispatch' | 'resonance' | 'bus' | 'crystal' | 'scene' | 'health';
   ts: number;
   payload: unknown;
 }
@@ -86,31 +109,28 @@ export interface ShaderEvent {
 
 export interface ShaderStreamState {
   connected: boolean;
-  lastStream: WireStreamDto | null;
-  lastResonance: WireResonanceDto | null;
-  lastBus: WireBusDto | null;
-  lastThought: WireThoughtStruct | null;
+  lastDispatch: WireShaderDispatch | null;
+  lastResonance: WireShaderResonance | null;
+  lastBus: WireShaderBus | null;
+  lastCrystal: WireShaderCrystal | null;
   currentScene: WireSceneAct | null;
   freeEnergy: WireFreeEnergy | null;
-  busHistory: WireBusDto[];
-  thoughtHistory: WireThoughtStruct[];
-  /** `tension_history_len` from the most recent thought (0 if none). */
-  tensionDepth: number;
+  busHistory: WireShaderBus[];
+  crystalHistory: WireShaderCrystal[];
   cycle: number;
   eventCount: number;
 }
 
 const INITIAL_STATE: ShaderStreamState = {
   connected: false,
-  lastStream: null,
+  lastDispatch: null,
   lastResonance: null,
   lastBus: null,
-  lastThought: null,
+  lastCrystal: null,
   currentScene: null,
   freeEnergy: null,
   busHistory: [],
-  thoughtHistory: [],
-  tensionDepth: 0,
+  crystalHistory: [],
   cycle: 0,
   eventCount: 0,
 };
@@ -178,25 +198,24 @@ export function useShaderStream(url = '/v1/shader/stream'): ShaderStreamState & 
         setState(s => {
           const next = { ...s, eventCount: s.eventCount + 1, cycle };
           switch (type) {
-            case 'stream':
-              return { ...next, lastStream: event.payload as WireStreamDto };
+            case 'dispatch':
+              return { ...next, lastDispatch: event.payload as WireShaderDispatch };
             case 'resonance':
-              return { ...next, lastResonance: event.payload as WireResonanceDto };
+              return { ...next, lastResonance: event.payload as WireShaderResonance };
             case 'bus': {
-              const bus = event.payload as WireBusDto;
+              const bus = event.payload as WireShaderBus;
               return {
                 ...next,
                 lastBus: bus,
                 busHistory: [...s.busHistory.slice(-99), bus],
               };
             }
-            case 'thought': {
-              const t = event.payload as WireThoughtStruct;
+            case 'crystal': {
+              const c = event.payload as WireShaderCrystal;
               return {
                 ...next,
-                lastThought: t,
-                thoughtHistory: [...s.thoughtHistory.slice(-199), t],
-                tensionDepth: t.tension_history_len ?? 0,
+                lastCrystal: c,
+                crystalHistory: [...s.crystalHistory.slice(-199), c],
               };
             }
             case 'scene':
@@ -220,7 +239,7 @@ export function useShaderStream(url = '/v1/shader/stream'): ShaderStreamState & 
     };
 
     // SSE named events
-    for (const type of ['stream', 'resonance', 'bus', 'thought', 'scene', 'health'] as const) {
+    for (const type of ['dispatch', 'resonance', 'bus', 'crystal', 'scene', 'health'] as const) {
       es.addEventListener(type, (ev) => handle(ev as MessageEvent, type));
     }
     // Also catch unnamed messages

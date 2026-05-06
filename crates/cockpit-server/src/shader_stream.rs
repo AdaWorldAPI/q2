@@ -1,17 +1,35 @@
-//! /v1/shader/stream — SSE endpoint emitting the REAL DTO pipeline.
+//! /v1/shader/stream — SSE endpoint emitting the canonical R1 cognitive-shader
+//! pipeline.
 //!
-//! Φ StreamDto → Ψ ResonanceDto → B BusDto → Γ ThoughtStruct
+//! Φ ShaderDispatch → Ψ ShaderResonance → B ShaderBus → Γ ShaderCrystal
 //!
-//! Drives the actual `thinking_engine::ThinkingEngine`:
-//!   1. Cypher file → `crate::scene_player::cypher_to_stream` produces a real
-//!      `thinking_engine::dto::StreamDto` (codebook indices, source, ts).
-//!   2. `engine.perturb(&stream.codebook_indices)` injects energy.
-//!   3. `engine.think(max_cycles)` runs MatVec cycles → returns `ResonanceDto`.
-//!   4. `engine.commit()` collapses the dominant peak → `BusDto`.
-//!   5. `crate::dto_bridge::*` converts each engine DTO → `Wire*` for SSE.
+//! Drives `crate::mock_driver::MockShaderDriver` (which implements
+//! `lance_graph_contract::cognitive_shader::CognitiveShaderDriver`) over the
+//! canonical R1 surface — `dispatch_with_sink(&dispatch, &mut sink)`.
 //!
-//! NO simulated cycles. NO content hashing. NO fabricated codebook indices.
-//! Serde lives only at the SSE boundary; the internal path stays in native types.
+//! Per Cypher act:
+//!   1. `crate::scene_player::discover_acts` walks `*.cypher` files.
+//!   2. `crate::scene_player::cypher_to_stream` parses each act → codebook
+//!      indices.
+//!   3. `MockShaderDriver::perturb(&indices)` injects energy.
+//!   4. `MockShaderDriver::dispatch_with_sink(&ShaderDispatch::default(), &mut SseSink)`
+//!      runs the cycle. The sink buffers `resonance`, `bus`, `crystal` SSE
+//!      events; the async stream loop drains them between cycles so the
+//!      future stays `Send`.
+//!   5. `WireFreeEnergy` is computed inline from the crystal's `ShaderBus`
+//!      resonance and emitted as a `health` event.
+//!
+//! Event names (replaces legacy `stream`/`thought`):
+//!   - `scene`     — Cypher act metadata (local SSE helper, not lance-graph DTO)
+//!   - `dispatch`  — Wire mirror of `ShaderDispatch` (Φ)
+//!   - `resonance` — Wire mirror of `ShaderResonance` (Ψ)
+//!   - `bus`       — Wire mirror of `ShaderBus` (B)
+//!   - `crystal`   — Wire mirror of `ShaderCrystal` (Γ)
+//!   - `health`    — Free-energy heuristic derived from the crystal's resonance.
+//!
+//! Serde lives only at the SSE boundary; the internal path stays in canonical
+//! native types (`ShaderDispatch`, `ShaderResonance`, `ShaderBus`,
+//! `ShaderCrystal`).
 
 use std::convert::Infallible;
 use std::sync::{Arc, LazyLock};
@@ -20,14 +38,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use axum::response::sse::{Event, Sse};
 use futures_core::Stream;
 use serde::Serialize;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
-use thinking_engine::engine::ThinkingEngine;
-use thinking_engine::dto::{StreamDto as EngStreamDto, ResonanceDto as EngResonanceDto,
-                           BusDto as EngBusDto, ThoughtStruct as EngThoughtStruct,
-                           SourceType};
+use lance_graph_contract::cognitive_shader::{
+    CognitiveShaderDriver, ShaderBus, ShaderCrystal, ShaderDispatch, ShaderResonance, ShaderSink,
+};
 
-use crate::dto_bridge::{WireStreamDto, WireResonanceDto, WireBusDto, WireThoughtStruct};
+use crate::dto_bridge::{WireShaderBus, WireShaderCrystal, WireShaderDispatch, WireShaderResonance};
+use crate::mock_driver::MockShaderDriver;
 
 // ── JSON wire types (serde only at SSE boundary) ─────────────────────────────
 
@@ -102,21 +120,80 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-// ── Scene player: see `crate::scene_player` for discovery + Cypher → StreamDto.
+// ── SSE event builder ─────────────────────────────────────────────────────────
+
+fn shader_event(kind: &'static str, payload: serde_json::Value) -> Event {
+    let ev = ShaderEvent { kind, ts: now_ms(), payload };
+    let json = serde_json::to_string(&ev).unwrap_or_default();
+    Event::default().data(json).event(kind)
+}
+
+// ── SseSink — captures driver callbacks as SSE events ────────────────────────
+
+/// `ShaderSink` impl that buffers SSE events for the async stream loop.
+///
+/// The driver calls `on_resonance` → `on_bus` → `on_crystal` synchronously
+/// inside `dispatch_with_sink`. Each callback converts the canonical native
+/// type to its `Wire*` mirror and pushes one SSE event into `pending`. The
+/// outer async stream drains `pending` between cycles, yielding events with
+/// inter-event sleeps so the SSE pacing matches the cockpit's rendering
+/// budget.
+struct SseSink {
+    pending: Vec<Event>,
+}
+
+impl SseSink {
+    fn new() -> Self {
+        Self {
+            pending: Vec::with_capacity(3),
+        }
+    }
+}
+
+impl ShaderSink for SseSink {
+    fn on_resonance(&mut self, r: &ShaderResonance) -> bool {
+        let wire = WireShaderResonance::from(r);
+        self.pending.push(shader_event(
+            "resonance",
+            serde_json::to_value(&wire).unwrap_or_default(),
+        ));
+        true
+    }
+
+    fn on_bus(&mut self, b: &ShaderBus) -> bool {
+        let wire = WireShaderBus::from(b);
+        self.pending.push(shader_event(
+            "bus",
+            serde_json::to_value(&wire).unwrap_or_default(),
+        ));
+        true
+    }
+
+    fn on_crystal(&mut self, c: &ShaderCrystal) {
+        let wire = WireShaderCrystal::from(c);
+        self.pending.push(shader_event(
+            "crystal",
+            serde_json::to_value(&wire).unwrap_or_default(),
+        ));
+    }
+}
 
 // ── Free-energy heuristic ────────────────────────────────────────────────────
 
-fn make_free_energy_from_resonance(resonance: &EngResonanceDto, confidence: f32) -> WireFreeEnergy {
-    // Likelihood: dominant peak energy (how strongly one atom won).
-    let likelihood = resonance.top_k.first().map(|(_, e)| *e).unwrap_or(0.0)
-        .clamp(0.0, 1.0);
-    // KL divergence proxy: entropy of the distribution (high entropy = far from prior).
-    let mut h = 0.0f32;
-    for &e in &resonance.energy {
-        if e > 1e-10 { h -= e * e.ln(); }
-    }
-    let kl = (h / 8.0).clamp(0.0, 1.0); // normalize entropy to roughly [0,1]
-    let free_energy = ((1.0 - likelihood) + kl - confidence * 0.3).clamp(0.0, 2.0);
+/// Derive `WireFreeEnergy` from a stabilized cycle's `ShaderBus`.
+///
+///   likelihood = top_k[0].resonance        (clamped to [0, 1])
+///   kl         = entropy / 5.0             (rough normalization to [0, 1])
+///   free_energy = (1 - likelihood) + kl
+///   below_homeostasis = free_energy < 0.3
+///
+/// `entropy` comes from `ShaderResonance::entropy` which is already in nats
+/// over the resonance distribution. Dividing by 5 ≈ ln(top-K=8) +ε buffers
+/// the upper bound to roughly unity.
+fn make_free_energy_from_bus(bus: &ShaderBus) -> WireFreeEnergy {
+    let likelihood = bus.resonance.top_k[0].resonance.clamp(0.0, 1.0);
+    let kl = (bus.resonance.entropy / 5.0).clamp(0.0, 1.0);
+    let free_energy = ((1.0 - likelihood) + kl).clamp(0.0, 2.0);
     WireFreeEnergy {
         likelihood,
         kl,
@@ -138,26 +215,19 @@ fn make_free_energy_idle(cycle: u64) -> WireFreeEnergy {
     }
 }
 
-// ── SSE event builder ─────────────────────────────────────────────────────────
-
-fn shader_event(kind: &'static str, payload: serde_json::Value) -> Event {
-    let ev = ShaderEvent { kind, ts: now_ms(), payload };
-    let json = serde_json::to_string(&ev).unwrap_or_default();
-    Event::default().data(json).event(kind)
-}
-
 // ── SSE handler ───────────────────────────────────────────────────────────────
 
-/// GET /v1/shader/stream — continuous SSE stream of the REAL DTO pipeline.
+/// GET /v1/shader/stream — continuous SSE stream of the canonical R1
+/// cognitive-shader pipeline.
 ///
 /// Query params:
 ///   ?cypher_dir=<path>   override Cypher file directory
 ///   ?cycle_ms=<ms>       ms per cognitive cycle (default 800)
 ///
 /// Per-connection state:
-///   - one `ThinkingEngine` (4096×4096 distance table from `crate::codebook`)
-///     wrapped in `Arc<Mutex<>>` so the engine can be retained across yields
-///     in the async stream without holding a non-Send borrow over an await.
+///   - one `MockShaderDriver` (BindSpace row count = 2048) wrapped in `Arc`
+///     so the canonical `&self` dispatch surface can be invoked across
+///     async yields without Send hazards.
 pub async fn shader_stream_handler(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -173,10 +243,9 @@ pub async fn shader_stream_handler(
         .and_then(|s| s.parse().ok())
         .unwrap_or(800);
 
-    // Build the real ThinkingEngine for this connection.
-    // The distance table comes from crate::codebook (agent #6 owns).
-    let distance_table = crate::codebook::default_distance_table();
-    let engine = Arc::new(Mutex::new(ThinkingEngine::new(distance_table)));
+    // Build the canonical driver for this connection.
+    // BindSpace row count of 2048 matches the cockpit's cognitive sweep budget.
+    let driver: Arc<MockShaderDriver> = Arc::new(MockShaderDriver::new(2048));
 
     let stream = async_stream::stream! {
         let acts = crate::scene_player::discover_acts(&cypher_dir);
@@ -202,7 +271,7 @@ pub async fn shader_stream_handler(
             }
         }
 
-        // Scene player loop — drives the REAL thinking-engine.
+        // Scene player loop — drives the canonical R1 cognitive shader.
         let mut act_idx = 0u32;
         loop {
             let act = &acts[act_idx as usize % acts.len()];
@@ -210,7 +279,7 @@ pub async fn shader_stream_handler(
             let content = &act.cypher_text;
             let confidence = act.confidence;
 
-            // 1. Scene event
+            // 1. Scene event — Cypher act metadata.
             let scene = WireSceneAct {
                 act: act_idx + 1,
                 total: total.max(1),
@@ -226,60 +295,53 @@ pub async fn shader_stream_handler(
             yield Ok(shader_event("scene", serde_json::to_value(&scene).unwrap_or_default()));
             tokio::time::sleep(Duration::from_millis(cycle_ms / 4)).await;
 
-            // 2. StreamDto — Cypher → real codebook indices via scene_player.
-            let ts = now_ms();
-            let stream_dto: EngStreamDto = crate::scene_player::cypher_to_stream(content, ts);
-            let wire_stream = WireStreamDto::from(&stream_dto);
-            yield Ok(shader_event("stream", serde_json::to_value(&wire_stream).unwrap_or_default()));
-            tokio::time::sleep(Duration::from_millis(cycle_ms / 4)).await;
-
-            // 3. Drive the engine: perturb → think → commit.
-            //    All engine work happens under a lock that is RELEASED before
-            //    awaiting the next sleep, keeping the future Send.
-            let (resonance_dto, bus_dto): (EngResonanceDto, EngBusDto) = {
-                let mut eng = engine.lock().await;
-                // New thought starts fresh (per-act).
-                eng.reset();
-                eng.perturb(&stream_dto.codebook_indices);
-                // think() runs MatVec cycles up to convergence.
-                let resonance = eng.think(10);
-                let bus = eng.commit();
-                (resonance, bus)
-            };
-
-            // 4. Resonance event — converted via dto_bridge.
-            let wire_resonance = WireResonanceDto::from(&resonance_dto);
-            yield Ok(shader_event("resonance", serde_json::to_value(&wire_resonance).unwrap_or_default()));
-            tokio::time::sleep(Duration::from_millis(cycle_ms / 4)).await;
-
-            // 5. Bus event.
-            let wire_bus = WireBusDto::from(&bus_dto);
-            yield Ok(shader_event("bus", serde_json::to_value(&wire_bus).unwrap_or_default()));
-
-            // 6. Thought event — pair the bus with sensor contributions.
-            let thought = EngThoughtStruct::from_engine(
-                bus_dto.clone(),
-                vec![(stream_dto.source, stream_dto.codebook_indices.clone())],
-            );
-            let mut wire_thought = WireThoughtStruct::from(&thought);
-            // Lazy text rendering: the engine doesn't text-render, we annotate here.
-            wire_thought.text = Some(format!(
-                "[{}] codebook[{}] energy={:.3} cycles={} converged={}",
-                name, bus_dto.codebook_index, bus_dto.energy,
-                bus_dto.cycle_count, bus_dto.converged
+            // 2. Build a canonical `ShaderDispatch` (default Φ envelope).
+            //    Emit it as a `dispatch` event for the FE before driving so
+            //    the cockpit can show the request that produced the cycle.
+            let dispatch = ShaderDispatch::default();
+            let wire_dispatch = WireShaderDispatch::from(&dispatch);
+            yield Ok(shader_event(
+                "dispatch",
+                serde_json::to_value(&wire_dispatch).unwrap_or_default(),
             ));
-            yield Ok(shader_event("thought", serde_json::to_value(&wire_thought).unwrap_or_default()));
+            tokio::time::sleep(Duration::from_millis(cycle_ms / 4)).await;
 
-            // 7. Free-energy event derived from the actual resonance distribution.
-            let cycle_n = {
+            // 3. Cypher → codebook indices via scene_player. Feed them to the
+            //    driver via `perturb()` so the shader sweep has energy to
+            //    find on this cycle.
+            let ts = now_ms();
+            let stream_dto = crate::scene_player::cypher_to_stream(content, ts);
+            driver.perturb(&stream_dto.codebook_indices);
+
+            // 4. Drive the cycle. The sink buffers resonance/bus/crystal
+            //    events. We hold no awaits while the driver runs, so the
+            //    `&mut sink` borrow is local to this synchronous block.
+            let mut sink = SseSink::new();
+            let crystal: ShaderCrystal = driver.dispatch_with_sink(&dispatch, &mut sink);
+
+            // 5. Drain sink events into the SSE stream in callback order:
+            //    resonance → bus → crystal. Inter-event sleep paces the
+            //    cockpit ribbon.
+            let pending = std::mem::take(&mut sink.pending);
+            let pending_len = pending.len();
+            for (i, ev) in pending.into_iter().enumerate() {
+                yield Ok(ev);
+                // Don't sleep after the last event — the health event below
+                // and the act-boundary sleep handle the rest of the budget.
+                if i + 1 < pending_len {
+                    tokio::time::sleep(Duration::from_millis(cycle_ms / 8)).await;
+                }
+            }
+
+            // 6. Free-energy event derived from the crystal's bus resonance.
+            //    Update scene-state cycle counter + free-energy snapshot.
+            let _ = confidence; // confidence is surfaced in the scene event already
+            let fe = make_free_energy_from_bus(&crystal.bus);
+            {
                 let mut s = scene_state.write().await;
                 s.cycle += 1;
-                let fe_val = (1.0 - bus_dto.energy) + (resonance_dto.entropy() / 8.0);
-                s.free_energy = fe_val.clamp(0.0, 2.0);
-                s.cycle
-            };
-            let _ = cycle_n; // available for downstream use
-            let fe = make_free_energy_from_resonance(&resonance_dto, confidence);
+                s.free_energy = fe.free_energy;
+            }
             yield Ok(shader_event("health", serde_json::to_value(&fe).unwrap_or_default()));
 
             tokio::time::sleep(Duration::from_millis(cycle_ms / 4)).await;
@@ -308,7 +370,3 @@ pub async fn shader_status_handler(
         "free_energy": s.free_energy,
     }))
 }
-
-// Suppress unused-import warning for SourceType when the bridge changes signature.
-#[allow(dead_code)]
-fn _source_type_witness(_s: SourceType) {}

@@ -1693,6 +1693,7 @@ dependencies = [
  "include_dir",
  "lance-graph",
  "lance-graph-contract",
+ "lance-graph-planner",
  "notebook-query",
  "q2-ndarray",
  "quarto-core",

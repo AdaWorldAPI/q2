@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
-import type { WireResonanceDto } from '../hooks/useShaderStream';
+import type { WireShaderResonance } from '../hooks/useShaderStream';
 import { safeNum, clamp } from '../diagnostics/safe';
 
 interface EnergyFieldProps {
-  resonance: WireResonanceDto | null;
+  resonance: WireShaderResonance | null;
   width?: number;
   height?: number;
 }
@@ -26,12 +26,10 @@ export function EnergyField({ resonance, width = 256, height = 200 }: EnergyFiel
     // Build a sparse energy map from top_k — defensively handle bad shape
     const energyMap = new Float32Array(COLS * ROWS);
     if (resonance && Array.isArray(resonance.top_k)) {
-      for (const entry of resonance.top_k) {
-        if (!Array.isArray(entry) || entry.length !== 2) continue;
-        const idxRaw = entry[0];
-        const energyRaw = entry[1];
-        const idx = safeNum(idxRaw, 0, 'resonance.top_k[].idx');
-        const energy = clamp(energyRaw, 0, 1, 'resonance.top_k[].energy');
+      for (const hit of resonance.top_k) {
+        if (!hit || typeof hit !== 'object') continue;
+        const idx = safeNum(hit.row, 0, 'resonance.top_k[].row');
+        const energy = clamp(hit.resonance, 0, 1, 'resonance.top_k[].resonance');
         if (energy <= 0) continue;
         const cell = Math.floor(idx) % (COLS * ROWS);
         if (cell < 0 || cell >= COLS * ROWS) continue;
@@ -77,23 +75,24 @@ export function EnergyField({ resonance, width = 256, height = 200 }: EnergyFiel
       return;
     }
 
-    // Draw top-k labels
+    // Draw top-k labels — show row + cycle_index
     ctx.font = '8px monospace';
     ctx.fillStyle = '#ffffff99';
-    for (const entry of resonance.top_k.slice(0, 3)) {
-      if (!Array.isArray(entry) || entry.length !== 2) continue;
-      const idx = safeNum(entry[0], 0, 'resonance.top_k_label');
+    for (const hit of resonance.top_k.slice(0, 3)) {
+      if (!hit || typeof hit !== 'object') continue;
+      const idx = safeNum(hit.row, 0, 'resonance.top_k_label.row');
+      const cycleIdx = safeNum(hit.cycle_index, 0, 'resonance.top_k_label.cycle_index');
       const cell = Math.floor(idx) % (COLS * ROWS);
       const cx = (cell % COLS) * cellW + 2;
       const cy = Math.floor(cell / COLS) * cellH + 8;
-      ctx.fillText(`${Math.floor(idx)}`, cx, cy);
+      ctx.fillText(`${Math.floor(idx)}@${cycleIdx}`, cx, cy);
     }
   }, [resonance, width, height]);
 
-  const cycleStr = resonance ? safeNum(resonance.cycle_count, 0, 'resonance.cycle_count') : 0;
-  const activeStr = resonance ? safeNum(resonance.active_count, 0, 'resonance.active_count') : 0;
+  const cyclesUsed = resonance ? safeNum(resonance.cycles_used, 0, 'resonance.cycles_used') : 0;
+  const hitCount = resonance ? safeNum(resonance.hit_count, 0, 'resonance.hit_count') : 0;
   const entropy = resonance ? safeNum(resonance.entropy, 0, 'resonance.entropy') : 0;
-  const converged = resonance?.converged === true;
+  const stdDev = resonance ? safeNum(resonance.std_dev, 0, 'resonance.std_dev') : 0;
 
   return (
     <div className="energy-field-wrap">
@@ -102,8 +101,7 @@ export function EnergyField({ resonance, width = 256, height = 200 }: EnergyFiel
           <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Ψ resonance field</span>
           {resonance ? (
             <span style={{ fontSize: '10px', color: 'var(--muted)', marginLeft: 8 }}>
-              cycle {cycleStr} · {activeStr} active · H={entropy.toFixed(2)}
-              {converged && <span style={{ color: 'var(--green)', marginLeft: 4 }}>✓converged</span>}
+              cycles {cyclesUsed} · {hitCount} hits · H={entropy.toFixed(2)} · σ={stdDev.toFixed(2)}
             </span>
           ) : (
             <span style={{ fontSize: '10px', color: '#666', marginLeft: 8 }}>· awaiting</span>
