@@ -21,7 +21,7 @@
 //!     "format": { ... },
 //!     "tempDir": "/tmp/quarto-xxx",
 //!     "resourceDir": "/path/to/resources",
-//!     "handledLanguages": ["ojs", "mermaid"]
+//!     "handledLanguages": ["ojs", "mermaid", "dot"]
 //!   },
 //!   "results": "/tmp/r-results-xxx.json",
 //!   "wd": "/project"
@@ -247,7 +247,7 @@ mod tests {
             cwd: PathBuf::from("/project"),
             params: None,
             resource_dir: PathBuf::from("/usr/share/quarto"),
-            handled_languages: vec!["ojs".to_string(), "mermaid".to_string()],
+            handled_languages: vec!["ojs".to_string(), "mermaid".to_string(), "dot".to_string()],
         };
 
         let json = serde_json::to_string(&params).unwrap();
@@ -256,7 +256,7 @@ mod tests {
         assert!(json.contains("\"markdown\":\"# Hello\""));
         assert!(json.contains("\"tempDir\":\"/tmp/quarto\""));
         assert!(json.contains("\"dependencies\":true"));
-        assert!(json.contains("\"handledLanguages\":[\"ojs\",\"mermaid\"]"));
+        assert!(json.contains("\"handledLanguages\":[\"ojs\",\"mermaid\",\"dot\"]"));
 
         // lib_dir is None, should not appear
         assert!(!json.contains("\"libDir\""));
