@@ -188,6 +188,7 @@ export function PalantirApp() {
           >
             {showAnalyst ? 'close analyst' : 'analyst'}
           </button>
+          <a href="/reasoning" className="badge" style={{ textDecoration: 'none', cursor: 'pointer', color: '#35d07f', borderColor: 'rgba(53,208,127,0.2)' }}>Φ→Γ reasoning</a>
           <a href="/debug" className="badge" style={{ textDecoration: 'none', cursor: 'pointer', color: '#e040fb', borderColor: 'rgba(224,64,251,0.2)' }}>neural debug</a>
           <a href="/demo" className="badge" style={{ textDecoration: 'none', cursor: 'pointer' }}>infra demo</a>
           <span className="badge good">notebook saved</span>

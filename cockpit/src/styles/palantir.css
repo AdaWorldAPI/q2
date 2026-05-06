@@ -1515,3 +1515,254 @@
 .analyst-query-intent { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
 .analyst-query-cypher { font-size: 10px; margin: 4px 0; padding: 6px 8px; }
 .analyst-query-meta { display: flex; gap: 6px; align-items: center; }
+
+/* ================================================================
+   REASONING PAGE — cognitive shader stream (Φ→Ψ→B→Γ)
+   ================================================================ */
+.reasoning-shell {
+  grid-template-rows: var(--topbar-h) 1fr 200px var(--statusbar-h);
+  grid-template-columns: 260px 1fr 200px;
+  grid-template-areas:
+    "topbar  topbar  topbar"
+    "left    center  right"
+    "bottom  bottom  bottom"
+    "status  status  status";
+}
+.reasoning-main {
+  display: contents;
+}
+.reasoning-left {
+  grid-area: left;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+.reasoning-center {
+  grid-area: center;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.reasoning-right {
+  grid-area: right;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+.reasoning-bottom {
+  grid-area: bottom;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scene breadcrumb */
+.scene-breadcrumb {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+.scene-breadcrumb-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  overflow: hidden;
+}
+.scene-label {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.scene-act {
+  font-family: var(--mono);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+.scene-sep {
+  width: 1px;
+  height: 12px;
+  background: var(--border);
+}
+.scene-name {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.scene-confidence {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.scene-cycle {
+  font-size: 10px;
+}
+.scene-cypher-preview {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 600px;
+  padding: 0 2px;
+}
+
+/* Energy field */
+.energy-field-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  background: #0a0e14;
+}
+
+/* Bus ticker */
+.bus-ticker {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.bus-ticker-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bus-ticker-empty {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 16px;
+  text-align: center;
+}
+.bus-ticker-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background 200ms;
+}
+.bus-ticker-row.converged {
+  background: rgba(53,208,127,0.05);
+}
+.bus-codebook {
+  color: var(--accent);
+  min-width: 52px;
+}
+.bus-energy-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bus-energy-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 300ms ease;
+}
+.bus-energy-val {
+  color: var(--muted);
+  min-width: 36px;
+  text-align: right;
+  font-size: 10px;
+}
+.bus-cycle {
+  color: var(--muted);
+  font-size: 9px;
+  min-width: 20px;
+}
+.bus-converged {
+  color: var(--green);
+  font-size: 10px;
+}
+
+/* Thought log */
+.thought-log {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.thought-log-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.thought-log-empty {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 16px;
+  text-align: center;
+}
+.thought-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.thought-row:hover {
+  background: rgba(255,255,255,0.03);
+}
+.thought-style {
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 28px;
+  text-transform: uppercase;
+}
+.thought-codebook {
+  color: var(--accent);
+  min-width: 44px;
+}
+.thought-text {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  font-size: 10px;
+}
+
+/* Free energy dial */
+.free-energy-dial {
+  display: flex;
+  flex-direction: column;
+}
+.dial-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  gap: 4px;
+}
+.dial-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+  width: 100%;
+  padding: 0 8px;
+}

@@ -29,6 +29,7 @@ use tower_http::cors::CorsLayer;
 
 mod openai;
 mod graph_engine;
+mod shader_stream;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
 // The cockpit/ directory is built by `cd cockpit && npm run build` which
@@ -100,9 +101,15 @@ async fn main() {
     // OpenAI-compatible model API state
     let openai_state = Arc::new(tokio::sync::Mutex::new(openai::OpenAiState::new()));
 
+    // Shader stream shared scene state
+    let scene_state = shader_stream::new_scene_state();
+
     let app = Router::new()
         // OpenAI-compatible endpoints: /v1/models, /v1/completions, /v1/chat/completions, etc.
         .merge(openai::openai_router(openai_state))
+        // Shader stream — DTO pipeline SSE (Φ StreamDto → Ψ ResonanceDto → B BusDto → Γ ThoughtStruct)
+        .route("/v1/shader/stream", get(shader_stream::shader_stream_handler).with_state(scene_state.clone()))
+        .route("/v1/shader/status", get(shader_stream::shader_status_handler).with_state(scene_state))
         // MCP endpoints — all queries route through lance-graph
         .route("/mcp/sse", get(sse_handler))
         .route("/mcp/message", post(mcp_message_handler))

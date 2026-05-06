@@ -165,6 +165,40 @@ export async function runNarsInference(minConfidence = 0.4, maxHops = 2) {
   }
 }
 
+export interface LiveNarsInference {
+  source: string;
+  target: string;
+  relation: string;
+  inference_type: string;
+  truth_f: number;
+  truth_c: number;
+  via: string[];
+}
+
+/// Run NARS inference scoped to a specific node and map to ReasoningResult shape.
+/// Falls back to null so caller can use stub.
+export async function runNarsForNode(
+  nodeId: string,
+  minConfidence = 0.3,
+  maxHops = 3,
+): Promise<{
+  inferences: LiveNarsInference[];
+  inferred_edges: number;
+} | null> {
+  try {
+    const res = await fetch('/api/graph/infer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ min_confidence: minConfidence, max_hops: maxHops, node_id: nodeId }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchGraphHealth() {
   try {
     const res = await fetch('/api/graph/health');

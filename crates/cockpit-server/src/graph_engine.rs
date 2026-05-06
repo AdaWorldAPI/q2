@@ -265,20 +265,27 @@ pub async fn graph_snapshot_handler() -> axum::Json<GraphSnapshot> {
 }
 
 /// API handler: run NARS inference and return results.
+/// Optional `node_id` filters to inferences involving that node.
 pub async fn nars_infer_handler(
     axum::Json(params): axum::Json<serde_json::Value>,
 ) -> axum::Json<serde_json::Value> {
     let min_conf = params.get("min_confidence").and_then(|v| v.as_f64()).unwrap_or(0.4) as f32;
     let max_hops = params.get("max_hops").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+    let node_id = params.get("node_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let inferences = run_nars_deduction(min_conf, max_hops).await;
+    let mut inferences = run_nars_deduction(min_conf, max_hops).await;
 
-    // Update the live graph with inferences
+    // Filter to node if requested
+    if let Some(ref nid) = node_id {
+        inferences.retain(|i| i.source == *nid || i.target == *nid);
+    }
+
+    // Update the live graph with inferences (unfiltered count stays in health)
     {
         let graph = live_graph();
         let mut state = graph.write().await;
-        state.health.total_inferences = inferences.len();
         state.nars_inferences = inferences.clone();
+        state.health.total_inferences = inferences.len();
     }
 
     let count = inferences.len();

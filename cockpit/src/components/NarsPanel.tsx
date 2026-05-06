@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { GraphNode, GraphEdge } from '../store';
 import { TruthBadge } from './TruthBadge';
 import { ENRICHMENT_INDEX, getDefaultReasoning, type ReasoningResult, type EnrichmentEdge } from '../data/aiwar-seed';
+import { runNarsForNode } from '../transport';
 
 interface NarsPanelProps {
   selectedNode: GraphNode | null;
@@ -36,16 +37,47 @@ export function NarsPanel({ selectedNode, edges, onEnrich }: NarsPanelProps) {
     (e) => e.source === selectedNode.id || e.target === selectedNode.id,
   );
 
-  const handleReason = () => {
+  const handleReason = async () => {
     setRunning(true);
     setShowChina(false);
-    // Simulate inference delay
-    setTimeout(() => {
-      const result = ENRICHMENT_INDEX[selectedNode.id] || getDefaultReasoning(selectedNode.id, selectedNode.label);
+
+    // Try live NARS engine first; fall back to stub enrichment
+    const live = await runNarsForNode(selectedNode.id, 0.3, 3);
+    if (live && live.inferences.length > 0) {
+      const enrichmentEdges: EnrichmentEdge[] = live.inferences.map((inf) => ({
+        source: inf.source,
+        target: inf.target,
+        label: inf.relation,
+        truthValue: { f: inf.truth_f, c: inf.truth_c },
+        gate: inf.truth_c >= 0.6 ? 'FLOW' : inf.truth_c >= 0.35 ? 'HOLD' : 'BLOCK',
+        inference: inf.inference_type.toLowerCase(),
+        detail: inf.via.length > 0 ? `via ${inf.via.join(' → ')}` : `${inf.inference_type} deduction`,
+      }));
+      const result: ReasoningResult = {
+        system: selectedNode.id,
+        officialConnections: nodeEdges.length,
+        discoveredConnections: enrichmentEdges.length,
+        enrichmentNodes: [],
+        enrichmentEdges,
+        patterns: [
+          `Live NARS deduction: ${live.inferred_edges} inferences across graph`,
+          `Node "${selectedNode.label}" participates in ${enrichmentEdges.length} inferred chains`,
+        ],
+        confidence: Math.round(
+          (enrichmentEdges.reduce((s, e) => s + e.truthValue.c, 0) / enrichmentEdges.length) * 100,
+        ),
+      };
       setReasoning(result);
       setRunning(false);
       onEnrich(result);
-    }, 1200 + Math.random() * 800);
+      return;
+    }
+
+    // Fallback: stub enrichment (pre-computed or default)
+    const result = ENRICHMENT_INDEX[selectedNode.id] || getDefaultReasoning(selectedNode.id, selectedNode.label);
+    setReasoning(result);
+    setRunning(false);
+    onEnrich(result);
   };
 
   const handleChinaLinks = () => {
