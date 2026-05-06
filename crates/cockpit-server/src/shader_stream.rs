@@ -405,7 +405,11 @@ pub async fn shader_stream_handler(
             //    the cockpit can show the request that produced the cycle.
             //    TODO Phase 3B: dispatch is per-cycle and will need its own
             //    accumulator once BgzShaderDriver lands at ~10⁷ cycles/sec.
-            let dispatch = ShaderDispatch::default();
+            // Phase 3 A3 integration: read the user-selected style from the
+            // process-global mutex set by POST /v1/shader/style. Falls back
+            // to ShaderDispatch::default() (StyleSelector::Auto) when no
+            // override is set.
+            let dispatch = crate::style_state::current_dispatch();
             let wire_dispatch = WireShaderDispatch::from(&dispatch);
             yield Ok(shader_event(
                 "dispatch",
