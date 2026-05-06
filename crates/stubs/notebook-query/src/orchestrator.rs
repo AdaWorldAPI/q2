@@ -747,7 +747,7 @@ impl StyleTopology {
         // Deterministic "random" from step counter for reproducibility.
         let pseudo_random = ((step.wrapping_mul(0x9E3779B97F4A7C15)) >> 56) as f32 / 256.0;
 
-        if pseudo_random < EXPLORATION_RATE {
+        if pseudo_random < BASE_EXPLORATION_RATE {
             // Explore: pick the LEAST observed edge (maximize information gain).
             let mut best = AgentStyle::Plan;
             let mut min_obs = u64::MAX;

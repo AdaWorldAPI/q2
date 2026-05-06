@@ -1,0 +1,234 @@
+/* ================================================================
+   DIAGNOSTICS OVERLAY — Shift+D
+   ================================================================ */
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.diag-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 12, 18, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 20px;
+  font-family: var(--mono, monospace);
+}
+
+.diag-panel {
+  width: 100%;
+  max-width: 1100px;
+  max-height: calc(100vh - 80px);
+  background: #0c1018;
+  border: 1px solid #2a3040;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+.diag-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #1a2030;
+  background: #0a0e14;
+}
+
+.diag-header h2 {
+  margin: 0;
+  font-size: 13px;
+  font-family: var(--sans, sans-serif);
+  color: #e0e6ed;
+  letter-spacing: 0.04em;
+}
+
+.diag-header small {
+  font-size: 10px;
+  color: #666;
+  margin-left: 8px;
+}
+
+.diag-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.diag-header-actions button {
+  background: #1a2030;
+  color: #e0e6ed;
+  border: 1px solid #2a3040;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--mono, monospace);
+}
+
+.diag-header-actions button:hover {
+  background: #232a3c;
+  border-color: #4dd0e1;
+}
+
+.diag-body {
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.diag-section {
+  margin-bottom: 18px;
+}
+
+.diag-section h3 {
+  margin: 0 0 6px 0;
+  font-size: 11px;
+  font-family: var(--sans, sans-serif);
+  color: #4dd0e1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 16px;
+  font-size: 11px;
+  color: #e0e6ed;
+  padding: 8px;
+  background: #0a0e14;
+  border: 1px solid #1a2030;
+  border-radius: 4px;
+}
+
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  color: #e0e6ed;
+  background: #0a0e14;
+  border: 1px solid #1a2030;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.diag-table th,
+.diag-table td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid #1a2030;
+  vertical-align: top;
+}
+
+.diag-table th {
+  background: #131820;
+  color: #888;
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.diag-table tr:last-child td {
+  border-bottom: none;
+}
+
+.diag-table tr:hover td {
+  background: #11151c;
+}
+
+.diag-mono {
+  font-family: var(--mono, monospace);
+}
+
+.diag-muted {
+  color: #666;
+}
+
+.diag-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* ================================================================
+   ERROR BOUNDARY CARD — when a panel crashes, replace just that panel
+   ================================================================ */
+
+.error-boundary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: rgba(255, 99, 125, 0.06);
+  border: 1px solid rgba(255, 99, 125, 0.3);
+  border-radius: 6px;
+  font-family: var(--mono, monospace);
+  color: #e0e6ed;
+  height: 100%;
+  overflow: auto;
+}
+
+.error-boundary-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.error-boundary-header strong {
+  color: #ff637d;
+  font-family: var(--sans, sans-serif);
+}
+
+.error-boundary-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: #ff637d;
+  box-shadow: 0 0 6px #ff637d;
+  animation: pulse 1.2s infinite;
+}
+
+.error-boundary-reset {
+  margin-left: auto;
+  padding: 2px 8px;
+  background: #1a2030;
+  color: #e0e6ed;
+  border: 1px solid #2a3040;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: var(--mono, monospace);
+}
+
+.error-boundary-reset:hover {
+  background: #ff637d22;
+  border-color: #ff637d;
+}
+
+.error-boundary-msg {
+  font-size: 11px;
+  color: #ffb547;
+  word-break: break-word;
+  padding: 6px 8px;
+  background: #000;
+  border-radius: 3px;
+  white-space: pre-wrap;
+}
+
+.error-boundary-hint {
+  font-size: 10px;
+  color: #666;
+  font-style: italic;
+}

@@ -24,8 +24,35 @@ export function DemoApp() {
     return { total: cells.length, running };
   }, [cells]);
 
+  // Detect fallback-mode mount: route /demo-fallback is the explicit
+  // outage-fallback entrypoint. We preserve this surface (do NOT delete)
+  // but make it visually obvious that the live engine is unavailable.
+  const isFallbackMode =
+    typeof window !== 'undefined' &&
+    window.location.pathname.startsWith('/demo-fallback');
+
   return (
     <div className="shell">
+      {isFallbackMode && (
+        <div
+          role="alert"
+          style={{
+            gridColumn: '1 / -1',
+            background: '#3a2e08',
+            color: '#ffd86b',
+            border: '1px solid #ffb547',
+            borderLeft: '4px solid #ffb547',
+            padding: '8px 14px',
+            fontSize: '13px',
+            fontWeight: 600,
+            letterSpacing: '0.02em',
+            textAlign: 'center',
+          }}
+        >
+          FALLBACK MODE &mdash; live shader stream and lance-graph engine
+          unavailable. Showing seed data.
+        </div>
+      )}
       {/* Row 1: Top bar */}
       <section className="topbar">
         <div className="brand">

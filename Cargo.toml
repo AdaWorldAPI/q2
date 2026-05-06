@@ -163,6 +163,10 @@ path = "./crates/stubs/notebook-query"
 path = "../lance-graph/crates/lance-graph"
 package = "lance-graph"
 default-features = false
+# ndarray-hpc is required: lance-graph's vector_ops + fingerprint + hydrate
+# call ndarray::hpc::* unconditionally (no cfg gates), so this feature
+# must be active even when default-features is off.
+features = ["ndarray-hpc"]
 
 # Unified query planner: MUL+Compass → Thinking Orchestration → Strategy Selection
 [workspace.dependencies.lance-graph-planner]
@@ -173,6 +177,26 @@ package = "lance-graph-planner"
 [workspace.dependencies.bgz17]
 path = "../lance-graph/crates/bgz17"
 package = "bgz17"
+
+# thinking-engine: real Engine, real DTOs (no fabricated types)
+[workspace.dependencies.thinking-engine]
+path = "../lance-graph/crates/thinking-engine"
+package = "thinking-engine"
+
+# cognitive-shader-driver: ShaderDriver, real cognitive cycle
+[workspace.dependencies.cognitive-shader-driver]
+path = "../lance-graph/crates/cognitive-shader-driver"
+package = "cognitive-shader-driver"
+
+# lance-graph-contract: NarsTruth, InferenceType, ThinkingStyle (zero-dep crate)
+[workspace.dependencies.lance-graph-contract]
+path = "../lance-graph/crates/lance-graph-contract"
+package = "lance-graph-contract"
+
+# causal-edge: CausalEdge64, NarsTables
+[workspace.dependencies.causal-edge]
+path = "../lance-graph/crates/causal-edge"
+package = "causal-edge"
 
 # rs-graph-llm: LangGraph-like orchestrator — thinking.rs 10-layer cognitive stack
 # Uses stub when rs-graph-llm repo is not available locally.
