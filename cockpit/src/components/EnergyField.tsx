@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { WireResonanceDto } from '../hooks/useShaderStream';
+import { safeNum, clamp } from '../diagnostics/safe';
 
 interface EnergyFieldProps {
   resonance: WireResonanceDto | null;
@@ -10,7 +11,7 @@ interface EnergyFieldProps {
 const COLS = 64;
 const ROWS = 64;
 
-export function EnergyField({ resonance, width = 256, height = 256 }: EnergyFieldProps) {
+export function EnergyField({ resonance, width = 256, height = 200 }: EnergyFieldProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -22,11 +23,18 @@ export function EnergyField({ resonance, width = 256, height = 256 }: EnergyFiel
     const cellW = width / COLS;
     const cellH = height / ROWS;
 
-    // Build a sparse energy map from top_k
+    // Build a sparse energy map from top_k — defensively handle bad shape
     const energyMap = new Float32Array(COLS * ROWS);
-    if (resonance?.top_k) {
-      for (const [idx, energy] of resonance.top_k) {
-        const cell = idx % (COLS * ROWS);
+    if (resonance && Array.isArray(resonance.top_k)) {
+      for (const entry of resonance.top_k) {
+        if (!Array.isArray(entry) || entry.length !== 2) continue;
+        const idxRaw = entry[0];
+        const energyRaw = entry[1];
+        const idx = safeNum(idxRaw, 0, 'resonance.top_k[].idx');
+        const energy = clamp(energyRaw, 0, 1, 'resonance.top_k[].energy');
+        if (energy <= 0) continue;
+        const cell = Math.floor(idx) % (COLS * ROWS);
+        if (cell < 0 || cell >= COLS * ROWS) continue;
         energyMap[cell] = Math.max(energyMap[cell], energy);
         // Gaussian spread to neighbors
         const cx = cell % COLS;
@@ -50,36 +58,55 @@ export function EnergyField({ resonance, width = 256, height = 256 }: EnergyFiel
         const e = energyMap[r * COLS + c];
         if (e < 0.01) continue;
         const alpha = Math.min(e, 1.0);
-        // Cyan → green gradient by energy
-        const hue = 175 - e * 55; // 175 (cyan) → 120 (green)
+        const hue = 175 - e * 55;
         ctx.fillStyle = `hsla(${hue}, 100%, 55%, ${alpha.toFixed(2)})`;
         ctx.fillRect(c * cellW, r * cellH, cellW - 0.5, cellH - 0.5);
       }
     }
 
+    // Draw "no data" placeholder
+    if (!resonance || !Array.isArray(resonance.top_k) || resonance.top_k.length === 0) {
+      ctx.font = '11px monospace';
+      ctx.fillStyle = '#444';
+      ctx.textAlign = 'center';
+      ctx.fillText('Ψ no resonance events', width / 2, height / 2);
+      ctx.fillStyle = '#333';
+      ctx.font = '9px monospace';
+      ctx.fillText('Shift+D for diagnostics', width / 2, height / 2 + 14);
+      ctx.textAlign = 'left';
+      return;
+    }
+
     // Draw top-k labels
-    if (resonance?.top_k?.length) {
-      ctx.font = '8px monospace';
-      ctx.fillStyle = '#ffffff99';
-      for (const [idx, energy] of resonance.top_k.slice(0, 3)) {
-        const cell = idx % (COLS * ROWS);
-        const cx = (cell % COLS) * cellW + 2;
-        const cy = Math.floor(cell / COLS) * cellH + 8;
-        ctx.fillText(`${idx}`, cx, cy);
-      }
+    ctx.font = '8px monospace';
+    ctx.fillStyle = '#ffffff99';
+    for (const entry of resonance.top_k.slice(0, 3)) {
+      if (!Array.isArray(entry) || entry.length !== 2) continue;
+      const idx = safeNum(entry[0], 0, 'resonance.top_k_label');
+      const cell = Math.floor(idx) % (COLS * ROWS);
+      const cx = (cell % COLS) * cellW + 2;
+      const cy = Math.floor(cell / COLS) * cellH + 8;
+      ctx.fillText(`${Math.floor(idx)}`, cx, cy);
     }
   }, [resonance, width, height]);
+
+  const cycleStr = resonance ? safeNum(resonance.cycle_count, 0, 'resonance.cycle_count') : 0;
+  const activeStr = resonance ? safeNum(resonance.active_count, 0, 'resonance.active_count') : 0;
+  const entropy = resonance ? safeNum(resonance.entropy, 0, 'resonance.entropy') : 0;
+  const converged = resonance?.converged === true;
 
   return (
     <div className="energy-field-wrap">
       <div className="panel-header" style={{ padding: '4px 8px' }}>
         <div className="panel-title">
           <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Ψ resonance field</span>
-          {resonance && (
+          {resonance ? (
             <span style={{ fontSize: '10px', color: 'var(--muted)', marginLeft: 8 }}>
-              cycle {resonance.cycle_count} · {resonance.active_count} active · H={resonance.entropy.toFixed(2)}
-              {resonance.converged && <span style={{ color: 'var(--green)', marginLeft: 4 }}>✓converged</span>}
+              cycle {cycleStr} · {activeStr} active · H={entropy.toFixed(2)}
+              {converged && <span style={{ color: 'var(--green)', marginLeft: 4 }}>✓converged</span>}
             </span>
+          ) : (
+            <span style={{ fontSize: '10px', color: '#666', marginLeft: 8 }}>· awaiting</span>
           )}
         </div>
       </div>

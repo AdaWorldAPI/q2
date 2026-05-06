@@ -1,21 +1,33 @@
-//! /v1/shader/stream — SSE endpoint emitting the DTO pipeline.
+//! /v1/shader/stream — SSE endpoint emitting the REAL DTO pipeline.
 //!
 //! Φ StreamDto → Ψ ResonanceDto → B BusDto → Γ ThoughtStruct
 //!
-//! Scene player reads Cypher enrichment files (30 acts from aiwar-neo4j-harvest)
-//! and emits them as streaming acts. Each act drives a simulated cognitive cycle.
+//! Drives the actual `thinking_engine::ThinkingEngine`:
+//!   1. Cypher file → `crate::scene_player::cypher_to_stream` produces a real
+//!      `thinking_engine::dto::StreamDto` (codebook indices, source, ts).
+//!   2. `engine.perturb(&stream.codebook_indices)` injects energy.
+//!   3. `engine.think(max_cycles)` runs MatVec cycles → returns `ResonanceDto`.
+//!   4. `engine.commit()` collapses the dominant peak → `BusDto`.
+//!   5. `crate::dto_bridge::*` converts each engine DTO → `Wire*` for SSE.
 //!
-//! NO serde on internal path. JSON only at the SSE boundary.
+//! NO simulated cycles. NO content hashing. NO fabricated codebook indices.
+//! Serde lives only at the SSE boundary; the internal path stays in native types.
 
 use std::convert::Infallible;
-use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::response::sse::{Event, Sse};
 use futures_core::Stream;
 use serde::Serialize;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+
+use thinking_engine::engine::ThinkingEngine;
+use thinking_engine::dto::{StreamDto as EngStreamDto, ResonanceDto as EngResonanceDto,
+                           BusDto as EngBusDto, ThoughtStruct as EngThoughtStruct,
+                           SourceType};
+
+use crate::dto_bridge::{WireStreamDto, WireResonanceDto, WireBusDto, WireThoughtStruct};
 
 // ── JSON wire types (serde only at SSE boundary) ─────────────────────────────
 
@@ -25,39 +37,6 @@ pub struct ShaderEvent {
     pub kind: &'static str,
     pub ts: u64,
     pub payload: serde_json::Value,
-}
-
-#[derive(Clone, Serialize)]
-pub struct WireStreamDto {
-    pub source: &'static str,
-    pub codebook_indices: Vec<u16>,
-    pub timestamp: u64,
-}
-
-#[derive(Clone, Serialize)]
-pub struct WireResonanceDto {
-    /// Sparse top-k representation (full 4096-entry field would be 16KB per frame)
-    pub top_k: Vec<(u16, f32)>,
-    pub cycle_count: u16,
-    pub converged: bool,
-    pub entropy: f32,
-    pub active_count: u32,
-}
-
-#[derive(Clone, Serialize)]
-pub struct WireBusDto {
-    pub codebook_index: u16,
-    pub energy: f32,
-    pub top_k: Vec<(u16, f32)>,
-    pub cycle_count: u16,
-    pub converged: bool,
-}
-
-#[derive(Clone, Serialize)]
-pub struct WireThoughtStruct {
-    pub bus: WireBusDto,
-    pub text: Option<String>,
-    pub style: &'static str,
 }
 
 #[derive(Clone, Serialize)]
@@ -105,6 +84,17 @@ pub fn new_scene_state() -> SharedSceneState {
     Arc::new(RwLock::new(SceneState::new()))
 }
 
+/// Process-global scene state. Avoids axum state-type plumbing for the
+/// SSE handlers (`Arc<RwLock<...>>` can't host a `FromRef<Arc<AppState>>`
+/// impl due to the orphan rule, and per-route `.with_state(...)` collides
+/// with the parent router state). One scene per process is correct.
+static SCENE: LazyLock<SharedSceneState> = LazyLock::new(new_scene_state);
+
+/// Accessor for the process-global scene state.
+pub fn scene() -> SharedSceneState {
+    SCENE.clone()
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -112,123 +102,33 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-// ── Scene player: loads Cypher files, emits acts ─────────────────────────────
+// ── Scene player: see `crate::scene_player` for discovery + Cypher → StreamDto.
 
-/// Discover Cypher enrichment files in `dir`, version-ordered.
-pub fn discover_cypher_files(dir: &str) -> Vec<(String, String)> {
-    let path = Path::new(dir);
-    if !path.exists() {
-        return Vec::new();
+// ── Free-energy heuristic ────────────────────────────────────────────────────
+
+fn make_free_energy_from_resonance(resonance: &EngResonanceDto, confidence: f32) -> WireFreeEnergy {
+    // Likelihood: dominant peak energy (how strongly one atom won).
+    let likelihood = resonance.top_k.first().map(|(_, e)| *e).unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    // KL divergence proxy: entropy of the distribution (high entropy = far from prior).
+    let mut h = 0.0f32;
+    for &e in &resonance.energy {
+        if e > 1e-10 { h -= e * e.ln(); }
     }
-    let mut files: Vec<(String, String)> = std::fs::read_dir(path)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let p = e.path();
-            if p.extension()?.to_str()? == "cypher" {
-                let name = p.file_stem()?.to_string_lossy().into_owned();
-                let content = std::fs::read_to_string(&p).ok()?;
-                Some((name, content))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Sort by name (version-ordered: v0 < v31 < v40 < v43)
-    files.sort_by(|a, b| a.0.cmp(&b.0));
-    files
-}
-
-/// Confidence score from filename (higher for verified/corrected files).
-fn confidence_from_name(name: &str) -> f32 {
-    if name.contains("corrections") || name.contains("verified") { 0.92 }
-    else if name.contains("patch") { 0.78 }
-    else if name.contains("allin") { 0.85 }
-    else if name.contains("enriched") || name.contains("full") { 0.70 }
-    else { 0.65 }
-}
-
-/// Extract first non-empty line of Cypher as preview.
-fn cypher_preview(content: &str) -> String {
-    content.lines()
-        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with("//"))
-        .next()
-        .unwrap_or("// empty")
-        .chars()
-        .take(120)
-        .collect()
-}
-
-// ── Simulated cognitive cycle (placeholder until thinking-engine is wired) ───
-
-/// Generate a WireStreamDto from a Cypher act.
-/// Simulates codebook_indices by hashing the content.
-fn make_stream_dto(content: &str, ts: u64) -> WireStreamDto {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    content.hash(&mut h);
-    let seed = h.finish();
-
-    // Generate 8-16 pseudo-random codebook indices from the content hash
-    let indices: Vec<u16> = (0u64..12)
-        .map(|i| ((seed.wrapping_mul(6364136223846793005).wrapping_add(i * 1442695040888963407)) >> 48) as u16 % 4096)
-        .collect();
-
-    WireStreamDto { source: "AriGraph", codebook_indices: indices, timestamp: ts }
-}
-
-fn make_resonance_dto(stream: &WireStreamDto, cycle_count: u16) -> WireResonanceDto {
-    // Simulate energy peaks at the codebook indices
-    let top_k: Vec<(u16, f32)> = stream.codebook_indices.iter()
-        .enumerate()
-        .map(|(i, &idx)| {
-            let energy = 0.9 - (i as f32 * 0.08);
-            (idx, energy.max(0.1))
-        })
-        .take(8)
-        .collect();
-
-    let entropy = 2.1 + (cycle_count as f32 * 0.03);
-    let active_count = (stream.codebook_indices.len() * 4 + 12) as u32;
-
-    WireResonanceDto {
-        top_k,
-        cycle_count,
-        converged: cycle_count > 5,
-        entropy,
-        active_count,
+    let kl = (h / 8.0).clamp(0.0, 1.0); // normalize entropy to roughly [0,1]
+    let free_energy = ((1.0 - likelihood) + kl - confidence * 0.3).clamp(0.0, 2.0);
+    WireFreeEnergy {
+        likelihood,
+        kl,
+        free_energy,
+        below_homeostasis: free_energy < 0.3,
     }
 }
 
-fn make_bus_dto(resonance: &WireResonanceDto) -> WireBusDto {
-    let top = resonance.top_k.first().copied().unwrap_or((0, 0.0));
-    WireBusDto {
-        codebook_index: top.0,
-        energy: top.1,
-        top_k: resonance.top_k.clone(),
-        cycle_count: resonance.cycle_count,
-        converged: resonance.converged,
-    }
-}
-
-fn make_thought(bus: WireBusDto, act_name: &str, confidence: f32) -> WireThoughtStruct {
-    let text = format!(
-        "[{}] codebook[{}] energy={:.2} confidence={:.2}",
-        act_name, bus.codebook_index, bus.energy, confidence
-    );
-    WireThoughtStruct {
-        bus,
-        text: Some(text),
-        style: "Focused",
-    }
-}
-
-fn make_free_energy(cycle: u64, confidence: f32) -> WireFreeEnergy {
+fn make_free_energy_idle(cycle: u64) -> WireFreeEnergy {
     let t = (cycle as f32 * 0.1).sin().abs();
-    let likelihood = 0.6 + t * 0.3 * confidence;
-    let kl = 0.4 - t * 0.2 * confidence;
+    let likelihood = 0.3 + t * 0.2;
+    let kl = 0.5 - t * 0.1;
     let free_energy = 1.0 - likelihood + kl;
     WireFreeEnergy {
         likelihood,
@@ -248,15 +148,20 @@ fn shader_event(kind: &'static str, payload: serde_json::Value) -> Event {
 
 // ── SSE handler ───────────────────────────────────────────────────────────────
 
-/// GET /v1/shader/stream — continuous SSE stream of the DTO pipeline.
+/// GET /v1/shader/stream — continuous SSE stream of the REAL DTO pipeline.
 ///
 /// Query params:
 ///   ?cypher_dir=<path>   override Cypher file directory
 ///   ?cycle_ms=<ms>       ms per cognitive cycle (default 800)
+///
+/// Per-connection state:
+///   - one `ThinkingEngine` (4096×4096 distance table from `crate::codebook`)
+///     wrapped in `Arc<Mutex<>>` so the engine can be retained across yields
+///     in the async stream without holding a non-Send borrow over an await.
 pub async fn shader_stream_handler(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
-    axum::extract::State(scene_state): axum::extract::State<SharedSceneState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let scene_state = scene();
     let cypher_dir = params
         .get("cypher_dir")
         .cloned()
@@ -268,8 +173,13 @@ pub async fn shader_stream_handler(
         .and_then(|s| s.parse().ok())
         .unwrap_or(800);
 
+    // Build the real ThinkingEngine for this connection.
+    // The distance table comes from crate::codebook (agent #6 owns).
+    let distance_table = crate::codebook::default_distance_table();
+    let engine = Arc::new(Mutex::new(ThinkingEngine::new(distance_table)));
+
     let stream = async_stream::stream! {
-        let acts = discover_cypher_files(&cypher_dir);
+        let acts = crate::scene_player::discover_acts(&cypher_dir);
         let total = acts.len() as u32;
 
         // Update scene state
@@ -281,29 +191,31 @@ pub async fn shader_stream_handler(
         if acts.is_empty() {
             // No Cypher files — emit idle heartbeat
             loop {
-                let mut cycle = {
+                let cycle = {
                     let mut s = scene_state.write().await;
                     s.cycle += 1;
                     s.cycle
                 };
-                let fe = make_free_energy(cycle, 0.5);
+                let fe = make_free_energy_idle(cycle);
                 yield Ok(shader_event("health", serde_json::to_value(&fe).unwrap_or_default()));
                 tokio::time::sleep(Duration::from_millis(cycle_ms)).await;
             }
         }
 
-        // Scene player loop
+        // Scene player loop — drives the REAL thinking-engine.
         let mut act_idx = 0u32;
         loop {
-            let (name, content) = &acts[act_idx as usize % acts.len()];
-            let confidence = confidence_from_name(name);
+            let act = &acts[act_idx as usize % acts.len()];
+            let name = &act.name;
+            let content = &act.cypher_text;
+            let confidence = act.confidence;
 
             // 1. Scene event
             let scene = WireSceneAct {
                 act: act_idx + 1,
                 total: total.max(1),
                 name: name.clone(),
-                cypher_preview: cypher_preview(content),
+                cypher_preview: crate::scene_player::cypher_preview(content),
                 confidence,
             };
             {
@@ -314,34 +226,60 @@ pub async fn shader_stream_handler(
             yield Ok(shader_event("scene", serde_json::to_value(&scene).unwrap_or_default()));
             tokio::time::sleep(Duration::from_millis(cycle_ms / 4)).await;
 
-            // 2. StreamDto
+            // 2. StreamDto — Cypher → real codebook indices via scene_player.
             let ts = now_ms();
-            let stream_dto = make_stream_dto(content, ts);
-            yield Ok(shader_event("stream", serde_json::to_value(&stream_dto).unwrap_or_default()));
+            let stream_dto: EngStreamDto = crate::scene_player::cypher_to_stream(content, ts);
+            let wire_stream = WireStreamDto::from(&stream_dto);
+            yield Ok(shader_event("stream", serde_json::to_value(&wire_stream).unwrap_or_default()));
             tokio::time::sleep(Duration::from_millis(cycle_ms / 4)).await;
 
-            // 3. ResonanceDto (simulate a few cycles)
-            let cycle_count = 3u16 + (act_idx % 7) as u16;
-            let resonance = make_resonance_dto(&stream_dto, cycle_count);
-            yield Ok(shader_event("resonance", serde_json::to_value(&resonance).unwrap_or_default()));
+            // 3. Drive the engine: perturb → think → commit.
+            //    All engine work happens under a lock that is RELEASED before
+            //    awaiting the next sleep, keeping the future Send.
+            let (resonance_dto, bus_dto): (EngResonanceDto, EngBusDto) = {
+                let mut eng = engine.lock().await;
+                // New thought starts fresh (per-act).
+                eng.reset();
+                eng.perturb(&stream_dto.codebook_indices);
+                // think() runs MatVec cycles up to convergence.
+                let resonance = eng.think(10);
+                let bus = eng.commit();
+                (resonance, bus)
+            };
+
+            // 4. Resonance event — converted via dto_bridge.
+            let wire_resonance = WireResonanceDto::from(&resonance_dto);
+            yield Ok(shader_event("resonance", serde_json::to_value(&wire_resonance).unwrap_or_default()));
             tokio::time::sleep(Duration::from_millis(cycle_ms / 4)).await;
 
-            // 4. BusDto
-            let bus = make_bus_dto(&resonance);
-            yield Ok(shader_event("bus", serde_json::to_value(&bus).unwrap_or_default()));
+            // 5. Bus event.
+            let wire_bus = WireBusDto::from(&bus_dto);
+            yield Ok(shader_event("bus", serde_json::to_value(&wire_bus).unwrap_or_default()));
 
-            // 5. ThoughtStruct
-            let thought = make_thought(bus, name, confidence);
-            yield Ok(shader_event("thought", serde_json::to_value(&thought).unwrap_or_default()));
+            // 6. Thought event — pair the bus with sensor contributions.
+            let thought = EngThoughtStruct::from_engine(
+                bus_dto.clone(),
+                vec![(stream_dto.source, stream_dto.codebook_indices.clone())],
+            );
+            let mut wire_thought = WireThoughtStruct::from(&thought);
+            // Lazy text rendering: the engine doesn't text-render, we annotate here.
+            wire_thought.text = Some(format!(
+                "[{}] codebook[{}] energy={:.3} cycles={} converged={}",
+                name, bus_dto.codebook_index, bus_dto.energy,
+                bus_dto.cycle_count, bus_dto.converged
+            ));
+            yield Ok(shader_event("thought", serde_json::to_value(&wire_thought).unwrap_or_default()));
 
-            // 6. Free energy
-            let cycle = {
+            // 7. Free-energy event derived from the actual resonance distribution.
+            let cycle_n = {
                 let mut s = scene_state.write().await;
                 s.cycle += 1;
-                s.free_energy = 1.0 - confidence * 0.7;
+                let fe_val = (1.0 - bus_dto.energy) + (resonance_dto.entropy() / 8.0);
+                s.free_energy = fe_val.clamp(0.0, 2.0);
                 s.cycle
             };
-            let fe = make_free_energy(cycle, confidence);
+            let _ = cycle_n; // available for downstream use
+            let fe = make_free_energy_from_resonance(&resonance_dto, confidence);
             yield Ok(shader_event("health", serde_json::to_value(&fe).unwrap_or_default()));
 
             tokio::time::sleep(Duration::from_millis(cycle_ms / 4)).await;
@@ -370,3 +308,7 @@ pub async fn shader_status_handler(
         "free_energy": s.free_energy,
     }))
 }
+
+// Suppress unused-import warning for SourceType when the bridge changes signature.
+#[allow(dead_code)]
+fn _source_type_witness(_s: SourceType) {}

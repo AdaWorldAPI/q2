@@ -1,4 +1,5 @@
-import type { ShaderEvent, WireSceneAct } from '../hooks/useShaderStream';
+import type { WireSceneAct } from '../hooks/useShaderStream';
+import { fmt, safeNum, safeStr } from '../diagnostics/safe';
 
 interface SceneBreadcrumbProps {
   scene: WireSceneAct | null;
@@ -6,35 +7,46 @@ interface SceneBreadcrumbProps {
 }
 
 export function SceneBreadcrumb({ scene, cycle }: SceneBreadcrumbProps) {
+  const safeCycle = safeNum(cycle, 0, 'scene.cycle');
+  const act = scene ? safeNum(scene.act, 0, 'scene.act') : 0;
+  const total = scene ? safeNum(scene.total, 0, 'scene.total') : 0;
+  const confidence = scene ? safeNum(scene.confidence, 0, 'scene.confidence') : 0;
+  const name = scene
+    ? safeStr(scene.name, 'unknown', 'scene.name')
+        .replace('aiwar_enrichment_', '')
+        .replace('aiwar_', '')
+    : 'idle';
+  const preview = scene ? safeStr(scene.cypher_preview, '', 'scene.cypher_preview') : '';
+
   return (
     <div className="scene-breadcrumb">
       <div className="scene-breadcrumb-inner">
         <span className="scene-label">act</span>
         <span className="scene-act">
-          {scene ? `${scene.act} / ${scene.total}` : '— / —'}
+          {scene ? `${act} / ${total}` : '— / —'}
         </span>
         <span className="scene-sep" />
-        <span className="scene-name" title={scene?.cypher_preview ?? ''}>
-          {scene?.name?.replace('aiwar_enrichment_', '').replace('aiwar_', '') ?? 'idle'}
+        <span className="scene-name" title={preview}>
+          {name}
         </span>
         {scene && (
           <>
             <span className="scene-sep" />
             <span className="scene-confidence" style={{
-              color: scene.confidence >= 0.8 ? 'var(--green)' : scene.confidence >= 0.65 ? 'var(--yellow)' : 'var(--muted)',
+              color: confidence >= 0.8 ? 'var(--green)' : confidence >= 0.65 ? 'var(--yellow)' : 'var(--muted)',
             }}>
-              c={scene.confidence.toFixed(2)}
+              c={fmt(confidence, 2, 'scene.confidence')}
             </span>
           </>
         )}
         <span className="scene-sep" />
         <span className="scene-cycle" style={{ color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-          cycle {cycle}
+          cycle {safeCycle}
         </span>
       </div>
-      {scene?.cypher_preview && (
+      {preview && (
         <div className="scene-cypher-preview">
-          {scene.cypher_preview}
+          {preview}
         </div>
       )}
     </div>

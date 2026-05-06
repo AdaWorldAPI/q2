@@ -47,6 +47,12 @@ impl AnalysisBucket {
             Self::SurveillanceEcosystem => "Data flows, privacy erosion, cross-border surveillance",
         }
     }
+    /// Seed queries used to drive analysis for this bucket. Currently
+    /// derived from the node-keyword list so that callers (e.g. the
+    /// `/api/analyst/buckets` HTTP handler) can report a `query_count`.
+    pub fn seed_queries(&self) -> &[&str] {
+        self.node_keywords()
+    }
     fn node_keywords(&self) -> &[&str] {
         match self {
             Self::EconomicReview => &["Thiel", "Luckey", "Musk", "Palantir", "Anduril", "Fund"],

@@ -1,5 +1,10 @@
 # Plan: Wire q2 to cognitive-shader-driver DTOs (parallel integration path)
 
+> **PHASE 1 STATUS: Shipped (commit 3d717b8) — see `2026-05-06-phase2-real-engine.md` for honest review.**
+> Phase 1 wired the wire-format DTOs and SSE plumbing, but the engine path was
+> theatre (hand-rolled cycles, hashed codebook indices, JSON-only conversion).
+> Phase 2 replaces that with the real `thinking_engine::ThinkingEngine`.
+
 > Date: 2026-04-21 (updated 2026-04-25)
 > Branch: `claude/design-graph-notebook-frontend-Pwoqh`
 > Constraint: semiring stays for external surface only — must NOT leak into StreamDto/BusDto path

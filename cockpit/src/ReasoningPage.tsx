@@ -4,6 +4,10 @@ import { BusTicker } from './components/BusTicker';
 import { ThoughtLog } from './components/ThoughtLog';
 import { SceneBreadcrumb } from './components/SceneBreadcrumb';
 import { FreeEnergyDial } from './components/FreeEnergyDial';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { DiagnosticsBadge, DiagnosticsOverlay } from './components/DiagnosticsOverlay';
+import { useEndpointHealth } from './hooks/useEndpointHealth';
+import { fmt, safeNum } from './diagnostics/safe';
 
 /**
  * ReasoningPage — live AGI shader stream.
@@ -15,6 +19,7 @@ import { FreeEnergyDial } from './components/FreeEnergyDial';
  */
 export function ReasoningPage() {
   const stream = useShaderStream('/v1/shader/stream');
+  useEndpointHealth(8000);
 
   return (
     <div className="shell reasoning-shell">
@@ -40,7 +45,8 @@ export function ReasoningPage() {
               reconnect
             </button>
           )}
-          <span className="badge">{stream.eventCount} events</span>
+          <span className="badge">{safeNum(stream.eventCount, 0, 'stream.eventCount')} events</span>
+          <DiagnosticsBadge />
           <a href="/" className="badge" style={{ textDecoration: 'none' }}>← cockpit</a>
         </div>
       </section>
@@ -48,23 +54,35 @@ export function ReasoningPage() {
       {/* Main row: EnergyField · BusTicker · FreeEnergyDial */}
       <section className="reasoning-main">
         <div className="reasoning-left">
-          <EnergyField resonance={stream.lastResonance} width={256} height={200} />
+          <ErrorBoundary scope="EnergyField">
+            <EnergyField resonance={stream.lastResonance} width={256} height={200} />
+          </ErrorBoundary>
         </div>
         <div className="reasoning-center">
-          <BusTicker items={stream.busHistory} maxItems={30} />
+          <ErrorBoundary scope="BusTicker">
+            <BusTicker items={stream.busHistory} maxItems={30} />
+          </ErrorBoundary>
         </div>
         <div className="reasoning-right">
-          <FreeEnergyDial freeEnergy={stream.freeEnergy} />
-          {/* Stream source info */}
-          {stream.lastStream && (
+          <ErrorBoundary scope="FreeEnergyDial">
+            <FreeEnergyDial freeEnergy={stream.freeEnergy} />
+          </ErrorBoundary>
+          {/* Stream source info — defensive against missing fields */}
+          {stream.lastStream ? (
             <div style={{ padding: '8px', borderTop: '1px solid var(--border)', marginTop: 8 }}>
               <div style={{ fontSize: '10px', color: 'var(--muted)', marginBottom: 4 }}>Φ last stream</div>
               <div style={{ fontSize: '11px', fontFamily: 'var(--mono)', color: 'var(--text)' }}>
-                src: {stream.lastStream.source}
+                src: {stream.lastStream.source ?? 'unknown'}
               </div>
               <div style={{ fontSize: '11px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
-                indices: [{stream.lastStream.codebook_indices.slice(0, 4).join(', ')}…]
+                indices: [{Array.isArray(stream.lastStream.codebook_indices)
+                  ? stream.lastStream.codebook_indices.slice(0, 4).join(', ')
+                  : '—'}…]
               </div>
+            </div>
+          ) : (
+            <div style={{ padding: '8px', borderTop: '1px solid var(--border)', marginTop: 8, fontSize: '10px', color: '#666' }}>
+              Φ awaiting first stream event
             </div>
           )}
         </div>
@@ -72,7 +90,9 @@ export function ReasoningPage() {
 
       {/* Thought log — full width */}
       <section className="reasoning-bottom">
-        <ThoughtLog thoughts={stream.thoughtHistory} maxItems={80} />
+        <ErrorBoundary scope="ThoughtLog">
+          <ThoughtLog thoughts={stream.thoughtHistory} maxItems={80} />
+        </ErrorBoundary>
       </section>
 
       {/* Status bar */}
@@ -94,10 +114,12 @@ export function ReasoningPage() {
           )}
         </div>
         <div className="status-bar-right">
-          {stream.freeEnergy && (
+          {stream.freeEnergy ? (
             <span style={{ color: stream.freeEnergy.below_homeostasis ? 'var(--green)' : 'var(--yellow)' }}>
-              F={stream.freeEnergy.free_energy.toFixed(3)}
+              F={fmt(stream.freeEnergy.free_energy, 3, 'freeEnergy.free_energy')}
             </span>
+          ) : (
+            <span style={{ color: '#666' }}>F=—</span>
           )}
           <span className="status-sep" />
           <span>/v1/shader/stream</span>
@@ -105,6 +127,9 @@ export function ReasoningPage() {
           <span>localhost:2718</span>
         </div>
       </footer>
+
+      {/* Diagnostics overlay — Shift+D to toggle */}
+      <DiagnosticsOverlay />
     </div>
   );
 }

@@ -28,6 +28,12 @@ serde_json = "1"
 # semiring algebra, HHTL cascade. ALL queries route through here.
 lance-graph.workspace = true
 
+# Real thinking engine + cognitive cycle (replaces fabricated DTOs)
+thinking-engine.workspace = true
+cognitive-shader-driver.workspace = true
+lance-graph-contract.workspace = true
+causal-edge.workspace = true
+
 # Query routing layer — dispatches Cypher/Gremlin/SPARQL to lance-graph
 notebook-query.workspace = true
 

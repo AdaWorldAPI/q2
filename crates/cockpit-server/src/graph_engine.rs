@@ -9,12 +9,30 @@
 //!
 //! This replaces the JS stubs (seed.ts, aiwar-seed.ts) with real data
 //! while keeping those stubs as fallback.
+//!
+//! ── NARS truth-value source-of-truth ──────────────────────────────
+//! Edge truth values use `lance_graph_contract::exploration::NarsTruth`
+//! (frequency, confidence) rather than bare `(f32, f32)` pairs. The
+//! inference-type label uses `lance_graph_contract::nars::InferenceType`.
+//!
+//! `NarsTruth::revision` is provided by the contract; `deduction` is
+//! NOT in the contract today (the canonical impl lives in
+//! `lance-graph-planner::nars::truth::TruthValue::deduction`, which is
+//! not yet wired through to cockpit-server). We therefore compute the
+//! NARS deduction formula `(f = f1*f2, c = f1*f2*c1*c2)` locally as a
+//! free function over `NarsTruth`. See `nars_deduction()` below.
+//!
+//! Wire JSON keeps the historical field names `truth_f` / `truth_c` so
+//! the cockpit React frontend keeps working unchanged.
 
 use std::sync::{Arc, OnceLock};
 use std::collections::HashMap;
 
 use serde::Serialize;
 use tokio::sync::RwLock;
+
+use lance_graph_contract::exploration::NarsTruth;
+use lance_graph_contract::nars::InferenceType;
 
 /// Live graph state — the LazyLock double-buffer.
 /// Writer: background thread processing encounter rounds + NARS.
@@ -24,6 +42,38 @@ static LIVE_GRAPH: OnceLock<Arc<RwLock<GraphSnapshot>>> = OnceLock::new();
 /// Get or initialize the live graph state.
 pub fn live_graph() -> &'static Arc<RwLock<GraphSnapshot>> {
     LIVE_GRAPH.get_or_init(|| Arc::new(RwLock::new(GraphSnapshot::empty())))
+}
+
+/// NARS deduction over `NarsTruth` (local fallback).
+///
+/// The contract's `NarsTruth` exposes `revision` but not `deduction`. The
+/// canonical `deduction` lives in `lance-graph-planner::nars::truth` which
+/// cockpit-server does not currently depend on. Until that crate is exposed
+/// to cockpit-server, this function implements the standard NARS-1.x
+/// deduction rule `A→B, B→C ⊢ A→C` directly:
+///
+/// ```text
+/// f = f1 * f2
+/// c = f1 * f2 * c1 * c2
+/// ```
+///
+/// Inputs and outputs are contract-side `NarsTruth`, so callers do not
+/// see bare `f32` truth pairs.
+fn nars_deduction(ab: &NarsTruth, bc: &NarsTruth) -> NarsTruth {
+    let f = ab.frequency * bc.frequency;
+    let c = ab.frequency * bc.frequency * ab.confidence * bc.confidence;
+    NarsTruth::new(f, c)
+}
+
+/// String label for an `InferenceType` (wire JSON compat).
+fn inference_type_label(t: InferenceType) -> &'static str {
+    match t {
+        InferenceType::Deduction => "Deduction",
+        InferenceType::Induction => "Induction",
+        InferenceType::Abduction => "Abduction",
+        InferenceType::Revision => "Revision",
+        InferenceType::Synthesis => "Synthesis",
+    }
 }
 
 /// A snapshot of the graph state that the cockpit reads.
@@ -48,13 +98,35 @@ pub struct GraphNode {
     pub properties: HashMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// A graph edge. Internally carries a contract-side `NarsTruth`; the wire
+/// JSON keeps the historical `truth_f`/`truth_c` field names for frontend
+/// compatibility via a custom `Serialize` impl below.
+#[derive(Debug, Clone)]
 pub struct GraphEdge {
     pub source: String,
     pub target: String,
     pub label: String,
-    pub truth_f: f32,
-    pub truth_c: f32,
+    pub truth: NarsTruth,
+}
+
+impl GraphEdge {
+    /// Convenience: legacy `truth_f` accessor for in-process consumers.
+    pub fn truth_f(&self) -> f32 { self.truth.frequency }
+    /// Convenience: legacy `truth_c` accessor for in-process consumers.
+    pub fn truth_c(&self) -> f32 { self.truth.confidence }
+}
+
+impl Serialize for GraphEdge {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("GraphEdge", 5)?;
+        st.serialize_field("source", &self.source)?;
+        st.serialize_field("target", &self.target)?;
+        st.serialize_field("label", &self.label)?;
+        st.serialize_field("truth_f", &self.truth.frequency)?;
+        st.serialize_field("truth_c", &self.truth.confidence)?;
+        st.end()
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,15 +138,32 @@ pub struct GraphHealth {
     pub confidence_avg: f32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// A NARS inference result. Internally typed with `NarsTruth` and
+/// `InferenceType`; wire JSON keeps the historical
+/// `truth_f` / `truth_c` / `inference_type` (string) fields.
+#[derive(Debug, Clone)]
 pub struct NarsInference {
     pub source: String,
     pub target: String,
     pub relation: String,
-    pub inference_type: String,
-    pub truth_f: f32,
-    pub truth_c: f32,
+    pub inference_type: InferenceType,
+    pub truth: NarsTruth,
     pub via: Vec<String>,
+}
+
+impl Serialize for NarsInference {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("NarsInference", 7)?;
+        st.serialize_field("source", &self.source)?;
+        st.serialize_field("target", &self.target)?;
+        st.serialize_field("relation", &self.relation)?;
+        st.serialize_field("inference_type", inference_type_label(self.inference_type))?;
+        st.serialize_field("truth_f", &self.truth.frequency)?;
+        st.serialize_field("truth_c", &self.truth.confidence)?;
+        st.serialize_field("via", &self.via)?;
+        st.end()
+    }
 }
 
 impl GraphSnapshot {
@@ -159,8 +248,7 @@ pub async fn hydrate_from_aiwar_json(path: &str) -> Result<(), String> {
                         source,
                         target,
                         label: rel_type.to_string(),
-                        truth_f: weight.min(1.0),
-                        truth_c: 0.8,
+                        truth: NarsTruth::new(weight.min(1.0), 0.8),
                     });
                 }
             }
@@ -172,7 +260,7 @@ pub async fn hydrate_from_aiwar_json(path: &str) -> Result<(), String> {
     let confidence_avg = if edges.is_empty() {
         0.0
     } else {
-        edges.iter().map(|e| e.truth_c).sum::<f32>() / edges.len() as f32
+        edges.iter().map(|e| e.truth.confidence).sum::<f32>() / edges.len() as f32
     };
 
     let snapshot = GraphSnapshot {
@@ -201,17 +289,24 @@ pub async fn hydrate_from_aiwar_json(path: &str) -> Result<(), String> {
 }
 
 /// Run NARS deduction on the live graph.
-/// For every A→B + B→C chain, infer A→C with truth revision.
+/// For every A→B + B→C chain, infer A→C with truth deduction.
+///
+/// Truth-value algebra is `lance_graph_contract::exploration::NarsTruth`.
+/// Deduction uses `nars_deduction()` (local fallback for the formula
+/// `f = f1*f2, c = f1*f2*c1*c2`) — see module docs for why this is not
+/// yet routed through `lance-graph-planner`'s canonical impl.
 pub async fn run_nars_deduction(min_confidence: f32, max_hops: usize) -> Vec<NarsInference> {
     let graph = live_graph();
     let state = graph.read().await;
 
-    // Build adjacency: source → [(target, label, truth_f, truth_c)]
-    let mut adj: HashMap<&str, Vec<(&str, &str, f32, f32)>> = HashMap::new();
+    // Build adjacency: source → [(target, label, truth)]
+    // Truths are owned `NarsTruth` microcopies (Copy type) per the
+    // borrow-strategy doctrine: read once, compute on owned copies.
+    let mut adj: HashMap<&str, Vec<(&str, &str, NarsTruth)>> = HashMap::new();
     for e in &state.edges {
         adj.entry(&e.source)
             .or_default()
-            .push((&e.target, &e.label, e.truth_f, e.truth_c));
+            .push((&e.target, &e.label, e.truth));
     }
 
     // Existing edges for dedup
@@ -224,25 +319,23 @@ pub async fn run_nars_deduction(min_confidence: f32, max_hops: usize) -> Vec<Nar
     // 2-hop deduction: A→B→C ⟹ A→C
     if max_hops >= 2 {
         for (a, a_edges) in &adj {
-            for &(b, _ab_label, ab_f, ab_c) in a_edges {
-                if ab_c < min_confidence { continue; }
+            for &(b, _ab_label, ab_truth) in a_edges {
+                if ab_truth.confidence < min_confidence { continue; }
                 if let Some(b_edges) = adj.get(b) {
-                    for &(c, bc_label, bc_f, bc_c) in b_edges {
-                        if bc_c < min_confidence { continue; }
-                        if *a == c || existing.contains(&(a, c)) { continue; }
+                    for &(c_node, bc_label, bc_truth) in b_edges {
+                        if bc_truth.confidence < min_confidence { continue; }
+                        if *a == c_node || existing.contains(&(a, c_node)) { continue; }
 
-                        // NARS deduction: f = f1 * f2, c = f1 * f2 * c1 * c2
-                        let f = ab_f * bc_f;
-                        let c = ab_f * bc_f * ab_c * bc_c;
+                        // NARS deduction via contract NarsTruth (local fallback impl).
+                        let inferred = nars_deduction(&ab_truth, &bc_truth);
 
-                        if c >= min_confidence * 0.5 {
+                        if inferred.confidence >= min_confidence * 0.5 {
                             inferences.push(NarsInference {
                                 source: a.to_string(),
-                                target: c.to_string(),
+                                target: c_node.to_string(),
                                 relation: bc_label.to_string(),
-                                inference_type: "Deduction".to_string(),
-                                truth_f: f,
-                                truth_c: c,
+                                inference_type: InferenceType::Deduction,
+                                truth: inferred,
                                 via: vec![b.to_string()],
                             });
                         }

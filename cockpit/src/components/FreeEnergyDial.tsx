@@ -1,4 +1,5 @@
 import type { WireFreeEnergy } from '../hooks/useShaderStream';
+import { clamp, fmt, safeNum } from '../diagnostics/safe';
 
 interface FreeEnergyDialProps {
   freeEnergy: WireFreeEnergy | null;
@@ -15,28 +16,37 @@ function arc(cx: number, cy: number, r: number, startDeg: number, endDeg: number
 }
 
 export function FreeEnergyDial({ freeEnergy }: FreeEnergyDialProps) {
-  const fe = freeEnergy?.free_energy ?? 0.5;
-  const likelihood = freeEnergy?.likelihood ?? 0.5;
-  const kl = freeEnergy?.kl ?? 0.5;
-  const belowHomeostasis = freeEnergy?.below_homeostasis ?? false;
+  // Safe coercion — every numeric field reports NaN/missing to diagnostics
+  const fe = clamp(freeEnergy?.free_energy, 0, 2, 'freeEnergy.free_energy');
+  const likelihood = clamp(freeEnergy?.likelihood, 0, 1, 'freeEnergy.likelihood');
+  const kl = clamp(freeEnergy?.kl, 0, 1, 'freeEnergy.kl');
+  const belowHomeostasis = freeEnergy?.below_homeostasis === true;
+  const stale = freeEnergy === null;
 
-  // Dial: 210° span, 0=low (good), 1=high (bad)
+  // Dial: 240° span, 0=low (good), 1=high (bad)
   const START = 210;
-  const END = -30;
   const SPAN = 240;
-  const needleDeg = START - fe * SPAN;
+  // fe is clamped to [0, 2] — the dial saturates above 1
+  const dialPos = clamp(fe / 1.0, 0, 1, 'freeEnergy.dialPos');
+  const needleDeg = START - dialPos * SPAN;
 
   const cx = 60, cy = 60, r = 48;
-  const needleX = cx + 38 * Math.cos((needleDeg * Math.PI) / 180);
-  const needleY = cy + 38 * Math.sin((needleDeg * Math.PI) / 180);
+  const needleRad = (needleDeg * Math.PI) / 180;
+  const needleX = safeNum(cx + 38 * Math.cos(needleRad), cx, 'dial.needleX');
+  const needleY = safeNum(cy + 38 * Math.sin(needleRad), cy, 'dial.needleY');
 
-  const color = belowHomeostasis ? '#35d07f' : fe > 0.7 ? '#e53935' : fe > 0.4 ? '#ffb547' : '#35d07f';
+  const color = stale ? '#666' : belowHomeostasis ? '#35d07f' : fe > 0.7 ? '#e53935' : fe > 0.4 ? '#ffb547' : '#35d07f';
 
   return (
     <div className="free-energy-dial">
       <div className="panel-header" style={{ padding: '4px 8px' }}>
         <div className="panel-title">
           <span style={{ fontSize: '11px', color: 'var(--muted)' }}>F free energy</span>
+          {stale && (
+            <span style={{ fontSize: '10px', color: '#666', marginLeft: 8 }} title="No health event received yet">
+              · awaiting
+            </span>
+          )}
         </div>
       </div>
       <div className="dial-body">
@@ -62,16 +72,19 @@ export function FreeEnergyDial({ freeEnergy }: FreeEnergyDialProps) {
           <circle cx={cx} cy={cy} r="3" fill={color} />
           {/* Labels */}
           <text x={cx} y={cy + 18} textAnchor="middle" fontSize="11" fill={color} fontFamily="monospace">
-            {fe.toFixed(3)}
+            {stale ? '—' : fmt(fe, 3, 'freeEnergy.free_energy')}
           </text>
           <text x="14" y="72" fontSize="7" fill="#35d07f" fontFamily="monospace">L</text>
           <text x="100" y="72" fontSize="7" fill="#ffb547" fontFamily="monospace">KL</text>
         </svg>
         <div className="dial-stats">
-          <div><span style={{ color: '#35d07f' }}>L</span> {likelihood.toFixed(3)}</div>
-          <div><span style={{ color: '#ffb547' }}>KL</span> {kl.toFixed(3)}</div>
+          <div><span style={{ color: '#35d07f' }}>L</span> {fmt(likelihood, 3, 'freeEnergy.likelihood')}</div>
+          <div><span style={{ color: '#ffb547' }}>KL</span> {fmt(kl, 3, 'freeEnergy.kl')}</div>
           {belowHomeostasis && (
             <div style={{ color: '#35d07f', fontSize: '10px' }}>⊕ homeostasis</div>
+          )}
+          {stale && (
+            <div style={{ color: '#666', fontSize: '10px' }}>no /v1/shader/stream events yet</div>
           )}
         </div>
       </div>

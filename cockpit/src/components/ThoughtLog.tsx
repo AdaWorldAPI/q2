@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react';
 import type { WireThoughtStruct } from '../hooks/useShaderStream';
+import { fmt, safeNum, safeStr } from '../diagnostics/safe';
 
 interface ThoughtLogProps {
   thoughts: WireThoughtStruct[];
@@ -22,7 +23,8 @@ export function ThoughtLog({ thoughts, maxItems = 50 }: ThoughtLogProps) {
     }
   }, [thoughts]);
 
-  const visible = thoughts.slice(-maxItems);
+  const safeThoughts = Array.isArray(thoughts) ? thoughts : [];
+  const visible = safeThoughts.slice(-maxItems);
 
   return (
     <div className="thought-log">
@@ -30,28 +32,42 @@ export function ThoughtLog({ thoughts, maxItems = 50 }: ThoughtLogProps) {
         <div className="panel-title">
           <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Γ crystallized thoughts</span>
           <span style={{ fontSize: '10px', color: 'var(--muted)', marginLeft: 8 }}>
-            {thoughts.length} committed
+            {safeThoughts.length} committed
           </span>
         </div>
       </div>
       <div ref={listRef} className="thought-log-list">
         {visible.length === 0 ? (
-          <div className="thought-log-empty">awaiting convergence…</div>
+          <div className="thought-log-empty">
+            awaiting convergence… <small style={{ color: '#666' }}>(Shift+D for diagnostics)</small>
+          </div>
         ) : (
-          visible.map((t, i) => (
-            <div key={i} className="thought-row">
-              <span
-                className="thought-style"
-                style={{ color: STYLE_COLORS[t.style] ?? 'var(--muted)' }}
-              >
-                {t.style.slice(0, 3)}
-              </span>
-              <span className="thought-codebook">[{t.bus.codebook_index}]</span>
-              <span className="thought-text">
-                {t.text ?? `codebook[${t.bus.codebook_index}] e=${t.bus.energy.toFixed(3)}`}
-              </span>
-            </div>
-          ))
+          visible.map((t, i) => {
+            if (!t || typeof t !== 'object') return null;
+            const styleStr = safeStr(t.style, 'idle', 'thought.style');
+            const bus = t.bus ?? null;
+            const codebookIdx = bus ? safeNum(bus.codebook_index, -1, 'thought.bus.codebook_index') : -1;
+            const energy = bus ? safeNum(bus.energy, 0, 'thought.bus.energy') : 0;
+            const text = safeStr(
+              t.text ?? null,
+              codebookIdx >= 0 ? `codebook[${codebookIdx}] e=${fmt(energy, 3)}` : 'no bus payload',
+              'thought.text',
+            );
+            return (
+              <div key={i} className="thought-row">
+                <span
+                  className="thought-style"
+                  style={{ color: STYLE_COLORS[styleStr] ?? 'var(--muted)' }}
+                >
+                  {styleStr.slice(0, 3)}
+                </span>
+                <span className="thought-codebook">
+                  [{codebookIdx >= 0 ? codebookIdx : '????'}]
+                </span>
+                <span className="thought-text">{text}</span>
+              </div>
+            );
+          })
         )}
       </div>
     </div>

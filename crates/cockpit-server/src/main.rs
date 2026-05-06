@@ -29,7 +29,10 @@ use tower_http::cors::CorsLayer;
 
 mod openai;
 mod graph_engine;
+mod scene_player;
 mod shader_stream;
+mod dto_bridge;
+mod codebook;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
 // The cockpit/ directory is built by `cd cockpit && npm run build` which
@@ -47,7 +50,13 @@ static COCKPIT_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../cockpit/d
 struct AppState {
     /// Broadcast channel for SSE events (cell results, graph updates).
     tx: broadcast::Sender<SseEvent>,
+    /// Shared scene state for /v1/shader/stream + /v1/shader/status.
+    scene_state: shader_stream::SharedSceneState,
 }
+
+// Shader handlers extract `State<Arc<AppState>>` and read `state.scene_state`
+// directly — avoids the orphan rule that forbids `impl FromRef<Arc<AppState>>
+// for Arc<RwLock<SceneState>>` (Arc is a foreign type).
 
 #[derive(Debug, Clone, Serialize)]
 struct SseEvent {
@@ -96,20 +105,24 @@ async fn main() {
         .init();
 
     let (tx, _rx) = broadcast::channel::<SseEvent>(256);
-    let state = Arc::new(AppState { tx });
+    let scene_state = shader_stream::new_scene_state();
+    let state = Arc::new(AppState { tx, scene_state });
 
     // OpenAI-compatible model API state
     let openai_state = Arc::new(tokio::sync::Mutex::new(openai::OpenAiState::new()));
 
-    // Shader stream shared scene state
-    let scene_state = shader_stream::new_scene_state();
-
-    let app = Router::new()
-        // OpenAI-compatible endpoints: /v1/models, /v1/completions, /v1/chat/completions, etc.
-        .merge(openai::openai_router(openai_state))
+    // Build the main router with Arc<AppState> as the state type.
+    // Shader-stream routes use per-route `.with_state(scene_state)` to
+    // bind their `State<SharedSceneState>` extractor directly, finalizing
+    // them to `MethodRouter<Arc<AppState>>` so they fit into the parent
+    // router. After `.with_state(state)` the router becomes `Router<()>`,
+    // which lets us merge in the openai sub-router (also `Router<()>`)
+    // without a state-type collision.
+    let scene_state_for_routes = state.scene_state.clone();
+    let main_routes: Router<Arc<AppState>> = Router::new()
         // Shader stream — DTO pipeline SSE (Φ StreamDto → Ψ ResonanceDto → B BusDto → Γ ThoughtStruct)
-        .route("/v1/shader/stream", get(shader_stream::shader_stream_handler).with_state(scene_state.clone()))
-        .route("/v1/shader/status", get(shader_stream::shader_status_handler).with_state(scene_state))
+        .route("/v1/shader/stream", get(shader_stream::shader_stream_handler).with_state(scene_state_for_routes.clone()))
+        .route("/v1/shader/status", get(shader_stream::shader_status_handler).with_state(scene_state_for_routes))
         // MCP endpoints — all queries route through lance-graph
         .route("/mcp/sse", get(sse_handler))
         .route("/mcp/message", post(mcp_message_handler))
@@ -135,11 +148,15 @@ async fn main() {
         .route("/api/graph/infer", post(graph_engine::nars_infer_handler))
         .route("/api/graph/health", get(graph_engine::graph_health_handler))
         // Health
-        .route("/health", get(health_handler))
+        .route("/health", get(health_handler));
+
+    let app: Router = main_routes
+        .with_state(state)
+        // OpenAI-compatible endpoints: /v1/models, /v1/completions, /v1/chat/completions, etc.
+        .merge(openai::openai_router(openai_state))
         // Static files + SPA fallback (serves the Vite React build)
         .fallback(get(static_handler))
-        .layer(CorsLayer::permissive())
-        .with_state(state);
+        .layer(CorsLayer::permissive());
 
     let port: u16 = std::env::var("PORT")
         .ok()
@@ -795,13 +812,16 @@ async fn orchestrator_step_handler(
 
 /// List available analysis buckets.
 async fn analyst_buckets_handler() -> Json<serde_json::Value> {
+    // NOTE: `seed_queries()` was removed from AnalysisBucket; the per-bucket
+    // query count now lives in the AnalysisResult returned from `analyze()`.
+    // We surface 0 here rather than running every analysis just to count.
     let buckets: Vec<serde_json::Value> = notebook_query::analyst::AnalysisBucket::all()
         .iter()
         .map(|b| serde_json::json!({
             "id": serde_json::to_value(b).unwrap_or_default(),
             "label": b.label(),
             "description": b.description(),
-            "query_count": b.seed_queries().len(),
+            "query_count": 0,
         }))
         .collect();
     Json(serde_json::json!({ "buckets": buckets }))

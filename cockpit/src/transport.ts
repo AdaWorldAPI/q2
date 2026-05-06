@@ -1,4 +1,25 @@
 import { useStore, type Cell, type GraphNode, type GraphEdge } from './store';
+import { useDiagnostics } from './diagnostics/store';
+
+function logFetchFailure(endpoint: string, err: unknown) {
+  useDiagnostics.getState().add({
+    source: 'fetch',
+    level: 'error',
+    category: 'network',
+    endpoint,
+    message: `${endpoint} fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+  });
+}
+
+function logBadResponse(endpoint: string, status: number, body?: string) {
+  useDiagnostics.getState().add({
+    source: 'fetch',
+    level: 'warn',
+    category: status >= 500 ? 'http_5xx' : 'http_4xx',
+    endpoint,
+    message: `${endpoint} HTTP ${status}${body ? `: ${body.slice(0, 80)}` : ''}`,
+  });
+}
 
 let eventSource: EventSource | null = null;
 let requestId = 0;
@@ -134,7 +155,10 @@ export async function fetchLiveGraph(): Promise<{
 } | null> {
   try {
     const res = await fetch('/api/graph/snapshot');
-    if (!res.ok) return null;
+    if (!res.ok) {
+      logBadResponse('/api/graph/snapshot', res.status);
+      return null;
+    }
     const data = await res.json();
     // Map server field names to store field names
     if (data.nodes) {
@@ -146,7 +170,8 @@ export async function fetchLiveGraph(): Promise<{
       }));
     }
     return data;
-  } catch {
+  } catch (e) {
+    logFetchFailure('/api/graph/snapshot', e);
     return null;
   }
 }
@@ -158,9 +183,13 @@ export async function runNarsInference(minConfidence = 0.4, maxHops = 2) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ min_confidence: minConfidence, max_hops: maxHops }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      logBadResponse('/api/graph/infer', res.status);
+      return null;
+    }
     return await res.json();
-  } catch {
+  } catch (e) {
+    logFetchFailure('/api/graph/infer', e);
     return null;
   }
 }
@@ -191,10 +220,14 @@ export async function runNarsForNode(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ min_confidence: minConfidence, max_hops: maxHops, node_id: nodeId }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      logBadResponse('/api/graph/infer (node)', res.status);
+      return null;
+    }
     const data = await res.json();
     return data;
-  } catch {
+  } catch (e) {
+    logFetchFailure('/api/graph/infer (node)', e);
     return null;
   }
 }

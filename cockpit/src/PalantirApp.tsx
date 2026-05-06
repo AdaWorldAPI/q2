@@ -9,6 +9,9 @@ import { CellStrip } from './components/CellStrip';
 import { LeftRail } from './components/LeftRail';
 import { DataStatusBar } from './components/DataStatusBar';
 import { AnalystPanel } from './components/AnalystPanel';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { DiagnosticsBadge, DiagnosticsOverlay } from './components/DiagnosticsOverlay';
+import { useEndpointHealth } from './hooks/useEndpointHealth';
 import { convertAiwarGraph } from './data/aiwar-seed';
 
 interface DataSource {
@@ -46,6 +49,9 @@ export function PalantirApp() {
   const loadedRef = useRef(false);
 
   useEffect(() => { connectSSE(); }, []);
+
+  // Poll endpoint health every 8s
+  useEndpointHealth(8000);
 
   // Hydrate data through MCP → static JSON fallback → seed data
   useEffect(() => {
@@ -191,14 +197,15 @@ export function PalantirApp() {
           <a href="/reasoning" className="badge" style={{ textDecoration: 'none', cursor: 'pointer', color: '#35d07f', borderColor: 'rgba(53,208,127,0.2)' }}>Φ→Γ reasoning</a>
           <a href="/debug" className="badge" style={{ textDecoration: 'none', cursor: 'pointer', color: '#e040fb', borderColor: 'rgba(224,64,251,0.2)' }}>neural debug</a>
           <a href="/demo" className="badge" style={{ textDecoration: 'none', cursor: 'pointer' }}>infra demo</a>
+          <DiagnosticsBadge />
           <span className="badge good">notebook saved</span>
         </div>
       </section>
 
-      {/* Row 2: Left rail / Graph / Inspector */}
-      <LeftRail />
-      <GraphPanel />
-      <Inspector />
+      {/* Row 2: Left rail / Graph / Inspector — each wrapped so a crash doesn't kill the shell */}
+      <ErrorBoundary scope="LeftRail"><LeftRail /></ErrorBoundary>
+      <ErrorBoundary scope="GraphPanel"><GraphPanel /></ErrorBoundary>
+      <ErrorBoundary scope="Inspector"><Inspector /></ErrorBoundary>
 
       {/* Row 3: Result table OR Analyst panel */}
       {showAnalyst ? (
@@ -209,14 +216,14 @@ export function PalantirApp() {
               <span>NARS causality chains &middot; 6 analysis buckets &middot; thinking styles</span>
             </div>
           </div>
-          <AnalystPanel />
+          <ErrorBoundary scope="AnalystPanel"><AnalystPanel /></ErrorBoundary>
         </section>
       ) : (
-        <ResultTable />
+        <ErrorBoundary scope="ResultTable"><ResultTable /></ErrorBoundary>
       )}
 
       {/* Row 4: Notebook cells */}
-      <CellStrip />
+      <ErrorBoundary scope="CellStrip"><CellStrip /></ErrorBoundary>
 
       {/* Status bar with data source indicators */}
       <footer className="status-bar">
@@ -241,6 +248,9 @@ export function PalantirApp() {
       </footer>
 
       <div className="tooltip" id="tooltip" />
+
+      {/* Diagnostics overlay — Shift+D to toggle */}
+      <DiagnosticsOverlay />
     </div>
   );
 }
