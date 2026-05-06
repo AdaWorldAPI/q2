@@ -232,3 +232,164 @@
   color: #666;
   font-style: italic;
 }
+
+/* ================================================================
+   STYLE SELECTOR — 36-brain cognitive lens picker (Phase 3 A2)
+   6 cluster rows × (1 label + 6 buttons). Cluster row tinted by τ hue.
+   ================================================================ */
+
+.style-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #0a0e14;
+  border: 1px solid #1a2030;
+  border-radius: 6px;
+  font-family: var(--mono, monospace);
+  color: #e0e6ed;
+}
+
+.style-selector-loading {
+  font-size: 11px;
+  color: #666;
+  font-style: italic;
+  padding: 12px;
+}
+
+.style-selector-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  color: #888;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.style-selector-title {
+  color: #4dd0e1;
+  font-weight: 500;
+}
+
+.style-selector-confirm {
+  margin-left: auto;
+  font-size: 10px;
+  color: #888;
+  font-family: var(--mono, monospace);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.style-selector-confirm-name {
+  color: #b6e6ff;
+}
+
+.style-selector-confirm-muted {
+  color: #555;
+  font-style: italic;
+}
+
+.style-selector-error {
+  color: #ff637d;
+  font-size: 10px;
+  font-family: var(--mono, monospace);
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 99, 125, 0.4);
+  border-radius: 3px;
+  background: rgba(255, 99, 125, 0.08);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.style-grid {
+  display: grid;
+  grid-template-rows: repeat(6, auto);
+  gap: 4px;
+}
+
+.style-row {
+  display: grid;
+  grid-template-columns: 110px repeat(6, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.style-cluster-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--sans, sans-serif);
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+}
+
+.style-tau {
+  font-size: 9px;
+  color: #666;
+  font-family: var(--mono, monospace);
+  letter-spacing: 0;
+}
+
+.style-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 4px;
+  font-size: 10px;
+  font-family: var(--mono, monospace);
+  color: #cfd5dc;
+  background: #11151c;
+  border: 1px solid #2a3040;
+  border-radius: 3px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: filter 90ms ease-out, border-color 90ms ease-out,
+    background 90ms ease-out;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.style-btn:hover {
+  filter: brightness(1.4);
+  border-color: #4dd0e1;
+}
+
+.style-btn:focus-visible {
+  outline: 1px solid #4dd0e1;
+  outline-offset: 1px;
+}
+
+.style-btn.active {
+  color: #fff;
+  border-color: #4dffaf;
+  background: #133024;
+  box-shadow: 0 0 6px rgba(77, 255, 175, 0.55);
+}
+
+.style-auto {
+  padding: 4px 10px;
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.style-auto.active {
+  border-color: #4dffaf;
+  background: rgba(77, 255, 175, 0.12);
+  color: #b6f5d8;
+  box-shadow: 0 0 6px rgba(77, 255, 175, 0.4);
+}
+
+.style-selector-row {
+  margin: 6px 0;
+}

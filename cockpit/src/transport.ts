@@ -232,6 +232,35 @@ export async function runNarsForNode(
   }
 }
 
+// ── Shader style selection (POST /v1/shader/style) ────────────────────────
+// Phase 3 A2: 36-brain selector posts the canonical ThinkingStyle name
+// (e.g. "Focused"… though the contract spelling is e.g. "Logical", "Curious",
+// "Reflective", etc.). Backend (Phase 3 A3) reads `{ style: <name> }` and
+// updates the global style for the next dispatch cycle.
+export async function setShaderStyle(style: string): Promise<boolean> {
+  try {
+    const res = await fetch('/v1/shader/style', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ style }),
+    });
+    if (!res.ok) {
+      let body: string | undefined;
+      try {
+        body = await res.text();
+      } catch {
+        // ignore body read failures
+      }
+      logBadResponse('/v1/shader/style', res.status, body);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    logFetchFailure('/v1/shader/style', e);
+    return false;
+  }
+}
+
 export async function fetchGraphHealth() {
   try {
     const res = await fetch('/api/graph/health');
