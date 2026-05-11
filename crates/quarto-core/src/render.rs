@@ -22,12 +22,59 @@ use quarto_error_reporting::DiagnosticMessage;
 use quarto_system_runtime::SystemRuntime;
 
 use crate::artifact::ArtifactStore;
+use crate::attribution::{
+    AttributionData, AttributionRecord, AttributionSourceProvider, IdentityMap,
+};
 use crate::crossref::{CrossrefIndex, RefTypeRegistry};
 use crate::format::Format;
 use crate::project::index::ProjectIndex;
 use crate::project::{DocumentInfo, ProjectContext};
 use crate::resource_resolver::ResourceResolverContext;
 use crate::stage::{NoopObserver, PandocIncludes, PipelineObserver};
+
+/// Writer-side options populated by the Render-phase transforms and
+/// read when constructing each writer's `*Config`. Per-format
+/// sub-structs let HTML and JSON keep distinct lookup shapes without
+/// either having to know about the other.
+///
+/// Defaults are `None` for every field so existing callers and tests
+/// see no behaviour change.
+#[derive(Debug, Clone, Default)]
+pub struct FormatOptions {
+    pub html: HtmlFormatOptions,
+    pub json: JsonFormatOptions,
+}
+
+/// HTML writer-side options.
+#[derive(Debug, Clone, Default)]
+pub struct HtmlFormatOptions {
+    /// Pre-baked, indexed by `sourceInfoId`. `None` means "no
+    /// attribution in scope" (off-path). `AttributionRecord.actor` is
+    /// `Arc<str>` pointer-equal to the corresponding key in
+    /// `attribution_identities`, preserving the Phase 1 interning
+    /// invariant. Written by `AttributionRenderTransform`.
+    pub attribution_lookup: Option<Arc<[Option<AttributionRecord>]>>,
+
+    /// Pruned identity table covering exactly the actors that appear
+    /// in `attribution_lookup`. The HTML writer reads it inline per
+    /// wrapping span (not via a separate table on the wire) because
+    /// static no-JS viewers need self-contained `data-attr-color`
+    /// values.
+    pub attribution_identities: Option<Arc<IdentityMap>>,
+}
+
+/// q2-debug JSON writer-side options.
+#[derive(Debug, Clone, Default)]
+pub struct JsonFormatOptions {
+    /// Pre-baked, indexed by `sourceInfoId`. Same shape as the HTML
+    /// writer's `attribution_lookup`.
+    pub attribution_lookup: Option<Arc<[Option<AttributionRecord>]>>,
+
+    /// Actor → `(name, color)` table. Unlike the HTML path, the JSON
+    /// wire dedupes — per-record entries carry only `{ s, actor, time }`
+    /// and consumers join into this table for identity.
+    pub attribution_actors: Option<Arc<IdentityMap>>,
+}
 
 /// Binary dependencies available for rendering
 #[derive(Debug, Clone, Default)]
@@ -43,6 +90,13 @@ pub struct BinaryDependencies {
 
     /// Typst binary path
     pub typst: Option<PathBuf>,
+
+    /// `git` binary path. Used by
+    /// [`crate::attribution::GitBlameProvider`] to spawn
+    /// `git blame --porcelain`. `None` when git isn't on PATH and
+    /// `QUARTO_GIT` is unset; the provider degrades gracefully with
+    /// a diagnostic warning in that case.
+    pub git: Option<PathBuf>,
 }
 
 impl BinaryDependencies {
@@ -58,6 +112,7 @@ impl BinaryDependencies {
             esbuild: runtime.find_binary("esbuild", "QUARTO_ESBUILD"),
             pandoc: runtime.find_binary("pandoc", "QUARTO_PANDOC"),
             typst: runtime.find_binary("typst", "QUARTO_TYPST"),
+            git: runtime.find_binary("git", "QUARTO_GIT"),
         }
     }
 
@@ -187,6 +242,33 @@ pub struct RenderContext<'a> {
     /// bridge at the injection boundary; this typed in-memory shape
     /// stays unchanged.
     pub resolved_listings: Vec<crate::project::listing::ResolvedListing>,
+
+    /// Opt-in signal: when `Some`, the
+    /// [`AttributionGenerateTransform`](crate::transforms::AttributionGenerateTransform)
+    /// will call the provider's `build()` and merge the result with
+    /// any user-authored `meta.attribution.identities`.
+    ///
+    /// Set by the CLI flag plumbing (Phase 3c) or the WASM entry
+    /// point (Phase 3b). **Read by `AttributionGenerateTransform`
+    /// only.** No other transform should consult this field.
+    pub attribution_provider: Option<Arc<dyn AttributionSourceProvider>>,
+
+    /// Sidecar carrying the canonical merged attribution form
+    /// between the Generate and Render stages.
+    ///
+    /// Written by `AttributionGenerateTransform`; read by
+    /// `AttributionRenderTransform`. **No other transform reads or
+    /// writes this field.** The entire Finalization Phase runs
+    /// between Generate and Render with this slot populated; future
+    /// Finalization transforms must treat it as opaque.
+    ///
+    /// `Arc` so the value travels between transforms (and into the
+    /// writer config via `format_options`) without re-copying.
+    pub attribution_data: Option<Arc<AttributionData>>,
+
+    /// Per-format writer-side options bag. Populated by Render-phase
+    /// transforms and read when constructing each writer's `*Config`.
+    pub format_options: FormatOptions,
 }
 
 /// Options for rendering
@@ -230,6 +312,9 @@ impl<'a> RenderContext<'a> {
             user_grammar_provider: None,
             resource_report: crate::project_resources::DocumentResourceReport::new(),
             resolved_listings: Vec::new(),
+            attribution_provider: None,
+            attribution_data: None,
+            format_options: FormatOptions::default(),
         }
     }
 

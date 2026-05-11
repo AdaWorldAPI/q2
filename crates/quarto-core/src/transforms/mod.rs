@@ -29,6 +29,8 @@
 //! can be added to a [`TransformPipeline`](crate::transform::TransformPipeline).
 
 mod appendix;
+mod attribution_generate;
+mod attribution_render;
 mod callout;
 mod callout_resolve;
 mod categories_sidebar;
@@ -69,6 +71,8 @@ mod website_favicon;
 mod website_title_prefix;
 
 pub use appendix::AppendixStructureTransform;
+pub use attribution_generate::AttributionGenerateTransform;
+pub use attribution_render::AttributionRenderTransform;
 pub use callout::CalloutTransform;
 pub use callout_resolve::CalloutResolveTransform;
 pub use categories_sidebar::CategoriesSidebarTransform;

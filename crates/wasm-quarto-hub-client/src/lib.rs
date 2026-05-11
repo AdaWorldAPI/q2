@@ -873,6 +873,10 @@ fn detect_format_from_content(content: &str) -> String {
 /// - `error`: Error message (on failure)
 /// - `diagnostics`: Structured error diagnostics with line/column info
 /// - `warnings`: Structured warning diagnostics with line/column info
+///
+/// Phase 3b will refactor this to delegate to
+/// [`parse_qmd_to_ast_with_attribution`] with `None`; until then the
+/// two functions share the same implementation by callees.
 #[wasm_bindgen]
 pub async fn parse_qmd_to_ast(content: &str) -> String {
     // Create a virtual path for this content
@@ -1008,6 +1012,38 @@ pub async fn parse_qmd_to_ast(content: &str) -> String {
             .unwrap()
         }
     }
+}
+
+/// Parse QMD content to Pandoc AST JSON, optionally with attribution.
+///
+/// When `attribution_json` is `Some(s)`, the JSON string is wrapped in
+/// a [`PreBuiltAttributionProvider`] and installed on the
+/// `RenderContext`; `AttributionGenerateTransform` and
+/// `AttributionRenderTransform` are then invoked directly on the
+/// parsed AST. When `None`, the result is byte-identical to
+/// [`parse_qmd_to_ast`] for every fixture — same code path, no
+/// provider installed, no transforms fire.
+///
+/// # Byte-identicality invariant
+///
+/// `parse_qmd_to_ast(content)` is byte-identical to
+/// `parse_qmd_to_ast_with_attribution(content, None)` for every
+/// fixture. A regression on the `None` branch would break *all*
+/// renders, not just attribution ones.
+///
+/// [`PreBuiltAttributionProvider`]:
+///     quarto_core::attribution::PreBuiltAttributionProvider
+#[wasm_bindgen]
+pub async fn parse_qmd_to_ast_with_attribution(
+    _content: &str,
+    _attribution_json: Option<String>,
+) -> String {
+    unimplemented!(
+        "Phase 3b — install PreBuiltAttributionProvider if attribution_json.is_some(), \
+         run pipeline::parse_qmd_to_ast, optionally invoke the two attribution transforms \
+         directly (NOT via build_transform_pipeline), serialize via JSON writer; \
+         parse_qmd_to_ast becomes a thin wrapper that delegates here with None."
+    )
 }
 
 /// Render a QMD file from the virtual filesystem.
