@@ -14,9 +14,11 @@
 //!   surface as `GitBlameProvider`, so a future caller cannot
 //!   distinguish the two by where errors surface.
 
+use super::builder::AttributionDataBuilder;
 use super::source::AttributionSourceProvider;
-use super::types::AttributionData;
+use super::types::{AttributionData, TransportAttributionData};
 use crate::Result;
+use crate::error::QuartoError;
 use crate::render::RenderContext;
 
 /// Wraps a transport JSON string. Decodes via
@@ -41,10 +43,22 @@ impl PreBuiltAttributionProvider {
 
 impl AttributionSourceProvider for PreBuiltAttributionProvider {
     fn build(&self, _ctx: &RenderContext) -> Result<AttributionData> {
-        unimplemented!(
-            "Phase 3b — serde_json::from_str into TransportAttributionData, \
-             feed through AttributionDataBuilder so the Arc<str> interning \
-             invariant is restored on the way back in"
-        )
+        let raw: TransportAttributionData = serde_json::from_str(&self.json).map_err(|e| {
+            QuartoError::other(format!("attribution: failed to parse transport JSON: {e}"))
+        })?;
+        let mut b = AttributionDataBuilder::new();
+        // Identities first so the intern map is seeded with the provider's
+        // actor strings before any runs reference them. This means every
+        // run sharing an actor with an identity entry ends up Arc::ptr_eq
+        // to that identity key — the writer-side invariant.
+        for (k, id) in raw.identities {
+            let actor = b.intern_actor(&k);
+            b.set_identity(actor, id);
+        }
+        for r in raw.runs {
+            let actor = b.intern_actor(&r.actor);
+            b.push_run(r.start, r.end, actor, r.time);
+        }
+        Ok(b.build())
     }
 }

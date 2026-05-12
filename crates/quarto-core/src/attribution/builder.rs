@@ -28,7 +28,6 @@ use super::types::{AttributionData, AttributionMap, AttributionRun, Identity, Id
 pub struct AttributionDataBuilder {
     runs: Vec<AttributionRun>,
     identities: IdentityMap,
-    #[allow(dead_code)] // Phase 1: hot in intern_actor; quiet warning until then
     intern: HashMap<String, Arc<str>>,
 }
 
@@ -41,21 +40,31 @@ impl AttributionDataBuilder {
     /// on first sight and `Arc::clone`-ing thereafter. The returned
     /// Arc must be passed to subsequent [`Self::push_run`] /
     /// [`Self::set_identity`] calls for the same actor.
-    pub fn intern_actor(&mut self, _actor: &str) -> Arc<str> {
-        unimplemented!("Phase 1 — intern via the internal HashMap")
+    pub fn intern_actor(&mut self, actor: &str) -> Arc<str> {
+        if let Some(existing) = self.intern.get(actor) {
+            return Arc::clone(existing);
+        }
+        let arc: Arc<str> = Arc::from(actor);
+        self.intern.insert(actor.to_string(), Arc::clone(&arc));
+        arc
     }
 
     /// Append a run. `actor` must come from [`Self::intern_actor`].
-    pub fn push_run(&mut self, _start: usize, _end: usize, _actor: Arc<str>, _time: i64) {
-        unimplemented!("Phase 1 — push to internal Vec, preserve actor Arc identity")
+    pub fn push_run(&mut self, start: usize, end: usize, actor: Arc<str>, time: i64) {
+        self.runs.push(AttributionRun {
+            start,
+            end,
+            actor,
+            time,
+        });
     }
 
     /// Record an identity for `actor`. `actor` must come from
     /// [`Self::intern_actor`] so the resulting `IdentityMap` key is
     /// `Arc::ptr_eq` to every `AttributionRun.actor` for the same
     /// author.
-    pub fn set_identity(&mut self, _actor: Arc<str>, _id: Identity) {
-        unimplemented!("Phase 1 — insert into IdentityMap keyed by Arc<str>")
+    pub fn set_identity(&mut self, actor: Arc<str>, id: Identity) {
+        self.identities.insert(actor, id);
     }
 
     pub fn build(self) -> AttributionData {

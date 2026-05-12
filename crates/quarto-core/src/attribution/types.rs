@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::format::Format;
+use crate::format::{Format, FormatIdentifier};
 
 /// A contiguous byte-range run attributed to a single author at a
 /// single point in time.
@@ -171,12 +171,12 @@ pub type AttributionHit = AttributionRecord;
 /// attribution on a non-consuming format would otherwise fire a
 /// `git blame` subprocess whose output goes nowhere visible.
 ///
-/// In v1 returns `true` for HTML and q2-debug JSON only.
-pub fn format_supports_attribution(_format: &Format) -> bool {
-    // Phase 0: stub returning false. Phase 1 will key off the Format
-    // discriminant. Tests reach this from RenderContext::format which
-    // can be HTML in fixtures.
-    unimplemented!("Phase 1 (Phase 0 stub) — format_supports_attribution")
+/// In v1 returns `true` for HTML and q2-debug JSON only. The
+/// `q2-debug` pseudo-format parses with `FormatIdentifier::Html` but
+/// keeps its original string in `target_format`, so the HTML branch
+/// covers both; `revealjs` has its own identifier and is excluded.
+pub fn format_supports_attribution(format: &Format) -> bool {
+    matches!(format.identifier, FormatIdentifier::Html)
 }
 
 /// Read user-authored `meta.attribution.identities` (a small
@@ -185,7 +185,34 @@ pub fn format_supports_attribution(_format: &Format) -> bool {
 ///
 /// This is the *only* attribution-related `ConfigValue` → Rust-struct
 /// converter the plan ships; the bulk `runs` path never visits
-/// `ConfigValue`. Returns an empty map when the key is absent.
-pub fn from_config_value(_meta: &quarto_pandoc_types::ConfigValue) -> IdentityMap {
-    unimplemented!("Phase 1 (Phase 0 stub) — from_config_value")
+/// `ConfigValue`. Returns an empty map when the key is absent or
+/// when the value is not a map.
+///
+/// The keys returned here are fresh `Arc<str>` allocations unrelated
+/// to any provider's `AttributionRun.actor`. The Phase 2 merge step
+/// uses them only as lookup keys and preserves the provider's
+/// pointer-equal key on collision, so the writer-side
+/// `Arc::ptr_eq` interning invariant is not weakened.
+pub fn from_config_value(meta: &quarto_pandoc_types::ConfigValue) -> IdentityMap {
+    let Some(identities) = meta.get("attribution").and_then(|v| v.get("identities")) else {
+        return IdentityMap::new();
+    };
+    let Some(entries) = identities.as_map_entries() else {
+        return IdentityMap::new();
+    };
+    let mut out = IdentityMap::new();
+    for entry in entries {
+        let display_name = entry.value.get("name").and_then(|v| v.as_plain_text());
+        let color = entry.value.get("color").and_then(|v| v.as_plain_text());
+        if let (Some(display_name), Some(color)) = (display_name, color) {
+            out.insert(
+                Arc::from(entry.key.as_str()),
+                Identity {
+                    display_name,
+                    color,
+                },
+            );
+        }
+    }
+    out
 }

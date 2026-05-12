@@ -14,6 +14,8 @@
 //!   for [`AttributionMap`]. Queries return the most-recent
 //!   `(actor, time)` hit overlapping the byte range.
 
+use std::sync::Arc;
+
 use super::types::{AttributionData, AttributionHit, AttributionMap};
 use crate::Result;
 use crate::render::RenderContext;
@@ -50,7 +52,29 @@ pub trait AttributionSource: Send + Sync {
 }
 
 impl AttributionSource for AttributionMap {
-    fn query_byte_range(&self, _start: usize, _end: usize) -> Option<AttributionHit> {
-        unimplemented!("Phase 1 — binary-search impl over runs")
+    fn query_byte_range(&self, start: usize, end: usize) -> Option<AttributionHit> {
+        if start >= end {
+            return None;
+        }
+        let runs = self.as_slice();
+        // Runs are sorted by start and non-overlapping, so `r.end <= start`
+        // is monotonically non-increasing: once a run's end exceeds `start`,
+        // all subsequent runs' ends do too. partition_point gives that
+        // boundary in O(log N).
+        let lo = runs.partition_point(|r| r.end <= start);
+        let mut best: Option<&super::types::AttributionRun> = None;
+        for r in &runs[lo..] {
+            if r.start >= end {
+                break;
+            }
+            match best {
+                Some(b) if r.time <= b.time => {}
+                _ => best = Some(r),
+            }
+        }
+        best.map(|r| AttributionHit {
+            actor: Arc::clone(&r.actor),
+            time: r.time,
+        })
     }
 }

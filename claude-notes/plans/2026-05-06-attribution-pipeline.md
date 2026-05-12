@@ -591,7 +591,7 @@ either can ship without the other.
 
 ## Phase 1 — Canonical types and provider trait
 
-- [ ] Create `crates/quarto-core/src/attribution/mod.rs` with:
+- [x] Create `crates/quarto-core/src/attribution/mod.rs` with:
   - `AttributionRun { start: usize, end: usize, actor: Arc<str>, time: i64 }`
     — the canonical in-memory shape. `actor` is `Arc<str>` (not
     `String`) — shared across all runs by the same author; see
@@ -680,7 +680,7 @@ either can ship without the other.
     Open Question #2.)
   - Blanket impl: `impl AttributionSource for AttributionMap` via binary
     search over the runs.
-- [ ] Add **two new fields** to `RenderContext`
+- [x] Add **two new fields** to `RenderContext`
   (`crates/quarto-core/src/render.rs:84-188` as of #169, which added
   `resolved_listings` at line 187). Defaults are `None`; nothing in the
   existing pipeline should observe a behavior change. Both fields
@@ -706,14 +706,14 @@ either can ship without the other.
     Finalization transforms must treat it as opaque."
     `Arc` so the value travels between transforms (and into the writer
     config) without re-copying.
-- [ ] `pub fn format_supports_attribution(format: &Format) -> bool` —
+- [x] `pub fn format_supports_attribution(format: &Format) -> bool` —
   returns `true` for formats whose writers consume the lookup (HTML and
   q2-debug JSON in v1) and `false` otherwise (PDF, Typst, plain Pandoc
   native, etc.). Used by `AttributionGenerateTransform`'s skip ladder
   to short-circuit before invoking the provider; opting in to
   attribution on a non-consuming format would otherwise fire a
   `git blame` subprocess whose output goes nowhere visible.
-- [ ] Small helper `from_config_value(meta: &ConfigValue) -> IdentityMap`
+- [x] Small helper `from_config_value(meta: &ConfigValue) -> IdentityMap`
   to read user-authored `meta.attribution.identities` (a small
   `ConfigValue::Map` from YAML parse) into an `IdentityMap` for the
   merge step in Phase 2. This is the *only* attribution-related
