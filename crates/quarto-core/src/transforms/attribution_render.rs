@@ -15,12 +15,18 @@
 //!    scope (the meta SourceInfo always contributes at least one
 //!    entry).
 //! 2. A pointer-keyed `HashMap<usize, AttributionRecord>` keyed by
-//!    `&Block as *const () as usize` / `&Inline as *const () as
-//!    usize`. The HTML writer uses this for O(1) per-node lookup
-//!    inside `write_block_source_attrs` /
-//!    `write_inline_source_attrs`. Pointer keys are stable because
-//!    this transform is registered as the **last** transform in the
-//!    Finalization Phase — no later code mutates the AST.
+//!    `&block.source_info as *const SourceInfo as usize` /
+//!    `&inline.source_info as *const SourceInfo as usize`. The HTML
+//!    writer uses this for O(1) per-node lookup inside
+//!    `write_block_source_attrs` / `write_inline_source_attrs`; the
+//!    JSON writer uses the same key inside `maybe_record_attribution_for`
+//!    to accumulate `astContext.attribution` entries. Pointer keys
+//!    are stable because this transform is registered as the **last**
+//!    transform in the Finalization Phase — no later code mutates the
+//!    AST. Keying by the `SourceInfo` field address (rather than the
+//!    enclosing `&Block` / `&Inline`) lets writers look up attribution
+//!    without threading a typed node reference through every helper —
+//!    the helpers already carry `&SourceInfo`.
 //! 3. An [`IdentityMap`] containing every distinct actor that
 //!    appears in `runs`. Resolves identity **once per distinct
 //!    actor**; fires at most K diagnostics per render when the
@@ -196,9 +202,10 @@ fn visit_block(
     slice: &mut Vec<Option<AttributionRecord>>,
     by_node: &mut HashMap<usize, AttributionRecord>,
 ) {
-    let record = query_attribution(block.source_info(), runs);
+    let source_info = block.source_info();
+    let record = query_attribution(source_info, runs);
     if let Some(r) = record.as_ref() {
-        let key = block as *const Block as *const () as usize;
+        let key = source_info as *const SourceInfo as usize;
         by_node.insert(key, r.clone());
     }
     slice.push(record);
@@ -210,9 +217,10 @@ fn visit_inline(
     slice: &mut Vec<Option<AttributionRecord>>,
     by_node: &mut HashMap<usize, AttributionRecord>,
 ) {
-    let record = query_attribution(inline.source_info(), runs);
+    let source_info = inline.source_info();
+    let record = query_attribution(source_info, runs);
     if let Some(r) = record.as_ref() {
-        let key = inline as *const Inline as *const () as usize;
+        let key = source_info as *const SourceInfo as usize;
         by_node.insert(key, r.clone());
     }
     slice.push(record);

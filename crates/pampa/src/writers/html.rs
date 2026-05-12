@@ -177,20 +177,25 @@ impl<'ast, W: Write> HtmlWriterContext<'ast, W> {
         self.config.include_source_locations
     }
 
-    /// Look up attribution record for a block by pointer identity.
-    /// Returns `None` if attribution is off, or this block has no
-    /// resolved attribution (e.g. node from a different file or a
-    /// byte range with no run coverage).
+    /// Look up attribution record for a block by `SourceInfo`
+    /// pointer identity. Returns `None` if attribution is off, or this
+    /// block has no resolved attribution (e.g. node from a different
+    /// file or a byte range with no run coverage).
+    ///
+    /// The map's key is the address of the block's `source_info` field
+    /// (set by `AttributionRenderTransform`), which is stable across
+    /// the writer's read-only walk.
     pub fn get_block_attribution(&self, block: &Block) -> Option<&HtmlAttributionRecord> {
         let map = self.config.attribution_by_node.as_ref()?;
-        let key = block as *const Block as *const () as usize;
+        let key = block.source_info() as *const quarto_source_map::SourceInfo as usize;
         map.get(&key)
     }
 
-    /// Look up attribution record for an inline by pointer identity.
+    /// Look up attribution record for an inline by `SourceInfo`
+    /// pointer identity.
     pub fn get_inline_attribution(&self, inline: &Inline) -> Option<&HtmlAttributionRecord> {
         let map = self.config.attribution_by_node.as_ref()?;
-        let key = inline as *const Inline as *const () as usize;
+        let key = inline.source_info() as *const quarto_source_map::SourceInfo as usize;
         map.get(&key)
     }
 
@@ -1415,6 +1420,7 @@ pub fn write_with_source_tracking<W: Write>(
     // Generate JSON with source locations enabled
     let json_config = JsonConfig {
         include_inline_locations: true,
+        ..JsonConfig::default()
     };
 
     match json::write_pandoc(pandoc, ast_context, &json_config) {
@@ -1505,6 +1511,7 @@ fn write_with_source_tracking_and_config<W: Write>(
 
     let json_config = JsonConfig {
         include_inline_locations: true,
+        ..JsonConfig::default()
     };
     match json::write_pandoc(pandoc, ast_context, &json_config) {
         Ok(json_value) => {
