@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type * as Monaco from 'monaco-editor';
 import type { FileEntry } from '../../types/project';
 import type { Diagnostic } from '../../types/diagnostic';
+import type { ActorIdentity } from '../../services/automergeSync';
 import {
   parseQmdToAstWithAttribution,
   renderPageInProject,
@@ -10,6 +11,7 @@ import {
 } from '../../services/wasmRenderer';
 import { pipelineKindForFormat } from '../../utils/pipelineKind';
 import { useAttribution } from '../../hooks/useAttribution';
+import { usePreference } from '../../hooks/usePreference';
 import { stripAnsi } from '../../utils/stripAnsi';
 import { PreviewErrorOverlay } from './PreviewErrorOverlay';
 import ReactRenderer from './ReactRenderer';
@@ -44,6 +46,14 @@ interface PreviewProps {
   onSlideChange?: (slideIndex: number) => void;
   onContentRewrite: (content: string) => void;
   format: string; // 'q2-slides', 'q2-debug', or 'q2-preview'
+  /**
+   * Automerge actor → display identity (name + colour). Consumed
+   * by `useAttribution` to fill the `identities` half of the
+   * attribution payload. Falls back to `actor.slice(0, 8)` +
+   * `fnv1aHex8`-derived colour for any actor without a profile
+   * entry, so the Phase 6 producer invariant always holds.
+   */
+  identities?: Record<string, ActorIdentity>;
 }
 
 // Result of rendering QMD content to AST
@@ -205,6 +215,7 @@ export default function ReactPreview({
   onSlideChange,
   onContentRewrite,
   format,
+  identities,
 }: PreviewProps) {
   // Preview state machine for error handling
   const [previewState, setPreviewState] = useState<PreviewState>('START');
@@ -239,18 +250,19 @@ export default function ReactPreview({
   // payload stays `null` and the WASM call falls through to the
   // byte-identical no-attribution path.
   //
-  // The toggle UI is intentionally a separate piece of work — once a
-  // Authorship switch is plumbed through `Editor.tsx`, flipping
-  // `enabled: false` to `enabled: someToggleState` is all that's
-  // needed. Profile-metadata identity lookup (`identities`) can be
-  // wired the same way; until then the hook uses its
-  // `(actor.slice(0, 8), actorColor(fnv1aHex8(actor)))` fallback so
-  // the Phase 6 producer invariant still holds.
+  // Phase 5c — `enabled` is driven by the persisted
+  // `attributionEnabled` preference, surfaced as the "Authorship"
+  // checkbox under Settings → Preview. `identities` is the
+  // Automerge actor → display-name/colour table threaded down from
+  // `Editor.tsx`; missing entries fall back to the hook's
+  // `(actor.slice(0, 8), actorColor(fnv1aHex8(actor)))` so the
+  // Phase 6 producer invariant always holds.
+  const [attributionEnabled] = usePreference('attributionEnabled');
   const attributionPayload = useAttribution({
-    enabled: false,
+    enabled: attributionEnabled,
     filePath: currentFile?.path ?? null,
     sourceText: content,
-    identities: {},
+    identities: identities ?? {},
   });
 
   // Debounce rendering

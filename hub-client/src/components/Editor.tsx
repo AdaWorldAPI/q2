@@ -1052,6 +1052,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
             onSlideChange={handleSlideChange}
             onFormatChange={handleFormatChange}
             onContentRewrite={handleContentRewrite}
+            identities={identities}
           />
         </div>
       </main>
