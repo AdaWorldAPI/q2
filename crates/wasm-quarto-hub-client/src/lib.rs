@@ -2588,6 +2588,7 @@ pub fn parse_qmd_content(content: &str) -> String {
             let mut buf = Vec::new();
             let config = JsonConfig {
                 include_inline_locations: false,
+                ..JsonConfig::default()
             };
             match write_with_config(&pandoc, &context, &mut buf, &config) {
                 Ok(_) => {

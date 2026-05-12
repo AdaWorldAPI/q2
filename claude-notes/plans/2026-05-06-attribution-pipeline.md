@@ -2115,19 +2115,52 @@ follow-on.
 
 ### Phase 5 — Hub-client integration
 
-- [ ] Refactor `hub-client/src/hooks/useAttribution.ts` to emit a JSON
-  payload instead of an in-process source.
-- [ ] Update `Editor.tsx` to pass the payload to the new WASM entry point.
-- [ ] Delete `hub-client/src/services/attribution.ts`'s consumer-side
-  code paths (the producer-side replay/RLE stays); delete the
-  `useNodeAttributionResolver` resolver hook in
-  `hooks/useAttribution.ts` and the in-renderer
-  `getNodeAttribution` calls in `ReactAstDebugRenderer.tsx`.
-- [ ] Update `ReactAstDebugRenderer.tsx` to read attribution from
-  `ast.astContext.attribution` directly.
-- [ ] Run `cd hub-client && npm run build:all` and exercise q2-debug
-  end-to-end in a real browser (CLAUDE.md hub-client end-to-end
-  requirement).
+Phase 5a (q2-debug JSON wire shape + WASM forwarding) landed in commit
+`89bfbd9f`. Phase 5b (TS producer + ReactPreview wire-up) landed next.
+Phase 5c (renderer-side color emission + Authorship toggle UI) is the
+remaining deferred work.
+
+- [x] Refactor `hub-client/src/hooks/useAttribution.ts` to emit a JSON
+  payload instead of an in-process source. *(Built fresh; the
+  implementation branch had no prior consumer-side hook to refactor —
+  see § Branch context. The new hook owns Automerge replay, char→byte
+  translation, and identity fallback.)*
+- [x] Update `ReactPreview.tsx` to pass the payload to the new WASM
+  entry point. Calls `useAttribution(...)` and routes through
+  `parseQmdToAstWithAttribution(content, payload)` whenever a payload
+  is present; falls back to byte-identical `…(content, null)`
+  otherwise. **`enabled: false` for now** — the toggle UI is the
+  Phase 5c work item.
+- [x] **Producer-only code paths.** No consumer-side `attribution.ts`
+  or `useNodeAttributionResolver` to delete — the implementation
+  branch was forked off `main` and never inherited the prototype's
+  consumer machinery. The new `hub-client/src/services/attribution-runs.ts`
+  ports only the producer half (build/update + char→byte conversion);
+  the consumer side is the Rust pipeline.
+- [ ] **Phase 5c (deferred)** — `ReactAstDebugRenderer.tsx` reads
+  attribution from `astContext.attribution` directly and joins each
+  record's `actor` against `astContext.attributionActors` for
+  `(name, color)`. The data path is now end-to-end; what's missing
+  is the renderer-side colour application (wrapping each node with
+  `style={{ color: actorIdentity.color }}` or a `data-attr-color`
+  attribute). This is real renderer surgery touching most node
+  variants. The current `ReactAstDebugRenderer` carries no
+  attribution code, so there's nothing to remove — it's pure
+  feature work. **Track in a follow-up beads issue once the
+  Authorship toggle UI is sketched.**
+- [ ] **Phase 5c (deferred)** — Authorship toggle UI in `Editor.tsx`
+  (or a sidebar control). Flip `enabled: false → enabled: <toggleState>`
+  on the `useAttribution` call in `ReactPreview.tsx`. Without UI,
+  the data path stays cold by default; the producer invariant and
+  byte-identicality guarantees still hold.
+- [x] Run `cd hub-client && npm run build:all` — passes (`tsc -b &&
+  vite build`, WASM build, all 74 unit tests).
+- [ ] **End-to-end browser verification** — pending the Phase 5c
+  renderer work. With `enabled: false`, there's no user-visible
+  attribution to inspect even though the wire is plumbed; the
+  meaningful end-to-end check is "two Automerge contributors, toggle
+  on, q2-debug pane colours nodes per actor", and that requires both
+  the toggle UI and the renderer colour application.
 
 ### Phase 6 — Defaults, palettes, identity
 

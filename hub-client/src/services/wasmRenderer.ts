@@ -57,6 +57,10 @@ interface WasmModuleExtended {
   get_project_choices: () => string;
   create_project: (choiceId: string, title: string) => Promise<string>;
   parse_qmd_to_ast: (content: string) => Promise<string>;
+  parse_qmd_to_ast_with_attribution: (
+    content: string,
+    attribution_json: string | undefined,
+  ) => Promise<string>;
   write_qmd: (astJson: string) => Promise<string>;
   incremental_write_qmd(original_qmd: string, new_ast_json: string): string;
   convert: (document: string, inputFormat: string, outputFormat: string) => Promise<string>;
@@ -490,10 +494,37 @@ export interface ConvertResult {
 export async function parseQmdToAst(
   qmdContent: string
 ): Promise<ParseResult> {
+  return parseQmdToAstWithAttribution(qmdContent, null);
+}
+
+/**
+ * Parse QMD content to Pandoc AST JSON, optionally with attribution.
+ *
+ * When `attributionJson` is non-null, the JSON string is shipped to the
+ * Rust `PreBuiltAttributionProvider`, which decodes runs + identities
+ * and drives `AttributionGenerateTransform` + `AttributionRenderTransform`.
+ * The resulting AST carries `astContext.attribution` (sparse `{s, actor,
+ * time}` records) and `astContext.attributionActors` (actor →
+ * `{name, color}` table). When `null`, the call is byte-identical to
+ * `parseQmdToAst(content)` — same code path, no provider installed,
+ * no transforms fire (Phase 0 test #10 contract).
+ *
+ * The producer of `attributionJson` is responsible for satisfying the
+ * Phase 6 invariant: every actor referenced in `runs` must have an
+ * entry in `identities`. See `useAttribution` for the hub-client
+ * producer that builds this payload from Automerge history.
+ */
+export async function parseQmdToAstWithAttribution(
+  qmdContent: string,
+  attributionJson: string | null,
+): Promise<ParseResult> {
   try {
     await initWasm();
     const wasm = getWasm();
-    const responseJson = await wasm.parse_qmd_to_ast(qmdContent);
+    const responseJson = await wasm.parse_qmd_to_ast_with_attribution(
+      qmdContent,
+      attributionJson ?? undefined,
+    );
 
     const response: ParseResult = JSON.parse(responseJson);
 
@@ -504,7 +535,6 @@ export async function parseQmdToAst(
         warnings: response.warnings,
       };
     } else {
-      // Extract error message
       const errorMsg = response.error || 'Unknown parse error';
 
       return {

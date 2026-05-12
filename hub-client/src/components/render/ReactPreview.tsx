@@ -2,8 +2,14 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type * as Monaco from 'monaco-editor';
 import type { FileEntry } from '../../types/project';
 import type { Diagnostic } from '../../types/diagnostic';
-import { parseQmdToAst, renderPageInProject, isWasmReady, incrementalWriteQmd } from '../../services/wasmRenderer';
+import {
+  parseQmdToAstWithAttribution,
+  renderPageInProject,
+  isWasmReady,
+  incrementalWriteQmd,
+} from '../../services/wasmRenderer';
 import { pipelineKindForFormat } from '../../utils/pipelineKind';
+import { useAttribution } from '../../hooks/useAttribution';
 import { stripAnsi } from '../../utils/stripAnsi';
 import { PreviewErrorOverlay } from './PreviewErrorOverlay';
 import ReactRenderer from './ReactRenderer';
@@ -74,14 +80,25 @@ type RenderResult = {
 //   returns the post-pipeline AST as JSON via `RenderResponse.ast_json`.
 //   Requires a `documentPath` because the pipeline reads the file from
 //   VFS and discovers project context from it.
-// - any other format (q2-debug, q2-slides): calls `parseQmdToAst(content)`,
-//   which is path-less and skips the transform pipeline entirely — the
-//   raw parse-only AST.
+// - any other format (q2-debug, q2-slides): calls
+//   `parseQmdToAstWithAttribution(content, attributionJson)`, which is
+//   path-less and skips the transform pipeline entirely. When
+//   `attributionJson` is non-null, the Rust pipeline installs
+//   `PreBuiltAttributionProvider`, runs `AttributionGenerateTransform`
+//   + `AttributionRenderTransform`, and the resulting AST carries
+//   `astContext.attribution` plus `astContext.attributionActors`.
+//   When `null`, the call is byte-identical to the unflagged q2-debug
+//   path (Phase 0 test #10).
 //
 // Returns diagnostics and an AST JSON string, or an error message.
 async function doRender(
   qmdContent: string,
-  options: { scrollSyncEnabled: boolean; documentPath?: string; format: string }
+  options: {
+    scrollSyncEnabled: boolean;
+    documentPath?: string;
+    format: string;
+    attributionJson: string | null;
+  }
 ): Promise<RenderResult> {
   if (!isWasmReady()) {
     return {
@@ -142,7 +159,11 @@ async function doRender(
   }
 
   // q2-debug / q2-slides path: parse-only, no transform pipeline.
-  const result = await parseQmdToAst(qmdContent);
+  // Attribution provider is installed when attributionJson is non-null.
+  const result = await parseQmdToAstWithAttribution(
+    qmdContent,
+    options.attributionJson,
+  );
 
   // Collect all diagnostics from both success and error paths
   const allDiagnostics: Diagnostic[] = [
@@ -210,6 +231,28 @@ export default function ReactPreview({
     string | null | undefined
   >(undefined);
 
+  // Phase 5 — q2-debug attribution producer wiring.
+  //
+  // `useAttribution` returns the JSON payload (`{ runs, identities }`)
+  // for `parseQmdToAstWithAttribution`. The hook short-circuits when
+  // `enabled` is false (Authorship toggle off), in which case the
+  // payload stays `null` and the WASM call falls through to the
+  // byte-identical no-attribution path.
+  //
+  // The toggle UI is intentionally a separate piece of work — once a
+  // Authorship switch is plumbed through `Editor.tsx`, flipping
+  // `enabled: false` to `enabled: someToggleState` is all that's
+  // needed. Profile-metadata identity lookup (`identities`) can be
+  // wired the same way; until then the hook uses its
+  // `(actor.slice(0, 8), actorColor(fnv1aHex8(actor)))` fallback so
+  // the Phase 6 producer invariant still holds.
+  const attributionPayload = useAttribution({
+    enabled: false,
+    filePath: currentFile?.path ?? null,
+    sourceText: content,
+    identities: {},
+  });
+
   // Debounce rendering
   const renderTimeoutRef = useRef<number | null>(null);
   const lastContentRef = useRef<string>('');
@@ -242,7 +285,12 @@ export default function ReactPreview({
   const doRenderWithStateManagement = useCallback(async (qmdContent: string, documentPath?: string) => {
     lastContentRef.current = qmdContent;
 
-    const result = await doRender(qmdContent, { scrollSyncEnabled, documentPath, format });
+    const result = await doRender(qmdContent, {
+      scrollSyncEnabled,
+      documentPath,
+      format,
+      attributionJson: attributionPayload,
+    });
     if (qmdContent !== lastContentRef.current) return;
 
     // Update diagnostics
@@ -280,7 +328,7 @@ export default function ReactPreview({
         setPreviewState('ERROR_FROM_GOOD');
       }
     }
-  }, [scrollSyncEnabled, onDiagnosticsChange, onAstChange, format]);
+  }, [scrollSyncEnabled, onDiagnosticsChange, onAstChange, format, attributionPayload]);
 
   // Immediate render update (no debounce)
   const updatePreview = useCallback((newContent: string, documentPath?: string) => {
@@ -290,11 +338,19 @@ export default function ReactPreview({
     doRenderWithStateManagement(newContent, documentPath);
   }, [doRenderWithStateManagement]);
 
-  // Re-render when content changes or scroll sync is toggled
+  // Re-render when content changes, scroll sync is toggled, or a new
+  // attribution payload arrives.
   useEffect(() => {
     // Pass document path as-is from Automerge (e.g., "index.qmd" or "docs/index.qmd").
     updatePreview(content, currentFile?.path);
-  }, [content, updatePreview, scrollSyncEnabled, currentFile?.path, onDiagnosticsChange]);
+  }, [
+    content,
+    updatePreview,
+    scrollSyncEnabled,
+    currentFile?.path,
+    onDiagnosticsChange,
+    attributionPayload,
+  ]);
 
   // Reset preview state when file changes
   useEffect(() => {
