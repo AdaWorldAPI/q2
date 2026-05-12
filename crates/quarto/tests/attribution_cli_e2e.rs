@@ -59,11 +59,20 @@ const ALICE_EMAIL: &str = "alice@example.com";
 const BOB_EMAIL: &str = "bob@example.com";
 
 /// Build a deterministic two-author git history under `dir`.
+///
+/// The first commit (Alice) contains everything up to and including
+/// the first body paragraph; the second commit (Bob) appends the
+/// rest. Splitting on a line boundary guarantees `git blame` credits
+/// at least one rendered-body line to each author — splitting
+/// mid-line would let Bob's "completion" of a partial line absorb
+/// what was nominally Alice's contribution.
 fn scripted_repo(dir: &Path, doc_qmd: &str) {
-    write_file(
-        &dir.join("doc.qmd"),
-        &format!("{}", &doc_qmd[..doc_qmd.len() / 2]),
-    );
+    let split = doc_qmd
+        .match_indices('\n')
+        .map(|(i, _)| i + 1)
+        .find(|&i| i >= doc_qmd.len() / 2)
+        .expect("doc.qmd must have at least one newline past its midpoint");
+    write_file(&dir.join("doc.qmd"), &doc_qmd[..split]);
 
     let init = run_git(dir, &["init", "-q", "-b", "main"], &[]);
     assert!(init.status.success(), "git init failed: {:?}", init);

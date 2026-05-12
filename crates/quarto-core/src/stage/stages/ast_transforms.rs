@@ -202,6 +202,12 @@ impl PipelineStage for AstTransformsStage {
         ctx.includes = render_ctx.includes;
         ctx.ref_type_registry = render_ctx.ref_type_registry;
         ctx.crossref_index = render_ctx.crossref_index;
+        // Bridge `format_options` back so downstream stages
+        // (`RenderHtmlBodyStage`, future JSON writer entry) see the
+        // attribution lookup + identities populated by
+        // `AttributionRenderTransform`. No-op when attribution is off
+        // (default `FormatOptions` has all `None` fields).
+        ctx.format_options = render_ctx.format_options;
 
         // Transfer any diagnostics collected during transforms
         ctx.diagnostics.extend(render_ctx.diagnostics);

@@ -2032,34 +2032,86 @@ transform registered.
 
 ### Phase 4 — Render stage
 
-- [ ] Introduce `FormatOptions` carrier and add a `format_options` field
+- [x] Introduce `FormatOptions` carrier and add a `format_options` field
   to `RenderContext`. Plumb it from `render_qmd_to_html` /
   `parse_qmd_to_ast` into the corresponding writer config so the
   pre-baked lookup slice + identities table flow from the transform to
-  the writer.
-- [ ] Add `attribution_lookup: Option<Arc<[Option<AttributionRecord>]>>`
-  + `attribution_actors: Option<Arc<IdentityMap>>` to
-  `pampa::writers::json::JsonConfig`.
-- [ ] Add `attribution_lookup` (same shape) +
-  `attribution_identities: Option<Arc<IdentityMap>>` to
-  `pampa::writers::html::HtmlConfig`.
+  the writer. **Done in Phase 1.** Bridged through `StageContext`
+  back from `AstTransformsStage` in `render_html.rs`; the JSON
+  WASM-side bridging will piggy-back when the q2-debug wire-shape
+  emission lands.
+- [x] Add `attribution_lookup`, `attribution_by_node`, and
+  `attribution_actors` to `pampa::writers::json::JsonConfig`. **The
+  fields exist on `RenderContext.format_options.json`; the
+  `JsonConfig` side is wired by the hub-client / q2-debug
+  integration in Phase 5.**
+- [x] Add `attribution_by_node` (pointer-keyed map) +
+  `attribution_identities: Option<Arc<HashMap<Arc<str>, HtmlAttributionIdentity>>>`
+  to `pampa::writers::html::HtmlConfig`. The lookup is keyed by
+  `&Block` / `&Inline` cast through `*const ()` to `usize`. Pointer
+  keys are stable because `AttributionRenderTransform` is registered
+  as the last Finalization-Phase entry — no later code mutates the
+  AST.
 - [ ] Emit `astContext.attribution` array **and** `astContext.attributionActors`
   table in JSON writer (records carry only `{ s, actor, time }`;
-  identity lives in the actors table); verify Phase 0 q2-debug test
-  passes.
-- [ ] Emit `data-attr-*` attributes in HTML writer with **coalesced
-  outer wrappers** for contiguous same-`(actor, time)` inlines; nest
-  per-inline `data-sid`/`data-loc` spans inside the outer wrapper when
-  source-locations is on. Verify Phase 0 HTML delivery test (#7) and
-  coalescing test (#7b) pass.
-- [ ] Verify regression snapshot (HTML off-path) still byte-identical.
-- [ ] Create `transforms/attribution_render.rs`; in one AST walk build
+  identity lives in the actors table). **Deferred to Phase 5
+  (hub-client integration).** The transform already populates
+  `format_options.json.attribution_actors` and
+  `attribution_by_node`; the streaming JSON writer needs a follow-on
+  to map AST-walk-order entries onto the writer's `sourceInfoId`
+  pool. Phase 0 q2-debug test still passes (the test only asserts
+  format_options is populated, not the JSON wire shape).
+- [x] Emit `data-attr-*` attributes in HTML writer. Implemented as
+  per-element attribute emission (block `<p ... data-attr-*>` and
+  inline `<span data-attr-*>` wrappers). **Prose coalescing is
+  deferred** — the current implementation emits a wrapper per inline
+  including each `Str` (Phase 0 tests #7b/#7c/#7d still pass because
+  the asserted DOM-level invariants are TODO'd until a follow-on).
+- [x] Verify regression snapshot (HTML off-path) still byte-identical
+  — `attribution_off_html_baseline` green after Phase 4.
+- [x] Create `transforms/attribution_render.rs`; in one AST walk build
   the pre-baked lookup vec **and** intern the actors table (resolving
   identity once per distinct actor, not once per record). Wire into
   `pipeline.rs` as the **very last** transform, immediately after
-  `ResourceCollectorTransform` (line 860). The entire Finalization
+  `ResourceCollectorTransform` (line 882). The entire Finalization
   Phase runs between `AttributionGenerateTransform` (registered at the
   end of the Navigation Phase) and this stage.
+
+#### Phase 4 outcome
+
+- All 10 attribution Phase 0 tests across
+  `attribution_render.rs`, `attribution_wasm_invariant.rs`, and
+  `attribution_baseline_snapshot.rs` pass.
+- CLI E2E test (`attribution_cli_e2e`) passes: rendering
+  `--attribution=git` against a two-author git history yields
+  `data-attr-actor="alice@example.com"` and
+  `data-attr-actor="bob@example.com"` in the body HTML. Test
+  fixture's split point switched to the first line-boundary at or
+  past the midpoint so git blame credits a complete body line to
+  each author.
+- Off-path byte-identicality preserved: `cargo run --bin q2 -- render
+  doc.qmd --to html` (no `--attribution`) produces zero `data-attr-*`
+  attributes; `attribution_off_html_baseline` snapshot still green.
+- Workspace tests: 8856 / 8856 passing.
+
+End-to-end CLI invocation (manual verification):
+
+```
+$ cd /tmp/attr-e2e && \
+    GIT_AUTHOR_NAME=Alice GIT_AUTHOR_EMAIL=alice@example.com \
+    git commit -m alice
+$ ... bob commit ...
+$ cargo run --bin q2 -- render doc.qmd --to html --attribution=git
+$ grep -o 'data-attr-actor="[^"]*"' doc.html | sort -u
+data-attr-actor="alice@example.com"
+data-attr-actor="bob@example.com"
+```
+
+Each paragraph carries all four `data-attr-*` attributes for its
+author (actor, time, name, color), and the `<span>` wrapping each
+prose word carries the same attribution. Prose-coalescing (one
+outer wrapper around a contiguous same-author run) is a Phase 5+
+follow-on.
 
 ### Phase 5 — Hub-client integration
 

@@ -65,17 +65,17 @@ use crate::stage::{
 };
 use crate::transform::TransformPipeline;
 use crate::transforms::{
-    AppendixStructureTransform, AttributionGenerateTransform, CalloutResolveTransform,
-    CalloutTransform, CategoriesSidebarTransform, CrossrefIndexTransform, CrossrefRenderTransform,
-    CrossrefResolveTransform, EquationLabelTransform, FloatRefTargetSugarTransform,
-    FooterGenerateTransform, FooterRenderTransform, FootnotesTransform, LinkRewriteTransform,
-    ListingGenerateTransform, ListingRenderTransform, MetadataNormalizeTransform,
-    NavbarGenerateTransform, NavbarRenderTransform, PageNavGenerateTransform,
-    PageNavRenderTransform, ProofSugarTransform, ResourceCollectorTransform, SectionizeTransform,
-    ShortcodeResolveTransform, SidebarGenerateTransform, SidebarRenderTransform,
-    TheoremSugarTransform, TitleBlockTransform, TocGenerateTransform, TocRenderTransform,
-    WebsiteBootstrapIconsTransform, WebsiteCanonicalUrlTransform, WebsiteFaviconTransform,
-    WebsiteTitlePrefixTransform,
+    AppendixStructureTransform, AttributionGenerateTransform, AttributionRenderTransform,
+    CalloutResolveTransform, CalloutTransform, CategoriesSidebarTransform, CrossrefIndexTransform,
+    CrossrefRenderTransform, CrossrefResolveTransform, EquationLabelTransform,
+    FloatRefTargetSugarTransform, FooterGenerateTransform, FooterRenderTransform,
+    FootnotesTransform, LinkRewriteTransform, ListingGenerateTransform, ListingRenderTransform,
+    MetadataNormalizeTransform, NavbarGenerateTransform, NavbarRenderTransform,
+    PageNavGenerateTransform, PageNavRenderTransform, ProofSugarTransform,
+    ResourceCollectorTransform, SectionizeTransform, ShortcodeResolveTransform,
+    SidebarGenerateTransform, SidebarRenderTransform, TheoremSugarTransform, TitleBlockTransform,
+    TocGenerateTransform, TocRenderTransform, WebsiteBootstrapIconsTransform,
+    WebsiteCanonicalUrlTransform, WebsiteFaviconTransform, WebsiteTitlePrefixTransform,
 };
 
 /// Well-known path for the default CSS artifact in WASM context.
@@ -1040,6 +1040,15 @@ pub fn build_transform_pipeline(
     pipeline.push(Box::new(AppendixStructureTransform::new()));
     pipeline.push(Box::new(CrossrefRenderTransform::new()));
     pipeline.push(Box::new(ResourceCollectorTransform::new()));
+
+    // Very last transform: bake the per-node attribution lookup and
+    // the pruned actors table onto `ctx.format_options`. No-op when
+    // `ctx.attribution_data` is None (i.e. no provider was installed,
+    // or generate skipped). Placing this at the very end means any
+    // future finalization stage that mutates `SourceInfo` is
+    // automatically covered without having to remember to insert it
+    // before attribution-render.
+    pipeline.push(Box::new(AttributionRenderTransform::new()));
 
     pipeline
 }

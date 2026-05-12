@@ -10,13 +10,61 @@
 //! This stage renders the Pandoc AST to HTML body content using pampa's
 //! HTML writer.
 
-use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Arc;
 
+use async_trait::async_trait;
+use pampa::writers::html::{HtmlAttributionIdentity, HtmlAttributionRecord, HtmlConfig};
+
+use crate::render::HtmlFormatOptions;
 use crate::stage::{
     EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, RenderedOutput,
     StageContext,
 };
 use crate::trace_event;
+
+/// Translate Render-phase attribution data on the format-options bag
+/// into the pampa-facing [`HtmlConfig`]. Off-path (attribution
+/// disabled / no records) the returned config has both attribution
+/// fields `None` — the HTML writer's output is byte-identical to its
+/// existing behaviour.
+fn build_html_config_from_options(opts: &HtmlFormatOptions) -> HtmlConfig {
+    let attribution_by_node = opts.attribution_by_node.as_ref().map(|map| {
+        let out: HashMap<usize, HtmlAttributionRecord> = map
+            .iter()
+            .map(|(k, v)| {
+                (
+                    *k,
+                    HtmlAttributionRecord {
+                        actor: Arc::clone(&v.actor),
+                        time: v.time,
+                    },
+                )
+            })
+            .collect();
+        Arc::new(out)
+    });
+    let attribution_identities = opts.attribution_identities.as_ref().map(|map| {
+        let out: HashMap<Arc<str>, HtmlAttributionIdentity> = map
+            .iter()
+            .map(|(k, v)| {
+                (
+                    Arc::clone(k),
+                    HtmlAttributionIdentity {
+                        display_name: v.display_name.clone(),
+                        color: v.color.clone(),
+                    },
+                )
+            })
+            .collect();
+        Arc::new(out)
+    });
+    HtmlConfig {
+        include_source_locations: false,
+        attribution_by_node,
+        attribution_identities,
+    }
+}
 
 /// Render AST to HTML body.
 ///
@@ -85,9 +133,20 @@ impl PipelineStage for RenderHtmlBodyStage {
             doc.ast.blocks.len()
         );
 
-        // Render AST to HTML body
+        // Render AST to HTML body. Forwards any attribution lookup
+        // baked by `AttributionRenderTransform` into the HTML config
+        // so the writer can emit `data-attr-*` attributes. When
+        // attribution is off, both fields stay `None` and the writer
+        // takes its existing byte-identical path.
+        let html_config = build_html_config_from_options(&ctx.format_options.html);
         let mut body_buf = Vec::new();
-        pampa::writers::html::write(&doc.ast, &doc.ast_context, &mut body_buf).map_err(|e| {
+        pampa::writers::html::write_with_options(
+            &doc.ast,
+            &doc.ast_context,
+            &mut body_buf,
+            html_config,
+        )
+        .map_err(|e| {
             PipelineError::stage_error(self.name(), format!("Failed to write HTML body: {}", e))
         })?;
 

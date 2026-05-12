@@ -22,6 +22,8 @@ use quarto_error_reporting::DiagnosticMessage;
 use quarto_system_runtime::SystemRuntime;
 
 use crate::artifact::ArtifactStore;
+use std::collections::HashMap;
+
 use crate::attribution::{
     AttributionData, AttributionRecord, AttributionSourceProvider, IdentityMap,
 };
@@ -48,27 +50,42 @@ pub struct FormatOptions {
 /// HTML writer-side options.
 #[derive(Debug, Clone, Default)]
 pub struct HtmlFormatOptions {
-    /// Pre-baked, indexed by `sourceInfoId`. `None` means "no
-    /// attribution in scope" (off-path). `AttributionRecord.actor` is
-    /// `Arc<str>` pointer-equal to the corresponding key in
-    /// `attribution_identities`, preserving the Phase 1 interning
-    /// invariant. Written by `AttributionRenderTransform`.
+    /// Walk-order slice of per-node `Option<AttributionRecord>`.
+    /// `None` (outer) means "no attribution in scope" (off-path).
+    /// `AttributionRecord.actor` is `Arc<str>` pointer-equal to the
+    /// corresponding key in `attribution_identities`, preserving the
+    /// Phase 1 interning invariant. Written by
+    /// `AttributionRenderTransform`. Used as a regression invariant
+    /// for the "lookup non-empty when attribution is on" contract;
+    /// the writer queries `attribution_by_node` for per-node O(1)
+    /// access.
     pub attribution_lookup: Option<Arc<[Option<AttributionRecord>]>>,
 
-    /// Pruned identity table covering exactly the actors that appear
-    /// in `attribution_lookup`. The HTML writer reads it inline per
-    /// wrapping span (not via a separate table on the wire) because
-    /// static no-JS viewers need self-contained `data-attr-color`
-    /// values.
+    /// Pointer-keyed map from AST node identity (`&Block` /
+    /// `&Inline` cast through `*const ()` to `usize`) to the resolved
+    /// `AttributionRecord`. The HTML writer's
+    /// `write_block_source_attrs` / `write_inline_source_attrs` do a
+    /// single `HashMap::get` to decide whether to emit
+    /// `data-attr-*`. Pointer keys are stable because the transform
+    /// is registered as the **last** Finalization-Phase entry — no
+    /// later code mutates the AST.
+    pub attribution_by_node: Option<Arc<HashMap<usize, AttributionRecord>>>,
+
+    /// Identity table covering every distinct actor that appears in
+    /// `runs`. The HTML writer reads it inline per wrapping span
+    /// (not via a separate table on the wire) because static no-JS
+    /// viewers need self-contained `data-attr-color` values.
     pub attribution_identities: Option<Arc<IdentityMap>>,
 }
 
 /// q2-debug JSON writer-side options.
 #[derive(Debug, Clone, Default)]
 pub struct JsonFormatOptions {
-    /// Pre-baked, indexed by `sourceInfoId`. Same shape as the HTML
-    /// writer's `attribution_lookup`.
+    /// Walk-order slice mirroring [`HtmlFormatOptions::attribution_lookup`].
     pub attribution_lookup: Option<Arc<[Option<AttributionRecord>]>>,
+
+    /// Pointer-keyed map mirroring [`HtmlFormatOptions::attribution_by_node`].
+    pub attribution_by_node: Option<Arc<HashMap<usize, AttributionRecord>>>,
 
     /// Actor → `(name, color)` table. Unlike the HTML path, the JSON
     /// wire dedupes — per-record entries carry only `{ s, actor, time }`
