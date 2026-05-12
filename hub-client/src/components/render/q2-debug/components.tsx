@@ -1,5 +1,10 @@
-import React from 'react';
+import React, { useCallback, useContext, useRef, useState } from 'react';
 import { Node, renderChildren } from '../framework/dispatch';
+import {
+    AttributionLookupContext,
+    type NodeAttributionIdentity,
+} from '../framework/AttributionLookupContext';
+import { AttributionBadge, attributionStyles } from './attribution';
 import type {
     InlineNode,
     NodeArgs,
@@ -199,16 +204,84 @@ export const InlineComponents: Record<string, (props: any) => React.ReactNode> =
     Quoted,
 };
 
+/**
+ * q2-debug document root. When attribution is on for this AST
+ * (`AttributionLookupContext` populated by `framework/Ast.tsx`),
+ * injects the badge stylesheet once and listens for delegated
+ * hover events on `.q2-attr-wrap[data-sid]` to surface a single
+ * `AttributionBadge` floating near the hovered element. Off path
+ * the stylesheet and handlers are skipped — the rendered output
+ * is byte-identical to pre-attribution.
+ */
 export const AstRenderer = ({ ast, onNavigateToDocument, setAst }: {
     ast: PandocAST;
     onNavigateToDocument?: (path: string, anchor: string | null) => void;
     setAst: (newAst: PandocAST) => void;
-}) => (
-    <div className="pandoc-content-debug" style={{ padding: '20px', fontSize: '16px' }}>
-        {renderChildren({
-            node: ast as any,
-            setLocalAst: setAst as any,
-            onNavigateToDocument
-        })}
-    </div>
-);
+}) => {
+    const lookup = useContext(AttributionLookupContext);
+    // Ref keeps the latest lookup visible to handler callbacks
+    // without re-binding them on every render.
+    const lookupRef = useRef(lookup);
+    lookupRef.current = lookup;
+
+    const [hovered, setHovered] = useState<{
+        record: NodeAttributionIdentity;
+        rect: DOMRect;
+    } | null>(null);
+
+    // Event-delegated hover: one pair of handlers on the container
+    // resolves the nearest `.q2-attr-wrap[data-sid]` ancestor. The
+    // alternative — per-node `onMouseEnter` — would mount N handlers
+    // for an N-node AST.
+    const handleMouseOver = useCallback((e: React.MouseEvent) => {
+        const ctx = lookupRef.current;
+        if (!ctx) return;
+        const target = e.target as HTMLElement;
+        const wrap = target.closest('.q2-attr-wrap[data-sid]') as HTMLElement | null;
+        if (!wrap) {
+            setHovered(null);
+            return;
+        }
+        const sid = Number(wrap.getAttribute('data-sid'));
+        if (Number.isNaN(sid)) return;
+        const record = ctx.get(sid);
+        if (record) {
+            setHovered({ record, rect: wrap.getBoundingClientRect() });
+        }
+    }, []);
+
+    const handleMouseOut = useCallback((e: React.MouseEvent) => {
+        const related = e.relatedTarget as HTMLElement | null;
+        if (!related?.closest?.('.q2-attr-wrap[data-sid]')) {
+            setHovered(null);
+        }
+    }, []);
+
+    return (
+        <>
+            {lookup && <style>{attributionStyles}</style>}
+            <div
+                className="pandoc-content-debug"
+                style={{ padding: '20px', fontSize: '16px' }}
+                onMouseOver={lookup ? handleMouseOver : undefined}
+                onMouseOut={lookup ? handleMouseOut : undefined}
+            >
+                {renderChildren({
+                    node: ast as any,
+                    setLocalAst: setAst as any,
+                    onNavigateToDocument,
+                })}
+                {hovered && (
+                    <AttributionBadge
+                        record={hovered.record}
+                        style={{
+                            position: 'fixed',
+                            top: hovered.rect.bottom + 2,
+                            left: hovered.rect.left,
+                        }}
+                    />
+                )}
+            </div>
+        </>
+    );
+};
