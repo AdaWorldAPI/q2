@@ -53,6 +53,10 @@ import {
     type ComponentExports,
 } from '../../../utils/customRegistry';
 import { installLinkHandlers } from '../../../utils/iframeLinkHandlers';
+import {
+    makeIframeMessageDispatcher,
+    type IframeMessage,
+} from '../iframeMessageDispatch';
 
 // Set the renderer-surface global at module top. Importing this module
 // is sufficient to populate `window.__Q2_PREVIEW_RENDERER__`. The
@@ -89,7 +93,6 @@ import { installLinkHandlers } from '../../../utils/iframeLinkHandlers';
 
 let root: ReturnType<typeof createRoot> | null = null;
 let customRegistry: Record<string, React.ComponentType<any>> = {};
-let componentsLoading = false;
 
 interface UpdateAstPayload {
     astJson: string;
@@ -105,29 +108,22 @@ interface UpdateAstPayload {
     assetManifest?: Record<string, string>;
 }
 
+// Shared dispatcher gates UPDATE_AST on the in-flight
+// LOAD_CUSTOM_COMPONENTS promise so two UPDATE_ASTs queued during
+// component load run in arrival order. See
+// `../iframeMessageDispatch.ts` for the rationale (the previous
+// setInterval-polling pattern was phase-racy).
+const dispatch = makeIframeMessageDispatcher({
+    loadCustomComponents,
+    updateAst: (payload) => updateAst(payload as UpdateAstPayload),
+    applyTheme,
+});
+
 // Module-top message handler. Registered before `IFRAME_READY` is
 // posted so the parent's `UPDATE_THEME` (which can fire immediately
 // after `IFRAME_READY` from a sibling `useEffect`) is never dropped.
-window.addEventListener('message', async (event) => {
-    if (event.data.type === 'LOAD_CUSTOM_COMPONENTS') {
-        componentsLoading = true;
-        await loadCustomComponents(event.data.componentsCode);
-        componentsLoading = false;
-    } else if (event.data.type === 'UPDATE_AST') {
-        if (componentsLoading) {
-            await new Promise((resolve) => {
-                const check = setInterval(() => {
-                    if (!componentsLoading) {
-                        clearInterval(check);
-                        resolve(undefined);
-                    }
-                }, 50);
-            });
-        }
-        updateAst(event.data.payload);
-    } else if (event.data.type === 'UPDATE_THEME') {
-        applyTheme(event.data.cssUrl);
-    }
+window.addEventListener('message', (event) => {
+    dispatch(event.data as IframeMessage);
 });
 
 /**
