@@ -10,6 +10,15 @@ export const UserPreferencesSchema = z.object({
   scrollSyncEnabled: z.boolean(),
   errorOverlayCollapsed: z.boolean(),
   colorScheme: ColorSchemeSchema,
+  // Authorship overlay (Phase 5c). Off by default — colours node
+  // borders/labels in the q2-debug preview by their last-touch
+  // Automerge actor, with display name + colour resolved by
+  // `useAttribution` (replay + fnv1a fallback) and pre-baked into
+  // `astContext.attribution` / `astContext.attributionActors` by the
+  // Rust render transform. `.default(false)` so localStorage entries
+  // written before this key existed don't fail validation and reset
+  // every other preference.
+  attributionEnabled: z.boolean().default(false),
 });
 
 // Infer TypeScript type from schema
@@ -24,6 +33,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   scrollSyncEnabled: true,
   errorOverlayCollapsed: true, // collapsed by default
   colorScheme: 'auto',
+  attributionEnabled: false, // opt-in surfacing of author identities
 };
 
 // Validation function - returns valid preferences or defaults
