@@ -1752,18 +1752,24 @@ surface that ships the producer-side data to WASM.
 
 ## Phase 7 — Documentation
 
-- [ ] User docs at `docs/authoring/attribution.qmd` explaining:
+- [x] User docs at `docs/authoring/attribution.qmd` explaining:
   - `--attribution=git` on the CLI; YAML `attribution: git`.
   - Hub-client toggle in Settings.
   - That attribution is **not on by default** and that it surfaces author
     information in the rendered HTML — privacy/discoverability note.
-- [ ] Brief reference in `CLAUDE.md` only if the feature has invariants
-  future Claude needs to know. None expected at v1 — the
+
+  *(Landed alongside the Phase 6 producer-invariant tests in commit
+  `d496c3b9`. Same checkbox is mirrored at the end of the Phase 6
+  work-items list at line 2205.)*
+- [x] Brief reference in `CLAUDE.md` only if the feature has invariants
+  future Claude needs to know. **Not needed at v1** — the
   source-locations and attribution flags compose orthogonally
   (Phase 4b), the producer invariant lives in `attribution_generate.rs`
   doc-comments (Phase 6), and the transform-invocation invariant
-  lives in `attribution_render.rs` doc-comments (Phase 3b). Re-evaluate
-  after implementation.
+  lives in `attribution_render.rs` doc-comments (Phase 3b).
+  Re-evaluated at end of implementation: no new invariants surfaced
+  during Phases 1–6, so no `CLAUDE.md` change. Revisit if/when the
+  Phase 4b coalescing pass or Phase 5c toggle UI lands.
 
 ## Resolved design questions
 
@@ -2206,17 +2212,73 @@ remaining deferred work.
 
 ### Phase 7 — Verification
 
-- [ ] `cargo build --workspace`
-- [ ] `cargo nextest run --workspace`
-- [ ] `cargo xtask verify` (full — this touches `quarto-core` and
-  `pampa` so the WASM leg is implicated).
-- [ ] Manual end-to-end:
-  - `cargo run --bin quarto -- render fixture.qmd --attribution=git`
-    and inspect the HTML for `data-attr-actor`.
-  - Hub-client browser session with two contributors in the Automerge
-    history; toggle Authorship and confirm node colouring matches
-    the TS prototype's behaviour.
-- [ ] Document any deviations from the TS prototype's exact visual output.
+- [x] `cargo build --workspace` — clean, 0 warnings.
+- [x] `cargo nextest run --workspace` — 8861 tests run, 8861 passed,
+  195 skipped (36.9s).
+- [x] `cargo xtask verify` — 9/9 steps green. One environmental skip:
+  `--skip-treesitter-tests --skip-treesitter-crlf-tests` because the
+  host has no `tree-sitter` CLI; attribution work touches no
+  tree-sitter grammar so the skip is non-load-bearing for this
+  feature. CI runs the full step.
+- [x] Manual end-to-end (CLI):
+  - Fixture: `/tmp/attr-e2e-kyoto/article.qmd` (two-author git history,
+    Alice commits paragraphs 1–2, Bob adds paragraph 3).
+  - Invocation: `target/debug/q2 render /tmp/attr-e2e-kyoto/article.qmd
+    --attribution=git` (note: binary is `q2`, not `quarto` — plan text
+    above predates the rename).
+  - Observed in `article.html`:
+    - `data-attr-actor="alice@example.com"` and
+      `data-attr-actor="bob@example.com"` both present on `<p>` and
+      per-word `<span>` wrappers.
+    - Identity colours match Phase 6 pins: alice → `hsl(253, 60%, 55%)`,
+      bob → `hsl(220, 60%, 55%)`.
+    - `data-attr-name="alice"` / `"bob"` derived from the
+      email-local-part as the producer invariant requires.
+    - `data-attr-time` carries the commit Unix timestamp.
+  - Output inspected directly; markup matches the Phase 4 outcome
+    snippet on lines 2097-2114.
+- [-] Manual end-to-end (hub-client browser): **not exercisable in v1.**
+  `ReactPreview.tsx:155` hard-codes `enabled: false`. The data path
+  (WASM ↔ JSON ↔ TS replay ↔ payload) is complete and unit-tested,
+  but Phase 5c (Authorship toggle UI in `Editor.tsx` + per-node colour
+  application in `ReactAstDebugRenderer.tsx`) is intentionally
+  deferred — see the Phase 5 checklist boxes still open at lines
+  2140-2155. Until that toggle and renderer surgery land, there is
+  no surface for the user to flip attribution on, so a
+  "two-contributor Automerge session" test has no UI to drive.
+- [x] Deviations from the TS prototype's exact visual output
+  (recorded below).
+
+#### Phase 7 deviation log (TS prototype → Rust v1)
+
+1. **Prose coalescing is deferred.** The current HTML writer emits
+   one `<span data-attr-*>` per `Inline::Str`, matching the TS
+   prototype's wrap-every-node behaviour but **not** the
+   "one wrapper per contiguous same-(actor, time) run" outcome that
+   Phase 0 test scaffolds `render_html_coalescing_groups_*` and
+   `render_html_attribution_on_source_locations_off_compose_orthogonally`
+   anticipate. The tests still pass because their cross-DOM
+   assertions are TODO'd to Phase 4b (see
+   `crates/quarto-core/tests/attribution_render.rs:289, 326, 376`).
+   Acceptable for v1: the hover-target/data-extraction contract is
+   already satisfied per-word, and the design-question resolution
+   on line 1775 calls the coalescing pass a UX refinement rather
+   than a correctness item. Tracked for v2 alongside the existing
+   Phase 4b TODOs.
+2. **q2-debug JSON wire shape is incomplete.** Plan line 2055-2063:
+   "Emit `astContext.attribution` array and `astContext.attributionActors`
+   table in JSON writer" is deferred. The transform populates
+   `format_options.json.attribution_lookup` /
+   `attribution_actors` / `attribution_by_node`, but the streaming
+   JSON writer still needs to map AST-walk-order entries onto the
+   writer's `sourceInfoId` pool. Phase 0 q2-debug test passes (it
+   only asserts `format_options` is populated, not the on-wire
+   shape).
+3. **Hub-client Authorship toggle + renderer colouring (Phase 5c).**
+   Wholly deferred; see the "not exercisable in v1" row above.
+4. **Binary name.** Plan line 2214 says `quarto`; the actual default-run
+   binary in this workspace is `q2`. Cosmetic discrepancy, no code
+   change required.
 
 ## Non-goals for v1
 
