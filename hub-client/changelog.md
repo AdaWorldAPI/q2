@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-05-12
+
+- [`91cfe944`](https://github.com/quarto-dev/q2/commits/91cfe944): `usePreference` is now cross-instance reactive — toggling a preference in Settings updates sibling consumers like the preview without a manual page refresh.
+
 ### 2026-05-10
 
 - [`68e5ec24`](https://github.com/quarto-dev/q2/commits/68e5ec24): Custom syntax highlighting now works in Quarto Hub projects (bd-izfv) — user-supplied tree-sitter grammars under `_quarto/grammars/<lang>/` now apply to code blocks even when the qmd file lives under a `_quarto.yml` ancestor, matching the single-file render path.
