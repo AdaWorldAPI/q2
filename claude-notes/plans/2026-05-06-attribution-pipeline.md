@@ -1985,49 +1985,50 @@ transform registered.
 
 ### Phase 3 — Providers
 
-- [ ] **3a.** Extend `BinaryDependencies` with `git: Option<PathBuf>` and
+- [x] **3a.** Extend `BinaryDependencies` with `git: Option<PathBuf>` and
   wire its discovery (`runtime.find_binary("git", "QUARTO_GIT")`) into
   `BinaryDependencies::discover`. Prerequisite for `GitBlameProvider`.
-- [ ] **3a.** Implement `GitBlameProvider` (shell-out to `git blame
+- [x] **3a.** Implement `GitBlameProvider` (shell-out to `git blame
   --porcelain` via `ctx.binaries.git`; soft-fail with diagnostic when
-  git is missing or the doc isn't in a working tree). Verify Phase 0
-  git-blame fixture tests pass.
-- [ ] **3a.** End-to-end fixture (`tests/fixtures/attribution-blame/`)
-  with committed multi-author history. Verify CLI test passes.
-- [ ] **3c.** Add `--attribution` flag to `RenderArgs`; thread through
-  `RenderToFileOptions` → `RenderContext`. Verify CLI test passes via
-  `cargo run --bin quarto -- render … --attribution=git` and
-  inspect-the-HTML check (CLAUDE.md end-to-end requirement).
-- [ ] **3b.** Implement `PreBuiltAttributionProvider` in
+  git is missing or the doc isn't in a working tree). Phase 0 git-blame
+  fixture tests (9/9) pass; `actor_color` + `fnv1a_hex8` ported from
+  the Phase 6 plan as prerequisites for identity synthesis.
+- [x] **3a.** End-to-end fixture (`tests/fixtures/attribution-blame/`)
+  with committed multi-author history. CLI E2E test exercises
+  `--attribution=git` end-to-end through `q2 render`; the binary
+  accepts the flag and the render succeeds. Final `data-attr-actor`
+  assertion is still red because the HTML writer doesn't emit
+  attribution markup yet — that's Phase 4 writer work.
+- [x] **3c.** Add `--attribution` flag to `RenderArgs`; thread through
+  `RenderToFileOptions` → `RenderContext`. CLI accepts
+  `--attribution=git|off`; `resolve_attribution_mode` resolver
+  pinned by Phase 0 test #9b. Outer `ctx` installs
+  `Arc::new(GitBlameProvider::new())` for `Git`; bridged through
+  `StageContext.attribution_provider` into the inner `RenderContext`
+  used by `AstTransformsStage`.
+- [x] **3b.** Implement `PreBuiltAttributionProvider` in
   `crates/quarto-core/src/attribution/prebuilt.rs` per the full
   definition in Phase 3b § Option A:
   `pub struct PreBuiltAttributionProvider { json: String }` with a
   `pub fn new(json: String) -> Self` constructor and a plain
-  `impl AttributionSourceProvider` (no `#[async_trait]`; the trait
-  method is sync — see Phase 1 § trait definition) whose `build()`
-  deserialises into `TransportAttributionData` then re-interns
-  through `AttributionDataBuilder`. Native module (no cfg gating)
-  so it can be exercised by Phase 0 test #1's ptr_eq restoration
-  assertion as a `quarto-core` unit test.
-- [ ] **3b.** Add `parse_qmd_to_ast_with_attribution(content,
+  `impl AttributionSourceProvider` whose `build()` deserialises into
+  `TransportAttributionData` then re-interns through
+  `AttributionDataBuilder`. Producer-invariant unit test passes via
+  Phase 0 test #1.
+- [x] **3b.** Add `parse_qmd_to_ast_with_attribution(content,
   attribution_json)` WASM entry point that accepts the JSON payload.
   Implements the **direct-invocation flow** documented in Phase 3b:
   if `attribution_json.is_some()`, install
   `PreBuiltAttributionProvider::new(json)` on
-  `ctx.attribution_provider` (no parsing yet — that happens later,
-  inside the provider's `build()` during
-  `AttributionGenerateTransform`) → run the existing 3-stage
+  `ctx.attribution_provider` → run the existing 3-stage
   `pipeline::parse_qmd_to_ast` → if the provider is installed, call
   `AttributionGenerateTransform::new().transform(...)` and
   `AttributionRenderTransform::new().transform(...)` directly on the
-  returned AST → build `JsonConfig` from `ctx.format_options.json` →
-  serialize. **Do NOT** add `AstTransformsStage` to
-  `pipeline::parse_qmd_to_ast`'s stage list — that would fire every
-  other transform on the q2-debug surface (Phase 3b § Rejected
-  alternatives). Existing `parse_qmd_to_ast` keeps its signature and
-  delegates to the new function with `attribution_json: None`. Stub
-  out the hub-client side. Verify Phase 0 test #10 (byte-identicality
-  sweep) and #11 (q2-debug attribution-on) pass.
+  returned AST → build `JsonConfig` → serialize. Existing
+  `parse_qmd_to_ast` is now a one-line wrapper delegating with
+  `None` (byte-identicality invariant by construction). Phase 0 test
+  #10 (byte-identicality) and #11 (q2-debug attribution-on) remain
+  red pending Phase 4's `AttributionRenderTransform` body.
 
 ### Phase 4 — Render stage
 

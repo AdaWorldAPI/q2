@@ -609,6 +609,10 @@ pub async fn run_pipeline(
     // the inner `RenderContext` consumed by AST transforms (notably
     // `LinkRewriteTransform`).
     stage_ctx.resource_resolver = ctx.resource_resolver.clone();
+    // Attribution: forward the opt-in provider from the outer ctx
+    // so `AttributionGenerateTransform` (inside `AstTransformsStage`)
+    // sees it. `None` is the default and means "attribution off".
+    stage_ctx.attribution_provider = ctx.attribution_provider.clone();
     // bd-o8pr Phase 2: transfer the per-doc resource report into
     // the stage context so engine + filter stages can append to it.
     stage_ctx.resource_report = std::mem::take(&mut ctx.resource_report);

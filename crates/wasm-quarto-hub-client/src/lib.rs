@@ -874,11 +874,41 @@ fn detect_format_from_content(content: &str) -> String {
 /// - `diagnostics`: Structured error diagnostics with line/column info
 /// - `warnings`: Structured warning diagnostics with line/column info
 ///
-/// Phase 3b will refactor this to delegate to
-/// [`parse_qmd_to_ast_with_attribution`] with `None`; until then the
-/// two functions share the same implementation by callees.
+/// Equivalent to
+/// [`parse_qmd_to_ast_with_attribution(content, None)`](parse_qmd_to_ast_with_attribution).
+/// Kept as a separate entry point for callers that have no attribution
+/// to ship and want the simpler signature.
 #[wasm_bindgen]
 pub async fn parse_qmd_to_ast(content: &str) -> String {
+    parse_qmd_to_ast_with_attribution(content, None).await
+}
+
+/// Parse QMD content to Pandoc AST JSON, optionally with attribution.
+///
+/// When `attribution_json` is `Some(s)`, the JSON string is wrapped in
+/// a [`PreBuiltAttributionProvider`] and installed on the
+/// `RenderContext`; `AttributionGenerateTransform` and
+/// `AttributionRenderTransform` are then invoked **directly** on the
+/// AST after the existing 3-stage parse (NOT via the full
+/// `AstTransformsStage`, which would also fire every other transform
+/// on the q2-debug surface). When `None`, the result is byte-identical
+/// to [`parse_qmd_to_ast`] for every fixture — same code path, no
+/// provider installed, no transforms fire.
+///
+/// # Byte-identicality invariant
+///
+/// `parse_qmd_to_ast(content)` is byte-identical to
+/// `parse_qmd_to_ast_with_attribution(content, None)` for every
+/// fixture. A regression on the `None` branch would break *all*
+/// renders, not just attribution ones.
+///
+/// [`PreBuiltAttributionProvider`]:
+///     quarto_core::attribution::PreBuiltAttributionProvider
+#[wasm_bindgen]
+pub async fn parse_qmd_to_ast_with_attribution(
+    content: &str,
+    attribution_json: Option<String>,
+) -> String {
     // Create a virtual path for this content
     let path = Path::new("/input.qmd");
 
@@ -912,6 +942,16 @@ pub async fn parse_qmd_to_ast(content: &str) -> String {
 
     let mut ctx = RenderContext::new(&project, &doc, &format, &binaries).with_options(options);
 
+    // Install the prebuilt provider before the pipeline runs. JSON
+    // parse + interning is lazy inside `build()`, so this is cheap and
+    // infallible at construction time; any payload error surfaces
+    // through `AttributionGenerateTransform`'s diagnostics path.
+    if let Some(json) = attribution_json {
+        ctx.attribution_provider = Some(Arc::new(
+            quarto_core::attribution::PreBuiltAttributionProvider::new(json),
+        ));
+    }
+
     // Share the global VFS runtime with the pipeline
     let runtime_arc: Arc<dyn SystemRuntime> =
         Arc::clone(get_runtime_arc()) as Arc<dyn SystemRuntime>;
@@ -924,72 +964,8 @@ pub async fn parse_qmd_to_ast(content: &str) -> String {
     )
     .await;
 
-    match result {
-        Ok(output) => {
-            // Create an ASTContext from the SourceContext returned by the pipeline
-            // This is needed for pampa's JSON writer which tracks source locations
-            let ast_context = pampa::pandoc::ASTContext {
-                filenames: vec!["/input.qmd".to_string()],
-                example_list_counter: std::cell::Cell::new(1),
-                source_context: output.source_context.clone(),
-                parent_source_info: None,
-            };
-
-            // Serialize the AST to JSON using pampa's writer
-            let mut buf = Vec::new();
-            let json_config = pampa::writers::json::JsonConfig {
-                include_inline_locations: true,
-            };
-
-            let ast_json = match pampa::writers::json::write_with_config(
-                &output.ast,
-                &ast_context,
-                &mut buf,
-                &json_config,
-            ) {
-                Ok(_) => match String::from_utf8(buf) {
-                    Ok(json) => json,
-                    Err(e) => {
-                        return serde_json::to_string(&AstResponse {
-                            success: false,
-                            error: Some(format!("Failed to convert AST JSON to string: {}", e)),
-                            ast: None,
-                            qmd: None,
-                            diagnostics: None,
-                            warnings: None,
-                        })
-                        .unwrap();
-                    }
-                },
-                Err(e) => {
-                    return serde_json::to_string(&AstResponse {
-                        success: false,
-                        error: Some(format!("Failed to serialize AST: {:?}", e)),
-                        ast: None,
-                        qmd: None,
-                        diagnostics: None,
-                        warnings: None,
-                    })
-                    .unwrap();
-                }
-            };
-
-            // Convert warnings to structured JSON with line/column info
-            let warnings = diagnostics_to_json(&output.warnings, &output.source_context);
-            serde_json::to_string(&AstResponse {
-                success: true,
-                error: None,
-                ast: Some(ast_json),
-                qmd: None,
-                diagnostics: None,
-                warnings: if warnings.is_empty() {
-                    None
-                } else {
-                    Some(warnings)
-                },
-            })
-            .unwrap()
-        }
+    let mut output = match result {
+        Ok(out) => out,
         Err(e) => {
             // Extract structured diagnostics from parse errors
             let (error_msg, diagnostics) = match &e {
@@ -1001,7 +977,7 @@ pub async fn parse_qmd_to_ast(content: &str) -> String {
                 _ => (e.to_string(), None),
             };
 
-            serde_json::to_string(&AstResponse {
+            return serde_json::to_string(&AstResponse {
                 success: false,
                 error: Some(error_msg),
                 ast: None,
@@ -1009,41 +985,121 @@ pub async fn parse_qmd_to_ast(content: &str) -> String {
                 diagnostics,
                 warnings: None,
             })
-            .unwrap()
+            .unwrap();
+        }
+    };
+
+    // Direct-invocation flow: when the provider is installed, run
+    // both attribution transforms on the parsed AST *outside* the
+    // `AstTransformsStage` so the rest of the q2-debug pipeline
+    // (callouts/sectionize/etc.) doesn't suddenly fire on this
+    // surface. The transforms read/write only `RenderContext`.
+    if ctx.attribution_provider.is_some() {
+        use quarto_core::transform::AstTransform;
+        use quarto_core::transforms::{AttributionGenerateTransform, AttributionRenderTransform};
+        if let Err(e) = AttributionGenerateTransform::new()
+            .transform(&mut output.ast, &mut ctx)
+            .await
+        {
+            return serde_json::to_string(&AstResponse {
+                success: false,
+                error: Some(format!("attribution generate failed: {e}")),
+                ast: None,
+                qmd: None,
+                diagnostics: None,
+                warnings: None,
+            })
+            .unwrap();
+        }
+        if let Err(e) = AttributionRenderTransform::new()
+            .transform(&mut output.ast, &mut ctx)
+            .await
+        {
+            return serde_json::to_string(&AstResponse {
+                success: false,
+                error: Some(format!("attribution render failed: {e}")),
+                ast: None,
+                qmd: None,
+                diagnostics: None,
+                warnings: None,
+            })
+            .unwrap();
         }
     }
-}
 
-/// Parse QMD content to Pandoc AST JSON, optionally with attribution.
-///
-/// When `attribution_json` is `Some(s)`, the JSON string is wrapped in
-/// a [`PreBuiltAttributionProvider`] and installed on the
-/// `RenderContext`; `AttributionGenerateTransform` and
-/// `AttributionRenderTransform` are then invoked directly on the
-/// parsed AST. When `None`, the result is byte-identical to
-/// [`parse_qmd_to_ast`] for every fixture — same code path, no
-/// provider installed, no transforms fire.
-///
-/// # Byte-identicality invariant
-///
-/// `parse_qmd_to_ast(content)` is byte-identical to
-/// `parse_qmd_to_ast_with_attribution(content, None)` for every
-/// fixture. A regression on the `None` branch would break *all*
-/// renders, not just attribution ones.
-///
-/// [`PreBuiltAttributionProvider`]:
-///     quarto_core::attribution::PreBuiltAttributionProvider
-#[wasm_bindgen]
-pub async fn parse_qmd_to_ast_with_attribution(
-    _content: &str,
-    _attribution_json: Option<String>,
-) -> String {
-    unimplemented!(
-        "Phase 3b — install PreBuiltAttributionProvider if attribution_json.is_some(), \
-         run pipeline::parse_qmd_to_ast, optionally invoke the two attribution transforms \
-         directly (NOT via build_transform_pipeline), serialize via JSON writer; \
-         parse_qmd_to_ast becomes a thin wrapper that delegates here with None."
-    )
+    // Create an ASTContext from the SourceContext returned by the pipeline
+    let ast_context = pampa::pandoc::ASTContext {
+        filenames: vec!["/input.qmd".to_string()],
+        example_list_counter: std::cell::Cell::new(1),
+        source_context: output.source_context.clone(),
+        parent_source_info: None,
+    };
+
+    // Serialize the AST to JSON using pampa's writer. Phase 4 will
+    // extend `JsonConfig` with attribution-lookup fields populated
+    // from `ctx.format_options.json`; the field is unread today but
+    // forwarding it now keeps the wiring honest.
+    let mut buf = Vec::new();
+    let json_config = pampa::writers::json::JsonConfig {
+        include_inline_locations: true,
+    };
+
+    let ast_json = match pampa::writers::json::write_with_config(
+        &output.ast,
+        &ast_context,
+        &mut buf,
+        &json_config,
+    ) {
+        Ok(_) => match String::from_utf8(buf) {
+            Ok(json) => json,
+            Err(e) => {
+                return serde_json::to_string(&AstResponse {
+                    success: false,
+                    error: Some(format!("Failed to convert AST JSON to string: {}", e)),
+                    ast: None,
+                    qmd: None,
+                    diagnostics: None,
+                    warnings: None,
+                })
+                .unwrap();
+            }
+        },
+        Err(e) => {
+            return serde_json::to_string(&AstResponse {
+                success: false,
+                error: Some(format!("Failed to serialize AST: {:?}", e)),
+                ast: None,
+                qmd: None,
+                diagnostics: None,
+                warnings: None,
+            })
+            .unwrap();
+        }
+    };
+
+    // Convert warnings to structured JSON with line/column info.
+    // Attribution diagnostics collected on `ctx.diagnostics` are
+    // surfaced through the same channel.
+    let mut warnings = diagnostics_to_json(&output.warnings, &output.source_context);
+    if !ctx.diagnostics.is_empty() {
+        warnings.extend(diagnostics_to_json(
+            &ctx.diagnostics,
+            &output.source_context,
+        ));
+    }
+    serde_json::to_string(&AstResponse {
+        success: true,
+        error: None,
+        ast: Some(ast_json),
+        qmd: None,
+        diagnostics: None,
+        warnings: if warnings.is_empty() {
+            None
+        } else {
+            Some(warnings)
+        },
+    })
+    .unwrap()
 }
 
 /// Render a QMD file from the virtual filesystem.

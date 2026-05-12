@@ -183,6 +183,14 @@ impl PipelineStage for AstTransformsStage {
         // (`LinkRewriteTransform`) consumes it to compute
         // page-relative URLs.
         render_ctx.resource_resolver = ctx.resource_resolver.clone();
+        // Attribution: bridge the opt-in provider from `StageContext`
+        // into the inner `RenderContext` so
+        // `AttributionGenerateTransform` can call `build()` from
+        // inside this stage. The sidecar (`attribution_data`) is
+        // populated on the inner ctx and is consumed by
+        // `AttributionRenderTransform` later in the same stage; it
+        // never needs to leave this scope.
+        render_ctx.attribution_provider = ctx.attribution_provider.clone();
 
         // Execute the transform pipeline
         let result = pipeline

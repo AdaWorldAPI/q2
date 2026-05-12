@@ -31,8 +31,8 @@ pub enum AttributionMode {
 /// - Otherwise the YAML value, if `Some`.
 /// - Otherwise `None` (off by default; unflagged behaviour).
 pub fn resolve_attribution_mode(
-    _cli: Option<AttributionMode>,
-    _yaml: Option<AttributionMode>,
+    cli: Option<AttributionMode>,
+    yaml: Option<AttributionMode>,
 ) -> Option<AttributionMode> {
-    unimplemented!("Phase 3c — pure resolver function pinned by Phase 0 test #9b")
+    cli.or(yaml)
 }

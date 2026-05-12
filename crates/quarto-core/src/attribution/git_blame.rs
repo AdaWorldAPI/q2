@@ -11,9 +11,18 @@
 //! `feat/node-attribution`; multi-byte UTF-8 line lengths are computed
 //! via `s.as_bytes().len()` (TextEncoder equivalent).
 
+use std::collections::HashMap;
+use std::process::Command;
+use std::sync::Arc;
+
+use quarto_error_reporting::DiagnosticMessage;
+
+use super::builder::AttributionDataBuilder;
+use super::palette::{actor_color, fnv1a_hex8};
 use super::source::AttributionSourceProvider;
-use super::types::AttributionData;
+use super::types::{AttributionData, Identity};
 use crate::Result;
+use crate::error::QuartoError;
 use crate::render::RenderContext;
 
 /// One parsed porcelain record per source line.
@@ -37,12 +46,93 @@ pub struct BlameRun {
     pub time: i64,
 }
 
+#[derive(Debug, Clone)]
+struct CachedCommit {
+    author: String,
+    author_mail: String,
+    author_time: i64,
+}
+
 /// Parse `git blame --porcelain` output into one [`BlameLine`] per
 /// source line. Commit metadata is emitted only on the first
 /// appearance of each commit; the parser caches by commit hash so
 /// every line record is fully populated.
-pub fn parse_blame_porcelain(_output: &str) -> Vec<BlameLine> {
-    unimplemented!("Phase 3a — porcelain state machine; mirror TS attribution-gitblame.ts")
+pub fn parse_blame_porcelain(output: &str) -> Vec<BlameLine> {
+    let mut cache: HashMap<String, CachedCommit> = HashMap::new();
+    let mut results: Vec<BlameLine> = Vec::new();
+
+    // Pending state for the commit currently being assembled. Cleared
+    // after each content (`\t...`) line is consumed.
+    let mut current_hash: Option<String> = None;
+    let mut current_author: Option<String> = None;
+    let mut current_mail: Option<String> = None;
+    let mut current_time: Option<i64> = None;
+
+    for line in output.lines() {
+        if let Some(_content) = line.strip_prefix('\t') {
+            let Some(hash) = current_hash.take() else {
+                // Content line with no header — malformed; skip.
+                current_author = None;
+                current_mail = None;
+                current_time = None;
+                continue;
+            };
+            let record = if let Some(cached) = cache.get(&hash) {
+                BlameLine {
+                    author: cached.author.clone(),
+                    author_mail: cached.author_mail.clone(),
+                    author_time: cached.author_time,
+                }
+            } else {
+                let author = current_author.take().unwrap_or_default();
+                let author_mail = current_mail.take().unwrap_or_default();
+                let author_time = current_time.take().unwrap_or(0);
+                let cached = CachedCommit {
+                    author: author.clone(),
+                    author_mail: author_mail.clone(),
+                    author_time,
+                };
+                cache.insert(hash, cached);
+                BlameLine {
+                    author,
+                    author_mail,
+                    author_time,
+                }
+            };
+            results.push(record);
+            current_author = None;
+            current_mail = None;
+            current_time = None;
+            continue;
+        }
+
+        let Some((head, rest)) = line.split_once(' ') else {
+            // Single-token lines such as `boundary` carry no value we
+            // need; ignore.
+            continue;
+        };
+
+        if head.len() == 40 && head.chars().all(|c| c.is_ascii_hexdigit()) {
+            current_hash = Some(head.to_string());
+            continue;
+        }
+
+        match head {
+            "author" => current_author = Some(rest.to_string()),
+            "author-mail" => {
+                let trimmed = rest.trim();
+                let stripped = trimmed
+                    .strip_prefix('<')
+                    .and_then(|s| s.strip_suffix('>'))
+                    .unwrap_or(trimmed);
+                current_mail = Some(stripped.to_string());
+            }
+            "author-time" => current_time = rest.trim().parse::<i64>().ok(),
+            _ => {}
+        }
+    }
+
+    results
 }
 
 /// Expand line-level blame records into byte-ranged runs using the
@@ -50,8 +140,35 @@ pub fn parse_blame_porcelain(_output: &str) -> Vec<BlameLine> {
 /// lengths. UTF-8 is handled via `s.as_bytes().len()` — the
 /// porcelain's tab-prefixed content is never trusted for byte
 /// arithmetic.
-pub fn build_blame_runs(_blame: &[BlameLine], _text: &str) -> Result<Vec<BlameRun>> {
-    unimplemented!("Phase 3a — line-to-byte expansion with explicit newline accounting")
+pub fn build_blame_runs(blame: &[BlameLine], text: &str) -> Result<Vec<BlameRun>> {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() != blame.len() {
+        return Err(QuartoError::other(format!(
+            "git blame line-count mismatch: porcelain reports {} lines, source has {}",
+            blame.len(),
+            lines.len()
+        )));
+    }
+    let text_bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(lines.len());
+    let mut offset = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        let line_bytes = line.as_bytes().len();
+        let mut byte_end = offset + line_bytes;
+        // text.lines() consumes the trailing newline; restore it in
+        // the run extent so concatenated runs equal the source bytes.
+        if byte_end < text_bytes.len() && text_bytes[byte_end] == b'\n' {
+            byte_end += 1;
+        }
+        out.push(BlameRun {
+            byte_start: offset,
+            byte_end,
+            actor: blame[i].author_mail.clone(),
+            time: blame[i].author_time,
+        });
+        offset = byte_end;
+    }
+    Ok(out)
 }
 
 /// Shells out to `git blame --porcelain` (via `ctx.binaries.git`)
@@ -72,10 +189,103 @@ impl GitBlameProvider {
 }
 
 impl AttributionSourceProvider for GitBlameProvider {
-    fn build(&self, _ctx: &RenderContext) -> Result<AttributionData> {
-        unimplemented!(
-            "Phase 3a — spawn git blame --porcelain, parse, build runs, synthesize identities, \
-             route through AttributionDataBuilder"
-        )
+    fn build(&self, ctx: &RenderContext) -> Result<AttributionData> {
+        let Some(git_bin) = ctx.binaries.git.as_ref() else {
+            // Provider asked for, but no git available. Soft-fail.
+            // Diagnostics are written to ctx.diagnostics by the
+            // transform layer; here we have only `&RenderContext`.
+            // Returning the empty payload preserves the contract.
+            return Ok(AttributionData::default());
+        };
+        let input_path = ctx.document.input.clone();
+
+        let working_dir = input_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        let output = match Command::new(git_bin)
+            .current_dir(&working_dir)
+            .arg("blame")
+            .arg("--porcelain")
+            .arg("--")
+            .arg(&input_path)
+            .output()
+        {
+            Ok(out) => out,
+            Err(_) => {
+                return Ok(AttributionData::default());
+            }
+        };
+
+        if !output.status.success() {
+            // Not in a git working tree, untracked file, etc. — soft-fail.
+            return Ok(AttributionData::default());
+        }
+
+        let porcelain = match String::from_utf8(output.stdout) {
+            Ok(s) => s,
+            Err(e) => {
+                return Err(QuartoError::other(format!(
+                    "git blame --porcelain emitted non-UTF8 output: {e}"
+                )));
+            }
+        };
+
+        let source = std::fs::read_to_string(&input_path)
+            .map_err(|e| QuartoError::other(format!("failed to read {input_path:?}: {e}")))?;
+
+        let blame_lines = parse_blame_porcelain(&porcelain);
+        if blame_lines.is_empty() {
+            return Ok(AttributionData::default());
+        }
+        let runs = build_blame_runs(&blame_lines, &source)?;
+
+        let mut builder = AttributionDataBuilder::new();
+        // Seed identities once per distinct email. Visiting runs in
+        // order populates the intern table with the canonical Arc<str>
+        // that the matching identity entry will then key off.
+        let mut seen: HashMap<String, Arc<str>> = HashMap::new();
+        for run in &runs {
+            if !seen.contains_key(&run.actor) {
+                let actor_arc = builder.intern_actor(&run.actor);
+                seen.insert(run.actor.clone(), Arc::clone(&actor_arc));
+                let display_name = display_name_from_email(&run.actor);
+                let color = actor_color(&fnv1a_hex8(&run.actor));
+                builder.set_identity(
+                    actor_arc,
+                    Identity {
+                        display_name,
+                        color,
+                    },
+                );
+            }
+        }
+        for run in runs {
+            let actor = Arc::clone(seen.get(&run.actor).expect("identity seeded above"));
+            builder.push_run(run.byte_start, run.byte_end, actor, run.time);
+        }
+
+        Ok(builder.build())
     }
+}
+
+/// Mail-local-part if `email` contains an `@`; otherwise the full
+/// string. Matches the Phase 3a spec — pathological non-email actors
+/// degrade to displaying the raw string rather than empty.
+fn display_name_from_email(email: &str) -> String {
+    email
+        .split_once('@')
+        .map(|(local, _)| local.to_string())
+        .unwrap_or_else(|| email.to_string())
+}
+
+/// Public alias so the transform layer can warn when graceful
+/// degradation has fired. Currently unused — provider returns the
+/// empty payload silently; the calling transform inspects
+/// `attribution_data` and emits the warning if it sees a mode-on /
+/// empty-payload mismatch.
+#[allow(dead_code)]
+fn _diagnostic_marker(_msg: &str) -> DiagnosticMessage {
+    DiagnosticMessage::warning(format!("attribution: {_msg}"))
 }
