@@ -261,14 +261,23 @@ either can ship without the other.
 
 > **DO NOT begin Phase 1 implementation until every test below is checked in,
 > running, and red.** The CLAUDE.md TDD rule is non-negotiable.
+>
+> **Status: complete (commit `b2ee6e70`).** 46 Phase 0 tests checked in
+> — 8 green as regression pins, 38 red against `unimplemented!()`
+> bodies. Phase 1-6 implementers turn the red ones green incrementally.
 
 ### Unit-test crates / files to create
 
-- [ ] `crates/quarto-core/src/transforms/attribution_generate.rs` (mod + tests)
-- [ ] `crates/quarto-core/src/transforms/attribution_render.rs` (mod + tests)
-- [ ] `crates/quarto-core/src/attribution/` (new module hosting types + the
-  `AttributionSource` trait + provider impls + `AttributionData` (and its
-  JSON serde derives, used solely at the WASM transport boundary))
+- [x] `crates/quarto-core/src/transforms/attribution_generate.rs`
+  (transform stub with `unimplemented!()` body; tests live in
+  `crates/quarto-core/tests/attribution_generate.rs`)
+- [x] `crates/quarto-core/src/transforms/attribution_render.rs`
+  (transform stub; tests live in
+  `crates/quarto-core/tests/attribution_render.rs`)
+- [x] `crates/quarto-core/src/attribution/` — module created with
+  `{mod, types, source, builder, prebuilt, git_blame, palette, mode}.rs`.
+  All real logic is `unimplemented!()` until the relevant Phase
+  lands; the surface compiles so tests reference real APIs.
 
 ### Test cases (Phase 0 — all must be red)
 
@@ -554,10 +563,20 @@ either can ship without the other.
 ### Snapshot tests
 
 - [ ] `crates/quarto-core/snapshots/attribution_generate__*` — one per
-  skip condition + one happy path.
-- [ ] `crates/quarto-core/snapshots/attribution_render_html__*` — one with
-  attribution off (must equal the existing baseline), one with attribution
-  on.
+  skip condition + one happy path. **Deferred to Phase 2/4c**:
+  while the generate transform body is `unimplemented!()`, snapshot
+  output would be a panic. Phase 0 covers this surface via structured
+  assertions on `ctx.attribution_data` and `ctx.format_options`
+  (tests #4–#7 in `attribution_generate.rs` / `attribution_render.rs`).
+- [x] HTML off-path baseline snapshot at
+  `crates/quarto-core/tests/snapshots/attribution_baseline_snapshot__attribution_off_baseline.snap`.
+  Asserts a small attribution-free document renders to the same HTML
+  body it does today; GREEN immediately. Backs the Phase 4
+  "byte-identical when off" promise as a mechanical regression guard.
+  The plan's original two-file split
+  (`attribution_render_html__off` + `_on`) is unnecessary: the off
+  baseline is the one that must never drift; the on case is exercised
+  by Phase 4b's coalescing tests via structured DOM assertions.
 - [ ] No snapshot test for the q2-debug JSON: it'll churn whenever AST IDs
   change. The structured assertion in **Phase 0 test #6** is the
   substitute: when `attribution_lookup` is `None`, both the
@@ -1797,61 +1816,99 @@ the decision; future v2 work can reopen any of them by reference.
 
 ## Work items checklist
 
-### Phase 0 — Tests first (TDD)
+### Phase 0 — Tests first (TDD) — **complete (commit `b2ee6e70`)**
 
-- [ ] Write WASM-transport JSON round-trip test for `AttributionData`,
-  including the `Arc::ptr_eq` interning invariant assertion (red).
-- [ ] Write `Vec<AttributionRun>::query_byte_range` tests (red).
-- [ ] Port TS git-blame fixture parsing tests (red).
-- [ ] Write generate-stage happy path + skip condition tests (red).
-  Includes: identities-only YAML override merge (provider's `identities`
-  for non-colliding keys + user's `(name, color)` wins on collisions).
-- [ ] Write generate-stage skip-on-non-consuming-format test (red) —
-  e.g. `--to native` with `--attribution=git` leaves `ctx.attribution_data`
-  as `None` and never invokes the provider.
-- [ ] Write render-stage q2-debug delivery test (red) — pins the
-  `astContext.attributionActors` table + three-field `astContext.attribution`
-  records, and that both keys are absent on the off-path.
-- [ ] Write render-stage HTML delivery test (red) — pins the four
-  `data-attr-*` attributes on the outer wrapper.
-- [ ] Write render-stage HTML coalescing test (red) — three
-  contiguous same-`(actor, time)` prose inlines emit one outer
-  wrapper; per-inline `data-sid`/`data-loc` spans nest inside it.
-- [ ] Write attribution-on + source-locations-off composition test
-  (red) — Phase 0 test #7c. Asserts no `data-sid`/`data-loc`
-  anywhere, all four `data-attr-*` present on block tag and outer
-  wrapper, inner Str text has no per-inline span.
-- [ ] Write structured-inline non-coalescing test — Phase 0 test #7d
-  (red). Pins that Code/Emph/Strong/Link/Span/Math break prose-group
-  coalescing even when their `(actor, time)` is identical, so each
-  emits its own per-inline attribution wrapper.
-- [ ] Write `SourceInfo` chain-resolution pin test (red).
-- [ ] Write include-fixture `file_id != 0` skip test — Phase 0 test
-  #8b (red). Pins that nodes whose `SourceInfo` resolves to a
-  non-primary file produce no attribution record, even when their
-  byte range overlaps a run in the primary doc's `AttributionMap`.
-- [ ] Add end-to-end CLI fixture with two-author git history (red).
-- [ ] Write CLI/YAML mode resolution matrix test — Phase 0 test #9b
-  (eight `(cli, yaml) → resolved` combinations including
-  `(Some(Off), Some(Git)) → Some(Off)`, the escape-hatch regression
-  guard) plus a `RenderContext` integration assertion that
-  `attribution_provider.is_none()` when the resolved mode is
-  `Off`/`None`. RED until Phase 3c lands the resolution function.
-- [ ] Add HTML-baseline regression snapshot (must remain byte-identical
-  when attribution is off — this one is GREEN immediately and stays
-  green).
-- [ ] Write WASM byte-identicality fixture sweep — Phase 0 test #10
-  (`parse_qmd_to_ast(content) == parse_qmd_to_ast_with_attribution(content, None)`
-  across the existing q2-debug corpus). GREEN once Phase 3b's
-  `parse_qmd_to_ast_with_attribution` delegates to `parse_qmd_to_ast`
-  on the `None` branch and the direct-invocation step is gated on
-  `ctx.attribution_provider.is_some()`.
-- [ ] Write q2-debug happy-path test — Phase 0 test #11 (parser-output
-  AST + in-test `AttributionData` where every actor is identity-mapped;
-  warning code path NOT exercised here, no diagnostics emitted).
-- [ ] Write GitBlameProvider producer-invariant test — Phase 0 test #12
-  (every actor in `runs` has an `identities` entry; pin the
-  deterministic colour for a known email).
+- [x] WASM-transport JSON round-trip test for `AttributionData`,
+  including the `Arc::ptr_eq` interning invariant assertion
+  (`tests/attribution_types.rs` — 3 green serde round-trips + 1 red
+  ptr_eq restoration that panics at the `unimplemented!()` builder).
+- [x] `Vec<AttributionRun>::query_byte_range` tests
+  (`tests/attribution_types.rs`, 6 red cases: empty, single hit,
+  non-overlapping, overlapping two actors picks most-recent, boundary,
+  inverted/empty query).
+- [x] TS git-blame fixture parsing tests (`tests/attribution_gitblame.rs`)
+  driven by checked-in porcelain text at
+  `tests/fixtures/attribution-blame/{single,multi}-commit.porcelain`
+  plus `REGEN.md`. Multi-byte UTF-8 and trailing-newline edge cases
+  covered.
+- [x] Generate-stage happy path + skip condition tests
+  (`tests/attribution_generate.rs`, 5 red cases incl. identities-only
+  YAML override merge with the three sub-assertions a/b/c pinned).
+- [x] Generate-stage skip-on-non-consuming-format test
+  (`generate_non_consuming_format_skips_before_calling_provider` —
+  uses a `PanicProvider` so any future skip-ladder regression is
+  loud).
+- [x] Render-stage q2-debug delivery test
+  (`render_q2_debug_warning_path_emits_diagnostic_and_placeholder`
+  + off-path `render_q2_debug_off_path_leaves_format_options_default`).
+- [x] Render-stage HTML delivery test
+  (`render_html_warning_path_populates_format_options_and_emits_one_diagnostic`).
+- [x] Render-stage HTML coalescing test
+  (`render_html_coalescing_groups_contiguous_same_attribution_prose`).
+  Scaffold checked in; the cross-DOM assertion is a Phase 4b TODO
+  that the writer-side coalescing pass will fill in once
+  `HtmlConfig` carries the lookup fields.
+- [x] Attribution-on + source-locations-off composition test (Phase 0
+  test #7c) at
+  `render_html_attribution_on_source_locations_off_compose_orthogonally`.
+- [x] Structured-inline non-coalescing test (Phase 0 test #7d) at
+  `render_html_structured_inlines_do_not_join_prose_coalescing`.
+- [x] `SourceInfo` chain-resolution pin test
+  (`tests/attribution_chain_resolution.rs`, 2 green cases — both
+  pinned against the existing `map_offset` / `map_range` infra).
+- [x] Include-fixture `file_id != 0` skip test (Phase 0 test #8b) at
+  `render_skips_file_id_nonzero_nodes_even_when_byte_range_overlaps`.
+- [x] End-to-end CLI fixture with two-author git history
+  (`crates/quarto/tests/attribution_cli_e2e.rs`). Builds a temp git
+  repo with pinned author identities and `GIT_AUTHOR_DATE` /
+  `GIT_COMMITTER_DATE` for deterministic porcelain. RED until Phase
+  3a + 3c land — the binary currently rejects `--attribution=git`.
+- [x] CLI/YAML mode resolution matrix test (Phase 0 test #9b) in
+  `tests/attribution_cli.rs`. All eight `(cli, yaml) → resolved`
+  combinations pinned, including the escape-hatch
+  `(Some(Off), Some(Git)) → Some(Off)` case. Plus the integration
+  assertion that unflagged `RenderContext` has no provider installed
+  (this part is green).
+- [x] HTML-baseline regression snapshot — GREEN — at
+  `tests/attribution_baseline_snapshot.rs` /
+  `snapshots/attribution_baseline_snapshot__attribution_off_baseline.snap`.
+- [x] WASM byte-identicality contract (Phase 0 test #10) at
+  `tests/attribution_wasm_invariant.rs::no_provider_leaves_json_format_options_at_default`.
+  Tests the native-side equivalent (the WASM stub is cdylib-only and
+  can't be cargo-tested natively): both attribution transforms run
+  with no provider installed leave `ctx.format_options` at default,
+  which is what backs WASM byte-identicality.
+- [x] Q2-debug happy-path test (Phase 0 test #11) at
+  `q2_debug_happy_path_no_diagnostics_and_actors_populated_from_identities`.
+  Pins that on happy paths NO diagnostic is emitted and the actors
+  table comes from the provider's identities (not the warning-path
+  `<unknown>`/`#888888` placeholder).
+- [x] `GitBlameProvider` producer-invariant test (Phase 0 test #12) in
+  `tests/attribution_gitblame.rs`. The deterministic-colour
+  assertion will pin a known email's colour once `actor_color` /
+  `fnv1a_hex8` are implemented in Phase 6.
+
+#### Phase 0 outcome
+
+- 46 tests checked in across 8 test files plus
+  `attribution_cli_e2e.rs` in the `quarto` crate.
+- 8 green tests (regression pins): 3 serde round-trips, 2 chain
+  resolution, 1 RenderContext-default, 1 GitBlameProvider trait
+  construction, 1 HTML off-path baseline snapshot.
+- 38 red tests against `unimplemented!()`. Phase 1-6 turn these
+  green incrementally — `intern_actor` / `push_run` (Phase 1)
+  unblock the bulk of the generate / render / wasm-invariant tests
+  in one go; `resolve_attribution_mode` (Phase 3c) is the 8 CLI
+  resolution cases; `parse_blame_porcelain` + `build_blame_runs`
+  (Phase 3a) are the gitblame parsing cases; `actor_color` /
+  `fnv1a_hex8` (Phase 6) are the deterministic-colour cases; the
+  E2E CLI test is the very last to turn green when Phase 3a + 3c +
+  the writer-side glue all land.
+
+The path from here is **Phase 1 — canonical types and provider
+trait**. The Phase 0 commit covers all module/file creation Phase
+1 was originally scheduled to do; Phase 1's remaining work is just
+to replace the `unimplemented!()` bodies with real logic.
 
 ### Phase 1 — Types and trait
 
