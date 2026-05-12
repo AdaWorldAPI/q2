@@ -65,8 +65,8 @@ use crate::stage::{
 };
 use crate::transform::TransformPipeline;
 use crate::transforms::{
-    AppendixStructureTransform, CalloutResolveTransform, CalloutTransform,
-    CategoriesSidebarTransform, CrossrefIndexTransform, CrossrefRenderTransform,
+    AppendixStructureTransform, AttributionGenerateTransform, CalloutResolveTransform,
+    CalloutTransform, CategoriesSidebarTransform, CrossrefIndexTransform, CrossrefRenderTransform,
     CrossrefResolveTransform, EquationLabelTransform, FloatRefTargetSugarTransform,
     FooterGenerateTransform, FooterRenderTransform, FootnotesTransform, LinkRewriteTransform,
     ListingGenerateTransform, ListingRenderTransform, MetadataNormalizeTransform,
@@ -886,6 +886,9 @@ pub async fn render_qmd_to_preview_ast(
 /// 14. `NavbarRenderTransform` - Render navbar to HTML for template insertion
 /// 15. `SidebarRenderTransform` - Render sidebar to HTML (w/ .qmd→.html rewrite)
 /// 16. `FooterRenderTransform` - Render page footer to HTML for template insertion
+/// 16a. `AttributionGenerateTransform` - Tail-of-phase: call the installed
+///     `AttributionSourceProvider` (if any) and merge identities into the
+///     `RenderContext` sidecar for the Render-side transform to read
 ///
 /// ## Finalization Phase
 /// 17. `LinkRewriteTransform` - Rewrite body-content `.qmd` links to relative output URLs (Phase 6)
@@ -1005,6 +1008,21 @@ pub fn build_transform_pipeline(
     pipeline.push(Box::new(SidebarRenderTransform::new()));
     pipeline.push(Box::new(PageNavRenderTransform::new()));
     pipeline.push(Box::new(FooterRenderTransform::new()));
+
+    // Tail of Navigation Phase: attribution data generation. Reads the
+    // opt-in provider from `ctx.attribution_provider` (installed by the
+    // CLI `--attribution=git` flag plumbing or the WASM
+    // `parse_qmd_to_ast_with_attribution` entry point), calls
+    // `build()`, merges identities with any user-authored
+    // `meta.attribution.identities`, and stores
+    // `ctx.attribution_data`. No-op when no provider is installed —
+    // the unflagged HTML path stays byte-identical. The entire
+    // Finalization Phase runs between this stage and
+    // `AttributionRenderTransform`; no transform there reads or
+    // writes the sidecar. See
+    // `claude-notes/plans/2026-05-06-attribution-pipeline.md` for the
+    // sidecar / placement design notes.
+    pipeline.push(Box::new(AttributionGenerateTransform::new()));
 
     // === FINALIZATION PHASE ===
     // LinkRewriteTransform runs first in the Finalization Phase

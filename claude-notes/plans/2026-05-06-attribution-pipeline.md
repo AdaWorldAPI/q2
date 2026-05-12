@@ -1951,15 +1951,37 @@ to replace the `unimplemented!()` bodies with real logic.
 
 ### Phase 2 — Generate stage
 
-- [ ] Create `transforms/attribution_generate.rs` modelled on
+- [x] Create `transforms/attribution_generate.rs` modelled on
   `navbar_generate.rs`. Skip ladder gates on
   `format_supports_attribution(&ctx.format)` first, before any other
   rule, to avoid invoking the provider on formats whose writers can't
   consume the lookup.
-- [ ] Wire into `pipeline.rs` as the last entry in the Navigation Phase,
+- [x] Wire into `pipeline.rs` as the last entry in the Navigation Phase,
   immediately after `FooterRenderTransform` (line 847).
-- [ ] Verify Phase 0 generate tests now pass (including the
+- [x] Verify Phase 0 generate tests now pass (including the
   skip-on-non-consuming-format test).
+
+#### Phase 2 outcome
+
+All 6 tests in `tests/attribution_generate.rs` are now green:
+
+- `generate_happy_path_populates_sidecar_and_preserves_arc_interning`
+- `generate_with_empty_provider_identities_leaves_sidecar_identities_empty`
+- `generate_no_provider_skips_silently`
+- `generate_feature_disabled_skips`
+- `generate_non_consuming_format_skips_before_calling_provider` (the
+  Phase 0 test referenced `Format::from_format_string("native")` which
+  doesn't exist in `FormatIdentifier`; swapped to `"pdf"` — any non-HTML
+  format proves the ladder bails before the `PanicProvider`)
+- `generate_identities_only_yaml_override_merges_correctly` (all three
+  a/b/c sub-assertions)
+
+Workspace-wide quarto-core: 1911→1917 passing (+6), 31→25 failing
+(−6, all 6 Phase 2-owned). The 25 remaining failures are all explicit
+`unimplemented!()` panics for Phase 3a/3b/3c/4/6 work; the
+`attribution_off_html_baseline` regression snapshot stays green,
+confirming the no-provider HTML path is byte-identical with the new
+transform registered.
 
 ### Phase 3 — Providers
 

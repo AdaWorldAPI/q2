@@ -31,11 +31,15 @@
 //! [`AttributionData`]: crate::attribution::AttributionData
 //! [`AttributionRenderTransform`]: super::AttributionRenderTransform
 
+use std::sync::Arc;
+
 use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
+use crate::attribution::{AttributionData, format_supports_attribution, from_config_value};
 use crate::render::RenderContext;
 use crate::transform::AstTransform;
+use crate::transforms::is_feature_disabled;
 
 /// See module docs.
 pub struct AttributionGenerateTransform;
@@ -58,10 +62,48 @@ impl AstTransform for AttributionGenerateTransform {
         "attribution-generate"
     }
 
-    async fn transform(&self, _ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {
-        unimplemented!(
-            "Phase 2 — skip ladder + provider.build() + identity merge; \
-             ctx.attribution_data = Some(Arc::new(...))"
-        )
+    async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {
+        // Skip ladder, in order:
+        //
+        // 1. Format must consume the lookup. Bail first so opting in
+        //    on a non-HTML target doesn't spawn the provider's
+        //    subprocess for nothing.
+        if !format_supports_attribution(ctx.format) {
+            return Ok(());
+        }
+
+        // 2. Affirmative `attribution: false` opt-out wins over any
+        //    provider installed by the CLI / WASM entry point.
+        if is_feature_disabled(&ast.meta, "attribution") {
+            return Ok(());
+        }
+
+        // 3. No provider installed → nothing to do; sidecar stays None.
+        let Some(provider) = ctx.attribution_provider.clone() else {
+            return Ok(());
+        };
+
+        // 4. Build provider data, merge identities with any
+        //    user-authored `meta.attribution.identities`, store sidecar.
+        let AttributionData {
+            runs,
+            mut identities,
+        } = provider.build(ctx)?;
+
+        // Preserve provider Arc<str> keys on collision (the
+        // interning invariant in `IdentityMap` and `AttributionRun`
+        // depends on `Arc::ptr_eq` between them) — `HashMap::get_mut`
+        // returns a `&mut Identity` without touching the key. Drop
+        // non-colliding user keys (an actor named in YAML but with
+        // no runs in this document is invisible at the writer and
+        // would be dead weight in the map).
+        for (user_key, user_id) in from_config_value(&ast.meta) {
+            if let Some(slot) = identities.get_mut(&user_key) {
+                *slot = user_id;
+            }
+        }
+
+        ctx.attribution_data = Some(Arc::new(AttributionData { runs, identities }));
+        Ok(())
     }
 }

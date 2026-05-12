@@ -244,7 +244,10 @@ async fn generate_non_consuming_format_skips_before_calling_provider() {
     let dir = std::env::temp_dir().join("attribution-test-#5-non-consuming");
     let project = make_project(&dir);
     let doc = make_doc(&dir);
-    let format = Format::from_format_string("native").expect("native format");
+    // Any non-HTML format works to exercise the skip ladder's first
+    // rule. `pdf` is a real format; `native` was a Phase 0 placeholder
+    // that doesn't exist in `FormatIdentifier`.
+    let format = Format::from_format_string("pdf").expect("pdf format");
     let binaries = BinaryDependencies::new();
     let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
 
