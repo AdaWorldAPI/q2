@@ -834,6 +834,7 @@ pub async fn render_qmd_to_preview_ast(
     };
     let json_config = pampa::writers::json::JsonConfig {
         include_inline_locations: true,
+        ..pampa::writers::json::JsonConfig::default()
     };
     let mut buf = Vec::new();
     pampa::writers::json::write_with_config(&ast.ast, &ast_context, &mut buf, &json_config)
