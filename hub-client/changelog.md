@@ -15,6 +15,8 @@ be in reverse chronological order (latest first).
 
 ### 2026-05-12
 
+- [`8cf443c1`](https://github.com/quarto-dev/q2/commits/8cf443c1): Add a Settings → Preview → Authorship toggle. When on, the q2-debug renderer colours each node by its last-touch Automerge actor (or git author for `--attribution=git` renders) and shows a hover badge with the author's name and a relative timestamp. Off by default; the wire path stays cold.
+- [`10dd3cfc`](https://github.com/quarto-dev/q2/commits/10dd3cfc): Port the Authorship renderer-side colouring to the new framework/ + q2-debug/ split (Plan 2pre). Attribution data flows through the framework's `AttributionLookupContext`; q2-debug's Block/Inline dispatchers do the wrap and the format's `AstRenderer` handles the hover badge.
 - [`91cfe944`](https://github.com/quarto-dev/q2/commits/91cfe944): `usePreference` is now cross-instance reactive — toggling a preference in Settings updates sibling consumers like the preview without a manual page refresh.
 
 ### 2026-05-10
