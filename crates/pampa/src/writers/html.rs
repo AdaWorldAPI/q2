@@ -1036,8 +1036,147 @@ fn write_inlines<W: Write>(
     inlines: &Inlines,
     ctx: &mut HtmlWriterContext<'_, W>,
 ) -> std::io::Result<()> {
-    for inline in inlines {
-        write_inline(inline, ctx)?;
+    // Prose coalescing (Phase 4b): when contiguous prose inlines
+    // (`Str` / `Space` / `SoftBreak` / `LineBreak`) share the same
+    // `(actor, time)` attribution lookup, emit one outer
+    // `<span data-attr-*>` wrapper around the whole run rather than
+    // a per-inline wrapper. Structured inlines (Code, Emph, …) break
+    // the run; they carry their own attribution attrs on their
+    // element tag (via `write_inline_source_attrs`).
+    let mut i = 0;
+    while i < inlines.len() {
+        let run_end = find_attribution_run_end(inlines, i, ctx);
+        if run_end > i {
+            emit_attribution_run(&inlines[i..run_end], ctx)?;
+            i = run_end;
+        } else {
+            write_inline(&inlines[i], ctx)?;
+            i += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Returns the exclusive end of the maximal contiguous prose run
+/// starting at `start` whose `Str` members all share the same
+/// `(actor, time)` attribution lookup. Returns `start` (an empty
+/// run) when `inlines[start]` is not a `Str` with attribution.
+///
+/// Whitespace inlines (`Space` / `SoftBreak` / `LineBreak`) inside
+/// the run join the wrapper transparently; trailing whitespace at
+/// the end of the run is trimmed so it isn't pulled into a wrapper
+/// that wouldn't otherwise extend that far.
+fn find_attribution_run_end<W: Write>(
+    inlines: &Inlines,
+    start: usize,
+    ctx: &HtmlWriterContext<'_, W>,
+) -> usize {
+    let anchor = match &inlines[start] {
+        Inline::Str(_) => ctx
+            .get_inline_attribution(&inlines[start])
+            .map(|r| (Arc::clone(&r.actor), r.time)),
+        _ => None,
+    };
+    let Some(anchor) = anchor else {
+        return start;
+    };
+
+    let mut end = start + 1;
+    let mut last_str_end = end;
+    while end < inlines.len() {
+        match &inlines[end] {
+            Inline::Str(_) => {
+                let attr = ctx
+                    .get_inline_attribution(&inlines[end])
+                    .map(|r| (Arc::clone(&r.actor), r.time));
+                if attr.as_ref() == Some(&anchor) {
+                    end += 1;
+                    last_str_end = end;
+                } else {
+                    break;
+                }
+            }
+            Inline::Space(_) | Inline::SoftBreak(_) | Inline::LineBreak(_) => {
+                end += 1;
+            }
+            _ => break,
+        }
+    }
+    last_str_end
+}
+
+/// Emit a coalesced attribution run. The run's anchor (`run[0]`) is
+/// a `Str` with attribution; all other `Str` inlines in the run
+/// share that anchor's `(actor, time)`. Whitespace inlines are
+/// emitted transparently. When `include_source_locations` is on,
+/// each `Str` inside the wrapper gets its own
+/// `<span data-sid=…>` carrying only the source-location attrs —
+/// the outer wrapper provides the attribution attrs.
+fn emit_attribution_run<W: Write>(
+    run: &[Inline],
+    ctx: &mut HtmlWriterContext<'_, W>,
+) -> std::io::Result<()> {
+    let (actor, time, name, color) = {
+        let record = ctx
+            .get_inline_attribution(&run[0])
+            .expect("emit_attribution_run anchor has attribution");
+        let actor = Arc::clone(&record.actor);
+        let time = record.time;
+        let (name, color) = match ctx.get_attribution_identity(&actor) {
+            Some(id) => (id.display_name.clone(), id.color.clone()),
+            None => ("<unknown>".to_string(), "#888888".to_string()),
+        };
+        (actor, time, name, color)
+    };
+
+    write!(ctx, "<span")?;
+    write_attribution_attrs(ctx, &actor, time, &name, &color)?;
+    write!(ctx, ">")?;
+
+    for x in run {
+        match x {
+            Inline::Str(s) => {
+                if ctx.include_source_locations() {
+                    write!(ctx, "<span")?;
+                    write_inline_locations_only_attrs(x, ctx)?;
+                    write!(ctx, ">{}</span>", escape_html(&s.text))?;
+                } else {
+                    write!(ctx, "{}", escape_html(&s.text))?;
+                }
+            }
+            Inline::Space(_) => write!(ctx, " ")?,
+            Inline::SoftBreak(_) => writeln!(ctx)?,
+            Inline::LineBreak(_) => write!(ctx, "<br />")?,
+            _ => unreachable!("emit_attribution_run only receives prose inlines"),
+        }
+    }
+
+    write!(ctx, "</span>")?;
+    Ok(())
+}
+
+/// Emit `data-sid` / `data-loc` for an inline, without the
+/// `data-attr-*` attribution attrs. Used by [`emit_attribution_run`]
+/// for per-`Str` inner spans inside an outer attribution wrapper:
+/// the outer wrapper already carries the attribution, so the inner
+/// span only needs the source-location attrs.
+fn write_inline_locations_only_attrs<W: Write>(
+    inline: &Inline,
+    ctx: &mut HtmlWriterContext<'_, W>,
+) -> std::io::Result<()> {
+    if ctx.include_source_locations() {
+        let source_attrs = ctx.get_inline_info(inline).map(|info| {
+            (
+                info.pool_id,
+                info.location.as_ref().map(|loc| loc.to_data_loc()),
+            )
+        });
+        if let Some((pool_id, loc_str)) = source_attrs {
+            write!(ctx, " data-sid=\"{}\"", pool_id)?;
+            if let Some(loc) = loc_str {
+                write!(ctx, " data-loc=\"{}\"", loc)?;
+            }
+        }
     }
     Ok(())
 }

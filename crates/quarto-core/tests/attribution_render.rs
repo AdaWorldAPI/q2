@@ -286,12 +286,14 @@ async fn render_html_coalescing_groups_contiguous_same_attribution_prose() {
         .await
         .expect("transform");
 
-    // TODO(Phase 4b): construct an inline-level fixture, render to
-    // HTML via render_qmd_to_html, and assert the body contains
-    // exactly one outer `<span data-attr-actor=…>` wrapper covering
-    // three contiguous Str inlines. When `include_source_locations`
-    // is also on, the per-inline `data-sid` spans must be nested
-    // *inside* the outer wrapper.
+    // Writer-level coalescing semantics (one outer wrapper covering
+    // contiguous same-attribution Str inlines; per-Str `data-sid`
+    // spans nest inside when `include_source_locations` is on) are
+    // pinned by the pampa-level tests at
+    // `crates/pampa/tests/attribution_html_coalescing_test.rs`
+    // (Phase 4b). At this transform level we only assert that the
+    // writer-side lookup field reaches the HTML writer config —
+    // the coalescing pass consumes it from there.
     let _ = ctx.format_options.html.attribution_lookup;
 }
 
@@ -323,13 +325,9 @@ async fn render_html_attribution_on_source_locations_off_compose_orthogonally() 
         .await
         .expect("transform");
 
-    // TODO(Phase 4b): drive render_qmd_to_html with
-    // HtmlRenderConfig::default() (source-locations off) and an
-    // inline fixture, then grep the rendered body for:
-    // - no `data-sid`/`data-loc`,
-    // - all four `data-attr-*` on the block opening tag and outer
-    //   wrapper,
-    // - no per-inline span around Str text inside the outer wrapper.
+    // Composition pinned at the writer level by Phase 4b's
+    // `attribution_on_source_locations_off_produces_outer_wrapper_no_inner_span`
+    // in `crates/pampa/tests/attribution_html_coalescing_test.rs`.
     let _ = ctx.format_options.html.attribution_lookup;
 }
 
@@ -373,12 +371,10 @@ async fn render_html_structured_inlines_do_not_join_prose_coalescing() {
         .await
         .expect("transform");
 
-    // TODO(Phase 4b): for each of {Code, Emph, Strong, Link, Span,
-    // Math}, build a `[Str, Inline::<variant>, Str]` fixture where
-    // every lookup hits the same (actor, time). Render and assert
-    // **three** attribution wrappers (not one). This is the
-    // regression guard against a future refactor that extends
-    // coalescing across structured inlines.
+    // The "structured inlines break the prose run" regression guard
+    // is pinned at the writer level by Phase 4b's
+    // `structured_inline_breaks_prose_coalescing` in
+    // `crates/pampa/tests/attribution_html_coalescing_test.rs`.
     let _ = ctx.format_options.html.attribution_lookup;
 }
 
