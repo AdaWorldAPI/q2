@@ -2164,29 +2164,45 @@ remaining deferred work.
 
 ### Phase 6 — Defaults, palettes, identity
 
-- [ ] Port `actor_color` to `quarto-core/src/attribution/palette.rs`
-  with the TS-drift-mitigation doc-comment.
-- [ ] Add `fnv1a_hex8` helper in `palette.rs` (5-line FNV-1a, zero
+- [x] Port `actor_color` to `quarto-core/src/attribution/palette.rs`
+  with the TS-drift-mitigation doc-comment. *(Landed alongside Phase 5a
+  in commit `89bfbd9f` — the TS-side palette siblings shipped together
+  with the Rust ones.)*
+- [x] Add `fnv1a_hex8` helper in `palette.rs` (5-line FNV-1a, zero
   deps). Used by `GitBlameProvider` to pre-hash emails before
   feeding `actor_color`; the TS sibling plays the same role for
   Automerge actor IDs (Phase 5).
-- [ ] Wire `GitBlameProvider` to synthesize the `IdentityMap`
+- [x] Wire `GitBlameProvider` to synthesize the `IdentityMap`
   (mail-local-part + `actor_color(fnv1a_hex8(email))`) — required
-  for the Phase 6 producer invariant. Verify Phase 0 test #12 passes.
-- [ ] Verify `PreBuiltAttributionProvider` satisfies the producer
+  for the Phase 6 producer invariant. *(Landed with Phase 3a in
+  `dfe3ca12`.)* Phase 6 fleshed out test #12 from a placeholder
+  into two fixture-driven producer-invariant assertions
+  (`gitblame_single_author_fixture_satisfies_producer_invariant`,
+  `gitblame_multi_author_fixture_satisfies_producer_invariant`) that
+  pin the deterministic colour for `alice@example.com` (`hsl(253,
+  60%, 55%)`) and `bob@example.com` (`hsl(220, 60%, 55%)`) and pin
+  the Arc-interning invariant between run actors and identity-map
+  keys. Required extracting an `attribution_from_porcelain` helper
+  from `GitBlameProvider::build` so the porcelain → AttributionData
+  path is testable without a `RenderContext`.
+- [x] Verify `PreBuiltAttributionProvider` satisfies the producer
   invariant. The hub-client TS replay code is responsible for
   filling every actor's `IdentityMap` entry at the wire — using
   Automerge profile metadata when present and the
   `(actor.slice(0, 8), actorColor(fnv1aHex8(actor)))` fallback
-  otherwise. See Phase 5 work items § 2–3 for the TS-side
-  implementation and Phase 6 § Producer invariant for the contract.
-- [ ] Implement the render-side warning path: emit a diagnostic
+  otherwise. *(TS-side fallback wired in Phase 5b; Rust-side
+  `PreBuiltAttributionProvider` re-interns through
+  `AttributionDataBuilder` so the Arc-ptr-eq invariant holds — pinned
+  by `transport_round_trip_restores_arc_interning_via_prebuilt_provider`
+  in `attribution_types.rs`.)*
+- [x] Implement the render-side warning path: emit a diagnostic
   warning naming any actor missing from
   `ctx.attribution_data.identities`, then use the placeholder
-  `Identity { display_name: "<unknown>", color: "#888888" }`. Does
-  not fire on happy paths but is exercised by Phase 0 tests #6 and
-  #7 as the invariant-violation handler.
-- [ ] Add `docs/authoring/attribution.qmd` user-facing doc.
+  `Identity { display_name: "<unknown>", color: "#888888" }`. *(Landed
+  with the Phase 4 render transform in `b07a4bb9`; exercised by
+  `render_q2_debug_warning_path_emits_diagnostic_and_placeholder` and
+  `render_html_warning_path_populates_format_options_and_emits_one_diagnostic`.)*
+- [x] Add `docs/authoring/attribution.qmd` user-facing doc.
 
 ### Phase 7 — Verification
 

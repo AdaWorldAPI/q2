@@ -235,39 +235,55 @@ impl AttributionSourceProvider for GitBlameProvider {
         let source = std::fs::read_to_string(&input_path)
             .map_err(|e| QuartoError::other(format!("failed to read {input_path:?}: {e}")))?;
 
-        let blame_lines = parse_blame_porcelain(&porcelain);
-        if blame_lines.is_empty() {
-            return Ok(AttributionData::default());
-        }
-        let runs = build_blame_runs(&blame_lines, &source)?;
-
-        let mut builder = AttributionDataBuilder::new();
-        // Seed identities once per distinct email. Visiting runs in
-        // order populates the intern table with the canonical Arc<str>
-        // that the matching identity entry will then key off.
-        let mut seen: HashMap<String, Arc<str>> = HashMap::new();
-        for run in &runs {
-            if !seen.contains_key(&run.actor) {
-                let actor_arc = builder.intern_actor(&run.actor);
-                seen.insert(run.actor.clone(), Arc::clone(&actor_arc));
-                let display_name = display_name_from_email(&run.actor);
-                let color = actor_color(&fnv1a_hex8(&run.actor));
-                builder.set_identity(
-                    actor_arc,
-                    Identity {
-                        display_name,
-                        color,
-                    },
-                );
-            }
-        }
-        for run in runs {
-            let actor = Arc::clone(seen.get(&run.actor).expect("identity seeded above"));
-            builder.push_run(run.byte_start, run.byte_end, actor, run.time);
-        }
-
-        Ok(builder.build())
+        attribution_from_porcelain(&porcelain, &source)
     }
+}
+
+/// Assemble a canonical [`AttributionData`] from raw `git blame
+/// --porcelain` output and the source text it was generated from.
+///
+/// Encapsulates the producer-side half of [`GitBlameProvider::build`]
+/// so it can be tested without a [`RenderContext`] (the production
+/// `build` only adds I/O: shelling out to git and reading the source
+/// file).
+///
+/// Producer invariant: every actor referenced by the returned
+/// `runs` has an entry in `identities` whose `display_name` is the
+/// mail-local-part of the email and whose `color` is
+/// `actor_color(fnv1a_hex8(email))`.
+pub fn attribution_from_porcelain(porcelain: &str, source: &str) -> Result<AttributionData> {
+    let blame_lines = parse_blame_porcelain(porcelain);
+    if blame_lines.is_empty() {
+        return Ok(AttributionData::default());
+    }
+    let runs = build_blame_runs(&blame_lines, source)?;
+
+    let mut builder = AttributionDataBuilder::new();
+    // Seed identities once per distinct email. Visiting runs in
+    // order populates the intern table with the canonical Arc<str>
+    // that the matching identity entry will then key off.
+    let mut seen: HashMap<String, Arc<str>> = HashMap::new();
+    for run in &runs {
+        if !seen.contains_key(&run.actor) {
+            let actor_arc = builder.intern_actor(&run.actor);
+            seen.insert(run.actor.clone(), Arc::clone(&actor_arc));
+            let display_name = display_name_from_email(&run.actor);
+            let color = actor_color(&fnv1a_hex8(&run.actor));
+            builder.set_identity(
+                actor_arc,
+                Identity {
+                    display_name,
+                    color,
+                },
+            );
+        }
+    }
+    for run in runs {
+        let actor = Arc::clone(seen.get(&run.actor).expect("identity seeded above"));
+        builder.push_run(run.byte_start, run.byte_end, actor, run.time);
+    }
+
+    Ok(builder.build())
 }
 
 /// Mail-local-part if `email` contains an `@`; otherwise the full

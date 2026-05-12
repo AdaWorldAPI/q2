@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use quarto_core::attribution::{
     AttributionSourceProvider, BlameLine, BlameRun, GitBlameProvider, actor_color,
-    build_blame_runs, fnv1a_hex8, parse_blame_porcelain,
+    attribution_from_porcelain, build_blame_runs, fnv1a_hex8, parse_blame_porcelain,
 };
 
 // ===========================================================================
@@ -151,14 +151,108 @@ fn actor_color_is_deterministic_and_emits_hsl() {
 }
 
 #[test]
-fn gitblame_provider_satisfies_producer_invariant() {
-    // We can't easily drive the real provider without a working repo,
-    // but we can pin the invariant: GitBlameProvider::build is the
-    // production path where the invariant gets enforced. This test
-    // will go red at `unimplemented!()` until Phase 3a/6 lands.
-    let _provider = GitBlameProvider::new();
-    // For Phase 0 we just verify the provider type instantiates and
-    // implements the trait so the dyn-trait construction in
-    // RenderContext::attribution_provider works.
-    let _typed: Arc<dyn AttributionSourceProvider> = Arc::new(_provider);
+fn gitblame_provider_constructs_as_trait_object() {
+    // Pin: GitBlameProvider implements AttributionSourceProvider so
+    // the dyn-trait construction in RenderContext::attribution_provider
+    // works.
+    let provider = GitBlameProvider::new();
+    let _typed: Arc<dyn AttributionSourceProvider> = Arc::new(provider);
+}
+
+#[test]
+fn gitblame_single_author_fixture_satisfies_producer_invariant() {
+    // `single-commit.porcelain` blames a one-line file (`hello\n`)
+    // to alice@example.com.
+    let porcelain = include_str!("fixtures/attribution-blame/single-commit.porcelain");
+    let data = attribution_from_porcelain(porcelain, "hello\n").expect("assemble");
+
+    let alice: Arc<str> = Arc::from("alice@example.com");
+    // Every actor referenced by runs has an identity entry.
+    for run in data.runs.as_slice() {
+        assert!(
+            data.identities.contains_key(&run.actor),
+            "producer invariant violated: actor {:?} missing from identities",
+            run.actor
+        );
+    }
+    let id = data.identities.get(&alice).expect("alice identity present");
+    assert_eq!(id.display_name, "alice");
+    // Pin the deterministic colour for alice@example.com so a future
+    // refactor of fnv1a_hex8 can't silently shift hues.
+    assert_eq!(id.color, "hsl(253, 60%, 55%)");
+}
+
+#[test]
+fn gitblame_multi_author_fixture_satisfies_producer_invariant() {
+    // `multi-commit.porcelain` blames a four-line file:
+    //   line1\n            -> alice@example.com
+    //   世界\n             -> alice@example.com
+    //   line3\n            -> bob@example.com
+    //   line4\n            -> bob@example.com
+    let porcelain = include_str!("fixtures/attribution-blame/multi-commit.porcelain");
+    let source = "line1\n世界\nline3\nline4\n";
+    let data = attribution_from_porcelain(porcelain, source).expect("assemble");
+
+    // Producer invariant: every distinct actor in runs has an
+    // identity entry.
+    let mut distinct_actors: Vec<String> = data
+        .runs
+        .as_slice()
+        .iter()
+        .map(|r| r.actor.to_string())
+        .collect();
+    distinct_actors.sort();
+    distinct_actors.dedup();
+    assert_eq!(
+        distinct_actors,
+        vec![
+            "alice@example.com".to_string(),
+            "bob@example.com".to_string()
+        ]
+    );
+    for run in data.runs.as_slice() {
+        assert!(
+            data.identities.contains_key(&run.actor),
+            "producer invariant violated: actor {:?} missing from identities",
+            run.actor
+        );
+    }
+
+    // Each entry's display_name equals the mail-local-part and color
+    // equals actor_color(fnv1a_hex8(email)).
+    for (actor, identity) in data.identities.iter() {
+        let actor_str: &str = actor;
+        let expected_local = actor_str
+            .split_once('@')
+            .map(|(l, _)| l.to_string())
+            .unwrap_or_else(|| actor_str.to_string());
+        assert_eq!(identity.display_name, expected_local);
+        assert_eq!(identity.color, actor_color(&fnv1a_hex8(actor_str)));
+    }
+
+    // Pin alice and bob colours so a future refactor of fnv1a_hex8 or
+    // actor_color can't silently shift hues.
+    let alice: Arc<str> = Arc::from("alice@example.com");
+    let bob: Arc<str> = Arc::from("bob@example.com");
+    assert_eq!(
+        data.identities.get(&alice).expect("alice").color,
+        "hsl(253, 60%, 55%)"
+    );
+    assert_eq!(
+        data.identities.get(&bob).expect("bob").color,
+        "hsl(220, 60%, 55%)"
+    );
+
+    // Arc-interning invariant: every run's actor Arc<str> is
+    // pointer-equal to the corresponding identity-map key.
+    for run in data.runs.as_slice() {
+        let (k, _v) = data
+            .identities
+            .get_key_value(&run.actor)
+            .expect("identity present");
+        assert!(
+            Arc::ptr_eq(&run.actor, k),
+            "actor Arc<str> in run must be ptr-eq to identity-map key"
+        );
+    }
 }

@@ -41,7 +41,8 @@ pub mod types;
 
 pub use builder::AttributionDataBuilder;
 pub use git_blame::{
-    BlameLine, BlameRun, GitBlameProvider, build_blame_runs, parse_blame_porcelain,
+    BlameLine, BlameRun, GitBlameProvider, attribution_from_porcelain, build_blame_runs,
+    parse_blame_porcelain,
 };
 pub use mode::{AttributionMode, resolve_attribution_mode};
 pub use palette::{actor_color, fnv1a_hex8};
