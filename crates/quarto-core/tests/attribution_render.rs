@@ -48,18 +48,16 @@ fn empty_pandoc() -> Pandoc {
 /// tests #6 and #7.
 fn fixture_with_unmapped_bob() -> AttributionData {
     let mut b = AttributionDataBuilder::new();
-    let alice = b.intern_actor("alice");
-    let bob = b.intern_actor("bob");
     b.set_identity(
-        alice.clone(),
+        "alice",
         Identity {
             display_name: "Alice".to_string(),
             color: "#ff0000".to_string(),
         },
     );
     // Note: bob has runs but no identity → producer-invariant violation.
-    b.push_run(0, 5, alice, 1);
-    b.push_run(5, 10, bob, 2);
+    b.push_run(0, 5, "alice", 1);
+    b.push_run(5, 10, "bob", 2);
     b.build()
 }
 
@@ -354,15 +352,14 @@ async fn render_html_structured_inlines_do_not_join_prose_coalescing() {
     let mut ctx = make_ctx_for_test(&project, &doc, &format, &binaries);
 
     let mut b = AttributionDataBuilder::new();
-    let alice = b.intern_actor("alice");
     b.set_identity(
-        alice.clone(),
+        "alice",
         Identity {
             display_name: "Alice".into(),
             color: "#ff0000".into(),
         },
     );
-    b.push_run(0, 100, alice, 1);
+    b.push_run(0, 100, "alice", 1);
     ctx.attribution_data = Some(Arc::new(b.build()));
 
     let mut ast = empty_pandoc();
@@ -405,15 +402,14 @@ async fn render_skips_file_id_nonzero_nodes_even_when_byte_range_overlaps() {
     let mut ctx = make_ctx_for_test(&project, &doc, &format, &binaries);
 
     let mut b = AttributionDataBuilder::new();
-    let alice = b.intern_actor("alice");
     b.set_identity(
-        alice.clone(),
+        "alice",
         Identity {
             display_name: "Alice".into(),
             color: "#ff0000".into(),
         },
     );
-    b.push_run(0, 1024, alice, 1);
+    b.push_run(0, 1024, "alice", 1);
     ctx.attribution_data = Some(Arc::new(b.build()));
 
     let mut ast = empty_pandoc();

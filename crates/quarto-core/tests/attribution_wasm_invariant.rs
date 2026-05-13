@@ -141,24 +141,22 @@ async fn q2_debug_happy_path_no_diagnostics_and_actors_populated_from_identities
 
     // Producer invariant satisfied: alice + bob both have identities.
     let mut b = AttributionDataBuilder::new();
-    let alice = b.intern_actor("alice");
-    let bob = b.intern_actor("bob");
     b.set_identity(
-        alice.clone(),
+        "alice",
         Identity {
             display_name: "Alice".to_string(),
             color: "#ff0000".to_string(),
         },
     );
     b.set_identity(
-        bob.clone(),
+        "bob",
         Identity {
             display_name: "Bob".to_string(),
             color: "#00ff00".to_string(),
         },
     );
-    b.push_run(0, 5, alice, 1);
-    b.push_run(5, 10, bob, 2);
+    b.push_run(0, 5, "alice", 1);
+    b.push_run(5, 10, "bob", 2);
     ctx.attribution_provider = Some(Arc::new(HappyPathProvider { data: b.build() }));
 
     let mut ast = empty_pandoc();

@@ -105,17 +105,15 @@ async fn generate_happy_path_populates_sidecar_and_preserves_arc_interning() {
     let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
 
     let mut bld = AttributionDataBuilder::new();
-    let alice = bld.intern_actor("alice");
-    let bob = bld.intern_actor("bob");
     bld.set_identity(
-        alice.clone(),
+        "alice",
         Identity {
             display_name: "Alice".to_string(),
             color: "#ff0000".to_string(),
         },
     );
-    bld.push_run(0, 5, alice, 1);
-    bld.push_run(5, 10, bob, 2);
+    bld.push_run(0, 5, "alice", 1);
+    bld.push_run(5, 10, "bob", 2);
     let data = bld.build();
 
     ctx.attribution_provider = Some(Arc::new(FixtureProvider { data }));
@@ -165,8 +163,7 @@ async fn generate_with_empty_provider_identities_leaves_sidecar_identities_empty
     let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
 
     let mut bld = AttributionDataBuilder::new();
-    let alice = bld.intern_actor("alice");
-    bld.push_run(0, 5, alice, 1);
+    bld.push_run(0, 5, "alice", 1);
     ctx.attribution_provider = Some(Arc::new(FixtureProvider { data: bld.build() }));
 
     let mut ast = pandoc_with_meta(empty_meta());
@@ -221,8 +218,7 @@ async fn generate_feature_disabled_skips() {
     let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
 
     let mut bld = AttributionDataBuilder::new();
-    let alice = bld.intern_actor("alice");
-    bld.push_run(0, 5, alice, 1);
+    bld.push_run(0, 5, "alice", 1);
     ctx.attribution_provider = Some(Arc::new(FixtureProvider { data: bld.build() }));
 
     let meta = map(vec![("attribution", b(false))]);
@@ -288,24 +284,22 @@ async fn generate_identities_only_yaml_override_merges_correctly() {
     let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
 
     let mut bld = AttributionDataBuilder::new();
-    let alice = bld.intern_actor("alice");
-    let bob = bld.intern_actor("bob");
     bld.set_identity(
-        alice.clone(),
+        "alice",
         Identity {
             display_name: "Alice from provider".to_string(),
             color: "#000001".to_string(),
         },
     );
     bld.set_identity(
-        bob.clone(),
+        "bob",
         Identity {
             display_name: "Bob from provider".to_string(),
             color: "#000002".to_string(),
         },
     );
-    bld.push_run(0, 5, alice.clone(), 1);
-    bld.push_run(5, 10, bob, 2);
+    bld.push_run(0, 5, "alice", 1);
+    bld.push_run(5, 10, "bob", 2);
     ctx.attribution_provider = Some(Arc::new(FixtureProvider { data: bld.build() }));
 
     // meta.attribution.identities = { alice: <override>, carol: <no-collision> }

@@ -47,17 +47,15 @@ impl AttributionSourceProvider for PreBuiltAttributionProvider {
             QuartoError::other(format!("attribution: failed to parse transport JSON: {e}"))
         })?;
         let mut b = AttributionDataBuilder::new();
-        // Identities first so the intern map is seeded with the provider's
-        // actor strings before any runs reference them. This means every
-        // run sharing an actor with an identity entry ends up Arc::ptr_eq
-        // to that identity key — the writer-side invariant.
+        // The builder interns each actor on first sight, so identity
+        // entries and run entries referencing the same actor share an
+        // `Arc::ptr_eq` key regardless of insertion order — the
+        // writer-side invariant.
         for (k, id) in raw.identities {
-            let actor = b.intern_actor(&k);
-            b.set_identity(actor, id);
+            b.set_identity(&k, id);
         }
         for r in raw.runs {
-            let actor = b.intern_actor(&r.actor);
-            b.push_run(r.start, r.end, actor, r.time);
+            b.push_run(r.start, r.end, &r.actor, r.time);
         }
         Ok(b.build())
     }

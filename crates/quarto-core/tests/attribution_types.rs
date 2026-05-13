@@ -203,11 +203,9 @@ fn transport_round_trip_restores_arc_interning_via_prebuilt_provider() {
 fn make_map(runs: Vec<(usize, usize, &str, i64)>) -> AttributionMap {
     let mut b = AttributionDataBuilder::new();
     for (start, end, actor, time) in runs {
-        let a = b.intern_actor(actor);
-        b.push_run(start, end, a, time);
+        b.push_run(start, end, actor, time);
     }
-    let data = b.build();
-    data.runs
+    b.build().runs
 }
 
 #[test]

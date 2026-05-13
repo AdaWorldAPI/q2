@@ -13,7 +13,6 @@
 
 use std::collections::HashMap;
 use std::process::Command;
-use std::sync::Arc;
 
 use quarto_error_reporting::DiagnosticMessage;
 
@@ -259,28 +258,21 @@ pub fn attribution_from_porcelain(porcelain: &str, source: &str) -> Result<Attri
     let runs = build_blame_runs(&blame_lines, source)?;
 
     let mut builder = AttributionDataBuilder::new();
-    // Seed identities once per distinct email. Visiting runs in
-    // order populates the intern table with the canonical Arc<str>
-    // that the matching identity entry will then key off.
-    let mut seen: HashMap<String, Arc<str>> = HashMap::new();
-    for run in &runs {
-        if !seen.contains_key(&run.actor) {
-            let actor_arc = builder.intern_actor(&run.actor);
-            seen.insert(run.actor.clone(), Arc::clone(&actor_arc));
-            let display_name = display_name_from_email(&run.actor);
-            let color = actor_color(&fnv1a_hex8(&run.actor));
-            builder.set_identity(
-                actor_arc,
-                Identity {
-                    display_name,
-                    color,
-                },
-            );
-        }
-    }
+    // Single pass: the builder interns each actor on first sight,
+    // so `set_identity_if_absent` populates the identity exactly
+    // once per distinct email and subsequent `push_run` calls
+    // share its `Arc::ptr_eq` key.
     for run in runs {
-        let actor = Arc::clone(seen.get(&run.actor).expect("identity seeded above"));
-        builder.push_run(run.byte_start, run.byte_end, actor, run.time);
+        let display_name = display_name_from_email(&run.actor);
+        let color = actor_color(&fnv1a_hex8(&run.actor));
+        builder.set_identity_if_absent(
+            &run.actor,
+            Identity {
+                display_name,
+                color,
+            },
+        );
+        builder.push_run(run.byte_start, run.byte_end, &run.actor, run.time);
     }
 
     Ok(builder.build())
