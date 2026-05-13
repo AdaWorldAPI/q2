@@ -1,6 +1,6 @@
 import { useContext } from 'react';
 import { RegistryContext } from '../framework/RegistryContext';
-import { renderChildren } from '../framework';
+import { renderChildren, useNodeAttribution } from '../framework';
 import type {
     BlockNode,
     CustomBlockNode,
@@ -34,14 +34,39 @@ const PLACEHOLDER_CLASS = 'q2-preview-placeholder';
  * smoke-fixture must-not-match selector (`div.q2-preview-placeholder`)
  * actually fires when the placeholder fires. The inline `style` is
  * preserved alongside (no theme-CSS dependency).
+ *
+ * Attribution wrap (Phase 3 of `2026-05-13-q2-preview-attribution.md`):
+ * when `useNodeAttribution` resolves a record for this node, wrap the
+ * dispatched output in a `.q2-attr-wrap` div carrying `data-sid` and
+ * inline `color` so descendant text inherits the author's identity
+ * colour. Mirrors `q2-debug/dispatchers.tsx`. Off-path the wrap is
+ * skipped and the dispatcher output is byte-identical to
+ * pre-attribution.
  */
 export const Block = (args: NodeArgs<BlockNode>) => {
     const { registry } = useContext(RegistryContext);
+    const attribution = useNodeAttribution(
+        args.node as unknown as { s?: number },
+    );
+
     const Component = registry[args.node.t];
-    if (Component) return <Component {...args} />;
-    return (
+    const inner = Component ? (
+        <Component {...args} />
+    ) : (
         <div className={PLACEHOLDER_CLASS} style={placeholderStyle}>
             {args.node.t} (not yet implemented){renderChildren(args)}
+        </div>
+    );
+
+    if (!attribution) return inner;
+    const sid = (args.node as unknown as { s?: number }).s;
+    return (
+        <div
+            className="q2-attr-wrap"
+            data-sid={sid}
+            style={{ color: attribution.color }}
+        >
+            {inner}
         </div>
     );
 };
@@ -49,15 +74,33 @@ export const Block = (args: NodeArgs<BlockNode>) => {
 /**
  * q2-preview's Inline dispatcher. Same pattern as `Block` for
  * inline-level nodes — placeholder + recursion on miss so nested
- * inlines surface their own placeholders.
+ * inlines surface their own placeholders. Also wraps in
+ * `.q2-attr-wrap` when attribution is resolved.
  */
 export const Inline = (args: NodeArgs<InlineNode>) => {
     const { registry } = useContext(RegistryContext);
+    const attribution = useNodeAttribution(
+        args.node as unknown as { s?: number },
+    );
+
     const Component = registry[args.node.t];
-    if (Component) return <Component {...args} />;
-    return (
+    const inner = Component ? (
+        <Component {...args} />
+    ) : (
         <span className={PLACEHOLDER_CLASS} style={placeholderStyle}>
             {args.node.t} (not yet implemented){renderChildren(args)}
+        </span>
+    );
+
+    if (!attribution) return inner;
+    const sid = (args.node as unknown as { s?: number }).s;
+    return (
+        <span
+            className="q2-attr-wrap"
+            data-sid={sid}
+            style={{ color: attribution.color }}
+        >
+            {inner}
         </span>
     );
 };
@@ -73,12 +116,32 @@ export const Inline = (args: NodeArgs<InlineNode>) => {
  * same key namespace; the two sets are disjoint by project policy
  * (locked at build time by `registry.test.ts`'s namespace-disjoint
  * assertion).
+ *
+ * Attribution wrap: same as `Block`. CustomNodes (Callout, Theorem,
+ * FloatRefTarget, ...) cover larger source ranges than primitive
+ * blocks, so attributing them paints the whole containing block in
+ * the author's colour.
  */
 export const CustomBlock = (args: NodeArgs<CustomBlockNode>) => {
     const { registry } = useContext(RegistryContext);
+    const attribution = useNodeAttribution(
+        args.node as unknown as { s?: number },
+    );
     const Component =
         registry[args.node.type_name] ?? registry['__fallback__'];
-    return <Component {...args} />;
+    const inner = <Component {...args} />;
+
+    if (!attribution) return inner;
+    const sid = (args.node as unknown as { s?: number }).s;
+    return (
+        <div
+            className="q2-attr-wrap"
+            data-sid={sid}
+            style={{ color: attribution.color }}
+        >
+            {inner}
+        </div>
+    );
 };
 
 /**
@@ -87,7 +150,22 @@ export const CustomBlock = (args: NodeArgs<CustomBlockNode>) => {
  */
 export const CustomInline = (args: NodeArgs<CustomInlineNode>) => {
     const { registry } = useContext(RegistryContext);
+    const attribution = useNodeAttribution(
+        args.node as unknown as { s?: number },
+    );
     const Component =
         registry[args.node.type_name] ?? registry['__fallback__'];
-    return <Component {...args} />;
+    const inner = <Component {...args} />;
+
+    if (!attribution) return inner;
+    const sid = (args.node as unknown as { s?: number }).s;
+    return (
+        <span
+            className="q2-attr-wrap"
+            data-sid={sid}
+            style={{ color: attribution.color }}
+        >
+            {inner}
+        </span>
+    );
 };

@@ -4,7 +4,7 @@ import {
     AttributionLookupContext,
     type NodeAttributionIdentity,
 } from '../framework/AttributionLookupContext';
-import { AttributionBadge, attributionStyles } from './attribution';
+import { AttributionBadge, attributionStyles } from '../framework';
 import type {
     InlineNode,
     NodeArgs,

@@ -5,6 +5,11 @@ export {
     useNodeAttribution,
     type NodeAttributionIdentity,
 } from './AttributionLookupContext';
+export {
+    AttributionBadge,
+    attributionStyles,
+    formatRelativeTime,
+} from './attribution';
 export { Ast } from './Ast';
 export { Node, renderChildren, renderNode, blockTypes } from './dispatch';
 export * from './plainText';
