@@ -1,13 +1,10 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect } from 'react';
 import {
     renderChildren,
     extractMetaString,
     extractMetaBool,
     RegistryContext,
-    AttributionLookupContext,
-    AttributionBadge,
-    attributionStyles,
-    type NodeAttributionIdentity,
+    useAttributionHover,
 } from '../framework';
 import type { BlockNode, PandocAST } from '../framework';
 import * as Custom from './custom';
@@ -99,64 +96,18 @@ export const PreviewDocument = ({
     }, [meta]);
 
     // Attribution wiring (Phase 3 of
-    // `2026-05-13-q2-preview-attribution.md`): when
-    // `AttributionLookupContext` is populated (because the rendered AST
-    // carries `astContext.attribution*` and `<Ast>` built the lookup),
-    // inject the badge stylesheet once and surface a single hovered
-    // badge via event-delegated mouseover. Off path (no provider
-    // installed, or Authorship toggle off) `lookup` is null, the
-    // stylesheet is skipped, and the handlers stay unbound — DOM is
-    // byte-identical to pre-attribution. Mirrors q2-debug's
-    // `AstRenderer`.
-    const lookup = useContext(AttributionLookupContext);
-    const lookupRef = useRef(lookup);
-    lookupRef.current = lookup;
-
-    const [hovered, setHovered] = useState<{
-        record: NodeAttributionIdentity;
-        rect: DOMRect;
-    } | null>(null);
-
-    const handleMouseOver = useCallback((e: React.MouseEvent) => {
-        const ctx = lookupRef.current;
-        if (!ctx) return;
-        const target = e.target as HTMLElement;
-        const wrap = target.closest('.q2-attr-wrap[data-sid]') as HTMLElement | null;
-        if (!wrap) {
-            setHovered(null);
-            return;
-        }
-        const sid = Number(wrap.getAttribute('data-sid'));
-        if (Number.isNaN(sid)) return;
-        const record = ctx.get(sid);
-        if (record) {
-            setHovered({ record, rect: wrap.getBoundingClientRect() });
-        }
-    }, []);
-
-    const handleMouseOut = useCallback((e: React.MouseEvent) => {
-        const related = e.relatedTarget as HTMLElement | null;
-        if (!related?.closest?.('.q2-attr-wrap[data-sid]')) {
-            setHovered(null);
-        }
-    }, []);
+    // `2026-05-13-q2-preview-attribution.md`): delegated to
+    // `useAttributionHover`, which returns inert wiring when
+    // `AttributionLookupContext` is unpopulated — off-path DOM stays
+    // byte-identical to pre-attribution. Same hook is consumed by
+    // q2-debug's `AstRenderer`.
+    const attr = useAttributionHover();
 
     const children = renderChildren({
         node: ast as any,
         setLocalAst: setAst as any,
         onNavigateToDocument,
     });
-
-    const badgeOverlay = hovered ? (
-        <AttributionBadge
-            record={hovered.record}
-            style={{
-                position: 'fixed',
-                top: hovered.rect.bottom + 2,
-                left: hovered.rect.left,
-            }}
-        />
-    ) : null;
 
     if (minimal) {
         // Re-implement the Rust title-block transform's minimal-mode
@@ -172,40 +123,34 @@ export const PreviewDocument = ({
                 Array.isArray((b as { c?: unknown[] }).c) &&
                 ((b as { c: unknown[] }).c[0] === 1),
         );
-        // When attribution is on we need a host element to carry the
-        // mouseover delegation. Off-path stay on the Fragment so the
-        // minimal-mode DOM is byte-identical to today's.
-        if (lookup) {
-            return (
-                <>
-                    <style>{attributionStyles}</style>
-                    <div
-                        onMouseOver={handleMouseOver}
-                        onMouseOut={handleMouseOut}
-                    >
-                        {title && !hasLevel1Header ? <h1>{title}</h1> : null}
-                        {children}
-                    </div>
-                    {badgeOverlay}
-                </>
-            );
-        }
-        return (
+        const minimalInner = (
             <>
                 {title && !hasLevel1Header ? <h1>{title}</h1> : null}
                 {children}
             </>
         );
+        // When attribution is on we need a host element to carry the
+        // mouseover delegation. Off-path stay on the Fragment so the
+        // minimal-mode DOM is byte-identical to today's.
+        if (attr.enabled) {
+            return (
+                <>
+                    {attr.stylesheet}
+                    <div {...attr.hostProps}>{minimalInner}</div>
+                    {attr.overlay}
+                </>
+            );
+        }
+        return minimalInner;
     }
 
     return (
         <>
-            {lookup && <style>{attributionStyles}</style>}
+            {attr.stylesheet}
             <div
                 id="quarto-content"
                 className={`quarto-container page-columns page-rows-contents page-layout-${pageLayout}`}
-                onMouseOver={lookup ? handleMouseOver : undefined}
-                onMouseOut={lookup ? handleMouseOut : undefined}
+                {...attr.hostProps}
             >
                 <main className="content" id="quarto-document-content">
                     <TitleBlock
@@ -216,7 +161,7 @@ export const PreviewDocument = ({
                     {children}
                 </main>
             </div>
-            {badgeOverlay}
+            {attr.overlay}
         </>
     );
 };

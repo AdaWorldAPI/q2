@@ -1,6 +1,6 @@
 import { useContext } from 'react';
 import { RegistryContext } from '../framework/RegistryContext';
-import { renderChildren, useNodeAttribution } from '../framework';
+import { AttributionWrap, renderChildren } from '../framework';
 import type {
     BlockNode,
     CustomBlockNode,
@@ -36,19 +36,13 @@ const PLACEHOLDER_CLASS = 'q2-preview-placeholder';
  * preserved alongside (no theme-CSS dependency).
  *
  * Attribution wrap (Phase 3 of `2026-05-13-q2-preview-attribution.md`):
- * when `useNodeAttribution` resolves a record for this node, wrap the
- * dispatched output in a `.q2-attr-wrap` div carrying `data-sid` and
- * inline `color` so descendant text inherits the author's identity
- * colour. Mirrors `q2-debug/dispatchers.tsx`. Off-path the wrap is
- * skipped and the dispatcher output is byte-identical to
- * pre-attribution.
+ * `AttributionWrap` paints the dispatched output with a `.q2-attr-wrap`
+ * div carrying `data-sid` and inline `color` whenever this node has
+ * resolved attribution; off-path it is a pass-through, so the
+ * dispatcher output is byte-identical to pre-attribution.
  */
 export const Block = (args: NodeArgs<BlockNode>) => {
     const { registry } = useContext(RegistryContext);
-    const attribution = useNodeAttribution(
-        args.node as unknown as { s?: number },
-    );
-
     const Component = registry[args.node.t];
     const inner = Component ? (
         <Component {...args} />
@@ -58,17 +52,7 @@ export const Block = (args: NodeArgs<BlockNode>) => {
         </div>
     );
 
-    if (!attribution) return inner;
-    const sid = (args.node as unknown as { s?: number }).s;
-    return (
-        <div
-            className="q2-attr-wrap"
-            data-sid={sid}
-            style={{ color: attribution.color }}
-        >
-            {inner}
-        </div>
-    );
+    return <AttributionWrap node={args.node} as="div">{inner}</AttributionWrap>;
 };
 
 /**
@@ -79,10 +63,6 @@ export const Block = (args: NodeArgs<BlockNode>) => {
  */
 export const Inline = (args: NodeArgs<InlineNode>) => {
     const { registry } = useContext(RegistryContext);
-    const attribution = useNodeAttribution(
-        args.node as unknown as { s?: number },
-    );
-
     const Component = registry[args.node.t];
     const inner = Component ? (
         <Component {...args} />
@@ -92,17 +72,7 @@ export const Inline = (args: NodeArgs<InlineNode>) => {
         </span>
     );
 
-    if (!attribution) return inner;
-    const sid = (args.node as unknown as { s?: number }).s;
-    return (
-        <span
-            className="q2-attr-wrap"
-            data-sid={sid}
-            style={{ color: attribution.color }}
-        >
-            {inner}
-        </span>
-    );
+    return <AttributionWrap node={args.node} as="span">{inner}</AttributionWrap>;
 };
 
 /**
@@ -124,24 +94,11 @@ export const Inline = (args: NodeArgs<InlineNode>) => {
  */
 export const CustomBlock = (args: NodeArgs<CustomBlockNode>) => {
     const { registry } = useContext(RegistryContext);
-    const attribution = useNodeAttribution(
-        args.node as unknown as { s?: number },
-    );
     const Component =
         registry[args.node.type_name] ?? registry['__fallback__'];
     const inner = <Component {...args} />;
 
-    if (!attribution) return inner;
-    const sid = (args.node as unknown as { s?: number }).s;
-    return (
-        <div
-            className="q2-attr-wrap"
-            data-sid={sid}
-            style={{ color: attribution.color }}
-        >
-            {inner}
-        </div>
-    );
+    return <AttributionWrap node={args.node} as="div">{inner}</AttributionWrap>;
 };
 
 /**
@@ -150,22 +107,9 @@ export const CustomBlock = (args: NodeArgs<CustomBlockNode>) => {
  */
 export const CustomInline = (args: NodeArgs<CustomInlineNode>) => {
     const { registry } = useContext(RegistryContext);
-    const attribution = useNodeAttribution(
-        args.node as unknown as { s?: number },
-    );
     const Component =
         registry[args.node.type_name] ?? registry['__fallback__'];
     const inner = <Component {...args} />;
 
-    if (!attribution) return inner;
-    const sid = (args.node as unknown as { s?: number }).s;
-    return (
-        <span
-            className="q2-attr-wrap"
-            data-sid={sid}
-            style={{ color: attribution.color }}
-        >
-            {inner}
-        </span>
-    );
+    return <AttributionWrap node={args.node} as="span">{inner}</AttributionWrap>;
 };

@@ -1,5 +1,9 @@
-import React from 'react';
-import type { NodeAttributionIdentity } from '../framework';
+import React, { useCallback, useContext, useRef, useState } from 'react';
+import {
+    AttributionLookupContext,
+    useNodeAttribution,
+    type NodeAttributionIdentity,
+} from './AttributionLookupContext';
 
 /**
  * Format a Unix timestamp as a coarse relative-time string ("just
@@ -76,3 +80,121 @@ export const attributionStyles = `
         opacity: 0.7;
     }
 `;
+
+/**
+ * Wrap `children` in a `.q2-attr-wrap` element when the AST node has
+ * resolved attribution; pass through unchanged otherwise.
+ *
+ * `as` selects a `<div>` (block-level wrapper) or `<span>` (inline-level
+ * wrapper) — the only structural divergence between Block/Inline
+ * dispatchers in q2-debug and q2-preview. The `data-sid` + inline
+ * `color` payload matches what those dispatchers wrote inline before
+ * extraction, so the hovered-badge event delegation in
+ * `useAttributionHover` keeps finding wraps the same way.
+ *
+ * `node` is typed `unknown` to absorb the structural mismatch between
+ * the framework's loose `{ s?: number }` lookup key and the
+ * dispatcher-side `BlockNode` / `InlineNode` / `CustomBlockNode` /
+ * `CustomInlineNode` types — those types don't formally declare `s`
+ * (the JSON serializer adds it). Off-path callers pass any node-like
+ * value; the cast happens once, here.
+ */
+export function AttributionWrap({
+    node,
+    as,
+    children,
+}: {
+    node: unknown;
+    as: 'div' | 'span';
+    children: React.ReactNode;
+}) {
+    const attribution = useNodeAttribution(node as { s?: number });
+    if (!attribution) return <>{children}</>;
+    const sid = (node as { s?: number }).s;
+    const style = { color: attribution.color };
+    if (as === 'div') {
+        return (
+            <div className="q2-attr-wrap" data-sid={sid} style={style}>
+                {children}
+            </div>
+        );
+    }
+    return (
+        <span className="q2-attr-wrap" data-sid={sid} style={style}>
+            {children}
+        </span>
+    );
+}
+
+/**
+ * Wire event-delegated hover state for `.q2-attr-wrap[data-sid]`
+ * elements descended from the host element. Used by document-root
+ * components (q2-debug `AstRenderer`, q2-preview `PreviewDocument`)
+ * to mount the badge overlay and stylesheet once per render.
+ *
+ * Off-path (no `AttributionLookupContext` populated) `enabled` is
+ * `false` and the returned `stylesheet` / `overlay` are `null`;
+ * consumers skip the wiring and the DOM stays byte-identical to
+ * pre-attribution. The `hostProps` object is `{}` when disabled, so
+ * spreading it onto a host element is a no-op.
+ */
+export function useAttributionHover(): {
+    enabled: boolean;
+    hostProps: {
+        onMouseOver?: React.MouseEventHandler;
+        onMouseOut?: React.MouseEventHandler;
+    };
+    stylesheet: React.ReactNode;
+    overlay: React.ReactNode;
+} {
+    const lookup = useContext(AttributionLookupContext);
+    const lookupRef = useRef(lookup);
+    lookupRef.current = lookup;
+
+    const [hovered, setHovered] = useState<{
+        record: NodeAttributionIdentity;
+        rect: DOMRect;
+    } | null>(null);
+
+    const handleMouseOver = useCallback((e: React.MouseEvent) => {
+        const ctx = lookupRef.current;
+        if (!ctx) return;
+        const target = e.target as HTMLElement;
+        const wrap = target.closest('.q2-attr-wrap[data-sid]') as HTMLElement | null;
+        if (!wrap) {
+            setHovered(null);
+            return;
+        }
+        const sid = Number(wrap.getAttribute('data-sid'));
+        if (Number.isNaN(sid)) return;
+        const record = ctx.get(sid);
+        if (record) {
+            setHovered({ record, rect: wrap.getBoundingClientRect() });
+        }
+    }, []);
+
+    const handleMouseOut = useCallback((e: React.MouseEvent) => {
+        const related = e.relatedTarget as HTMLElement | null;
+        if (!related?.closest?.('.q2-attr-wrap[data-sid]')) {
+            setHovered(null);
+        }
+    }, []);
+
+    const enabled = lookup != null;
+    const hostProps = enabled
+        ? { onMouseOver: handleMouseOver, onMouseOut: handleMouseOut }
+        : {};
+    const stylesheet = enabled ? <style>{attributionStyles}</style> : null;
+    const overlay = hovered ? (
+        <AttributionBadge
+            record={hovered.record}
+            style={{
+                position: 'fixed',
+                top: hovered.rect.bottom + 2,
+                left: hovered.rect.left,
+            }}
+        />
+    ) : null;
+
+    return { enabled, hostProps, stylesheet, overlay };
+}

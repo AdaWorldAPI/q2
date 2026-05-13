@@ -7,8 +7,10 @@ export {
 } from './AttributionLookupContext';
 export {
     AttributionBadge,
+    AttributionWrap,
     attributionStyles,
     formatRelativeTime,
+    useAttributionHover,
 } from './attribution';
 export { Ast } from './Ast';
 export { Node, renderChildren, renderNode, blockTypes } from './dispatch';
