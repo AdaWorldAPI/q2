@@ -36,7 +36,7 @@ import type {
 } from '../services/attribution-runs';
 import { getFileHandle } from '../services/automergeSync';
 import type { ActorIdentity } from '../services/automergeSync';
-import { actorColor, fnv1aHex8 } from './useReplayMode';
+import { actorColor, fnv1aHex8 } from '../utils/palette';
 
 interface TransportRun {
   start: number;

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { ReplayState, ReplayControls } from '../hooks/useReplayMode';
-import { actorColor } from '../hooks/useReplayMode';
+import { actorColor } from '../utils/palette';
 import type { ActorIdentity } from '../services/automergeSync';
 import { getActorId } from '../services/automergeSync';
 import './ReplayDrawer.css';

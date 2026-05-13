@@ -28,56 +28,6 @@ export interface ReplayState {
   chunkActors: ChunkActorShare[][]; // per-chunk actor fractions for the waveform
 }
 
-/**
- * Deterministic color from an actor hash string.
- *
- * MUST stay in sync with the Rust `actor_color` in
- * `crates/quarto-core/src/attribution/palette.rs` — same formula
- * (`hsl(<hue>, 60%, 55%)` where hue = first 6 hex chars mod 360).
- * The Rust sibling colours git-blame authors; this TS sibling colours
- * Automerge actors via the replay drawer + attribution producer
- * (Phase 5 plan §Drift mitigation).
- */
-export function actorColor(actor: string): string {
-  const hue = parseInt(actor.slice(0, 6), 16) % 360;
-  return `hsl(${hue}, 60%, 55%)`;
-}
-
-/**
- * 32-bit FNV-1a hash, formatted as a left-padded 8-char hex string.
- * Used to reduce an arbitrary actor string (e.g. an Automerge actor
- * ID whose first 6 chars aren't guaranteed hex) to a hex-prefix-safe
- * input for `actorColor`. Caller: the attribution producer in
- * `useAttribution`, when synthesising the `(name, color)` fallback
- * identity for actors with no profile metadata.
- *
- * MUST stay in sync with the Rust `fnv1a_hex8` in
- * `crates/quarto-core/src/attribution/palette.rs` — same FNV-1a
- * constants, same bit-for-bit output. The Rust sibling pre-hashes
- * git-blame author emails; this TS sibling pre-hashes Automerge
- * actor IDs. Both feed `actorColor` / `actor_color`.
- *
- * Not cryptographic; deterministic and well-distributed for colour
- * purposes.
- */
-export function fnv1aHex8(s: string): string {
-  // Hash UTF-8 bytes to match Rust's `s.bytes()` iteration. JS strings
-  // are UTF-16 internally; using `charCodeAt` directly would diverge
-  // from Rust on any non-ASCII character.
-  const bytes = TEXT_ENCODER.encode(s);
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < bytes.length; i++) {
-    hash ^= bytes[i];
-    // Multiply by 0x01000193 (16777619), masked back into a u32 each
-    // iteration. `Math.imul` does 32-bit multiplication; `>>> 0`
-    // coerces to unsigned.
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, '0');
-}
-
-const TEXT_ENCODER = new TextEncoder();
-
 export interface ReplayControls {
   enter: () => void;
   exit: () => void;
