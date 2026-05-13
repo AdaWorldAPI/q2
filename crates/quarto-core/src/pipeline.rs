@@ -845,61 +845,13 @@ pub async fn render_qmd_to_preview_ast(
     // `ctx.format_options.json` into `JsonConfig` so the writer emits
     // `astContext.attribution` and `astContext.attributionActors`.
     // Off-path (provider absent), both fields stay `None` and the
-    // JSON output is byte-identical to today's. Conversion mirrors
-    // the q2-debug WASM entry point (`wasm-quarto-hub-client::
-    // parse_qmd_to_ast_with_attribution`); the two writers' record
-    // types live in pampa and quarto-core respectively, so the
-    // crate-boundary conversion is unavoidable.
-    let json_attribution_by_node =
-        ctx.format_options
-            .json
-            .attribution_by_node
-            .as_ref()
-            .map(|map| {
-                let out: std::collections::HashMap<
-                    usize,
-                    pampa::writers::json::JsonAttributionRecord,
-                > = map
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            *k,
-                            pampa::writers::json::JsonAttributionRecord {
-                                actor: Arc::clone(&v.actor),
-                                time: v.time,
-                            },
-                        )
-                    })
-                    .collect();
-                Arc::new(out)
-            });
-    let json_attribution_actors = ctx
-        .format_options
-        .json
-        .attribution_actors
-        .as_ref()
-        .map(|map| {
-            let out: std::collections::HashMap<
-                Arc<str>,
-                pampa::writers::json::JsonAttributionIdentity,
-            > = map
-                .iter()
-                .map(|(k, v)| {
-                    (
-                        Arc::clone(k),
-                        pampa::writers::json::JsonAttributionIdentity {
-                            display_name: v.display_name.clone(),
-                            color: v.color.clone(),
-                        },
-                    )
-                })
-                .collect();
-            Arc::new(out)
-        });
+    // JSON output is byte-identical to today's.
+    let (attribution_by_node, attribution_actors) =
+        crate::attribution::json_attribution_fields(&ctx.format_options.json);
     let json_config = pampa::writers::json::JsonConfig {
         include_inline_locations: true,
-        attribution_by_node: json_attribution_by_node,
-        attribution_actors: json_attribution_actors,
+        attribution_by_node,
+        attribution_actors,
     };
     let mut buf = Vec::new();
     pampa::writers::json::write_with_config(&ast.ast, &ast_context, &mut buf, &json_config)

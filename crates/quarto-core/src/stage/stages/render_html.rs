@@ -10,12 +10,10 @@
 //! This stage renders the Pandoc AST to HTML body content using pampa's
 //! HTML writer.
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use pampa::writers::html::{HtmlAttributionIdentity, HtmlAttributionRecord, HtmlConfig};
+use pampa::writers::html::HtmlConfig;
 
+use crate::attribution::html_attribution_fields;
 use crate::render::HtmlFormatOptions;
 use crate::stage::{
     EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, RenderedOutput,
@@ -29,36 +27,7 @@ use crate::trace_event;
 /// fields `None` — the HTML writer's output is byte-identical to its
 /// existing behaviour.
 fn build_html_config_from_options(opts: &HtmlFormatOptions) -> HtmlConfig {
-    let attribution_by_node = opts.attribution_by_node.as_ref().map(|map| {
-        let out: HashMap<usize, HtmlAttributionRecord> = map
-            .iter()
-            .map(|(k, v)| {
-                (
-                    *k,
-                    HtmlAttributionRecord {
-                        actor: Arc::clone(&v.actor),
-                        time: v.time,
-                    },
-                )
-            })
-            .collect();
-        Arc::new(out)
-    });
-    let attribution_identities = opts.attribution_identities.as_ref().map(|map| {
-        let out: HashMap<Arc<str>, HtmlAttributionIdentity> = map
-            .iter()
-            .map(|(k, v)| {
-                (
-                    Arc::clone(k),
-                    HtmlAttributionIdentity {
-                        display_name: v.display_name.clone(),
-                        color: v.color.clone(),
-                    },
-                )
-            })
-            .collect();
-        Arc::new(out)
-    });
+    let (attribution_by_node, attribution_identities) = html_attribution_fields(opts);
     HtmlConfig {
         include_source_locations: false,
         attribution_by_node,

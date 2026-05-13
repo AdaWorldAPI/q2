@@ -35,6 +35,7 @@ pub mod builder;
 pub mod git_blame;
 pub mod mode;
 pub mod palette;
+pub mod pampa_bridge;
 pub mod prebuilt;
 pub mod source;
 pub mod types;
@@ -46,6 +47,7 @@ pub use git_blame::{
 };
 pub use mode::{AttributionMode, resolve_attribution_mode};
 pub use palette::{actor_color, fnv1a_hex8};
+pub use pampa_bridge::{html_attribution_fields, json_attribution_fields};
 pub use prebuilt::PreBuiltAttributionProvider;
 pub use source::{AttributionSource, AttributionSourceProvider};
 pub use types::{

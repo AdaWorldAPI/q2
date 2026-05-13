@@ -1041,57 +1041,13 @@ pub async fn parse_qmd_to_ast_with_attribution(
     // `astContext.attributionActors`. Off-path (provider absent), both
     // fields stay `None` and the JSON output is byte-identical to the
     // unflagged path (Phase 0 test #10).
-    let json_attribution_by_node =
-        ctx.format_options
-            .json
-            .attribution_by_node
-            .as_ref()
-            .map(|map| {
-                let out: std::collections::HashMap<
-                    usize,
-                    pampa::writers::json::JsonAttributionRecord,
-                > = map
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            *k,
-                            pampa::writers::json::JsonAttributionRecord {
-                                actor: Arc::clone(&v.actor),
-                                time: v.time,
-                            },
-                        )
-                    })
-                    .collect();
-                Arc::new(out)
-            });
-    let json_attribution_actors = ctx
-        .format_options
-        .json
-        .attribution_actors
-        .as_ref()
-        .map(|map| {
-            let out: std::collections::HashMap<
-                Arc<str>,
-                pampa::writers::json::JsonAttributionIdentity,
-            > = map
-                .iter()
-                .map(|(k, v)| {
-                    (
-                        Arc::clone(k),
-                        pampa::writers::json::JsonAttributionIdentity {
-                            display_name: v.display_name.clone(),
-                            color: v.color.clone(),
-                        },
-                    )
-                })
-                .collect();
-            Arc::new(out)
-        });
+    let (attribution_by_node, attribution_actors) =
+        quarto_core::attribution::json_attribution_fields(&ctx.format_options.json);
     let mut buf = Vec::new();
     let json_config = pampa::writers::json::JsonConfig {
         include_inline_locations: true,
-        attribution_by_node: json_attribution_by_node,
-        attribution_actors: json_attribution_actors,
+        attribution_by_node,
+        attribution_actors,
     };
 
     let ast_json = match pampa::writers::json::write_with_config(
