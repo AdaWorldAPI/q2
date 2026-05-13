@@ -36,7 +36,7 @@ use std::sync::Arc;
 use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
-use crate::attribution::{AttributionData, format_supports_attribution, from_config_value};
+use crate::attribution::{AttributionData, format_supports_attribution, identity_map_from_meta};
 use crate::render::RenderContext;
 use crate::transform::AstTransform;
 use crate::transforms::is_feature_disabled;
@@ -97,7 +97,7 @@ impl AstTransform for AttributionGenerateTransform {
         // non-colliding user keys (an actor named in YAML but with
         // no runs in this document is invisible at the writer and
         // would be dead weight in the map).
-        for (user_key, user_id) in from_config_value(&ast.meta) {
+        for (user_key, user_id) in identity_map_from_meta(&ast.meta) {
             if let Some(slot) = identities.get_mut(&user_key) {
                 *slot = user_id;
             }

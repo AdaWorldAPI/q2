@@ -193,7 +193,7 @@ pub fn format_supports_attribution(format: &Format) -> bool {
 /// uses them only as lookup keys and preserves the provider's
 /// pointer-equal key on collision, so the writer-side
 /// `Arc::ptr_eq` interning invariant is not weakened.
-pub fn from_config_value(meta: &quarto_pandoc_types::ConfigValue) -> IdentityMap {
+pub fn identity_map_from_meta(meta: &quarto_pandoc_types::ConfigValue) -> IdentityMap {
     let Some(identities) = meta.get("attribution").and_then(|v| v.get("identities")) else {
         return IdentityMap::new();
     };

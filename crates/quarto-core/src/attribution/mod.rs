@@ -53,5 +53,5 @@ pub use source::{AttributionSource, AttributionSourceProvider};
 pub use types::{
     AttributionData, AttributionHit, AttributionMap, AttributionRecord, AttributionRun, Identity,
     IdentityMap, TransportAttributionData, TransportAttributionRun, format_supports_attribution,
-    from_config_value,
+    identity_map_from_meta,
 };
