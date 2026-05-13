@@ -5,7 +5,7 @@ import type { Diagnostic } from '../../types/diagnostic';
 import type { ActorIdentity } from '../../services/automergeSync';
 import {
   parseQmdToAstWithAttribution,
-  renderPageInProject,
+  renderPageInProjectWithAttribution,
   isWasmReady,
   incrementalWriteQmd,
 } from '../../services/wasmRenderer';
@@ -84,7 +84,8 @@ type RenderResult = {
 // Render QMD content to AST JSON for the iframe-based preview.
 //
 // Dispatches on `pipelineKindForFormat(format)`:
-// - `'preview'` (q2-preview): calls `renderPageInProject(documentPath)`,
+// - `'preview'` (q2-preview): calls
+//   `renderPageInProjectWithAttribution(documentPath, undefined, attributionJson)`,
 //   which runs the full q2-preview pipeline in WASM (shortcodes, Lua
 //   filters, sectionize, crossref, sidebar/navbar metadata, etc.) and
 //   returns the post-pipeline AST as JSON via `RenderResponse.ast_json`.
@@ -92,13 +93,17 @@ type RenderResult = {
 //   VFS and discovers project context from it.
 // - any other format (q2-debug, q2-slides): calls
 //   `parseQmdToAstWithAttribution(content, attributionJson)`, which is
-//   path-less and skips the transform pipeline entirely. When
-//   `attributionJson` is non-null, the Rust pipeline installs
-//   `PreBuiltAttributionProvider`, runs `AttributionGenerateTransform`
-//   + `AttributionRenderTransform`, and the resulting AST carries
-//   `astContext.attribution` plus `astContext.attributionActors`.
-//   When `null`, the call is byte-identical to the unflagged q2-debug
-//   path (Phase 0 test #10).
+//   path-less and skips the transform pipeline entirely.
+//
+// In both branches, when `attributionJson` is non-null the Rust pipeline
+// installs `PreBuiltAttributionProvider` on the active-page ctx, runs
+// `AttributionGenerateTransform` + `AttributionRenderTransform`, and
+// the resulting AST carries `astContext.attribution` plus
+// `astContext.attributionActors`. When `null`, the call is
+// byte-identical to the unflagged path (Phase 0 test #10 for q2-debug;
+// the no-provider baseline in
+// `render_qmd_to_preview_ast_surfaces_attribution_when_provider_installed`
+// for q2-preview).
 //
 // Returns diagnostics and an AST JSON string, or an error message.
 async function doRender(
@@ -127,7 +132,19 @@ async function doRender(
       };
     }
 
-    const result = await renderPageInProject(options.documentPath);
+    // Phase 3 — q2-preview attribution wiring. `attributionJson` is
+    // produced by `useAttribution` and threaded through `doRender`'s
+    // options exactly as for q2-debug (line 175 below). When it's
+    // `null`, the WASM call falls through to the byte-identical
+    // no-attribution path; otherwise the active-page ctx receives a
+    // `PreBuiltAttributionProvider` and the resulting AST JSON
+    // carries `astContext.attribution*` for `<Ast>` to surface as
+    // per-author backgrounds and tooltips.
+    const result = await renderPageInProjectWithAttribution(
+      options.documentPath,
+      undefined,
+      options.attributionJson,
+    );
     const allDiagnostics: Diagnostic[] = [
       ...(result.diagnostics ?? []),
       ...(result.warnings ?? []),
