@@ -10,12 +10,14 @@
 //! Lives in `quarto-core` so CLI (`quarto`) and YAML
 //! (`quarto-yaml-validation` reachable from a document's merged
 //! metadata) both depend on the same type. The `clap::ValueEnum`
-//! derive is added in Phase 3c when the CLI plumbing lands; for now
-//! the enum carries only `serde` derives.
+//! derive is gated behind the `clap` cargo feature, enabled by the
+//! `quarto` CLI crate; other consumers (including the WASM build)
+//! keep clap out of their dep tree.
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum AttributionMode {
     Off,

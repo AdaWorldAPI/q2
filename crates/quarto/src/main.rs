@@ -10,20 +10,6 @@ use quarto_core::attribution::AttributionMode;
 
 mod commands;
 
-/// Map the `--attribution=<value>` string (already restricted to
-/// `git` / `off` by clap's `value_parser`) to the typed
-/// [`AttributionMode`]. Returns `None` on unrecognized input so the
-/// caller behaves as if the flag was absent — clap should already
-/// have rejected anything other than the two values above, so this
-/// only fires on a future expansion of the value list.
-fn parse_attribution_mode(s: &str) -> Option<AttributionMode> {
-    match s {
-        "git" => Some(AttributionMode::Git),
-        "off" => Some(AttributionMode::Off),
-        _ => None,
-    }
-}
-
 #[derive(Parser)]
 #[command(name = "quarto")]
 #[command(version = quarto_util::cli_version())]
@@ -158,8 +144,8 @@ enum Commands {
         /// Annotate output with per-author attribution.
         /// `--attribution=git` shells out to `git blame`; `--attribution=off`
         /// disables attribution even when the YAML opts in.
-        #[arg(long, value_parser = ["git", "off"])]
-        attribution: Option<String>,
+        #[arg(long, value_enum)]
+        attribution: Option<AttributionMode>,
     },
 
     /// Render and preview a document or website project
@@ -573,7 +559,7 @@ fn main() -> Result<()> {
             quiet,
             replay,
             debug,
-            attribution: attribution.as_deref().and_then(parse_attribution_mode),
+            attribution,
         }),
         Commands::Preview { .. } => commands::preview::execute(),
         Commands::Serve { .. } => commands::serve::execute(),
