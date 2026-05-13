@@ -13,6 +13,11 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-05-13
+
+- [`38273485`](https://github.com/quarto-dev/q2/commits/38273485): Authorship colouring and the hover badge now appear on q2-preview documents, matching q2-debug. The shared badge/stylesheet moved to `framework/`; q2-preview's dispatchers wrap nodes on hit and `PreviewDocument` mounts the hover handlers.
+- [`5194cc59`](https://github.com/quarto-dev/q2/commits/5194cc59): Thread the Authorship payload through the q2-preview WASM entry point so attribution data reaches the AST iframe. Off-path the call is byte-identical to before via the new `render_page_in_project_with_attribution` wrapper.
+
 ### 2026-05-12
 
 - [`7ceb42c0`](https://github.com/quarto-dev/q2/commits/7ceb42c0): Fix a race where Authorship colouring failed to appear on first render in q2-debug for files using `render-components`. The iframe now serializes AST updates through the in-flight component-load promise, so two updates queued during load run in arrival order.
