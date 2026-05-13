@@ -632,6 +632,14 @@ pub async fn run_pipeline(
     // bd-o8pr Phase 2: transfer engine/filter-collected resources
     // back to the caller (`render_document_to_file` reads this).
     ctx.resource_report = stage_ctx.resource_report;
+    // Transfer writer-side `format_options` populated by transforms
+    // running inside the pipeline (e.g. `AttributionRenderTransform`
+    // writes `attribution_by_node` / `attribution_actors` here). The
+    // q2-preview JSON writer runs *outside* `AstTransformsStage`,
+    // so it reads the populated data from the outer ctx after the
+    // pipeline returns. Pre-pipeline callers don't write
+    // `ctx.format_options`, so the overwrite is safe.
+    ctx.format_options = stage_ctx.format_options;
 
     result
         .map_err(|e| match e {
@@ -832,9 +840,66 @@ pub async fn render_qmd_to_preview_ast(
         source_context: source_context.clone(),
         parent_source_info: None,
     };
+    // When `AttributionRenderTransform` ran (i.e. a provider was
+    // installed on `ctx.attribution_provider`), forward
+    // `ctx.format_options.json` into `JsonConfig` so the writer emits
+    // `astContext.attribution` and `astContext.attributionActors`.
+    // Off-path (provider absent), both fields stay `None` and the
+    // JSON output is byte-identical to today's. Conversion mirrors
+    // the q2-debug WASM entry point (`wasm-quarto-hub-client::
+    // parse_qmd_to_ast_with_attribution`); the two writers' record
+    // types live in pampa and quarto-core respectively, so the
+    // crate-boundary conversion is unavoidable.
+    let json_attribution_by_node =
+        ctx.format_options
+            .json
+            .attribution_by_node
+            .as_ref()
+            .map(|map| {
+                let out: std::collections::HashMap<
+                    usize,
+                    pampa::writers::json::JsonAttributionRecord,
+                > = map
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            *k,
+                            pampa::writers::json::JsonAttributionRecord {
+                                actor: Arc::clone(&v.actor),
+                                time: v.time,
+                            },
+                        )
+                    })
+                    .collect();
+                Arc::new(out)
+            });
+    let json_attribution_actors = ctx
+        .format_options
+        .json
+        .attribution_actors
+        .as_ref()
+        .map(|map| {
+            let out: std::collections::HashMap<
+                Arc<str>,
+                pampa::writers::json::JsonAttributionIdentity,
+            > = map
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        Arc::clone(k),
+                        pampa::writers::json::JsonAttributionIdentity {
+                            display_name: v.display_name.clone(),
+                            color: v.color.clone(),
+                        },
+                    )
+                })
+                .collect();
+            Arc::new(out)
+        });
     let json_config = pampa::writers::json::JsonConfig {
         include_inline_locations: true,
-        ..pampa::writers::json::JsonConfig::default()
+        attribution_by_node: json_attribution_by_node,
+        attribution_actors: json_attribution_actors,
     };
     let mut buf = Vec::new();
     pampa::writers::json::write_with_config(&ast.ast, &ast_context, &mut buf, &json_config)
@@ -2157,6 +2222,97 @@ mod tests {
             "Q2_PREVIEW_STAGE_EXCLUDED contains names not in build_html_pipeline_stages: \
              {unknown:?}. Likely a typo or a rename — update the const in pipeline.rs. \
              Full HTML stage list: {html_names:?}",
+        );
+    }
+
+    /// Phase 0 test #1 from `2026-05-13-q2-preview-attribution.md`.
+    ///
+    /// With a `PreBuiltAttributionProvider` installed on the
+    /// `RenderContext`, `render_qmd_to_preview_ast` must surface
+    /// `astContext.attribution` and `astContext.attributionActors` in
+    /// the emitted JSON. Without a provider, those keys are absent
+    /// — the byte-identicality regression guard for unflagged
+    /// q2-preview renders.
+    #[test]
+    fn render_qmd_to_preview_ast_surfaces_attribution_when_provider_installed() {
+        let content = b"---\ntitle: Test\nformat: q2-preview\n---\n\nHello world!\n".as_slice();
+
+        // Run #1: no provider — keys must be absent.
+        let baseline = {
+            let project = make_test_project();
+            let doc = DocumentInfo::from_path("/project/test.qmd");
+            let format = Format::from_format_string("q2-preview").unwrap();
+            let binaries = BinaryDependencies::new();
+            let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+            let runtime = make_test_runtime();
+            pollster::block_on(render_qmd_to_preview_ast(
+                content, "test.qmd", &mut ctx, runtime,
+            ))
+            .expect("baseline q2-preview render")
+        };
+        assert!(
+            !baseline.ast_json.contains("\"attribution\""),
+            "no-provider baseline must omit `attribution` key; got:\n{}",
+            baseline.ast_json
+        );
+        assert!(
+            !baseline.ast_json.contains("\"attributionActors\""),
+            "no-provider baseline must omit `attributionActors` key; got:\n{}",
+            baseline.ast_json
+        );
+
+        // Run #2: provider installed — keys must be present, with
+        // the expected actor + identity surfaced.
+        let attribution_json = serde_json::json!({
+            "runs": [
+                { "start": 0, "end": 10_000, "actor": "alice", "time": 42 }
+            ],
+            "identities": {
+                "alice": { "name": "Alice", "color": "#ff0000" }
+            }
+        })
+        .to_string();
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::from_format_string("q2-preview").unwrap();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        ctx.attribution_provider = Some(Arc::new(
+            crate::attribution::PreBuiltAttributionProvider::new(attribution_json),
+        ));
+
+        let runtime = make_test_runtime();
+        let output = pollster::block_on(render_qmd_to_preview_ast(
+            content, "test.qmd", &mut ctx, runtime,
+        ))
+        .expect("attributed q2-preview render");
+
+        assert!(
+            output.ast_json.contains("\"attribution\""),
+            "expected `attribution` key in attributed q2-preview output; got:\n{}",
+            output.ast_json
+        );
+        assert!(
+            output.ast_json.contains("\"attributionActors\""),
+            "expected `attributionActors` key in attributed q2-preview output; got:\n{}",
+            output.ast_json
+        );
+        assert!(
+            output.ast_json.contains("\"actor\":\"alice\""),
+            "expected at least one record naming alice; got:\n{}",
+            output.ast_json
+        );
+        assert!(
+            output.ast_json.contains("\"name\":\"Alice\""),
+            "expected alice's identity entry with display name; got:\n{}",
+            output.ast_json
+        );
+        assert!(
+            output.ast_json.contains("\"color\":\"#ff0000\""),
+            "expected alice's identity entry with color; got:\n{}",
+            output.ast_json
         );
     }
 }

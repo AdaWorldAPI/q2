@@ -1182,7 +1182,7 @@ pub async fn render_qmd(path: &str, user_grammars: Option<JsUserGrammars>) -> St
         Err(e) => return error_response(format!("Failed to discover project context: {}", e)),
     };
 
-    render_single_doc_to_response(path, &content, &project, user_grammars).await
+    render_single_doc_to_response(path, &content, &project, user_grammars, None).await
 }
 
 /// Render QMD content directly (without reading from VFS).
@@ -1205,10 +1205,23 @@ pub async fn render_qmd_content(
     // surface as `/input.qmd` to the JS layer.
     let path = Path::new("/input.qmd");
     let project = create_wasm_project_context(path);
-    render_single_doc_to_response(path, content.as_bytes(), &project, user_grammars).await
+    render_single_doc_to_response(path, content.as_bytes(), &project, user_grammars, None).await
 }
 
 /// Render a single page **in the context of its surrounding project**.
+///
+/// Phase 9 entry point used by the hub-client live preview.
+/// Equivalent to
+/// [`render_page_in_project_with_attribution(path, user_grammars, None)`](render_page_in_project_with_attribution).
+/// Kept as a separate entry point for callers that have no
+/// attribution payload to ship and want the simpler signature.
+#[wasm_bindgen]
+pub async fn render_page_in_project(path: &str, user_grammars: Option<JsUserGrammars>) -> String {
+    render_page_in_project_with_attribution(path, user_grammars, None).await
+}
+
+/// Render a single page **in the context of its surrounding project**,
+/// optionally with attribution data.
 ///
 /// Phase 9 entry point used by the hub-client live preview. The
 /// flow:
@@ -1218,14 +1231,32 @@ pub async fn render_qmd_content(
 ///    `_quarto.yml`).
 /// 3. **Single-file** (no `_quarto.yml` ancestor) → fall through
 ///    to the existing single-doc render path. Output is byte-
-///    identical to `render_qmd`.
+///    identical to `render_qmd` when `attribution_json` is `None`.
 /// 4. **Multi-file project** → drive `ProjectPipeline` with the
-///    WASM `RenderToHtmlRenderer` and `RenderMode::ActivePage(…)`.
-///    Pass-1 runs over every project file (cache-backed via the
-///    Phase-8 `cache_get`/`cache_set` infra), `pre_render` runs,
-///    Pass-2 renders just the active page, and `post_render`
-///    flushes Project-scoped artifacts to VFS via the same
-///    resolver Pass-2 used.
+///    WASM `RenderToHtmlRenderer` (HTML) or
+///    `RenderToPreviewAstRenderer` (q2-preview) and
+///    `RenderMode::ActivePage(…)`. Pass-1 runs over every project
+///    file (cache-backed via the Phase-8 `cache_get`/`cache_set`
+///    infra), `pre_render` runs, Pass-2 renders just the active
+///    page, and `post_render` flushes Project-scoped artifacts to
+///    VFS via the same resolver Pass-2 used.
+///
+/// When `attribution_json` is `Some(s)`, the JSON string is wrapped
+/// in a [`PreBuiltAttributionProvider`] and installed on the active
+/// page's `RenderContext`; the attribution-generate and
+/// attribution-render transforms (registered in the q2-preview
+/// transform pipeline) fire from inside the pipeline, populating
+/// `astContext.attribution` and `astContext.attributionActors` on
+/// the resulting AST JSON. When `None`, the result is byte-identical
+/// to [`render_page_in_project`] for every fixture — same code path,
+/// no provider installed, no transforms surface attribution data.
+///
+/// # Byte-identicality invariant
+///
+/// `render_page_in_project(path, user_grammars)` is byte-identical
+/// to `render_page_in_project_with_attribution(path, user_grammars,
+/// None)` for every fixture. A regression on the `None` branch
+/// would break *all* q2-preview renders, not just attributed ones.
 ///
 /// In both branches the response shape is the same `RenderResponse`
 /// JSON `render_qmd` returns today — the JS layer doesn't need a
@@ -1235,8 +1266,18 @@ pub async fn render_qmd_content(
 /// * `path` - Path to the active QMD file in VFS.
 /// * `user_grammars` - Optional user-grammar provider; same
 ///   semantics as for [`render_qmd`].
+/// * `attribution_json` - Optional serialized transport JSON. Same
+///   shape as the payload accepted by
+///   [`parse_qmd_to_ast_with_attribution`].
+///
+/// [`PreBuiltAttributionProvider`]:
+///     quarto_core::attribution::PreBuiltAttributionProvider
 #[wasm_bindgen]
-pub async fn render_page_in_project(path: &str, user_grammars: Option<JsUserGrammars>) -> String {
+pub async fn render_page_in_project_with_attribution(
+    path: &str,
+    user_grammars: Option<JsUserGrammars>,
+    attribution_json: Option<String>,
+) -> String {
     let runtime = get_runtime();
     let path_buf = std::path::PathBuf::from(path);
     let path = path_buf.as_path();
@@ -1263,7 +1304,14 @@ pub async fn render_page_in_project(path: &str, user_grammars: Option<JsUserGram
     // Behavior is byte-identical to `render_qmd` — same single-doc
     // pipeline, same VFS-root resolver, same VFS artifact dump.
     if project.is_single_file {
-        return render_single_doc_to_response(path, &content, &project, user_grammars).await;
+        return render_single_doc_to_response(
+            path,
+            &content,
+            &project,
+            user_grammars,
+            attribution_json,
+        )
+        .await;
     }
 
     // Multi-doc project. The discover-from-file form returns a
@@ -1278,11 +1326,27 @@ pub async fn render_page_in_project(path: &str, user_grammars: Option<JsUserGram
             return error_response(format!("Failed to enumerate project files: {}", e));
         }
     };
-    render_project_active_page_to_response(&path_buf, &content, project, user_grammars).await
+    render_project_active_page_to_response(
+        &path_buf,
+        &content,
+        project,
+        user_grammars,
+        attribution_json,
+    )
+    .await
 }
 
 /// Single-doc render path — used by `render_qmd` directly and by
 /// `render_page_in_project` when no `_quarto.yml` ancestor exists.
+///
+/// `attribution_json`, when `Some`, is a serialized
+/// [`quarto_core::attribution::types::TransportAttributionData`]
+/// shipped by the hub-client. Installed on `ctx.attribution_provider`
+/// so [`quarto_core::transforms::AttributionGenerateTransform`] +
+/// [`quarto_core::transforms::AttributionRenderTransform`] fire from
+/// inside the pipeline (they're registered in
+/// [`quarto_core::pipeline::build_q2_preview_transform_pipeline`]).
+/// `None` is byte-identical to today's output for every existing caller.
 ///
 /// Returns the [`RenderResponse`] JSON string the JS layer expects.
 async fn render_single_doc_to_response(
@@ -1290,6 +1354,7 @@ async fn render_single_doc_to_response(
     content: &[u8],
     project: &ProjectContext,
     user_grammars: Option<JsUserGrammars>,
+    attribution_json: Option<String>,
 ) -> String {
     let doc = DocumentInfo::from_path(path);
     let binaries = BinaryDependencies::new();
@@ -1311,6 +1376,11 @@ async fn render_single_doc_to_response(
     let mut ctx = RenderContext::new(project, &doc, &format, &binaries).with_options(options);
     if let Some(provider) = user_grammars {
         ctx.user_grammar_provider = Some(std::rc::Rc::new(std::cell::RefCell::new(provider)));
+    }
+    if let Some(json) = attribution_json {
+        ctx.attribution_provider = Some(Arc::new(
+            quarto_core::attribution::PreBuiltAttributionProvider::new(json),
+        ));
     }
 
     // Phase 5 VFS-root resolver — every artifact resolves under
@@ -1414,11 +1484,21 @@ fn extract_theme_fingerprint(store: &quarto_core::ArtifactStore) -> Option<Strin
 /// `RenderToHtmlRenderer` to produce just the active page in the
 /// context of its surrounding project (sidebar, navbar, cross-doc
 /// links, deduplicated theme CSS).
+///
+/// `attribution_json` is plumbed through to
+/// `RenderToPreviewAstRenderer::with_attribution` on the q2-preview
+/// branch (the active-page ctx is constructed inside the renderer's
+/// `render()`, so installing the provider from here is impossible —
+/// the builder is the attachment point). Ignored on the HTML
+/// branch (q2-preview is the only consumer of attribution wire data
+/// for v1; HTML CLI uses `data-attr-*` inline markup via a separate
+/// transform).
 async fn render_project_active_page_to_response(
     active_path: &Path,
     _content: &[u8],
     mut project: ProjectContext,
     user_grammars: Option<JsUserGrammars>,
+    attribution_json: Option<String>,
 ) -> String {
     use quarto_core::project::orchestrator::{ProjectPipeline, RenderMode, project_type_for};
     use quarto_core::project::pass2_renderer::{
@@ -1469,7 +1549,10 @@ async fn render_project_active_page_to_response(
     let kind = format.pipeline_kind;
     let summary = match kind {
         Some("preview") => {
-            let renderer = RenderToPreviewAstRenderer::new("/.quarto/project-artifacts");
+            let mut renderer = RenderToPreviewAstRenderer::new("/.quarto/project-artifacts");
+            if let Some(json) = attribution_json {
+                renderer = renderer.with_attribution(json);
+            }
             let mut pipeline = ProjectPipeline::with_renderer(
                 &mut project,
                 project_type,
