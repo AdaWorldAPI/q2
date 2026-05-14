@@ -3,23 +3,32 @@
  * Copyright (c) 2026 Posit, PBC
  */
 
-//! Phase 0 test #9 — end-to-end CLI fixture with two-author git history.
+//! End-to-end regression test for `q2 render --attribution=git`.
 //!
-//! The test builds a temp git repo on every invocation
-//! (`tempdir` + `git init` + two scripted commits by distinct
-//! authors), with `GIT_AUTHOR_DATE` / `GIT_COMMITTER_DATE` / author
-//! identities pinned so the porcelain output and commit hashes are
-//! bit-deterministic. It copies
-//! `crates/quarto-core/tests/fixtures/attribution-blame/doc.qmd` into
-//! the tempdir, then runs
-//! `cargo run --bin q2 -- render <tempdir>/doc.qmd --to html
-//! --attribution=git`. Asserts the produced HTML contains
-//! `data-attr-actor="<email>"` strings matching the two scripted
-//! author emails.
+//! Builds a temp git repo on every invocation (`tempdir` + `git init`
+//! + two scripted commits by distinct authors), with
+//! `GIT_AUTHOR_DATE` / `GIT_COMMITTER_DATE` / author identities pinned
+//! so the porcelain output and commit hashes are bit-deterministic.
+//! Copies `crates/quarto-core/tests/fixtures/attribution-blame/doc.qmd`
+//! into the tempdir, then runs
+//! `q2 render <tempdir>/doc.qmd --to html --attribution=git` and
+//! asserts the full `data-attr-*` contract on the produced HTML:
 //!
-//! **Phase 0 status: RED.** Until Phase 3c lands the `--attribution`
-//! flag and Phase 3a lands `GitBlameProvider`, the binary will reject
-//! the flag with a clap usage error and the test will fail.
+//! * `data-attr-actor` — the author email (per-commit blame credit).
+//! * `data-attr-time`  — Unix epoch **seconds** for the git provider.
+//!                       (Automerge / hub-client uses ms; the unit is
+//!                       part of the wire contract — see
+//!                       `docs/authoring/attribution.qmd`.)
+//! * `data-attr-name`  — derived display name (mail-local-part).
+//! * `data-attr-color` — deterministic `hsl(...)` from the email hash.
+//!
+//! This is the one test that exercises the live `git blame --porcelain`
+//! shell-out (`GitBlameProvider::build` in
+//! `crates/quarto-core/src/attribution/git_blame.rs`); the fixture-
+//! based unit tests in `attribution_gitblame.rs` only cover the
+//! parser. Any regression in CLI flag wiring, working-directory
+//! resolution, or porcelain handling on real git output should surface
+//! here first.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -123,10 +132,6 @@ fn locate_fixture() -> PathBuf {
 }
 
 #[test]
-#[cfg_attr(
-    not(any(target_os = "linux", target_os = "macos")),
-    ignore = "git scripting fixture is unix-only for Phase 0"
-)]
 fn cli_attribution_git_emits_data_attr_actor_for_both_authors() {
     let fixture = locate_fixture();
     assert!(
@@ -156,6 +161,8 @@ fn cli_attribution_git_emits_data_attr_actor_for_both_authors() {
     // The output html lives next to the input by default; find it.
     let html_path = tmp.path().join("doc.html");
     let html = std::fs::read_to_string(&html_path).expect("read rendered html");
+
+    // data-attr-actor — author email per commit blame credit.
     assert!(
         html.contains(&format!("data-attr-actor=\"{}\"", ALICE_EMAIL)),
         "alice's email must appear as data-attr-actor; html:\n{}",
@@ -166,4 +173,84 @@ fn cli_attribution_git_emits_data_attr_actor_for_both_authors() {
         "bob's email must appear as data-attr-actor; html:\n{}",
         html
     );
+
+    // data-attr-time — Unix epoch SECONDS for the git provider. The
+    // scripted commit times (@1700000000, @1700100000) flow through
+    // `git blame --porcelain`'s author-time and must arrive verbatim.
+    // A regression to milliseconds would shift to 13-digit values
+    // (1_700_000_000_000) and fail this assertion.
+    assert!(
+        html.contains("data-attr-time=\"1700000000\""),
+        "alice's commit time (seconds) must appear as data-attr-time; html:\n{}",
+        html
+    );
+    assert!(
+        html.contains("data-attr-time=\"1700100000\""),
+        "bob's commit time (seconds) must appear as data-attr-time; html:\n{}",
+        html
+    );
+
+    // data-attr-name — display name derived from the email
+    // local-part. Pins the derivation that
+    // `docs/authoring/attribution.qmd` advertises ("mail-local-part
+    // plus a deterministic HSL colour").
+    assert!(
+        html.contains("data-attr-name=\"alice\""),
+        "alice's display name must appear; html:\n{}",
+        html
+    );
+    assert!(
+        html.contains("data-attr-name=\"bob\""),
+        "bob's display name must appear; html:\n{}",
+        html
+    );
+
+    // data-attr-color — deterministic hsl() from the email hash. We
+    // don't pin specific hue values (the palette function may evolve)
+    // but the wire format is part of the contract: it must be an
+    // `hsl(...)` triple, distinct between the two authors so the
+    // per-actor derivation is exercised end-to-end.
+    let alice_color =
+        extract_attr_value(&html, ALICE_EMAIL, "data-attr-color").expect("alice color present");
+    let bob_color =
+        extract_attr_value(&html, BOB_EMAIL, "data-attr-color").expect("bob color present");
+    assert!(
+        alice_color.starts_with("hsl("),
+        "alice's data-attr-color must be hsl(); got {alice_color}"
+    );
+    assert!(
+        bob_color.starts_with("hsl("),
+        "bob's data-attr-color must be hsl(); got {bob_color}"
+    );
+    assert_ne!(
+        alice_color, bob_color,
+        "per-actor color derivation must yield distinct hues"
+    );
+}
+
+/// Look up the value of `attr` on the same element that carries
+/// `data-attr-actor="<email>"`. Returns the substring between the
+/// quotes after `attr=`, or `None` if the pairing isn't found.
+///
+/// Used by the color assertions to extract values for comparison
+/// without hard-coding the palette function's output — keeps the test
+/// stable across deterministic palette tweaks while still pinning the
+/// per-actor distinctness contract.
+fn extract_attr_value(html: &str, actor_email: &str, attr: &str) -> Option<String> {
+    let actor_marker = format!("data-attr-actor=\"{}\"", actor_email);
+    let needle = format!("{}=\"", attr);
+    // Walk every occurrence of the actor marker; the matching attr
+    // sits on the same tag, which in this writer means within the
+    // same `<...>` element opener.
+    for actor_at in html.match_indices(&actor_marker).map(|(i, _)| i) {
+        let tag_start = html[..actor_at].rfind('<')?;
+        let tag_end = html[tag_start..].find('>')? + tag_start;
+        let tag = &html[tag_start..=tag_end];
+        if let Some(attr_at) = tag.find(&needle) {
+            let value_start = attr_at + needle.len();
+            let value_end = tag[value_start..].find('"')? + value_start;
+            return Some(tag[value_start..value_end].to_string());
+        }
+    }
+    None
 }
