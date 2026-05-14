@@ -176,7 +176,11 @@ fn cli_attribution_git_emits_data_attr_actor_for_both_authors() {
 
     // data-attr-time — Unix epoch SECONDS for the git provider. The
     // scripted commit times (@1700000000, @1700100000) flow through
-    // `git blame --porcelain`'s author-time and must arrive verbatim.
+    // `git blame --porcelain`'s committer-time and must arrive
+    // verbatim. The fixture pins author-time = committer-time so this
+    // particular assertion would pass regardless of which time the
+    // provider reads; the committer-time semantics are pinned
+    // separately by `cli_attribution_git_emits_committer_time_for_backdated_commit`.
     // A regression to milliseconds would shift to 13-digit values
     // (1_700_000_000_000) and fail this assertion.
     assert!(
@@ -287,6 +291,71 @@ fn cli_attribution_git_auto_injects_viewer_css_and_js() {
         script_tail.contains("data-attr-actor"),
         "viewer JS body must reference data-attr-actor; got tail:\n{}",
         &script_tail[..script_tail.len().min(400)]
+    );
+}
+
+/// Regression: when a commit is back-dated (its `author-time` is far
+/// in the past but its `committer-time` is `now`), the rendered
+/// wrapper's `data-attr-time` must carry the committer-time. The git
+/// blame parser used to read only `author-time`, which made any
+/// `--date=PAST` commit render as "910 days ago" in the viewer
+/// regardless of when it actually landed in the branch. Pins the
+/// committer-time semantics end-to-end.
+#[test]
+fn cli_attribution_git_emits_committer_time_for_backdated_commit() {
+    let fixture = locate_fixture();
+    let doc_qmd = std::fs::read_to_string(&fixture).expect("read fixture");
+
+    let tmp = TempDir::new().expect("tempdir");
+    write_file(&tmp.path().join("doc.qmd"), &doc_qmd);
+
+    // The author-time is back-dated to 2023; the committer-time is set
+    // to a clearly distinct, recent-ish value (well into 2024). The
+    // two values must not collide. Both env vars are pinned so the
+    // assertion is deterministic across machines and clocks.
+    let init = run_git(tmp.path(), &["init", "-q", "-b", "main"], &[]);
+    assert!(init.status.success(), "git init failed: {:?}", init);
+    run_git(tmp.path(), &["add", "doc.qmd"], &[]);
+    let env = [
+        ("GIT_AUTHOR_NAME", "Alice"),
+        ("GIT_AUTHOR_EMAIL", ALICE_EMAIL),
+        ("GIT_COMMITTER_NAME", "Alice"),
+        ("GIT_COMMITTER_EMAIL", ALICE_EMAIL),
+        // Author-time: back-dated to 2023.
+        ("GIT_AUTHOR_DATE", "@1700000000 +0000"),
+        // Committer-time: distinct, "recent" relative to the author
+        // date. The wrapper must surface this value.
+        ("GIT_COMMITTER_DATE", "@1900000000 +0000"),
+    ];
+    let commit = run_git(tmp.path(), &["commit", "-q", "-m", "backdated"], &env);
+    assert!(commit.status.success(), "commit failed: {:?}", commit);
+
+    let output = Command::new(Q2_BIN)
+        .arg("render")
+        .arg(tmp.path().join("doc.qmd"))
+        .args(["--to", "html"])
+        .arg("--attribution=git")
+        .output()
+        .expect("spawn q2");
+    assert!(
+        output.status.success(),
+        "q2 render must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let html = std::fs::read_to_string(tmp.path().join("doc.html")).expect("read rendered html");
+    assert!(
+        html.contains("data-attr-time=\"1900000000\""),
+        "rendered wrapper must carry committer-time (1900000000), not \
+         the back-dated author-time; html:\n{}",
+        html
+    );
+    assert!(
+        !html.contains("data-attr-time=\"1700000000\""),
+        "back-dated author-time (1700000000) must NOT appear in \
+         data-attr-time — that would make recent commits render as \
+         900+ days old in the viewer. html:\n{}",
+        html
     );
 }
 

@@ -27,8 +27,50 @@ fn parse_single_commit_single_line() {
         BlameLine {
             author: "Alice".to_string(),
             author_mail: "alice@example.com".to_string(),
-            author_time: 1_700_000_000,
+            committer_time: 1_700_000_000,
         }
+    );
+}
+
+/// Regression: when a commit is back-dated (`git commit --date=PAST`
+/// or any rebase / cherry-pick / amend), the porcelain reports a
+/// past `author-time` alongside a present `committer-time`. The
+/// run's `time` field, which feeds `data-attr-time` and ultimately
+/// the rendered relative-time badge, must follow committer-time so
+/// the viewer surfaces "when this line was committed to the branch"
+/// rather than "when its author originally wrote it back in 2023".
+///
+/// The porcelain block carries both `author-time 1700000000` and
+/// `committer-time 1900000000`; only the latter must survive into
+/// `BlameRun.time`.
+#[test]
+fn parse_uses_committer_time_for_run_time_even_with_backdated_author() {
+    let porcelain = "\
+abcdef0123456789abcdef0123456789abcdef01 1 1 1
+author Alice
+author-mail <alice@example.com>
+author-time 1700000000
+author-tz +0000
+committer Alice
+committer-mail <alice@example.com>
+committer-time 1900000000
+committer-tz +0000
+summary backdated
+boundary
+filename doc.qmd
+\thello
+";
+    let parsed = parse_blame_porcelain(porcelain);
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].committer_time, 1_900_000_000);
+
+    let runs = build_blame_runs(&parsed, "hello\n").expect("build runs");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(
+        runs[0].time, 1_900_000_000,
+        "run.time must follow committer-time; a regression to \
+         author-time (1700000000) would make back-dated commits look \
+         ancient in the rendered viewer"
     );
 }
 
@@ -42,7 +84,7 @@ fn parse_caches_commit_metadata_across_lines_from_same_commit() {
     assert!(parsed.len() >= 2);
     assert_eq!(parsed[0].author_mail, "alice@example.com");
     assert_eq!(parsed[1].author_mail, "alice@example.com");
-    assert_eq!(parsed[0].author_time, parsed[1].author_time);
+    assert_eq!(parsed[0].committer_time, parsed[1].committer_time);
 }
 
 #[test]
@@ -56,7 +98,7 @@ fn build_runs_handles_multi_byte_utf8() {
     let blame = vec![BlameLine {
         author: "Alice".into(),
         author_mail: "alice@x".into(),
-        author_time: 1,
+        committer_time: 1,
     }];
     let runs = build_blame_runs(&blame, "世界\n").expect("build runs");
     assert_eq!(
@@ -76,12 +118,12 @@ fn build_runs_handles_text_without_trailing_newline() {
         BlameLine {
             author: "A".into(),
             author_mail: "a@x".into(),
-            author_time: 1,
+            committer_time: 1,
         },
         BlameLine {
             author: "B".into(),
             author_mail: "b@x".into(),
-            author_time: 2,
+            committer_time: 2,
         },
     ];
     let runs = build_blame_runs(&blame, "foo\nbar").expect("build runs");

@@ -27,12 +27,17 @@ use crate::render::RenderContext;
 /// One parsed porcelain record per source line.
 ///
 /// `author_mail` has the angle brackets stripped — used as the actor
-/// identifier (matching the TS prototype).
+/// identifier (matching the TS prototype). `committer_time` is the
+/// "when did this line land in this branch" signal the rendered
+/// viewer surfaces (see [`build_blame_runs`]); author-time is
+/// deliberately not parsed because it can be back-dated via
+/// `git commit --date=PAST`, rebase, cherry-pick, or amend, and the
+/// viewer's freshness reading should not reflect those.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlameLine {
     pub author: String,
     pub author_mail: String,
-    pub author_time: i64,
+    pub committer_time: i64,
 }
 
 /// A line-level blame record expanded to a byte range against the
@@ -49,7 +54,7 @@ pub struct BlameRun {
 struct CachedCommit {
     author: String,
     author_mail: String,
-    author_time: i64,
+    committer_time: i64,
 }
 
 /// Parse `git blame --porcelain` output into one [`BlameLine`] per
@@ -65,7 +70,7 @@ pub fn parse_blame_porcelain(output: &str) -> Vec<BlameLine> {
     let mut current_hash: Option<String> = None;
     let mut current_author: Option<String> = None;
     let mut current_mail: Option<String> = None;
-    let mut current_time: Option<i64> = None;
+    let mut current_committer_time: Option<i64> = None;
 
     for line in output.lines() {
         if let Some(_content) = line.strip_prefix('\t') {
@@ -73,35 +78,35 @@ pub fn parse_blame_porcelain(output: &str) -> Vec<BlameLine> {
                 // Content line with no header — malformed; skip.
                 current_author = None;
                 current_mail = None;
-                current_time = None;
+                current_committer_time = None;
                 continue;
             };
             let record = if let Some(cached) = cache.get(&hash) {
                 BlameLine {
                     author: cached.author.clone(),
                     author_mail: cached.author_mail.clone(),
-                    author_time: cached.author_time,
+                    committer_time: cached.committer_time,
                 }
             } else {
                 let author = current_author.take().unwrap_or_default();
                 let author_mail = current_mail.take().unwrap_or_default();
-                let author_time = current_time.take().unwrap_or(0);
+                let committer_time = current_committer_time.take().unwrap_or(0);
                 let cached = CachedCommit {
                     author: author.clone(),
                     author_mail: author_mail.clone(),
-                    author_time,
+                    committer_time,
                 };
                 cache.insert(hash, cached);
                 BlameLine {
                     author,
                     author_mail,
-                    author_time,
+                    committer_time,
                 }
             };
             results.push(record);
             current_author = None;
             current_mail = None;
-            current_time = None;
+            current_committer_time = None;
             continue;
         }
 
@@ -126,7 +131,7 @@ pub fn parse_blame_porcelain(output: &str) -> Vec<BlameLine> {
                     .unwrap_or(trimmed);
                 current_mail = Some(stripped.to_string());
             }
-            "author-time" => current_time = rest.trim().parse::<i64>().ok(),
+            "committer-time" => current_committer_time = rest.trim().parse::<i64>().ok(),
             _ => {}
         }
     }
@@ -163,7 +168,7 @@ pub fn build_blame_runs(blame: &[BlameLine], text: &str) -> Result<Vec<BlameRun>
             byte_start: offset,
             byte_end,
             actor: blame[i].author_mail.clone(),
-            time: blame[i].author_time,
+            time: blame[i].committer_time,
         });
         offset = byte_end;
     }
