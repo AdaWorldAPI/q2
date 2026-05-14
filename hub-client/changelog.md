@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-05-14
+
+- [`8b8349c8`](https://github.com/quarto-dev/q2/commits/8b8349c8): `--attribution=git` renders now auto-inject a viewer CSS/JS pair (dotted underline, body text painted in the author's colour, hover badge) so static HTML matches the hub-client preview. The shared stylesheet lives at `resources/attribution/viewer.css` (single source of truth with the CLI), loaded into the hub-client via a virtual-module Vite plugin.
+
 ### 2026-05-13
 
 - [`26862035`](https://github.com/quarto-dev/q2/commits/26862035): Internal refactor — `actorColor` / `fnv1aHex8` moved from `hooks/useReplayMode.ts` to `utils/palette.ts` so the replay drawer and the Authorship producer import from a single non-React module. No user-visible change.
