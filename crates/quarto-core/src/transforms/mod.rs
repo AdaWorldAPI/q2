@@ -31,6 +31,7 @@
 mod appendix;
 mod attribution_generate;
 mod attribution_render;
+mod attribution_viewer;
 mod callout;
 mod callout_resolve;
 mod categories_sidebar;
@@ -73,6 +74,7 @@ mod website_title_prefix;
 pub use appendix::AppendixStructureTransform;
 pub use attribution_generate::AttributionGenerateTransform;
 pub use attribution_render::AttributionRenderTransform;
+pub use attribution_viewer::AttributionViewerTransform;
 pub use callout::CalloutTransform;
 pub use callout_resolve::CalloutResolveTransform;
 pub use categories_sidebar::CategoriesSidebarTransform;

@@ -216,3 +216,30 @@ pub fn identity_map_from_meta(meta: &quarto_pandoc_types::ConfigValue) -> Identi
     }
     out
 }
+
+/// Read the YAML opt-out
+/// `attribution: { source: git, viewer: false }`.
+///
+/// Returns `true` (viewer on, the default) when the key is absent,
+/// when `attribution` is the short form (a string), or when the
+/// `viewer` value is anything other than a literal `false`. Returns
+/// `false` only on an explicit `viewer: false` (or `viewer: "false"`).
+/// The opt-out is the only currently recognized value; richer
+/// theming knobs are deferred per the plan's "out of scope".
+///
+/// Companion to [`identity_map_from_meta`] for the third
+/// rich-form attribution key.
+pub fn attribution_viewer_enabled_from_meta(meta: &quarto_pandoc_types::ConfigValue) -> bool {
+    let Some(viewer) = meta.get("attribution").and_then(|v| v.get("viewer")) else {
+        return true;
+    };
+    if let Some(b) = viewer.as_bool() {
+        return b;
+    }
+    if let Some(s) = viewer.as_plain_text()
+        && s.eq_ignore_ascii_case("false")
+    {
+        return false;
+    }
+    true
+}

@@ -48,7 +48,7 @@ pub struct FormatOptions {
 }
 
 /// HTML writer-side options.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct HtmlFormatOptions {
     /// Walk-order slice of per-node `Option<AttributionRecord>`.
     /// `None` (outer) means "no attribution in scope" (off-path).
@@ -76,6 +76,26 @@ pub struct HtmlFormatOptions {
     /// (not via a separate table on the wire) because static no-JS
     /// viewers need self-contained `data-attr-color` values.
     pub attribution_identities: Option<Arc<IdentityMap>>,
+
+    /// Whether `AttributionViewerTransform` should auto-inject the
+    /// default viewer CSS + JS pair (dotted underline + hover badge)
+    /// into `rendered.includes.{header,after-body}`. Defaults to
+    /// `true`; flipped to `false` only by the YAML opt-out
+    /// `attribution: { source: git, viewer: false }`. The viewer
+    /// transform additionally gates on `attribution_by_node.is_some()`,
+    /// so the bool only matters when attribution is otherwise active.
+    pub attribution_viewer_enabled: bool,
+}
+
+impl Default for HtmlFormatOptions {
+    fn default() -> Self {
+        Self {
+            attribution_lookup: None,
+            attribution_by_node: None,
+            attribution_identities: None,
+            attribution_viewer_enabled: true,
+        }
+    }
 }
 
 /// q2-debug JSON writer-side options.

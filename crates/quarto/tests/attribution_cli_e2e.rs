@@ -228,6 +228,192 @@ fn cli_attribution_git_emits_data_attr_actor_for_both_authors() {
     );
 }
 
+/// Phase B test from `2026-05-14-attribution-auto-viewer.md`: the
+/// default-on viewer auto-injects an inline `<style>` (carrying
+/// `q2-attr-badge` selectors) into `<head>` and an inline `<script>`
+/// (binding to `data-attr-actor` elements) before `</body>`. Both
+/// must reach the rendered HTML through the live pipeline, not just
+/// the transform-level tests.
+#[test]
+fn cli_attribution_git_auto_injects_viewer_css_and_js() {
+    let fixture = locate_fixture();
+    let doc_qmd = std::fs::read_to_string(&fixture).expect("read fixture");
+    let tmp = TempDir::new().expect("tempdir");
+    scripted_repo(tmp.path(), &doc_qmd);
+
+    let output = Command::new(Q2_BIN)
+        .arg("render")
+        .arg(tmp.path().join("doc.qmd"))
+        .args(["--to", "html"])
+        .arg("--attribution=git")
+        .output()
+        .expect("spawn q2");
+    assert!(
+        output.status.success(),
+        "q2 render --attribution=git must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let html = std::fs::read_to_string(tmp.path().join("doc.html")).expect("read rendered html");
+
+    // CSS: a `<style>` containing the badge class lifted from the
+    // hub-client framework so both surfaces share the contract.
+    assert!(
+        html.contains("q2-attr-badge"),
+        "rendered HTML must contain the viewer CSS class; html:\n{}",
+        html
+    );
+    assert!(
+        html.contains("<!-- quarto-attribution-viewer-css -->"),
+        "viewer CSS must carry its dedup sentinel; html:\n{}",
+        html
+    );
+
+    // JS: a `<script>` binding to `data-attr-actor` for hover.
+    assert!(
+        html.contains("<!-- quarto-attribution-viewer-js -->"),
+        "viewer JS must carry its dedup sentinel; html:\n{}",
+        html
+    );
+    // The auto-injected JS hooks on `[data-attr-actor]` (the same
+    // attribute the writer emits per wrapper). A regression that ships
+    // CSS but loses the JS hook would still satisfy the badge-class
+    // assertion above — this one pins the listener path.
+    let script_idx = html
+        .find("<!-- quarto-attribution-viewer-js -->")
+        .expect("sentinel present");
+    let script_tail = &html[script_idx..];
+    assert!(
+        script_tail.contains("data-attr-actor"),
+        "viewer JS body must reference data-attr-actor; got tail:\n{}",
+        &script_tail[..script_tail.len().min(400)]
+    );
+}
+
+/// Phase B test: YAML opt-out via `attribution: { viewer: false }`
+/// suppresses the auto-injection while keeping the wrappers
+/// themselves (attribution is activated by `--attribution=git` here;
+/// the `viewer: false` knob is the orthogonal opt-out the plan
+/// introduced).
+#[test]
+fn cli_attribution_git_yaml_viewer_opt_out_suppresses_css_and_js() {
+    let fixture = locate_fixture();
+    let doc_qmd = std::fs::read_to_string(&fixture).expect("read fixture");
+
+    // Prepend a YAML block carrying the opt-out and strip the
+    // fixture's own front matter so the result has a single,
+    // well-formed YAML header. The CLI `--attribution=git` flag
+    // activates wrapping; the YAML `viewer: false` only governs
+    // whether the auto-injected CSS/JS ships.
+    let augmented = format!(
+        "---\ntitle: \"Attribution Test Document\"\nattribution:\n  viewer: false\n---\n\n{}",
+        strip_front_matter(&doc_qmd)
+    );
+
+    let tmp = TempDir::new().expect("tempdir");
+    scripted_repo(tmp.path(), &augmented);
+
+    let output = Command::new(Q2_BIN)
+        .arg("render")
+        .arg(tmp.path().join("doc.qmd"))
+        .args(["--to", "html"])
+        .arg("--attribution=git")
+        .output()
+        .expect("spawn q2");
+    assert!(
+        output.status.success(),
+        "q2 render must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let html = std::fs::read_to_string(tmp.path().join("doc.html")).expect("read rendered html");
+
+    // Wrappers still present (attribution itself is on via CLI).
+    assert!(
+        html.contains("data-attr-actor=\""),
+        "opt-out must keep wrappers; html:\n{}",
+        html
+    );
+
+    // But the viewer scaffolding is gone.
+    assert!(
+        !html.contains("q2-attr-badge"),
+        "viewer: false must suppress the badge CSS; html:\n{}",
+        html
+    );
+    assert!(
+        !html.contains("<!-- quarto-attribution-viewer-css -->"),
+        "viewer: false must suppress the CSS sentinel; html:\n{}",
+        html
+    );
+    assert!(
+        !html.contains("<!-- quarto-attribution-viewer-js -->"),
+        "viewer: false must suppress the JS sentinel; html:\n{}",
+        html
+    );
+}
+
+/// Phase B test: when attribution is off the new transform must not
+/// leak any wrapper / viewer scaffolding into the output. Pins
+/// "no incidental whitespace from the new transform on the off path"
+/// against future regressions (e.g. unconditionally creating the
+/// `rendered.includes` slot even when bailing).
+#[test]
+fn cli_attribution_off_emits_no_viewer_artifacts() {
+    let fixture = locate_fixture();
+    let doc_qmd = std::fs::read_to_string(&fixture).expect("read fixture");
+    let tmp = TempDir::new().expect("tempdir");
+    scripted_repo(tmp.path(), &doc_qmd);
+
+    let output = Command::new(Q2_BIN)
+        .arg("render")
+        .arg(tmp.path().join("doc.qmd"))
+        .args(["--to", "html"])
+        .output()
+        .expect("spawn q2");
+    assert!(
+        output.status.success(),
+        "q2 render (no --attribution) must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let html = std::fs::read_to_string(tmp.path().join("doc.html")).expect("read rendered html");
+    assert!(
+        !html.contains("data-attr-actor"),
+        "off path must produce no wrappers; html:\n{}",
+        html
+    );
+    assert!(
+        !html.contains("q2-attr-badge"),
+        "off path must produce no viewer CSS; html:\n{}",
+        html
+    );
+    assert!(
+        !html.contains("quarto-attribution-viewer-"),
+        "off path must produce neither viewer sentinel; html:\n{}",
+        html
+    );
+}
+
+/// Strip a single leading `---`-delimited YAML front-matter block. Used
+/// by the opt-out test to wrap the fixture with its own front matter
+/// without producing two YAML blocks.
+fn strip_front_matter(qmd: &str) -> String {
+    let trimmed = qmd.trim_start();
+    if !trimmed.starts_with("---") {
+        return qmd.to_string();
+    }
+    // Find the closing `---` line.
+    let after_open = &trimmed[3..];
+    if let Some(close_at) = after_open.find("\n---") {
+        // Body starts after the closing `---` and its newline.
+        let body_start = 3 + close_at + "\n---".len();
+        let rest = &trimmed[body_start..];
+        return rest.trim_start_matches('\n').to_string();
+    }
+    qmd.to_string()
+}
+
 /// Look up the value of `attr` on the same element that carries
 /// `data-attr-actor="<email>"`. Returns the substring between the
 /// quotes after `attr=`, or `None` if the pairing isn't found.

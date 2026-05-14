@@ -67,6 +67,7 @@ use quarto_source_map::SourceInfo;
 use crate::Result;
 use crate::attribution::{
     AttributionMap, AttributionRecord, AttributionSource, Identity, IdentityMap,
+    attribution_viewer_enabled_from_meta,
 };
 use crate::render::RenderContext;
 use crate::transform::AstTransform;
@@ -147,6 +148,12 @@ impl AstTransform for AttributionRenderTransform {
         ctx.format_options.html.attribution_lookup = Some(Arc::clone(&slice_arc));
         ctx.format_options.html.attribution_by_node = Some(Arc::clone(&by_node_arc));
         ctx.format_options.html.attribution_identities = Some(Arc::clone(&actors_arc));
+        // YAML opt-out for the auto-injected viewer scaffolding;
+        // `AttributionViewerTransform` reads this and short-circuits
+        // when false. Read once here so the bool travels through
+        // `format_options` alongside the other attribution fields.
+        ctx.format_options.html.attribution_viewer_enabled =
+            attribution_viewer_enabled_from_meta(&ast.meta);
         ctx.format_options.json.attribution_lookup = Some(slice_arc);
         ctx.format_options.json.attribution_by_node = Some(by_node_arc);
         ctx.format_options.json.attribution_actors = Some(actors_arc);

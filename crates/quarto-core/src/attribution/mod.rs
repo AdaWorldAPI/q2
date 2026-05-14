@@ -52,6 +52,56 @@ pub use prebuilt::PreBuiltAttributionProvider;
 pub use source::{AttributionSource, AttributionSourceProvider};
 pub use types::{
     AttributionData, AttributionHit, AttributionMap, AttributionRecord, AttributionRun, Identity,
-    IdentityMap, TransportAttributionData, TransportAttributionRun, format_supports_attribution,
-    identity_map_from_meta,
+    IdentityMap, TransportAttributionData, TransportAttributionRun,
+    attribution_viewer_enabled_from_meta, format_supports_attribution, identity_map_from_meta,
 };
+
+/// Inline CSS auto-injected by `AttributionViewerTransform`. Single
+/// source of truth lives at repo-root `resources/attribution/viewer.css`;
+/// the hub-client imports the same file via Vite's `?raw` mechanism so
+/// both surfaces share badge class names. See the path comment on the
+/// `include_str!` count.
+pub(crate) const VIEWER_CSS: &str = include_str!("../../../../resources/attribution/viewer.css");
+
+/// Inline JS auto-injected by `AttributionViewerTransform`. CLI-only:
+/// the hub-client binds hover via React props, not DOM listeners.
+pub(crate) const VIEWER_JS: &str = include_str!("../../../../resources/attribution/viewer.js");
+
+#[cfg(test)]
+mod viewer_asset_tests {
+    use super::{VIEWER_CSS, VIEWER_JS};
+
+    /// Phase C invariant: the embedded CSS carries the shared badge
+    /// class names that form the contract with the hub-client's
+    /// `framework/attribution.tsx`. Drift either direction would
+    /// silently break visual presentation on one surface.
+    #[test]
+    fn viewer_css_mentions_hub_client_classes() {
+        for class in ["q2-attr-badge", "q2-attr-badge-dot", "q2-attr-badge-time"] {
+            assert!(
+                VIEWER_CSS.contains(class),
+                "viewer.css must mention .{} (shared with hub-client)",
+                class
+            );
+        }
+    }
+
+    /// Phase C invariant: pin the wrapper-recolour behaviour. The
+    /// viewer JS paints each `[data-attr-actor]` element in its
+    /// author's colour so descendants inherit via the cascade,
+    /// matching the hub-client's `AttributionWrap` which sets the
+    /// same inline style on the React side. The
+    /// `data-attr-color` attribute is the source for the assignment.
+    #[test]
+    fn viewer_js_recolors_wrapper_text() {
+        assert!(
+            VIEWER_JS.contains("el.style.color"),
+            "viewer.js must paint wrapped elements in author colour; \
+             this is the contract with the hub-client's `AttributionWrap`"
+        );
+        assert!(
+            VIEWER_JS.contains("data-attr-color"),
+            "the recolour pass must read `data-attr-color` from each wrap"
+        );
+    }
+}

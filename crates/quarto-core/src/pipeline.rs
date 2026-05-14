@@ -66,16 +66,17 @@ use crate::stage::{
 use crate::transform::TransformPipeline;
 use crate::transforms::{
     AppendixStructureTransform, AttributionGenerateTransform, AttributionRenderTransform,
-    CalloutResolveTransform, CalloutTransform, CategoriesSidebarTransform, CrossrefIndexTransform,
-    CrossrefRenderTransform, CrossrefResolveTransform, EquationLabelTransform,
-    FloatRefTargetSugarTransform, FooterGenerateTransform, FooterRenderTransform,
-    FootnotesTransform, LinkRewriteTransform, ListingGenerateTransform, ListingRenderTransform,
-    MetadataNormalizeTransform, NavbarGenerateTransform, NavbarRenderTransform,
-    PageNavGenerateTransform, PageNavRenderTransform, ProofSugarTransform,
-    ResourceCollectorTransform, SectionizeTransform, ShortcodeResolveTransform,
-    SidebarGenerateTransform, SidebarRenderTransform, TheoremSugarTransform, TitleBlockTransform,
-    TocGenerateTransform, TocRenderTransform, WebsiteBootstrapIconsTransform,
-    WebsiteCanonicalUrlTransform, WebsiteFaviconTransform, WebsiteTitlePrefixTransform,
+    AttributionViewerTransform, CalloutResolveTransform, CalloutTransform,
+    CategoriesSidebarTransform, CrossrefIndexTransform, CrossrefRenderTransform,
+    CrossrefResolveTransform, EquationLabelTransform, FloatRefTargetSugarTransform,
+    FooterGenerateTransform, FooterRenderTransform, FootnotesTransform, LinkRewriteTransform,
+    ListingGenerateTransform, ListingRenderTransform, MetadataNormalizeTransform,
+    NavbarGenerateTransform, NavbarRenderTransform, PageNavGenerateTransform,
+    PageNavRenderTransform, ProofSugarTransform, ResourceCollectorTransform, SectionizeTransform,
+    ShortcodeResolveTransform, SidebarGenerateTransform, SidebarRenderTransform,
+    TheoremSugarTransform, TitleBlockTransform, TocGenerateTransform, TocRenderTransform,
+    WebsiteBootstrapIconsTransform, WebsiteCanonicalUrlTransform, WebsiteFaviconTransform,
+    WebsiteTitlePrefixTransform,
 };
 
 /// Well-known path for the default CSS artifact in WASM context.
@@ -1068,6 +1069,17 @@ pub fn build_transform_pipeline(
     // before attribution-render.
     pipeline.push(Box::new(AttributionRenderTransform::new()));
 
+    // After attribution-render: auto-inject the default viewer
+    // CSS+JS pair into `rendered.includes.{header,after-body}` so
+    // `--attribution=git` produces a visible default rather than
+    // inert `data-attr-*` attributes. Internally gated on
+    // `attribution_by_node.is_some()` AND
+    // `attribution_viewer_enabled`, so the off-path is a no-op.
+    // CLI-only: q2-preview omits this transform via
+    // `Q2_PREVIEW_TRANSFORM_EXCLUDED` (hub-client ignores
+    // `rendered.includes.*` and binds hover via React props).
+    pipeline.push(Box::new(AttributionViewerTransform::new()));
+
     pipeline
 }
 
@@ -1102,6 +1114,14 @@ pub fn build_transform_pipeline(
 const Q2_PREVIEW_TRANSFORM_EXCLUDED: &[&str] = &[
     "callout-resolve",
     "website-favicon",
+    // `attribution-viewer` injects raw <style>/<script> tags into
+    // `rendered.includes.{header,after-body}`, which the HTML
+    // template wires into the final HTML. q2-preview's React leaves
+    // ignore those slots entirely — the hub-client's own
+    // `framework/attribution.tsx` carries the visual presentation
+    // (badge classes, hover wiring) and would double-mount if this
+    // transform ran here. CLI-only by design.
+    "attribution-viewer",
     "title-block",
     // "footnotes" — included in q2-preview's pipeline (Plan 2B):
     // produces Pandoc primitives (Span/Sup/Link/Div/OrderedList) that

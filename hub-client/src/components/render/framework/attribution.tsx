@@ -4,6 +4,13 @@ import {
     useNodeAttribution,
     type NodeAttributionIdentity,
 } from './AttributionLookupContext';
+// Shared with the CLI's `AttributionViewerTransform`, which `include_str!`s
+// the same file at compile time. Editing `resources/attribution/viewer.css`
+// updates both surfaces simultaneously. The virtual-module indirection
+// is handled by `attributionViewerCssPlugin` in `vite.config.ts`: a
+// plain `?raw` import of the out-of-tree path silently returns empty
+// under Vitest. See `resources/attribution/README.md` for the contract.
+import viewerCss from 'virtual:quarto-attribution-viewer-css';
 
 /**
  * Format a Unix timestamp as a coarse relative-time string ("just
@@ -50,36 +57,12 @@ export function AttributionBadge({
  * q2-debug's `AstRenderer`. Off-path renders skip the injection
  * entirely so the iframe document tree stays byte-identical to
  * pre-attribution.
+ *
+ * Single source of truth is `resources/attribution/viewer.css` —
+ * the CLI's `AttributionViewerTransform` reads the same file via
+ * `include_str!`. Both surfaces re-pick up edits without manual sync.
  */
-export const attributionStyles = `
-    .q2-attr-wrap { position: relative; }
-    .q2-attr-badge {
-        display: inline-block;
-        z-index: 10;
-        font-size: 10px;
-        line-height: 1;
-        white-space: nowrap;
-        padding: 2px 6px;
-        border-radius: 3px;
-        background: #fff;
-        border: 1px solid var(--attr-color);
-        color: var(--attr-color);
-        font-weight: 600;
-        pointer-events: none;
-    }
-    .q2-attr-badge-dot {
-        display: inline-block;
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        margin-right: 3px;
-        vertical-align: middle;
-    }
-    .q2-attr-badge-time {
-        font-weight: 400;
-        opacity: 0.7;
-    }
-`;
+export const attributionStyles = viewerCss;
 
 /**
  * Wrap `children` in a `.q2-attr-wrap` element when the AST node has
@@ -87,10 +70,15 @@ export const attributionStyles = `
  *
  * `as` selects a `<div>` (block-level wrapper) or `<span>` (inline-level
  * wrapper) — the only structural divergence between Block/Inline
- * dispatchers in q2-debug and q2-preview. The `data-sid` + inline
- * `color` payload matches what those dispatchers wrote inline before
- * extraction, so the hovered-badge event delegation in
- * `useAttributionHover` keeps finding wraps the same way.
+ * dispatchers in q2-debug and q2-preview. `data-sid` is the lookup key
+ * the event-delegated badge in `useAttributionHover` uses to find the
+ * record for the hovered wrap.
+ *
+ * The wrapper paints body text in the author's colour (descendants
+ * inherit via the cascade). The CLI's auto-injected viewer JS
+ * (`resources/attribution/viewer.js`) does the same thing for static
+ * HTML output via a `querySelectorAll` + `style.color` pass, so both
+ * surfaces look the same on attributed regions.
  *
  * `node` is typed `unknown` to absorb the structural mismatch between
  * the framework's loose `{ s?: number }` lookup key and the

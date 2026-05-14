@@ -126,166 +126,45 @@ Styling is left to the consuming theme; use the `data-attr-color`
 attribute or a CSS rule keyed off `data-attr-actor` to colour
 authored regions however you like.
 
-## Adding a viewer overlay {#viewer-overlay}
+## Default viewer {#viewer-overlay}
 
-The data attributes above are inert. A static HTML page rendered with
-`--attribution=git` looks identical to one rendered without it until
-something styles the data — a site theme, a custom Pandoc filter, or
-the small overlay below.
+By default, `--attribution=git` (or YAML `attribution: git`) ships a
+small inline `<style>` and `<script>` pair alongside the wrappers, so
+the rendered HTML is visibly attributed out of the box: attributed
+prose carries a dotted underline, and hovering surfaces a small
+author-coloured badge with the contributor's name and a relative
+timestamp.
 
-The snippet that follows reproduces the floating badge the
-[hub-client](#hub-client-integration) shows under its **Authorship**
-toggle, so a published `.html` file and a live hub session feel the
-same on hover. The class names (`q2-attr-badge`,
-`q2-attr-badge-dot`, `q2-attr-badge-time`) match the hub-client's,
-so a site theme that styles them once works in both places.
+The defaults are deliberately conservative — the wrapper itself
+inherits whatever colour the host theme assigns, so the viewer does
+not override your site theme. Only the hover badge picks up the
+author's colour.
 
-Save the following as `attribution-viewer.css`:
+### Turning the default viewer off
 
-```css
-[data-attr-actor] {
-    text-decoration: underline dotted;
-    text-underline-offset: 4px;
-    cursor: help;
-}
-
-.q2-attr-badge {
-    display: inline-block;
-    z-index: 10;
-    font-size: 10px;
-    line-height: 1;
-    white-space: nowrap;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: #fff;
-    border: 1px solid var(--attr-color);
-    color: var(--attr-color);
-    font-weight: 600;
-    pointer-events: none;
-}
-.q2-attr-badge-dot {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    margin-right: 3px;
-    vertical-align: middle;
-}
-.q2-attr-badge-time {
-    font-weight: 400;
-    opacity: 0.7;
-}
-```
-
-And the following as `attribution-viewer.js`:
-
-```js
-function formatRelativeTime(timestamp) {
-    const now = Date.now();
-    // git blame emits seconds, Automerge emits milliseconds;
-    // the 1e12 threshold distinguishes them.
-    const tsMs = timestamp < 1e12 ? timestamp * 1000 : timestamp;
-    const diffSec = Math.floor((now - tsMs) / 1000);
-    if (diffSec < 60) return 'just now';
-    const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
-    const diffDay = Math.floor(diffHr / 24);
-    return `${diffDay}d ago`;
-}
-
-// Paint each attributed element in its author's colour so descendants
-// inherit it via the cascade.
-document.querySelectorAll('[data-attr-actor]').forEach((el) => {
-    const color = el.getAttribute('data-attr-color');
-    if (color) {
-        el.style.color = color;
-        el.style.textDecorationColor = color;
-    }
-});
-
-function buildBadge(leaf) {
-    const name = leaf.getAttribute('data-attr-name');
-    const color = leaf.getAttribute('data-attr-color');
-    const time = Number(leaf.getAttribute('data-attr-time'));
-    if (!name || !color || !Number.isFinite(time)) return null;
-
-    const badge = document.createElement('span');
-    badge.className = 'q2-attr-badge';
-    badge.style.setProperty('--attr-color', color);
-
-    const dot = document.createElement('span');
-    dot.className = 'q2-attr-badge-dot';
-    dot.style.backgroundColor = color;
-    badge.appendChild(dot);
-
-    badge.appendChild(document.createTextNode(`${name} `));
-
-    const timeEl = document.createElement('span');
-    timeEl.className = 'q2-attr-badge-time';
-    timeEl.textContent = formatRelativeTime(time);
-    badge.appendChild(timeEl);
-
-    return badge;
-}
-
-let currentBadge = null;
-
-document.addEventListener('mouseover', (e) => {
-    const leaf = e.target.closest('[data-attr-actor]');
-    if (!leaf) return;
-    if (currentBadge) currentBadge.remove();
-
-    const badge = buildBadge(leaf);
-    if (!badge) return;
-
-    const rect = leaf.getBoundingClientRect();
-    badge.style.position = 'fixed';
-    badge.style.top = `${rect.bottom + 2}px`;
-    badge.style.left = `${rect.left}px`;
-
-    document.body.appendChild(badge);
-    currentBadge = badge;
-});
-
-document.addEventListener('mouseout', (e) => {
-    const related = e.relatedTarget;
-    if (related && related.closest && related.closest('[data-attr-actor]')) {
-        return;
-    }
-    if (currentBadge) {
-        currentBadge.remove();
-        currentBadge = null;
-    }
-});
-```
-
-Wire both files into the document via YAML. The CSS goes in directly;
-the JS is referenced from a short HTML shim
-(`attribution-viewer-include.html`) containing a single line —
-`<script src="attribution-viewer.js"></script>`:
+If you want only the `data-attr-*` attributes (e.g. you have a site
+theme that styles them differently, or you are wiring up a custom
+overlay), suppress the default viewer with the rich-form YAML:
 
 ```yaml
 ---
 title: My report
-attribution: git
-format:
-  html:
-    css: attribution-viewer.css
-    include-after-body: attribution-viewer-include.html
-    resources:
-      - attribution-viewer.js
+attribution:
+  source: git
+  viewer: false
 ---
 ```
 
-The `resources:` entry ensures the `.js` file is copied next to the
-rendered HTML so the `<script src=…>` reference resolves at runtime.
+The wrappers — and the four `data-attr-*` attributes on them — remain
+exactly as before; only the auto-injected CSS/JS pair is dropped.
 
-The snippet is intentionally small and dependency-free — copy it into
-a site theme, adapt it to taste, or strip it back to just the CSS if
-you don't need the hover badge. The four `data-attr-*` attributes are
-the stable contract; everything above is presentation.
+### Customizing presentation
+
+Whether or not the default viewer is on, the four `data-attr-*`
+attributes are the stable contract. A site theme can key off
+`data-attr-actor` (or `data-attr-color`) to colour authored regions
+however it likes, and a custom Pandoc filter can transform the
+wrappers without touching this package.
 
 ## Hub-client integration
 
