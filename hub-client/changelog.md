@@ -15,6 +15,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-05-15
 
+- [`64404459`](https://github.com/quarto-dev/q2/commits/64404459): Internal refactor — Authorship-wrap colouring now flows via a per-actor CSS rule and the cascade rather than an inline `style="color: …"` on every wrap. The wrap publishes `data-attr-actor` so themes and user stylesheets can override an author's colour with a single rule. No user-visible change to rendered output.
 - [`70016298`](https://github.com/quarto-dev/q2/commits/70016298): `--attribution=git` HTML renders now derive author colours from Paul Tol's "Muted" 10-colour qualitative palette (colour-blind safe across red-green and blue-yellow deficiencies, perceptually uniform brightness on white) instead of an unconstrained HSL hue. CLI HTML output only — hub-client previews continue to colour authors from Automerge profile metadata.
 
 ### 2026-05-14
