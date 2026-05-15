@@ -69,8 +69,11 @@ that opt in by default:
 ### Supplying custom display names
 
 The `git` provider derives a display name and colour from each
-author's email automatically (mail-local-part plus a deterministic
-HSL colour). If you want different labels — for instance to spell out
+author's email automatically. The display name is the mail-local-part
+of the address; the colour is a deterministic entry from Paul Tol's
+[Muted qualitative palette](https://sronpersonalpages.nl/~pault/) —
+a 10-colour, colour-blind-safe scheme designed for categorical
+encoding. If you want different labels — for instance to spell out
 "Alice Cooper" instead of `alice` — override them in YAML:
 
 ```yaml
@@ -95,14 +98,11 @@ author.
 
 ## What attribution looks like in the output
 
-Each wrapping `<span>` carries four data attributes:
+Each wrapping element carries two data attributes that identify the
+author and edit time for that node:
 
 ```html
-<span
-  data-attr-actor="alice@example.com"
-  data-attr-time="1700000000000"
-  data-attr-name="alice"
-  data-attr-color="hsl(253, 60%, 55%)">
+<span data-attr-actor="alice@example.com" data-attr-time="1700000000">
   …
 </span>
 ```
@@ -114,31 +114,51 @@ Each wrapping `<span>` carries four data attributes:
   **seconds**; the hub-client (Automerge) emits **milliseconds**.
   Consumers that handle both should use a threshold like `< 1e12` to
   tell them apart.
-- `data-attr-name` — a human-friendly display name.
-- `data-attr-color` — a deterministic CSS colour.
+
+The author's display name and colour are emitted **once per author**
+as a CSS rule in the rendered `<head>`, exposing two custom
+properties that any element matching the actor inherits via the
+cascade:
+
+```html
+<style>
+  [data-attr-actor="alice@example.com"] {
+      --attr-color: #117733;
+      --attr-name: "alice";
+  }
+  …
+</style>
+```
+
+`--attr-color` is consumed by the default viewer's base paint rule
+(see [Default viewer](#viewer-overlay)) so authored prose appears in
+the author's colour without any further wiring. `--attr-name`
+is read by the hover badge from each wrapper's computed style.
+Consuming themes can override either via a higher-specificity rule
+in their own stylesheet without touching the rendered HTML.
 
 Contiguous prose authored by the same actor at the same time
 coalesces into a single outer wrapper, so a paragraph written by one
 person produces one wrapper rather than one per word. Structured
 inlines (links, code, math, etc.) always get their own wrapper.
 
-Styling is left to the consuming theme; use the `data-attr-color`
-attribute or a CSS rule keyed off `data-attr-actor` to colour
-authored regions however you like.
-
 ## Default viewer {#viewer-overlay}
 
 By default, `--attribution=git` (or YAML `attribution: git`) ships a
 small inline `<style>` and `<script>` pair alongside the wrappers, so
 the rendered HTML is visibly attributed out of the box: attributed
-prose carries a dotted underline, and hovering surfaces a small
-author-coloured badge with the contributor's name and a relative
-timestamp.
+prose appears in the author's colour with a dotted underline, and
+hovering surfaces a small author-coloured badge with the contributor's
+name and a relative timestamp.
 
-The defaults are deliberately conservative — the wrapper itself
-inherits whatever colour the host theme assigns, so the viewer does
-not override your site theme. Only the hover badge picks up the
-author's colour.
+The per-author colour comes from the `--attr-color` CSS custom
+property published by the per-actor rule in `<head>` (see [What
+attribution looks like in the output](#what-attribution-looks-like-in-the-output));
+the inherited paint rule lives in the auto-injected viewer
+stylesheet, and the hover badge reads `--attr-name` from the same
+source. To recolour an author site-wide, override the custom property
+in your own stylesheet with a higher-specificity rule — no HTML
+changes required.
 
 ### Turning the default viewer off
 
@@ -155,16 +175,26 @@ attribution:
 ---
 ```
 
-The wrappers — and the four `data-attr-*` attributes on them — remain
-exactly as before; only the auto-injected CSS/JS pair is dropped.
+The per-node `data-attr-actor` / `data-attr-time` wrappers remain
+exactly as before; only the auto-injected CSS rules (including the
+per-actor `--attr-color` / `--attr-name` declarations) and the hover
+`<script>` are dropped. A theme that wants to render its own colours
+should publish its own per-actor rules in the same shape:
+
+```css
+[data-attr-actor="alice@example.com"] {
+    --attr-color: #c0392b;
+    --attr-name: "Alice Cooper";
+}
+```
 
 ### Customizing presentation
 
-Whether or not the default viewer is on, the four `data-attr-*`
-attributes are the stable contract. A site theme can key off
-`data-attr-actor` (or `data-attr-color`) to colour authored regions
-however it likes, and a custom Pandoc filter can transform the
-wrappers without touching this package.
+Whether or not the default viewer is on, the per-node
+`data-attr-actor` / `data-attr-time` attrs are the stable contract.
+A site theme can key off `data-attr-actor` to colour authored
+regions however it likes, and a custom Pandoc filter can transform
+the wrappers without touching this package.
 
 ## Hub-client integration
 
