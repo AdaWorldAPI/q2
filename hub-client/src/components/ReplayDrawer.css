@@ -350,3 +350,66 @@
 .replay-drawer__authorship--on .replay-drawer__authorship-dot {
   opacity: 1;
 }
+
+/* Rotating-gradient sweep around the pill while attribution data
+   is being generated. A conic-gradient on a ::before pseudo-element
+   sits one pixel outside the pill's border; the inner mask cuts the
+   centre so only a ~1px ring shows. The `--angle` custom property is
+   registered via @property so the @keyframe interpolation produces
+   smooth motion (without @property the value would jump at 0/360).
+
+   We intentionally keep the static border underneath — the rotating
+   highlight rides on top, so the pill never looks "borderless" mid-
+   animation if a browser ignores the pseudo-element. */
+@property --replay-drawer__authorship-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.replay-drawer__authorship--generating {
+  position: relative;
+}
+
+.replay-drawer__authorship--generating::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  /* Full-circle rainbow that rotates — the band itself is the
+     indicator, no transparent gap. First and last stops match so
+     the seam is invisible across the 0/360 boundary. */
+  background: conic-gradient(
+    from var(--replay-drawer__authorship-angle),
+    #ff3b30 0deg,
+    #ff9500 60deg,
+    #ffcc00 120deg,
+    #34c759 180deg,
+    #5ac8fa 240deg,
+    #5856d6 300deg,
+    #ff3b30 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+          mask-composite: exclude;
+  animation: replay-drawer__authorship-spin 2s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes replay-drawer__authorship-spin {
+  to {
+    --replay-drawer__authorship-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .replay-drawer__authorship--generating::before {
+    animation: none;
+  }
+}

@@ -356,5 +356,32 @@ describe('ReplayDrawer', () => {
       render(<ReplayDrawer state={makeState()} controls={controls} />);
       expect(screen.queryByLabelText(/Authorship/)).toBeNull();
     });
+
+    it('applies the generating modifier class and aria-busy when authorshipGenerating is true', () => {
+      const { rerender } = render(
+        <ReplayDrawer
+          state={makeState()}
+          controls={controls}
+          authorshipOn={true}
+          onAuthorshipChange={vi.fn()}
+          authorshipGenerating={false}
+        />,
+      );
+      const pill = screen.getByLabelText(/Authorship/);
+      expect(pill.className).not.toContain('replay-drawer__authorship--generating');
+      expect(pill.getAttribute('aria-busy')).toBeNull();
+
+      rerender(
+        <ReplayDrawer
+          state={makeState()}
+          controls={controls}
+          authorshipOn={true}
+          onAuthorshipChange={vi.fn()}
+          authorshipGenerating={true}
+        />,
+      );
+      expect(pill.className).toContain('replay-drawer__authorship--generating');
+      expect(pill.getAttribute('aria-busy')).toBe('true');
+    });
   });
 });

@@ -226,6 +226,11 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
   // than a setting: resets on reload so a previously-curious view
   // doesn't bleed into the next session.
   const [authorshipOn, setAuthorshipOn] = useState(false);
+  // `useAttribution` (inside ReactPreview) reports whether it's
+  // mid-build via `onAttributionGeneratingChange`; the flag drives
+  // the rotating-gradient border on the Authorship pill so a slow
+  // run-list build on a large document is visible to the user.
+  const [attributionGenerating, setAttributionGenerating] = useState(false);
   // Track if editor has focus (to prevent scroll feedback loop)
   const editorHasFocusRef = useRef(false);
   // Track when editor is mounted (for scroll sync initialization)
@@ -1062,6 +1067,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
             onContentRewrite={handleContentRewrite}
             identities={identities}
             authorshipOn={authorshipOn}
+            onAttributionGeneratingChange={setAttributionGenerating}
           />
         </div>
       </main>
@@ -1075,6 +1081,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
           identities={identities}
           authorshipOn={authorshipOn}
           onAuthorshipChange={setAuthorshipOn}
+          authorshipGenerating={attributionGenerating}
         />
       )}
 

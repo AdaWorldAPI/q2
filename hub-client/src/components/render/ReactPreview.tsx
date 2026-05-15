@@ -60,6 +60,14 @@ interface PreviewProps {
    * to the byte-identical no-attribution path.
    */
   authorshipOn: boolean;
+  /**
+   * Reports whether `useAttribution` is mid-build. The Authorship
+   * pill animates its border while true so a long run-list build on
+   * a large document gives visible feedback that work is happening.
+   * Called once on mount with the current value and once on unmount
+   * with `false` so the parent state never gets stuck.
+   */
+  onAttributionGeneratingChange?: (generating: boolean) => void;
 }
 
 // Result of rendering QMD content to AST
@@ -240,6 +248,7 @@ export default function ReactPreview({
   format,
   identities,
   authorshipOn,
+  onAttributionGeneratingChange,
 }: PreviewProps) {
   // Preview state machine for error handling
   const [previewState, setPreviewState] = useState<PreviewState>('START');
@@ -280,12 +289,21 @@ export default function ReactPreview({
   // table threaded down from `Editor.tsx`; missing entries fall back
   // to the hook's `(actor.slice(0, 8), actorColor(fnv1aHex8(actor)))`
   // so the Phase 6 producer invariant always holds.
-  const attributionPayload = useAttribution({
-    enabled: authorshipOn,
-    filePath: currentFile?.path ?? null,
-    sourceText: content,
-    identities: identities ?? {},
-  });
+  const { payload: attributionPayload, generating: attributionGenerating } =
+    useAttribution({
+      enabled: authorshipOn,
+      filePath: currentFile?.path ?? null,
+      sourceText: content,
+      identities: identities ?? {},
+    });
+
+  // Surface the hook's generating flag to the Authorship pill in the
+  // replay bar. Cleanup emits `false` on unmount so switching to a
+  // non-q2 file (where ReactPreview tears down) clears the indicator.
+  useEffect(() => {
+    onAttributionGeneratingChange?.(attributionGenerating);
+    return () => onAttributionGeneratingChange?.(false);
+  }, [attributionGenerating, onAttributionGeneratingChange]);
 
   // Debounce rendering
   const renderTimeoutRef = useRef<number | null>(null);

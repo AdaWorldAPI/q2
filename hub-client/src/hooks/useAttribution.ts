@@ -124,21 +124,40 @@ export interface UseAttributionOptions {
   identities: Record<string, ActorIdentity>;
 }
 
+export interface UseAttributionResult {
+  /**
+   * JSON payload for `parseQmdToAstWithAttribution`, or `null` while
+   * disabled, the file is unknown, or no build has completed yet.
+   * Once a build completes the string remains referentially stable
+   * across re-renders until the source text changes enough to
+   * invalidate it.
+   */
+  payload: string | null;
+  /**
+   * True while the hook is doing work the user is waiting on: the
+   * cold-start build, the debounced incremental update window, and
+   * the synchronous update step itself. Drives the Authorship pill's
+   * "work in progress" border animation upstream.
+   *
+   * Distinct from `payload === null` because incremental updates
+   * keep the previous payload until the new one is ready — so a
+   * naïve `payload === null && enabled` check would miss them.
+   */
+  generating: boolean;
+}
+
 /**
  * Build the attribution payload that the q2-debug WASM entry consumes.
  *
- * Returns:
- *   - `null` while disabled, the file is unknown, or the build is in
- *     flight (cold start). Callers must treat `null` as "fall back to
- *     `parseQmdToAst(content)` for this render".
- *   - a JSON string once the build completes; the string remains
- *     referentially stable across re-renders until the source text
- *     changes enough to invalidate it.
+ * Returns the payload plus a `generating` flag that is true whenever
+ * the hook is mid-build (cold start, debounce window, or synchronous
+ * incremental update).
  */
-export function useAttribution(opts: UseAttributionOptions): string | null {
+export function useAttribution(opts: UseAttributionOptions): UseAttributionResult {
   const { enabled, filePath, sourceText, identities } = opts;
 
   const [payload, setPayload] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   // Latest run-list state — used by the incremental update path.
   const stateRef = useRef<RunListAttribution | null>(null);
@@ -165,25 +184,33 @@ export function useAttribution(opts: UseAttributionOptions): string | null {
       abortRef.current = controller;
 
       setPayload(null);
+      setGenerating(true);
       stateRef.current = null;
 
       let handle;
       try {
         handle = getFileHandle(path);
       } catch {
+        setGenerating(false);
         return;
       }
-      if (!handle) return;
+      if (!handle) {
+        setGenerating(false);
+        return;
+      }
 
       buildRunListAttribution(handle, 'text', controller.signal)
         .then(state => {
+          // If aborted, a newer build owns `generating` — leave it alone.
           if (controller.signal.aborted || !state) return;
           stateRef.current = state;
           finalisePayload(state);
+          setGenerating(false);
         })
         .catch(err => {
           if (controller.signal.aborted) return;
           console.warn('[useAttribution] build failed:', err);
+          setGenerating(false);
         });
     },
     [finalisePayload],
@@ -193,6 +220,7 @@ export function useAttribution(opts: UseAttributionOptions): string | null {
   useEffect(() => {
     if (!enabled || !filePath) {
       setPayload(null);
+      setGenerating(false);
       stateRef.current = null;
       if (abortRef.current) abortRef.current.abort();
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -212,25 +240,36 @@ export function useAttribution(opts: UseAttributionOptions): string | null {
     if (!enabled || !filePath || !stateRef.current) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    // Pulse the indicator from the moment we know an update is coming,
+    // not just during the synchronous slice — the debounce window is
+    // part of the "still being generated" period from the user's view.
+    setGenerating(true);
     debounceRef.current = setTimeout(() => {
       if (!stateRef.current) return;
       let handle;
       try {
         handle = getFileHandle(filePath);
       } catch {
+        setGenerating(false);
         return;
       }
-      if (!handle) return;
+      if (!handle) {
+        setGenerating(false);
+        return;
+      }
 
       try {
         const next = updateRunListAttribution(stateRef.current, handle, 'text');
         stateRef.current = next;
         finalisePayload(next);
+        setGenerating(false);
       } catch (err) {
         if (err instanceof HistoryCompactedError) {
+          // startBuild flips generating back to true for the cold-start.
           startBuild(filePath);
         } else {
           console.warn('[useAttribution] update failed:', err);
+          setGenerating(false);
         }
       }
     }, DEBOUNCE_MS);
@@ -240,5 +279,5 @@ export function useAttribution(opts: UseAttributionOptions): string | null {
     };
   }, [sourceText, identities, enabled, filePath, finalisePayload, startBuild]);
 
-  return payload;
+  return { payload, generating };
 }

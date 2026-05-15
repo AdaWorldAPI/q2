@@ -22,24 +22,42 @@ interface Props {
    */
   authorshipOn?: boolean;
   onAuthorshipChange?: (next: boolean) => void;
+  /**
+   * Whether the attribution producer (`useAttribution` in
+   * ReactPreview) is currently building or updating the payload.
+   * When true the pill border animates with a rotating gradient so
+   * the user knows work is happening on a large document. Default
+   * `false`; effectively gated by `authorshipOn` upstream because
+   * the hook only generates when the toggle is on.
+   */
+  authorshipGenerating?: boolean;
 }
 
 interface AuthorshipToggleProps {
   authorshipOn: boolean;
   onAuthorshipChange: (next: boolean) => void;
+  generating: boolean;
 }
 
-function AuthorshipToggle({ authorshipOn, onAuthorshipChange }: AuthorshipToggleProps) {
+function AuthorshipToggle({ authorshipOn, onAuthorshipChange, generating }: AuthorshipToggleProps) {
+  const classes = [
+    'replay-drawer__authorship',
+    authorshipOn && 'replay-drawer__authorship--on',
+    generating && 'replay-drawer__authorship--generating',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return (
     <button
       type="button"
-      className={`replay-drawer__authorship${authorshipOn ? ' replay-drawer__authorship--on' : ''}`}
+      className={classes}
       onClick={(e) => {
         e.stopPropagation();
         onAuthorshipChange(!authorshipOn);
       }}
       aria-pressed={authorshipOn}
       aria-label={`Authorship overlay ${authorshipOn ? 'on' : 'off'}`}
+      aria-busy={generating || undefined}
       title="Highlight authors"
     >
       <span className="replay-drawer__authorship-dot" />
@@ -82,6 +100,7 @@ export default function ReplayDrawer({
   identities,
   authorshipOn,
   onAuthorshipChange,
+  authorshipGenerating,
 }: Props) {
   const showAuthorshipToggle =
     authorshipOn !== undefined && onAuthorshipChange !== undefined;
@@ -192,6 +211,7 @@ export default function ReplayDrawer({
           <AuthorshipToggle
             authorshipOn={authorshipOn!}
             onAuthorshipChange={onAuthorshipChange!}
+            generating={!!authorshipGenerating}
           />
         )}
       </div>
@@ -253,6 +273,7 @@ export default function ReplayDrawer({
           <AuthorshipToggle
             authorshipOn={authorshipOn!}
             onAuthorshipChange={onAuthorshipChange!}
+            generating={!!authorshipGenerating}
           />
         )}
       </div>
