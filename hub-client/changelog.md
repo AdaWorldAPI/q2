@@ -13,6 +13,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-05-15
+
+- [`70016298`](https://github.com/quarto-dev/q2/commits/70016298): Author colours now come from Paul Tol's "Muted" 10-colour qualitative palette instead of an unconstrained HSL hue. The new palette is colour-blind safe across red-green and blue-yellow deficiencies and has perceptually uniform brightness on white. Same actor-hash derivation; only the tail mapping changed.
+
 ### 2026-05-14
 
 - [`8b8349c8`](https://github.com/quarto-dev/q2/commits/8b8349c8): `--attribution=git` renders now auto-inject a viewer CSS/JS pair (dotted underline, body text painted in the author's colour, hover badge) so static HTML matches the hub-client preview. The shared stylesheet lives at `resources/attribution/viewer.css` (single source of truth with the CLI), loaded into the hub-client via a virtual-module Vite plugin.
