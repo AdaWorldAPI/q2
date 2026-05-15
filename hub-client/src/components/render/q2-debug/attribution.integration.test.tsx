@@ -16,9 +16,11 @@ const noopSetAst = () => {};
  * Phase 5c — when `astContext.attribution` / `astContext.attributionActors`
  * are absent, the q2-debug renderer wraps no nodes and paints no colour.
  * When they're present, each annotated node gets a `q2-attr-wrap`
- * wrapper carrying `color: <identity.color>` and `data-sid=<s>`.
- * Hovering surfaces a single floating badge with the author's name
- * and a relative-time string.
+ * wrapper carrying `data-sid=<s>` (used for badge lookup) and
+ * `data-attr-actor=<actor>` (matched by the per-actor CSS rule the
+ * framework injects); the colour reaches the wrap via the cascade,
+ * not via an inline `style`. Hovering surfaces a single floating
+ * badge with the author's name and a relative-time string.
  *
  * Mounted via the framework `Ast` with the `q2DebugRegistry` so we
  * exercise the same wiring the iframe uses at runtime.
@@ -45,7 +47,7 @@ describe('q2-debug attribution wiring', () => {
     expect(container.textContent).toMatch(/hello/);
   });
 
-  it('on path: each annotated node gets a colour-only wrapper', () => {
+  it('on path: each annotated node gets a wrap with actor + sid', () => {
     const ast = {
       'pandoc-api-version': [1, 23, 1],
       meta: {},
@@ -75,10 +77,22 @@ describe('q2-debug attribution wiring', () => {
 
     for (const wrap of Array.from(wraps)) {
       const el = wrap as HTMLElement;
-      // Colour is applied as an inline style — JSDOM normalises rgb().
-      expect(el.style.color).toBe('rgb(255, 0, 0)');
+      // Identity is render-time CSS now: the wrap carries the
+      // per-actor selector key, not an inline colour. The cascade
+      // resolves `color: var(--attr-color)` from the injected rule.
+      expect(el.getAttribute('data-attr-actor')).toBe('alice');
       expect(el.getAttribute('data-sid')).toMatch(/^[12]$/);
+      expect(el.style.color).toBe('');
     }
+
+    // The framework injects a single per-render <style> carrying the
+    // static viewer.css plus the per-actor rule for "alice".
+    const styles = Array.from(container.querySelectorAll('style')).map(
+      (s) => s.textContent ?? '',
+    );
+    expect(
+      styles.some((s) => s.includes('[data-attr-actor="alice"]') && s.includes('--attr-color: #ff0000') && s.includes('--attr-name: "Alice"')),
+    ).toBe(true);
 
     // No badge yet — hover hasn't fired.
     expect(container.querySelector('.q2-attr-badge')).toBeNull();

@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useRef, useState } from 'react';
+import React, { useCallback, useContext, useMemo, useRef, useState } from 'react';
 import {
     AttributionLookupContext,
     useNodeAttribution,
@@ -65,20 +65,72 @@ export function AttributionBadge({
 export const attributionStyles = viewerCss;
 
 /**
+ * Escape a string for inclusion inside a double-quoted CSS string
+ * literal. Mirrors `escape_css_string` in
+ * `crates/quarto-core/src/transforms/attribution_viewer.rs` so the
+ * CLI HTML and the hub-client iframe stylesheet share a single
+ * escaping contract. Per CSS Syntax Level 3, only `"`, `\`, and raw
+ * line terminators need escaping inside `"…"`.
+ */
+export function cssEscape(input: string): string {
+    let out = '';
+    for (const ch of input) {
+        if (ch === '\\') out += '\\\\';
+        else if (ch === '"') out += '\\"';
+        else if (ch === '\n') out += '\\A ';
+        else if (ch === '\r') out += '\\D ';
+        else out += ch;
+    }
+    return out;
+}
+
+/**
+ * Build the per-actor CSS rule block that publishes
+ * `--attr-color` / `--attr-name` for each distinct identity in
+ * `lookup`. Returns an empty string when there are no identities to
+ * publish, so concatenation with the static `viewer.css` is safe.
+ *
+ * Mirrors `render_per_actor_rules` in
+ * `crates/quarto-core/src/transforms/attribution_viewer.rs` — same
+ * shape, same alphabetical ordering, same escaping contract — so a
+ * theme author who learns one surface knows the other.
+ */
+export function buildActorStyles(
+    lookup: Map<number, NodeAttributionIdentity> | null,
+): string {
+    if (!lookup) return '';
+    const seen = new Map<string, { name: string; color: string }>();
+    for (const record of lookup.values()) {
+        if (!seen.has(record.actor)) {
+            seen.set(record.actor, { name: record.name, color: record.color });
+        }
+    }
+    if (seen.size === 0) return '';
+    const entries = Array.from(seen.entries()).sort(([a], [b]) =>
+        a < b ? -1 : a > b ? 1 : 0,
+    );
+    let out = '\n';
+    for (const [actor, identity] of entries) {
+        out += `[data-attr-actor="${cssEscape(actor)}"] { --attr-color: ${identity.color}; --attr-name: "${cssEscape(identity.name)}"; }\n`;
+    }
+    return out;
+}
+
+/**
  * Wrap `children` in a `.q2-attr-wrap` element when the AST node has
  * resolved attribution; pass through unchanged otherwise.
  *
  * `as` selects a `<div>` (block-level wrapper) or `<span>` (inline-level
  * wrapper) — the only structural divergence between Block/Inline
- * dispatchers in q2-debug and q2-preview. `data-sid` is the lookup key
- * the event-delegated badge in `useAttributionHover` uses to find the
- * record for the hovered wrap.
+ * dispatchers in q2-debug and q2-preview.
  *
- * The wrapper paints body text in the author's colour (descendants
- * inherit via the cascade). The CLI's auto-injected viewer JS
- * (`resources/attribution/viewer.js`) does the same thing for static
- * HTML output via a `querySelectorAll` + `style.color` pass, so both
- * surfaces look the same on attributed regions.
+ * The wrap publishes two stable DOM hooks:
+ *   - `data-attr-actor` — matches the per-actor CSS rule emitted by
+ *     `useAttributionHover().stylesheet`, so the author colour
+ *     applies via the cascade (`viewer.css` paints `[data-attr-actor]`
+ *     via `var(--attr-color)`).
+ *   - `data-sid` — the source-info pool id, used by the hover handler
+ *     in `useAttributionHover` to look up the record for the badge.
  *
  * `node` is typed `unknown` to absorb the structural mismatch between
  * the framework's loose `{ s?: number }` lookup key and the
@@ -99,16 +151,23 @@ export function AttributionWrap({
     const attribution = useNodeAttribution(node as { s?: number });
     if (!attribution) return <>{children}</>;
     const sid = (node as { s?: number }).s;
-    const style = { color: attribution.color };
     if (as === 'div') {
         return (
-            <div className="q2-attr-wrap" data-sid={sid} style={style}>
+            <div
+                className="q2-attr-wrap"
+                data-sid={sid}
+                data-attr-actor={attribution.actor}
+            >
                 {children}
             </div>
         );
     }
     return (
-        <span className="q2-attr-wrap" data-sid={sid} style={style}>
+        <span
+            className="q2-attr-wrap"
+            data-sid={sid}
+            data-attr-actor={attribution.actor}
+        >
             {children}
         </span>
     );
@@ -172,7 +231,15 @@ export function useAttributionHover(): {
     const hostProps = enabled
         ? { onMouseOver: handleMouseOver, onMouseOut: handleMouseOut }
         : {};
-    const stylesheet = enabled ? <style>{attributionStyles}</style> : null;
+    // Per-actor rules derive from the same `attributionActors` table
+    // the lookup context was built from, so identity flows from one
+    // source — the wire — through React to CSS. No drift surface.
+    // Memoised so toggling Authorship off then on doesn't churn the
+    // stylesheet across unrelated re-renders.
+    const actorStyles = useMemo(() => buildActorStyles(lookup), [lookup]);
+    const stylesheet = enabled ? (
+        <style>{attributionStyles + actorStyles}</style>
+    ) : null;
     const overlay = hovered ? (
         <AttributionBadge
             record={hovered.record}
