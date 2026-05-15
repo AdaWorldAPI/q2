@@ -3812,6 +3812,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "clap",
  "flate2",
  "glob",
  "hashlink",

@@ -65,7 +65,8 @@ use crate::stage::{
 };
 use crate::transform::TransformPipeline;
 use crate::transforms::{
-    AppendixStructureTransform, CalloutResolveTransform, CalloutTransform,
+    AppendixStructureTransform, AttributionGenerateTransform, AttributionRenderTransform,
+    AttributionViewerTransform, CalloutResolveTransform, CalloutTransform,
     CategoriesSidebarTransform, CrossrefIndexTransform, CrossrefRenderTransform,
     CrossrefResolveTransform, EquationLabelTransform, FloatRefTargetSugarTransform,
     FooterGenerateTransform, FooterRenderTransform, FootnotesTransform, LinkRewriteTransform,
@@ -609,6 +610,10 @@ pub async fn run_pipeline(
     // the inner `RenderContext` consumed by AST transforms (notably
     // `LinkRewriteTransform`).
     stage_ctx.resource_resolver = ctx.resource_resolver.clone();
+    // Attribution: forward the opt-in provider from the outer ctx
+    // so `AttributionGenerateTransform` (inside `AstTransformsStage`)
+    // sees it. `None` is the default and means "attribution off".
+    stage_ctx.attribution_provider = ctx.attribution_provider.clone();
     // bd-o8pr Phase 2: transfer the per-doc resource report into
     // the stage context so engine + filter stages can append to it.
     stage_ctx.resource_report = std::mem::take(&mut ctx.resource_report);
@@ -628,6 +633,14 @@ pub async fn run_pipeline(
     // bd-o8pr Phase 2: transfer engine/filter-collected resources
     // back to the caller (`render_document_to_file` reads this).
     ctx.resource_report = stage_ctx.resource_report;
+    // Transfer writer-side `format_options` populated by transforms
+    // running inside the pipeline (e.g. `AttributionRenderTransform`
+    // writes `attribution_by_node` / `attribution_actors` here). The
+    // q2-preview JSON writer runs *outside* `AstTransformsStage`,
+    // so it reads the populated data from the outer ctx after the
+    // pipeline returns. Pre-pipeline callers don't write
+    // `ctx.format_options`, so the overwrite is safe.
+    ctx.format_options = stage_ctx.format_options;
 
     result
         .map_err(|e| match e {
@@ -828,8 +841,18 @@ pub async fn render_qmd_to_preview_ast(
         source_context: source_context.clone(),
         parent_source_info: None,
     };
+    // When `AttributionRenderTransform` ran (i.e. a provider was
+    // installed on `ctx.attribution_provider`), forward
+    // `ctx.format_options.json` into `JsonConfig` so the writer emits
+    // `astContext.attribution` and `astContext.attributionActors`.
+    // Off-path (provider absent), both fields stay `None` and the
+    // JSON output is byte-identical to today's.
+    let (attribution_by_node, attribution_actors) =
+        crate::attribution::json_attribution_fields(&ctx.format_options.json);
     let json_config = pampa::writers::json::JsonConfig {
         include_inline_locations: true,
+        attribution_by_node,
+        attribution_actors,
     };
     let mut buf = Vec::new();
     pampa::writers::json::write_with_config(&ast.ast, &ast_context, &mut buf, &json_config)
@@ -886,6 +909,9 @@ pub async fn render_qmd_to_preview_ast(
 /// 14. `NavbarRenderTransform` - Render navbar to HTML for template insertion
 /// 15. `SidebarRenderTransform` - Render sidebar to HTML (w/ .qmd→.html rewrite)
 /// 16. `FooterRenderTransform` - Render page footer to HTML for template insertion
+/// 16a. `AttributionGenerateTransform` - Tail-of-phase: call the installed
+///     `AttributionSourceProvider` (if any) and merge identities into the
+///     `RenderContext` sidecar for the Render-side transform to read
 ///
 /// ## Finalization Phase
 /// 17. `LinkRewriteTransform` - Rewrite body-content `.qmd` links to relative output URLs (Phase 6)
@@ -1006,6 +1032,21 @@ pub fn build_transform_pipeline(
     pipeline.push(Box::new(PageNavRenderTransform::new()));
     pipeline.push(Box::new(FooterRenderTransform::new()));
 
+    // Tail of Navigation Phase: attribution data generation. Reads the
+    // opt-in provider from `ctx.attribution_provider` (installed by the
+    // CLI `--attribution=git` flag plumbing or the WASM
+    // `parse_qmd_to_ast_with_attribution` entry point), calls
+    // `build()`, merges identities with any user-authored
+    // `meta.attribution.identities`, and stores
+    // `ctx.attribution_data`. No-op when no provider is installed —
+    // the unflagged HTML path stays byte-identical. The entire
+    // Finalization Phase runs between this stage and
+    // `AttributionRenderTransform`; no transform there reads or
+    // writes the sidecar. See
+    // `claude-notes/plans/2026-05-06-attribution-pipeline.md` for the
+    // sidecar / placement design notes.
+    pipeline.push(Box::new(AttributionGenerateTransform::new()));
+
     // === FINALIZATION PHASE ===
     // LinkRewriteTransform runs first in the Finalization Phase
     // (Phase 6 of the website-projects epic). It walks every
@@ -1018,6 +1059,26 @@ pub fn build_transform_pipeline(
     pipeline.push(Box::new(AppendixStructureTransform::new()));
     pipeline.push(Box::new(CrossrefRenderTransform::new()));
     pipeline.push(Box::new(ResourceCollectorTransform::new()));
+
+    // Very last transform: bake the per-node attribution lookup and
+    // the pruned actors table onto `ctx.format_options`. No-op when
+    // `ctx.attribution_data` is None (i.e. no provider was installed,
+    // or generate skipped). Placing this at the very end means any
+    // future finalization stage that mutates `SourceInfo` is
+    // automatically covered without having to remember to insert it
+    // before attribution-render.
+    pipeline.push(Box::new(AttributionRenderTransform::new()));
+
+    // After attribution-render: auto-inject the default viewer
+    // CSS+JS pair into `rendered.includes.{header,after-body}` so
+    // `--attribution=git` produces a visible default rather than
+    // inert `data-attr-*` attributes. Internally gated on
+    // `attribution_by_node.is_some()` AND
+    // `attribution_viewer_enabled`, so the off-path is a no-op.
+    // CLI-only: q2-preview omits this transform via
+    // `Q2_PREVIEW_TRANSFORM_EXCLUDED` (hub-client ignores
+    // `rendered.includes.*` and binds hover via React props).
+    pipeline.push(Box::new(AttributionViewerTransform::new()));
 
     pipeline
 }
@@ -1053,6 +1114,14 @@ pub fn build_transform_pipeline(
 const Q2_PREVIEW_TRANSFORM_EXCLUDED: &[&str] = &[
     "callout-resolve",
     "website-favicon",
+    // `attribution-viewer` injects raw <style>/<script> tags into
+    // `rendered.includes.{header,after-body}`, which the HTML
+    // template wires into the final HTML. q2-preview's React leaves
+    // ignore those slots entirely — the hub-client's own
+    // `framework/attribution.tsx` carries the visual presentation
+    // (badge classes, hover wiring) and would double-mount if this
+    // transform ran here. CLI-only by design.
+    "attribution-viewer",
     "title-block",
     // "footnotes" — included in q2-preview's pipeline (Plan 2B):
     // produces Pandoc primitives (Span/Sup/Link/Div/OrderedList) that
@@ -2125,6 +2194,97 @@ mod tests {
             "Q2_PREVIEW_STAGE_EXCLUDED contains names not in build_html_pipeline_stages: \
              {unknown:?}. Likely a typo or a rename — update the const in pipeline.rs. \
              Full HTML stage list: {html_names:?}",
+        );
+    }
+
+    /// Phase 0 test #1 from `2026-05-13-q2-preview-attribution.md`.
+    ///
+    /// With a `PreBuiltAttributionProvider` installed on the
+    /// `RenderContext`, `render_qmd_to_preview_ast` must surface
+    /// `astContext.attribution` and `astContext.attributionActors` in
+    /// the emitted JSON. Without a provider, those keys are absent
+    /// — the byte-identicality regression guard for unflagged
+    /// q2-preview renders.
+    #[test]
+    fn render_qmd_to_preview_ast_surfaces_attribution_when_provider_installed() {
+        let content = b"---\ntitle: Test\nformat: q2-preview\n---\n\nHello world!\n".as_slice();
+
+        // Run #1: no provider — keys must be absent.
+        let baseline = {
+            let project = make_test_project();
+            let doc = DocumentInfo::from_path("/project/test.qmd");
+            let format = Format::from_format_string("q2-preview").unwrap();
+            let binaries = BinaryDependencies::new();
+            let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+            let runtime = make_test_runtime();
+            pollster::block_on(render_qmd_to_preview_ast(
+                content, "test.qmd", &mut ctx, runtime,
+            ))
+            .expect("baseline q2-preview render")
+        };
+        assert!(
+            !baseline.ast_json.contains("\"attribution\""),
+            "no-provider baseline must omit `attribution` key; got:\n{}",
+            baseline.ast_json
+        );
+        assert!(
+            !baseline.ast_json.contains("\"attributionActors\""),
+            "no-provider baseline must omit `attributionActors` key; got:\n{}",
+            baseline.ast_json
+        );
+
+        // Run #2: provider installed — keys must be present, with
+        // the expected actor + identity surfaced.
+        let attribution_json = serde_json::json!({
+            "runs": [
+                { "start": 0, "end": 10_000, "actor": "alice", "time": 42 }
+            ],
+            "identities": {
+                "alice": { "name": "Alice", "color": "#ff0000" }
+            }
+        })
+        .to_string();
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::from_format_string("q2-preview").unwrap();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        ctx.attribution_provider = Some(Arc::new(
+            crate::attribution::PreBuiltAttributionProvider::new(attribution_json),
+        ));
+
+        let runtime = make_test_runtime();
+        let output = pollster::block_on(render_qmd_to_preview_ast(
+            content, "test.qmd", &mut ctx, runtime,
+        ))
+        .expect("attributed q2-preview render");
+
+        assert!(
+            output.ast_json.contains("\"attribution\""),
+            "expected `attribution` key in attributed q2-preview output; got:\n{}",
+            output.ast_json
+        );
+        assert!(
+            output.ast_json.contains("\"attributionActors\""),
+            "expected `attributionActors` key in attributed q2-preview output; got:\n{}",
+            output.ast_json
+        );
+        assert!(
+            output.ast_json.contains("\"actor\":\"alice\""),
+            "expected at least one record naming alice; got:\n{}",
+            output.ast_json
+        );
+        assert!(
+            output.ast_json.contains("\"name\":\"Alice\""),
+            "expected alice's identity entry with display name; got:\n{}",
+            output.ast_json
+        );
+        assert!(
+            output.ast_json.contains("\"color\":\"#ff0000\""),
+            "expected alice's identity entry with color; got:\n{}",
+            output.ast_json
         );
     }
 }

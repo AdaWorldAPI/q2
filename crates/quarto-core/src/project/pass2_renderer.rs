@@ -534,6 +534,16 @@ pub struct RenderToPreviewAstRenderer {
     /// Synthetic VFS root under which every artifact lives in WASM.
     /// Same semantics as [`RenderToHtmlRenderer::new`].
     vfs_root: std::path::PathBuf,
+    /// Optional transport JSON payload (a serialized
+    /// [`crate::attribution::types::TransportAttributionData`]). When
+    /// `Some`, the renderer installs a
+    /// [`crate::attribution::PreBuiltAttributionProvider`] on the
+    /// per-page `RenderContext` before the pipeline runs. The
+    /// multi-doc WASM entry point reaches this slot through
+    /// [`Self::with_attribution`]; the active-page ctx is constructed
+    /// *inside* [`Self::render`] so direct ctx-side install isn't
+    /// possible from the WASM call site.
+    attribution_json: Option<String>,
 }
 
 impl RenderToPreviewAstRenderer {
@@ -542,7 +552,21 @@ impl RenderToPreviewAstRenderer {
     pub fn new(vfs_root: impl Into<std::path::PathBuf>) -> Self {
         Self {
             vfs_root: vfs_root.into(),
+            attribution_json: None,
         }
+    }
+
+    /// Attach a transport JSON attribution payload. The renderer
+    /// installs a [`crate::attribution::PreBuiltAttributionProvider`]
+    /// on the per-page [`crate::render::RenderContext`] before
+    /// running the pipeline, so [`crate::transforms::AttributionGenerateTransform`]
+    /// builds `AttributionData` and
+    /// [`crate::transforms::AttributionRenderTransform`] populates
+    /// `ctx.format_options.json.attribution_*`. Mirrors
+    /// [`RenderToHtmlRenderer::with_user_grammars`].
+    pub fn with_attribution(mut self, json: String) -> Self {
+        self.attribution_json = Some(json);
+        self
     }
 }
 
@@ -586,6 +610,16 @@ impl Pass2Renderer for RenderToPreviewAstRenderer {
             RenderContext::new(project, doc_info, format, &binaries).with_options(options);
         ctx.project_index = Some(index);
         ctx.resource_resolver = Some(resolver.clone());
+        // Install the pre-built attribution provider when the renderer
+        // was configured with a transport JSON payload. JSON parse +
+        // interning is lazy inside `build()`, so this is cheap and
+        // infallible at construction time; any payload error surfaces
+        // through `AttributionGenerateTransform`'s diagnostics path.
+        if let Some(json) = self.attribution_json.clone() {
+            ctx.attribution_provider = Some(Arc::new(
+                crate::attribution::PreBuiltAttributionProvider::new(json),
+            ));
+        }
 
         let source_name = doc_info.input.to_string_lossy().to_string();
 

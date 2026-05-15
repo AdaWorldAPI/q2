@@ -139,6 +139,26 @@ pub struct StageContext {
     /// page-relative URLs without re-deriving the resolver.
     pub resource_resolver: Option<ResourceResolverContext>,
 
+    /// Optional attribution-data producer, set by the CLI
+    /// `--attribution` flag plumbing or the WASM
+    /// `parse_qmd_to_ast_with_attribution` entry point and bridged
+    /// into [`crate::transforms::AttributionGenerateTransform`]'s
+    /// inner `RenderContext` by
+    /// [`crate::stage::stages::AstTransformsStage`]. `None` means
+    /// attribution is off for this render — the transform short-
+    /// circuits and the sidecar stays empty.
+    pub attribution_provider: Option<Arc<dyn crate::attribution::AttributionSourceProvider>>,
+
+    /// Per-format writer-side options, populated by Render-phase
+    /// transforms inside [`crate::stage::stages::AstTransformsStage`]
+    /// and bridged back here after the inner pipeline runs. Consumed
+    /// by downstream stages that build the writer config (e.g.
+    /// [`crate::stage::stages::RenderHtmlBodyStage`] passes the
+    /// HTML sub-bag to `pampa::writers::html`). Defaults to all
+    /// `None` fields so existing stages and tests see no behaviour
+    /// change.
+    pub format_options: crate::render::FormatOptions,
+
     /// Optional provider of user-defined tree-sitter grammars, consulted
     /// by `CodeHighlightStage` before falling back to the built-in
     /// registry. Set by the top-level render entry points:
@@ -201,6 +221,8 @@ impl StageContext {
             resource_resolver: None,
             observer: Arc::new(NoopObserver),
             cancellation: Cancellation::new(),
+            attribution_provider: None,
+            format_options: crate::render::FormatOptions::default(),
             user_grammar_provider: None,
         })
     }

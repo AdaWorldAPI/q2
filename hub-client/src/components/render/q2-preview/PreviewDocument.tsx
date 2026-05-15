@@ -4,6 +4,7 @@ import {
     extractMetaString,
     extractMetaBool,
     RegistryContext,
+    useAttributionHover,
 } from '../framework';
 import type { BlockNode, PandocAST } from '../framework';
 import * as Custom from './custom';
@@ -94,6 +95,14 @@ export const PreviewDocument = ({
         };
     }, [meta]);
 
+    // Attribution wiring (Phase 3 of
+    // `2026-05-13-q2-preview-attribution.md`): delegated to
+    // `useAttributionHover`, which returns inert wiring when
+    // `AttributionLookupContext` is unpopulated — off-path DOM stays
+    // byte-identical to pre-attribution. Same hook is consumed by
+    // q2-debug's `AstRenderer`.
+    const attr = useAttributionHover();
+
     const children = renderChildren({
         node: ast as any,
         setLocalAst: setAst as any,
@@ -114,27 +123,45 @@ export const PreviewDocument = ({
                 Array.isArray((b as { c?: unknown[] }).c) &&
                 ((b as { c: unknown[] }).c[0] === 1),
         );
-        return (
+        const minimalInner = (
             <>
                 {title && !hasLevel1Header ? <h1>{title}</h1> : null}
                 {children}
             </>
         );
+        // When attribution is on we need a host element to carry the
+        // mouseover delegation. Off-path stay on the Fragment so the
+        // minimal-mode DOM is byte-identical to today's.
+        if (attr.enabled) {
+            return (
+                <>
+                    {attr.stylesheet}
+                    <div {...attr.hostProps}>{minimalInner}</div>
+                    {attr.overlay}
+                </>
+            );
+        }
+        return minimalInner;
     }
 
     return (
-        <div
-            id="quarto-content"
-            className={`quarto-container page-columns page-rows-contents page-layout-${pageLayout}`}
-        >
-            <main className="content" id="quarto-document-content">
-                <TitleBlock
-                    ast={ast}
-                    setAst={setAst}
-                    onNavigateToDocument={onNavigateToDocument}
-                />
-                {children}
-            </main>
-        </div>
+        <>
+            {attr.stylesheet}
+            <div
+                id="quarto-content"
+                className={`quarto-container page-columns page-rows-contents page-layout-${pageLayout}`}
+                {...attr.hostProps}
+            >
+                <main className="content" id="quarto-document-content">
+                    <TitleBlock
+                        ast={ast}
+                        setAst={setAst}
+                        onNavigateToDocument={onNavigateToDocument}
+                    />
+                    {children}
+                </main>
+            </div>
+            {attr.overlay}
+        </>
     );
 };
