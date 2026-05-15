@@ -40,7 +40,7 @@ function AuthorshipToggle({ authorshipOn, onAuthorshipChange }: AuthorshipToggle
       }}
       aria-pressed={authorshipOn}
       aria-label={`Authorship overlay ${authorshipOn ? 'on' : 'off'}`}
-      title="Authorship overlay — colour each node by last-touch author (session only)"
+      title="Highlight authors"
     >
       <span className="replay-drawer__authorship-dot" />
       <span className="replay-drawer__authorship-label">Authorship</span>
