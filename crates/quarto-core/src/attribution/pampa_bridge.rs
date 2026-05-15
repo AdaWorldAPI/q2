@@ -24,22 +24,23 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use pampa::writers::html::{HtmlAttributionIdentity, HtmlAttributionRecord};
+use pampa::writers::html::HtmlAttributionRecord;
 use pampa::writers::json::{JsonAttributionIdentity, JsonAttributionRecord};
 
 use crate::render::{HtmlFormatOptions, JsonFormatOptions};
 
-/// Translate the writer-side HTML attribution fields on `opts` into
-/// the pampa-facing maps consumed by `HtmlConfig`. Off-path (both
-/// fields `None`) both outputs are `None`, so the writer's
-/// byte-identicality contract holds.
+/// Translate the writer-side HTML attribution field on `opts` into
+/// the pampa-facing map consumed by `HtmlConfig`. Off-path (`None`)
+/// the output is `None`, preserving the writer's byte-identicality
+/// contract.
+///
+/// Identity (display name, colour) is not bridged: the HTML writer
+/// is identity-free since [`crate::transforms::AttributionViewerTransform`]
+/// publishes per-actor identity as CSS custom properties in `<head>`.
 pub fn html_attribution_fields(
     opts: &HtmlFormatOptions,
-) -> (
-    Option<Arc<HashMap<usize, HtmlAttributionRecord>>>,
-    Option<Arc<HashMap<Arc<str>, HtmlAttributionIdentity>>>,
-) {
-    let by_node = opts.attribution_by_node.as_ref().map(|map| {
+) -> Option<Arc<HashMap<usize, HtmlAttributionRecord>>> {
+    opts.attribution_by_node.as_ref().map(|map| {
         Arc::new(
             map.iter()
                 .map(|(k, v)| {
@@ -53,23 +54,7 @@ pub fn html_attribution_fields(
                 })
                 .collect(),
         )
-    });
-    let identities = opts.attribution_identities.as_ref().map(|map| {
-        Arc::new(
-            map.iter()
-                .map(|(k, v)| {
-                    (
-                        Arc::clone(k),
-                        HtmlAttributionIdentity {
-                            display_name: v.display_name.clone(),
-                            color: v.color.clone(),
-                        },
-                    )
-                })
-                .collect(),
-        )
-    });
-    (by_node, identities)
+    })
 }
 
 /// Translate the writer-side JSON attribution fields on `opts` into

@@ -72,9 +72,12 @@ pub struct HtmlFormatOptions {
     pub attribution_by_node: Option<Arc<HashMap<usize, AttributionRecord>>>,
 
     /// Identity table covering every distinct actor that appears in
-    /// `runs`. The HTML writer reads it inline per wrapping span
-    /// (not via a separate table on the wire) because static no-JS
-    /// viewers need self-contained `data-attr-color` values.
+    /// `runs`. Consumed by `AttributionViewerTransform` to emit one
+    /// `[data-attr-actor="<id>"] { --attr-color: …; --attr-name: …; }`
+    /// CSS rule per actor into `rendered.includes.header`. The HTML
+    /// writer is identity-free; the browser paints colour via the
+    /// cascade and `viewer.js` reads `--attr-name` from computed style
+    /// for the hover badge.
     pub attribution_identities: Option<Arc<IdentityMap>>,
 
     /// Whether `AttributionViewerTransform` should auto-inject the

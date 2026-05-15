@@ -19,8 +19,13 @@
 //!                       (Automerge / hub-client uses ms; the unit is
 //!                       part of the wire contract — see
 //!                       `docs/authoring/attribution.qmd`.)
-//! * `data-attr-name`  — derived display name (mail-local-part).
-//! * `data-attr-color` — deterministic `hsl(...)` from the email hash.
+//!
+//! Identity (display name + colour) is **not** emitted per-node;
+//! `AttributionViewerTransform` injects one `[data-attr-actor="…"]`
+//! CSS rule per distinct actor into `<head>`, exposing the values as
+//! `--attr-name` / `--attr-color` custom properties. The browser paints
+//! the colour via the cascade, and `viewer.js` reads the custom
+//! properties when building the hover badge.
 //!
 //! This is the one test that exercises the live `git blame --porcelain`
 //! shell-out (`GitBlameProvider::build` in
@@ -194,37 +199,42 @@ fn cli_attribution_git_emits_data_attr_actor_for_both_authors() {
         html
     );
 
-    // data-attr-name — display name derived from the email
-    // local-part. Pins the derivation that
-    // `docs/authoring/attribution.qmd` advertises ("mail-local-part
-    // plus a deterministic HSL colour").
+    // Identity (display name + colour) is render-time CSS, not
+    // per-node attrs. There must be exactly one rule per actor that
+    // names that actor on the left-hand side and carries both
+    // custom properties on the right.
+    let alice_rule = extract_actor_css_rule(&html, ALICE_EMAIL)
+        .expect("alice's [data-attr-actor=...] rule must be in <head>");
+    let bob_rule = extract_actor_css_rule(&html, BOB_EMAIL)
+        .expect("bob's [data-attr-actor=...] rule must be in <head>");
+
+    // The display name pins the mail-local-part derivation that
+    // `docs/authoring/attribution.qmd` advertises. CSS string-valued
+    // custom properties are quoted, so the test looks for the quoted
+    // form.
     assert!(
-        html.contains("data-attr-name=\"alice\""),
-        "alice's display name must appear; html:\n{}",
-        html
+        alice_rule.contains("--attr-name: \"alice\""),
+        "alice's CSS rule must carry --attr-name; got: {alice_rule}"
     );
     assert!(
-        html.contains("data-attr-name=\"bob\""),
-        "bob's display name must appear; html:\n{}",
-        html
+        bob_rule.contains("--attr-name: \"bob\""),
+        "bob's CSS rule must carry --attr-name; got: {bob_rule}"
     );
 
-    // data-attr-color — deterministic hsl() from the email hash. We
-    // don't pin specific hue values (the palette function may evolve)
-    // but the wire format is part of the contract: it must be an
-    // `hsl(...)` triple, distinct between the two authors so the
-    // per-actor derivation is exercised end-to-end.
+    // Colour is a deterministic hsl() from the email hash. We don't
+    // pin specific hue values (the palette function may evolve) but
+    // the wire format is part of the contract.
     let alice_color =
-        extract_attr_value(&html, ALICE_EMAIL, "data-attr-color").expect("alice color present");
+        extract_css_var_value(&alice_rule, "--attr-color").expect("alice's --attr-color value");
     let bob_color =
-        extract_attr_value(&html, BOB_EMAIL, "data-attr-color").expect("bob color present");
+        extract_css_var_value(&bob_rule, "--attr-color").expect("bob's --attr-color value");
     assert!(
         alice_color.starts_with("hsl("),
-        "alice's data-attr-color must be hsl(); got {alice_color}"
+        "alice's --attr-color must be hsl(); got {alice_color}"
     );
     assert!(
         bob_color.starts_with("hsl("),
-        "bob's data-attr-color must be hsl(); got {bob_color}"
+        "bob's --attr-color must be hsl(); got {bob_color}"
     );
     assert_ne!(
         alice_color, bob_color,
@@ -483,29 +493,25 @@ fn strip_front_matter(qmd: &str) -> String {
     qmd.to_string()
 }
 
-/// Look up the value of `attr` on the same element that carries
-/// `data-attr-actor="<email>"`. Returns the substring between the
-/// quotes after `attr=`, or `None` if the pairing isn't found.
-///
-/// Used by the color assertions to extract values for comparison
-/// without hard-coding the palette function's output — keeps the test
-/// stable across deterministic palette tweaks while still pinning the
-/// per-actor distinctness contract.
-fn extract_attr_value(html: &str, actor_email: &str, attr: &str) -> Option<String> {
-    let actor_marker = format!("data-attr-actor=\"{}\"", actor_email);
-    let needle = format!("{}=\"", attr);
-    // Walk every occurrence of the actor marker; the matching attr
-    // sits on the same tag, which in this writer means within the
-    // same `<...>` element opener.
-    for actor_at in html.match_indices(&actor_marker).map(|(i, _)| i) {
-        let tag_start = html[..actor_at].rfind('<')?;
-        let tag_end = html[tag_start..].find('>')? + tag_start;
-        let tag = &html[tag_start..=tag_end];
-        if let Some(attr_at) = tag.find(&needle) {
-            let value_start = attr_at + needle.len();
-            let value_end = tag[value_start..].find('"')? + value_start;
-            return Some(tag[value_start..value_end].to_string());
-        }
-    }
-    None
+/// Locate the per-actor CSS rule generated by
+/// `AttributionViewerTransform` for `actor_email`. Returns the rule
+/// body (everything between `{` and `}`) or `None` if the rule is
+/// missing.
+fn extract_actor_css_rule(html: &str, actor_email: &str) -> Option<String> {
+    let selector = format!("[data-attr-actor=\"{}\"]", actor_email);
+    let selector_at = html.find(&selector)?;
+    let open = html[selector_at..].find('{')? + selector_at;
+    let close = html[open..].find('}')? + open;
+    Some(html[open + 1..close].trim().to_string())
+}
+
+/// Pull the value of a CSS custom property declaration from a rule
+/// body. Looks for `<name>:` and returns the text up to the next `;`,
+/// trimmed.
+fn extract_css_var_value(rule_body: &str, name: &str) -> Option<String> {
+    let needle = format!("{}:", name);
+    let at = rule_body.find(&needle)?;
+    let after = &rule_body[at + needle.len()..];
+    let end = after.find(';').unwrap_or(after.len());
+    Some(after[..end].trim().to_string())
 }

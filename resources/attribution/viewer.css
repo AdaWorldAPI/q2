@@ -1,5 +1,7 @@
 [data-attr-actor] {
+    color: var(--attr-color, currentColor);
     text-decoration: underline dotted;
+    text-decoration-color: var(--attr-color, currentColor);
     text-underline-offset: 4px;
     cursor: help;
 }

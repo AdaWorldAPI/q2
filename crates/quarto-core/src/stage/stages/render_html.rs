@@ -23,15 +23,13 @@ use crate::trace_event;
 
 /// Translate Render-phase attribution data on the format-options bag
 /// into the pampa-facing [`HtmlConfig`]. Off-path (attribution
-/// disabled / no records) the returned config has both attribution
-/// fields `None` — the HTML writer's output is byte-identical to its
+/// disabled / no records) the returned config has `attribution_by_node`
+/// `None` — the HTML writer's output is byte-identical to its
 /// existing behaviour.
 fn build_html_config_from_options(opts: &HtmlFormatOptions) -> HtmlConfig {
-    let (attribution_by_node, attribution_identities) = html_attribution_fields(opts);
     HtmlConfig {
         include_source_locations: false,
-        attribution_by_node,
-        attribution_identities,
+        attribution_by_node: html_attribution_fields(opts),
     }
 }
 

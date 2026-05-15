@@ -16,19 +16,14 @@ use std::sync::Arc;
 // Configuration and Context
 // =============================================================================
 
-/// Per-actor identity (display name + colour) carried inline on each
-/// HTML attribution wrapper. The HTML writer reads this per-record
-/// because static no-JS viewers need self-contained `data-attr-name`
-/// / `data-attr-color` values — unlike the JSON wire, which dedupes
-/// identity via an actors table.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HtmlAttributionIdentity {
-    pub display_name: String,
-    pub color: String,
-}
-
 /// Per-node attribution record consumed by the HTML writer's
 /// `write_block_source_attrs` / `write_inline_source_attrs`.
+///
+/// Identity (display name, colour) is **not** carried here. The
+/// `AttributionViewerTransform` emits one CSS rule per distinct
+/// actor into `<head>` (publishing `--attr-color` / `--attr-name`
+/// custom properties), and the browser paints via the cascade. JS
+/// reads identity from computed style for the hover badge.
 #[derive(Debug, Clone)]
 pub struct HtmlAttributionRecord {
     pub actor: Arc<str>,
@@ -46,16 +41,10 @@ pub struct HtmlConfig {
     /// are `&Block` / `&Inline` cast through `*const ()` to
     /// `usize`. The writer's source-attr helpers do a single
     /// `HashMap::get` per node to decide whether to emit
-    /// `data-attr-*`. `None` means attribution is off for this
-    /// render — same code path as the unflagged HTML default.
+    /// `data-attr-actor` / `data-attr-time`. `None` means attribution
+    /// is off for this render — same code path as the unflagged HTML
+    /// default.
     pub attribution_by_node: Option<Arc<HashMap<usize, HtmlAttributionRecord>>>,
-
-    /// Actor → `(name, color)` table. Total over every actor
-    /// returned by `attribution_by_node`, including warning-path
-    /// placeholders for actors missing from the provider's
-    /// identities. The writer joins by actor key to fill
-    /// `data-attr-name` / `data-attr-color`.
-    pub attribution_identities: Option<Arc<HashMap<Arc<str>, HtmlAttributionIdentity>>>,
 }
 
 /// Extract HTML configuration from document metadata.
@@ -197,14 +186,6 @@ impl<'ast, W: Write> HtmlWriterContext<'ast, W> {
         let map = self.config.attribution_by_node.as_ref()?;
         let key = inline.source_info() as *const quarto_source_map::SourceInfo as usize;
         map.get(&key)
-    }
-
-    /// Look up the identity (display name + colour) for an actor.
-    /// Falls back to a synthesized `<unknown>` / `#888888` so the
-    /// writer's emission path is total: every record received via
-    /// `get_*_attribution` produces all four `data-attr-*` attrs.
-    pub fn get_attribution_identity(&self, actor: &str) -> Option<&HtmlAttributionIdentity> {
-        self.config.attribution_identities.as_ref()?.get(actor)
     }
 }
 
@@ -668,10 +649,12 @@ fn capture_to_class(capture: &str) -> String {
 /// - `data-sid` / `data-loc` (source locations) emit only when
 ///   `include_source_locations` is on and the writer has source info
 ///   for this block.
-/// - `data-attr-actor` / `data-attr-time` / `data-attr-name` /
-///   `data-attr-color` (attribution) emit whenever
+/// - `data-attr-actor` / `data-attr-time` (attribution) emit whenever
 ///   `attribution_by_node` has a record for this block's pointer,
-///   regardless of `include_source_locations`.
+///   regardless of `include_source_locations`. Identity (display
+///   name, colour) is resolved by per-actor CSS rules emitted in
+///   `<head>` by `AttributionViewerTransform`; the writer never sees
+///   identity.
 ///
 /// Pinned by Phase 0 test #7c (`attribution_on + source_locations_off
 /// compose_orthogonally`).
@@ -729,13 +712,11 @@ fn write_inline_source_attrs<W: Write>(
     Ok(())
 }
 
-/// Emit the four `data-attr-*` attributes for a block when
-/// `attribution_by_node` has a record for it. All four attrs
-/// (`data-attr-actor`, `data-attr-time`, `data-attr-name`,
-/// `data-attr-color`) emit together — they're one logical group
-/// from the consumer's POV. Identity defaults to the warning-path
-/// placeholder if the actor is unmapped (the transform should have
-/// already populated this, but the writer is defensive).
+/// Emit the per-node attribution attrs (`data-attr-actor`,
+/// `data-attr-time`) for a block when `attribution_by_node` has a
+/// record for it. Identity (display name, colour) is emitted once
+/// per actor as a CSS rule by `AttributionViewerTransform`; the
+/// writer is identity-free.
 fn write_block_attribution_attrs<W: Write>(
     block: &Block,
     ctx: &mut HtmlWriterContext<'_, W>,
@@ -744,11 +725,7 @@ fn write_block_attribution_attrs<W: Write>(
         return Ok(());
     };
     let (actor, time) = (record.actor.clone(), record.time);
-    let (name, color) = match ctx.get_attribution_identity(&actor) {
-        Some(id) => (id.display_name.clone(), id.color.clone()),
-        None => ("<unknown>".to_string(), "#888888".to_string()),
-    };
-    write_attribution_attrs(ctx, &actor, time, &name, &color)
+    write_attribution_attrs(ctx, &actor, time)
 }
 
 /// Inline counterpart to [`write_block_attribution_attrs`].
@@ -760,27 +737,19 @@ fn write_inline_attribution_attrs<W: Write>(
         return Ok(());
     };
     let (actor, time) = (record.actor.clone(), record.time);
-    let (name, color) = match ctx.get_attribution_identity(&actor) {
-        Some(id) => (id.display_name.clone(), id.color.clone()),
-        None => ("<unknown>".to_string(), "#888888".to_string()),
-    };
-    write_attribution_attrs(ctx, &actor, time, &name, &color)
+    write_attribution_attrs(ctx, &actor, time)
 }
 
 fn write_attribution_attrs<W: Write>(
     ctx: &mut HtmlWriterContext<'_, W>,
     actor: &str,
     time: i64,
-    name: &str,
-    color: &str,
 ) -> std::io::Result<()> {
     write!(
         ctx,
-        " data-attr-actor=\"{}\" data-attr-time=\"{}\" data-attr-name=\"{}\" data-attr-color=\"{}\"",
+        " data-attr-actor=\"{}\" data-attr-time=\"{}\"",
         escape_html(actor),
         time,
-        escape_html(name),
-        escape_html(color),
     )
 }
 
@@ -1116,21 +1085,15 @@ fn emit_attribution_run<W: Write>(
     run: &[Inline],
     ctx: &mut HtmlWriterContext<'_, W>,
 ) -> std::io::Result<()> {
-    let (actor, time, name, color) = {
+    let (actor, time) = {
         let record = ctx
             .get_inline_attribution(&run[0])
             .expect("emit_attribution_run anchor has attribution");
-        let actor = Arc::clone(&record.actor);
-        let time = record.time;
-        let (name, color) = match ctx.get_attribution_identity(&actor) {
-            Some(id) => (id.display_name.clone(), id.color.clone()),
-            None => ("<unknown>".to_string(), "#888888".to_string()),
-        };
-        (actor, time, name, color)
+        (Arc::clone(&record.actor), record.time)
     };
 
     write!(ctx, "<span")?;
-    write_attribution_attrs(ctx, &actor, time, &name, &color)?;
+    write_attribution_attrs(ctx, &actor, time)?;
     write!(ctx, ">")?;
 
     for x in run {
@@ -1615,10 +1578,9 @@ pub fn write<W: Write>(
 /// [`HtmlConfig`] with any per-document metadata.
 ///
 /// This is the entry point that lets the render pipeline pass
-/// pre-baked attribution data (the
-/// `attribution_by_node` + `attribution_identities` fields populated
-/// by `AttributionRenderTransform`) without losing the metadata-
-/// driven `source-location: full` opt-in.
+/// pre-baked attribution data (the `attribution_by_node` field
+/// populated by `AttributionRenderTransform`) without losing the
+/// metadata-driven `source-location: full` opt-in.
 pub fn write_with_options<W: Write>(
     pandoc: &Pandoc,
     ast_context: &ASTContext,

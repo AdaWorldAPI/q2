@@ -24,9 +24,7 @@ use std::sync::Arc;
 
 use pampa::pandoc::ast_context::ASTContext;
 use pampa::pandoc::{Block, Code, Inline, Pandoc, Paragraph, Space, Str};
-use pampa::writers::html::{
-    HtmlAttributionIdentity, HtmlAttributionRecord, HtmlConfig, write_with_config,
-};
+use pampa::writers::html::{HtmlAttributionRecord, HtmlConfig, write_with_config};
 use quarto_pandoc_types::ConfigValue;
 use quarto_pandoc_types::attr::{Attr, AttrSourceInfo};
 use quarto_source_map::SourceInfo;
@@ -90,22 +88,6 @@ fn bob() -> Arc<str> {
     Arc::from("bob")
 }
 
-fn identities_with(
-    entries: &[(&Arc<str>, &str, &str)],
-) -> Arc<HashMap<Arc<str>, HtmlAttributionIdentity>> {
-    let mut m: HashMap<Arc<str>, HtmlAttributionIdentity> = HashMap::new();
-    for (actor, name, color) in entries {
-        m.insert(
-            Arc::clone(actor),
-            HtmlAttributionIdentity {
-                display_name: name.to_string(),
-                color: color.to_string(),
-            },
-        );
-    }
-    Arc::new(m)
-}
-
 // ===========================================================================
 // Test #7b — three contiguous Str inlines with same (actor, time)
 //             coalesce into one outer span wrapper.
@@ -155,7 +137,6 @@ fn contiguous_same_attribution_prose_coalesces_into_one_outer_wrapper() {
     let config = HtmlConfig {
         include_source_locations: false,
         attribution_by_node: Some(Arc::new(by_node)),
-        attribution_identities: Some(identities_with(&[(&a, "Alice", "#ff0000")])),
     };
 
     let body = render_body(&pandoc, config);
@@ -232,10 +213,6 @@ fn coalescing_breaks_on_actor_change() {
     let config = HtmlConfig {
         include_source_locations: false,
         attribution_by_node: Some(Arc::new(by_node)),
-        attribution_identities: Some(identities_with(&[
-            (&a, "Alice", "#ff0000"),
-            (&b, "Bob", "#00ff00"),
-        ])),
     };
 
     let body = render_body(&pandoc, config);
@@ -301,7 +278,6 @@ fn structured_inline_breaks_prose_coalescing() {
     let config = HtmlConfig {
         include_source_locations: false,
         attribution_by_node: Some(Arc::new(by_node)),
-        attribution_identities: Some(identities_with(&[(&a, "Alice", "#ff0000")])),
     };
 
     let body = render_body(&pandoc, config);
@@ -383,7 +359,6 @@ fn attribution_on_source_locations_off_produces_outer_wrapper_no_inner_span() {
     let config = HtmlConfig {
         include_source_locations: false,
         attribution_by_node: Some(Arc::new(by_node)),
-        attribution_identities: Some(identities_with(&[(&a, "Alice", "#ff0000")])),
     };
 
     let body = render_body(&pandoc, config);
@@ -400,7 +375,7 @@ fn attribution_on_source_locations_off_produces_outer_wrapper_no_inner_span() {
         body
     );
 
-    // One outer prose wrapper carries all four data-attr-* attrs.
+    // One outer prose wrapper carries the per-node attribution attrs.
     let outer_open_count = body.matches("<span data-attr-actor=\"alice\"").count();
     assert_eq!(
         outer_open_count, 1,
@@ -427,17 +402,22 @@ fn attribution_on_source_locations_off_produces_outer_wrapper_no_inner_span() {
         &after_open[..after_open.len().min(60)]
     );
 
-    // All four data-attr-* keys present on the outer wrapper.
+    // Per-node attribution carries only the keys writers need to
+    // identify the run; identity (name/color) is resolved by CSS rules
+    // emitted once per actor by `AttributionViewerTransform`.
     let head = &body[outer_open..outer_open_close];
-    for attr in [
-        "data-attr-actor",
-        "data-attr-time",
-        "data-attr-name",
-        "data-attr-color",
-    ] {
+    for attr in ["data-attr-actor", "data-attr-time"] {
         assert!(
             head.contains(attr),
             "outer wrapper missing {} attr; tag: {}",
+            attr,
+            head
+        );
+    }
+    for attr in ["data-attr-name", "data-attr-color"] {
+        assert!(
+            !head.contains(attr),
+            "per-node wrapper must NOT carry {} (identity is render-time CSS); tag: {}",
             attr,
             head
         );

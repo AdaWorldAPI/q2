@@ -137,6 +137,24 @@ async fn attribution_viewer_emits_includes_when_active() {
         "viewer CSS must carry the dedup sentinel; got: {}",
         header[0]
     );
+    // Per-actor rule emits `--attr-color` and `--attr-name` so the
+    // browser paints colour via the cascade and viewer.js reads name
+    // from computed style. One rule per distinct actor.
+    assert!(
+        header[0].contains("[data-attr-actor=\"alice\"]"),
+        "header <style> must carry a rule for actor 'alice'; got: {}",
+        header[0]
+    );
+    assert!(
+        header[0].contains("--attr-color: hsl(0, 60%, 55%)"),
+        "alice's rule must carry --attr-color from the identity map; got: {}",
+        header[0]
+    );
+    assert!(
+        header[0].contains("--attr-name: \"Alice\""),
+        "alice's rule must carry quoted --attr-name string; got: {}",
+        header[0]
+    );
 
     assert_eq!(
         after_body.len(),

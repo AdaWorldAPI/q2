@@ -86,22 +86,34 @@ mod viewer_asset_tests {
         }
     }
 
-    /// Phase C invariant: pin the wrapper-recolour behaviour. The
-    /// viewer JS paints each `[data-attr-actor]` element in its
-    /// author's colour so descendants inherit via the cascade,
-    /// matching the hub-client's `AttributionWrap` which sets the
-    /// same inline style on the React side. The
-    /// `data-attr-color` attribute is the source for the assignment.
+    /// Pin the wrapper-recolour mechanism. Colour assignment is
+    /// render-time CSS now: each `[data-attr-actor]` element inherits
+    /// its colour from a per-actor rule (`--attr-color`) emitted by
+    /// `AttributionViewerTransform`. The static stylesheet carries the
+    /// base paint rule so descendants inherit via the cascade. The
+    /// hub-client's React `AttributionWrap` sets the same colour
+    /// inline on the wrap element directly; both paths converge on
+    /// `.q2-attr-badge`'s `var(--attr-color)` for the badge frame.
     #[test]
-    fn viewer_js_recolors_wrapper_text() {
+    fn viewer_css_paints_wrappers_via_attr_color_var() {
         assert!(
-            VIEWER_JS.contains("el.style.color"),
-            "viewer.js must paint wrapped elements in author colour; \
-             this is the contract with the hub-client's `AttributionWrap`"
+            VIEWER_CSS.contains("var(--attr-color"),
+            "viewer.css must paint wrapped elements via var(--attr-color); \
+             render-time CSS replaces the previous JS paint pass"
         );
+    }
+
+    /// The hover-badge JS must read identity via the CSS custom
+    /// properties published by `AttributionViewerTransform`'s per-actor
+    /// rules. Pins the boundary between the renderer (CSS) and the
+    /// interaction (JS).
+    #[test]
+    fn viewer_js_reads_identity_from_css_vars() {
         assert!(
-            VIEWER_JS.contains("data-attr-color"),
-            "the recolour pass must read `data-attr-color` from each wrap"
+            VIEWER_JS.contains("--attr-color") && VIEWER_JS.contains("--attr-name"),
+            "viewer.js must read `--attr-color` / `--attr-name` from each \
+             wrapper's computed style (identity is no longer inlined as \
+             `data-attr-*`)"
         );
     }
 }
