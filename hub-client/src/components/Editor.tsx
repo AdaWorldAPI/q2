@@ -218,6 +218,14 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
 
   // Scroll sync state (persisted in localStorage)
   const [scrollSyncEnabled, setScrollSyncEnabled] = usePreference('scrollSyncEnabled');
+
+  // Authorship overlay — session-only useState (not persisted).
+  // Owned here, surfaced via the toggle in the replay bar, and
+  // threaded into ReactPreview where `useAttribution` consumes it
+  // as the `enabled` flag. Treated as an inspection mode rather
+  // than a setting: resets on reload so a previously-curious view
+  // doesn't bleed into the next session.
+  const [authorshipOn, setAuthorshipOn] = useState(false);
   // Track if editor has focus (to prevent scroll feedback loop)
   const editorHasFocusRef = useRef(false);
   // Track when editor is mounted (for scroll sync initialization)
@@ -1053,13 +1061,21 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
             onFormatChange={handleFormatChange}
             onContentRewrite={handleContentRewrite}
             identities={identities}
+            authorshipOn={authorshipOn}
           />
         </div>
       </main>
 
       {/* Replay mode drawer */}
       {!isFullscreenPreview && (
-        <ReplayDrawer state={replayState} controls={replayControls} disabled={!!currentFile && isBinaryExtension(currentFile.path)} identities={identities} />
+        <ReplayDrawer
+          state={replayState}
+          controls={replayControls}
+          disabled={!!currentFile && isBinaryExtension(currentFile.path)}
+          identities={identities}
+          authorshipOn={authorshipOn}
+          onAuthorshipChange={setAuthorshipOn}
+        />
       )}
 
       {/* New text-file dialog */}

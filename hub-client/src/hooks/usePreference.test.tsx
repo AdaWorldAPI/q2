@@ -10,8 +10,12 @@ afterEach(() => {
   localStorage.clear();
 });
 
+// `errorOverlayCollapsed` is the chosen probe key — a persisted
+// boolean preference whose default is `true`. The test exercises
+// generic cross-instance reactivity, not the semantics of any
+// particular key, so any boolean preference works.
 function Writer() {
-  const [value, setValue] = usePreference('attributionEnabled');
+  const [value, setValue] = usePreference('errorOverlayCollapsed');
   return (
     <button data-testid="writer" onClick={() => setValue(!value)}>
       writer: {String(value)}
@@ -20,7 +24,7 @@ function Writer() {
 }
 
 function Reader() {
-  const [value] = usePreference('attributionEnabled');
+  const [value] = usePreference('errorOverlayCollapsed');
   return <span data-testid="reader">reader: {String(value)}</span>;
 }
 
@@ -37,15 +41,15 @@ describe('usePreference cross-instance reactivity', () => {
       </>,
     );
 
-    // Both start at default (false for attributionEnabled).
-    expect(screen.getByTestId('writer').textContent).toBe('writer: false');
-    expect(screen.getByTestId('reader').textContent).toBe('reader: false');
+    // Both start at default (true for errorOverlayCollapsed).
+    expect(screen.getByTestId('writer').textContent).toBe('writer: true');
+    expect(screen.getByTestId('reader').textContent).toBe('reader: true');
 
     // Toggle in the writer — the reader observes the change without
     // remounting.
     fireEvent.click(screen.getByTestId('writer'));
 
-    expect(screen.getByTestId('writer').textContent).toBe('writer: true');
-    expect(screen.getByTestId('reader').textContent).toBe('reader: true');
+    expect(screen.getByTestId('writer').textContent).toBe('writer: false');
+    expect(screen.getByTestId('reader').textContent).toBe('reader: false');
   });
 });

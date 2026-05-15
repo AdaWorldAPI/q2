@@ -37,6 +37,12 @@ interface PreviewRouterProps {
    * of the `actor.slice(0, 8)` fallback hash.
    */
   identities?: Record<string, ActorIdentity>;
+  /**
+   * Authorship overlay on/off. Session-only — owned by `Editor.tsx`
+   * as `useState`, threaded down here and into `ReactPreview` to
+   * drive `useAttribution`.
+   */
+  authorshipOn: boolean;
 }
 
 /**
@@ -122,8 +128,9 @@ export default function PreviewRouter(props: PreviewRouterProps) {
   }
 
   // Render the appropriate preview component with shared WASM error banner.
-  // `identities` is for ReactPreview only — Preview doesn't know about it.
-  const { onRegisterScrollToLine, onRegisterSetScrollRatio, onFormatChange, onContentRewrite, fileContents, identities, ...commonProps } = props;
+  // `identities` and `authorshipOn` are for ReactPreview only — Preview
+  // doesn't know about either.
+  const { onRegisterScrollToLine, onRegisterSetScrollRatio, onFormatChange, onContentRewrite, fileContents, identities, authorshipOn, ...commonProps } = props;
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -133,7 +140,7 @@ export default function PreviewRouter(props: PreviewRouterProps) {
       )}
       <div style={{ flex: 1, overflow: 'hidden' }}>
         {reactFormat ? (
-          <ReactPreview {...commonProps} onContentRewrite={onContentRewrite} fileContents={fileContents} format={reactFormat} identities={identities} />
+          <ReactPreview {...commonProps} onContentRewrite={onContentRewrite} fileContents={fileContents} format={reactFormat} identities={identities} authorshipOn={authorshipOn} />
         ) : (
           // Phase 9 Decision 6: pass `fileContents` so any sibling
           // edit (including `_quarto.yml`) triggers a re-render via

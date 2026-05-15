@@ -268,4 +268,93 @@ describe('ReplayDrawer', () => {
       expect(controls.exit).toHaveBeenCalled();
     });
   });
+
+  describe('Authorship toggle', () => {
+    it('renders in collapsed state when authorshipOn + onAuthorshipChange are passed', () => {
+      render(
+        <ReplayDrawer
+          state={makeState()}
+          controls={controls}
+          authorshipOn={false}
+          onAuthorshipChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByLabelText(/Authorship/)).toBeDefined();
+    });
+
+    it('renders in expanded state', () => {
+      const activeState = makeState({
+        isActive: true,
+        historyLength: 100,
+        currentIndex: 42,
+        currentContent: 'hello',
+        timestamp: 1710000000,
+        actor: 'abcdef0123456789abcdef0123456789',
+        chunkActors: [],
+      });
+      render(
+        <ReplayDrawer
+          state={activeState}
+          controls={controls}
+          authorshipOn={false}
+          onAuthorshipChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByLabelText(/Authorship/)).toBeDefined();
+    });
+
+    it('reflects authorshipOn state via aria-pressed', () => {
+      const { rerender } = render(
+        <ReplayDrawer
+          state={makeState()}
+          controls={controls}
+          authorshipOn={false}
+          onAuthorshipChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByLabelText(/Authorship/).getAttribute('aria-pressed')).toBe('false');
+
+      rerender(
+        <ReplayDrawer
+          state={makeState()}
+          controls={controls}
+          authorshipOn={true}
+          onAuthorshipChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByLabelText(/Authorship/).getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('clicking toggles via onAuthorshipChange', () => {
+      const onChange = vi.fn();
+      render(
+        <ReplayDrawer
+          state={makeState()}
+          controls={controls}
+          authorshipOn={false}
+          onAuthorshipChange={onChange}
+        />,
+      );
+      fireEvent.click(screen.getByLabelText(/Authorship/));
+      expect(onChange).toHaveBeenCalledWith(true);
+    });
+
+    it('clicking does not trigger replay enter', () => {
+      render(
+        <ReplayDrawer
+          state={makeState()}
+          controls={controls}
+          authorshipOn={false}
+          onAuthorshipChange={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByLabelText(/Authorship/));
+      expect(controls.enter).not.toHaveBeenCalled();
+    });
+
+    it('is omitted when onAuthorshipChange is not provided', () => {
+      render(<ReplayDrawer state={makeState()} controls={controls} />);
+      expect(screen.queryByLabelText(/Authorship/)).toBeNull();
+    });
+  });
 });

@@ -5,20 +5,16 @@ export const ColorSchemeSchema = z.enum(['auto', 'dark', 'light']);
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 
 // Schema definition - single source of truth
+//
+// The Authorship overlay is intentionally NOT persisted. It lives as
+// session-only React state in Editor.tsx and is toggled via the pill
+// in the replay bar — treating it as an inspection mode rather than a
+// setting avoids leaking a previously-curious view across reloads.
 export const UserPreferencesSchema = z.object({
   version: z.literal(1),
   scrollSyncEnabled: z.boolean(),
   errorOverlayCollapsed: z.boolean(),
   colorScheme: ColorSchemeSchema,
-  // Authorship overlay (Phase 5c). Off by default — colours node
-  // borders/labels in the q2-debug preview by their last-touch
-  // Automerge actor, with display name + colour resolved by
-  // `useAttribution` (replay + fnv1a fallback) and pre-baked into
-  // `astContext.attribution` / `astContext.attributionActors` by the
-  // Rust render transform. `.default(false)` so localStorage entries
-  // written before this key existed don't fail validation and reset
-  // every other preference.
-  attributionEnabled: z.boolean().default(false),
 });
 
 // Infer TypeScript type from schema
@@ -33,7 +29,6 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   scrollSyncEnabled: true,
   errorOverlayCollapsed: true, // collapsed by default
   colorScheme: 'auto',
-  attributionEnabled: false, // opt-in surfacing of author identities
 };
 
 // Validation function - returns valid preferences or defaults

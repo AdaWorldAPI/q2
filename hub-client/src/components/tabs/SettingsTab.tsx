@@ -22,7 +22,6 @@ export default function SettingsTab({
   onScrollSyncChange,
 }: SettingsTabProps) {
   const [errorOverlayCollapsed, setErrorOverlayCollapsed] = usePreference('errorOverlayCollapsed');
-  const [attributionEnabled, setAttributionEnabled] = usePreference('attributionEnabled');
   const [isCapturing, setIsCapturing] = useState(false);
 
   const handleScreenshot = async () => {
@@ -92,18 +91,6 @@ export default function SettingsTab({
           <span className="setting-name">Collapse error overlay</span>
           <span className="setting-description">
             Show errors as a small indicator instead of expanded panel
-          </span>
-        </label>
-        <label className="setting-toggle">
-          <input
-            type="checkbox"
-            checked={attributionEnabled}
-            onChange={(e) => setAttributionEnabled(e.target.checked)}
-          />
-          <span className="setting-name">Authorship</span>
-          <span className="setting-description">
-            Colour each node by its last-touch Automerge author in the
-            debug preview
           </span>
         </label>
         <div style={{ marginTop: '16px' }}>

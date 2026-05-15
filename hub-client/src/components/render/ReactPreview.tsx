@@ -11,7 +11,6 @@ import {
 } from '../../services/wasmRenderer';
 import { pipelineKindForFormat } from '../../utils/pipelineKind';
 import { useAttribution } from '../../hooks/useAttribution';
-import { usePreference } from '../../hooks/usePreference';
 import { stripAnsi } from '../../utils/stripAnsi';
 import { PreviewErrorOverlay } from './PreviewErrorOverlay';
 import ReactRenderer from './ReactRenderer';
@@ -54,6 +53,13 @@ interface PreviewProps {
    * entry, so the Phase 6 producer invariant always holds.
    */
   identities?: Record<string, ActorIdentity>;
+  /**
+   * Authorship overlay on/off. Session-only, owned by `Editor.tsx`
+   * and driven by the toggle in the replay bar. When false,
+   * `useAttribution` short-circuits and the WASM call falls through
+   * to the byte-identical no-attribution path.
+   */
+  authorshipOn: boolean;
 }
 
 // Result of rendering QMD content to AST
@@ -233,6 +239,7 @@ export default function ReactPreview({
   onContentRewrite,
   format,
   identities,
+  authorshipOn,
 }: PreviewProps) {
   // Preview state machine for error handling
   const [previewState, setPreviewState] = useState<PreviewState>('START');
@@ -267,16 +274,14 @@ export default function ReactPreview({
   // payload stays `null` and the WASM call falls through to the
   // byte-identical no-attribution path.
   //
-  // Phase 5c — `enabled` is driven by the persisted
-  // `attributionEnabled` preference, surfaced as the "Authorship"
-  // checkbox under Settings → Preview. `identities` is the
-  // Automerge actor → display-name/colour table threaded down from
-  // `Editor.tsx`; missing entries fall back to the hook's
-  // `(actor.slice(0, 8), actorColor(fnv1aHex8(actor)))` so the
-  // Phase 6 producer invariant always holds.
-  const [attributionEnabled] = usePreference('attributionEnabled');
+  // `enabled` is driven by the session-only `authorshipOn` prop owned
+  // by `Editor.tsx`, surfaced as the Authorship toggle in the replay
+  // bar. `identities` is the Automerge actor → display-name/colour
+  // table threaded down from `Editor.tsx`; missing entries fall back
+  // to the hook's `(actor.slice(0, 8), actorColor(fnv1aHex8(actor)))`
+  // so the Phase 6 producer invariant always holds.
   const attributionPayload = useAttribution({
-    enabled: attributionEnabled,
+    enabled: authorshipOn,
     filePath: currentFile?.path ?? null,
     sourceText: content,
     identities: identities ?? {},
