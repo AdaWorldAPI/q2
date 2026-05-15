@@ -15,7 +15,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-05-15
 
-- [`70016298`](https://github.com/quarto-dev/q2/commits/70016298): Author colours now come from Paul Tol's "Muted" 10-colour qualitative palette instead of an unconstrained HSL hue. The new palette is colour-blind safe across red-green and blue-yellow deficiencies and has perceptually uniform brightness on white. Same actor-hash derivation; only the tail mapping changed.
+- [`70016298`](https://github.com/quarto-dev/q2/commits/70016298): `--attribution=git` HTML renders now derive author colours from Paul Tol's "Muted" 10-colour qualitative palette (colour-blind safe across red-green and blue-yellow deficiencies, perceptually uniform brightness on white) instead of an unconstrained HSL hue. CLI HTML output only — hub-client previews continue to colour authors from Automerge profile metadata.
 
 ### 2026-05-14
 
