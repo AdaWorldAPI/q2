@@ -7,27 +7,47 @@
 //! producer.
 //!
 //! Drift mitigation: the doc-comments cross-reference the TS
-//! siblings (`actorColor` in
-//! `hub-client/src/hooks/useReplayMode.ts:32` and `fnv1aHex8` added
-//! alongside it in Phase 5). Anyone editing either is forced to
-//! consider the other; if drift becomes a real concern in v2, upgrade
-//! to a shared-fixture-based test.
+//! siblings (`actorColor` / `fnv1aHex8` in
+//! `hub-client/src/utils/palette.ts`). Anyone editing either is
+//! forced to consider the other; reference test vectors here and in
+//! `palette.test.ts` pin the cross-implementation parity.
+
+/// Tol Muted — a 10-colour qualitative, colour-blind-safe palette by
+/// Paul Tol. Reproduced from "Notes on colour schemes"
+/// (<https://sronpersonalpages.nl/~pault/>) as factual data; see the
+/// linked notes for the design rationale. Ordering matches Tol's
+/// canonical sequence so the same actor hash lands on the same name
+/// across libraries that adopt this palette (R `khroma`, Python
+/// `paletteer`, etc.).
+const TOL_MUTED: [&str; 10] = [
+    "#CC6677", // rose
+    "#332288", // indigo
+    "#DDCC77", // sand
+    "#117733", // green
+    "#88CCEE", // cyan
+    "#882255", // wine
+    "#44AA99", // teal
+    "#999933", // olive
+    "#AA4499", // purple
+    "#DDDDDD", // pale grey
+];
 
 /// Deterministic colour from an actor hash string.
 ///
 /// Formula: parse the first 6 hex chars of the actor ID as an
-/// integer, mod 360, emit `hsl(<hue>, 60%, 55%)`. Non-hex input
-/// (or an empty string) collapses to hue `0`.
+/// integer, mod the palette length, index into [`TOL_MUTED`]. Non-hex
+/// input (or an empty string) collapses to index `0`.
 ///
 /// **MUST stay in sync with the TS `actorColor` in
-/// `hub-client/src/hooks/useReplayMode.ts:32` — same formula.**
+/// `hub-client/src/utils/palette.ts` — same palette, same formula.**
 pub fn actor_color(actor: &str) -> String {
     // Mirror TS `actor.slice(0, 6)`: first 6 Unicode scalar values
     // (effectively bytes for the hex inputs the producer contracts
     // feed us).
     let prefix: String = actor.chars().take(6).collect();
-    let hue = u32::from_str_radix(&prefix, 16).unwrap_or(0) % 360;
-    format!("hsl({hue}, 60%, 55%)")
+    let n = u32::from_str_radix(&prefix, 16).unwrap_or(0);
+    let idx = (n as usize) % TOL_MUTED.len();
+    TOL_MUTED[idx].to_string()
 }
 
 /// 32-bit FNV-1a hash, formatted as a left-padded 8-char hex string.
@@ -57,23 +77,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn actor_color_emits_hsl_string() {
+    fn actor_color_returns_a_tol_muted_entry() {
+        // Every output of `actor_color` must be one of the canonical
+        // palette entries. This is the core invariant: if the formula
+        // drifts and starts emitting (say) HSL strings, every site
+        // that asserts on the colour will catch it via this rule —
+        // including the TS sibling.
         let c = actor_color("aabbccdd");
-        assert!(c.starts_with("hsl("));
-        assert!(c.ends_with(", 60%, 55%)"));
+        assert!(
+            TOL_MUTED.contains(&c.as_str()),
+            "{c} must be one of the Tol Muted palette entries"
+        );
     }
 
     #[test]
     fn actor_color_matches_ts_for_known_inputs() {
-        // parseInt("aabbcc", 16) = 0xaabbcc = 11_189_196; % 360 = 36.
-        assert_eq!(actor_color("aabbccdd"), "hsl(36, 60%, 55%)");
-        assert_eq!(actor_color("00000000"), "hsl(0, 60%, 55%)");
+        // parseInt("aabbcc", 16) = 0xaabbcc = 11_189_196; % 10 = 6 →
+        // TOL_MUTED[6] = teal.
+        assert_eq!(actor_color("aabbccdd"), "#44AA99");
+        // parseInt("000000", 16) = 0; % 10 = 0 → TOL_MUTED[0] = rose.
+        assert_eq!(actor_color("00000000"), "#CC6677");
     }
 
     #[test]
     fn actor_color_handles_empty_and_non_hex_input() {
-        assert_eq!(actor_color(""), "hsl(0, 60%, 55%)");
-        assert_eq!(actor_color("zzz"), "hsl(0, 60%, 55%)");
+        // Both fall through to index 0 → rose.
+        assert_eq!(actor_color(""), "#CC6677");
+        assert_eq!(actor_color("zzz"), "#CC6677");
     }
 
     #[test]

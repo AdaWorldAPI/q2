@@ -183,11 +183,11 @@ fn fnv1a_hex8_is_deterministic_and_well_distributed() {
 }
 
 #[test]
-fn actor_color_is_deterministic_and_emits_hsl() {
+fn actor_color_is_deterministic_and_returns_a_hex_palette_entry() {
     let c = actor_color("aabbccdd");
     assert!(
-        c.starts_with("hsl("),
-        "actor_color output must be HSL; got: {c}"
+        c.starts_with('#') && c.len() == 7,
+        "actor_color must return a hex string from the Tol Muted palette; got: {c}"
     );
     assert_eq!(c, actor_color("aabbccdd"), "deterministic");
 }
@@ -220,8 +220,9 @@ fn gitblame_single_author_fixture_satisfies_producer_invariant() {
     let id = data.identities.get(&alice).expect("alice identity present");
     assert_eq!(id.display_name, "alice");
     // Pin the deterministic colour for alice@example.com so a future
-    // refactor of fnv1a_hex8 can't silently shift hues.
-    assert_eq!(id.color, "hsl(253, 60%, 55%)");
+    // refactor of fnv1a_hex8 or the Tol Muted palette can't silently
+    // shift the assignment.
+    assert_eq!(id.color, "#117733");
 }
 
 #[test]
@@ -272,18 +273,13 @@ fn gitblame_multi_author_fixture_satisfies_producer_invariant() {
         assert_eq!(identity.color, actor_color(&fnv1a_hex8(actor_str)));
     }
 
-    // Pin alice and bob colours so a future refactor of fnv1a_hex8 or
-    // actor_color can't silently shift hues.
+    // Pin alice and bob colours so a future refactor of fnv1a_hex8,
+    // actor_color, or the Tol Muted palette ordering can't silently
+    // shift the per-actor assignment.
     let alice: Arc<str> = Arc::from("alice@example.com");
     let bob: Arc<str> = Arc::from("bob@example.com");
-    assert_eq!(
-        data.identities.get(&alice).expect("alice").color,
-        "hsl(253, 60%, 55%)"
-    );
-    assert_eq!(
-        data.identities.get(&bob).expect("bob").color,
-        "hsl(220, 60%, 55%)"
-    );
+    assert_eq!(data.identities.get(&alice).expect("alice").color, "#117733");
+    assert_eq!(data.identities.get(&bob).expect("bob").color, "#CC6677");
 
     // Arc-interning invariant: every run's actor Arc<str> is
     // pointer-equal to the corresponding identity-map key.

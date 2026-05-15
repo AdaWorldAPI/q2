@@ -63,7 +63,11 @@ fn fixture_identities() -> Arc<IdentityMap> {
         Arc::from("alice"),
         Identity {
             display_name: "Alice".to_string(),
-            color: "hsl(0, 60%, 55%)".to_string(),
+            // Use a representative Tol Muted entry here; the exact
+            // value need not match what `actor_color("alice")` would
+            // emit — this fixture exists to exercise the viewer's
+            // CSS-rule emission path with a known identity.
+            color: "#CC6677".to_string(),
         },
     );
     Arc::new(m)
@@ -146,7 +150,7 @@ async fn attribution_viewer_emits_includes_when_active() {
         header[0]
     );
     assert!(
-        header[0].contains("--attr-color: hsl(0, 60%, 55%)"),
+        header[0].contains("--attr-color: #CC6677"),
         "alice's rule must carry --attr-color from the identity map; got: {}",
         header[0]
     );

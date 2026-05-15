@@ -221,24 +221,26 @@ fn cli_attribution_git_emits_data_attr_actor_for_both_authors() {
         "bob's CSS rule must carry --attr-name; got: {bob_rule}"
     );
 
-    // Colour is a deterministic hsl() from the email hash. We don't
-    // pin specific hue values (the palette function may evolve) but
-    // the wire format is part of the contract.
+    // Colour is a deterministic hex entry from the Tol Muted palette
+    // (see `crates/quarto-core/src/attribution/palette.rs`). We don't
+    // pin a specific entry — the palette may evolve — but the wire
+    // format `#` + 6 hex chars is part of the contract, and distinct
+    // authors at this scale (2) must land on distinct buckets.
     let alice_color =
         extract_css_var_value(&alice_rule, "--attr-color").expect("alice's --attr-color value");
     let bob_color =
         extract_css_var_value(&bob_rule, "--attr-color").expect("bob's --attr-color value");
     assert!(
-        alice_color.starts_with("hsl("),
-        "alice's --attr-color must be hsl(); got {alice_color}"
+        alice_color.starts_with('#') && alice_color.len() == 7,
+        "alice's --attr-color must be a 7-char hex string; got {alice_color}"
     );
     assert!(
-        bob_color.starts_with("hsl("),
-        "bob's --attr-color must be hsl(); got {bob_color}"
+        bob_color.starts_with('#') && bob_color.len() == 7,
+        "bob's --attr-color must be a 7-char hex string; got {bob_color}"
     );
     assert_ne!(
         alice_color, bob_color,
-        "per-actor color derivation must yield distinct hues"
+        "per-actor colour derivation must yield distinct palette entries"
     );
 }
 

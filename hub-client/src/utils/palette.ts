@@ -16,15 +16,41 @@
  */
 
 /**
+ * Tol Muted — a 10-colour qualitative, colour-blind-safe palette by
+ * Paul Tol. Reproduced from "Notes on colour schemes"
+ * (https://sronpersonalpages.nl/~pault/) as factual data; see the
+ * linked notes for the design rationale. Ordering matches Tol's
+ * canonical sequence so the same actor hash lands on the same name
+ * across libraries that adopt this palette (R `khroma`, Python
+ * `paletteer`, etc.).
+ *
+ * MUST stay in sync with `TOL_MUTED` in the Rust sibling
+ * `crates/quarto-core/src/attribution/palette.rs`.
+ */
+const TOL_MUTED: readonly string[] = [
+  '#CC6677', // rose
+  '#332288', // indigo
+  '#DDCC77', // sand
+  '#117733', // green
+  '#88CCEE', // cyan
+  '#882255', // wine
+  '#44AA99', // teal
+  '#999933', // olive
+  '#AA4499', // purple
+  '#DDDDDD', // pale grey
+] as const;
+
+/**
  * Deterministic colour from an actor hash string.
  *
  * Formula: parse the first 6 hex chars of the actor ID as an integer,
- * mod 360, emit `hsl(<hue>, 60%, 55%)`. Non-hex input (or an empty
- * string) collapses to hue `0`.
+ * mod the palette length, index into `TOL_MUTED`. Non-hex input (or
+ * an empty string) collapses to index `0`.
  */
 export function actorColor(actor: string): string {
-  const hue = parseInt(actor.slice(0, 6), 16) % 360;
-  return `hsl(${hue}, 60%, 55%)`;
+  const n = parseInt(actor.slice(0, 6), 16);
+  const idx = (Number.isNaN(n) ? 0 : n) % TOL_MUTED.length;
+  return TOL_MUTED[idx];
 }
 
 /**

@@ -10,9 +10,16 @@ import { actorColor, fnv1aHex8 } from './palette';
 
 describe('actorColor', () => {
   it('matches the Rust `actor_color` formula for known inputs', () => {
-    // parseInt("aabbcc", 16) = 0xaabbcc = 11_189_196; % 360 = 36.
-    expect(actorColor('aabbccdd')).toBe('hsl(36, 60%, 55%)');
-    expect(actorColor('00000000')).toBe('hsl(0, 60%, 55%)');
+    // parseInt("aabbcc", 16) = 0xaabbcc = 11_189_196; % 10 = 6;
+    // TOL_MUTED[6] = teal.
+    expect(actorColor('aabbccdd')).toBe('#44AA99');
+    // parseInt("000000", 16) = 0; % 10 = 0; TOL_MUTED[0] = rose.
+    expect(actorColor('00000000')).toBe('#CC6677');
+  });
+
+  it('handles empty and non-hex input (NaN -> index 0)', () => {
+    expect(actorColor('')).toBe('#CC6677');
+    expect(actorColor('zzz')).toBe('#CC6677');
   });
 });
 

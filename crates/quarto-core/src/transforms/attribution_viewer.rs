@@ -180,14 +180,14 @@ mod tests {
             Arc::from("bob@example.com"),
             Identity {
                 display_name: "Bob".into(),
-                color: "hsl(200, 60%, 55%)".into(),
+                color: "#88CCEE".into(),
             },
         );
         m.insert(
             Arc::from("alice@example.com"),
             Identity {
                 display_name: "Alice".into(),
-                color: "hsl(0, 60%, 55%)".into(),
+                color: "#CC6677".into(),
             },
         );
         let css = render_per_actor_rules(&m);
@@ -199,7 +199,7 @@ mod tests {
             .find("[data-attr-actor=\"bob@example.com\"]")
             .expect("bob rule present");
         assert!(alice_at < bob_at, "actors emitted sorted ascending");
-        assert!(css.contains("--attr-color: hsl(0, 60%, 55%)"));
+        assert!(css.contains("--attr-color: #CC6677"));
         assert!(css.contains("--attr-name: \"Alice\""));
     }
 
