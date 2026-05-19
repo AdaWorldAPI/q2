@@ -80,7 +80,9 @@ pub use attribution_viewer::AttributionViewerTransform;
 pub use callout::CalloutTransform;
 pub use callout_resolve::CalloutResolveTransform;
 pub use categories_sidebar::CategoriesSidebarTransform;
-pub use code_block_generate::{CodeBlockDecoration, CodeBlockGenerateTransform};
+pub use code_block_generate::{
+    CodeBlockDecoration, CodeBlockDecorationKey, CodeBlockGenerateTransform,
+};
 pub use code_block_render::CodeBlockRenderTransform;
 pub use config::{AppendixStyle, ReferenceLocation, is_feature_disabled, resolve_website_bool};
 pub use crossref_index::CrossrefIndexTransform;

@@ -28,6 +28,8 @@
 
 use quarto_pandoc_types::block::{Block, Blocks};
 use quarto_pandoc_types::pandoc::Pandoc;
+use quarto_source_map::SourceInfo;
+use quarto_source_map::types::FileId;
 
 use crate::Result;
 use crate::render::RenderContext;
@@ -37,16 +39,71 @@ use crate::transform::AstTransform;
 /// `CodeBlock` in the right outer structure (filename header, copy
 /// button, fold details, etc.).
 ///
-/// Phase 0: fields land in Phases 1 – 3 as the corresponding features
-/// arrive. Kept as a dedicated struct (rather than a kv on the
-/// `CodeBlock` attrs) so the data is typed at the Generate/Render
-/// boundary and the storage decision (sideband vs. CustomNode) is
-/// localized here.
+/// Storage shape: a sideband
+/// [`HashMap<CodeBlockDecorationKey, CodeBlockDecoration>`](CodeBlockDecorationKey)
+/// on [`RenderContext::code_block_decorations`](crate::render::RenderContext)
+/// (decision pinned in
+/// `claude-notes/plans/2026-05-19-code-block-features.md`). Generate
+/// populates the map; Render reads it. Both transforms run inside
+/// `AstTransformsStage` so they share the same `RenderContext` —
+/// no `StageContext` bridge needed.
+///
+/// Per-feature fields land in Phases 1 – 3:
+/// - Phase 1 (filename): see `filename` below.
+/// - Phase 2 (copy): `pub copy: CopyMode`.
+/// - Phase 3 (fold): `pub fold: FoldMode`, `pub summary: Option<String>`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CodeBlockDecoration {
-    // Phase 1: pub filename: Option<String>
+    /// Phase 1: the value of the `filename` attribute (or the
+    /// `#| filename:` chunk option). `None` when no filename was
+    /// declared; in that case Render emits no filename header.
+    pub filename: Option<String>,
     // Phase 2: pub copy: CopyMode
     // Phase 3: pub fold: FoldMode, pub summary: Option<String>
+}
+
+/// Stable identity used to key
+/// [`RenderContext::code_block_decorations`](crate::render::RenderContext)
+/// across the Generate → Render boundary.
+///
+/// Derived from a `CodeBlock`'s [`SourceInfo`], using the underlying
+/// `Original` variant's `(file_id, start_offset, end_offset)` triple.
+/// The triple is stable through every subsequent transform that
+/// leaves the source-tracking intact, which is every transform in
+/// the current pipeline — none of them rewrite a code block's
+/// `source_info`.
+///
+/// **Non-`Original` variants are skipped at decoration time.**
+/// `Substring` and `Concat` are inline-text artefacts that effectively
+/// never occur on `Block::CodeBlock`. `FilterProvenance` applies to
+/// elements created from inside a Lua filter; the user-filter slot
+/// brackets the entire `AstTransformsStage`, so any filter-created
+/// `CodeBlock` enters the pipeline either before Generate or after
+/// Render — never between them, where the key would matter.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct CodeBlockDecorationKey {
+    pub file_id: FileId,
+    pub start_offset: usize,
+    pub end_offset: usize,
+}
+
+impl CodeBlockDecorationKey {
+    /// Build a key from a `SourceInfo`. Returns `None` when the
+    /// source info isn't an `Original` (see struct docs).
+    pub fn from_source_info(si: &SourceInfo) -> Option<Self> {
+        match si {
+            SourceInfo::Original {
+                file_id,
+                start_offset,
+                end_offset,
+            } => Some(Self {
+                file_id: *file_id,
+                start_offset: *start_offset,
+                end_offset: *end_offset,
+            }),
+            _ => None,
+        }
+    }
 }
 
 /// See module docs.
@@ -128,5 +185,75 @@ fn walk_blocks_mut(blocks: &mut Blocks, f: &mut impl FnMut(&mut Block)) {
             // the perspective of block-level code-block discovery.
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn decoration_key_from_original_source_info() {
+        let si = SourceInfo::Original {
+            file_id: FileId(7),
+            start_offset: 100,
+            end_offset: 200,
+        };
+        let key = CodeBlockDecorationKey::from_source_info(&si).unwrap();
+        assert_eq!(key.file_id, FileId(7));
+        assert_eq!(key.start_offset, 100);
+        assert_eq!(key.end_offset, 200);
+    }
+
+    #[test]
+    fn decoration_key_skips_non_original_variants() {
+        // Substring / Concat / FilterProvenance return None — see the
+        // docs on `CodeBlockDecorationKey` for the timing argument
+        // that makes this safe in practice.
+        let original = Arc::new(SourceInfo::Original {
+            file_id: FileId(1),
+            start_offset: 0,
+            end_offset: 10,
+        });
+        let substring = SourceInfo::Substring {
+            parent: original.clone(),
+            start_offset: 2,
+            end_offset: 5,
+        };
+        assert!(CodeBlockDecorationKey::from_source_info(&substring).is_none());
+
+        let concat = SourceInfo::Concat { pieces: vec![] };
+        assert!(CodeBlockDecorationKey::from_source_info(&concat).is_none());
+
+        let filter = SourceInfo::FilterProvenance {
+            filter_path: "fixture.lua".into(),
+            line: 1,
+        };
+        assert!(CodeBlockDecorationKey::from_source_info(&filter).is_none());
+    }
+
+    #[test]
+    fn decoration_key_is_hash_eq_for_same_triple() {
+        // The key is the load-bearing identity across the
+        // Generate → Render boundary; two source infos with the same
+        // `(file_id, start, end)` triple must hash and compare equal.
+        let a = CodeBlockDecorationKey::from_source_info(&SourceInfo::Original {
+            file_id: FileId(3),
+            start_offset: 42,
+            end_offset: 99,
+        })
+        .unwrap();
+        let b = CodeBlockDecorationKey::from_source_info(&SourceInfo::Original {
+            file_id: FileId(3),
+            start_offset: 42,
+            end_offset: 99,
+        })
+        .unwrap();
+        assert_eq!(a, b);
+
+        let mut map = std::collections::HashMap::new();
+        map.insert(a, CodeBlockDecoration::default());
+        assert!(map.contains_key(&b));
     }
 }
