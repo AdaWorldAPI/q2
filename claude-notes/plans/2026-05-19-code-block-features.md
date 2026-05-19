@@ -334,3 +334,200 @@ audit whether its specific selectors are present.
   preserved in the conversation that produced this plan; ask
   whoever continues this work, or re-run the audit Agent prompt from
   the original transcript.
+
+---
+
+## Hand-off to next session — Phase 2 (copy button), bd-j1trh
+
+This section is the kickoff packet for the session that picks up
+Phase 2. Phases 0 and 1 landed across commits `e673015c` (skeleton),
+`6ca143d4` (sideband infra), `8b32c0aa` (Generate → Render data
+flow), `464b3874` (SCSS port + e2e). Phase 1 closed `bd-j73yw`;
+Phase 2's beads issue is `bd-j1trh` (now unblocked).
+
+### Load-bearing architectural facts (proven on Phase 1)
+
+1. **Decoration storage**: sideband `HashMap<CodeBlockDecorationKey, CodeBlockDecoration>`
+   on `RenderContext::code_block_decorations`. Key is
+   `(file_id, start_offset, end_offset)` derived from
+   `SourceInfo::Original`. Non-Original variants skip decoration
+   (rare for `Block::CodeBlock` in practice). Both transforms run
+   inside `AstTransformsStage`, so no `StageContext` bridge is needed
+   — but if you add fields to `RenderContext` for new flow, check the
+   bridging block at `crates/quarto-core/src/stage/stages/ast_transforms.rs:160-220`.
+
+2. **Pipeline placement**:
+   - Generate → Normalization Phase, right after `metadata-normalize`
+     (so doc-level defaults are visible — see `pipeline.rs:986-994`).
+   - Render → Finalization Phase, between `crossref-render` and
+     `resource-collector` (see `pipeline.rs:1100-1108`).
+   - Tests pin both positions:
+     `html_pipeline_includes_code_block_decoration_transforms`
+     and `q2_preview_pipeline_includes_code_block_decoration_transforms`
+     (`pipeline.rs:2326-2380`).
+
+3. **AST rewrite pattern**: Render uses
+   `std::mem::replace(block, placeholder)` (placeholder is a tiny
+   `RawBlock("html", "")`) to swap a `Block::CodeBlock` into a
+   `Block::Div { class: "code-with-filename" }` wrapping the original
+   block plus a filename-header `RawBlock`. See
+   `crates/quarto-core/src/transforms/code_block_render.rs::wrap_in_place`.
+
+4. **Native/React parity for free** — load-bearing insight: as long
+   as Render emits standard Pandoc AST nodes (`Div`, `RawBlock`,
+   etc.), the React renderer needs no changes. Phase 1 added the
+   filename header without touching `ts-packages/preview-renderer/`.
+   Phase 2 should keep this property. The one caveat: React's
+   `RawBlock` wraps `dangerouslySetInnerHTML` in an extra `<div>`,
+   which is invisible to descendant-style CSS selectors but matters
+   for sibling / child selectors. If a Phase-2 SCSS rule uses `>`
+   (child combinator) anywhere through a `RawBlock`, the preview
+   will diverge.
+
+5. **Composition order** (per Q1's `customnodes/decoratedcodeblock.lua`,
+   confirmed by visual parity in Phase 1): filename header is the
+   innermost wrapper, copy scaffold goes outside it, fold `<details>`
+   is outermost. Phase 2's Render code needs to thread the new
+   wrapper outside (or around) any filename wrapper already produced
+   for the same block. Two strategies:
+   - **Single pass with all wrappers in order**: build the full
+     wrapper stack inside `wrap_in_place` based on the full
+     decoration (filename + copy + fold all at once). Cleanest;
+     refactor `wrap_in_place` to handle the cumulative case.
+   - **Sequential wrappers**: each phase wraps independently. Order
+     of execution determines nesting. Brittle; avoid.
+
+### Phase 2 specifics — copy button
+
+Q1 reference (from the audit in this plan): copy is implemented in
+**TypeScript post-DOM** in Q1, not Lua. Source:
+`external-sources/quarto-cli/src/format/html/format-html.ts:746-772`.
+Q2 moves it to the Render transform, mirroring how Phase 1 moved the
+Lua filename filter into the transform.
+
+**Triggers** (decoration source-of-truth):
+- Document/format metadata `code-copy: true | false | hover`.
+- Default in Q1: `hover` (button visible on hover via SCSS
+  `$code-copy-selector` set to `"div.code-copy-outer-scaffold:hover > "`).
+- No per-block override in Q1 — copy is doc-level only.
+
+**HTML output**:
+```html
+<div class="code-copy-outer-scaffold">
+  <div class="sourceCode">
+    ...<pre class="code-with-copy">...</pre>
+  </div>
+  <button class="code-copy-button" aria-label="Copy code">
+    <i class="bi bi-clipboard"></i>
+  </button>
+</div>
+```
+
+Note: the `code-with-copy` class lands on the `<pre>` — that's a
+class on the *existing* CodeBlock's attr, which means Generate
+needs to mutate `attr.1` (the classes list) when the block is
+covered by copy. The wrapper (`code-copy-outer-scaffold`) is added
+by Render around the whole thing.
+
+**Three commits suggested** (mirroring Phase 1's rhythm):
+
+1. **Payload + doc-default resolver**. Add `copy: CopyMode` to
+   `CodeBlockDecoration` with `CopyMode::{Off, Hover, Always}`.
+   Add helper that reads `ast.meta`'s `code-copy` (a `String` or
+   `Bool`) and resolves a default `CopyMode`. Wire into Generate.
+   No Render changes yet. Tests: a Generate test asserting the
+   default propagates, and one asserting per-block override (if Q2
+   decides to support it — see open question below).
+
+2. **Generate → Render data flow**. Generate emits the `code-with-copy`
+   class onto the `<pre>`'s attr-classes when the decoration says copy
+   is on. Render emits the `code-copy-outer-scaffold` wrapper + the
+   button as a `RawBlock("html", …)`. Add the clipboard.js dependency
+   via the HTML format-deps mechanism — see open question.
+
+3. **SCSS + JS + e2e**. Port `_quarto-rules-copy-code.scss` and
+   `_quarto-variables-copy-code.scss` from Q1. Add a small JS file
+   under `resources/js/` that wires up the click handler (Q1
+   inlines this in HTML; Q2 should keep it as a separate file
+   loaded by all HTML renders). Browser e2e: hover triggers
+   visible button, click copies to clipboard, "Copied!" tooltip
+   appears.
+
+### Open questions for Phase 2
+
+- **Per-block override of `code-copy`?** Q1 supports doc-level only.
+  Q2 could allow `{python code-copy=false}` on a per-block basis
+  for trivial cost (Generate reads kvs first, falls back to doc
+  default). Decision: punt unless there's a known user ask.
+
+- **Hover vs always-visible default**. Q1 default: hover. Discoverability
+  vs. visual noise. Recommendation: match Q1 (hover) and ship a
+  `$code-copy-selector` SCSS variable so users / themes can opt
+  into always-visible.
+
+- **Clipboard.js dependency injection.** How does Q2 ship a JS file
+  to the rendered HTML output? Look at how `bootstrap.bundle.min.js`
+  is wired (see `crates/quarto-core/src/dependency.rs:26-80` and
+  `crates/quarto-core/src/stage/stages/bootstrap_js.rs`). For
+  clipboard.js, two paths:
+  - Vendor it under `resources/js/clipboard.min.js` and ship it
+    alongside Bootstrap's vendored bundle.
+  - Load it lazily from a CDN. (Bad for offline / privacy. Skip.)
+
+- **Copy button accessibility.** Q1 sets `aria-label="Copy code"` and
+  swaps the icon on success. Mirror exactly; don't reinvent.
+
+### First steps for the next session
+
+1. Read this section.
+2. `br show bd-j1trh` for the sub-task acceptance criteria.
+3. Quick recon: read the three Phase 1 commit files end-to-end —
+   `crates/quarto-core/src/transforms/code_block_generate.rs`,
+   `crates/quarto-core/src/transforms/code_block_render.rs`,
+   `resources/scss/bootstrap/_bootstrap-rules.scss` (lines around
+   `.code-with-filename`).
+4. Decide the wrapper-composition strategy (single-pass vs
+   sequential) before writing any code — the choice shapes
+   `wrap_in_place`. Recommendation: single-pass.
+5. TDD: write the failing Generate test first, mirroring
+   `generate_populates_filename_decoration`.
+
+### Verification commands
+
+- `cargo nextest run --workspace` — fast.
+- `cargo xtask verify --skip-treesitter-tests --skip-treesitter-crlf-tests`
+  — full check, skipping the pre-existing tree-sitter regression
+  (see "Known blockers" below).
+- For e2e: `target/debug/q2 render <fixture>` (rebuild q2 binary
+  first via `cargo build --bin q2`) and
+  `target/debug/q2 preview --no-browser --port 0 <fixture-in-project-dir>`.
+  **For preview, the fixture must live inside a directory with a
+  `_quarto.yml`** — single-file preview is broken per bd-tnm3k.
+
+### Known blockers / context
+
+- **bd-tnm3k**: `q2 preview <single-file.qmd>` is broken when no
+  `_quarto.yml` ancestor exists. Workaround: place a minimal
+  `_quarto.yml` next to the file. Affects e2e verification only;
+  in-process tests and `q2 render` are unaffected.
+
+- **Pre-existing tree-sitter regression** in
+  `crates/tree-sitter-qmd/tree-sitter-markdown/test/corpus/inline-multiline-attrs.txt`
+  — 20 parses fail on `tree-sitter test`. Pre-existing on `main`,
+  unrelated to bd-1tl09 work. Tracked under a separate beads ID
+  (search beads for "inline-multiline-attrs"). Trips
+  `cargo xtask verify` step 4/12 unless you pass
+  `--skip-treesitter-tests --skip-treesitter-crlf-tests`.
+
+- **Phase 5's "expected_hashes.txt" baseline**: every time SCSS
+  changes, the `doc_files/styles.css` hash drifts. The file has an
+  established commenting convention — read the existing comments
+  before adding yours. Test:
+  `crates/quarto-core/tests/artifact_scoping_pipeline.rs::single_doc_render_unchanged_under_scope_refactor`.
+
+### After Phase 2
+
+`bd-g1prx` (Phase 3, code folding) is the natural next item. It
+adds the `<details>` wrapper outermost, exercising the composition
+rule with both filename and copy already in place. Plan §"Phase 3 —
+Code folding" has the design.
