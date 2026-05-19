@@ -206,19 +206,42 @@ Compare rendered HTML against snapshots. Visual parity with Q1 is the
 acceptance bar — render the same fixture through Q1 and Q2 side by
 side, screenshot both, and require human review for each phase.
 
+## Resolved decisions
+
+(Live decisions migrated out of "Open questions" as they get pinned
+down — keep this section as the authoritative record so future
+sessions don't re-litigate.)
+
+- **(2026-05-19) Decoration storage shape: sideband map on
+  `RenderContext`** (option (b) below). Cleared by the user with the
+  rationale that Q1 used the CustomNode approach (option (a)) and it
+  made handling **nested CustomNodes** problematic; Q2's pipeline
+  isn't ready to tackle those interactions yet. Phase 1 will add a
+  `HashMap<Key, CodeBlockDecoration>` field to `RenderContext`. The
+  key type is itself an open sub-question — likely a small derived
+  struct over `SourceInfo::Original`'s `(file_id, start, end)`, with
+  a graceful skip for non-Original variants (rare for CodeBlocks).
+
 ## Open questions to resolve before Phase 0
 
 These shape the typed-payload design, so resolving them up front
 avoids rework.
 
-1. **Where does `CodeBlockDecoration` live?**
-   Options:
+1. **Where does `CodeBlockDecoration` live?** *Resolved 2026-05-19 —
+   see "Resolved decisions" above.* The remaining open sub-question
+   is the *key type* for the sideband map; recommendation is a
+   `SourceInfoKey { file_id, start, end }` derived from
+   `SourceInfo::Original` (which is the variant CodeBlocks land in
+   essentially always — `Substring` / `Concat` are inline-text
+   artefacts, `FilterProvenance` applies to filter-created blocks
+   that don't exist in our pipeline yet).
+   Options considered:
    - **(a)** A new `CodeBlockDecorated` CustomNode that wraps `CodeBlock`
      and carries the decoration as a typed field. Mirrors Q1's
-     `DecoratedCodeBlock`. Pros: locality; the decoration travels
-     with the node through subsequent transforms. Cons: every later
-     transform/walker has to know about the new node type.
-   - **(b)** A `HashMap<BlockId, CodeBlockDecoration>` on
+     `DecoratedCodeBlock`. *Rejected per the resolved decision above
+     — Q1's experience with nested CustomNodes was painful and we're
+     not ready to take that on in Q2's pipeline.*
+   - **(b)** ✅ A `HashMap<Key, CodeBlockDecoration>` on
      `RenderContext`, keyed by source location / block id. Mirrors
      how `resolved_listings` works today. Pros: keeps AST shape stable.
      Cons: id stability across transforms; lookup overhead.
@@ -226,9 +249,6 @@ avoids rework.
      CodeBlock carrying a serialized payload. Pros: trivial; works
      with existing walkers. Cons: stringly-typed, awkward for nested
      data like annotation line-range maps.
-
-   Recommendation: start with **(b)** for consistency with listings;
-   revisit if id stability causes pain.
 
 2. **Does inline `Code` get decorations too?**
    Q1's annotations infrastructure operates only on block-level
