@@ -127,23 +127,48 @@ impl AstTransform for CodeBlockGenerateTransform {
         "code-block-generate"
     }
 
-    async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {
-        // Phase 0: walk the AST so the traversal cost is paid here
-        // rather than added later. The walker is shaped to mutate
-        // blocks (Phases 1+ will need to read attrs and may rewrite
-        // them or attach sideband state), so we use `iter_mut`.
-        walk_blocks_mut(&mut ast.blocks, &mut |_block| {
-            // No-op for Phase 0. Future phases will:
-            //   1. Read CodeBlock.attr.2 (kv map) for `filename`,
-            //      `code-fold`, `code-summary`, `code-copy`, etc.
-            //   2. Combine with doc-level defaults from `ast.meta`.
-            //   3. Construct a CodeBlockDecoration and store it
-            //      somewhere (CustomNode wrapper vs sideband map —
-            //      decision deferred to Phase 1 where there's an
-            //      actual consumer).
+    async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {
+        walk_blocks_mut(&mut ast.blocks, &mut |block| {
+            let Block::CodeBlock(cb) = block else {
+                return;
+            };
+            // Build a decoration from the per-block attributes.
+            // Phase 1 reads only `filename`. Phases 2 / 3 will extend
+            // this match to read `code-copy`, `code-fold`,
+            // `code-summary`, etc., and to combine with doc-level
+            // defaults from `ast.meta` (read via a closed-over
+            // reference if we end up needing it — `walk_blocks_mut`
+            // already supports that).
+            let filename = cb.attr.2.get("filename").map(|s| s.clone());
+
+            let decoration = CodeBlockDecoration { filename };
+
+            // Skip blocks that produced no actual decoration — keeps
+            // the sideband map sparse so Render can short-circuit on
+            // empty.
+            if !decoration_has_any_field(&decoration) {
+                return;
+            }
+
+            // Source-info → key. Non-`Original` variants (Substring,
+            // Concat, FilterProvenance) currently can't happen on
+            // block-level `CodeBlock`; if they ever do, we skip
+            // decoration for those blocks rather than panicking.
+            let Some(key) = CodeBlockDecorationKey::from_source_info(&cb.source_info) else {
+                return;
+            };
+
+            ctx.code_block_decorations.insert(key, decoration);
         });
         Ok(())
     }
+}
+
+/// Returns `true` when at least one decoration-triggering field is
+/// populated. Phase 1: only `filename` exists, so this is just an
+/// `is_some` check. Phases 2 / 3 will extend the disjunction.
+pub(crate) fn decoration_has_any_field(d: &CodeBlockDecoration) -> bool {
+    d.filename.is_some()
 }
 
 /// Walk every `CodeBlock` in the document, descending into containers
@@ -191,7 +216,156 @@ fn walk_blocks_mut(blocks: &mut Blocks, f: &mut impl FnMut(&mut Block)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::format::Format;
+    use crate::project::{DocumentInfo, ProjectConfig, ProjectContext};
+    use crate::render::BinaryDependencies;
+    use quarto_pandoc_types::block::CodeBlock;
+    use quarto_pandoc_types::{ConfigValue, attr::AttrSourceInfo};
     use std::sync::Arc;
+
+    fn source_info_at(file: usize, start: usize, end: usize) -> SourceInfo {
+        SourceInfo::Original {
+            file_id: FileId(file),
+            start_offset: start,
+            end_offset: end,
+        }
+    }
+
+    fn make_codeblock(text: &str, classes: Vec<&str>, kvs: Vec<(&str, &str)>) -> Block {
+        let mut kv_map = hashlink::LinkedHashMap::new();
+        for (k, v) in kvs {
+            kv_map.insert(k.to_string(), v.to_string());
+        }
+        Block::CodeBlock(CodeBlock {
+            attr: (
+                String::new(),
+                classes.into_iter().map(String::from).collect(),
+                kv_map,
+            ),
+            text: text.to_string(),
+            source_info: source_info_at(0, 0, text.len()),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    fn make_test_project() -> ProjectContext {
+        ProjectContext {
+            dir: std::path::PathBuf::from("/project"),
+            config: ProjectConfig::default(),
+            is_single_file: true,
+            files: vec![DocumentInfo::from_path("/project/doc.qmd")],
+            output_dir: std::path::PathBuf::from("/project"),
+        }
+    }
+
+    #[tokio::test]
+    async fn generate_populates_filename_decoration() {
+        let mut ast = Pandoc {
+            meta: ConfigValue::default(),
+            blocks: vec![make_codeblock(
+                "print('hi')",
+                vec!["python"],
+                vec![("filename", "hello.py")],
+            )],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        assert_eq!(ctx.code_block_decorations.len(), 1);
+        let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
+        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        assert_eq!(deco.filename.as_deref(), Some("hello.py"));
+    }
+
+    #[tokio::test]
+    async fn generate_skips_blocks_without_decoration_triggers() {
+        // Code block without filename / copy / fold attributes carries
+        // no decoration. The sideband stays empty so Render can skip
+        // its walk cheaply.
+        let mut ast = Pandoc {
+            meta: ConfigValue::default(),
+            blocks: vec![make_codeblock("print('hi')", vec!["python"], vec![])],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        assert!(
+            ctx.code_block_decorations.is_empty(),
+            "no-decoration code block should not enter the sideband; got {:?}",
+            ctx.code_block_decorations,
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_visits_nested_codeblocks() {
+        use quarto_pandoc_types::block::{BlockQuote, Div};
+
+        // Give the two inner code blocks distinct source ranges so
+        // their decoration keys don't collide.
+        let mut cb_inside_blockquote =
+            make_codeblock("x = 1", vec!["python"], vec![("filename", "inner.py")]);
+        if let Block::CodeBlock(cb) = &mut cb_inside_blockquote {
+            cb.source_info = source_info_at(0, 10, 50);
+        }
+        let mut cb_inside_div =
+            make_codeblock("y = 2", vec!["python"], vec![("filename", "deeper.py")]);
+        if let Block::CodeBlock(cb) = &mut cb_inside_div {
+            cb.source_info = source_info_at(0, 150, 180);
+        }
+
+        let mut ast = Pandoc {
+            meta: ConfigValue::default(),
+            blocks: vec![Block::BlockQuote(BlockQuote {
+                content: vec![
+                    cb_inside_blockquote,
+                    Block::Div(Div {
+                        attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
+                        content: vec![cb_inside_div],
+                        source_info: source_info_at(0, 100, 200),
+                        attr_source: AttrSourceInfo::empty(),
+                    }),
+                ],
+                source_info: source_info_at(0, 0, 300),
+            })],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        let filenames: std::collections::HashSet<_> = ctx
+            .code_block_decorations
+            .values()
+            .filter_map(|d| d.filename.clone())
+            .collect();
+        assert!(filenames.contains("inner.py"), "got {filenames:?}");
+        assert!(filenames.contains("deeper.py"), "got {filenames:?}");
+    }
 
     #[test]
     fn decoration_key_from_original_source_info() {
