@@ -319,19 +319,22 @@ describe('q2-preview Pandoc base-type gap-fill components', () => {
         expect(pre).not.toBeNull();
         expect(code).not.toBeNull();
 
-        // bd-y1fs3: the native HTML writer prepends `sourceCode` to
-        // <pre>'s class list whenever highlight spans are emitted
-        // (`write_code_container_attr` in
-        // `crates/pampa/src/writers/html.rs:487-495`). Quarto theme
-        // CSS keys off `pre.sourceCode` and `pre.sourceCode > code`,
-        // so the React side must reproduce the prefix or the styles
-        // drift.
+        // bd-s3z1g: highlighted code blocks emit Pandoc's nested
+        // structure — `<div class="sourceCode"><pre class="sourceCode lang">
+        // <code class="sourceCode lang">…</code></pre></div>` — matching
+        // the native writer (`write_highlighted_codeblock` in
+        // `crates/pampa/src/writers/html.rs`). The div wrapper is what
+        // Quarto's theme CSS keys off for the rounded background; the
+        // `sourceCode` class on `<code>` is what `pre.sourceCode > code`
+        // rules need.
+        const divWrapper = pre!.parentElement;
+        expect(divWrapper).not.toBeNull();
+        expect(divWrapper!.tagName).toBe('DIV');
+        expect(divWrapper!.className.split(/\s+/)).toContain('sourceCode');
         expect(pre!.className.split(/\s+/)).toContain('sourceCode');
         expect(pre!.className.split(/\s+/)).toContain('r');
-        // <code> is bare under the native writer; the React side
-        // must match so Quarto's `pre.sourceCode > code` CSS rules
-        // resolve identically.
-        expect(code!.className).toBe('');
+        expect(code!.className.split(/\s+/)).toContain('sourceCode');
+        expect(code!.className.split(/\s+/)).toContain('r');
 
         // Span structure: cat in hl-function, parens in
         // hl-punctuation-bracket, inner literal in hl-string.
@@ -355,6 +358,39 @@ describe('q2-preview Pandoc base-type gap-fill components', () => {
         // crates/quarto-core/tests/render_to_html_user_grammars.rs).
         expect(pre!.hasAttribute('data-hl-spans')).toBe(false);
         expect(code!.hasAttribute('data-hl-spans')).toBe(false);
+    });
+
+    it('CodeBlock places id and non-language classes on the div wrapper (highlighted)', () => {
+        // bd-s3z1g: mirrors the native parity test
+        // `highlighted_codeblock_non_language_classes_move_to_div` in
+        // `crates/pampa/src/writers/html.rs`. First class in the AST
+        // attr is the language; remaining classes (e.g. `cell-code`)
+        // move to the outer div, alongside `sourceCode`. Id also goes
+        // on the div, not on the pre.
+        const spans = [[0, 3, 'function']];
+        const ast = [{
+            t: 'CodeBlock',
+            c: [
+                ['cb1', ['r', 'cell-code'], [['data-hl-spans', JSON.stringify(spans)]]],
+                'cat("hi")',
+            ],
+        }];
+        const { container } = mount(ast);
+        const pre = container.querySelector('pre')!;
+        const divWrapper = pre.parentElement!;
+
+        expect(divWrapper.tagName).toBe('DIV');
+        const divClasses = divWrapper.className.split(/\s+/);
+        expect(divClasses).toContain('sourceCode');
+        expect(divClasses).toContain('cell-code');
+        expect(divWrapper.getAttribute('id')).toBe('cb1');
+
+        // <pre> carries only sourceCode + language, no id.
+        const preClasses = pre.className.split(/\s+/);
+        expect(preClasses).toContain('sourceCode');
+        expect(preClasses).toContain('r');
+        expect(preClasses).not.toContain('cell-code');
+        expect(pre.hasAttribute('id')).toBe(false);
     });
 
     it('CodeBlock falls back to plain text when data-hl-spans is absent', () => {

@@ -163,49 +163,59 @@ function renderHighlighted(text: string, spans: HighlightSpan[]): ReactNode {
 
 export const CodeBlock = ({ node }: NodeArgs<CodeBlockType>) => {
     const [[id, classes, kvs], code] = node.c;
-    // bd-y1fs3: mirror the native HTML writer
-    // (`crates/pampa/src/writers/html.rs::Block::CodeBlock` +
-    // `write_code_container_attr`): the `<pre>` container carries
-    // the `Attr` (id, classes, and the non-`data-hl-spans` kvs); the
-    // inner `<code>` is bare. Quarto's theme CSS keys off
-    // `pre.sourceCode` / `pre.sourceCode > code`, so any divergence
-    // here visibly drifts the rendered styling between `q2 render`
-    // and `q2 preview`.
-    const preProps: Record<string, string> = {};
-    if (id) preProps.id = id;
 
     // bd-nxslt: `data-hl-spans` is consumed by the renderer (we emit
     // its content as nested `<span>` markup), so it must NOT be
-    // forwarded as a raw DOM attribute. Other `data-*` keys (e.g.
-    // `data-loc`) still pass through to the `<pre>` for downstream
-    // consumers (source-mapping, plugin attribute echo).
+    // forwarded as a raw DOM attribute. Other `data-*` keys pass
+    // through to the `<pre>` for downstream consumers (source-mapping,
+    // plugin attribute echo).
     let hlSpansRaw: string | undefined;
+    const preDataAttrs: Record<string, string> = {};
     for (const [k, v] of kvs) {
         if (k === HL_SPANS_KEY) {
             hlSpansRaw = v;
             continue;
         }
-        if (k.startsWith('data-')) preProps[k] = v;
+        if (k.startsWith('data-')) preDataAttrs[k] = v;
     }
     const spans = decodeHighlightSpans(hlSpansRaw);
 
-    // bd-y1fs3: when highlight spans are present, prepend
-    // `sourceCode` to the class list — matches the native writer
-    // (`write_code_container_attr` at
-    // `crates/pampa/src/writers/html.rs:487-495`). If the author's
-    // own class list already contains `sourceCode`, don't double it.
-    if (classes.length || spans !== null) {
-        const combined: string[] = [];
-        if (spans !== null && !classes.includes('sourceCode')) {
-            combined.push('sourceCode');
-        }
-        for (const c of classes) combined.push(c);
-        if (combined.length) preProps.className = combined.join(' ');
+    // bd-s3z1g: highlighted code blocks emit Pandoc's nested
+    // structure to match the native writer in
+    // `crates/pampa/src/writers/html.rs::write_highlighted_codeblock`:
+    //
+    //   <div class="sourceCode [non-language classes]" id="...">
+    //     <pre class="sourceCode [lang]"><code class="sourceCode [lang]">…</code></pre>
+    //   </div>
+    //
+    // The first class is the language; remaining classes (e.g.
+    // `cell-code`) and the id move to the outer div. The div wrapper
+    // is what Quarto's theme CSS keys off for the rounded background.
+    // Un-highlighted code blocks stay as a bare `<pre><code>` — the
+    // native side does the same.
+    if (spans !== null) {
+        const [language, ...extras] = classes;
+        const divClassName = ['sourceCode', ...extras].join(' ');
+        const codeContainerClass = language ? `sourceCode ${language}` : 'sourceCode';
+        return (
+            <div className={divClassName} {...(id ? { id } : {})}>
+                <pre className={codeContainerClass} {...preDataAttrs}>
+                    <code className={codeContainerClass}>{renderHighlighted(code, spans)}</code>
+                </pre>
+            </div>
+        );
     }
 
+    // bd-y1fs3: un-highlighted path — `<pre>` carries the `Attr` (id,
+    // classes, non-hl-spans kvs); `<code>` is bare. Matches the
+    // native writer's un-highlighted branch in
+    // `crates/pampa/src/writers/html.rs::Block::CodeBlock`.
+    const preProps: Record<string, string> = { ...preDataAttrs };
+    if (id) preProps.id = id;
+    if (classes.length) preProps.className = classes.join(' ');
     return (
         <pre {...preProps}>
-            <code>{spans === null ? code : renderHighlighted(code, spans)}</code>
+            <code>{code}</code>
         </pre>
     );
 };
