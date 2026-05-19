@@ -1140,6 +1140,48 @@ div.sourceCode {
   margin-left: initial;
 }
 
+// bd-j73yw: filename header above code blocks. Ported from Q1's
+// `_quarto-rules-code-filename.scss`. Q2's `CodeBlockRenderTransform`
+// wraps the matching code block in
+// `<div class="code-with-filename"><div class="code-with-filename-file"><pre><strong>NAME</strong></pre></div>…</div>`.
+// Selectors below mirror Q1 byte-for-byte; the value sources differ
+// (Q1 went through `var(--quarto-border-*)` indirection, Q2's
+// bootstrap-rules consume the SCSS variables directly — matching the
+// convention used elsewhere in this file).
+.code-with-filename .code-with-filename-file {
+  margin-bottom: 0;
+  padding-bottom: 2px;
+  padding-top: 2px;
+  padding-left: 0.7em;
+  border: $border-width solid $table-border-color;
+  border-radius: $border-radius;
+  border-bottom: 0;
+  border-bottom-left-radius: 0%;
+  border-bottom-right-radius: 0%;
+}
+
+.code-with-filename div.sourceCode {
+  margin-top: 0;
+  border-top-left-radius: 0%;
+  border-top-right-radius: 0%;
+}
+
+.code-with-filename .code-with-filename-file pre {
+  margin-bottom: 0;
+}
+
+.code-with-filename .code-with-filename-file {
+  background-color: rgba(219, 219, 219, 0.8);
+}
+
+.quarto-dark .code-with-filename .code-with-filename-file {
+  background-color: #555;
+}
+
+.code-with-filename .code-with-filename-file strong {
+  font-weight: 400;
+}
+
 // improve treatment of blockquotes
 .blockquote {
   font-size: inherit;

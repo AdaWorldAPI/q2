@@ -65,5 +65,15 @@
 # the SCSS pipeline. A new file `doc_files/bootstrap.bundle.min.js`
 # is also written; we deliberately do not list it here because the
 # baseline only tracks files that previously existed.
+#
+# Re-captured 2026-05-19 (bd-j73yw): doc_files/styles.css hash updated
+# because Phase 1 of bd-1tl09 (code-block decorations) ported the
+# filename-header SCSS from Q1's `_quarto-rules-code-filename.scss`
+# into `_bootstrap-rules.scss` (`.code-with-filename`,
+# `.code-with-filename-file`, `.quarto-dark` overrides). doc.html hash
+# unchanged: the new selectors don't match anything in the
+# single-doc fixture's body (no code block with a `filename`
+# attribute), but they appear in the compiled CSS so the
+# `styles.css` hash shifts.
 doc.html 2d1ecdc599b9717cc4e57e60185fec6d0bb346d9350b3712950021bcdc51433e
-doc_files/styles.css 21263bc958169528a85545d23c07b2f0d12de92344b026b08546c766e84b759e
+doc_files/styles.css 4839d19491c7ec84da58413439783668e10420f5127f5d1b13e648a40638c60e
