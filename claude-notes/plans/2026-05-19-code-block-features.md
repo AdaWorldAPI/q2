@@ -109,6 +109,14 @@ Each phase starts with a failing snapshot/unit test, then implements
 the minimum to make it pass. Phases are sized so each could be a
 single PR.
 
+**Current iteration scope: Phases 0 – 3.** Phases 4, 5, and 6 are
+deferred to separate sessions — each is substantially more involved
+than the first three (line-numbers depends on coordination with
+`quarto-highlight`, the iframe feature has a real design change from
+Q1, and annotations are a multi-node transform that warrants its own
+sub-plan). The deferred research below stays as-is so the next
+session can pick it up without re-auditing Q1.
+
 - [ ] **Phase 0 — Skeleton.** Add empty `CodeBlockGenerateTransform`
       and `CodeBlockRenderTransform` to `build_transform_pipeline`.
       Wire up a `CodeBlockDecoration` payload (empty struct to start).
@@ -133,23 +141,51 @@ single PR.
       *outside* the filename wrapper (Q1's DecoratedCodeBlock
       composition pattern — see audit notes).
 
-- [ ] **Phase 4 — Line numbers.** Annotate `CodeBlock` with Pandoc's
-      `.number-lines` class. For Reveal.js/Docusaurus,
+---
+
+*Phases 4 – 6 are deferred to separate sessions. Notes below kept for
+continuity; do not implement in the current iteration.*
+
+- [ ] **Phase 4 — Line numbers.** *(Deferred.)* Annotate `CodeBlock`
+      with Pandoc's `.number-lines` class. For Reveal.js/Docusaurus,
       stash the line range in a kv attribute (Q1 uses
       `kCodeLineNumbers`). Pandoc's syntax highlighter renders the
       gutter; ensure our highlighter matches. (May require coordinating
       with `quarto-highlight` crate.)
 
-- [ ] **Phase 5 — Code preview iframe.** `code-preview="foo.qmd"`
-      attribute. Append `<iframe src="foo.html">` next to the code
-      block; copy the code's classes onto the iframe. Add the CSS
-      rule from Q1's `_quarto-rules.scss:416-435`.
+- [ ] **Phase 5 — Code preview iframe.** *(Deferred.)* In Q1 the
+      attribute is `code-preview="examples/foo.qmd"` and a TS
+      post-DOM pass auto-rewrites `.qmd` → `.html` before inserting
+      the iframe. **Q2's design will diverge from Q1 here.** The
+      attribute value will be a **relative URL pointing directly at
+      an HTML file** (e.g. `code-preview="examples/foo.html"`) — no
+      automatic `.qmd → .html` rewrite — and it may carry additional
+      information beyond the bare URL (exact shape TBD; likely
+      structured, perhaps `code-preview-src=…` paired with sibling kv
+      attrs, or a parseable single-value form).
 
-- [ ] **Phase 6 — Code annotations.** Largest single feature. Port
-      `code-annotation.lua`'s logic for: detecting `# <N>` markers
-      (language-aware comment detection), pairing them with following
-      ordered list, emitting annotation anchors + definition list.
-      Likely needs its own sub-plan.
+      The use case driving this change: in the Quarto 2 documentation
+      website we want this feature to be much more pervasive than Q1
+      uses it, and many references will point at pages **inside other
+      Quarto 2 websites** — used to demonstrate website-level features
+      that only render meaningfully against an entirely separate
+      rendered site. When the target lives in a different project,
+      the source `.qmd` path doesn't reliably map to a specific output
+      `.html` path (it depends on the target site's `_quarto.yml`,
+      not the source site's), so doing the rewrite automatically is
+      unsafe in the general case. Requiring the author to write the
+      output URL directly keeps the transform total and predictable.
+
+      The phase work itself is the same shape as the others (Generate
+      parses the attribute → typed `CodePreview`; Render emits the
+      iframe), but no `.qmd → .html` filename surgery and the
+      attribute schema is a fresh design decision rather than a port.
+
+- [ ] **Phase 6 — Code annotations.** *(Deferred — largest single
+      feature; warrants its own sub-plan.)* Port `code-annotation.lua`'s
+      logic for: detecting `# <N>` markers (language-aware comment
+      detection), pairing them with following ordered list, emitting
+      annotation anchors + definition list.
 
 Suggested ordering rationale: each phase is independently shippable
 and demonstrable. Filename first because it's the simplest end-to-end
@@ -161,10 +197,10 @@ nodes (the code block and the following list).
 
 Build a single `tests/integration/code-block-features/` fixture
 directory with one `.qmd` per feature plus a `combined.qmd` that
-exercises filename + fold + copy + line-numbers + preview together
-(annotations stay separate given complexity). The combined fixture
+exercises the in-scope features together — for the current iteration
+that's filename + copy + fold (Phases 1, 2, 3). The combined fixture
 catches composition bugs (e.g., does the copy button work when the
-block is folded?).
+block is folded?). Extend the combined fixture as later phases land.
 
 Compare rendered HTML against snapshots. Visual parity with Q1 is the
 acceptance bar — render the same fixture through Q1 and Q2 side by
