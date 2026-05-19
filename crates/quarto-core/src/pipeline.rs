@@ -66,7 +66,8 @@ use crate::stage::{
 use crate::transform::TransformPipeline;
 use crate::transforms::{
     AppendixStructureTransform, AttributionRenderTransform, AttributionViewerTransform,
-    CalloutResolveTransform, CalloutTransform, CategoriesSidebarTransform, CrossrefIndexTransform,
+    CalloutResolveTransform, CalloutTransform, CategoriesSidebarTransform,
+    CodeBlockGenerateTransform, CodeBlockRenderTransform, CrossrefIndexTransform,
     CrossrefRenderTransform, CrossrefResolveTransform, EquationLabelTransform,
     FloatRefTargetSugarTransform, FooterGenerateTransform, FooterRenderTransform,
     FootnotesTransform, LinkRewriteTransform, ListingGenerateTransform, ListingRenderTransform,
@@ -983,6 +984,13 @@ pub fn build_transform_pipeline(
         target_format,
     )));
     pipeline.push(Box::new(MetadataNormalizeTransform::new()));
+    // bd-1tl09 Phase 0: code-block decoration Generate runs after
+    // metadata-normalize so document-level defaults (e.g.
+    // `code-copy: true`) are visible when computing per-block
+    // decorations. The matching Render half lives in the
+    // Finalization Phase below. Phase 0 implementation is a no-op
+    // walker; Phases 1–3 fill in filename / copy / fold.
+    pipeline.push(Box::new(CodeBlockGenerateTransform::new()));
     // Website per-page metadata transforms (Phase 7 of the
     // website-projects epic). Each is a no-op outside a website
     // project. Order: title-prefix runs before favicon/canonical
@@ -1090,6 +1098,15 @@ pub fn build_transform_pipeline(
     pipeline.push(Box::new(LinkRewriteTransform::new()));
     pipeline.push(Box::new(AppendixStructureTransform::new()));
     pipeline.push(Box::new(CrossrefRenderTransform::new()));
+    // bd-1tl09 Phase 0: code-block decoration Render. Consumes the
+    // typed payload produced by `code-block-generate` in the
+    // Normalization Phase and emits the outer wrapping markup
+    // (filename header, copy scaffold, <details> fold) around the
+    // existing `CodeBlock`. Phase 0 is a no-op; Phases 1–3 fill it in.
+    // Must run after any transform that creates or mutates code
+    // blocks (shortcode expansion is upstream; resource-collector
+    // does not touch code blocks).
+    pipeline.push(Box::new(CodeBlockRenderTransform::new()));
     pipeline.push(Box::new(ResourceCollectorTransform::new()));
 
     // Very last transform: bake the per-node attribution lookup and
@@ -2313,6 +2330,70 @@ mod tests {
             names.contains(&"code-highlight"),
             "code-highlight must be present in the q2-preview pipeline; got: {names:?}",
         );
+    }
+
+    /// Phase 0 of bd-1tl09 (code-block decorations epic). The
+    /// `code-block-generate` / `code-block-render` pair is the
+    /// architectural scaffolding for filename / copy / fold / etc.
+    /// (Phases 1-3) and must be present in both the HTML pipeline and
+    /// the q2-preview pipeline so the two render paths stay in sync.
+    /// Phase 0 implementations are empty walkers; the assertions here
+    /// only check presence and ordering relative to anchors.
+    #[test]
+    fn html_pipeline_includes_code_block_decoration_transforms() {
+        let runtime = make_test_runtime();
+        let pipeline = build_transform_pipeline(vec![], vec![], runtime, "html".to_string());
+        let names: Vec<&str> = pipeline.iter().map(|t| t.name()).collect();
+
+        let gen_pos = names.iter().position(|&n| n == "code-block-generate");
+        let render_pos = names.iter().position(|&n| n == "code-block-render");
+        assert!(
+            gen_pos.is_some(),
+            "code-block-generate must be in build_transform_pipeline; got: {names:?}",
+        );
+        assert!(
+            render_pos.is_some(),
+            "code-block-render must be in build_transform_pipeline; got: {names:?}",
+        );
+
+        // Generate must come before Render — sideband data flows in
+        // that direction.
+        assert!(
+            gen_pos.unwrap() < render_pos.unwrap(),
+            "code-block-generate must precede code-block-render; got positions \
+             gen={:?}, render={:?} in {names:?}",
+            gen_pos,
+            render_pos,
+        );
+
+        // Generate runs in the Normalization Phase, after metadata is
+        // resolved (so doc-level defaults like `code-copy: true` are
+        // visible).
+        let metadata_pos = names
+            .iter()
+            .position(|&n| n == "metadata-normalize")
+            .expect("metadata-normalize anchor missing");
+        assert!(
+            gen_pos.unwrap() > metadata_pos,
+            "code-block-generate must run after metadata-normalize; got positions \
+             metadata={metadata_pos}, gen={:?} in {names:?}",
+            gen_pos,
+        );
+    }
+
+    #[test]
+    fn q2_preview_pipeline_includes_code_block_decoration_transforms() {
+        let runtime = make_test_runtime();
+        let pipeline =
+            build_q2_preview_transform_pipeline(vec![], vec![], runtime, "q2-preview".to_string());
+        let names: Vec<&str> = pipeline.iter().map(|t| t.name()).collect();
+        for required in ["code-block-generate", "code-block-render"] {
+            assert!(
+                names.contains(&required),
+                "{required} must be present in the q2-preview pipeline so preview's React \
+                 renderer sees the same decorated code blocks as `q2 render`; got: {names:?}",
+            );
+        }
     }
 
     /// Verify every name in [`Q2_PREVIEW_STAGE_EXCLUDED`] is an
