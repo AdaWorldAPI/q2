@@ -50,7 +50,7 @@ use crate::transform::AstTransform;
 ///
 /// Per-feature fields land in Phases 1 – 3:
 /// - Phase 1 (filename): see `filename` below.
-/// - Phase 2 (copy): `pub copy: CopyMode`.
+/// - Phase 2 (copy): see `copy` below.
 /// - Phase 3 (fold): `pub fold: FoldMode`, `pub summary: Option<String>`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CodeBlockDecoration {
@@ -58,8 +58,77 @@ pub struct CodeBlockDecoration {
     /// `#| filename:` chunk option). `None` when no filename was
     /// declared; in that case Render emits no filename header.
     pub filename: Option<String>,
-    // Phase 2: pub copy: CopyMode
+    /// Phase 2: copy-button mode. Resolved from document-level
+    /// `code-copy` metadata (Q1 supports doc-level only, no per-block
+    /// override). [`CopyMode::Off`] suppresses the copy scaffold;
+    /// [`CopyMode::Hover`] and [`CopyMode::Always`] both emit the
+    /// scaffold and only differ in the ported SCSS selector
+    /// (`$code-copy-selector`) that controls button visibility.
+    pub copy: CopyMode,
     // Phase 3: pub fold: FoldMode, pub summary: Option<String>
+}
+
+/// Resolution of the document-level `code-copy` metadata key.
+///
+/// Q1's logic (see `format-html.ts:710-712` and the
+/// `$code-copy-selector` defaults block in `format-html-shared.ts:317-322`):
+///
+/// - explicit `code-copy: false` → off entirely.
+/// - explicit `code-copy: true` or `code-copy: "always"` → always-visible.
+/// - explicit `code-copy: "hover"` or unset → hover-only.
+///
+/// Q2 mirrors that mapping. The only difference between `Hover` and
+/// `Always` at AST-rewrite time is which CSS rule paints the button
+/// visible; the wrapper markup is identical.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CopyMode {
+    /// No copy scaffold or button is emitted for this block.
+    Off,
+    /// Wrapper + button are emitted; SCSS shows the button only on
+    /// hover of the outer scaffold. Q1's default and Q2's.
+    #[default]
+    Hover,
+    /// Wrapper + button are emitted; SCSS shows the button at all
+    /// times. Selected by `code-copy: true` or `code-copy: "always"`.
+    Always,
+}
+
+impl CopyMode {
+    /// `true` when the copy scaffold (outer Div + button RawBlock)
+    /// should be emitted around the code block. Hover and Always
+    /// both require the scaffold; only the SCSS selector differs.
+    pub fn is_on(self) -> bool {
+        matches!(self, CopyMode::Hover | CopyMode::Always)
+    }
+}
+
+/// Resolve a [`CopyMode`] from a document's `meta`, applying Q1's
+/// truthy/string rules for the `code-copy` key.
+///
+/// Returns [`CopyMode::Hover`] when the key is absent — Q1's default.
+/// Returns [`CopyMode::Off`] only for an explicit `false`. Any
+/// truthy or non-`"hover"` string value resolves to [`CopyMode::Always`].
+pub fn resolve_default_copy_mode(meta: &quarto_pandoc_types::ConfigValue) -> CopyMode {
+    let Some(value) = meta.get("code-copy") else {
+        return CopyMode::Hover;
+    };
+    if let Some(b) = value.as_bool() {
+        return if b { CopyMode::Always } else { CopyMode::Off };
+    }
+    if let Some(s) = value.as_str() {
+        return match s {
+            "hover" => CopyMode::Hover,
+            "false" => CopyMode::Off,
+            "true" | "always" => CopyMode::Always,
+            // Unknown string — fall back to hover. Q1 doesn't validate
+            // this either; the SCSS selector branch treats anything
+            // other than "hover" / undefined as always-visible, but
+            // we prefer the safer default. Worth a diagnostic in a
+            // future polish pass.
+            _ => CopyMode::Hover,
+        };
+    }
+    CopyMode::Hover
 }
 
 /// Stable identity used to key
@@ -128,20 +197,26 @@ impl AstTransform for CodeBlockGenerateTransform {
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {
+        // Resolve document-level defaults once. Phase 2 only needs
+        // `code-copy`; future phases will join more keys here (e.g.
+        // `code-fold`, `code-line-numbers`).
+        let doc_default_copy = resolve_default_copy_mode(&ast.meta);
+
         walk_blocks_mut(&mut ast.blocks, &mut |block| {
             let Block::CodeBlock(cb) = block else {
                 return;
             };
-            // Build a decoration from the per-block attributes.
-            // Phase 1 reads only `filename`. Phases 2 / 3 will extend
-            // this match to read `code-copy`, `code-fold`,
-            // `code-summary`, etc., and to combine with doc-level
-            // defaults from `ast.meta` (read via a closed-over
-            // reference if we end up needing it — `walk_blocks_mut`
-            // already supports that).
+            // Build a decoration from the per-block attributes and the
+            // resolved document-level defaults. Phase 1 reads only
+            // `filename` per-block; Phase 2 takes copy from the
+            // document default (Q1 supports no per-block override).
+            // Future phases will extend this match.
             let filename = cb.attr.2.get("filename").map(|s| s.clone());
 
-            let decoration = CodeBlockDecoration { filename };
+            let decoration = CodeBlockDecoration {
+                filename,
+                copy: doc_default_copy,
+            };
 
             // Skip blocks that produced no actual decoration — keeps
             // the sideband map sparse so Render can short-circuit on
@@ -165,10 +240,13 @@ impl AstTransform for CodeBlockGenerateTransform {
 }
 
 /// Returns `true` when at least one decoration-triggering field is
-/// populated. Phase 1: only `filename` exists, so this is just an
-/// `is_some` check. Phases 2 / 3 will extend the disjunction.
+/// populated. Render uses this both to short-circuit the AST walk
+/// when nothing is decorated and to skip individual blocks that
+/// landed in the sideband but turned out to have no actionable
+/// content (defensive — Generate already filters with the same
+/// predicate). Phase 3 will extend the disjunction with `fold`.
 pub(crate) fn decoration_has_any_field(d: &CodeBlockDecoration) -> bool {
-    d.filename.is_some()
+    d.filename.is_some() || d.copy.is_on()
 }
 
 /// Walk every `CodeBlock` in the document, descending into containers
@@ -286,11 +364,38 @@ mod tests {
         assert_eq!(deco.filename.as_deref(), Some("hello.py"));
     }
 
+    /// Builds a `meta` map carrying a single `code-copy` entry. Helper
+    /// for the Phase 2 doc-default resolution tests below.
+    fn meta_with_code_copy(value: quarto_pandoc_types::ConfigValueKind) -> ConfigValue {
+        use quarto_pandoc_types::{ConfigMapEntry, ConfigValue, ConfigValueKind, MergeOp};
+        ConfigValue {
+            value: ConfigValueKind::Map(vec![ConfigMapEntry {
+                key: "code-copy".to_string(),
+                key_source: SourceInfo::default(),
+                value: ConfigValue {
+                    value,
+                    source_info: SourceInfo::default(),
+                    merge_op: MergeOp::Concat,
+                },
+            }]),
+            source_info: SourceInfo::default(),
+            merge_op: MergeOp::Concat,
+        }
+    }
+
+    fn yaml_bool(b: bool) -> quarto_pandoc_types::ConfigValueKind {
+        quarto_pandoc_types::ConfigValueKind::Scalar(yaml_rust2::Yaml::Boolean(b))
+    }
+
+    fn yaml_str(s: &str) -> quarto_pandoc_types::ConfigValueKind {
+        quarto_pandoc_types::ConfigValueKind::Scalar(yaml_rust2::Yaml::String(s.to_string()))
+    }
+
     #[tokio::test]
-    async fn generate_skips_blocks_without_decoration_triggers() {
-        // Code block without filename / copy / fold attributes carries
-        // no decoration. The sideband stays empty so Render can skip
-        // its walk cheaply.
+    async fn generate_decorates_bare_codeblock_under_default_copy_hover() {
+        // Phase 2: with `code-copy` unset, the doc default is Hover.
+        // Every code block gets a decoration with `copy: Hover`, even
+        // without per-block attributes — Q1's behavior.
         let mut ast = Pandoc {
             meta: ConfigValue::default(),
             blocks: vec![make_codeblock("print('hi')", vec!["python"], vec![])],
@@ -307,11 +412,178 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(ctx.code_block_decorations.len(), 1);
+        let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
+        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        assert_eq!(deco.copy, CopyMode::Hover);
+        assert!(deco.filename.is_none());
+    }
+
+    #[tokio::test]
+    async fn generate_skips_bare_codeblock_when_code_copy_false() {
+        // Phase 2: explicit `code-copy: false` at doc level turns off
+        // the copy scaffold. With no other decoration triggers, the
+        // sideband stays empty.
+        let mut ast = Pandoc {
+            meta: meta_with_code_copy(yaml_bool(false)),
+            blocks: vec![make_codeblock("print('hi')", vec!["python"], vec![])],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
         assert!(
             ctx.code_block_decorations.is_empty(),
-            "no-decoration code block should not enter the sideband; got {:?}",
+            "code-copy: false + no other decorations should leave sideband empty; got {:?}",
             ctx.code_block_decorations,
         );
+    }
+
+    #[tokio::test]
+    async fn generate_resolves_code_copy_true_to_always() {
+        let mut ast = Pandoc {
+            meta: meta_with_code_copy(yaml_bool(true)),
+            blocks: vec![make_codeblock("print('hi')", vec!["python"], vec![])],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
+        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        assert_eq!(deco.copy, CopyMode::Always);
+    }
+
+    #[tokio::test]
+    async fn generate_resolves_code_copy_hover_string_to_hover() {
+        let mut ast = Pandoc {
+            meta: meta_with_code_copy(yaml_str("hover")),
+            blocks: vec![make_codeblock("print('hi')", vec!["python"], vec![])],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
+        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        assert_eq!(deco.copy, CopyMode::Hover);
+    }
+
+    #[tokio::test]
+    async fn generate_resolves_code_copy_always_string_to_always() {
+        let mut ast = Pandoc {
+            meta: meta_with_code_copy(yaml_str("always")),
+            blocks: vec![make_codeblock("print('hi')", vec!["python"], vec![])],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
+        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        assert_eq!(deco.copy, CopyMode::Always);
+    }
+
+    #[tokio::test]
+    async fn generate_populates_filename_and_copy_together() {
+        // When both a per-block filename and the default copy mode are
+        // active, the decoration carries both fields so Render can
+        // emit the cumulative wrapper stack in a single pass.
+        let mut ast = Pandoc {
+            meta: ConfigValue::default(), // unset → default Hover
+            blocks: vec![make_codeblock(
+                "print('hi')",
+                vec!["python"],
+                vec![("filename", "hello.py")],
+            )],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
+        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        assert_eq!(deco.filename.as_deref(), Some("hello.py"));
+        assert_eq!(deco.copy, CopyMode::Hover);
+    }
+
+    // ── resolve_default_copy_mode (unit) ──────────────────────────────
+
+    #[test]
+    fn resolve_default_copy_unset_is_hover() {
+        let meta = ConfigValue::default();
+        assert_eq!(resolve_default_copy_mode(&meta), CopyMode::Hover);
+    }
+
+    #[test]
+    fn resolve_default_copy_false_is_off() {
+        let meta = meta_with_code_copy(yaml_bool(false));
+        assert_eq!(resolve_default_copy_mode(&meta), CopyMode::Off);
+    }
+
+    #[test]
+    fn resolve_default_copy_true_is_always() {
+        let meta = meta_with_code_copy(yaml_bool(true));
+        assert_eq!(resolve_default_copy_mode(&meta), CopyMode::Always);
+    }
+
+    #[test]
+    fn resolve_default_copy_hover_string_is_hover() {
+        let meta = meta_with_code_copy(yaml_str("hover"));
+        assert_eq!(resolve_default_copy_mode(&meta), CopyMode::Hover);
+    }
+
+    #[test]
+    fn resolve_default_copy_always_string_is_always() {
+        let meta = meta_with_code_copy(yaml_str("always"));
+        assert_eq!(resolve_default_copy_mode(&meta), CopyMode::Always);
+    }
+
+    #[test]
+    fn copy_mode_is_on() {
+        assert!(!CopyMode::Off.is_on());
+        assert!(CopyMode::Hover.is_on());
+        assert!(CopyMode::Always.is_on());
     }
 
     #[tokio::test]

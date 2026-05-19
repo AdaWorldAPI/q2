@@ -134,7 +134,19 @@ fn wrap_decorated_blocks(
 /// Move semantics: the original `CodeBlock` is moved into the new
 /// wrapper Div, so its content (including `data-hl-spans` annotations
 /// from `CodeHighlightStage`) is preserved verbatim.
+///
+/// Phase 2 (Commit 1) note: Generate now emits a sideband entry for
+/// *every* code block under the document-level copy default — even
+/// blocks with no per-block decoration. Render must therefore filter
+/// to the wrapping layers it actually understands today, which is
+/// just the filename header. When `filename` is `None`, leave the
+/// block alone; Phase 2 Commit 2 will refactor this into a single-
+/// pass cumulative wrap and add the copy-scaffold layer.
 fn wrap_in_place(block: &mut Block, decoration: &CodeBlockDecoration) {
+    let Some(filename) = decoration.filename.as_ref() else {
+        return;
+    };
+
     // `Block` has no `Default`, so we need a real placeholder to swap
     // out the original. A RawBlock("html", "") with the same source
     // info has zero rendered output and zero cost; it's the cheapest
@@ -147,14 +159,10 @@ fn wrap_in_place(block: &mut Block, decoration: &CodeBlockDecoration) {
     });
     let original = std::mem::replace(block, placeholder);
 
-    let mut wrapper_children: Vec<Block> = Vec::with_capacity(2);
-
-    // Phase 1: filename header (when present).
-    if let Some(filename) = &decoration.filename {
-        wrapper_children.push(make_filename_header(filename, source_info.clone()));
-    }
-
-    wrapper_children.push(original);
+    let wrapper_children: Vec<Block> = vec![
+        make_filename_header(filename, source_info.clone()),
+        original,
+    ];
 
     *block = Block::Div(Div {
         attr: (

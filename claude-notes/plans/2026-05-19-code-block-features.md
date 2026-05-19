@@ -222,6 +222,36 @@ sessions don't re-litigate.)
   struct over `SourceInfo::Original`'s `(file_id, start, end)`, with
   a graceful skip for non-Original variants (rare for CodeBlocks).
 
+- **(2026-05-19) Phase 2 strategy** (cleared with the user at kickoff):
+  - **Wrapper composition: single-pass cumulative wrap** inside
+    `wrap_in_place`. Innermost is the original `CodeBlock` (with the
+    `code-with-copy` class already added by Generate); filename Div
+    wraps it next (Phase 1); copy scaffold Div is outermost. Each
+    layer is opt-in based on the decoration. Extends naturally to
+    Phase 3's `<details>` outermost.
+  - **No per-block override of `code-copy`.** Mirror Q1: document-
+    level metadata only. The Generate transform reads
+    `ast.meta["code-copy"]` once at the top of the walk and applies
+    the resolved `CopyMode` to every code block. Per-block override
+    can be added later if a user asks for it.
+  - **clipboard.js shipping:** new `ClipboardJsStage` modeled on
+    `BootstrapJsStage`. Vendors `clipboard.min.js` under
+    `resources/js/clipboard/`, gated on `!is_minimal_html(meta)`
+    AND `meta.code-copy != false`. Stores two `js:` artifacts
+    (`js:clipboard` for the vendored lib, `js:code-copy-init` for
+    the small init handler). The init handler also depends on
+    Bootstrap JS for the "Copied!" Tooltip popover, so the same
+    minimal-HTML gate applies on both sides.
+  - **Button accessibility:** Q2 adds `aria-label="Copy code"` in
+    addition to Q1's `title=` attribute. Minor a11y improvement over
+    Q1; mirrors the recommendation in Phase 2's hand-off section.
+  - **Hover-vs-always default:** Q1's default of `hover`. Behavior
+    is controlled by the SCSS variable `$code-copy-selector` (set to
+    `'div.code-copy-outer-scaffold:hover > '` in hover mode, `''` in
+    always mode), which means the markup never changes — only the
+    selector that wraps the button-visibility rule does. Ported
+    accordingly.
+
 ## Open questions to resolve before Phase 0
 
 These shape the typed-payload design, so resolving them up front
