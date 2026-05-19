@@ -20,12 +20,10 @@
 //! stage ships the library that makes it functional, and vice versa.
 //!
 //! The companion init handler (the small script that wires up
-//! `ClipboardJS('.code-copy-button')` and the "Copied!" tooltip) is not
-//! injected by this stage — Phase 2 Commit 3 adds it as a sibling
-//! `js:code-copy-init` artifact. Until then, the library is shipped but
-//! inert; the button is visible (after the SCSS port) but clicking
-//! doesn't copy. Splitting the work this way keeps the Commit 2 diff
-//! focused on Generate → Render data flow.
+//! `ClipboardJS('.code-copy-button')` and the "Copied!" tooltip) is
+//! injected as a sibling `js:code-copy-init` artifact. Without it, the
+//! library is shipped but inert; the button is visible (after the
+//! Phase 2 SCSS port) but clicking doesn't copy.
 //!
 //! ## Script ordering
 //!
@@ -35,7 +33,7 @@
 //! - `js:bootstrap` (provides the Tooltip popover the init handler
 //!   uses for "Copied!")
 //! - `js:clipboard` (the library)
-//! - `js:code-copy-init` (Commit 3 — depends on both above)
+//! - `js:code-copy-init` (the init handler — depends on both above)
 //!
 //! Alphabetic order happens to match the dependency order. Same caveat
 //! as `bootstrap_js.rs`: a future key that breaks this ordering will
@@ -72,12 +70,26 @@ use crate::transforms::{CopyMode, resolve_default_copy_mode};
 pub(crate) const CLIPBOARD_JS: &[u8] =
     include_bytes!("../../../../../resources/js/clipboard/clipboard.min.js");
 
+/// Init handler that wires `ClipboardJS` to every `.code-copy-button`
+/// and shows the "Copied!" Bootstrap-Tooltip on success.
+///
+/// Ported from Q1's `quarto-html-after-body.ejs` (`if (copyCode) { … }`
+/// block). Q1 inlined this in the page template; Q2 ships it as a
+/// separate file so the script loads from the artifact pipeline like
+/// every other JS asset.
+pub(crate) const CODE_COPY_INIT_JS: &[u8] =
+    include_bytes!("../../../../../resources/js/clipboard/code-copy-init.js");
+
 /// Filename used for the on-disk JS asset and as the leaf of the
 /// artifact path.
 const CLIPBOARD_JS_FILENAME: &str = "clipboard.min.js";
+const CODE_COPY_INIT_FILENAME: &str = "code-copy-init.js";
 
-/// Artifact key. See module docs for the load-order convention.
+/// Artifact keys. See module docs for the load-order convention —
+/// alphabetic order across these keys matches the dependency order
+/// (bootstrap → clipboard → init).
 const CLIPBOARD_JS_KEY: &str = "js:clipboard";
+const CODE_COPY_INIT_KEY: &str = "js:code-copy-init";
 
 /// Inject the clipboard.js library when code-copy is enabled.
 ///
@@ -156,24 +168,33 @@ impl PipelineStage for ClipboardJsStage {
             return Ok(PipelineData::DocumentAst(doc));
         }
 
-        let path = if ctx.project.is_single_file {
-            PathBuf::from(CLIPBOARD_JS_FILENAME)
-        } else {
-            PathBuf::from(format!("quarto/{}", CLIPBOARD_JS_FILENAME))
+        let asset_path = |filename: &str| {
+            if ctx.project.is_single_file {
+                PathBuf::from(filename)
+            } else {
+                PathBuf::from(format!("quarto/{}", filename))
+            }
         };
 
         ctx.artifacts.store(
             CLIPBOARD_JS_KEY,
             Artifact::from_bytes(CLIPBOARD_JS.to_vec(), "text/javascript")
-                .with_path(path)
+                .with_path(asset_path(CLIPBOARD_JS_FILENAME))
+                .with_scope(ArtifactScope::Project),
+        );
+        ctx.artifacts.store(
+            CODE_COPY_INIT_KEY,
+            Artifact::from_bytes(CODE_COPY_INIT_JS.to_vec(), "text/javascript")
+                .with_path(asset_path(CODE_COPY_INIT_FILENAME))
                 .with_scope(ArtifactScope::Project),
         );
 
         trace_event!(
             ctx,
             EventLevel::Debug,
-            "stored clipboard.js artifact ({} bytes)",
-            CLIPBOARD_JS.len()
+            "stored clipboard.js ({} bytes) + code-copy-init.js ({} bytes)",
+            CLIPBOARD_JS.len(),
+            CODE_COPY_INIT_JS.len(),
         );
 
         Ok(PipelineData::DocumentAst(doc))
@@ -392,8 +413,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clipboard_js_stage_stores_artifact_under_default() {
-        // Empty meta → default copy mode is Hover → ship the library.
+    async fn clipboard_js_stage_stores_both_artifacts_under_default() {
+        // Empty meta → default copy mode is Hover → ship the library
+        // AND the init handler.
         let mut ctx = make_stage_context(Arc::new(MockRuntime), true);
         let result = ClipboardJsStage::new()
             .run(make_doc_ast(empty_meta()), &mut ctx)
@@ -405,10 +427,15 @@ mod tests {
             "default meta should ship js:clipboard; got keys {:?}",
             ctx.artifacts.keys().collect::<Vec<_>>(),
         );
+        assert!(
+            ctx.artifacts.get(CODE_COPY_INIT_KEY).is_some(),
+            "default meta should ship js:code-copy-init; got keys {:?}",
+            ctx.artifacts.keys().collect::<Vec<_>>(),
+        );
     }
 
     #[tokio::test]
-    async fn clipboard_js_stage_skips_when_code_copy_false() {
+    async fn clipboard_js_stage_skips_both_when_code_copy_false() {
         let meta = meta_with_entry("code-copy", ConfigValueKind::Scalar(Yaml::Boolean(false)));
         let mut ctx = make_stage_context(Arc::new(MockRuntime), true);
         ClipboardJsStage::new()
@@ -417,12 +444,16 @@ mod tests {
             .unwrap();
         assert!(
             ctx.artifacts.get(CLIPBOARD_JS_KEY).is_none(),
-            "code-copy: false must skip the artifact",
+            "code-copy: false must skip js:clipboard",
+        );
+        assert!(
+            ctx.artifacts.get(CODE_COPY_INIT_KEY).is_none(),
+            "code-copy: false must skip js:code-copy-init",
         );
     }
 
     #[tokio::test]
-    async fn clipboard_js_stage_skips_when_minimal_html() {
+    async fn clipboard_js_stage_skips_both_when_minimal_html() {
         // `minimal: true` opts the document into the minimal-HTML
         // template, which has no script-injection slot. Matches the
         // gate used by BootstrapJsStage.
@@ -434,7 +465,11 @@ mod tests {
             .unwrap();
         assert!(
             ctx.artifacts.get(CLIPBOARD_JS_KEY).is_none(),
-            "minimal HTML must skip the artifact",
+            "minimal HTML must skip js:clipboard",
+        );
+        assert!(
+            ctx.artifacts.get(CODE_COPY_INIT_KEY).is_none(),
+            "minimal HTML must skip js:code-copy-init",
         );
     }
 
@@ -445,14 +480,23 @@ mod tests {
             .run(make_doc_ast(empty_meta()), &mut ctx)
             .await
             .unwrap();
-        let artifact = ctx
+        let clipboard = ctx
             .artifacts
             .get(CLIPBOARD_JS_KEY)
-            .expect("artifact stored");
+            .expect("js:clipboard stored");
         assert_eq!(
-            artifact.path,
+            clipboard.path,
             Some(PathBuf::from("quarto/clipboard.min.js")),
-            "multi-doc render must scope the artifact under quarto/",
+            "multi-doc render must scope the library under quarto/",
+        );
+        let init = ctx
+            .artifacts
+            .get(CODE_COPY_INIT_KEY)
+            .expect("js:code-copy-init stored");
+        assert_eq!(
+            init.path,
+            Some(PathBuf::from("quarto/code-copy-init.js")),
+            "multi-doc render must scope the init handler under quarto/",
         );
     }
 }

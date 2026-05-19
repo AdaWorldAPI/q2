@@ -88,5 +88,25 @@
 # file `doc_files/clipboard.min.js` is also written; we deliberately
 # do not list it here because the baseline only tracks files that
 # previously existed (same convention as bootstrap.bundle.min.js).
-doc.html 357966ba99bd9b892e53326f50c95c9f5853b5f17e38fb80b31ea8c2ac25c1f3
-doc_files/styles.css 4839d19491c7ec84da58413439783668e10420f5127f5d1b13e648a40638c60e
+#
+# Re-captured 2026-05-19 (bd-j1trh, Commit 3): both hashes updated.
+# doc.html shifts because ClipboardJsStage now also ships
+# `js:code-copy-init` (a small init handler), adding a third
+# `<script src="doc_files/code-copy-init.js"></script>` tag in
+# `<head>` after the alphabetic-sort step.
+# doc_files/styles.css shifts because the copy-button SCSS rules
+# were ported from Q1's `_quarto-rules-copy-code.scss` +
+# `_quarto-variables-copy-code.scss` into `_bootstrap-rules.scss`
+# (`$code-copy-selector`, `$btn-code-copy-color`, `.code-copy-button`,
+# the SVG-icon background-image rules, hover and checked states),
+# plus the `div.code-copy-outer-scaffold { position: relative }`
+# rule from Q1's `_quarto-rules.scss:285` that makes the absolutely-
+# positioned button anchor to the scaffold instead of the viewport
+# (caught during browser e2e). The new selectors don't match
+# anything in the single-doc fixture's body (no code blocks), but
+# they appear in the compiled CSS so the hash shifts. A new file
+# `doc_files/code-copy-init.js` is also written; not listed here
+# per the same convention as `bootstrap.bundle.min.js` /
+# `clipboard.min.js`.
+doc.html bbbe3e0498a2fc555f13ab2b8b0ed60aa890523b0c09d456ad1bb5ce2832ce7c
+doc_files/styles.css cffeac275ea4dd0d0a9c5cc8fde678b033f2e2fdcce835455102d46e439df062
