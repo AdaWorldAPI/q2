@@ -81,7 +81,8 @@ pub use callout::CalloutTransform;
 pub use callout_resolve::CalloutResolveTransform;
 pub use categories_sidebar::CategoriesSidebarTransform;
 pub use code_block_generate::{
-    CodeBlockDecoration, CodeBlockDecorationKey, CodeBlockGenerateTransform,
+    CodeBlockDecoration, CodeBlockDecorationKey, CodeBlockGenerateTransform, CopyMode,
+    resolve_default_copy_mode,
 };
 pub use code_block_render::CodeBlockRenderTransform;
 pub use config::{AppendixStyle, ReferenceLocation, is_feature_disabled, resolve_website_bool};

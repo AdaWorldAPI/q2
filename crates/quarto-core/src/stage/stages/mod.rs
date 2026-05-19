@@ -35,6 +35,13 @@ mod bootstrap_js;
 // wire format that bd-45yw uses for replay, but consumed via
 // `quarto_core::engine::capture_splice` rather than `ReplayEngine`.
 mod capture_splice;
+// Clipboard-JS injection (Phase 2 of bd-1tl09): vendors the
+// clipboard.js library as a Project-scoped artifact when copy-code is
+// enabled. Same WASM-exclusion reasoning as `bootstrap_js`: the
+// hub-client preview reinitializes its iframe on every render and
+// gains nothing from the runtime injection.
+#[cfg(not(target_arch = "wasm32"))]
+mod clipboard_js;
 mod code_highlight;
 mod compile_theme_css;
 mod document_profile;
@@ -61,6 +68,8 @@ pub use attribution_generate::AttributionGenerateStage;
 #[cfg(not(target_arch = "wasm32"))]
 pub use bootstrap_js::BootstrapJsStage;
 pub use capture_splice::CaptureSpliceStage;
+#[cfg(not(target_arch = "wasm32"))]
+pub use clipboard_js::ClipboardJsStage;
 pub use code_highlight::CodeHighlightStage;
 pub use compile_theme_css::{CompileThemeCssStage, theme_fingerprint};
 pub use document_profile::DocumentProfileStage;

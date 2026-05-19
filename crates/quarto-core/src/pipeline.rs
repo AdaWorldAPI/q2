@@ -56,6 +56,8 @@ use crate::stage::CodeHighlightStage;
 use crate::stage::stages::ApplyTemplateConfig;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stage::stages::BootstrapJsStage;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stage::stages::ClipboardJsStage;
 use crate::stage::{
     ApplyTemplateStage, AstTransformsStage, AttributionGenerateStage, CompileThemeCssStage,
     DocumentProfileStage, EngineExecutionStage, IncludeExpansionStage, IncludeResolveStage,
@@ -293,6 +295,13 @@ pub fn build_html_pipeline_stages_with_options(
     // omits this stage. See bootstrap_js.rs for full rationale.
     #[cfg(not(target_arch = "wasm32"))]
     stages.push(Box::new(BootstrapJsStage::new()));
+    // Inject clipboard.js as a Project-scoped artifact when
+    // `code-copy` isn't explicitly disabled (Phase 2 of bd-1tl09).
+    // Sits next to BootstrapJsStage because the two share the
+    // minimal-HTML gate and the WASM-exclusion reasoning. The
+    // companion init handler is added in Phase 2 Commit 3.
+    #[cfg(not(target_arch = "wasm32"))]
+    stages.push(Box::new(ClipboardJsStage::new()));
     // Attribution-generate runs *before* user filters so the
     // `quarto.attribution.*` Lua host binding sees a populated
     // sidecar in both `pre` and `post` filter passes. No-op when
@@ -1565,7 +1574,7 @@ mod tests {
     #[test]
     fn test_build_html_pipeline_stages() {
         let stages = build_html_pipeline_stages();
-        assert_eq!(stages.len(), 21);
+        assert_eq!(stages.len(), 22);
         assert_eq!(stages[0].name(), "parse-document");
         assert_eq!(stages[1].name(), "metadata-merge");
         // Include expansion runs before the profile checkpoint (bd-xfwx)
@@ -1590,29 +1599,34 @@ mod tests {
         // Bootstrap JS (bd-4eyf) sits immediately after CompileThemeCssStage
         // so the same theme predicate gates JS and CSS together.
         assert_eq!(stages[11].name(), "bootstrap-js");
+        // ClipboardJsStage (Phase 2 of bd-1tl09) sits next to
+        // bootstrap-js because both ship a Project-scoped JS payload
+        // gated on minimal-HTML. clipboard-js additionally gates on
+        // `code-copy != false`.
+        assert_eq!(stages[12].name(), "clipboard-js");
         // Attribution-generate runs before user filters so the
         // `quarto.attribution.*` Lua host binding sees a populated
         // sidecar (bd-0fd0). No-op when no provider is installed.
-        assert_eq!(stages[12].name(), "attribution-generate");
-        assert_eq!(stages[13].name(), "user-filters-pre");
-        assert_eq!(stages[14].name(), "ast-transforms");
-        assert_eq!(stages[15].name(), "user-filters-post");
+        assert_eq!(stages[13].name(), "attribution-generate");
+        assert_eq!(stages[14].name(), "user-filters-pre");
+        assert_eq!(stages[15].name(), "ast-transforms");
+        assert_eq!(stages[16].name(), "user-filters-post");
         // bd-o8pr Phase 3: finalize per-doc resource report.
-        assert_eq!(stages[16].name(), "resource-report");
-        assert_eq!(stages[17].name(), "code-highlight");
+        assert_eq!(stages[17].name(), "resource-report");
+        assert_eq!(stages[18].name(), "code-highlight");
         // Math-mode (bd-w5ov) walks the post-transform AST and
         // populates meta.math when math is present. Sits just before
         // render-html-body so any late-introduced math (sugar, user
         // filters, crossref `\tag{N}`) is visible.
-        assert_eq!(stages[18].name(), "math-js");
-        assert_eq!(stages[19].name(), "render-html-body");
-        assert_eq!(stages[20].name(), "apply-template");
+        assert_eq!(stages[19].name(), "math-js");
+        assert_eq!(stages[20].name(), "render-html-body");
+        assert_eq!(stages[21].name(), "apply-template");
     }
 
     #[test]
     fn test_build_html_pipeline() {
         let pipeline = build_html_pipeline();
-        assert_eq!(pipeline.len(), 21);
+        assert_eq!(pipeline.len(), 22);
     }
 
     #[test]
@@ -1637,6 +1651,14 @@ mod tests {
         assert!(
             !names.contains(&"bootstrap-js"),
             "wasm pipeline must not include bootstrap-js (hub-client iframe reinit)"
+        );
+        // Same reasoning for clipboard-js (Phase 2 of bd-1tl09): the
+        // hub-client iframe preview doesn't need a working click
+        // handler, and the AST-level copy scaffold rendered by
+        // CodeBlockRenderTransform still appears visually.
+        assert!(
+            !names.contains(&"clipboard-js"),
+            "wasm pipeline must not include clipboard-js (hub-client iframe reinit)"
         );
         // bd-w5ov: math display IS safe under iframe reinit (each load
         // gets a fresh DOM and the engine typesets once). The hub-client

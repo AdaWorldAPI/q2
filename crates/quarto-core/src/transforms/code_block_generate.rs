@@ -225,6 +225,20 @@ impl AstTransform for CodeBlockGenerateTransform {
                 return;
             }
 
+            // Phase 2: stamp the `code-with-copy` class onto the block's
+            // class list when copy is on. Quarto 1's TS post-DOM step
+            // adds this on the `<pre>` element directly. In Q2's
+            // Pandoc-style writer, non-language classes land on the
+            // outer `<div class="sourceCode …">` for highlighted blocks
+            // and on the `<pre>` for unhighlighted blocks — either way
+            // the class is present in the rendered DOM, which is what
+            // any downstream consumer would query for. (Nothing in
+            // Q2's pipeline keys off the class today; Q1 only references
+            // it from a Lua filter we don't ship.)
+            if decoration.copy.is_on() && !cb.attr.1.iter().any(|c| c == "code-with-copy") {
+                cb.attr.1.push("code-with-copy".to_string());
+            }
+
             // Source-info → key. Non-`Original` variants (Substring,
             // Concat, FilterProvenance) currently can't happen on
             // block-level `CodeBlock`; if they ever do, we skip
@@ -584,6 +598,103 @@ mod tests {
         assert!(!CopyMode::Off.is_on());
         assert!(CopyMode::Hover.is_on());
         assert!(CopyMode::Always.is_on());
+    }
+
+    // ── Phase 2 Commit 2: code-with-copy class on the CodeBlock ──────
+
+    #[tokio::test]
+    async fn generate_adds_code_with_copy_class_when_copy_on() {
+        // Under default Hover, Generate adds "code-with-copy" to the
+        // CodeBlock's class list. Quarto 1's TS post-DOM step does
+        // this on the `<pre>` element; Q2 does it on the AST so the
+        // class flows through the HTML writer.
+        let mut ast = Pandoc {
+            meta: ConfigValue::default(),
+            blocks: vec![make_codeblock("print('hi')", vec!["python"], vec![])],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        let Block::CodeBlock(cb) = &ast.blocks[0] else {
+            panic!("expected CodeBlock");
+        };
+        assert!(
+            cb.attr.1.contains(&"code-with-copy".to_string()),
+            "code-with-copy must be added to attr.1 when copy is on; got {:?}",
+            cb.attr.1,
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_omits_code_with_copy_class_when_copy_off() {
+        let mut ast = Pandoc {
+            meta: meta_with_code_copy(yaml_bool(false)),
+            blocks: vec![make_codeblock("print('hi')", vec!["python"], vec![])],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        let Block::CodeBlock(cb) = &ast.blocks[0] else {
+            panic!("expected CodeBlock");
+        };
+        assert!(
+            !cb.attr.1.contains(&"code-with-copy".to_string()),
+            "code-with-copy must NOT be added when copy is off; got {:?}",
+            cb.attr.1,
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_does_not_duplicate_code_with_copy_class() {
+        // If a user has somehow pre-marked a block with code-with-copy
+        // (filters, manual attr), Generate must not duplicate it.
+        let mut ast = Pandoc {
+            meta: ConfigValue::default(),
+            blocks: vec![make_codeblock(
+                "print('hi')",
+                vec!["python", "code-with-copy"],
+                vec![],
+            )],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        let Block::CodeBlock(cb) = &ast.blocks[0] else {
+            panic!("expected CodeBlock");
+        };
+        let count = cb.attr.1.iter().filter(|c| *c == "code-with-copy").count();
+        assert_eq!(
+            count, 1,
+            "code-with-copy must appear exactly once after Generate; got {:?}",
+            cb.attr.1,
+        );
     }
 
     #[tokio::test]
