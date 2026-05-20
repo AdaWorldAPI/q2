@@ -279,6 +279,54 @@ describe('installLinkHandlers', () => {
         expect(continued).toBe(false);
     });
 
+    // ─── bd-ql55q: bare artifact-root (directory URL = project home) ──
+    //
+    // The navbar brand falls back to `page_url_for_site_root_dir()`,
+    // which in VFS-root mode returns `/.quarto/project-artifacts/` —
+    // a trailing-slash directory URL. The browser's static-server
+    // convention is "directory URL = serve index.html"; in the
+    // SPA iframe there's no HTTP server, so we mirror the convention
+    // here by mapping the bare artifact root to `index.qmd`. Anchor
+    // suffix is preserved.
+
+    test('bare artifact-root href maps to index.qmd (navbar brand)', () => {
+        // bd-ql55q L-A: the navbar brand renders as
+        // `<a href="/.quarto/project-artifacts/">`. Without this case
+        // the click escapes the SPA and the iframe navigates away.
+        installLinkHandlers(doc, {
+            currentFilePath: 'about.qmd',
+            projectFilePaths: ['index.qmd', 'about.qmd'],
+            onQmdLinkClick,
+        });
+
+        const a = appendAnchor('/.quarto/project-artifacts/');
+        const continued = clickFromBody(a);
+
+        expect(onQmdLinkClick).toHaveBeenCalledWith({
+            path: 'index.qmd',
+            anchor: null,
+        });
+        expect(continued).toBe(false);
+    });
+
+    test('bare artifact-root href with anchor preserves the anchor', () => {
+        // bd-ql55q L-B: `/.quarto/project-artifacts/#intro` should
+        // navigate to index.qmd and scroll to #intro.
+        installLinkHandlers(doc, {
+            currentFilePath: 'about.qmd',
+            projectFilePaths: ['index.qmd', 'about.qmd'],
+            onQmdLinkClick,
+        });
+
+        const a = appendAnchor('/.quarto/project-artifacts/#intro');
+        clickFromBody(a);
+
+        expect(onQmdLinkClick).toHaveBeenCalledWith({
+            path: 'index.qmd',
+            anchor: 'intro',
+        });
+    });
+
     test('non-artifact-rooted absolute path is left alone', () => {
         // A user-authored absolute href that isn't artifact-rooted
         // (e.g. someone hand-wrote `<a href="/about.html">`) should

@@ -98,4 +98,45 @@ describe('reverseMapArtifactHref', () => {
       ),
     ).toBeNull();
   });
+
+  // ─── bd-ql55q: bare artifact-root (directory URL = project home) ──
+  //
+  // `page_url_for_site_root_dir()` in VFS-root mode returns
+  // `/.quarto/project-artifacts/` — a trailing-slash directory URL.
+  // The navbar brand falls back to this when no `logo-href` is set,
+  // and other site-root navigation surfaces may follow. Mirror the
+  // browser's static-server "directory URL = index.html" convention
+  // by reverse-mapping the bare root to `index.qmd` when present.
+  // Strict-list policy of this surface is preserved: return null if
+  // there is no `index.qmd` to map to.
+
+  it('reverse-maps bare artifact root to index.qmd when present', () => {
+    // bd-ql55q P-A
+    expect(
+      reverseMapArtifactHref('/.quarto/project-artifacts/', FILES),
+    ).toEqual({ path: 'index.qmd', anchor: null });
+  });
+
+  it('preserves anchor on bare artifact root', () => {
+    // bd-ql55q P-B
+    expect(
+      reverseMapArtifactHref('/.quarto/project-artifacts/#intro', FILES),
+    ).toEqual({ path: 'index.qmd', anchor: 'intro' });
+  });
+
+  it('returns null for bare artifact root when no index.qmd is in the project', () => {
+    // bd-ql55q P-C: strict policy — don't intercept if there's
+    // nothing to map to. Lets the click pass through with whatever
+    // the calling surface's default is.
+    const filesWithoutIndex = ['about.qmd', 'posts/first.qmd'] as const;
+    expect(
+      reverseMapArtifactHref('/.quarto/project-artifacts/', filesWithoutIndex),
+    ).toBeNull();
+    expect(
+      reverseMapArtifactHref(
+        '/.quarto/project-artifacts/#intro',
+        filesWithoutIndex,
+      ),
+    ).toBeNull();
+  });
 });

@@ -65,19 +65,29 @@ export interface PostProcessOptions {
 }
 
 /**
- * Reverse-map an artifact-rooted `.html` URL to a source-side
- * project path, or return `null` if the URL doesn't look like a
- * cross-doc website link or doesn't correspond to a known
- * project file.
+ * Reverse-map an artifact-rooted `.html` URL — or the bare artifact
+ * root (directory URL) — to a source-side project path, or return
+ * `null` if the URL doesn't look like a cross-doc website link or
+ * doesn't correspond to a known project file.
  *
  * Examples (with `projectFilePaths = ['index.qmd', 'about.qmd', 'posts/first.qmd']`):
  *
  *   /.quarto/project-artifacts/about.html         → { path: 'about.qmd',         anchor: null  }
  *   /.quarto/project-artifacts/about.html#intro   → { path: 'about.qmd',         anchor: 'intro' }
  *   /.quarto/project-artifacts/posts/first.html   → { path: 'posts/first.qmd',   anchor: null  }
+ *   /.quarto/project-artifacts/                   → { path: 'index.qmd',         anchor: null  }
+ *   /.quarto/project-artifacts/#intro             → { path: 'index.qmd',         anchor: 'intro' }
  *   /.quarto/project-artifacts/notes.html         → null  (no notes.qmd in project)
  *   /.quarto/project-artifacts/styles.css         → null  (not .html)
  *   ./about.qmd                                   → null  (not artifact-rooted)
+ *
+ * The bare-root case (bd-ql55q) mirrors the browser's static-server
+ * "directory URL = serve index.html" convention — the navbar brand
+ * (and other site-root surfaces) fall back to
+ * `page_url_for_site_root_dir()`, which in VFS-root mode emits
+ * `/.quarto/project-artifacts/`. We map that to the project's
+ * `index` source file if it exists in `projectFilePaths`; otherwise
+ * return null per this surface's strict policy.
  *
  * Exported for unit testing.
  */
@@ -88,7 +98,21 @@ export function reverseMapArtifactHref(
   if (!href.startsWith(ARTIFACT_ROOT)) return null;
   const stripped = href.slice(ARTIFACT_ROOT.length);
   const { path: stem, anchor } = parseLink(stripped);
-  if (!stem || !stem.endsWith('.html')) return null;
+  // Bare artifact root (with or without anchor): map to the
+  // project's `index.<ext>` source file if present. Strict policy
+  // preserved — return null when no such file exists. `stem === null`
+  // happens when `stripped` starts with `#`; `stem === ''` when
+  // `stripped` is empty. Both shapes are the bare-root case.
+  if (stem === null || stem === '') {
+    for (const ext of RENDERABLE_EXTS) {
+      const candidate = 'index' + ext;
+      if (projectFilePaths.includes(candidate)) {
+        return { path: candidate, anchor };
+      }
+    }
+    return null;
+  }
+  if (!stem.endsWith('.html')) return null;
   const base = stem.slice(0, -'.html'.length);
   for (const ext of RENDERABLE_EXTS) {
     const candidate = base + ext;

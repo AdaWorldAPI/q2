@@ -142,16 +142,26 @@ function parseLink(href: string): ParsedLink {
 }
 
 /**
- * Parse an artifact-rooted `.html` href into its `.qmd` source-path
- * candidate + optional anchor. Returns null for hrefs that don't
- * start with the artifact root or don't carry a `.html` stem.
+ * Parse an artifact-rooted href into its `.qmd` source-path candidate +
+ * optional anchor. Returns null for hrefs that don't start with the
+ * artifact root, or whose stem is neither empty nor ending in `.html`.
  *
  * Examples:
  *   /.quarto/project-artifacts/about.html       → { qmdCandidate: 'about.qmd', anchor: null }
  *   /.quarto/project-artifacts/about.html#sec   → { qmdCandidate: 'about.qmd', anchor: 'sec' }
  *   /.quarto/project-artifacts/posts/x.html     → { qmdCandidate: 'posts/x.qmd', anchor: null }
+ *   /.quarto/project-artifacts/                 → { qmdCandidate: 'index.qmd', anchor: null }
+ *   /.quarto/project-artifacts/#intro           → { qmdCandidate: 'index.qmd', anchor: 'intro' }
  *   /.quarto/project-artifacts/styles.css       → null  (not .html)
  *   ./about.qmd                                 → null  (not artifact-rooted)
+ *
+ * The bare-root case (bd-ql55q) mirrors the browser's static-server
+ * "directory URL = serve index.html" convention. The navbar brand
+ * (and any other site-root navigation surface) falls back to
+ * `page_url_for_site_root_dir()`, which in VFS-root mode returns
+ * `/.quarto/project-artifacts/`. Without this case the click escapes
+ * the SPA and the iframe navigates to a URL the preview server does
+ * not serve.
  *
  * Unlike `iframePostProcessor.ts::reverseMapArtifactHref`, this helper
  * does not consult `projectFilePaths` — see the docstring on
@@ -163,6 +173,9 @@ function parseArtifactHref(href: string): { qmdCandidate: string; anchor: string
     const hashIdx = stripped.indexOf('#');
     const stem = hashIdx === -1 ? stripped : stripped.slice(0, hashIdx);
     const anchor = hashIdx === -1 ? null : stripped.slice(hashIdx + 1) || null;
+    if (stem === '') {
+        return { qmdCandidate: 'index.qmd', anchor };
+    }
     if (!stem.endsWith('.html')) return null;
     return {
         qmdCandidate: stem.slice(0, -'.html'.length) + '.qmd',

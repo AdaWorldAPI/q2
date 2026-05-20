@@ -209,16 +209,30 @@ the inverse:
 - [x] Reproduce the bug deterministically — DONE (live repro
       captured 2026-05-20 via chrome-devtools MCP; bug behavior
       matches the code-reading prediction).
-- [ ] Write failing unit tests L-A..D and P-A..D.
-- [ ] Run tests, confirm they fail with the expected message.
-- [ ] Implement the `parseArtifactHref` extension in
-      `iframeLinkHandlers.ts`.
-- [ ] Implement the `reverseMapArtifactHref` extension in
-      `iframePostProcessor.ts`.
-- [ ] Run unit tests; confirm they pass.
-- [ ] Run `npm run build:all` from `hub-client/` (per CLAUDE.md — passing
-      vitest alone is not sufficient for hub-client work).
-- [ ] End-to-end verify against `docs/` per the section above.
+- [x] Write failing tests L-A, L-B (iframeLinkHandlers integration)
+      and P-A, P-B, P-C (iframePostProcessor unit). L-C, L-D and P-D
+      were pre-existing.
+- [x] Run tests, confirmed all 4 new tests fail with the expected
+      "no callback fire" / "null" messages.
+- [x] Implement the `parseArtifactHref` empty-stem branch in
+      `iframeLinkHandlers.ts` — always-intercept policy (no
+      projectFilePaths consultation).
+- [x] Implement the `reverseMapArtifactHref` empty/null-stem branch
+      in `iframePostProcessor.ts` — strict policy (returns null if
+      no `index.<ext>` is in projectFilePaths).
+- [x] Run unit tests — all green (155 integration + 181 unit in
+      preview-renderer).
+- [x] Run `npm run build:all` from `hub-client/` — clean.
+- [x] End-to-end verify against `docs/`:
+      - Brand href still renders `/.quarto/project-artifacts/` (resolver
+        unchanged, as designed).
+      - Click from `about.qmd`: `defaultPrevented: true`, no
+        `beforeunload`, iframe stays on `/q2-preview.html`,
+        `NAVIGATE_TO_DOCUMENT` fires with
+        `{ path: 'index.qmd', anchor: null }`, SPA route updates to
+        `?page=index.qmd`, visible heading after click is "Quarto 2"
+        (the index title). All six bullets exactly invert the
+        2026-05-20 repro signature.
 - [ ] Close bd-ql55q with the e2e evidence captured in the close reason.
 
 ## Out of scope
