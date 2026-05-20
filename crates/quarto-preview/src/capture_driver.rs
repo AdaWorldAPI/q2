@@ -69,20 +69,25 @@ pub async fn record_eager_captures(
         // Standalone mode — nothing to record.
         return Ok(0);
     };
-    // Touch project_files to bail early on a context that has the
-    // project_root but no discovered files (a malformed state, but
-    // defensive).
-    if ctx.project_files().is_none() {
+    // Walk the project's `.qmd` files only — engines run against qmd
+    // input. Iterating the index map (which also covers `_quarto.yml`,
+    // images, etc.) would feed non-qmd bytes into parse-document; that
+    // panics on the first binary file (bd-i6jy4 / bd-6qbto).
+    let Some(project_files) = ctx.project_files() else {
         return Ok(0);
-    }
+    };
 
-    // Snapshot the file list. The index map will be mutated (sidecar
+    // Snapshot the list. The index map will be mutated (sidecar
     // writes) as we go; iterating a snapshot keeps the loop simple.
-    let files = ctx.index().get_all_files();
+    let qmd_paths: Vec<String> = project_files
+        .qmd_files
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
 
     let mut recorded = 0_usize;
-    for (rel_path, _doc_id) in files {
-        // Sidecar is keyed by the same path as `files` — skip files
+    for rel_path in qmd_paths {
+        // Sidecar is keyed by the same path as the index — skip files
         // that already have a capture so re-runs are idempotent.
         if ctx.index().has_capture(&rel_path) {
             tracing::debug!(rel_path = %rel_path, "capture already recorded, skipping");
@@ -424,13 +429,27 @@ mod tests {
     async fn build_ctx_with_files(
         files: &[(&str, &str)],
     ) -> (TempDir, Arc<HubContext>, Arc<dyn SystemRuntime>) {
+        build_ctx_with_text_and_binary_files(files, &[]).await
+    }
+
+    async fn build_ctx_with_text_and_binary_files(
+        text_files: &[(&str, &str)],
+        binary_files: &[(&str, &[u8])],
+    ) -> (TempDir, Arc<HubContext>, Arc<dyn SystemRuntime>) {
         let project = TempDir::with_prefix("c1-driver-test-").unwrap();
-        for (rel, content) in files {
+        for (rel, content) in text_files {
             let path = project.path().join(rel);
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).unwrap();
             }
             std::fs::write(path, content).unwrap();
+        }
+        for (rel, bytes) in binary_files {
+            let path = project.path().join(rel);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(path, bytes).unwrap();
         }
         let storage = StorageManager::new(project.path()).unwrap();
         let ctx = Arc::new(
@@ -481,6 +500,53 @@ mod tests {
         .unwrap();
         assert_eq!(count, 0);
         assert!(!ctx.index().has_capture("doc.qmd"));
+    }
+
+    /// Regression test for bd-i6jy4: the eager-capture driver must
+    /// only iterate `.qmd` files. Before the fix it iterated every
+    /// entry in the index — including binaries — and fed their bytes
+    /// to the parse-document stage, which panicked on the first
+    /// non-UTF-8 byte (sibling bd-6qbto).
+    ///
+    /// The test puts *valid-qmd-with-engine-cells* content into a
+    /// `.png` file so that, on the unfixed driver, the passthrough
+    /// engine would actually run and a capture would be recorded for
+    /// `logo.png`. The fix makes discovery's binary classification
+    /// authoritative: `.png` lives in `binary_files`, never reaches
+    /// `record_one`, and `has_capture("logo.png")` stays false.
+    #[tokio::test]
+    async fn binary_files_are_not_fed_to_parse_pipeline() {
+        let engine_cell_bytes =
+            b"---\nengine: test-passthrough\n---\n\n```{test-passthrough}\n1\n```\n";
+
+        let (_tmp, ctx, runtime) = build_ctx_with_text_and_binary_files(
+            &[("doc.qmd", "---\ntitle: Prose\n---\n\nNo cells.\n")],
+            &[("logo.png", engine_cell_bytes.as_slice())],
+        )
+        .await;
+
+        let count = record_eager_captures(
+            ctx.clone(),
+            runtime,
+            Some(make_registry()),
+            EnginePolicy::Manual,
+            &cache_dir_for_test(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            count, 0,
+            "no captures expected: doc.qmd is prose-only, logo.png is a binary that must be skipped",
+        );
+        assert!(
+            !ctx.index().has_capture("logo.png"),
+            "binary files must never have engine captures recorded — bd-i6jy4",
+        );
+        assert!(
+            !ctx.index().has_capture("doc.qmd"),
+            "prose-only qmd records no capture (sanity)",
+        );
     }
 
     #[tokio::test]
