@@ -296,7 +296,9 @@ title: Table test
 - [x] **bd-12fpz** D4/D5: emit `odd`/`even` body-row classes and
       `header` head-row class + tests (bundled — same code path)
       *(closed 2026-05-20, commit c02a405a)*
-- [ ] **bd-mtzry** D6: emit `quarto-light` on `<body>` + template tests
+- [x] **bd-mtzry** D6: emit `quarto-light` on `<body>` + template tests
+      *(closed 2026-05-20, commit 21c8ec04; dark-mode detection deferred
+      until the pipeline supports light/dark theme configs)*
 
 ### Phase 2 — render CSS
 - [ ] **bd-dy97y** D7: Bootstrap-derived default stylesheet loaded by
