@@ -248,7 +248,7 @@ note.
       The 15× speedup is the warm-cache delta — the cold-cache
       delta (where `target/` was the user-reported "freeze") is
       orders of magnitude larger.
-- [ ] Close bd-nmkmi with the table above in the close reason.
+- [x] Close bd-nmkmi with the table above in the close reason.
 
 ## Discovered work
 
