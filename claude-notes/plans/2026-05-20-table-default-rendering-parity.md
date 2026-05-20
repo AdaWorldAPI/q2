@@ -296,6 +296,9 @@ title: Table test
 - [x] **bd-12fpz** D4/D5: emit `odd`/`even` body-row classes and
       `header` head-row class + tests (bundled — same code path)
       *(closed 2026-05-20, commit c02a405a)*
+- [x] **bd-elgxx** D4/D5 react: same row classes in the preview's
+      React Table component (preview doesn't go through the pampa
+      writer) *(closed 2026-05-20, commit cad7778c)*
 - [x] **bd-mtzry** D6: emit `quarto-light` on `<body>` + template tests
       *(closed 2026-05-20, commit 21c8ec04; dark-mode detection deferred
       until the pipeline supports light/dark theme configs)*
