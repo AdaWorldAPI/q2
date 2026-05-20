@@ -1,5 +1,136 @@
 ---
-title: Authoring Markdown documents in Quarto
+title: Authoring Markdown documents in Quarto 2
 ---
 
-TBD.
+## TBD
+
+- add tbl-colwidths to list-tables
+
+## Overview
+
+Quarto 2 uses its own dialect of Markdown as its underlying document syntax.
+Quarto's Markdown is largely based on Pandoc Markdown, itself an extended and slightly revised version of John Gruber's [Markdown](https://daringfireball.net/projects/markdown/) syntax.
+
+Markdown is a plain text format that is designed to be easy to write, and, even more importantly, easy to read:
+
+> A Markdown-formatted document should be publishable as-is, as plain text, without looking like it's been marked up with tags or formatting instructions. -- [John Gruber](https://daringfireball.net/projects/markdown/syntax#philosophy)
+
+This document provides an introduction to Quarto's Markdown dialect (`qmd`).
+Authors of Markdown will largely feel at home using `qmd` files.
+The biggest conceptual change in Quarto 2 is that it can detect typos and syntax errors in your documents.
+Unlike Markdown, this means that some `qmd` files are not valid Quarto Markdown syntax.
+Quarto 2 provides an error message system that gives rich contextual information on invalid documents.
+
+### Text formatting
+
+::: list-table
+
+* * `qmd` syntax
+  * Output
+
+* * ```qmd
+    *italics*, _italics_,
+    __bold__, **bold**,
+    **_bold italics_**, __*bold italics*__
+    ```
+  * *italics*, _italics_, __bold__, **bold**, **_bold italics_**, __*bold italics*__
+
+* * ```qmd
+    superscript^2^ / subscript~2~
+    ```
+  * superscript^2^ / subscript~2~
+
+* * ```qmd
+    ~~strikethrough~~
+    ```
+  * ~~strikethrough~~
+
+* * ```qmd
+    `code`
+    ```
+  * `code`
+
+:::
+
+### Headings
+
+::: list-table
+
+* * `qmd` syntax
+  * Output
+
+* * ```qmd
+    # Heading 1
+    ```
+  * # Heading 1
+
+:::
+
+### Links \& Images
+
+::: list-table
+
+* * `qmd` syntax
+  * Output
+
+* * ```qmd
+    <https://quarto.org>
+    ```
+  * <https://quarto.org>
+
+* * ```qmd
+    [Quarto](https://quarto.org)
+    ```
+  * [Quarto](https://quarto.org)
+
+* * ```qmd
+    [Markdown Basics](./markdown-basics.qmd)
+    ```
+  * [Markdown Basics](./markdown-basics.qmd)
+
+* * ```qmd
+    [Markdown Basics - Links & Images](./markdown-basics.qmd#links-images)
+    ```
+  * [Markdown Basics - Links & Images](./markdown-basics.qmd#links-images)
+
+* * ```qmd
+    [Markdown Basics - Links & Images](#links-images)
+    ```
+  * [Markdown Basics - Links & Images](#links-images)
+
+* * ```qmd
+    ![Caption](elephant.png)
+    ```
+  * ![Caption](elephant.png)
+
+* * ```qmd
+    [![Caption](elephant.png)](https://quarto.org)
+    ```
+  * [![Caption](elephant.png)](https://quarto.org)
+
+:::
+
+<!--
+
+* * ```qmd
+    [![Caption](elephant.png "An elephant")](https://quarto.org)
+    ```
+  * [![Caption](elephant.png "An elephant")](https://quarto.org)
+
+* * ```qmd
+    [![](elephant.png){fig-alt="Alt text"}](https://quarto.org)
+    ```
+  * [![](elephant.png){fig-alt="Alt text"}](https://quarto.org)
+
+* * ```qmd
+    [![](elephant.png){fig-alt="Alt text"}](https://quarto.org)
+    ```
+  * [![](elephant.png){fig-alt="Alt text"}](https://quarto.org)
+-->
+### Lists
+
+### Syntax Characters (FIXME we need a better name)
+
+Explain how escaping works for most characters that could be used as Markdown
+
+### Error messages
