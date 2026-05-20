@@ -90,32 +90,42 @@ describe('PreviewDocument body container', () => {
         ).not.toBeNull();
     });
 
-    it('body-classes: custom-cls → document.body.className === "custom-cls" (no fullcontent)', () => {
+    it('body-classes: custom-cls → document.body.className === "custom-cls quarto-light"', () => {
+        // bd-elgxx (D6 react): mirror Rust `append_color_mode_class` —
+        // the color-mode class is appended regardless of the
+        // structural class source.
         mount({ 'body-classes': ms('custom-cls') });
-        expect(document.body.className).toBe('custom-cls');
+        expect(document.body.className).toBe('custom-cls quarto-light');
     });
 
-    it('body-classes: "" (empty string) opts out — body has no classes', () => {
-        // Pandoc-falsy parity: $body-classes$ template substitution
-        // emits the empty string verbatim, so empty string opts out
-        // of the literal `fullcontent` default. Only undefined
-        // (missing key) triggers the fallback.
+    it('body-classes: "" (empty string) still gets quarto-light', () => {
+        // bd-elgxx (D6 react): even when the structural class is empty,
+        // the color-mode class survives so theme-conditional CSS keys
+        // off `body.quarto-light` (matches the Rust template helper).
         mount({ 'body-classes': ms('') });
-        expect(document.body.className).toBe('');
+        expect(document.body.className).toBe('quarto-light');
     });
 
-    it('default → document.body.className === "fullcontent"', () => {
+    it('default → document.body.className === "fullcontent quarto-light"', () => {
+        // bd-elgxx (D6 react): default body class appends `quarto-light`
+        // for parity with the Rust template (commit 21c8ec04).
         mount({});
-        expect(document.body.className).toBe('fullcontent');
+        expect(document.body.className).toBe('fullcontent quarto-light');
     });
 
-    it('TOC rendered but no sidebar → body has no class (avoids fullcontent squashing TOC)', () => {
+    it('TOC rendered but no sidebar → body class is "quarto-light" only (avoids fullcontent squashing TOC)', () => {
         // Mirrors the Rust `render_with_compiled_template` body-class
         // computation: when `rendered.navigation.toc` is non-empty and
-        // no sidebar `body-classes` is set, fall through to the default
-        // (no-class) wide grid, whose right-margin column has room
-        // for the TOC. The `fullcontent` mixin's margin column is
-        // only ~70px at the default and squashes the TOC.
+        // no sidebar `body-classes` is set, the structural class
+        // falls through to the default (no-class) wide grid, whose
+        // right-margin column has room for the TOC. The `fullcontent`
+        // mixin's margin column is only ~70px at the default and
+        // squashes the TOC.
+        //
+        // bd-tkamn (D6 react): even when the structural class drops
+        // to empty, the color-mode class `quarto-light` is still
+        // appended — same as the Rust template
+        // (`test_full_template_toc_present_yields_empty_body_class`).
         mount({
             rendered: {
                 t: 'MetaMap',
@@ -137,15 +147,32 @@ describe('PreviewDocument body container', () => {
                 ],
             },
         });
-        expect(document.body.className).toBe('');
+        expect(document.body.className).toBe('quarto-light');
     });
 
     it('cleanup: unmount restores the pre-mount body.className', () => {
         document.body.className = 'pre-existing';
         const { unmount } = mount({ 'body-classes': ms('mid') });
-        expect(document.body.className).toBe('mid');
+        expect(document.body.className).toBe('mid quarto-light');
         unmount();
         expect(document.body.className).toBe('pre-existing');
+    });
+
+    it('body-classes already containing quarto-light is not duplicated', () => {
+        // bd-elgxx (D6 react): idempotent — a user who explicitly puts
+        // `quarto-light` in their body-classes shouldn't end up with two
+        // copies. Mirrors `append_color_mode_class` in template.rs.
+        mount({ 'body-classes': ms('custom-cls quarto-light') });
+        expect(document.body.className).toBe('custom-cls quarto-light');
+    });
+
+    it('body-classes containing quarto-dark suppresses the quarto-light append', () => {
+        // bd-elgxx (D6 react): when an explicit dark-mode class is
+        // already present, do NOT also append light. The Rust helper
+        // treats either `quarto-light` or `quarto-dark` as a signal
+        // that the color mode is already set.
+        mount({ 'body-classes': ms('custom-cls quarto-dark') });
+        expect(document.body.className).toBe('custom-cls quarto-dark');
     });
 });
 
@@ -476,6 +503,8 @@ describe('PreviewDocument chrome injection (Phase F.2)', () => {
         // Phase F.2: when the user did NOT set top-level `body-classes`,
         // `meta.rendered.navigation.body-classes` (from sidebar-render)
         // is the source — same as Rust template.rs:419-428.
+        // bd-elgxx (D6 react): color-mode class still appends after the
+        // structural class (matches the Rust template helper).
         mount({
             rendered: metaMap([
                 {
@@ -486,7 +515,7 @@ describe('PreviewDocument chrome injection (Phase F.2)', () => {
                 },
             ]),
         });
-        expect(document.body.className).toBe('nav-sidebar floating');
+        expect(document.body.className).toBe('nav-sidebar floating quarto-light');
     });
 
     it('user-set top-level body-classes still wins over sidebar-render', () => {
@@ -502,7 +531,9 @@ describe('PreviewDocument chrome injection (Phase F.2)', () => {
                 },
             ]),
         });
-        expect(document.body.className).toBe('user-bcs');
+        // bd-elgxx (D6 react): color-mode class still appends after
+        // the user's body-classes win.
+        expect(document.body.className).toBe('user-bcs quarto-light');
     });
 
     it('header-includes (favicon link) lands in document.head with cleanup marker', () => {
