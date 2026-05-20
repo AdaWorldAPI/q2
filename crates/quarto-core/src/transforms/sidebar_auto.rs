@@ -21,13 +21,38 @@
 //!
 //! [`SidebarGenerateTransform`]: crate::transforms::SidebarGenerateTransform
 
-use quarto_error_reporting::DiagnosticMessage;
+use quarto_error_reporting::{DiagnosticMessage, DiagnosticMessageBuilder};
 use quarto_navigation::{AutoSpec, NavigationItem, Sidebar, SidebarEntry};
 use quarto_pandoc_types::config_value::ConfigValue;
 use quarto_source_map::SourceInfo;
 
 use crate::document_profile::DocumentProfile;
 use crate::project::index::ProjectIndex;
+
+/// Q-13-5: sidebar `auto:` dropped because no project index is
+/// available (standalone render).
+fn auto_no_index_warning() -> DiagnosticMessage {
+    DiagnosticMessageBuilder::warning("Sidebar `auto:` ignored")
+        .with_code("Q-13-5")
+        .problem("No project index is available — `auto:` entries cannot be expanded.")
+        .add_hint("Render this document as part of a project to expand `auto:` entries.")
+        .build()
+}
+
+/// Q-13-6: sidebar `auto:` expanded against the project index but
+/// matched no documents.
+fn auto_empty_match_warning(spec: &AutoSpec) -> DiagnosticMessage {
+    DiagnosticMessageBuilder::warning("Sidebar `auto:` matched no documents")
+        .with_code("Q-13-6")
+        .problem(format!(
+            "Spec `{}` found no matches.",
+            auto_spec_debug(spec)
+        ))
+        .add_hint(
+            "Check the path or glob pattern, or confirm the target files exist in the project.",
+        )
+        .build()
+}
 
 /// Walk the sidebar's contents and expand every `Auto` entry in
 /// place, using the project's `ProjectIndex`.
@@ -63,6 +88,7 @@ fn expand_entries(
             SidebarEntry::Section {
                 text,
                 href,
+                href_source,
                 id,
                 contents,
                 expanded,
@@ -73,6 +99,7 @@ fn expand_entries(
                 out.push(SidebarEntry::Section {
                     text,
                     href,
+                    href_source,
                     id,
                     contents: new_contents,
                     expanded,
@@ -92,16 +119,12 @@ fn strip_entries(
     for entry in entries {
         match entry {
             SidebarEntry::Auto(_) => {
-                diagnostics.push(DiagnosticMessage::warning(
-                    "Sidebar `auto:` entry ignored — no project index is available. \
-                     This usually means the document is being rendered standalone, \
-                     not as part of a project."
-                        .to_string(),
-                ));
+                diagnostics.push(auto_no_index_warning());
             }
             SidebarEntry::Section {
                 text,
                 href,
+                href_source,
                 id,
                 contents,
                 expanded,
@@ -110,6 +133,7 @@ fn strip_entries(
                 out.push(SidebarEntry::Section {
                     text,
                     href,
+                    href_source,
                     id,
                     contents: new_contents,
                     expanded,
@@ -130,10 +154,7 @@ pub fn expand_spec(
     let (candidates, scope) = collect_candidates(spec, index);
 
     if candidates.is_empty() {
-        diagnostics.push(DiagnosticMessage::warning(format!(
-            "Sidebar `auto:` matched no documents (spec: {})",
-            auto_spec_debug(spec)
-        )));
+        diagnostics.push(auto_empty_match_warning(spec));
         return Vec::new();
     }
 
@@ -311,6 +332,10 @@ fn section_for_dir(dir: &str, members: &[&DocumentProfile], index: &ProjectIndex
     SidebarEntry::Section {
         text: text_cv,
         href,
+        // `auto:` expansion produces synthetic entries — no source
+        // YAML to point back at. Default SourceInfo is the safe
+        // sentinel for "programmatically constructed."
+        href_source: SourceInfo::default(),
         id: None,
         contents,
         expanded: false,
@@ -572,7 +597,7 @@ mod tests {
     }
 
     /// Test 25 — when no index is available, `strip_auto` drops the
-    /// Auto entry and emits a warning.
+    /// Auto entry and emits a structured Q-13-5 warning.
     #[test]
     fn auto_without_index_is_noop() {
         let mut sb = Sidebar {
@@ -591,6 +616,51 @@ mod tests {
         strip_auto(&mut sb, &mut diags);
         assert_eq!(sb.contents.len(), 1); // Auto dropped
         assert_eq!(diags.len(), 1); // warning emitted
+        let d = &diags[0];
+        assert_eq!(d.code.as_deref(), Some("Q-13-5"));
+        assert!(
+            d.title.contains("`auto:`"),
+            "Q-13-5 title must mention `auto:`; got {:?}",
+            d.title
+        );
+        assert!(
+            d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("project index"))
+                .unwrap_or(false),
+            "Q-13-5 problem must mention project index; got {:?}",
+            d.problem
+        );
+    }
+
+    /// bd-8d6rk: `expand_spec` with no matches emits a structured
+    /// Q-13-6 warning and produces no entries.
+    #[test]
+    fn auto_empty_match_emits_q_13_6() {
+        let index = ProjectIndex::new(vec![]);
+        let mut diags = Vec::new();
+        let entries = expand_spec(
+            &AutoSpec::Path("nonexistent".to_string()),
+            &index,
+            &mut diags,
+        );
+        assert!(entries.is_empty());
+        assert_eq!(diags.len(), 1);
+        let d = &diags[0];
+        assert_eq!(d.code.as_deref(), Some("Q-13-6"));
+        assert!(
+            d.title.contains("no documents"),
+            "Q-13-6 title must mention `no documents`; got {:?}",
+            d.title
+        );
+        assert!(
+            d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("nonexistent"))
+                .unwrap_or(false),
+            "Q-13-6 problem must include the spec text; got {:?}",
+            d.problem
+        );
     }
 
     /// `AutoSpec::Paths(vec![...])` is the union of multiple prefixes,
@@ -626,6 +696,7 @@ mod tests {
             contents: vec![SidebarEntry::Section {
                 text: Some(ConfigValue::new_string("Outer", SourceInfo::default())),
                 href: None,
+                href_source: SourceInfo::default(),
                 id: None,
                 contents: vec![inner_auto],
                 expanded: false,

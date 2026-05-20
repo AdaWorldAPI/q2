@@ -183,6 +183,13 @@ impl PipelineStage for AstTransformsStage {
         // (`LinkRewriteTransform`) consumes it to compute
         // page-relative URLs.
         render_ctx.resource_resolver = ctx.resource_resolver.clone();
+        // bd-qor9a: bridge the document's `SourceContext` so transforms
+        // can resolve a `SourceInfo.FileId` back to the originating
+        // file path. Used by sidebar/navbar/footer/page-nav Generate
+        // transforms to determine which YAML file a given href was
+        // authored in (so frontmatter-rooted paths resolve relative
+        // to the frontmatter's directory, not the project root).
+        render_ctx.source_context = Some(&doc.ast_context.source_context);
         // Attribution: bridge both the opt-in provider AND the
         // sidecar already populated by the upstream
         // `AttributionGenerateStage` into the inner `RenderContext`.

@@ -30,6 +30,18 @@ pub struct NavigationItem {
     /// Absent for pure submenus.
     pub href: Option<String>,
 
+    /// `SourceInfo` of the YAML scalar that produced `href`.
+    ///
+    /// bd-qor9a — the navigation parsers retain the source location
+    /// so Generate transforms can resolve href values relative to the
+    /// file they were authored in (frontmatter sidebars resolve against
+    /// the doc's directory; `_quarto.yml` sidebars against the project
+    /// root). `SourceInfo::default()` for programmatically-constructed
+    /// items (tests, in-memory builders) — the path resolution helper
+    /// short-circuits on that case and treats the href as already
+    /// project-root-relative.
+    pub href_source: SourceInfo,
+
     /// Display text. Preserved as `ConfigValue` so markdown inlines from
     /// document metadata survive without being flattened.
     pub text: Option<ConfigValue>,
@@ -62,21 +74,30 @@ impl NavigationItem {
     /// Parse a single item from a `ConfigValue` in one of the three accepted
     /// shapes. Returns `None` if the shape is unrecognisable (e.g. a number).
     pub fn from_config_value(cv: &ConfigValue) -> Option<Self> {
-        // Bare path form: `- about.qmd`
+        // Bare path form: `- about.qmd`. The source_info travels with
+        // the bare ConfigValue itself (no wrapping map node).
         if let Some(s) = cv.as_plain_text() {
             // Only treat as a path if it isn't a map or array. `as_plain_text`
             // already narrows to scalar-ish shapes, so this is safe.
             return Some(NavigationItem {
                 href: Some(s),
+                href_source: cv.source_info.clone(),
                 ..NavigationItem::default()
             });
         }
 
-        // Object form. Every field is optional.
-        let href = cv
+        // Object form. Every field is optional. `href` is also keyed by
+        // `file:` (Q1 alias); whichever wins, we capture *that* value's
+        // source_info — the one the user wrote.
+        let (href, href_source) = cv
             .get("href")
-            .and_then(|v| v.as_plain_text())
-            .or_else(|| cv.get("file").and_then(|v| v.as_plain_text()));
+            .and_then(|v| v.as_plain_text().map(|s| (s, v.source_info.clone())))
+            .or_else(|| {
+                cv.get("file")
+                    .and_then(|v| v.as_plain_text().map(|s| (s, v.source_info.clone())))
+            })
+            .map(|(s, info)| (Some(s), info))
+            .unwrap_or_else(|| (None, SourceInfo::default()));
 
         let text = cv.get("text").cloned();
         let icon = cv.get("icon").and_then(|v| v.as_plain_text());
@@ -115,6 +136,7 @@ impl NavigationItem {
 
         Some(NavigationItem {
             href,
+            href_source,
             text,
             icon,
             aria_label,
@@ -127,6 +149,12 @@ impl NavigationItem {
 
     /// Serialise back to a `ConfigValue` map suitable for storing at
     /// `navigation.navbar` / `navigation.footer`. Empty fields are omitted.
+    ///
+    /// `href`'s `SourceInfo` is round-tripped from `self.href_source` so
+    /// the Generate → Render handoff preserves the original YAML
+    /// location. Other fields use `SourceInfo::default()` — they are
+    /// either programmatic (`active`) or unused for diagnostic
+    /// location today.
     pub fn to_config_value(&self) -> ConfigValue {
         let source_info = SourceInfo::default();
         let mut entries: Vec<ConfigMapEntry> = Vec::new();
@@ -135,7 +163,7 @@ impl NavigationItem {
             entries.push(ConfigMapEntry {
                 key: "href".to_string(),
                 key_source: source_info.clone(),
-                value: ConfigValue::new_string(href, source_info.clone()),
+                value: ConfigValue::new_string(href, self.href_source.clone()),
             });
         }
         if let Some(ref text) = self.text {

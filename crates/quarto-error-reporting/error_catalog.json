@@ -851,5 +851,54 @@
     "message_template": "While building a listing feed, the substitution step tried to read the rendered HTML at {path} for an item but the file could not be opened. The feed was emitted with an empty `<description>` for this item. Re-running the project render usually resolves transient I/O issues; persistent failures suggest a misconfigured output directory.",
     "docs_url": "https://quarto.org/docs/errors/Q-12-16",
     "since_version": "99.9.9"
+  },
+  "Q-13-1": {
+    "subsystem": "navigation",
+    "title": "Sidebar references missing document",
+    "message_template": "A `website.sidebar` entry references a path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set.",
+    "docs_url": "https://quarto.org/docs/errors/Q-13-1",
+    "since_version": "99.9.9"
+  },
+  "Q-13-2": {
+    "subsystem": "navigation",
+    "title": "Navbar references missing document",
+    "message_template": "A `website.navbar` entry references a path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set.",
+    "docs_url": "https://quarto.org/docs/errors/Q-13-2",
+    "since_version": "99.9.9"
+  },
+  "Q-13-3": {
+    "subsystem": "navigation",
+    "title": "Page footer references missing document",
+    "message_template": "A `website.page-footer` entry references a path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set.",
+    "docs_url": "https://quarto.org/docs/errors/Q-13-3",
+    "since_version": "99.9.9"
+  },
+  "Q-13-4": {
+    "subsystem": "navigation",
+    "title": "Body link references missing document",
+    "message_template": "An inline link in the document body references a `.qmd` path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set. The link is preserved verbatim in the rendered output so the dangling reference is visible to readers.",
+    "docs_url": "https://quarto.org/docs/errors/Q-13-4",
+    "since_version": "99.9.9"
+  },
+  "Q-13-5": {
+    "subsystem": "navigation",
+    "title": "Sidebar `auto:` ignored",
+    "message_template": "A sidebar `auto:` entry was dropped because no project index is available to expand it. This usually means the document is being rendered standalone rather than as part of a project. Render this document inside a project to expand `auto:` entries.",
+    "docs_url": "https://quarto.org/docs/errors/Q-13-5",
+    "since_version": "99.9.9"
+  },
+  "Q-13-6": {
+    "subsystem": "navigation",
+    "title": "Sidebar `auto:` matched no documents",
+    "message_template": "A sidebar `auto:` entry was expanded against the project index but matched no documents. The entry is dropped from the rendered sidebar. Check the path or glob pattern in the `auto:` spec, or confirm the target files exist in the project.",
+    "docs_url": "https://quarto.org/docs/errors/Q-13-6",
+    "since_version": "99.9.9"
+  },
+  "Q-13-7": {
+    "subsystem": "navigation",
+    "title": "Page navigation references missing document",
+    "message_template": "A `prev:` or `next:` page-navigation entry references a path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set.",
+    "docs_url": "https://quarto.org/docs/errors/Q-13-7",
+    "since_version": "99.9.9"
   }
 }

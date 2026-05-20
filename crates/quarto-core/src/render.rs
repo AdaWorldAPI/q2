@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use quarto_analysis::AnalysisContext;
 use quarto_error_reporting::DiagnosticMessage;
+use quarto_source_map::SourceContext;
 use quarto_system_runtime::SystemRuntime;
 
 use crate::artifact::ArtifactStore;
@@ -244,6 +245,21 @@ pub struct RenderContext<'a> {
     /// `render_document_to_file`.
     pub resource_resolver: Option<ResourceResolverContext>,
 
+    /// The document's `SourceContext` — the lookup table that maps
+    /// `FileId` values (carried by every `SourceInfo`) to file paths.
+    ///
+    /// Bridged from `doc.ast_context.source_context` by
+    /// `AstTransformsStage`. Transforms that need to resolve a
+    /// `SourceInfo`'s `FileId` back to a path (e.g. to figure out
+    /// which YAML file an href was authored in) read from here.
+    ///
+    /// `None` when callers construct a `RenderContext` directly
+    /// without bridging from an `AstTransformsStage` (unit tests,
+    /// out-of-band drivers). Consumers must tolerate the `None` case
+    /// — typically by falling back to today's project-root-relative
+    /// interpretation.
+    pub source_context: Option<&'a SourceContext>,
+
     /// Observer for pipeline tracing.
     ///
     /// Bridged from `StageContext` by `AstTransformsStage` so that
@@ -373,6 +389,7 @@ impl<'a> RenderContext<'a> {
             crossref_index: None,
             project_index: None,
             resource_resolver: None,
+            source_context: None,
             observer: Arc::new(NoopObserver),
             user_grammar_provider: None,
             resource_report: crate::project_resources::DocumentResourceReport::new(),

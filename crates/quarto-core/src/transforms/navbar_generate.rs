@@ -29,7 +29,7 @@
 //! - `navbar` absent or `navbar: true`.
 //! - `navigation.navbar` already populated (user override).
 
-use quarto_navigation::resolve_navbar;
+use quarto_navigation::{NavigationItem, resolve_navbar};
 use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
@@ -38,6 +38,7 @@ use crate::transform::AstTransform;
 use crate::transforms::is_feature_disabled;
 use crate::transforms::navigation_active::{mark_active, page_relative_source};
 use crate::transforms::navigation_enrich::enrich_navigation_items;
+use crate::transforms::navigation_href::resolve_metadata_path;
 
 /// Transform that resolves the user's `navbar:` config and stores it at
 /// `navigation.navbar`.
@@ -74,6 +75,23 @@ impl AstTransform for NavbarGenerateTransform {
             return Ok(());
         };
 
+        // bd-qor9a — resolve each href against the YAML file it was
+        // authored in. Frontmatter-rooted hrefs become project-root-
+        // relative; `_quarto.yml`-rooted ones (the common case for
+        // navbars) degrade cleanly to today's behaviour.
+        if let Some(source_context) = ctx.source_context {
+            resolve_item_hrefs(&mut navbar.left, source_context, &ctx.project.dir);
+            resolve_item_hrefs(&mut navbar.right, source_context, &ctx.project.dir);
+            if let Some(logo_href) = navbar.logo_href.as_mut() {
+                *logo_href = resolve_metadata_path(
+                    logo_href,
+                    &navbar.logo_href_source,
+                    source_context,
+                    &ctx.project.dir,
+                );
+            }
+        }
+
         // Post-process with project-scoped data when we have a
         // ProjectIndex. Standalone single-doc renders (no index)
         // skip enrichment and active-marking and store the navbar
@@ -90,6 +108,26 @@ impl AstTransform for NavbarGenerateTransform {
             .insert_path(&["navigation", "navbar"], navbar.to_config_value());
 
         Ok(())
+    }
+}
+
+/// Walk navbar items (including nested dropdown `menu` children) and
+/// resolve each item's `href` against the YAML file it was authored
+/// in. Mirrors `sidebar_generate::resolve_hrefs`.
+fn resolve_item_hrefs(
+    items: &mut [NavigationItem],
+    source_context: &quarto_source_map::SourceContext,
+    project_root: &std::path::Path,
+) {
+    for item in items.iter_mut() {
+        if let Some(href) = item.href.as_ref() {
+            let resolved =
+                resolve_metadata_path(href, &item.href_source, source_context, project_root);
+            item.href = Some(resolved);
+        }
+        if !item.menu.is_empty() {
+            resolve_item_hrefs(&mut item.menu, source_context, project_root);
+        }
     }
 }
 

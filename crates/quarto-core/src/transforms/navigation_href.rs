@@ -20,10 +20,99 @@
 
 use std::path::{Path, PathBuf};
 
-use quarto_error_reporting::DiagnosticMessage;
+use quarto_error_reporting::{DiagnosticMessage, DiagnosticMessageBuilder};
+use quarto_source_map::{FileId, SourceContext, SourceInfo};
 
 use crate::project::index::ProjectIndex;
 use crate::resource_resolver::ResourceResolverContext;
+
+/// Which navigation surface a missing-document diagnostic came from.
+///
+/// Each variant maps 1:1 to an error catalog entry:
+///
+/// | Variant | Code |
+/// |---------|------|
+/// | [`NavSurface::Sidebar`] | `Q-13-1` |
+/// | [`NavSurface::Navbar`] | `Q-13-2` |
+/// | [`NavSurface::PageFooter`] | `Q-13-3` |
+/// | [`NavSurface::BodyLink`] | `Q-13-4` |
+/// | [`NavSurface::PageNav`] | `Q-13-7` |
+///
+/// `Sidebar` carries an optional `id` so the diagnostic can point at
+/// the specific sidebar that introduced the bad reference (`Sidebar
+/// 'guide'`) when the project defines more than one. Other surfaces
+/// are unique per page, so they carry no payload.
+///
+/// The `auto:` diagnostics (`Q-13-5` / `Q-13-6`) live in
+/// `sidebar_auto.rs` and don't go through this enum — they're
+/// emitted at expansion time, not at href-resolution time.
+#[derive(Debug, Clone)]
+pub enum NavSurface<'a> {
+    /// `website.sidebar[*].contents` — optionally tagged with the
+    /// sidebar's `id:` for disambiguation.
+    Sidebar { id: Option<&'a str> },
+    /// `website.navbar.{left,right,brand-href}` and `tools:`.
+    Navbar,
+    /// `website.page-footer`.
+    PageFooter,
+    /// Inline body links (`[text](path.qmd)`) parsed from markdown
+    /// content.
+    BodyLink,
+    /// `prev:` / `next:` page-navigation buttons rendered at the
+    /// bottom of website pages.
+    PageNav,
+}
+
+impl<'a> NavSurface<'a> {
+    /// The catalog code this surface emits on a missing-document miss.
+    pub fn code(&self) -> &'static str {
+        match self {
+            NavSurface::Sidebar { .. } => "Q-13-1",
+            NavSurface::Navbar => "Q-13-2",
+            NavSurface::PageFooter => "Q-13-3",
+            NavSurface::BodyLink => "Q-13-4",
+            NavSurface::PageNav => "Q-13-7",
+        }
+    }
+
+    /// Human-readable surface name used in the diagnostic title.
+    fn title_label(&self) -> &'static str {
+        match self {
+            NavSurface::Sidebar { .. } => "Sidebar",
+            NavSurface::Navbar => "Navbar",
+            NavSurface::PageFooter => "Page footer",
+            NavSurface::BodyLink => "Body link",
+            NavSurface::PageNav => "Page navigation",
+        }
+    }
+}
+
+/// Build the structured "missing document" diagnostic for a navigation
+/// surface (Q-13-1 through Q-13-4, Q-13-7).
+///
+/// `location` is forward-looking: today every callsite passes `None`
+/// because the navigation parsers strip `SourceInfo` from href strings.
+/// bd-qor9a plumbs `SourceInfo` through to these callsites; once that
+/// lands, the same diagnostic gets the source location filled in
+/// without changing this helper's signature.
+fn missing_document_warning(
+    surface: &NavSurface<'_>,
+    raw_path: &str,
+    location: Option<SourceInfo>,
+) -> DiagnosticMessage {
+    let title = format!("{} references missing document", surface.title_label());
+    let mut builder = DiagnosticMessageBuilder::warning(title)
+        .with_code(surface.code())
+        .problem(format!("'{}' is not in the project index.", raw_path))
+        .add_hint("Check the spelling, or confirm the target file is included in the render set.");
+    if let NavSurface::Sidebar { id: Some(id) } = surface {
+        builder = builder.add_detail(format!("Source: sidebar `{}`", id));
+    }
+    if let Some(loc) = location {
+        builder = builder.with_location(loc);
+    }
+    builder.build()
+}
 
 /// Resolve an href for HTML output.
 ///
@@ -39,13 +128,15 @@ use crate::resource_resolver::ResourceResolverContext;
 ///   a resolver). Query strings and fragments are preserved across
 ///   the rewrite.
 /// - Source-path-shaped misses (looks like `*.qmd` but no matching
-///   profile) emit a warning diagnostic naming the `source_label` and
-///   the missing target. The raw href is preserved in the output so
-///   the dangling link is at least visible to the reader.
+///   profile) emit a structured warning diagnostic naming the surface
+///   and the missing target (catalog code per [`NavSurface::code`]).
+///   The raw href is preserved in the output so the dangling link is
+///   at least visible to the reader.
 ///
-/// `source_label` is a human-readable tag (`"Sidebar 'docs'"`,
-/// `"Navbar"`, `"Page footer"`) — it appears verbatim in the
-/// diagnostic so the user can locate the offending config.
+/// `surface` identifies the navigation surface for diagnostics (sidebar,
+/// navbar, page-footer, page-nav). `location` carries the YAML
+/// `SourceInfo` for the offending href when available; today every
+/// callsite passes `None` (bd-qor9a plumbs it through).
 ///
 /// **Symmetry with body links.** Phase 6's
 /// [`resolve_doc_relative_href`] handles body-content links the
@@ -59,7 +150,8 @@ pub fn resolve_href_for_html(
     raw: &str,
     resolver: Option<&ResourceResolverContext>,
     index: Option<&ProjectIndex>,
-    source_label: Option<&str>,
+    surface: NavSurface<'_>,
+    location: Option<SourceInfo>,
     diagnostics: &mut Vec<DiagnosticMessage>,
 ) -> String {
     if is_external(raw) || raw.starts_with('#') {
@@ -89,11 +181,7 @@ pub fn resolve_href_for_html(
         // has a project context and this looks like an intended
         // internal link, so surface it.
         if path_part.ends_with(".qmd") {
-            let tag = source_label.unwrap_or("Navigation").to_string();
-            diagnostics.push(DiagnosticMessage::warning(format!(
-                "{} references missing document information for '{}'",
-                tag, path_part
-            )));
+            diagnostics.push(missing_document_warning(&surface, path_part, location));
         }
     }
     // Without an index (standalone single-doc render) we can't tell
@@ -184,20 +272,24 @@ pub fn resolve_doc_relative_target(raw: &str, source_relative: &str) -> Option<P
 /// 4. Look up the project-relative path in `index`. If found, ask
 ///    `resolver` to compute the page-relative URL to the target's
 ///    `output_href`. Re-append the tail.
-/// 5. Miss + `.qmd` shape + index present → emit a warning
-///    diagnostic naming `source_label` and the missing path; return
-///    the raw href verbatim so the dangling link is visible.
+/// 5. Miss + `.qmd` shape + index present → emit a structured warning
+///    diagnostic (Q-13-4 / [`NavSurface::BodyLink`]) naming the
+///    missing path; return the raw href verbatim so the dangling link
+///    is visible.
 /// 6. No index → return the raw href verbatim (standalone render).
 /// 7. No resolver → fall back to the bare `output_href` from the
 ///    profile (no relative-depth math). Defensive — production
 ///    callers always pass a resolver; only out-of-band callers
 ///    might not.
+///
+/// `location` is forward-looking: today the body-link callsite passes
+/// `None`; bd-qor9a plumbs the link's source `SourceInfo` through.
 pub fn resolve_doc_relative_href(
     raw: &str,
     source_relative: &str,
     resolver: Option<&ResourceResolverContext>,
     index: Option<&ProjectIndex>,
-    source_label: Option<&str>,
+    location: Option<SourceInfo>,
     diagnostics: &mut Vec<DiagnosticMessage>,
 ) -> String {
     if is_external(raw) || raw.starts_with('#') {
@@ -234,14 +326,99 @@ pub fn resolve_doc_relative_href(
     // `resolve_href_for_html`). Non-qmd misses pass through silent
     // since they may legitimately be static resources.
     if path_part.ends_with(".qmd") {
-        let tag = source_label.unwrap_or("Body link").to_string();
-        diagnostics.push(DiagnosticMessage::warning(format!(
-            "{} references missing document information for '{}'",
-            tag, project_relative
-        )));
+        diagnostics.push(missing_document_warning(
+            &NavSurface::BodyLink,
+            &project_relative,
+            location,
+        ));
     }
 
     raw.to_string()
+}
+
+/// Resolve a navigation href to its project-root-relative form using
+/// the source location of the YAML scalar that produced it.
+///
+/// bd-qor9a — sidebar / navbar / footer hrefs declared in a document's
+/// frontmatter must resolve relative to that document's directory,
+/// not the project root. The source-info on every ConfigValue tells
+/// us which YAML file the value was authored in; we look that file up
+/// in the `SourceContext`, compute its directory relative to
+/// `project_root`, and join with `raw` via
+/// [`resolve_to_project_root`].
+///
+/// Returns `raw` unchanged (today's project-root-relative interpretation)
+/// when any of these fail:
+///
+/// - The href is external / fragment-only (delegates to [`is_external`]).
+/// - `source` is `SourceInfo::default()` — programmatically-constructed
+///   value with no real source file.
+/// - The `FileId` can't be looked up in `source_context` (e.g. the
+///   value came from `_quarto.yml` whose `FileId` is hash-based and
+///   not registered in the document's per-doc `SourceContext`).
+///   `_quarto.yml`-rooted paths are *already* project-root-relative,
+///   so the degrade-to-raw path produces the right answer for them.
+/// - The source file's path can't be expressed relative to `project_root`
+///   (file lives outside the project).
+pub fn resolve_metadata_path(
+    raw: &str,
+    source: &SourceInfo,
+    source_context: &SourceContext,
+    project_root: &Path,
+) -> String {
+    if is_external(raw) || raw.starts_with('#') {
+        return raw.to_string();
+    }
+    // `SourceInfo::default()` is the programmatic / in-memory
+    // sentinel: `Original { file_id: FileId(0), start: 0, end: 0 }`.
+    // Don't conflate it with a *real* source pointing at FileId(0)
+    // (which is how `ASTContext::with_filename` registers the
+    // document's own file). Detect default by full equality.
+    if source == &SourceInfo::default() {
+        return raw.to_string();
+    }
+    let Some((file_id_val, _, _)) = source.resolve_byte_range() else {
+        // Concat / FilterProvenance — no single contiguous range.
+        return raw.to_string();
+    };
+    let Some(source_file) = source_context.get_file(FileId(file_id_val)) else {
+        // Source file not registered in this document's SourceContext.
+        // Most commonly: a `_quarto.yml` value whose hash-based FileId
+        // isn't in the per-doc context. Such paths are already
+        // project-root-relative, so passing `raw` through unchanged is
+        // correct.
+        return raw.to_string();
+    };
+    let source_path = Path::new(&source_file.path);
+    // Express the source file's directory relative to project_root.
+    let source_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
+    let rel_dir = match source_dir.strip_prefix(project_root) {
+        Ok(rel) => rel,
+        Err(_) => {
+            // Source file lives outside the project. Defensive — keep
+            // the raw href; the downstream lookup will either match or
+            // produce a Q-13-* diagnostic.
+            return raw.to_string();
+        }
+    };
+    let rel_dir_str = rel_dir.to_string_lossy().replace('\\', "/");
+    // Use the same path-normalizer the body-link helper uses so `..`
+    // and leading `/` behaviour stays consistent across navigation
+    // surfaces. We synthesize a "source-relative" string that
+    // `resolve_to_project_root` interprets as `dirname(source_relative)`
+    // (so we append a `/x` sentinel that gets stripped — easier to
+    // just call the helper with the file path directly).
+    //
+    // `resolve_to_project_root` expects a *file* path as
+    // `source_relative` and uses `dirname(source_relative)` as the
+    // base — so synthesize a fake filename inside `rel_dir`.
+    let source_relative = if rel_dir_str.is_empty() {
+        // file lives at project root → dirname is "" → resolve against root.
+        "_".to_string()
+    } else {
+        format!("{}/_", rel_dir_str)
+    };
+    resolve_to_project_root(&source_relative, raw)
 }
 
 /// Join a doc-relative or absolute link href against the source
@@ -309,19 +486,170 @@ mod tests {
         }
     }
 
+    /// Tests that don't care which surface emits the diagnostic
+    /// pick `Navbar` as a stable default.
+    fn surf() -> NavSurface<'static> {
+        NavSurface::Navbar
+    }
+
+    // ---- bd-qor9a: resolve_metadata_path -----------------------------
+
+    /// Build a `SourceContext` containing one disk-backed file and
+    /// return the matching `SourceInfo` for the file as a whole. Used
+    /// to simulate a YAML scalar that came from that file.
+    fn source_for(path: &str, project_root: &std::path::Path) -> (SourceContext, SourceInfo) {
+        let abs = project_root.join(path).to_string_lossy().to_string();
+        let mut ctx = SourceContext::new();
+        // FileId(0) is reserved for the anonymous file convention — the
+        // test files start at FileId(1).
+        ctx.add_file("<anonymous>".to_string(), None);
+        let id = ctx.add_file(abs, None);
+        (ctx, SourceInfo::original(id, 0, 0))
+    }
+
+    /// Frontmatter sibling-relative case. The reproducer from
+    /// docs/guide/index.qmd: `href: introduction.qmd` from inside
+    /// `docs/guide/index.qmd` resolves to `docs/guide/introduction.qmd`.
+    #[test]
+    fn metadata_path_frontmatter_sibling() {
+        let root = PathBuf::from("/project");
+        let (ctx, src) = source_for("docs/guide/index.qmd", &root);
+        assert_eq!(
+            resolve_metadata_path("introduction.qmd", &src, &ctx, &root),
+            "docs/guide/introduction.qmd"
+        );
+    }
+
+    /// Frontmatter parent-dir-relative case.
+    /// `href: ../authoring/markdown/index.qmd` from
+    /// `docs/guide/index.qmd` → `docs/authoring/markdown/index.qmd`.
+    #[test]
+    fn metadata_path_frontmatter_parent_relative() {
+        let root = PathBuf::from("/project");
+        let (ctx, src) = source_for("docs/guide/index.qmd", &root);
+        assert_eq!(
+            resolve_metadata_path("../authoring/markdown/index.qmd", &src, &ctx, &root),
+            "docs/authoring/markdown/index.qmd"
+        );
+    }
+
+    /// Source file at project root: `_quarto.yml` is at the root, so
+    /// `href: about.qmd` resolves to `about.qmd` (project-root-relative,
+    /// unchanged). Demonstrates the file-at-root edge case.
+    #[test]
+    fn metadata_path_source_at_project_root() {
+        let root = PathBuf::from("/project");
+        let (ctx, src) = source_for("index.qmd", &root);
+        assert_eq!(
+            resolve_metadata_path("about.qmd", &src, &ctx, &root),
+            "about.qmd"
+        );
+    }
+
+    /// External URL passes through.
+    #[test]
+    fn metadata_path_external_passes_through() {
+        let root = PathBuf::from("/project");
+        let (ctx, src) = source_for("docs/guide/index.qmd", &root);
+        assert_eq!(
+            resolve_metadata_path("https://example.com", &src, &ctx, &root),
+            "https://example.com"
+        );
+    }
+
+    /// Fragment-only anchor passes through.
+    #[test]
+    fn metadata_path_fragment_only_passes_through() {
+        let root = PathBuf::from("/project");
+        let (ctx, src) = source_for("docs/guide/index.qmd", &root);
+        assert_eq!(
+            resolve_metadata_path("#section", &src, &ctx, &root),
+            "#section"
+        );
+    }
+
+    /// `SourceInfo::default()` (FileId(0) anonymous) returns raw
+    /// unchanged — this is the in-memory / test construction path.
+    #[test]
+    fn metadata_path_default_source_returns_raw() {
+        let root = PathBuf::from("/project");
+        let (ctx, _) = source_for("docs/guide/index.qmd", &root);
+        assert_eq!(
+            resolve_metadata_path("about.qmd", &SourceInfo::default(), &ctx, &root),
+            "about.qmd"
+        );
+    }
+
+    /// `FileId` that isn't in the context returns raw unchanged. This
+    /// is the `_quarto.yml` / `_metadata.yml` case — the hash-based
+    /// FileId isn't registered in the per-doc SourceContext, and the
+    /// pass-through behaviour is exactly what we want (those paths
+    /// are project-root-relative by convention).
+    #[test]
+    fn metadata_path_unknown_fileid_returns_raw() {
+        let root = PathBuf::from("/project");
+        let ctx = SourceContext::new();
+        // A FileId that isn't in ctx.
+        let src = SourceInfo::original(FileId(999), 0, 0);
+        assert_eq!(
+            resolve_metadata_path("about.qmd", &src, &ctx, &root),
+            "about.qmd"
+        );
+    }
+
+    /// Source file lives outside the project root: defensive
+    /// fallback returns raw unchanged.
+    #[test]
+    fn metadata_path_source_outside_project_returns_raw() {
+        let root = PathBuf::from("/project");
+        let other = PathBuf::from("/elsewhere");
+        let (ctx, src) = source_for("docs/guide/index.qmd", &other);
+        assert_eq!(
+            resolve_metadata_path("introduction.qmd", &src, &ctx, &root),
+            "introduction.qmd"
+        );
+    }
+
+    /// Leading `/` in the href is treated as project-root-relative
+    /// (Q1 parity), regardless of where the source lives.
+    #[test]
+    fn metadata_path_leading_slash_strips_to_project_root() {
+        let root = PathBuf::from("/project");
+        let (ctx, src) = source_for("docs/guide/index.qmd", &root);
+        assert_eq!(
+            resolve_metadata_path("/about.qmd", &src, &ctx, &root),
+            "about.qmd"
+        );
+    }
+
+    /// Substring-wrapped SourceInfo (the actual frontmatter shape:
+    /// YAML scalar inside a parent RawBlock) chain-resolves to the
+    /// underlying FileId, then proceeds normally.
+    #[test]
+    fn metadata_path_substring_source_info_chains_correctly() {
+        let root = PathBuf::from("/project");
+        let (ctx, parent) = source_for("docs/guide/index.qmd", &root);
+        // Simulate a yaml scalar substring inside the doc.
+        let scalar = SourceInfo::substring(parent, 10, 30);
+        assert_eq!(
+            resolve_metadata_path("introduction.qmd", &scalar, &ctx, &root),
+            "docs/guide/introduction.qmd"
+        );
+    }
+
     #[test]
     fn external_urls_pass_through_unchanged() {
         let mut diags = Vec::new();
         assert_eq!(
-            resolve_href_for_html("https://example.com", None, None, None, &mut diags),
+            resolve_href_for_html("https://example.com", None, None, surf(), None, &mut diags),
             "https://example.com"
         );
         assert_eq!(
-            resolve_href_for_html("mailto:a@b.c", None, None, None, &mut diags),
+            resolve_href_for_html("mailto:a@b.c", None, None, surf(), None, &mut diags),
             "mailto:a@b.c"
         );
         assert_eq!(
-            resolve_href_for_html("//cdn.example.com/x", None, None, None, &mut diags),
+            resolve_href_for_html("//cdn.example.com/x", None, None, surf(), None, &mut diags),
             "//cdn.example.com/x"
         );
         assert!(diags.is_empty());
@@ -331,7 +659,7 @@ mod tests {
     fn fragment_anchors_pass_through_unchanged() {
         let mut diags = Vec::new();
         assert_eq!(
-            resolve_href_for_html("#section", None, None, None, &mut diags),
+            resolve_href_for_html("#section", None, None, surf(), None, &mut diags),
             "#section"
         );
         assert!(diags.is_empty());
@@ -345,34 +673,94 @@ mod tests {
         let idx = ProjectIndex::new(vec![profile("about.qmd", "about.html")]);
         let mut diags = Vec::new();
         assert_eq!(
-            resolve_href_for_html("about.qmd", None, Some(&idx), None, &mut diags),
+            resolve_href_for_html("about.qmd", None, Some(&idx), surf(), None, &mut diags),
             "about.html"
         );
         assert!(diags.is_empty());
     }
 
+    /// bd-8d6rk: each surface emits the right Q-13-* code on a
+    /// missing-document miss. The previous `source_label` parameter
+    /// has been replaced by the typed [`NavSurface`] enum, and the
+    /// diagnostic is now structured (title + code + problem + hint).
     #[test]
-    fn qmd_miss_emits_diagnostic_with_source_label() {
+    fn qmd_miss_emits_structured_diagnostic_per_surface() {
         let idx = ProjectIndex::new(vec![]);
-        let mut diags = Vec::new();
-        let out =
-            resolve_href_for_html("missing.qmd", None, Some(&idx), Some("Navbar"), &mut diags);
-        // Href preserved so the dangling link renders visibly.
-        assert_eq!(out, "missing.qmd");
-        assert_eq!(diags.len(), 1);
-        // The source_label appears verbatim, followed by the expected
-        // diagnostic shape.
-        assert!(diags[0].title.starts_with("Navbar"));
-        assert!(diags[0].title.contains("missing.qmd"));
+        let cases: &[(NavSurface<'static>, &str, &str)] = &[
+            (NavSurface::Sidebar { id: None }, "Q-13-1", "Sidebar"),
+            (NavSurface::Navbar, "Q-13-2", "Navbar"),
+            (NavSurface::PageFooter, "Q-13-3", "Page footer"),
+            (NavSurface::PageNav, "Q-13-7", "Page navigation"),
+        ];
+        for (surface, expected_code, title_prefix) in cases {
+            let mut diags = Vec::new();
+            let out = resolve_href_for_html(
+                "missing.qmd",
+                None,
+                Some(&idx),
+                surface.clone(),
+                None,
+                &mut diags,
+            );
+            assert_eq!(out, "missing.qmd", "href preserved verbatim on miss");
+            assert_eq!(
+                diags.len(),
+                1,
+                "exactly one diagnostic for {}",
+                expected_code
+            );
+            let d = &diags[0];
+            assert_eq!(d.code.as_deref(), Some(*expected_code));
+            assert!(
+                d.title.starts_with(title_prefix),
+                "title for {} should start with {:?}; got {:?}",
+                expected_code,
+                title_prefix,
+                d.title
+            );
+            assert!(
+                d.problem
+                    .as_ref()
+                    .map(|p| p.as_str().contains("missing.qmd"))
+                    .unwrap_or(false),
+                "{} problem must mention the missing path; got {:?}",
+                expected_code,
+                d.problem
+            );
+            assert!(
+                !d.hints.is_empty(),
+                "{} must carry at least one hint",
+                expected_code
+            );
+            // Forward-looking: location is None today (bd-qor9a fills in).
+            assert!(d.location.is_none(), "location stays None until bd-qor9a");
+        }
     }
 
+    /// The `Sidebar { id }` variant attaches the sidebar id as a
+    /// detail so multi-sidebar projects can disambiguate.
     #[test]
-    fn miss_without_source_label_uses_generic_tag() {
+    fn qmd_miss_sidebar_with_id_adds_detail() {
         let idx = ProjectIndex::new(vec![]);
         let mut diags = Vec::new();
-        let _ = resolve_href_for_html("missing.qmd", None, Some(&idx), None, &mut diags);
+        let _ = resolve_href_for_html(
+            "missing.qmd",
+            None,
+            Some(&idx),
+            NavSurface::Sidebar { id: Some("guide") },
+            None,
+            &mut diags,
+        );
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].title.starts_with("Navigation"));
+        let d = &diags[0];
+        assert_eq!(d.code.as_deref(), Some("Q-13-1"));
+        assert!(
+            d.details
+                .iter()
+                .any(|item| item.content.as_str().contains("guide")),
+            "sidebar id `guide` should appear in details; got {:?}",
+            d.details
+        );
     }
 
     #[test]
@@ -380,11 +768,11 @@ mod tests {
         let idx = ProjectIndex::new(vec![profile("about.qmd", "about.html")]);
         let mut diags = Vec::new();
         assert_eq!(
-            resolve_href_for_html("about.qmd#bio", None, Some(&idx), None, &mut diags),
+            resolve_href_for_html("about.qmd#bio", None, Some(&idx), surf(), None, &mut diags),
             "about.html#bio"
         );
         assert_eq!(
-            resolve_href_for_html("about.qmd?x=1", None, Some(&idx), None, &mut diags),
+            resolve_href_for_html("about.qmd?x=1", None, Some(&idx), surf(), None, &mut diags),
             "about.html?x=1"
         );
     }
@@ -395,7 +783,7 @@ mod tests {
         // A .qmd-shaped href without an index is NOT a miss — there's
         // simply no lookup possible. Pass through; no diagnostic.
         assert_eq!(
-            resolve_href_for_html("about.qmd", None, None, None, &mut diags),
+            resolve_href_for_html("about.qmd", None, None, surf(), None, &mut diags),
             "about.qmd"
         );
         assert!(diags.is_empty());
@@ -407,7 +795,14 @@ mod tests {
         // resolve as an ordinary static resource.
         let idx = ProjectIndex::new(vec![]);
         let mut diags = Vec::new();
-        let out = resolve_href_for_html("assets/logo.png", None, Some(&idx), None, &mut diags);
+        let out = resolve_href_for_html(
+            "assets/logo.png",
+            None,
+            Some(&idx),
+            surf(),
+            None,
+            &mut diags,
+        );
         assert_eq!(out, "assets/logo.png");
         assert!(diags.is_empty());
     }
@@ -695,7 +1090,8 @@ mod tests {
         );
     }
 
-    /// Plan test 25: missing `.qmd` emits diagnostic; href preserved.
+    /// Plan test 25: missing `.qmd` emits structured Q-13-4 diagnostic;
+    /// href preserved verbatim in the output.
     #[test]
     fn body_href_qmd_miss_emits_diagnostic() {
         let idx = ProjectIndex::new(vec![]);
@@ -706,13 +1102,26 @@ mod tests {
             "index.qmd",
             Some(&r),
             Some(&idx),
-            Some("Body link"),
+            None,
             &mut diags,
         );
         assert_eq!(out, "missing.qmd");
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].title.starts_with("Body link"));
-        assert!(diags[0].title.contains("missing.qmd"));
+        let d = &diags[0];
+        assert_eq!(d.code.as_deref(), Some("Q-13-4"));
+        assert!(
+            d.title.starts_with("Body link"),
+            "Q-13-4 title should start with `Body link`; got {:?}",
+            d.title
+        );
+        assert!(
+            d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("missing.qmd"))
+                .unwrap_or(false),
+            "Q-13-4 problem must mention the missing path; got {:?}",
+            d.problem
+        );
     }
 
     /// Plan test 26: non-`.qmd` miss no diagnostic.
@@ -726,7 +1135,7 @@ mod tests {
             "index.qmd",
             Some(&r),
             Some(&idx),
-            Some("Body link"),
+            None,
             &mut diags,
         );
         assert_eq!(out, "assets/logo.png");
@@ -922,7 +1331,7 @@ mod tests {
         let r = website_resolver("docs/api.html");
         let mut diags = Vec::new();
         assert_eq!(
-            resolve_href_for_html("about.qmd", Some(&r), Some(&idx), None, &mut diags),
+            resolve_href_for_html("about.qmd", Some(&r), Some(&idx), surf(), None, &mut diags),
             "../about.html"
         );
         assert!(diags.is_empty());
@@ -943,6 +1352,7 @@ mod tests {
                 "guide/installation.qmd",
                 Some(&r),
                 Some(&idx),
+                surf(),
                 None,
                 &mut diags
             ),
@@ -960,7 +1370,14 @@ mod tests {
         let r = website_resolver("guide/installation.html");
         let mut diags = Vec::new();
         assert_eq!(
-            resolve_href_for_html("reference/api.qmd", Some(&r), Some(&idx), None, &mut diags),
+            resolve_href_for_html(
+                "reference/api.qmd",
+                Some(&r),
+                Some(&idx),
+                surf(),
+                None,
+                &mut diags
+            ),
             "../reference/api.html"
         );
         assert!(diags.is_empty());
@@ -976,7 +1393,7 @@ mod tests {
         let idx = ProjectIndex::new(vec![profile("about.qmd", "about.html")]);
         let mut diags = Vec::new();
         assert_eq!(
-            resolve_href_for_html("about.qmd", None, Some(&idx), None, &mut diags),
+            resolve_href_for_html("about.qmd", None, Some(&idx), surf(), None, &mut diags),
             "about.html"
         );
         assert!(diags.is_empty());
@@ -991,15 +1408,36 @@ mod tests {
         let r = website_resolver("docs/api.html");
         let mut diags = Vec::new();
         assert_eq!(
-            resolve_href_for_html("about.qmd#bio", Some(&r), Some(&idx), None, &mut diags),
+            resolve_href_for_html(
+                "about.qmd#bio",
+                Some(&r),
+                Some(&idx),
+                surf(),
+                None,
+                &mut diags
+            ),
             "../about.html#bio"
         );
         assert_eq!(
-            resolve_href_for_html("about.qmd?x=1", Some(&r), Some(&idx), None, &mut diags),
+            resolve_href_for_html(
+                "about.qmd?x=1",
+                Some(&r),
+                Some(&idx),
+                surf(),
+                None,
+                &mut diags
+            ),
             "../about.html?x=1"
         );
         assert_eq!(
-            resolve_href_for_html("about.qmd?x=1#bio", Some(&r), Some(&idx), None, &mut diags),
+            resolve_href_for_html(
+                "about.qmd?x=1#bio",
+                Some(&r),
+                Some(&idx),
+                surf(),
+                None,
+                &mut diags
+            ),
             "../about.html?x=1#bio"
         );
         assert!(diags.is_empty());

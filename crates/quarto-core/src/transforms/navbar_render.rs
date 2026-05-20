@@ -34,7 +34,7 @@ use crate::render::RenderContext;
 use crate::resource_resolver::ResourceResolverContext;
 use crate::transform::AstTransform;
 use crate::transforms::is_feature_disabled;
-use crate::transforms::navigation_href::resolve_href_for_html;
+use crate::transforms::navigation_href::{NavSurface, resolve_href_for_html};
 
 pub struct NavbarRenderTransform;
 
@@ -83,25 +83,26 @@ impl AstTransform for NavbarRenderTransform {
             &mut navbar.left,
             ctx.resource_resolver.as_ref(),
             ctx.project_index.as_deref(),
-            "Navbar",
             &mut local_diags,
         );
         rewrite_navigation_item_hrefs(
             &mut navbar.right,
             ctx.resource_resolver.as_ref(),
             ctx.project_index.as_deref(),
-            "Navbar",
             &mut local_diags,
         );
         // Brand `logo-href` (bd-jgeu) — same treatment as ordinary
         // nav items so user-supplied .qmd / project-relative paths
-        // resolve and relativize.
+        // resolve and relativize. Pass the source location through
+        // for Q-13-2 diagnostics (bd-qor9a).
         if let Some(href) = navbar.logo_href.as_mut() {
+            let location = Some(navbar.logo_href_source.clone());
             *href = resolve_href_for_html(
                 href,
                 ctx.resource_resolver.as_ref(),
                 ctx.project_index.as_deref(),
-                Some("Navbar"),
+                NavSurface::Navbar,
+                location,
                 &mut local_diags,
             );
         }
@@ -136,21 +137,24 @@ fn rewrite_navigation_item_hrefs(
     items: &mut [NavigationItem],
     resolver: Option<&ResourceResolverContext>,
     index: Option<&ProjectIndex>,
-    source_label: &str,
     diagnostics: &mut Vec<DiagnosticMessage>,
 ) {
     for item in items.iter_mut() {
         if let Some(href) = item.href.as_mut() {
-            *href = resolve_href_for_html(href, resolver, index, Some(source_label), diagnostics);
-        }
-        if !item.menu.is_empty() {
-            rewrite_navigation_item_hrefs(
-                &mut item.menu,
+            // bd-qor9a — pass the item's SourceInfo through so any
+            // Q-13-2 diagnostic points back at the YAML scalar.
+            let location = Some(item.href_source.clone());
+            *href = resolve_href_for_html(
+                href,
                 resolver,
                 index,
-                source_label,
+                NavSurface::Navbar,
+                location,
                 diagnostics,
             );
+        }
+        if !item.menu.is_empty() {
+            rewrite_navigation_item_hrefs(&mut item.menu, resolver, index, diagnostics);
         }
     }
 }
@@ -412,8 +416,8 @@ mod tests {
         assert!(diags.is_empty());
     }
 
-    /// Phase 3 test 31 — an unknown .qmd reference emits a warning
-    /// diagnostic tagged "Navbar …".
+    /// Phase 3 test 31 — an unknown .qmd reference emits a structured
+    /// Q-13-2 warning (bd-8d6rk migration).
     #[tokio::test]
     async fn navbar_render_emits_diagnostic_for_unknown_qmd() {
         let navbar = Navbar {
@@ -429,8 +433,17 @@ mod tests {
         let index = Arc::new(ProjectIndex::new(vec![]));
         let (_, diags) = run_with(meta, Some(index)).await;
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].title.starts_with("Navbar"), "got: {:?}", diags[0]);
-        assert!(diags[0].title.contains("missing.qmd"));
+        let d = &diags[0];
+        assert_eq!(d.code.as_deref(), Some("Q-13-2"));
+        assert!(d.title.starts_with("Navbar"), "got title: {:?}", d.title);
+        assert!(
+            d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("missing.qmd"))
+                .unwrap_or(false),
+            "Q-13-2 problem must mention missing.qmd; got {:?}",
+            d.problem
+        );
     }
 
     /// Phase 3 test 32 — after rewriting, the `active` class is

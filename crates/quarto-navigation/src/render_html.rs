@@ -450,6 +450,7 @@ fn render_sidebar_entry(
         SidebarEntry::Section {
             text,
             href,
+            href_source: _,
             id,
             contents,
             expanded,
@@ -1411,6 +1412,7 @@ mod tests {
             contents: vec![SidebarEntry::Section {
                 text: Some(s("Docs")),
                 href: None,
+                href_source: SourceInfo::default(),
                 id: None,
                 contents: vec![link("start.html", "Start")],
                 expanded: false,
@@ -1437,6 +1439,7 @@ mod tests {
             contents: vec![SidebarEntry::Section {
                 text: Some(s("Docs")),
                 href: None,
+                href_source: SourceInfo::default(),
                 id: None,
                 contents: vec![link("start.html", "Start")],
                 expanded: true,
@@ -1542,6 +1545,7 @@ mod tests {
             contents: vec![SidebarEntry::Section {
                 text: Some(s("Guides")),
                 href: Some("guides/index.html".to_string()),
+                href_source: SourceInfo::default(),
                 id: None,
                 contents: vec![link("guides/a.html", "A")],
                 expanded: true,
@@ -1567,6 +1571,7 @@ mod tests {
             contents: vec![SidebarEntry::Section {
                 text: Some(s("Docs")),
                 href: None,
+                href_source: SourceInfo::default(),
                 id: None,
                 contents: vec![active_link("guide.html", "Guide")],
                 expanded: true, // set by active-state expansion

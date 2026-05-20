@@ -36,7 +36,7 @@ use crate::render::RenderContext;
 use crate::resource_resolver::ResourceResolverContext;
 use crate::transform::AstTransform;
 use crate::transforms::is_feature_disabled;
-use crate::transforms::navigation_href::resolve_href_for_html;
+use crate::transforms::navigation_href::{NavSurface, resolve_href_for_html};
 
 pub struct FooterRenderTransform;
 
@@ -130,7 +130,17 @@ fn rewrite_items_hrefs(
 ) {
     for item in items.iter_mut() {
         if let Some(href) = item.href.as_mut() {
-            *href = resolve_href_for_html(href, resolver, index, Some("Page footer"), diagnostics);
+            // bd-qor9a — pass the item's SourceInfo through so any
+            // Q-13-3 diagnostic points at the YAML scalar.
+            let location = Some(item.href_source.clone());
+            *href = resolve_href_for_html(
+                href,
+                resolver,
+                index,
+                NavSurface::PageFooter,
+                location,
+                diagnostics,
+            );
         }
         // Footer items rarely nest `menu`, but the type allows it —
         // handle symmetrically with navbar.
@@ -349,7 +359,7 @@ mod tests {
     }
 
     /// Phase 3 test 43 — unknown .qmd href in a footer item emits a
-    /// diagnostic tagged "Page footer …".
+    /// structured Q-13-3 diagnostic (bd-8d6rk migration).
     #[tokio::test]
     async fn footer_render_emits_diagnostic_for_unknown_qmd() {
         let footer = PageFooter {
@@ -365,12 +375,21 @@ mod tests {
         let index = Arc::new(ProjectIndex::new(vec![]));
         let (_, diags) = run_with(meta, Some(index)).await;
         assert_eq!(diags.len(), 1);
+        let d = &diags[0];
+        assert_eq!(d.code.as_deref(), Some("Q-13-3"));
         assert!(
-            diags[0].title.starts_with("Page footer"),
-            "got: {:?}",
-            diags[0]
+            d.title.starts_with("Page footer"),
+            "got title: {:?}",
+            d.title
         );
-        assert!(diags[0].title.contains("missing.qmd"));
+        assert!(
+            d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("missing.qmd"))
+                .unwrap_or(false),
+            "Q-13-3 problem must mention missing.qmd; got {:?}",
+            d.problem
+        );
     }
 
     /// Phase 3 test 44 — standalone render (no ProjectIndex).

@@ -33,6 +33,7 @@ use crate::render::RenderContext;
 use crate::transform::AstTransform;
 use crate::transforms::is_feature_disabled;
 use crate::transforms::navigation_active::page_relative_source;
+use crate::transforms::navigation_href::resolve_metadata_path;
 use crate::transforms::sidebar_auto::{expand_auto, strip_auto};
 
 pub struct SidebarGenerateTransform;
@@ -107,6 +108,17 @@ impl AstTransform for SidebarGenerateTransform {
         // returning.
         let mut local_diags = std::mem::take(&mut ctx.diagnostics);
 
+        // bd-qor9a — resolve each href against the YAML file it was
+        // authored in. Frontmatter-rooted hrefs (`introduction.qmd`
+        // declared inside `docs/guide/index.qmd`) become
+        // `docs/guide/introduction.qmd` here; `_quarto.yml` and
+        // `_metadata.yml` entries (whose hash-based FileId isn't in
+        // the per-doc SourceContext) degrade to today's
+        // project-root-relative behaviour.
+        if let Some(source_context) = ctx.source_context {
+            resolve_hrefs(&mut resolved.contents, source_context, &ctx.project.dir);
+        }
+
         if let Some(index) = ctx.project_index.as_deref() {
             expand_auto(&mut resolved, index, &mut local_diags);
             // Enrich hand-written bare-path entries (e.g. `- about.qmd`)
@@ -130,6 +142,53 @@ impl AstTransform for SidebarGenerateTransform {
             .insert_path(&["navigation", "sidebar"], resolved.to_config_value());
 
         Ok(())
+    }
+}
+
+/// bd-qor9a — walk the parsed sidebar and resolve every entry's `href`
+/// against the source file the href was authored in. Each entry
+/// already carries the original `SourceInfo` via the paired
+/// `href_source` field (populated by `NavigationItem::from_config_value`
+/// / `SidebarEntry::from_config_value`). After this pass, `href`
+/// strings are project-root-relative — the shape the existing
+/// `ProjectIndex::lookup_by_source` expects.
+fn resolve_hrefs(
+    entries: &mut [quarto_navigation::SidebarEntry],
+    source_context: &quarto_source_map::SourceContext,
+    project_root: &std::path::Path,
+) {
+    use quarto_navigation::SidebarEntry;
+    for entry in entries.iter_mut() {
+        match entry {
+            SidebarEntry::Link { item } => {
+                if let Some(href) = item.href.as_ref() {
+                    let resolved = resolve_metadata_path(
+                        href,
+                        &item.href_source,
+                        source_context,
+                        project_root,
+                    );
+                    item.href = Some(resolved);
+                }
+            }
+            SidebarEntry::Section {
+                href,
+                href_source,
+                contents,
+                ..
+            } => {
+                if let Some(h) = href.as_ref() {
+                    *href = Some(resolve_metadata_path(
+                        h,
+                        href_source,
+                        source_context,
+                        project_root,
+                    ));
+                }
+                resolve_hrefs(contents, source_context, project_root);
+            }
+            SidebarEntry::Separator | SidebarEntry::Heading(_) | SidebarEntry::Auto(_) => {}
+        }
     }
 }
 
@@ -338,8 +397,9 @@ mod tests {
         );
     }
 
-    /// With no ProjectIndex, `auto:` entries drop with a warning
-    /// diagnostic but the rest of the sidebar still resolves.
+    /// With no ProjectIndex, `auto:` entries drop with a structured
+    /// Q-13-5 diagnostic but the rest of the sidebar still resolves.
+    /// (bd-8d6rk migration: title text changed; assert on `code`.)
     #[tokio::test]
     async fn sidebar_generate_drops_auto_without_index() {
         let sidebar_cv = config_map(vec![(
@@ -352,8 +412,8 @@ mod tests {
         let contents = stored.get("contents").and_then(|v| v.as_array()).unwrap();
         assert_eq!(contents.len(), 1, "only the hand-written entry remains");
         assert!(
-            diags.iter().any(|d| d.title.contains("no project index")),
-            "should warn about the dropped auto entry; got: {:?}",
+            diags.iter().any(|d| d.code.as_deref() == Some("Q-13-5")),
+            "should emit Q-13-5 for the dropped auto entry; got: {:?}",
             diags
         );
     }

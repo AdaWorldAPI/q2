@@ -9,7 +9,13 @@ website:
       - href: index.qmd
         text: Home
       - about.qmd
-      - guide.qmd
+      - guide/index.qmd
+  sidebar:
+    - id: guide
+      collapse-level: 1
+      contents:
+        - section: "Guide"
+          href: docs/guide/index.qmd
 
 format:
   html:

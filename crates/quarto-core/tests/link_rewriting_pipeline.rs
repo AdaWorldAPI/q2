@@ -25,6 +25,7 @@ use quarto_core::format::Format;
 use quarto_core::project::ProjectContext;
 use quarto_core::project::orchestrator::{ProjectPipeline, project_type_for};
 use quarto_core::render_to_file::RenderToFileOptions;
+use quarto_error_reporting::DiagnosticMessage;
 use quarto_system_runtime::{NativeRuntime, SystemRuntime};
 
 fn canonical(path: &std::path::Path) -> PathBuf {
@@ -56,7 +57,7 @@ fn read(path: &std::path::Path) -> String {
 /// forward-slash form (e.g. `"index.html"`, `"docs/api.html"`).
 fn render_project(
     fixture: impl FnOnce(&std::path::Path),
-) -> (PathBuf, Vec<(String, String)>, Vec<String>) {
+) -> (PathBuf, Vec<(String, String)>, Vec<DiagnosticMessage>) {
     let temp = TempDir::new().unwrap();
     let project_dir = canonical(temp.path());
     fixture(&project_dir);
@@ -101,10 +102,10 @@ fn render_project(
         })
         .collect();
 
-    let diagnostics: Vec<String> = summary
+    let diagnostics: Vec<DiagnosticMessage> = summary
         .outputs
         .iter()
-        .flat_map(|o| o.render_output.diagnostics.iter().map(|d| d.title.clone()))
+        .flat_map(|o| o.render_output.diagnostics.iter().cloned())
         .collect();
 
     (project_dir, outputs, diagnostics)
@@ -304,7 +305,11 @@ fn pipeline_body_link_external_unchanged() {
         body
     );
     assert!(
-        !diags.iter().any(|d| d.contains("github")),
+        !diags.iter().any(|d| d.title.contains("github")
+            || d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("github"))
+                .unwrap_or(false)),
         "external URL should not produce a diagnostic"
     );
 }
@@ -332,10 +337,12 @@ fn pipeline_body_link_broken_qmd_emits_diagnostic() {
         body
     );
     assert!(
-        diags
-            .iter()
-            .any(|d| d.starts_with("Body link") && d.contains("nope.qmd")),
-        "expected 'Body link' diagnostic naming nope.qmd; got: {:?}",
+        diags.iter().any(|d| d.code.as_deref() == Some("Q-13-4")
+            && d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("nope.qmd"))
+                .unwrap_or(false)),
+        "expected Q-13-4 'Body link' diagnostic naming nope.qmd; got: {:?}",
         diags
     );
 }
@@ -375,10 +382,12 @@ fn pipeline_body_link_unresolvable_in_website_warns() {
         body
     );
     assert!(
-        diags
-            .iter()
-            .any(|d| d.starts_with("Body link") && d.contains("other.qmd")),
-        "expected 'Body link' diagnostic naming other.qmd; got: {:?}",
+        diags.iter().any(|d| d.code.as_deref() == Some("Q-13-4")
+            && d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("other.qmd"))
+                .unwrap_or(false)),
+        "expected Q-13-4 'Body link' diagnostic naming other.qmd; got: {:?}",
         diags
     );
 }

@@ -1,0 +1,11 @@
+---
+title: Guide
+sidebar:
+  contents:
+    - text: "Introduction"
+      href: introduction.qmd
+    - text: "Markdown"
+      href: ../authoring/markdown/index.qmd
+---
+
+This is going to be our new guide. It will have an [intro](introduction.qmd).

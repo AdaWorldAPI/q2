@@ -100,6 +100,10 @@ pub struct Navbar {
     pub logo: Option<String>,
     pub logo_alt: Option<String>,
     pub logo_href: Option<String>,
+    /// `SourceInfo` of the YAML scalar that produced `logo_href`.
+    /// bd-qor9a — paired with `logo_href` so the resolver knows which
+    /// YAML file the brand link was authored in.
+    pub logo_href_source: SourceInfo,
     pub background: Option<String>,
     pub foreground: Option<String>,
     pub search: bool,
@@ -121,6 +125,7 @@ impl Navbar {
             logo: None,
             logo_alt: None,
             logo_href: None,
+            logo_href_source: SourceInfo::default(),
             background: None,
             foreground: None,
             search: false,
@@ -156,7 +161,12 @@ impl Navbar {
 
         nav.logo = cv.get("logo").and_then(|v| v.as_plain_text());
         nav.logo_alt = cv.get("logo-alt").and_then(|v| v.as_plain_text());
-        nav.logo_href = cv.get("logo-href").and_then(|v| v.as_plain_text());
+        if let Some(logo_href_cv) = cv.get("logo-href") {
+            nav.logo_href = logo_href_cv.as_plain_text();
+            if nav.logo_href.is_some() {
+                nav.logo_href_source = logo_href_cv.source_info.clone();
+            }
+        }
         nav.background = cv.get("background").and_then(|v| v.as_plain_text());
         nav.foreground = cv.get("foreground").and_then(|v| v.as_plain_text());
 
@@ -215,7 +225,14 @@ impl Navbar {
 
         push_optional_string(&mut entries, "logo", &self.logo, &info);
         push_optional_string(&mut entries, "logo-alt", &self.logo_alt, &info);
-        push_optional_string(&mut entries, "logo-href", &self.logo_href, &info);
+        // logo-href round-trips its source_info (bd-qor9a) so the
+        // diagnostic surface can locate it back in the YAML.
+        push_optional_string(
+            &mut entries,
+            "logo-href",
+            &self.logo_href,
+            &self.logo_href_source,
+        );
         push_optional_string(&mut entries, "background", &self.background, &info);
         push_optional_string(&mut entries, "foreground", &self.foreground, &info);
 

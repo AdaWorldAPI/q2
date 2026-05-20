@@ -26,7 +26,7 @@
 //! - `page-footer` absent or `page-footer: true`.
 //! - `navigation.footer` already populated (user override).
 
-use quarto_navigation::{FooterRegion, resolve_page_footer};
+use quarto_navigation::{FooterRegion, NavigationItem, resolve_page_footer};
 use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
@@ -34,6 +34,7 @@ use crate::render::RenderContext;
 use crate::transform::AstTransform;
 use crate::transforms::is_feature_disabled;
 use crate::transforms::navigation_enrich::enrich_navigation_items;
+use crate::transforms::navigation_href::resolve_metadata_path;
 
 pub struct FooterGenerateTransform;
 
@@ -68,6 +69,14 @@ impl AstTransform for FooterGenerateTransform {
             return Ok(());
         };
 
+        // bd-qor9a — resolve each footer item's href against the YAML
+        // file it was authored in.
+        if let Some(source_context) = ctx.source_context {
+            resolve_region_hrefs(&mut footer.left, source_context, &ctx.project.dir);
+            resolve_region_hrefs(&mut footer.center, source_context, &ctx.project.dir);
+            resolve_region_hrefs(&mut footer.right, source_context, &ctx.project.dir);
+        }
+
         if let Some(index) = ctx.project_index.as_deref() {
             enrich_footer_region(&mut footer.left, index);
             enrich_footer_region(&mut footer.center, index);
@@ -87,6 +96,36 @@ impl AstTransform for FooterGenerateTransform {
 fn enrich_footer_region(region: &mut FooterRegion, index: &crate::project::index::ProjectIndex) {
     if let FooterRegion::Items(items) = region {
         enrich_navigation_items(items, index);
+    }
+}
+
+/// bd-qor9a — resolve every item's href against the YAML file it
+/// was authored in. Only touches `FooterRegion::Items`; `Text` and
+/// `Empty` regions have no href to resolve.
+fn resolve_region_hrefs(
+    region: &mut FooterRegion,
+    source_context: &quarto_source_map::SourceContext,
+    project_root: &std::path::Path,
+) {
+    if let FooterRegion::Items(items) = region {
+        resolve_item_hrefs(items, source_context, project_root);
+    }
+}
+
+fn resolve_item_hrefs(
+    items: &mut [NavigationItem],
+    source_context: &quarto_source_map::SourceContext,
+    project_root: &std::path::Path,
+) {
+    for item in items.iter_mut() {
+        if let Some(href) = item.href.as_ref() {
+            let resolved =
+                resolve_metadata_path(href, &item.href_source, source_context, project_root);
+            item.href = Some(resolved);
+        }
+        if !item.menu.is_empty() {
+            resolve_item_hrefs(&mut item.menu, source_context, project_root);
+        }
     }
 }
 

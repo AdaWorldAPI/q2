@@ -165,6 +165,11 @@ pub enum SidebarEntry {
         text: Option<ConfigValue>,
         /// Optional link for the section header row.
         href: Option<String>,
+        /// `SourceInfo` of the YAML scalar that produced `href`.
+        /// bd-qor9a — paired with `href` so the resolver knows which
+        /// YAML file the path was authored in. `SourceInfo::default()`
+        /// for programmatically-constructed sections.
+        href_source: SourceInfo,
         /// Stable anchor id for the collapsible group. Auto-generated
         /// from the text or href when absent.
         id: Option<String>,
@@ -189,9 +194,12 @@ impl SidebarEntry {
     /// Parse a single entry from a `ConfigValue`. Returns `None` when
     /// the shape is unrecognisable.
     pub fn from_config_value(cv: &ConfigValue) -> Option<Self> {
-        // Bare string: either a separator or a path.
+        // Bare string: either a separator or a path. `cv.source_info`
+        // identifies the YAML scalar so a downstream resolver can
+        // resolve the path against the source file's directory
+        // (bd-qor9a).
         if let Some(s) = cv.as_plain_text() {
-            return Some(Self::from_plain_string(&s));
+            return Some(Self::from_plain_string(&s, cv.source_info.clone()));
         }
 
         // Object form.
@@ -211,10 +219,15 @@ impl SidebarEntry {
         // they only have `href:` + `contents:`.)
         if section_text.is_some() || has_contents {
             let text = section_text.filter(|v| v.as_plain_text().is_some());
-            let href = cv
+            let (href, href_source) = cv
                 .get("href")
-                .and_then(|v| v.as_plain_text())
-                .or_else(|| cv.get("file").and_then(|v| v.as_plain_text()));
+                .and_then(|v| v.as_plain_text().map(|s| (s, v.source_info.clone())))
+                .or_else(|| {
+                    cv.get("file")
+                        .and_then(|v| v.as_plain_text().map(|s| (s, v.source_info.clone())))
+                })
+                .map(|(s, info)| (Some(s), info))
+                .unwrap_or_else(|| (None, SourceInfo::default()));
             let id = cv.get("id").and_then(|v| v.as_plain_text());
             let contents = parse_contents(cv.get("contents"));
             let expanded = cv
@@ -224,6 +237,7 @@ impl SidebarEntry {
             return Some(SidebarEntry::Section {
                 text,
                 href,
+                href_source,
                 id,
                 contents,
                 expanded,
@@ -249,13 +263,19 @@ impl SidebarEntry {
 
     /// Classify a bare string: a run of 3+ dashes is a separator; any
     /// other text is taken as an href.
-    fn from_plain_string(s: &str) -> Self {
+    ///
+    /// `source` is the `SourceInfo` of the bare YAML scalar that
+    /// produced `s`. It travels onto `NavigationItem.href_source` so
+    /// bd-qor9a's path resolver knows which file the href was
+    /// authored in.
+    fn from_plain_string(s: &str, source: SourceInfo) -> Self {
         if is_separator_string(s) {
             return SidebarEntry::Separator;
         }
         SidebarEntry::Link {
             item: NavigationItem {
                 href: Some(s.to_string()),
+                href_source: source,
                 ..NavigationItem::default()
             },
         }
@@ -269,6 +289,7 @@ impl SidebarEntry {
             SidebarEntry::Section {
                 text,
                 href,
+                href_source,
                 id,
                 contents,
                 expanded,
@@ -282,10 +303,13 @@ impl SidebarEntry {
                     });
                 }
                 if let Some(href) = href {
+                    // Round-trip the href's SourceInfo so the
+                    // Generate → Render handoff preserves the original
+                    // YAML location (bd-qor9a).
                     entries.push(ConfigMapEntry {
                         key: "href".to_string(),
                         key_source: info.clone(),
-                        value: ConfigValue::new_string(href, info.clone()),
+                        value: ConfigValue::new_string(href, href_source.clone()),
                     });
                 }
                 if let Some(id) = id {
@@ -493,8 +517,9 @@ fn parse_contents(cv: Option<&ConfigValue>) -> Vec<SidebarEntry> {
         if s == "auto" {
             return vec![SidebarEntry::Auto(AutoSpec::All)];
         }
-        // A single path is a single-entry list.
-        return vec![SidebarEntry::from_plain_string(&s)];
+        // A single path is a single-entry list. The ConfigValue's own
+        // source_info identifies the YAML scalar (bd-qor9a).
+        return vec![SidebarEntry::from_plain_string(&s, cv.source_info.clone())];
     }
     // Normal case: array of entries.
     if let Some(arr) = cv.as_array() {
@@ -978,6 +1003,7 @@ mod tests {
                 SidebarEntry::Section {
                     text: Some(s("Advanced")),
                     href: None,
+                    href_source: SourceInfo::default(),
                     id: Some("adv".to_string()),
                     expanded: true,
                     contents: vec![SidebarEntry::Link {

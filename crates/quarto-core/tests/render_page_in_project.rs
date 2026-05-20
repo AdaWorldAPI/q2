@@ -423,29 +423,36 @@ fn pass1_parse_error_in_sibling_surfaces_alongside_active_render() {
     );
     assert!(failure.source_context.is_some());
 
-    // The renamed nav warning (D2) is the project-scoped warning
-    // surfaced when the sidebar references the dropped sibling.
-    // Confirm the new wording is in place. It rides on a per-page
+    // The renamed nav warning (D2 / bd-rqba) is the project-scoped
+    // warning surfaced when the sidebar references the dropped
+    // sibling. After bd-8d6rk the diagnostic is structured: assert on
+    // the catalog code (Q-13-1 for sidebar misses) and on the
+    // `problem` field naming the missing doc. It rides on a per-page
     // render output's `diagnostics` *or* on `summary.project_diagnostics`
     // depending on which transform emitted it; check both.
     let active_output = &summary.outputs[0];
-    let combined: Vec<String> = active_output
+    let combined: Vec<_> = active_output
         .diagnostics
         .iter()
         .chain(summary.project_diagnostics.iter())
-        .map(|d| d.title.clone())
         .collect();
     assert!(
-        combined
-            .iter()
-            .any(|m| m.contains("missing document information")),
-        "expected the renamed 'missing document information' warning; got: {:?}",
+        combined.iter().any(|d| d.code.as_deref() == Some("Q-13-1")
+            && d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("about.qmd"))
+                .unwrap_or(false)),
+        "expected Q-13-1 sidebar diagnostic naming about.qmd; got: {:?}",
         combined,
     );
+    // bd-rqba: the old wording was `references unknown document`. The
+    // bd-8d6rk migration renames the title to `Sidebar references
+    // missing document` (no detail in the title; path lives in the
+    // `problem` field). Both old wordings stay gone.
     assert!(
         combined
             .iter()
-            .all(|m| !m.contains("references unknown document")),
+            .all(|d| !d.title.contains("references unknown document")),
         "old 'references unknown document' wording should be gone; got: {:?}",
         combined,
     );

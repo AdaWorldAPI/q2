@@ -13,6 +13,9 @@ last-touched
 # Local history backups
 .br_history/
 
+# Recovery snapshots from br operations
+.br_recovery/
+
 # Sync state
 .sync.lock
 sync_base.jsonl

@@ -46,7 +46,7 @@ use crate::render::RenderContext;
 use crate::resource_resolver::ResourceResolverContext;
 use crate::transform::AstTransform;
 use crate::transforms::is_feature_disabled;
-use crate::transforms::navigation_href::resolve_href_for_html;
+use crate::transforms::navigation_href::{NavSurface, resolve_href_for_html};
 
 pub struct SidebarRenderTransform;
 
@@ -110,15 +110,14 @@ impl AstTransform for SidebarRenderTransform {
         // `ctx.diagnostics` via a local buffer that we swap in/out
         // so the helpers can push without a borrow cycle.
         let mut local_diags = std::mem::take(&mut ctx.diagnostics);
-        let label = sidebar_id
-            .as_deref()
-            .map(|id| format!("Sidebar '{}'", id))
-            .unwrap_or_else(|| "Sidebar".to_string());
+        let surface = NavSurface::Sidebar {
+            id: sidebar_id.as_deref(),
+        };
         rewrite_hrefs(
             &mut sidebar.contents,
             ctx.resource_resolver.as_ref(),
             ctx.project_index.as_deref(),
-            Some(label.as_str()),
+            surface,
             &mut local_diags,
         );
         ctx.diagnostics = local_diags;
@@ -151,21 +150,46 @@ fn rewrite_hrefs(
     entries: &mut [SidebarEntry],
     resolver: Option<&ResourceResolverContext>,
     index: Option<&ProjectIndex>,
-    source_label: Option<&str>,
+    surface: NavSurface<'_>,
     diagnostics: &mut Vec<DiagnosticMessage>,
 ) {
     for entry in entries.iter_mut() {
         match entry {
             SidebarEntry::Link { item } => {
                 if let Some(href) = item.href.as_mut() {
-                    *href = resolve_href_for_html(href, resolver, index, source_label, diagnostics);
+                    // bd-qor9a — pass the href's SourceInfo through to
+                    // `resolve_href_for_html` so any missing-document
+                    // diagnostic (Q-13-1) carries the YAML scalar's
+                    // location.
+                    let location = Some(item.href_source.clone());
+                    *href = resolve_href_for_html(
+                        href,
+                        resolver,
+                        index,
+                        surface.clone(),
+                        location,
+                        diagnostics,
+                    );
                 }
             }
-            SidebarEntry::Section { href, contents, .. } => {
+            SidebarEntry::Section {
+                href,
+                href_source,
+                contents,
+                ..
+            } => {
                 if let Some(h) = href.as_mut() {
-                    *h = resolve_href_for_html(h, resolver, index, source_label, diagnostics);
+                    let location = Some(href_source.clone());
+                    *h = resolve_href_for_html(
+                        h,
+                        resolver,
+                        index,
+                        surface.clone(),
+                        location,
+                        diagnostics,
+                    );
                 }
-                rewrite_hrefs(contents, resolver, index, source_label, diagnostics);
+                rewrite_hrefs(contents, resolver, index, surface.clone(), diagnostics);
             }
             SidebarEntry::Separator | SidebarEntry::Heading(_) | SidebarEntry::Auto(_) => {}
         }
@@ -354,8 +378,10 @@ mod tests {
         assert!(diags.is_empty());
     }
 
-    /// Test 29 — a missing .qmd reference emits a diagnostic; the
-    /// href is preserved (dangling link, for transparency).
+    /// Test 29 — a missing .qmd reference emits a structured Q-13-1
+    /// diagnostic; the href is preserved (dangling link, for
+    /// transparency). (bd-8d6rk migration: assert on `code` and on
+    /// `problem` rather than title-substring.)
     #[tokio::test]
     async fn render_qmd_href_lookup_miss_emits_diagnostic() {
         let mut meta = ConfigValue::default();
@@ -372,10 +398,16 @@ mod tests {
             .unwrap();
         assert!(html.contains("href=\"missing.qmd\""));
         assert_eq!(diags.len(), 1);
+        let d = &diags[0];
+        assert_eq!(d.code.as_deref(), Some("Q-13-1"));
+        assert!(d.title.starts_with("Sidebar"), "got title: {:?}", d.title);
         assert!(
-            diags[0].title.contains("missing.qmd"),
-            "warning should name the missing doc; got: {:?}",
-            diags[0]
+            d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("missing.qmd"))
+                .unwrap_or(false),
+            "Q-13-1 problem must mention missing.qmd; got {:?}",
+            d.problem
         );
     }
 

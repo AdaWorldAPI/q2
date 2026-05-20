@@ -221,7 +221,7 @@ impl<'a> LinkRewriter<'a> {
                     self.source,
                     self.resolver,
                     Some(self.index),
-                    Some("Body link"),
+                    None,
                     self.diagnostics,
                 );
                 link.target.0 = new_url;
@@ -631,14 +631,24 @@ mod tests {
         }
     }
 
-    /// Plan test 38: diagnostic uses the "Body link" source label.
+    /// Plan test 38: body-link miss emits the structured Q-13-4
+    /// diagnostic (bd-8d6rk migration).
     #[tokio::test]
     async fn link_rewrite_diagnostic_uses_body_link_label() {
         let blocks = vec![para(vec![link_inline("missing.qmd", "X")])];
         let (out, diags) = run(blocks, "index.qmd", "index.html", vec![], true).await;
         assert_eq!(first_link_url(&out), "missing.qmd");
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].title.starts_with("Body link"));
-        assert!(diags[0].title.contains("missing.qmd"));
+        let d = &diags[0];
+        assert_eq!(d.code.as_deref(), Some("Q-13-4"));
+        assert!(d.title.starts_with("Body link"), "got title: {:?}", d.title);
+        assert!(
+            d.problem
+                .as_ref()
+                .map(|p| p.as_str().contains("missing.qmd"))
+                .unwrap_or(false),
+            "Q-13-4 problem must mention missing.qmd; got {:?}",
+            d.problem
+        );
     }
 }
