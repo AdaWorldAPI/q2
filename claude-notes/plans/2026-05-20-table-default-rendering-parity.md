@@ -302,6 +302,9 @@ title: Table test
 - [x] **bd-mtzry** D6: emit `quarto-light` on `<body>` + template tests
       *(closed 2026-05-20, commit 21c8ec04; dark-mode detection deferred
       until the pipeline supports light/dark theme configs)*
+- [x] **bd-tkamn** D6 react: same `quarto-light` append in the preview
+      shell's body-class effect (PreviewDocument.tsx)
+      *(closed 2026-05-20, commit fa21b5c5)*
 
 ### Phase 2 — render CSS
 - [ ] **bd-dy97y** D7: Bootstrap-derived default stylesheet loaded by
