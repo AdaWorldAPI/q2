@@ -265,51 +265,68 @@ fn process_list_item(
     context: &ASTContext,
 ) -> PandocNativeIntermediate {
     let mut list_attr: Option<ListAttributes> = None;
-    let children = children
-        .into_iter()
-        .filter_map(|(node, child)| {
-            if node == "list_marker_dot"
-                || node == "list_marker_parenthesis"
-                || node == "list_marker_example"
-            {
-                // this is an ordered list, so we need to set the flag
-                let PandocNativeIntermediate::IntermediateOrderedListMarker(marker_number, _) =
-                    child
-                else {
-                    panic!("Expected OrderedListMarker in list_item, got {:?}", child);
-                };
-                list_attr = Some((
-                    marker_number,
-                    match node.as_str() {
-                        "list_marker_example" => ListNumberStyle::Example,
-                        _ => ListNumberStyle::Decimal,
-                    },
-                    match node.as_str() {
-                        "list_marker_parenthesis" => ListNumberDelim::OneParen,
-                        "list_marker_dot" => ListNumberDelim::Period,
-                        "list_marker_example" => ListNumberDelim::TwoParens,
-                        _ => panic!("Unexpected list marker node: {}", node),
-                    },
-                ));
-                return None; // skip the marker node
+    let mut blocks: Vec<Block> = Vec::new();
+    for (node, child) in children {
+        if node == "block_continuation" {
+            continue;
+        }
+        // Bullet-list markers carry no list-attribute payload (they map to
+        // IntermediateUnknown); skip them by node name.
+        if node == "list_marker_minus" || node == "list_marker_star" || node == "list_marker_plus" {
+            continue;
+        }
+        if node == "list_marker_dot"
+            || node == "list_marker_parenthesis"
+            || node == "list_marker_example"
+        {
+            // this is an ordered list, so we need to set the flag
+            let PandocNativeIntermediate::IntermediateOrderedListMarker(marker_number, _) = child
+            else {
+                panic!("Expected OrderedListMarker in list_item, got {:?}", child);
+            };
+            list_attr = Some((
+                marker_number,
+                match node.as_str() {
+                    "list_marker_example" => ListNumberStyle::Example,
+                    _ => ListNumberStyle::Decimal,
+                },
+                match node.as_str() {
+                    "list_marker_parenthesis" => ListNumberDelim::OneParen,
+                    "list_marker_dot" => ListNumberDelim::Period,
+                    "list_marker_example" => ListNumberDelim::TwoParens,
+                    _ => panic!("Unexpected list marker node: {}", node),
+                },
+            ));
+            continue;
+        }
+        match child {
+            PandocNativeIntermediate::IntermediateBlock(block) => blocks.push(block),
+            // A list item may wrap its block content in a `section` node when
+            // the item contains a heading (e.g. `* # Section 1`). Flatten the
+            // section's blocks into the item, mirroring `process_section`.
+            PandocNativeIntermediate::IntermediateSection(section) => blocks.extend(section),
+            PandocNativeIntermediate::IntermediateMetadataString(text, _range) => {
+                // for now we assume it's metadata and emit it as a rawblock
+                blocks.push(Block::RawBlock(RawBlock {
+                    format: "quarto_minus_metadata".to_string(),
+                    text,
+                    source_info: node_source_info_with_context(list_item_node, context),
+                }));
             }
-            match child {
-                PandocNativeIntermediate::IntermediateBlock(block) => Some(block),
-                PandocNativeIntermediate::IntermediateMetadataString(text, _range) => {
-                    // for now we assume it's metadata and emit it as a rawblock
-                    Some(Block::RawBlock(RawBlock {
-                        format: "quarto_minus_metadata".to_string(),
-                        text,
-                        source_info: node_source_info_with_context(list_item_node, context),
-                    }))
-                }
-                _ => None,
-            }
-        })
-        .collect();
+            // Tokens with no AST-level meaning: tree-sitter ERROR nodes from
+            // error recovery, fence delimiters, etc. all dispatch to
+            // IntermediateUnknown (see the catch-all at the bottom of the
+            // intermediate dispatcher). Safe to drop in a block container.
+            PandocNativeIntermediate::IntermediateUnknown(_) => {}
+            _ => panic!(
+                "Unexpected intermediate in list_item child {:?}: {:?}",
+                node, child
+            ),
+        }
+    }
     let has_blank_line = list_item_has_blank_line_between_blocks(list_item_node);
     PandocNativeIntermediate::IntermediateListItem(
-        children,
+        blocks,
         node_location(list_item_node),
         list_attr,
         has_blank_line,

@@ -1,0 +1,5 @@
+---
+source: crates/quarto-markdown-pandoc/tests/test.rs
+expression: output
+---
+[ OrderedList (1, Decimal, Period) [[Header 1 ( "section-1" , [] , [] ) [Str "Section", Space, Str "1"]]] ]

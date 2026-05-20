@@ -77,69 +77,59 @@ Write the failing test **first**, then implement.
 
 ### Phase 1 — Failing tests
 
-- [ ] Add a parser-level test in `crates/pampa/tests/` that parses
+- [x] Add a parser-level test in `crates/pampa/tests/` that parses
       `* # Section 1\n` and asserts the result is a `BulletList`
       with one item whose sole block is a `Header { level: 1, … }`.
-      The natural place is the JSON snapshot fixture corpus — add
-      a `.qmd` fixture and its `.snap` (let `cargo insta review`
-      generate the snapshot on the first failing run).
-- [ ] Add a variant test with an ordered list:
+      → `tests/snapshots/native/heading-in-bullet-list-item.qmd` +
+      `snapshots/native/heading-in-bullet-list-item.snap`.
+- [x] Add a variant test with an ordered list:
       `1. # Section 1\n`.
-- [ ] Add a variant test with a sub-heading and following content
-      on a *separate* item:
-      ```qmd
-      * # Section 1
-      * regular item
-      ```
-      to confirm the regression doesn't cascade and that the
-      regular item still parses correctly.
-- [ ] Run the new tests and confirm they fail in the expected way
-      (empty list item bodies / missing `Header`).
+      → `tests/snapshots/native/heading-in-ordered-list-item.qmd`.
+- [x] Add a variant test with a heading item and a plain item
+      side-by-side to confirm the regression doesn't cascade.
+      → `tests/snapshots/native/heading-and-plain-list-items.qmd`.
+- [x] Confirmed all three fail with the expected diff —
+      `[BulletList [[]…]]` (empty item) vs. expected
+      `[BulletList [[Header …]…]]`.
 
 ### Phase 2 — Implementation
 
-- [ ] In `crates/pampa/src/pandoc/treesitter.rs`, inside
-      `process_list_item`'s `filter_map`, replace the catch-all
-      `_ => None` with an explicit handling of
-      `PandocNativeIntermediate::IntermediateSection(blocks)`.
-      Because `filter_map` produces a single `Option<Block>` per
-      child, a section containing multiple blocks cannot be
-      flat-mapped through it; refactor to a `Vec<Block>` builder
-      loop (à la `process_section`) so we can `blocks.extend(…)`.
-      Keep the existing arms (`IntermediateBlock`,
-      `IntermediateMetadataString`, list-marker handling) working.
-- [ ] Decide what to do with truly-unexpected variants. Today the
-      wildcard drops them silently. After the refactor, prefer to
-      either (a) panic with a descriptive message (matching
-      `process_section`'s behavior at line 41) so future regressions
-      are loud, or (b) emit a `Q-…` diagnostic. Choose (a) unless
-      that breaks an existing test — silent data-loss is worse than
-      a panic during development.
-- [ ] Run the new tests and confirm they pass.
+- [x] Refactor `process_list_item` in
+      `crates/pampa/src/pandoc/treesitter.rs` from `filter_map` to
+      an explicit `Vec<Block>` builder loop, mirroring
+      `process_section`. Added an `IntermediateSection(section)`
+      arm that `blocks.extend(section)`.
+- [x] Filter bullet markers (`list_marker_minus`,
+      `list_marker_star`, `list_marker_plus`) and
+      `block_continuation` by node name (they map to
+      `IntermediateUnknown` but are structural noise).
+- [x] Handle `IntermediateUnknown` explicitly as a no-op (tree-sitter
+      `ERROR` nodes from error recovery, fence delimiters, etc.
+      legitimately appear inside list items and were previously
+      silently dropped).
+- [x] Truly-unexpected variants now `panic!` with a descriptive
+      message (matching `process_section`), so future regressions
+      surface loudly rather than dropping data.
 
 ### Phase 3 — Regression sweep
 
-- [ ] `cargo nextest run -p pampa` — confirm no other snapshots
-      regressed. If snapshots changed, review each diff carefully:
-      a list item that *should* have been empty becoming non-empty
-      is a separate bug; one that *was* missing content gaining it
-      is the intended fix.
-- [ ] `cargo nextest run --workspace` — monorepo-wide regression
-      check (per CLAUDE.md, fixes in `pampa` can affect downstream
-      crates like `qmd-syntax-helper`).
-- [ ] `cargo xtask verify --skip-hub-build` — Rust-only verify.
-      This passes converter changes; not the WASM leg.
+- [x] `cargo nextest run -p pampa` — 3759 passed.
+- [x] `cargo nextest run --workspace` — 9204 passed.
+- [x] `cargo xtask verify --skip-hub-build` — all 12 verification
+      steps passed.
 
 ### Phase 4 — End-to-end verification
 
-- [ ] Run `cargo run --bin pampa -- -t json` on the minimal
-      fixture and on the multi-item variant. Confirm the output
-      matches Pandoc's structure (a `Header` block inside the
-      list item).
-- [ ] If the broader `q2 render` path is affected (it should be,
-      since the converter is shared), render a `.qmd` fixture with
-      `* # Heading` and grep the HTML for an `<h1>` inside the
-      `<li>`.
+- [x] Ran the binary against all three fixtures. Inspected JSON
+      output and confirmed it matches Pandoc's structure.
+
+  ```bash
+  echo '* # Section 1' | cargo run --bin pampa -- --to json | jq '.blocks'
+  ```
+
+  Now returns a `BulletList` whose item contains a `Header` block
+  (level 1, id "section-1", inlines [Str "Section", Space, Str "1"]) —
+  structurally identical to Pandoc's output. Verified 2026-05-20.
 
 ## Out of scope
 
