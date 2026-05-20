@@ -109,6 +109,37 @@ describe('PreviewDocument body container', () => {
         expect(document.body.className).toBe('fullcontent');
     });
 
+    it('TOC rendered but no sidebar → body has no class (avoids fullcontent squashing TOC)', () => {
+        // Mirrors the Rust `render_with_compiled_template` body-class
+        // computation: when `rendered.navigation.toc` is non-empty and
+        // no sidebar `body-classes` is set, fall through to the default
+        // (no-class) wide grid, whose right-margin column has room
+        // for the TOC. The `fullcontent` mixin's margin column is
+        // only ~70px at the default and squashes the TOC.
+        mount({
+            rendered: {
+                t: 'MetaMap',
+                c: [
+                    {
+                        key: 'navigation',
+                        key_source: null,
+                        value: {
+                            t: 'MetaMap',
+                            c: [
+                                {
+                                    key: 'toc',
+                                    key_source: null,
+                                    value: { t: 'MetaString', c: '<nav id="TOC"></nav>' },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        });
+        expect(document.body.className).toBe('');
+    });
+
     it('cleanup: unmount restores the pre-mount body.className', () => {
         document.body.className = 'pre-existing';
         const { unmount } = mount({ 'body-classes': ms('mid') });

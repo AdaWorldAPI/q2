@@ -56,14 +56,19 @@ export const PreviewDocument = ({
     // Mirror Rust template.rs:415-417: page-layout defaults to "article".
     const pageLayout = extractMetaString(meta['page-layout']) ?? 'article';
 
-    // Mirror Rust template.rs:177 body-class default + the hoist
-    // logic at template.rs:419-428. Precedence:
+    // Mirror Rust `render_with_compiled_template`'s body-class
+    // computation. Precedence:
     //   1. User-set top-level `body-classes` (always wins).
-    //   2. Phase F.2: `rendered.navigation.body-classes` populated
-    //      by `SidebarRenderTransform` (e.g. `nav-sidebar floating`,
+    //   2. `rendered.navigation.body-classes` populated by
+    //      `SidebarRenderTransform` (e.g. `nav-sidebar floating`,
     //      `nav-sidebar docked`) — required for Bootstrap's
     //      sidebar-aware grid layout to take effect.
-    //   3. Literal default `fullcontent`.
+    //   3. TOC rendered but no sidebar → empty class. Falls through
+    //      to the default (no-class) wide grid, whose right margin
+    //      column is `minmax(0.3*mw, 0.58*mw)` and has room for the
+    //      TOC. The `fullcontent` mixin's margin column is only
+    //      `0.28*mw` (~70px at the default 250px) and squashes a TOC.
+    //   4. Otherwise → literal `fullcontent`.
     // Empty string is the user's opt-out; only `undefined` triggers
     // the fallback chain.
     const bodyClassesValue =
@@ -71,7 +76,12 @@ export const PreviewDocument = ({
         extractMetaString(
             getMetaPath(meta, ['rendered', 'navigation', 'body-classes']),
         );
-    const bodyClasses = bodyClassesValue ?? 'fullcontent';
+    const tocRendered = extractMetaString(
+        getMetaPath(meta, ['rendered', 'navigation', 'toc']),
+    );
+    const hasToc = tocRendered !== undefined && tocRendered !== '';
+    const bodyClasses =
+        bodyClassesValue ?? (hasToc ? '' : 'fullcontent');
 
     // Mirror Rust is_minimal_html() (format.rs:306-318).
     const minimal =
