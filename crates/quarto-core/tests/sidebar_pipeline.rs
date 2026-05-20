@@ -181,10 +181,12 @@ fn pipeline_renders_sidebar_for_two_page_website() {
     // bd-mgoh — body class drives the SCSS grid layout. With a Floating
     // sidebar, the body must carry `nav-sidebar floating`; without these
     // classes the grid mixin produces no left sidebar column and the
-    // sidebar falls below the page content.
+    // sidebar falls below the page content. bd-mtzry appends a color-mode
+    // class (`quarto-light`) after the structural classes, so the full
+    // expected body class is `"nav-sidebar floating quarto-light"`.
     assert!(
-        index_html.contains("<body class=\"nav-sidebar floating\">"),
-        "index page body must carry nav-sidebar+floating classes; \
+        index_html.contains("<body class=\"nav-sidebar floating quarto-light\">"),
+        "index page body must carry nav-sidebar+floating+quarto-light classes; \
          got body tag: {}",
         index_html
             .find("<body")
@@ -192,8 +194,8 @@ fn pipeline_renders_sidebar_for_two_page_website() {
             .unwrap_or("<no body tag>")
     );
     assert!(
-        about_html.contains("<body class=\"nav-sidebar floating\">"),
-        "about page body must carry nav-sidebar+floating classes; \
+        about_html.contains("<body class=\"nav-sidebar floating quarto-light\">"),
+        "about page body must carry nav-sidebar+floating+quarto-light classes; \
          got body tag: {}",
         about_html
             .find("<body")

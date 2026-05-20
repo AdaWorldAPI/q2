@@ -447,11 +447,15 @@ pub fn render_with_compiled_template(
             .get_path(&["rendered", "navigation", "toc"])
             .and_then(|v| v.as_plain_text())
             .is_some_and(|s| !s.is_empty());
-        let body_classes = match (from_meta, has_toc) {
+        let structural = match (from_meta, has_toc) {
             (Some(s), _) => s,
             (None, true) => String::new(),
             (None, false) => "fullcontent".to_string(),
         };
+        // bd-mtzry: append the color-mode class so theme-conditional CSS
+        // can key off `body.quarto-light` (matches Q1 default). Dark-mode
+        // theme support lands separately; for now we always emit `quarto-light`.
+        let body_classes = append_color_mode_class(&structural);
         ctx.insert("body-classes", TemplateValue::String(body_classes));
     }
 
@@ -479,6 +483,30 @@ pub fn render_with_compiled_template(
 /// objects, and engine-contributed `PandocIncludes`. If the array is empty
 /// or absent (resolve stage didn't run), the template variable is not set
 /// — `$for(template_var)$` then produces no output.
+/// Append the active color-mode class (today always `quarto-light`)
+/// to a structural body-class string. Empty input → `"quarto-light"`;
+/// non-empty input → `"<structural> quarto-light"`. Idempotent: a
+/// structural that already contains `quarto-light` is returned as-is.
+///
+/// bd-mtzry. Light/dark theme detection is not yet wired into the
+/// pipeline (the `theme:` key today is a single Bootswatch name); when
+/// it lands, this helper grows a `mode` argument and the call site
+/// decides which class to emit. Until then `quarto-light` matches
+/// Quarto 1's default body class for documents with no dark theme set.
+fn append_color_mode_class(structural: &str) -> String {
+    const LIGHT: &str = "quarto-light";
+    let already = structural
+        .split_whitespace()
+        .any(|tok| tok == LIGHT || tok == "quarto-dark");
+    if already {
+        structural.to_string()
+    } else if structural.is_empty() {
+        LIGHT.to_string()
+    } else {
+        format!("{structural} {LIGHT}")
+    }
+}
+
 fn set_includes_list(
     ctx: &mut TemplateContext,
     template_var: &str,
@@ -1673,6 +1701,10 @@ mod tests {
         // No sidebar, no TOC → `render_with_compiled_template` falls back to
         // `fullcontent`. That mixin lets the body content span more of the
         // page since there's nothing in the right margin to make room for.
+        //
+        // bd-mtzry: the color-mode class `quarto-light` is appended so
+        // theme-conditional CSS can key off `body.quarto-light` (matches
+        // Quarto 1's default body class).
         let template = full_html_template().unwrap();
         let meta = ConfigValue::null(dummy_source_info());
 
@@ -1680,8 +1712,8 @@ mod tests {
             render_with_compiled_template(&template, "<p>Content</p>", &meta, &[], &[]).unwrap();
 
         assert!(
-            html.contains("<body class=\"fullcontent\">"),
-            "expected default body class fullcontent; got: {}",
+            html.contains("<body class=\"fullcontent quarto-light\">"),
+            "expected default body class `fullcontent quarto-light`; got: {}",
             &html[..html.len().min(800)]
         );
     }
@@ -1706,14 +1738,42 @@ mod tests {
         let (html, _diags) =
             render_with_compiled_template(&template, "<p>Content</p>", &meta, &[], &[]).unwrap();
 
+        // bd-mtzry: even when the structural classes drop to empty,
+        // `quarto-light` still appears so theme-conditional CSS keys
+        // off `body.quarto-light` (matches Q1's default body class).
         assert!(
-            html.contains("<body class=\"\">"),
-            "expected empty body class when TOC present and no body-classes; got: {}",
+            html.contains("<body class=\"quarto-light\">"),
+            "expected body class `quarto-light` when TOC present and no body-classes; got: {}",
             &html[..html.len().min(800)]
         );
         assert!(
             !html.contains("<body class=\"fullcontent"),
             "must NOT use `fullcontent` class when a TOC is rendered (margins too narrow); got: {}",
+            &html[..html.len().min(800)]
+        );
+    }
+
+    /// bd-mtzry: even when the caller supplies an explicit `body-classes`
+    /// (e.g. via metadata or `SidebarRenderTransform`), the color-mode
+    /// class is still appended. Quarto 1 always emits a `quarto-light` /
+    /// `quarto-dark` class so theme-conditional CSS works regardless of
+    /// the structural class. Today only `quarto-light` is emitted
+    /// (light/dark theme support is tracked elsewhere).
+    #[test]
+    fn test_full_template_color_mode_class_appended_to_user_body_classes() {
+        let template = full_html_template().unwrap();
+        let mut meta = ConfigValue::null(dummy_source_info());
+        meta.insert_path(
+            &["rendered", "navigation", "body-classes"],
+            ConfigValue::new_string("docked", dummy_source_info()),
+        );
+
+        let (html, _diags) =
+            render_with_compiled_template(&template, "<p>Content</p>", &meta, &[], &[]).unwrap();
+
+        assert!(
+            html.contains("<body class=\"docked quarto-light\">"),
+            "expected user body-classes + quarto-light; got: {}",
             &html[..html.len().min(800)]
         );
     }
