@@ -1038,8 +1038,11 @@ fn write_list_table(
     // Build attributes
     let mut attrs: Vec<String> = Vec::new();
 
-    // Add header-rows if there are header rows
-    if header_row_count > 0 {
+    // bd-fyb4z: emit `header-rows` whenever it differs from the parser
+    // default (1). `header-rows="0"` is essential — without it the
+    // re-parse would promote the first row to head. `header-rows="1"`
+    // is the default and can be omitted for cleaner output.
+    if header_row_count != 1 {
         attrs.push(format!("header-rows=\"{}\"", header_row_count));
     }
 
