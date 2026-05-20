@@ -291,7 +291,8 @@ title: Table test
       `table` + `caption-top` classes + tests
       *(closed 2026-05-20, commit 987bdc9f; transform runs in HTML
       pipeline finalization phase and also in q2-preview)*
-- [ ] **bd-hixmy** D3: suppress empty colgroup + tests
+- [x] **bd-hixmy** D3: suppress empty colgroup + tests
+      *(closed 2026-05-20, commit a91f114a)*
 - [ ] **bd-12fpz** D4/D5: emit `odd`/`even` body-row classes and
       `header` head-row class + tests (bundled — same code path)
 - [ ] **bd-mtzry** D6: emit `quarto-light` on `<body>` + template tests
