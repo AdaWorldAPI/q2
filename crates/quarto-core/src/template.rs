@@ -128,7 +128,12 @@ $endfor$
 ///   the `fullcontent` default entirely. Typically computed by
 ///   `SidebarRenderTransform` (which writes `rendered.navigation.body-classes`)
 ///   and copied into `body-classes` by `render_with_compiled_template`,
-///   but a user filter or template variable can override it.
+///   but a user filter or template variable can override it. When unset
+///   and `rendered.navigation.toc` is present, `render_with_compiled_template`
+///   sets it to the empty string so the body falls through to the default
+///   (no-class) wide layout — needed because `fullcontent` allocates only
+///   `0.14*margin-width` for the right margin and squashes a TOC to ~70px.
+///   Mirrors TS Quarto's `format-html-bootstrap.ts` body-class logic.
 /// - `$page-layout$` - page layout type (article, full, etc.)
 /// - `$version$` - Quarto version for generator meta tag
 /// - `$rendered.navigation.toc$` - Rendered TOC HTML (if toc: true)
@@ -174,7 +179,7 @@ $for(header-includes)$
 $header-includes$
 $endfor$
 </head>
-<body class="$if(body-classes)$$body-classes$$else$fullcontent$endif$">
+<body class="$body-classes$">
 $if(rendered.navigation.navbar)$
 $rendered.navigation.navbar$
 $endif$
@@ -416,16 +421,38 @@ pub fn render_with_compiled_template(
         ctx.insert("page-layout", TemplateValue::String("article".to_string()));
     }
 
-    // Promote the rendered body-classes (computed by SidebarRenderTransform)
-    // into the top-level `body-classes` template variable, unless the user
-    // already supplied one via metadata. See bd-mgoh and the
-    // SidebarRenderTransform module doc-comment.
-    if ctx.get("body-classes").is_none()
-        && let Some(s) = meta
+    // Compute the body class. Order of precedence:
+    //
+    //   1. user-supplied `body-classes` (e.g. set in metadata) — kept as-is.
+    //   2. `rendered.navigation.body-classes` (written by
+    //      `SidebarRenderTransform`, e.g. `"nav-sidebar floating"`) —
+    //      promoted to the top-level template variable. See bd-mgoh.
+    //   3. TOC present but no sidebar → empty class. The body falls
+    //      through to the default (no-class) wide grid, whose right
+    //      margin column is `minmax(0.3*mw, 0.58*mw)` and has room for
+    //      the TOC.
+    //   4. Otherwise → `"fullcontent"`. That mixin's margin-seg{1,2}
+    //      sum to only `0.28 * margin-width` (~70px at the default
+    //      250px), which is intentional for content-heavy pages with
+    //      no TOC — but would squash a TOC if one were present, which
+    //      is why case (3) exists.
+    //
+    // Mirrors TS Quarto's body-class logic in
+    // `src/format/html/format-html-bootstrap.ts`.
+    if ctx.get("body-classes").is_none() {
+        let from_meta = meta
             .get_path(&["rendered", "navigation", "body-classes"])
+            .and_then(|v| v.as_plain_text());
+        let has_toc = meta
+            .get_path(&["rendered", "navigation", "toc"])
             .and_then(|v| v.as_plain_text())
-    {
-        ctx.insert("body-classes", TemplateValue::String(s));
+            .is_some_and(|s| !s.is_empty());
+        let body_classes = match (from_meta, has_toc) {
+            (Some(s), _) => s,
+            (None, true) => String::new(),
+            (None, false) => "fullcontent".to_string(),
+        };
+        ctx.insert("body-classes", TemplateValue::String(body_classes));
     }
 
     // Render with diagnostics so undefined-variable warnings (etc.)
@@ -1643,19 +1670,50 @@ mod tests {
 
     #[test]
     fn test_full_template_default_body_class_is_fullcontent() {
+        // No sidebar, no TOC → `render_with_compiled_template` falls back to
+        // `fullcontent`. That mixin lets the body content span more of the
+        // page since there's nothing in the right margin to make room for.
         let template = full_html_template().unwrap();
+        let meta = ConfigValue::null(dummy_source_info());
 
-        let mut ctx = TemplateContext::new();
-        ctx.insert("body", TemplateValue::String("<p>Content</p>".to_string()));
-        ctx.insert("page-layout", TemplateValue::String("article".to_string()));
-        ctx.insert("version", TemplateValue::String("0.1.0".to_string()));
-        // no body-classes set
-
-        let html = template.render(&ctx).unwrap();
+        let (html, _diags) =
+            render_with_compiled_template(&template, "<p>Content</p>", &meta, &[], &[]).unwrap();
 
         assert!(
             html.contains("<body class=\"fullcontent\">"),
             "expected default body class fullcontent; got: {}",
+            &html[..html.len().min(800)]
+        );
+    }
+
+    /// When a page has a TOC but no sidebar, the body must NOT get the
+    /// `fullcontent` class — that mixin's margin segments are sized at
+    /// `0.14 * margin-width` each, giving a ~70px TOC column that
+    /// overflows horizontally. The default (no-class) layout
+    /// (`page-columns-default-wide`) has a `minmax(0.3*mw, 0.58*mw)`
+    /// margin-seg2 that leaves room for the TOC. Mirrors TS Quarto's
+    /// `format-html-bootstrap.ts` body-class logic.
+    #[test]
+    fn test_full_template_toc_present_yields_empty_body_class() {
+        let template = full_html_template().unwrap();
+
+        let mut meta = ConfigValue::null(dummy_source_info());
+        meta.insert_path(
+            &["rendered", "navigation", "toc"],
+            ConfigValue::new_string("<nav id=\"TOC\"></nav>", dummy_source_info()),
+        );
+
+        let (html, _diags) =
+            render_with_compiled_template(&template, "<p>Content</p>", &meta, &[], &[]).unwrap();
+
+        assert!(
+            html.contains("<body class=\"\">"),
+            "expected empty body class when TOC present and no body-classes; got: {}",
+            &html[..html.len().min(800)]
+        );
+        assert!(
+            !html.contains("<body class=\"fullcontent"),
+            "must NOT use `fullcontent` class when a TOC is rendered (margins too narrow); got: {}",
             &html[..html.len().min(800)]
         );
     }
