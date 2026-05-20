@@ -287,8 +287,10 @@ title: Table test
 ### Phase 1 — markup parity
 - [x] **bd-fyb4z** D1: list-table default `header-rows: 1` + tests
       *(closed 2026-05-20, commit 87b5f236)*
-- [ ] **bd-2c8rg** D2: `quarto-bootstrap-table` transform stage adds
+- [x] **bd-2c8rg** D2: `quarto-bootstrap-table` transform stage adds
       `table` + `caption-top` classes + tests
+      *(closed 2026-05-20, commit 987bdc9f; transform runs in HTML
+      pipeline finalization phase and also in q2-preview)*
 - [ ] **bd-hixmy** D3: suppress empty colgroup + tests
 - [ ] **bd-12fpz** D4/D5: emit `odd`/`even` body-row classes and
       `header` head-row class + tests (bundled — same code path)
