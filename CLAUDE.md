@@ -367,6 +367,35 @@ If you cannot test a feature end-to-end (e.g. no access to a browser for a hub-c
 
 Past incidents where they diverged:
 - **2026-04-20**: `CodeHighlightStage` never ran under `quarto render` because the CLI path used a different branch of `render_qmd_to_html` than the tests. Every test passed; no rendered document had highlighting. See `claude-notes/plans/2026-04-19-syntax-highlighting-design.md` ("Phase 2 post-mortem") and the process-improvement plan at `claude-notes/plans/2026-04-20-end-to-end-verification-process.md`.
+- **2026-05-20**: `q2 preview` silently served a stale render after Rust changes to `quarto-core`. `cargo build --bin q2` succeeded and the preview *ran*, but the iframe loaded a WASM image built before the changes — the embedded SPA's `wasm-quarto-hub-client_bg.wasm` is only refreshed when the WASM is rebuilt explicitly. See **Verifying Rust changes in `q2 preview`** below.
+
+## Verifying Rust changes in `q2 preview`
+
+`q2 preview` embeds the SPA bundle at `q2-preview-spa/dist/` into the
+binary via `include_dir!`. The SPA loads the WASM at
+`hub-client/wasm-quarto-hub-client/wasm_quarto_hub_client_bg.wasm`,
+which is a build artifact of the `wasm-quarto-hub-client` crate (which
+in turn depends on `quarto-core`, `pampa`, etc.).
+
+A plain `cargo build --bin q2` does NOT rebuild the WASM, and the
+preview will silently run pre-change code. Tests will all pass; the
+render path will look correct; the preview iframe will not.
+
+To pick up Rust changes in `q2 preview`, run the full chain:
+
+```bash
+cd hub-client && npm run build:wasm   # rebuild WASM from current Rust
+cargo xtask build-q2-preview-spa      # bundle WASM into q2-preview-spa/dist/
+cargo build --bin q2                  # re-embed dist/ via include_dir!
+```
+
+`cargo xtask verify` (without `--skip-hub-build`) runs steps 1 and 2
+as part of the hub-build leg; after it finishes you still need step 3
+manually if you want the next `q2 preview` invocation to be fresh.
+
+For the deeper context (which crate produces which artifact, why the
+chain doesn't auto-fire, how to diagnose stale-WASM symptoms) see
+`claude-notes/instructions/preview-spa-rebuild.md`.
 
 ## Build Commands
 
