@@ -343,6 +343,94 @@ describe('PreviewDocument chrome injection (Phase F.2)', () => {
         ).toBeTruthy();
     });
 
+    // ──────────────────────────────────────────────────────────────
+    // Chrome wrappers must not perturb the parent's CSS layout.
+    //
+    // Each slot uses `dangerouslySetInnerHTML`, which requires a host
+    // element — a plain `<div>`. The native template (template.rs:185)
+    // injects the chrome HTML with NO wrapper, so the chrome's root
+    // element (`nav#quarto-sidebar`, etc.) is a direct child of
+    // `#quarto-content`. The Quarto theme grid keys off that direct-
+    // child relationship: `nav#quarto-sidebar` gets `grid-area:
+    // content-top / page-start / page-bottom / body-start` only when
+    // it's a grid item of `#quarto-content`. With an opaque `<div>`
+    // wrapper, the wrapper becomes the grid item (with default
+    // placement in the main content column), and the sidebar inside
+    // it stacks below `<main>`. (bd-xdier)
+    //
+    // The slot wrapper must be `display: contents` so it's transparent
+    // to the parent's layout. These tests guard that — either no
+    // wrapper at all (the injected root IS the direct child) or a
+    // `display: contents` wrapper.
+    // ──────────────────────────────────────────────────────────────
+
+    function wrapperIsLayoutTransparent(
+        injected: Element,
+        directParent: Element,
+    ): boolean {
+        // Two acceptable shapes: (a) injected element is itself the
+        // direct child; (b) there's a wrapper, but it's display:contents
+        // so it doesn't participate in the parent's grid/flex layout.
+        if (injected.parentElement === directParent) return true;
+        const wrapper = injected.parentElement;
+        if (!wrapper) return false;
+        if (wrapper.parentElement !== directParent) return false;
+        return wrapper.style.display === 'contents';
+    }
+
+    it('sidebar slot wrapper is layout-transparent (no grid perturbation)', () => {
+        const sidebarHtml =
+            '<nav id="quarto-sidebar" class="sidebar" data-test="sb">Items</nav>';
+        const { container } = mount({
+            rendered: renderedNavigation({ sidebar: sidebarHtml }),
+        });
+        const quartoContent = container.querySelector('#quarto-content')!;
+        const sidebar = container.querySelector('nav#quarto-sidebar')!;
+        expect(wrapperIsLayoutTransparent(sidebar, quartoContent)).toBe(true);
+    });
+
+    it('navbar slot wrapper is layout-transparent', () => {
+        const navbarHtml =
+            '<nav class="navbar" data-test="nv">My Site</nav>';
+        const { container } = mount({
+            rendered: renderedNavigation({ navbar: navbarHtml }),
+        });
+        const nav = container.querySelector('nav.navbar[data-test="nv"]')!;
+        // Navbar lives at the document-root level (sibling of #quarto-content).
+        // The container's first-level child holds both the navbar's wrapper
+        // and #quarto-content; whatever that is, the wrapper must be
+        // layout-transparent within it.
+        const navbarHost = nav.parentElement?.parentElement;
+        expect(navbarHost).not.toBeNull();
+        expect(wrapperIsLayoutTransparent(nav, navbarHost!)).toBe(true);
+    });
+
+    it('footer slot wrapper is layout-transparent', () => {
+        const footerHtml =
+            '<footer class="footer" data-test="ft">my footer</footer>';
+        const { container } = mount({
+            rendered: renderedNavigation({ footer: footerHtml }),
+        });
+        const footer = container.querySelector('footer.footer')!;
+        const footerHost = footer.parentElement?.parentElement;
+        expect(footerHost).not.toBeNull();
+        expect(wrapperIsLayoutTransparent(footer, footerHost!)).toBe(true);
+    });
+
+    it('page-nav slot wrapper is layout-transparent inside <main>', () => {
+        const pageNavHtml =
+            '<nav class="page-navigation" data-test="pn">prev | next</nav>';
+        const { container } = mount(
+            {
+                rendered: renderedNavigation({ page_navigation: pageNavHtml }),
+            },
+            [PARA(STR('Body content here.'))],
+        );
+        const main = container.querySelector('main#quarto-document-content')!;
+        const pageNav = container.querySelector('nav.page-navigation')!;
+        expect(wrapperIsLayoutTransparent(pageNav, main)).toBe(true);
+    });
+
     it('absent meta.rendered.navigation.* keys → no chrome elements rendered', () => {
         const { container } = mount({}, [PARA(STR('plain doc'))]);
         // None of the chrome wrappers should exist.

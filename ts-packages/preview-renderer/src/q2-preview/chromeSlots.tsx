@@ -28,11 +28,24 @@
  * don't live in the body).
  */
 
-import { memo, useEffect } from 'react';
+import { memo, useEffect, type CSSProperties } from 'react';
 
 interface SlotProps {
     html: string;
 }
+
+// `dangerouslySetInnerHTML` requires a host element, and the native
+// template injects each chrome HTML string with no wrapper at all (see
+// template.rs:179, 187, 245, 253). The host `<div>` we're forced to
+// emit must therefore be transparent to the parent's CSS layout —
+// otherwise Quarto theme rules keyed on a direct-child relationship
+// (e.g. the grid that places `nav#quarto-sidebar` in the page-start
+// column on `#quarto-content`) silently fall back to default
+// placement. `display: contents` removes the wrapper's box from the
+// layout tree while keeping its children in the DOM tree, so the
+// injected element participates in the parent's grid/flex layout as
+// if it were a direct child. bd-xdier.
+const TRANSPARENT: CSSProperties = { display: 'contents' };
 
 /**
  * Navbar HTML — emitted by `NavbarRenderTransform` into
@@ -40,7 +53,7 @@ interface SlotProps {
  * `<div id="quarto-content">` (per template.rs:178-180).
  */
 export const NavbarSlot = memo(({ html }: SlotProps) => (
-    <div dangerouslySetInnerHTML={{ __html: html }} />
+    <div style={TRANSPARENT} dangerouslySetInnerHTML={{ __html: html }} />
 ));
 NavbarSlot.displayName = 'NavbarSlot';
 
@@ -51,7 +64,7 @@ NavbarSlot.displayName = 'NavbarSlot';
  * (per template.rs:186-188).
  */
 export const SidebarSlot = memo(({ html }: SlotProps) => (
-    <div dangerouslySetInnerHTML={{ __html: html }} />
+    <div style={TRANSPARENT} dangerouslySetInnerHTML={{ __html: html }} />
 ));
 SidebarSlot.displayName = 'SidebarSlot';
 
@@ -62,7 +75,7 @@ SidebarSlot.displayName = 'SidebarSlot';
  * `<main>`, AFTER the body content (per template.rs:244-246).
  */
 export const PageNavSlot = memo(({ html }: SlotProps) => (
-    <div dangerouslySetInnerHTML={{ __html: html }} />
+    <div style={TRANSPARENT} dangerouslySetInnerHTML={{ __html: html }} />
 ));
 PageNavSlot.displayName = 'PageNavSlot';
 
@@ -72,7 +85,7 @@ PageNavSlot.displayName = 'PageNavSlot';
  * `<div id="quarto-content">` (per template.rs:252-254).
  */
 export const FooterSlot = memo(({ html }: SlotProps) => (
-    <div dangerouslySetInnerHTML={{ __html: html }} />
+    <div style={TRANSPARENT} dangerouslySetInnerHTML={{ __html: html }} />
 ));
 FooterSlot.displayName = 'FooterSlot';
 
