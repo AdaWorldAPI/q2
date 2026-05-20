@@ -1379,8 +1379,18 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
                 writeln!(ctx, "</caption>")?;
             }
 
-            // Column group (for alignment)
-            if !table.colspec.is_empty() {
+            // Column group (for alignment / width).
+            //
+            // bd-hixmy: suppress when every colspec entry is fully default.
+            // An all-default colspec carries no information, and emitting an
+            // empty colgroup of bare `<col />` elements diverges from
+            // Quarto 1 / Pandoc's reference HTML writer. Keep the colgroup
+            // whenever any column has a non-default alignment OR width.
+            let colgroup_meaningful = table.colspec.iter().any(|(align, width)| {
+                !matches!(align, crate::pandoc::table::Alignment::Default)
+                    || !matches!(width, crate::pandoc::table::ColWidth::Default)
+            });
+            if colgroup_meaningful {
                 writeln!(ctx, "<colgroup>")?;
                 for colspec in &table.colspec {
                     let align = match colspec.0 {
@@ -2399,6 +2409,127 @@ mod tests {
         assert!(
             !html.contains("<div class=\"sourceCode"),
             "un-highlighted code blocks should not get a div wrapper, got:\n{html}",
+        );
+    }
+
+    /// bd-hixmy: helper that builds a minimal one-row Table whose
+    /// every cell is a "x" Plain. Lets the colgroup tests vary the
+    /// colspec without restating the rest of the AST.
+    fn table_with_colspec(colspec: Vec<crate::pandoc::table::ColSpec>) -> Block {
+        use crate::pandoc::block::Plain;
+        use crate::pandoc::table::{Alignment, Cell, Row, Table, TableBody, TableFoot, TableHead};
+        use hashlink::LinkedHashMap;
+        let empty_attr = || (String::new(), Vec::new(), LinkedHashMap::new());
+        let cell = |text: &str| Cell {
+            attr: empty_attr(),
+            alignment: Alignment::Default,
+            row_span: 1,
+            col_span: 1,
+            content: vec![Block::Plain(Plain {
+                content: vec![Inline::Str(Str {
+                    text: text.to_string(),
+                    source_info: dummy_source_info(),
+                })],
+                source_info: dummy_source_info(),
+            })],
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        let n = colspec.len();
+        let row = Row {
+            attr: empty_attr(),
+            cells: (0..n).map(|_| cell("x")).collect(),
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        Block::Table(Table {
+            attr: empty_attr(),
+            caption: quarto_pandoc_types::Caption {
+                short: None,
+                long: None,
+                source_info: dummy_source_info(),
+            },
+            colspec,
+            head: TableHead {
+                attr: empty_attr(),
+                rows: vec![],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            bodies: vec![TableBody {
+                attr: empty_attr(),
+                rowhead_columns: 0,
+                head: vec![],
+                body: vec![row],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            }],
+            foot: TableFoot {
+                attr: empty_attr(),
+                rows: vec![],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    /// bd-hixmy: an all-default colspec carries no information, so the
+    /// writer should suppress the `<colgroup>` entirely — matching
+    /// Quarto 1 / Pandoc's reference HTML writer.
+    #[test]
+    fn colgroup_suppressed_when_all_defaults() {
+        use crate::pandoc::table::{Alignment, ColWidth};
+        let block = table_with_colspec(vec![
+            (Alignment::Default, ColWidth::Default),
+            (Alignment::Default, ColWidth::Default),
+        ]);
+        let html = render_block_to_html(block);
+        assert!(
+            !html.contains("<colgroup>"),
+            "all-default colspec should suppress <colgroup>, got:\n{html}"
+        );
+        assert!(
+            !html.contains("<col "),
+            "no <col> elements expected when colgroup suppressed, got:\n{html}"
+        );
+    }
+
+    /// bd-hixmy: a non-default alignment must keep the colgroup so the
+    /// `<col align="...">` attributes carry through to the rendered HTML.
+    #[test]
+    fn colgroup_kept_when_any_alignment_set() {
+        use crate::pandoc::table::{Alignment, ColWidth};
+        let block = table_with_colspec(vec![
+            (Alignment::Default, ColWidth::Default),
+            (Alignment::Right, ColWidth::Default),
+        ]);
+        let html = render_block_to_html(block);
+        assert!(
+            html.contains("<colgroup>"),
+            "non-default alignment must keep <colgroup>, got:\n{html}"
+        );
+        assert!(
+            html.contains("align=\"right\""),
+            "expected align=\"right\" on the second <col>, got:\n{html}"
+        );
+    }
+
+    /// bd-hixmy: a non-default width must also keep the colgroup so a
+    /// future width-emitter (or downstream filter) can see / mutate it.
+    /// The width itself isn't rendered yet — only the presence check.
+    #[test]
+    fn colgroup_kept_when_any_width_set() {
+        use crate::pandoc::table::{Alignment, ColWidth};
+        let block = table_with_colspec(vec![
+            (Alignment::Default, ColWidth::Percentage(0.5)),
+            (Alignment::Default, ColWidth::Default),
+        ]);
+        let html = render_block_to_html(block);
+        assert!(
+            html.contains("<colgroup>"),
+            "non-default width must keep <colgroup>, got:\n{html}"
         );
     }
 }
