@@ -211,24 +211,53 @@ note.
 
 ## Work items
 
-- [ ] Add `RecordingRuntime` test helper (or equivalent) in
+- [x] Add `RecordingRuntime` test helper (or equivalent) in
       `render.rs` tests that counts `dir_list` calls against an
-      inner `NativeRuntime`.
-- [ ] Write **Test 1** (no-project cwd: `dir_list_count == 0`,
-      result is `NoInputAndNoProject`). Run, verify it fails on
-      pre-fix code (`dir_list_count > 0`).
-- [ ] Write **Test 3** (cwd inside a project, no input args). Run,
-      verify it passes pre-fix (it should — the fix preserves this
-      behavior).
-- [ ] Implement Option A: inline upward `_quarto.yml`/`.yaml`
-      search in `classify_no_inputs`, short-circuit on miss.
-- [ ] Run Tests 1, 2, 3 — all green.
-- [ ] Run `cargo nextest run -p quarto` — all green.
-- [ ] Run `cargo xtask verify --skip-hub-build` — clean (Rust-only
-      change, hub-client unaffected).
-- [ ] End-to-end verify: time `q2 render` in q2 root, `/tmp/empty`,
-      and `docs/`; confirm error text unchanged and timing flat.
-- [ ] Close beads issue with timing evidence + error-text snippet.
+      inner `NativeRuntime`. Modelled on
+      `CountingRuntime` in
+      `crates/quarto-core/src/project/listing/post_render_upgrade/substitute.rs:852`.
+- [x] Write **Test 1** (`classify_no_inputs_does_not_walk_cwd`):
+      no-project cwd populated with a decoy subdir,
+      `dir_list_count == 0`, result is `NoInputAndNoProject`.
+      Pre-fix it observed `dir_list_count = 2` (cwd + `sub/`).
+- [x] Write **Test 3**
+      (`classify_no_args_from_project_subdir_returns_full_project`):
+      cwd is two levels deep inside a project; result is
+      `FullProject{ project_dir: <project root> }`. Passes both
+      pre-fix and post-fix (regression sanity).
+- [x] Implement Option A: inline upward `_quarto.yml`/`.yaml`
+      search via new `find_project_root_upward` helper;
+      `classify_no_inputs` short-circuits on miss.
+- [x] Run Tests 1, 2, 3 + all `classify_no_args_*` tests — green.
+- [x] Run `cargo nextest run -p quarto` — 100/100 pass.
+- [x] Run `cargo xtask verify --skip-hub-build` — all 12 steps
+      green (lint, fmt, Rust build with `-D warnings`, tree-sitter,
+      Rust tests, hub-client tests, trace-viewer, preview-*,
+      q2-preview-spa build).
+- [x] End-to-end verify (warm cache, debug build, this machine):
+
+      | scenario                       | before  | after   |
+      | ------------------------------ | ------- | ------- |
+      | `q2 render` in q2 root         | 0.318 s | 0.021 s |
+      | `q2 render` in `/tmp/empty/…`  | 0.013 s | 0.006 s |
+      | `q2 render` in `docs/`         | renders | renders |
+      | `q2 render` in `docs/<sub>/`   | n/a     | renders |
+
+      Error text in the two error scenarios is byte-identical:
+      `Error: No input given and no \`_quarto.yml\` found at or above <cwd>`.
+      The 15× speedup is the warm-cache delta — the cold-cache
+      delta (where `target/` was the user-reported "freeze") is
+      orders of magnitude larger.
+- [ ] Close bd-nmkmi with the table above in the close reason.
+
+## Discovered work
+
+- **bd-k4ahh** — `q2 render <large-non-project-dir>` walks the tree
+  before erroring. Symmetric to bd-nmkmi but on the *with-arguments*
+  path (`classify_inputs` calls `ProjectContext::discover` per input,
+  which falls through to the recursive walk for directory inputs
+  without a project marker). Filed `discovered-from: bd-nmkmi`,
+  priority 3 — much rarer in practice than the bare `q2 render`.
 
 ## Related
 

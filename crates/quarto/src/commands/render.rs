@@ -335,14 +335,55 @@ fn classify_no_inputs(
     let cwd_canon = runtime
         .canonicalize(cwd)
         .map_err(|e| DispatchError::Discover(e.to_string()))?;
-    let project = ProjectContext::discover(&cwd_canon, runtime)
-        .map_err(|e| DispatchError::Discover(e.to_string()))?;
-    if !is_real_project(&project, runtime) {
+
+    // Check cheaply for an ancestor `_quarto.yml` before delegating
+    // to `ProjectContext::discover`. Without this short-circuit
+    // (bd-nmkmi), `discover` would fall through to
+    // `discover_project_files`, which recursively walks the cwd
+    // collecting `.qmd` files — a multi-second freeze in any
+    // directory containing a large unrelated tree (e.g. `target/`),
+    // and the walk's output is then thrown away when we discover
+    // there is no project anyway.
+    let Some(project_root) = find_project_root_upward(&cwd_canon, runtime)? else {
         return Err(DispatchError::NoInputAndNoProject(cwd_canon));
-    }
+    };
+
+    let project = ProjectContext::discover(&project_root, runtime)
+        .map_err(|e| DispatchError::Discover(e.to_string()))?;
     Ok(RenderTarget::FullProject {
         project_dir: project.dir,
     })
+}
+
+/// Walk `start` and its ancestors looking for a project config
+/// (`_quarto.yml` or `_quarto.yaml`). Returns the directory that
+/// contains the first match, or `None` if the filesystem root is
+/// reached without one.
+///
+/// This is the cheap half of `ProjectContext::find_project_config`
+/// (parsing-free, `path_exists`-only). `classify_no_inputs` uses it
+/// to gate the expensive directory walk that `ProjectContext::discover`
+/// would otherwise perform on a project-less cwd.
+fn find_project_root_upward(
+    start: &Path,
+    runtime: &dyn SystemRuntime,
+) -> std::result::Result<Option<PathBuf>, DispatchError> {
+    let mut current = start.to_path_buf();
+    loop {
+        for name in ["_quarto.yml", "_quarto.yaml"] {
+            let candidate = current.join(name);
+            let exists = runtime
+                .path_exists(&candidate, None)
+                .map_err(|e| DispatchError::Discover(e.to_string()))?;
+            if exists {
+                return Ok(Some(current));
+            }
+        }
+        match current.parent() {
+            Some(parent) => current = parent.to_path_buf(),
+            None => return Ok(None),
+        }
+    }
 }
 
 /// True when a real `_quarto.yml` (or `_quarto.yaml`) sits at the
@@ -704,7 +745,141 @@ mod tests {
     use super::*;
     use quarto_core::FormatIdentifier;
     use quarto_system_runtime::NativeRuntime;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::TempDir;
+
+    /// Forwards every [`SystemRuntime`] method to an inner
+    /// [`NativeRuntime`] but counts `dir_list` invocations.
+    ///
+    /// Used by `classify_no_inputs_does_not_walk_cwd` (bd-nmkmi) to
+    /// assert that the no-project short-circuit avoids the recursive
+    /// `.qmd` scan. Pattern adapted from
+    /// `quarto_core::project::listing::post_render_upgrade::substitute::tests::CountingRuntime`.
+    struct RecordingRuntime {
+        inner: NativeRuntime,
+        dir_list_count: Arc<AtomicUsize>,
+    }
+
+    impl RecordingRuntime {
+        fn new() -> Self {
+            Self {
+                inner: NativeRuntime::new(),
+                dir_list_count: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn dir_list_count(&self) -> usize {
+            self.dir_list_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl quarto_system_runtime::SystemRuntime for RecordingRuntime {
+        fn file_read(&self, p: &Path) -> quarto_system_runtime::RuntimeResult<Vec<u8>> {
+            self.inner.file_read(p)
+        }
+        fn file_write(&self, p: &Path, c: &[u8]) -> quarto_system_runtime::RuntimeResult<()> {
+            self.inner.file_write(p, c)
+        }
+        fn path_exists(
+            &self,
+            p: &Path,
+            k: Option<quarto_system_runtime::PathKind>,
+        ) -> quarto_system_runtime::RuntimeResult<bool> {
+            self.inner.path_exists(p, k)
+        }
+        fn canonicalize(&self, p: &Path) -> quarto_system_runtime::RuntimeResult<PathBuf> {
+            self.inner.canonicalize(p)
+        }
+        fn path_metadata(
+            &self,
+            p: &Path,
+        ) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::PathMetadata> {
+            self.inner.path_metadata(p)
+        }
+        fn file_copy(&self, s: &Path, d: &Path) -> quarto_system_runtime::RuntimeResult<()> {
+            self.inner.file_copy(s, d)
+        }
+        fn path_rename(&self, o: &Path, n: &Path) -> quarto_system_runtime::RuntimeResult<()> {
+            self.inner.path_rename(o, n)
+        }
+        fn file_remove(&self, p: &Path) -> quarto_system_runtime::RuntimeResult<()> {
+            self.inner.file_remove(p)
+        }
+        fn dir_create(&self, p: &Path, r: bool) -> quarto_system_runtime::RuntimeResult<()> {
+            self.inner.dir_create(p, r)
+        }
+        fn dir_remove(&self, p: &Path, r: bool) -> quarto_system_runtime::RuntimeResult<()> {
+            self.inner.dir_remove(p, r)
+        }
+        fn dir_list(&self, p: &Path) -> quarto_system_runtime::RuntimeResult<Vec<PathBuf>> {
+            self.dir_list_count.fetch_add(1, Ordering::SeqCst);
+            self.inner.dir_list(p)
+        }
+        fn cwd(&self) -> quarto_system_runtime::RuntimeResult<PathBuf> {
+            self.inner.cwd()
+        }
+        fn temp_dir(
+            &self,
+            t: &str,
+        ) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::TempDir> {
+            self.inner.temp_dir(t)
+        }
+        fn exec_pipe(
+            &self,
+            c: &str,
+            a: &[&str],
+            s: &[u8],
+        ) -> quarto_system_runtime::RuntimeResult<Vec<u8>> {
+            self.inner.exec_pipe(c, a, s)
+        }
+        fn exec_command(
+            &self,
+            c: &str,
+            a: &[&str],
+            s: Option<&[u8]>,
+        ) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::CommandOutput> {
+            self.inner.exec_command(c, a, s)
+        }
+        fn env_get(&self, n: &str) -> quarto_system_runtime::RuntimeResult<Option<String>> {
+            self.inner.env_get(n)
+        }
+        fn env_all(
+            &self,
+        ) -> quarto_system_runtime::RuntimeResult<std::collections::HashMap<String, String>>
+        {
+            self.inner.env_all()
+        }
+        async fn fetch_url(
+            &self,
+            u: &str,
+        ) -> quarto_system_runtime::RuntimeResult<(Vec<u8>, String)> {
+            self.inner.fetch_url(u).await
+        }
+        fn os_name(&self) -> &'static str {
+            self.inner.os_name()
+        }
+        fn arch(&self) -> &'static str {
+            self.inner.arch()
+        }
+        fn cpu_time(&self) -> quarto_system_runtime::RuntimeResult<u64> {
+            self.inner.cpu_time()
+        }
+        fn xdg_dir(
+            &self,
+            k: quarto_system_runtime::XdgDirKind,
+            s: Option<&Path>,
+        ) -> quarto_system_runtime::RuntimeResult<PathBuf> {
+            self.inner.xdg_dir(k, s)
+        }
+        fn stdout_write(&self, d: &[u8]) -> quarto_system_runtime::RuntimeResult<()> {
+            self.inner.stdout_write(d)
+        }
+        fn stderr_write(&self, d: &[u8]) -> quarto_system_runtime::RuntimeResult<()> {
+            self.inner.stderr_write(d)
+        }
+    }
 
     // === Format helpers (pre-existing) =====================================
 
@@ -819,6 +994,59 @@ mod tests {
         assert!(
             matches!(err, DispatchError::NoInputAndNoProject(_)),
             "expected NoInputAndNoProject, got {err:?}"
+        );
+    }
+
+    /// bd-nmkmi regression: `q2 render` with no args in a directory
+    /// that has no ancestor `_quarto.yml` must not walk the cwd
+    /// looking for `.qmd` files. The walk's output is discarded; the
+    /// result is always `NoInputAndNoProject`. In a large tree this
+    /// walk was the user-observed multi-second "freeze."
+    ///
+    /// The assertion is that `dir_list` is never invoked — a
+    /// wall-clock-independent expression of "no directory scan
+    /// happened."
+    #[test]
+    fn classify_no_inputs_does_not_walk_cwd() {
+        let temp = TempDir::new().unwrap();
+        let dir = canonical(temp.path());
+        // Populate a subdirectory so a stray walker would have
+        // something to descend into. Pre-fix, `dir_list_count`
+        // observes at least 2 (cwd + `sub/`). Post-fix it's exactly 0.
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        write_file(&dir.join("sub/decoy.qmd"), "---\ntitle: decoy\n---\n");
+
+        let runtime = RecordingRuntime::new();
+        let err = classify_inputs(&[], &dir, &runtime).unwrap_err();
+        assert!(
+            matches!(err, DispatchError::NoInputAndNoProject(_)),
+            "expected NoInputAndNoProject, got {err:?}"
+        );
+        assert_eq!(
+            runtime.dir_list_count(),
+            0,
+            "classify_no_inputs should short-circuit before walking the cwd \
+             when no ancestor `_quarto.yml` exists; observed {} dir_list call(s)",
+            runtime.dir_list_count(),
+        );
+    }
+
+    /// bd-nmkmi regression sanity: when `q2 render` is run with no
+    /// args from a subdirectory of a real project, classification
+    /// still walks up to the project root and returns `FullProject`.
+    /// The short-circuit must not break this case.
+    #[test]
+    fn classify_no_args_from_project_subdir_returns_full_project() {
+        let temp = TempDir::new().unwrap();
+        let project = make_project(&temp, &["index.qmd", "sub/a.qmd", "sub/sub2/b.qmd"], None);
+        let nested = project.join("sub").join("sub2");
+        let runtime = NativeRuntime::new();
+        let target = classify_inputs(&[], &nested, &runtime).unwrap();
+        assert_eq!(
+            target,
+            RenderTarget::FullProject {
+                project_dir: project,
+            }
         );
     }
 
