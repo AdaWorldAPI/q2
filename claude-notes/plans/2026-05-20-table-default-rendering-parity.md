@@ -293,8 +293,9 @@ title: Table test
       pipeline finalization phase and also in q2-preview)*
 - [x] **bd-hixmy** D3: suppress empty colgroup + tests
       *(closed 2026-05-20, commit a91f114a)*
-- [ ] **bd-12fpz** D4/D5: emit `odd`/`even` body-row classes and
+- [x] **bd-12fpz** D4/D5: emit `odd`/`even` body-row classes and
       `header` head-row class + tests (bundled — same code path)
+      *(closed 2026-05-20, commit c02a405a)*
 - [ ] **bd-mtzry** D6: emit `quarto-light` on `<body>` + template tests
 
 ### Phase 2 — render CSS
