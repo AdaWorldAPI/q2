@@ -285,7 +285,8 @@ title: Table test
 ## Checklist
 
 ### Phase 1 — markup parity
-- [ ] **bd-fyb4z** D1: list-table default `header-rows: 1` + tests
+- [x] **bd-fyb4z** D1: list-table default `header-rows: 1` + tests
+      *(closed 2026-05-20, commit 87b5f236)*
 - [ ] **bd-2c8rg** D2: `quarto-bootstrap-table` transform stage adds
       `table` + `caption-top` classes + tests
 - [ ] **bd-hixmy** D3: suppress empty colgroup + tests
