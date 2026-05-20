@@ -1,6 +1,5 @@
 ---
-source: crates/quarto-markdown-pandoc/tests/test.rs
-assertion_line: 362
+source: crates/pampa/tests/test.rs
 expression: output
 ---
-[ Table ( "" , [] , [] ) (Caption Nothing [ Para [Str "This", Space, Str "is", Space, Str "the", Space, Str "caption."] ]) [(AlignDefault, ColWidthDefault), (AlignDefault, ColWidthDefault)] (TableHead ( "" , [] , [] ) []) [TableBody ( "" , [] , [] ) (RowHeadColumns 0) [] [Row ( "" , [] , [] ) [Cell ( "" , [] , [] ) AlignDefault (RowSpan 1) (ColSpan 1) [Plain [Str "Cell", Space, Str "1,1"]] , Cell ( "" , [] , [] ) AlignDefault (RowSpan 1) (ColSpan 1) [Plain [Str "Cell", Space, Str "1,2"]] ] , Row ( "" , [] , [] ) [Cell ( "" , [] , [] ) AlignDefault (RowSpan 1) (ColSpan 1) [Plain [Str "Cell", Space, Str "2,1"]] , Cell ( "" , [] , [] ) AlignDefault (RowSpan 1) (ColSpan 1) [Plain [Str "Cell", Space, Str "2,2"]] ] ]] (TableFoot ( "" , [] , [] ) [] ) ]
+[ Table ( "" , [] , [] ) (Caption Nothing [ Para [Str "This", Space, Str "is", Space, Str "the", Space, Str "caption."] ]) [(AlignDefault, ColWidthDefault), (AlignDefault, ColWidthDefault)] (TableHead ( "" , [] , [] ) [Row ( "" , [] , [] ) [Cell ( "" , [] , [] ) AlignDefault (RowSpan 1) (ColSpan 1) [Plain [Str "Cell", Space, Str "1,1"]] , Cell ( "" , [] , [] ) AlignDefault (RowSpan 1) (ColSpan 1) [Plain [Str "Cell", Space, Str "1,2"]] ] ]) [TableBody ( "" , [] , [] ) (RowHeadColumns 0) [] [Row ( "" , [] , [] ) [Cell ( "" , [] , [] ) AlignDefault (RowSpan 1) (ColSpan 1) [Plain [Str "Cell", Space, Str "2,1"]] , Cell ( "" , [] , [] ) AlignDefault (RowSpan 1) (ColSpan 1) [Plain [Str "Cell", Space, Str "2,2"]] ] ]] (TableFoot ( "" , [] , [] ) [] ) ]

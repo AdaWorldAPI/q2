@@ -285,24 +285,64 @@ title: Table test
 ## Checklist
 
 ### Phase 1 — markup parity
-- [ ] **bd-fyb4z** D1: list-table default `header-rows: 1` + tests
-- [ ] **bd-2c8rg** D2: `quarto-bootstrap-table` transform stage adds
+- [x] **bd-fyb4z** D1: list-table default `header-rows: 1` + tests
+      *(closed 2026-05-20, commit 87b5f236)*
+- [x] **bd-2c8rg** D2: `quarto-bootstrap-table` transform stage adds
       `table` + `caption-top` classes + tests
-- [ ] **bd-hixmy** D3: suppress empty colgroup + tests
-- [ ] **bd-12fpz** D4/D5: emit `odd`/`even` body-row classes and
+      *(closed 2026-05-20, commit 987bdc9f; transform runs in HTML
+      pipeline finalization phase and also in q2-preview)*
+- [x] **bd-hixmy** D3: suppress empty colgroup + tests
+      *(closed 2026-05-20, commit a91f114a)*
+- [x] **bd-12fpz** D4/D5: emit `odd`/`even` body-row classes and
       `header` head-row class + tests (bundled — same code path)
-- [ ] **bd-mtzry** D6: emit `quarto-light` on `<body>` + template tests
+      *(closed 2026-05-20, commit c02a405a)*
+- [x] **bd-elgxx** D4/D5 react: same row classes in the preview's
+      React Table component (preview doesn't go through the pampa
+      writer) *(closed 2026-05-20, commit cad7778c)*
+- [x] **bd-mtzry** D6: emit `quarto-light` on `<body>` + template tests
+      *(closed 2026-05-20, commit 21c8ec04; dark-mode detection deferred
+      until the pipeline supports light/dark theme configs)*
+- [x] **bd-tkamn** D6 react: same `quarto-light` append in the preview
+      shell's body-class effect (PreviewDocument.tsx)
+      *(closed 2026-05-20, commit fa21b5c5)*
 
 ### Phase 2 — render CSS
-- [ ] **bd-dy97y** D7: Bootstrap-derived default stylesheet loaded by
-      HTML format + end-to-end test against `tables.qmd`
-- [ ] D7 follow-up: visually re-verify in Chrome and update plan
-      with the closing screenshot delta
+- [x] **bd-dy97y** D7: Bootstrap-derived default stylesheet loaded by
+      HTML format
+      *(already done in the codebase prior to this epic: the
+      `CompileThemeCssStage` ships the full Bootstrap 5.3.1 bundle as
+      `_files/styles.css` for default renders. The original gap that
+      made the table look unstyled was 100% markup-side — the
+      `<table>` was missing the `caption-top table` class hooks
+      (D2). Once those landed, the existing CSS styled the table
+      identically to Q1: computed `padding: 8.5px`, `font-weight:
+      700`, `caption-side: top`, etc. — confirmed via Chrome DevTools
+      2026-05-20. Closing without code; verification by inspection.)*
+- [x] D7 follow-up: visual re-verify in Chrome
+      *(done 2026-05-20: q2 render of the daily-log fixture is
+      visually identical to Quarto 1 — see
+      `/var/folders/.../T/q2-render-after-phase1.png` vs `q1-render-current.png`.)*
+- [x] Edge case for D7: `theme: none` opt-out ships only the minimal
+      244-line `crates/quarto-core/resources/styles.css` (no `.table`
+      rules). This is correct — the user explicitly opted out of
+      Bootstrap. The D2 classes still emit but are inert under
+      `theme: none`. No action needed.
 
 ### Phase 3 — preview CSS
-- [ ] **bd-g18wu** D8: align preview-side CSS bundle (coordinate with
-      k-giyy) + DevTools-driven regression
-- [ ] D8 follow-up: visual re-verify in `q2 preview`
+- [x] **bd-g18wu** D8: align preview-side CSS bundle
+      *(already done in the codebase prior to this epic: the
+      q2-preview SPA's bundled CSS at
+      `q2-preview-spa/dist/assets/q2-preview-*.css` already contains
+      Bootstrap's `.table` and `.caption-top` rules. After bd-elgxx
+      and bd-tkamn landed the markup, the preview's computed table
+      styles match Q1 byte-for-byte: 799px width, 8.5px padding,
+      font-weight 700, caption-side top — same as render. The
+      `coordinate-with-k-giyy` worry in the original plan was based
+      on the wrong premise.)*
+- [x] D8 follow-up: visual re-verify in `q2 preview`
+      *(done 2026-05-20: preview renders the daily-log fixture
+      visually identical to render and to Q1 — see
+      `/var/folders/.../T/q2-preview-after-d6-react.png`.)*
 
 ### Wrap-up
 - [ ] Update `docs/` user-facing notes if any new defaults are

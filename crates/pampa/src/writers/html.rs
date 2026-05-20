@@ -1379,8 +1379,18 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
                 writeln!(ctx, "</caption>")?;
             }
 
-            // Column group (for alignment)
-            if !table.colspec.is_empty() {
+            // Column group (for alignment / width).
+            //
+            // bd-hixmy: suppress when every colspec entry is fully default.
+            // An all-default colspec carries no information, and emitting an
+            // empty colgroup of bare `<col />` elements diverges from
+            // Quarto 1 / Pandoc's reference HTML writer. Keep the colgroup
+            // whenever any column has a non-default alignment OR width.
+            let colgroup_meaningful = table.colspec.iter().any(|(align, width)| {
+                !matches!(align, crate::pandoc::table::Alignment::Default)
+                    || !matches!(width, crate::pandoc::table::ColWidth::Default)
+            });
+            if colgroup_meaningful {
                 writeln!(ctx, "<colgroup>")?;
                 for colspec in &table.colspec {
                     let align = match colspec.0 {
@@ -1395,28 +1405,42 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
             }
 
             // Head
+            //
+            // bd-12fpz: head rows get `class="header"`. Matches Quarto 1
+            // / Pandoc's reference HTML writer.
             if !table.head.rows.is_empty() {
                 writeln!(ctx, "<thead>")?;
                 for row in &table.head.rows {
-                    write_table_row(row, ctx, true)?;
+                    write_table_row(row, ctx, true, Some("header"))?;
                 }
                 writeln!(ctx, "</thead>")?;
             }
 
             // Bodies
+            //
+            // bd-12fpz: body rows alternate `class="odd"` / `class="even"`,
+            // starting at "odd" for the first row. Matches Pandoc's reference
+            // HTML writer. Striping is per-TableBody (a new tbody restarts
+            // the cycle from "odd").
             for body in &table.bodies {
                 writeln!(ctx, "<tbody>")?;
-                for row in &body.body {
-                    write_table_row(row, ctx, false)?;
+                for (i, row) in body.body.iter().enumerate() {
+                    let cls = if i % 2 == 0 { "odd" } else { "even" };
+                    write_table_row(row, ctx, false, Some(cls))?;
                 }
                 writeln!(ctx, "</tbody>")?;
             }
 
             // Foot
+            //
+            // bd-12fpz: foot rows currently emit a bare `<tr>` (no class).
+            // Pandoc's reference HTML writer treats foot rows specially
+            // (no odd/even, no header); the fixture set we mirror doesn't
+            // exercise tfoot, so we deliberately keep this minimal.
             if !table.foot.rows.is_empty() {
                 writeln!(ctx, "<tfoot>")?;
                 for row in &table.foot.rows {
-                    write_table_row(row, ctx, false)?;
+                    write_table_row(row, ctx, false, None)?;
                 }
                 writeln!(ctx, "</tfoot>")?;
             }
@@ -1486,13 +1510,23 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
     Ok(())
 }
 
-/// Write a table row
+/// Write a table row.
+///
+/// `is_header` controls whether cells are emitted as `<th>` (true) or
+/// `<td>` (false). `row_class` is the value of the row's `class`
+/// attribute (e.g. `"header"`, `"odd"`, `"even"`); `None` emits a bare
+/// `<tr>`. Caller is responsible for the odd/even bookkeeping.
 fn write_table_row<W: Write>(
     row: &crate::pandoc::table::Row,
     ctx: &mut HtmlWriterContext<'_, W>,
     is_header: bool,
+    row_class: Option<&'static str>,
 ) -> std::io::Result<()> {
-    writeln!(ctx, "<tr>")?;
+    if let Some(cls) = row_class {
+        writeln!(ctx, "<tr class=\"{}\">", cls)?;
+    } else {
+        writeln!(ctx, "<tr>")?;
+    }
     for cell in &row.cells {
         let tag = if is_header { "th" } else { "td" };
         write!(ctx, "<{}", tag)?;
@@ -2399,6 +2433,246 @@ mod tests {
         assert!(
             !html.contains("<div class=\"sourceCode"),
             "un-highlighted code blocks should not get a div wrapper, got:\n{html}",
+        );
+    }
+
+    /// bd-hixmy: helper that builds a minimal one-row Table whose
+    /// every cell is a "x" Plain. Lets the colgroup tests vary the
+    /// colspec without restating the rest of the AST.
+    fn table_with_colspec(colspec: Vec<crate::pandoc::table::ColSpec>) -> Block {
+        use crate::pandoc::block::Plain;
+        use crate::pandoc::table::{Alignment, Cell, Row, Table, TableBody, TableFoot, TableHead};
+        use hashlink::LinkedHashMap;
+        let empty_attr = || (String::new(), Vec::new(), LinkedHashMap::new());
+        let cell = |text: &str| Cell {
+            attr: empty_attr(),
+            alignment: Alignment::Default,
+            row_span: 1,
+            col_span: 1,
+            content: vec![Block::Plain(Plain {
+                content: vec![Inline::Str(Str {
+                    text: text.to_string(),
+                    source_info: dummy_source_info(),
+                })],
+                source_info: dummy_source_info(),
+            })],
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        let n = colspec.len();
+        let row = Row {
+            attr: empty_attr(),
+            cells: (0..n).map(|_| cell("x")).collect(),
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        Block::Table(Table {
+            attr: empty_attr(),
+            caption: quarto_pandoc_types::Caption {
+                short: None,
+                long: None,
+                source_info: dummy_source_info(),
+            },
+            colspec,
+            head: TableHead {
+                attr: empty_attr(),
+                rows: vec![],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            bodies: vec![TableBody {
+                attr: empty_attr(),
+                rowhead_columns: 0,
+                head: vec![],
+                body: vec![row],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            }],
+            foot: TableFoot {
+                attr: empty_attr(),
+                rows: vec![],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    /// bd-hixmy: an all-default colspec carries no information, so the
+    /// writer should suppress the `<colgroup>` entirely — matching
+    /// Quarto 1 / Pandoc's reference HTML writer.
+    #[test]
+    fn colgroup_suppressed_when_all_defaults() {
+        use crate::pandoc::table::{Alignment, ColWidth};
+        let block = table_with_colspec(vec![
+            (Alignment::Default, ColWidth::Default),
+            (Alignment::Default, ColWidth::Default),
+        ]);
+        let html = render_block_to_html(block);
+        assert!(
+            !html.contains("<colgroup>"),
+            "all-default colspec should suppress <colgroup>, got:\n{html}"
+        );
+        assert!(
+            !html.contains("<col "),
+            "no <col> elements expected when colgroup suppressed, got:\n{html}"
+        );
+    }
+
+    /// bd-hixmy: a non-default alignment must keep the colgroup so the
+    /// `<col align="...">` attributes carry through to the rendered HTML.
+    #[test]
+    fn colgroup_kept_when_any_alignment_set() {
+        use crate::pandoc::table::{Alignment, ColWidth};
+        let block = table_with_colspec(vec![
+            (Alignment::Default, ColWidth::Default),
+            (Alignment::Right, ColWidth::Default),
+        ]);
+        let html = render_block_to_html(block);
+        assert!(
+            html.contains("<colgroup>"),
+            "non-default alignment must keep <colgroup>, got:\n{html}"
+        );
+        assert!(
+            html.contains("align=\"right\""),
+            "expected align=\"right\" on the second <col>, got:\n{html}"
+        );
+    }
+
+    /// bd-hixmy: a non-default width must also keep the colgroup so a
+    /// future width-emitter (or downstream filter) can see / mutate it.
+    /// The width itself isn't rendered yet — only the presence check.
+    #[test]
+    fn colgroup_kept_when_any_width_set() {
+        use crate::pandoc::table::{Alignment, ColWidth};
+        let block = table_with_colspec(vec![
+            (Alignment::Default, ColWidth::Percentage(0.5)),
+            (Alignment::Default, ColWidth::Default),
+        ]);
+        let html = render_block_to_html(block);
+        assert!(
+            html.contains("<colgroup>"),
+            "non-default width must keep <colgroup>, got:\n{html}"
+        );
+    }
+
+    /// bd-12fpz: helper that builds a Table with one head row and
+    /// `body_row_count` body rows, each row has a single cell of
+    /// `Plain ["x"]`. Used by the row-class tests.
+    fn table_with_rows(head_rows: usize, body_rows: usize) -> Block {
+        use crate::pandoc::block::Plain;
+        use crate::pandoc::table::{
+            Alignment, Cell, ColWidth, Row, Table, TableBody, TableFoot, TableHead,
+        };
+        use hashlink::LinkedHashMap;
+        let empty_attr = || (String::new(), Vec::new(), LinkedHashMap::new());
+        let cell = |text: &str| Cell {
+            attr: empty_attr(),
+            alignment: Alignment::Default,
+            row_span: 1,
+            col_span: 1,
+            content: vec![Block::Plain(Plain {
+                content: vec![Inline::Str(Str {
+                    text: text.to_string(),
+                    source_info: dummy_source_info(),
+                })],
+                source_info: dummy_source_info(),
+            })],
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        let mk_row = |label: &str| Row {
+            attr: empty_attr(),
+            cells: vec![cell(label)],
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        Block::Table(Table {
+            attr: empty_attr(),
+            caption: quarto_pandoc_types::Caption {
+                short: None,
+                long: None,
+                source_info: dummy_source_info(),
+            },
+            colspec: vec![(Alignment::Default, ColWidth::Default)],
+            head: TableHead {
+                attr: empty_attr(),
+                rows: (0..head_rows).map(|i| mk_row(&format!("h{i}"))).collect(),
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            bodies: vec![TableBody {
+                attr: empty_attr(),
+                rowhead_columns: 0,
+                head: vec![],
+                body: (0..body_rows).map(|i| mk_row(&format!("b{i}"))).collect(),
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            }],
+            foot: TableFoot {
+                attr: empty_attr(),
+                rows: vec![],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    /// bd-12fpz (D5): head rows get `<tr class="header">`.
+    #[test]
+    fn head_row_emits_header_class() {
+        let html = render_block_to_html(table_with_rows(1, 0));
+        assert!(
+            html.contains("<tr class=\"header\">"),
+            "expected <tr class=\"header\"> on the head row, got:\n{html}"
+        );
+    }
+
+    /// bd-12fpz (D4): body rows alternate `<tr class="odd">` /
+    /// `<tr class="even">`, starting at "odd". Matches Pandoc's
+    /// reference HTML writer.
+    #[test]
+    fn body_rows_alternate_odd_even() {
+        let html = render_block_to_html(table_with_rows(0, 4));
+        let odd_count = html.matches("<tr class=\"odd\">").count();
+        let even_count = html.matches("<tr class=\"even\">").count();
+        assert_eq!(
+            odd_count, 2,
+            "expected 2 odd body rows (positions 1, 3), got:\n{html}"
+        );
+        assert_eq!(
+            even_count, 2,
+            "expected 2 even body rows (positions 2, 4), got:\n{html}"
+        );
+        // Order check: odd before even.
+        let first_odd = html.find("<tr class=\"odd\">").unwrap();
+        let first_even = html.find("<tr class=\"even\">").unwrap();
+        assert!(
+            first_odd < first_even,
+            "first body row must be odd, got:\n{html}"
+        );
+    }
+
+    /// bd-12fpz: in a table with both head and body, the head still
+    /// uses `class="header"` while the body starts the odd/even cycle
+    /// from the first body row.
+    #[test]
+    fn head_and_body_classes_independent() {
+        let html = render_block_to_html(table_with_rows(1, 2));
+        assert!(
+            html.contains("<tr class=\"header\">"),
+            "expected header class, got:\n{html}"
+        );
+        assert!(
+            html.contains("<tr class=\"odd\">"),
+            "expected odd class on first body row, got:\n{html}"
+        );
+        assert!(
+            html.contains("<tr class=\"even\">"),
+            "expected even class on second body row, got:\n{html}"
         );
     }
 }

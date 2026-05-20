@@ -305,12 +305,16 @@ fn transform_list_table_div(div: Div) -> Block {
     let source_info = div.source_info.clone();
 
     // Extract attributes from div (LinkedHashMap iteration returns (&String, &String))
+    //
+    // bd-fyb4z: default `header-rows` to 1 (not 0) so a bare list-table
+    // promotes its first row to `<thead>`, matching Quarto 1. Explicit
+    // `header-rows="0"` opts back into the no-header behavior.
     let header_rows: usize = div
         .attr
         .2
         .get("header-rows")
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
+        .unwrap_or(1);
 
     let aligns_str = div.attr.2.get("aligns").map(|v| v.as_str());
     let widths_str = div.attr.2.get("widths").map(|v| v.as_str());

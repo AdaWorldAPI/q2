@@ -76,9 +76,10 @@ use crate::transforms::{
     MetadataNormalizeTransform, NavbarGenerateTransform, NavbarRenderTransform,
     PageNavGenerateTransform, PageNavRenderTransform, ProofSugarTransform,
     ResourceCollectorTransform, SectionizeTransform, ShortcodeResolveTransform,
-    SidebarGenerateTransform, SidebarRenderTransform, TheoremSugarTransform, TitleBlockTransform,
-    TocGenerateTransform, TocRenderTransform, WebsiteBootstrapIconsTransform,
-    WebsiteCanonicalUrlTransform, WebsiteFaviconTransform, WebsiteTitlePrefixTransform,
+    SidebarGenerateTransform, SidebarRenderTransform, TableBootstrapClassTransform,
+    TheoremSugarTransform, TitleBlockTransform, TocGenerateTransform, TocRenderTransform,
+    WebsiteBootstrapIconsTransform, WebsiteCanonicalUrlTransform, WebsiteFaviconTransform,
+    WebsiteTitlePrefixTransform,
 };
 
 /// Well-known path for the default CSS artifact in WASM context.
@@ -1117,6 +1118,15 @@ pub fn build_transform_pipeline(
     // does not touch code blocks).
     pipeline.push(Box::new(CodeBlockRenderTransform::new()));
     pipeline.push(Box::new(ResourceCollectorTransform::new()));
+
+    // bd-2c8rg: tag every <table> with Bootstrap's `caption-top` and
+    // `table` classes so the rendered HTML picks up the project's
+    // Bootstrap stylesheet (matches Quarto 1's
+    // `quarto-bootstrap-table.lua`). Runs late: by this point every
+    // upstream transform has finished mutating tables, and any future
+    // user-filter slot inserted before AttributionRender still sees the
+    // un-enriched class list. Idempotent.
+    pipeline.push(Box::new(TableBootstrapClassTransform::new()));
 
     // Very last transform: bake the per-node attribution lookup and
     // the pruned actors table onto `ctx.format_options`. No-op when

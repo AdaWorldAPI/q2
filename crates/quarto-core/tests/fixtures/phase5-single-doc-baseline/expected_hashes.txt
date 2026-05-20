@@ -108,5 +108,11 @@
 # `doc_files/code-copy-init.js` is also written; not listed here
 # per the same convention as `bootstrap.bundle.min.js` /
 # `clipboard.min.js`.
-doc.html bbbe3e0498a2fc555f13ab2b8b0ed60aa890523b0c09d456ad1bb5ce2832ce7c
+#
+# Re-captured 2026-05-20 (bd-mtzry): doc.html hash updated because the
+# default body class now appends `quarto-light` so theme-conditional
+# CSS keys off `body.quarto-light` (matches Q1's default body class).
+# `<body class="fullcontent">` → `<body class="fullcontent quarto-light">`.
+# doc_files/styles.css hash unchanged: this is a template-only change.
+doc.html f81f6b0c1ceac71d249f208dac84875e53b251b85d2ead6129169320c86ac7f6
 doc_files/styles.css cffeac275ea4dd0d0a9c5cc8fde678b033f2e2fdcce835455102d46e439df062

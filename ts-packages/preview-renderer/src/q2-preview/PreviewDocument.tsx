@@ -20,6 +20,31 @@ import {
 } from './chromeSlots';
 
 /**
+ * bd-elgxx (D6 react): mirror of Rust
+ * `crates/quarto-core/src/template.rs::append_color_mode_class`.
+ *
+ * Appends `quarto-light` to the structural body-class string so
+ * theme-conditional CSS keys off `body.quarto-light` (matches Q1's
+ * default body class). Idempotent: if either `quarto-light` or
+ * `quarto-dark` is already in the structural classes, the input is
+ * returned unchanged (the user / a future dark-mode resolver wins).
+ *
+ * Light/dark theme detection is not yet wired into the pipeline; when
+ * it lands, this helper grows a `mode` argument and the caller
+ * decides which class to emit. The Rust helper has the same shape and
+ * the same TODO.
+ */
+function appendColorModeClass(structural: string): string {
+    const LIGHT = 'quarto-light';
+    const already = structural
+        .split(/\s+/)
+        .some((tok) => tok === LIGHT || tok === 'quarto-dark');
+    if (already) return structural;
+    if (structural === '') return LIGHT;
+    return `${structural} ${LIGHT}`;
+}
+
+/**
  * q2-preview's document-root wrapper. Registered into `registry.ts`
  * under the `'Ast'` key. Mirrors the HTML pipeline's
  * `<div id="quarto-content"><main class="content">` wrapper at
@@ -69,8 +94,9 @@ export const PreviewDocument = ({
     //      TOC. The `fullcontent` mixin's margin column is only
     //      `0.28*mw` (~70px at the default 250px) and squashes a TOC.
     //   4. Otherwise → literal `fullcontent`.
-    // Empty string is the user's opt-out; only `undefined` triggers
-    // the fallback chain.
+    // Empty string for the *structural* class is the user's opt-out;
+    // only `undefined` triggers the fallback chain. The color-mode
+    // class (`quarto-light`) is then appended in all cases (bd-tkamn).
     const bodyClassesValue =
         extractMetaString(meta['body-classes']) ??
         extractMetaString(
@@ -80,8 +106,16 @@ export const PreviewDocument = ({
         getMetaPath(meta, ['rendered', 'navigation', 'toc']),
     );
     const hasToc = tocRendered !== undefined && tocRendered !== '';
-    const bodyClasses =
+    const structuralBodyClasses =
         bodyClassesValue ?? (hasToc ? '' : 'fullcontent');
+    // bd-tkamn (D6 react): mirror Rust `template.rs::append_color_mode_class`
+    // so the preview's `<body>` carries `quarto-light` regardless of
+    // how the structural class was computed (including the TOC-
+    // present empty-structural case). Theme-conditional CSS can then
+    // key off `body.quarto-light`. Dark-mode support is deferred
+    // until the pipeline grows light/dark theme configs; until then
+    // the append is unconditional (matches Q1 default).
+    const bodyClasses = appendColorModeClass(structuralBodyClasses);
 
     // Mirror Rust is_minimal_html() (format.rs:306-318).
     const minimal =

@@ -621,6 +621,74 @@ describe('q2-preview Pandoc base-type gap-fill components', () => {
         // Body content (Para 'body content') sits as a sibling outside <figcaption>.
         expect(fig!.textContent).toContain('body content');
     });
+
+    // Helpers for the Table tests below. Pandoc Table shape:
+    //   Table = [Attr, Caption, ColSpec[], TableHead, TableBody[], TableFoot]
+    //   Caption = [shortCaption|null, blocks]
+    //   TableHead = [Attr, Row[]]
+    //   TableBody = [Attr, RowHeadColumns, headRows[], bodyRows[]]
+    //   TableFoot = [Attr, Row[]]
+    //   Row = [Attr, Cell[]]
+    //   Cell = [Attr, Alignment, RowSpan, ColSpan, BlockNode[]]
+    const EMPTY_ATTR: [string, string[], unknown[]] = ['', [], []];
+    const CELL = (text: string) => [
+        EMPTY_ATTR,
+        { t: 'AlignDefault' },
+        1,
+        1,
+        [PARA(STR(text))],
+    ];
+    const ROW = (...cells: any[]) => [EMPTY_ATTR, cells];
+    const tableAst = (headRows: any[], bodyRows: any[]) => ({
+        t: 'Table',
+        c: [
+            EMPTY_ATTR,
+            [null, []],
+            [],
+            [EMPTY_ATTR, headRows],
+            [[EMPTY_ATTR, 0, [], bodyRows]],
+            [EMPTY_ATTR, []],
+        ],
+    });
+
+    // bd-elgxx (D4/D5 react): the preview Table component must emit row
+    // classes matching the pampa HTML writer (bd-12fpz). Head rows get
+    // class="header"; body rows alternate "odd" / "even" starting at
+    // "odd". Mirrors `pampa::writers::html::tests::head_row_emits_header_class`
+    // and `..body_rows_alternate_odd_even`.
+    it('Table head row emits <tr class="header"> (bd-elgxx)', () => {
+        const ast = [tableAst([ROW(CELL('h0'))], [])];
+        const { container } = mount(ast);
+        const headTr = container.querySelector('thead tr');
+        expect(headTr).not.toBeNull();
+        expect(headTr!.className).toBe('header');
+    });
+
+    it('Table body rows alternate <tr class="odd"> / <tr class="even"> starting at odd (bd-elgxx)', () => {
+        const ast = [tableAst(
+            [],
+            [ROW(CELL('b0')), ROW(CELL('b1')), ROW(CELL('b2')), ROW(CELL('b3'))],
+        )];
+        const { container } = mount(ast);
+        const bodyTrs = container.querySelectorAll('tbody tr');
+        expect(bodyTrs).toHaveLength(4);
+        expect(bodyTrs[0].className).toBe('odd');
+        expect(bodyTrs[1].className).toBe('even');
+        expect(bodyTrs[2].className).toBe('odd');
+        expect(bodyTrs[3].className).toBe('even');
+    });
+
+    it('Table with both head and body emits header on thead rows and odd/even on tbody rows (bd-elgxx)', () => {
+        const ast = [tableAst(
+            [ROW(CELL('h0'))],
+            [ROW(CELL('b0')), ROW(CELL('b1'))],
+        )];
+        const { container } = mount(ast);
+        expect(container.querySelector('thead tr')!.className).toBe('header');
+        const bodyTrs = container.querySelectorAll('tbody tr');
+        expect(bodyTrs[0].className).toBe('odd');
+        expect(bodyTrs[1].className).toBe('even');
+    });
 });
 
 describe('Atomic-aware gate (framework Node)', () => {

@@ -123,16 +123,18 @@ fn test_list_table_div_transform_from_json() {
 
     match &pandoc.blocks[0] {
         Block::Table(table) => {
-            // Verify table structure
+            // bd-fyb4z: bare list-table defaults to header-rows=1, so the
+            // first row is promoted to the head, leaving one body row.
+            assert_eq!(table.head.rows.len(), 1, "Should have 1 header row");
+            assert_eq!(
+                table.head.rows[0].cells.len(),
+                2,
+                "Header row should have 2 cells"
+            );
             assert_eq!(table.bodies.len(), 1, "Should have one table body");
             let body = &table.bodies[0];
-            assert_eq!(body.body.len(), 2, "Should have 2 rows");
-            assert_eq!(body.body[0].cells.len(), 2, "First row should have 2 cells");
-            assert_eq!(
-                body.body[1].cells.len(),
-                2,
-                "Second row should have 2 cells"
-            );
+            assert_eq!(body.body.len(), 1, "Should have 1 body row");
+            assert_eq!(body.body[0].cells.len(), 2, "Body row should have 2 cells");
         }
         Block::Div(_) => {
             panic!("Expected Table but got Div - transform was not applied to JSON input");
@@ -141,6 +143,135 @@ fn test_list_table_div_transform_from_json() {
             panic!("Expected Table, got {:?}", other);
         }
     }
+}
+
+/// bd-fyb4z: A list-table with no explicit `header-rows` attribute should
+/// promote its first row to the table head — matching Quarto 1's default.
+#[test]
+fn test_list_table_default_promotes_first_row_from_json() {
+    // ::: {.list-table}
+    // - - Header 1
+    //   - Header 2
+    // - - Data 1
+    //   - Data 2
+    // - - Data 3
+    //   - Data 4
+    // :::
+    let json_input = make_json_doc(
+        r#"[{
+            "t": "Div",
+            "c": [
+                ["", ["list-table"], []],
+                [{
+                    "t": "BulletList",
+                    "c": [
+                        [{"t": "BulletList", "c": [
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Header 1"}]}],
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Header 2"}]}]
+                        ]}],
+                        [{"t": "BulletList", "c": [
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Data 1"}]}],
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Data 2"}]}]
+                        ]}],
+                        [{"t": "BulletList", "c": [
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Data 3"}]}],
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Data 4"}]}]
+                        ]}]
+                    ]
+                }]
+            ]
+        }]"#,
+    );
+
+    let pandoc = read_json_with_transforms(&json_input);
+
+    let Block::Table(table) = &pandoc.blocks[0] else {
+        panic!("Expected Table, got {:?}", pandoc.blocks[0]);
+    };
+    assert_eq!(table.head.rows.len(), 1, "First row promoted to head");
+    assert_eq!(table.bodies[0].body.len(), 2, "Remaining rows stay in body");
+}
+
+/// bd-fyb4z: A list-table with explicit `header-rows="0"` should opt out
+/// of the new default and keep every row in the body.
+#[test]
+fn test_list_table_explicit_header_rows_zero_from_json() {
+    let json_input = make_json_doc(
+        r#"[{
+            "t": "Div",
+            "c": [
+                ["", ["list-table"], [["header-rows", "0"]]],
+                [{
+                    "t": "BulletList",
+                    "c": [
+                        [{"t": "BulletList", "c": [
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Row 1A"}]}],
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Row 1B"}]}]
+                        ]}],
+                        [{"t": "BulletList", "c": [
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Row 2A"}]}],
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Row 2B"}]}]
+                        ]}]
+                    ]
+                }]
+            ]
+        }]"#,
+    );
+
+    let pandoc = read_json_with_transforms(&json_input);
+
+    let Block::Table(table) = &pandoc.blocks[0] else {
+        panic!("Expected Table, got {:?}", pandoc.blocks[0]);
+    };
+    assert_eq!(
+        table.head.rows.len(),
+        0,
+        "header-rows=0 keeps the head empty"
+    );
+    assert_eq!(
+        table.bodies[0].body.len(),
+        2,
+        "All rows go into the body when header-rows=0"
+    );
+}
+
+/// bd-fyb4z: A list-table with explicit `header-rows="2"` should still
+/// promote the first two rows after the default change.
+#[test]
+fn test_list_table_explicit_header_rows_two_from_json() {
+    let json_input = make_json_doc(
+        r#"[{
+            "t": "Div",
+            "c": [
+                ["", ["list-table"], [["header-rows", "2"]]],
+                [{
+                    "t": "BulletList",
+                    "c": [
+                        [{"t": "BulletList", "c": [
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "H1A"}]}],
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "H1B"}]}]
+                        ]}],
+                        [{"t": "BulletList", "c": [
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "H2A"}]}],
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "H2B"}]}]
+                        ]}],
+                        [{"t": "BulletList", "c": [
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Data A"}]}],
+                            [{"t": "Plain", "c": [{"t": "Str", "c": "Data B"}]}]
+                        ]}]
+                    ]
+                }]
+            ]
+        }]"#,
+    );
+
+    let pandoc = read_json_with_transforms(&json_input);
+
+    let Block::Table(table) = &pandoc.blocks[0] else {
+        panic!("Expected Table, got {:?}", pandoc.blocks[0]);
+    };
+    assert_eq!(table.head.rows.len(), 2, "header-rows=2 promotes two rows");
+    assert_eq!(table.bodies[0].body.len(), 1, "Remaining row stays in body");
 }
 
 /// Test that list-table with header-rows attribute works from JSON input
