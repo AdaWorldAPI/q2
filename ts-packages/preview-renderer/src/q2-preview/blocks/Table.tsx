@@ -86,15 +86,29 @@ function CellNode({
 function RowNode({
     row,
     asHeader,
+    rowClass,
     onNavigateToDocument,
 }: {
     row: Row;
     asHeader: boolean;
+    /**
+     * bd-elgxx: explicit row class — `"header"` for thead rows,
+     * `"odd"` / `"even"` alternating for body rows, `null` for tfoot.
+     * Appended after any classes carried on the AST row attr so it
+     * matches the pampa HTML writer (bd-12fpz).
+     */
+    rowClass: 'header' | 'odd' | 'even' | null;
     onNavigateToDocument?: (path: string, anchor: string | null) => void;
 }) {
     const [attr, cells] = row;
+    const props = attrToProps(attr);
+    if (rowClass) {
+        props.className = props.className
+            ? `${props.className} ${rowClass}`
+            : rowClass;
+    }
     return (
-        <tr {...attrToProps(attr)}>
+        <tr {...props}>
             {cells.map((cell, i) => (
                 <CellNode
                     key={i}
@@ -140,18 +154,24 @@ export const Table = (args: NodeArgs<TableBlock>) => {
                             key={i}
                             row={r}
                             asHeader={true}
+                            rowClass="header"
                             onNavigateToDocument={onNavigateToDocument}
                         />
                     ))}
                 </thead>
             )}
             {bodies?.map(([bodyAttr, , bodyHead, bodyRows], bi) => (
+                // bd-elgxx: body rows alternate "odd" / "even" starting
+                // at "odd" per TableBody, matching the pampa writer
+                // (bd-12fpz). bodyHead (the per-body header rows) keep
+                // class="header"; bodyRows alternate.
                 <tbody key={bi} {...attrToProps(bodyAttr)}>
                     {bodyHead.map((r, i) => (
                         <RowNode
                             key={`bh-${i}`}
                             row={r}
                             asHeader={true}
+                            rowClass="header"
                             onNavigateToDocument={onNavigateToDocument}
                         />
                     ))}
@@ -160,6 +180,7 @@ export const Table = (args: NodeArgs<TableBlock>) => {
                             key={`br-${i}`}
                             row={r}
                             asHeader={false}
+                            rowClass={i % 2 === 0 ? 'odd' : 'even'}
                             onNavigateToDocument={onNavigateToDocument}
                         />
                     ))}
@@ -172,6 +193,7 @@ export const Table = (args: NodeArgs<TableBlock>) => {
                             key={i}
                             row={r}
                             asHeader={false}
+                            rowClass={null}
                             onNavigateToDocument={onNavigateToDocument}
                         />
                     ))}
