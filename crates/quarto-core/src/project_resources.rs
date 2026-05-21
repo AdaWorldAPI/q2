@@ -158,6 +158,15 @@ fn looks_like_glob(s: &str) -> bool {
 ///   the pattern that produced it. Same origin for every match of
 ///   a single pattern.
 /// - `scope`: reused across every entry produced.
+///
+/// **Leading-`/` semantics (Quarto YAML convention, TS Quarto parity).**
+/// A pattern beginning with `/` is project-root-relative — e.g.
+/// `"/docs/foo.json"` means `<project_root>/docs/foo.json`, not the
+/// filesystem path `/docs/foo.json`. This applies to YAML
+/// `resources:` declarations in both `_quarto.yml` and document
+/// headers. It does NOT apply to engine/Lua-filter contributions,
+/// which arrive through [`resolve_reported_resources`] and use
+/// real filesystem semantics for absolute paths.
 pub fn expand_patterns(
     project_root: &Path,
     anchor: &Path,
@@ -190,8 +199,23 @@ fn expand_one(
     anchor: &Path,
     pattern: &str,
 ) -> Result<Vec<PathBuf>, ResourceError> {
-    if looks_like_glob(pattern) {
-        let combined = anchor.join(pattern);
+    // YAML convention (TS Quarto parity, bd-wlza2): a leading `/`
+    // anchors the pattern at the project root, NOT the filesystem
+    // root. Strip exactly one `/` and rebase from `project_root` so
+    // the `join` below treats the remainder as relative. The
+    // original `pattern` string is preserved for use in any error
+    // message so the user sees what they wrote.
+    //
+    // Engine/Lua-filter channels do NOT go through `expand_one`;
+    // they enter via `resolve_reported_resources` and keep
+    // absolute-path semantics intact (engines really do return
+    // filesystem-absolute paths to on-disk supporting files).
+    let (base, pat) = match pattern.strip_prefix('/') {
+        Some(rest) => (project_root, rest),
+        None => (anchor, pattern),
+    };
+    if looks_like_glob(pat) {
+        let combined = base.join(pat);
         let combined_str = combined.to_string_lossy().to_string();
         let entries = glob::glob(&combined_str).map_err(|e| ResourceError::InvalidGlob {
             pattern: pattern.to_string(),
@@ -215,7 +239,7 @@ fn expand_one(
         }
         Ok(matched)
     } else {
-        let absolute = anchor.join(pattern);
+        let absolute = base.join(pat);
         let canonical = canonicalize_within_project(project_root, &absolute, pattern)?;
         Ok(vec![canonical])
     }
@@ -730,6 +754,109 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err, ResourceError::OutOfProject { .. }));
+    }
+
+    // === Leading-slash patterns are project-root-relative ===
+    //
+    // Quarto YAML convention (matching TS Quarto): a `resources:`
+    // entry beginning with `/` is anchored at the project root,
+    // *not* the filesystem root. See bd-wlza2.
+
+    #[test]
+    fn expand_leading_slash_literal_is_project_relative() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        touch(&root.join("data/a.txt"));
+
+        let resolved = expand_patterns(
+            &root,
+            &root,
+            &["/data/a.txt".to_string()],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].output_relative, "data/a.txt");
+        assert_eq!(
+            resolved[0].source,
+            root.join("data/a.txt").canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn expand_leading_slash_glob_is_project_relative() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        touch(&root.join("data/a.csv"));
+        touch(&root.join("data/b.csv"));
+
+        let mut resolved = expand_patterns(
+            &root,
+            &root,
+            &["/data/*.csv".to_string()],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap();
+        resolved.sort_by(|a, b| a.output_relative.cmp(&b.output_relative));
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(resolved[0].output_relative, "data/a.csv");
+        assert_eq!(resolved[1].output_relative, "data/b.csv");
+    }
+
+    #[test]
+    fn expand_leading_slash_doc_pattern_anchors_to_project_root_not_doc_dir() {
+        // A doc under <root>/posts/ declares "/shared.js" — that's the
+        // project-root-relative `<root>/shared.js`, not `<root>/posts/shared.js`.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let doc_dir = root.join("posts");
+        std::fs::create_dir_all(&doc_dir).unwrap();
+        touch(&root.join("shared.js"));
+
+        let doc_source = doc_dir.join("foo.qmd");
+        let resolved = expand_patterns(
+            &root,
+            &doc_dir,
+            &["/shared.js".to_string()],
+            || ResourceOrigin::DocumentMetadata {
+                source: doc_source.clone(),
+            },
+            ResourceScope::Page {
+                source: doc_source.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].output_relative, "shared.js");
+        assert_eq!(
+            resolved[0].source,
+            root.join("shared.js").canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn engine_report_absolute_path_keeps_filesystem_absolute_semantics() {
+        // Regression guard: the leading-`/` normalization is YAML-only.
+        // Engine and Lua-filter channels still pass real on-disk
+        // absolute paths and must NOT be stripped/reinterpreted.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let doc = root.join("posts/foo.qmd");
+        std::fs::create_dir_all(doc.parent().unwrap()).unwrap();
+        let supporting = root.join("posts/foo_files/data.png");
+        touch(&supporting);
+
+        // `supporting` is filesystem-absolute (e.g. /tmp/.../posts/foo_files/data.png)
+        // — the engine channel uses it as-is.
+        let mut report = DocumentResourceReport::new();
+        report.add_engine_files("stub", &doc, [supporting.clone()]);
+
+        let resolved = resolve_reported_resources(&root, &report).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].source, supporting);
+        assert_eq!(resolved[0].output_relative, "posts/foo_files/data.png");
     }
 
     #[test]
