@@ -106,6 +106,19 @@ pub struct StageContext {
     /// holds only engine + filter contributions.
     pub resource_report: crate::project_resources::DocumentResourceReport,
 
+    /// User-resource copy intents (`(src_absolute, dest_absolute)`)
+    /// collected by AST transforms — currently
+    /// [`crate::transforms::ResourceCollectorTransform`]. Bridged
+    /// to/from the inner `RenderContext::resource_copies` by
+    /// [`crate::stage::stages::AstTransformsStage`], then drained
+    /// into the per-render [`crate::output_sink::OutputSink`] by
+    /// the outer renderer (`render_document_to_file` /
+    /// `RenderToHtmlRenderer` / `RenderToPreviewAstRenderer`).
+    ///
+    /// See bd-cfl67 for why this lives parallel to `artifacts`
+    /// rather than inside it.
+    pub resource_copies: Vec<(std::path::PathBuf, std::path::PathBuf)>,
+
     // === Observation & Control ===
     /// Observer for tracing, progress reporting, and WASM callbacks
     pub observer: Arc<dyn PipelineObserver>,
@@ -229,6 +242,7 @@ impl StageContext {
             ref_type_registry: None,
             crossref_index: None,
             resource_report: crate::project_resources::DocumentResourceReport::new(),
+            resource_copies: Vec::new(),
             project_index: None,
             resource_resolver: None,
             observer: Arc::new(NoopObserver),

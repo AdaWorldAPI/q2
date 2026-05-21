@@ -283,6 +283,25 @@ pub struct RenderContext<'a> {
     /// the per-doc render result for the orchestrator to drain.
     pub resource_report: crate::project_resources::DocumentResourceReport,
 
+    /// User-authored resource files (images, etc.) discovered in the
+    /// AST that must be copied from the source tree to the output
+    /// tree before the render is committed.
+    ///
+    /// Each entry is `(src_absolute, dest_absolute)`. The destination
+    /// is computed by the producing transform from
+    /// [`ResourceResolverContext::page_dir`] joined with the URL the
+    /// document references — so the copied file lands at the same
+    /// relative location the rendered HTML expects.
+    ///
+    /// Drained into the per-render [`crate::output_sink::OutputSink`]
+    /// by `render_document_to_file` after the pipeline finishes.
+    /// Producers (e.g.
+    /// [`crate::transforms::ResourceCollectorTransform`]) push into
+    /// this field rather than calling `runtime.file_copy` directly,
+    /// so every destructive disk write in the render flows through
+    /// the one validated sink — see bd-cfl67.
+    pub resource_copies: Vec<(PathBuf, PathBuf)>,
+
     /// Resolved listings produced by `ListingGenerateTransform` and
     /// consumed by `ListingRenderTransform`. Populated only when the
     /// host page declares a `listing:` key. Both transforms run
@@ -393,6 +412,7 @@ impl<'a> RenderContext<'a> {
             observer: Arc::new(NoopObserver),
             user_grammar_provider: None,
             resource_report: crate::project_resources::DocumentResourceReport::new(),
+            resource_copies: Vec::new(),
             resolved_listings: Vec::new(),
             code_block_decorations: std::collections::HashMap::new(),
             attribution_provider: None,

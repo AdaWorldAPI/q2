@@ -87,6 +87,11 @@ pub(super) fn flush_site_libs(
         return Ok(());
     }
 
+    // bd-cfl67: all destructive output flows through the validated
+    // sink so we can never silently truncate a file outside the
+    // resolver's declared output roots.
+    let mut sink = crate::output_sink::OutputSink::new(resolver.allowed_output_roots());
+
     let mut entries: Vec<(&str, &crate::artifact::Artifact)> = project_artifacts.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
 
@@ -95,25 +100,11 @@ pub(super) fn flush_site_libs(
             continue;
         };
         let on_disk = resolver.on_disk_path_for(crate::artifact::ArtifactScope::Project, path);
-        if let Some(parent) = on_disk.parent() {
-            runtime.dir_create(parent, true).map_err(|e| {
-                QuartoError::other(format!(
-                    "Failed to create site_libs subdirectory {}: {}",
-                    parent.display(),
-                    e
-                ))
-            })?;
-        }
-        runtime
-            .file_write(&on_disk, &artifact.content)
-            .map_err(|e| {
-                QuartoError::other(format!(
-                    "Failed to write site_libs artifact {}: {}",
-                    on_disk.display(),
-                    e
-                ))
-            })?;
+        sink.write(on_disk, artifact.content.clone())
+            .map_err(QuartoError::from)?;
     }
+
+    sink.flush(runtime).map_err(QuartoError::from)?;
     Ok(())
 }
 
