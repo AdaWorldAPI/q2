@@ -23,6 +23,8 @@ import { useState } from 'react';
 import type { Diagnostic, Pass1Failure } from '@quarto/preview-renderer/types/diagnostic';
 import { stripAnsi } from '@quarto/preview-renderer/utils/stripAnsi';
 
+import './PreviewDiagnosticsOverlay.css';
+
 export type DiagnosticsOverlaySeverity = 'error' | 'warning';
 
 export interface PreviewDiagnosticsOverlayProps {
