@@ -27,6 +27,7 @@
 
 use std::path::{Path, PathBuf};
 
+use quarto_source_map::SourceInfo;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -79,6 +80,52 @@ pub struct ResolvedResource {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Raw YAML pattern + source info (bd-c1et2)
+// ─────────────────────────────────────────────────────────────────────
+
+/// A user-declared resource pattern with the YAML source location it
+/// came from. The `source_info` is preserved through `expand_patterns`
+/// into [`ResourceError`] variants so an error can be rendered as a
+/// tidyverse-style diagnostic with an Ariadne span pointing at the
+/// offending scalar in `_quarto.yml` or in a document header.
+///
+/// Carries the same `SourceInfo` value that the originating
+/// [`quarto_pandoc_types::ConfigValue`] scalar held, with no
+/// reinterpretation — line/column resolution happens at render time
+/// against a [`quarto_source_map::SourceContext`] built from the file
+/// on disk (see [`resource_error_to_diagnostic`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RawResourcePattern {
+    /// The raw pattern as written by the user (e.g.
+    /// `"/docs/foo.json"`, `"data/*.csv"`, `"../escape"`).
+    pub pattern: String,
+    /// Source location of the YAML scalar that supplied
+    /// [`pattern`](Self::pattern). [`SourceInfo::default`] is allowed
+    /// for synthetic patterns (engine-generated, tests); diagnostics
+    /// just degrade to a span-less message in that case.
+    pub source_info: SourceInfo,
+}
+
+impl RawResourcePattern {
+    /// Construct a pattern with the given source info.
+    pub fn new(pattern: impl Into<String>, source_info: SourceInfo) -> Self {
+        Self {
+            pattern: pattern.into(),
+            source_info,
+        }
+    }
+
+    /// Construct a pattern with no source info. Use only in tests or
+    /// for synthetic patterns that have no on-disk origin.
+    pub fn without_source(pattern: impl Into<String>) -> Self {
+        Self {
+            pattern: pattern.into(),
+            source_info: SourceInfo::default(),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Errors
 // ─────────────────────────────────────────────────────────────────────
 
@@ -91,6 +138,10 @@ pub enum ResourceError {
     OutOfProject {
         pattern: String,
         project_root: PathBuf,
+        /// Where this pattern appeared in YAML; preserved so the
+        /// orchestrator can render an Ariadne-spanned diagnostic.
+        /// [`SourceInfo::default`] when the pattern was synthetic.
+        source_info: SourceInfo,
     },
 
     #[error("invalid glob pattern '{pattern}': {source}")]
@@ -98,6 +149,7 @@ pub enum ResourceError {
         pattern: String,
         #[source]
         source: glob::PatternError,
+        source_info: SourceInfo,
     },
 
     #[error("error walking glob matches for '{pattern}': {source}")]
@@ -105,7 +157,30 @@ pub enum ResourceError {
         pattern: String,
         #[source]
         source: glob::GlobError,
+        source_info: SourceInfo,
     },
+}
+
+impl ResourceError {
+    /// The source location of the YAML scalar that produced this
+    /// error, for diagnostic rendering. Returns
+    /// [`SourceInfo::default`] when the pattern was synthetic.
+    pub fn source_info(&self) -> &SourceInfo {
+        match self {
+            ResourceError::OutOfProject { source_info, .. }
+            | ResourceError::InvalidGlob { source_info, .. }
+            | ResourceError::GlobWalk { source_info, .. } => source_info,
+        }
+    }
+
+    /// The raw pattern string as the user wrote it.
+    pub fn pattern(&self) -> &str {
+        match self {
+            ResourceError::OutOfProject { pattern, .. }
+            | ResourceError::InvalidGlob { pattern, .. }
+            | ResourceError::GlobWalk { pattern, .. } => pattern,
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -113,12 +188,17 @@ pub enum ResourceError {
 // ─────────────────────────────────────────────────────────────────────
 
 /// Read a `resources:` field from a `ConfigValue`, accepting either a
-/// list of strings or a single scalar (Q1 parity). Returns the raw
-/// patterns; expansion happens later via [`expand_patterns`].
+/// list of strings or a single scalar (Q1 parity). Returns
+/// [`RawResourcePattern`]s carrying each scalar's source location;
+/// glob/path expansion happens later via [`expand_patterns`].
+///
+/// The per-entry `source_info` is the scalar's own [`SourceInfo`] —
+/// for an array form the spans point at each item, for the
+/// shorthand-scalar form the single span covers the lone string.
 pub fn extract_resource_patterns(
     meta: &quarto_pandoc_types::ConfigValue,
     key_path: &[&str],
-) -> Vec<String> {
+) -> Vec<RawResourcePattern> {
     let mut cur = meta;
     for key in key_path {
         match cur.get(key) {
@@ -127,9 +207,19 @@ pub fn extract_resource_patterns(
         }
     }
     if let Some(arr) = cur.as_array() {
-        arr.iter().filter_map(|v| v.as_plain_text()).collect()
+        arr.iter()
+            .filter_map(|v| {
+                v.as_plain_text().map(|s| RawResourcePattern {
+                    pattern: s,
+                    source_info: v.source_info.clone(),
+                })
+            })
+            .collect()
     } else if let Some(s) = cur.as_plain_text() {
-        vec![s]
+        vec![RawResourcePattern {
+            pattern: s,
+            source_info: cur.source_info.clone(),
+        }]
     } else {
         Vec::new()
     }
@@ -178,13 +268,13 @@ fn looks_like_glob(s: &str) -> bool {
 pub fn expand_patterns(
     project_root: &Path,
     anchor: &Path,
-    patterns: &[String],
+    patterns: &[RawResourcePattern],
     mut make_origin: impl FnMut() -> ResourceOrigin,
     scope: ResourceScope,
 ) -> Result<Vec<ResolvedResource>, ResourceError> {
     let mut out = Vec::new();
-    for pattern in patterns {
-        let matched = expand_one(project_root, anchor, pattern)?;
+    for raw in patterns {
+        let matched = expand_one(project_root, anchor, &raw.pattern, &raw.source_info)?;
         for source in matched {
             let rel = source
                 .strip_prefix(project_root)
@@ -206,6 +296,7 @@ fn expand_one(
     project_root: &Path,
     anchor: &Path,
     pattern: &str,
+    source_info: &SourceInfo,
 ) -> Result<Vec<PathBuf>, ResourceError> {
     // YAML convention (TS Quarto parity, bd-wlza2): a leading `/`
     // anchors the pattern at the project root, NOT the filesystem
@@ -224,7 +315,12 @@ fn expand_one(
     };
     if looks_like_glob(pat) {
         let combined = base.join(pat);
-        return expand_glob_files(project_root, &combined.to_string_lossy(), pattern);
+        return expand_glob_files(
+            project_root,
+            &combined.to_string_lossy(),
+            pattern,
+            source_info,
+        );
     }
 
     // Literal path. Resolve and project-containment-check first; then
@@ -232,10 +328,10 @@ fn expand_one(
     // a literal directory is equivalent to the recursive glob
     // `<dir>/**/*`) or a single file/missing path.
     let absolute = base.join(pat);
-    let canonical = canonicalize_within_project(project_root, &absolute, pattern)?;
+    let canonical = canonicalize_within_project(project_root, &absolute, pattern, source_info)?;
     if canonical.is_dir() {
         let dir_glob = format!("{}/**/*", canonical.display());
-        expand_glob_files(project_root, &dir_glob, pattern)
+        expand_glob_files(project_root, &dir_glob, pattern, source_info)
     } else {
         Ok(vec![canonical])
     }
@@ -245,21 +341,26 @@ fn expand_one(
 /// project-containment-check every remaining file. Shared by the
 /// glob branch of `expand_one` and the literal-directory branch
 /// (where we synthesize `<dir>/**/*`). `original_pattern` is the
-/// user-supplied YAML string, preserved for any error message.
+/// user-supplied YAML string, preserved for any error message;
+/// `source_info` is the YAML scalar's source location, propagated
+/// into any [`ResourceError`] this returns.
 fn expand_glob_files(
     project_root: &Path,
     glob_pattern: &str,
     original_pattern: &str,
+    source_info: &SourceInfo,
 ) -> Result<Vec<PathBuf>, ResourceError> {
     let entries = glob::glob(glob_pattern).map_err(|e| ResourceError::InvalidGlob {
         pattern: original_pattern.to_string(),
         source: e,
+        source_info: source_info.clone(),
     })?;
     let mut matched = Vec::new();
     for entry in entries {
         let path = entry.map_err(|e| ResourceError::GlobWalk {
             pattern: original_pattern.to_string(),
             source: e,
+            source_info: source_info.clone(),
         })?;
         // Skip directories — only files become published resources.
         // The recursive-copy intent is expressed elsewhere: either by
@@ -268,7 +369,8 @@ fn expand_glob_files(
         if path.is_dir() {
             continue;
         }
-        let canonical = canonicalize_within_project(project_root, &path, original_pattern)?;
+        let canonical =
+            canonicalize_within_project(project_root, &path, original_pattern, source_info)?;
         matched.push(canonical);
     }
     Ok(matched)
@@ -278,6 +380,7 @@ fn canonicalize_within_project(
     project_root: &Path,
     path: &Path,
     pattern: &str,
+    source_info: &SourceInfo,
 ) -> Result<PathBuf, ResourceError> {
     // Best-effort canonicalization: if the file doesn't exist yet
     // (literal-path case for a file the user just declared but hasn't
@@ -290,6 +393,7 @@ fn canonicalize_within_project(
         return Err(ResourceError::OutOfProject {
             pattern: pattern.to_string(),
             project_root: project_root.to_path_buf(),
+            source_info: source_info.clone(),
         });
     }
     Ok(canonical)
@@ -431,7 +535,10 @@ pub fn resolve_reported_resources(
         } else {
             doc_dir.join(&entry.raw_path)
         };
-        let canonical = canonicalize_within_project(project_root, &absolute, &raw_str)?;
+        // Engine/Lua-filter entries don't have a YAML source location;
+        // diagnostics degrade to a span-less message.
+        let canonical =
+            canonicalize_within_project(project_root, &absolute, &raw_str, &SourceInfo::default())?;
         let rel = canonical
             .strip_prefix(project_root)
             .expect("canonicalize_within_project verified containment")
@@ -506,6 +613,159 @@ pub fn collect_static_resources(
                 source: doc_source_abs.clone(),
             },
         )?);
+    }
+
+    Ok(out)
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Diagnostic-aware variants (bd-c1et2)
+// ─────────────────────────────────────────────────────────────────────
+
+/// Build a [`crate::error::ParseError`] from a [`ResourceError`],
+/// loading `source_file` so the resulting diagnostic can render an
+/// Ariadne snippet pointing at the offending YAML scalar.
+///
+/// The [`SourceInfo`] inside `err` already carries a [`FileId`] —
+/// the same `hash(filename)` that `quarto_yaml::parse_file` computes
+/// when it produces source-tracked YAML. We register `source_file`
+/// in a fresh [`SourceContext`] under that exact FileId so the
+/// renderer can resolve offsets back to line/column in the file's
+/// content.
+///
+/// If `source_file` cannot be read (rare; the YAML *was* read once
+/// already during parse) or the [`SourceInfo`] has no resolvable
+/// FileId (Concat / FilterProvenance), the diagnostic degrades to a
+/// span-less message — still tidyverse-shaped, still better than
+/// `Error: …` plain text.
+pub fn resource_error_to_parse_error(
+    err: ResourceError,
+    source_file: &Path,
+) -> crate::error::ParseError {
+    use quarto_error_reporting::DiagnosticMessageBuilder;
+    use quarto_source_map::{FileId, SourceContext};
+
+    let mut source_context = SourceContext::new();
+    if let Some((fid_usize, _, _)) = err.source_info().resolve_byte_range() {
+        let content = std::fs::read_to_string(source_file).ok();
+        source_context.add_file_with_id(
+            FileId(fid_usize),
+            source_file.to_string_lossy().into_owned(),
+            content,
+        );
+    }
+
+    let diagnostic = match &err {
+        ResourceError::OutOfProject {
+            pattern,
+            project_root,
+            source_info,
+        } => DiagnosticMessageBuilder::error(
+            "Resource path resolves outside the project root",
+        )
+        .with_code("Q-RSC-1")
+        .with_location(source_info.clone())
+        .problem(format!(
+            "Pattern `{}` resolves outside `{}`. Project resources must live within the project directory.",
+            pattern,
+            project_root.display()
+        ))
+        .add_info(
+            "A leading `/` is project-root-relative — e.g. `/docs/foo.json` means `<project>/docs/foo.json`. \
+             To reference files outside the project, copy them in or use `copy:` (Q1: not yet supported).",
+        )
+        .build(),
+
+        ResourceError::InvalidGlob {
+            pattern,
+            source,
+            source_info,
+        } => DiagnosticMessageBuilder::error("Invalid glob pattern in `resources:`")
+            .with_code("Q-RSC-2")
+            .with_location(source_info.clone())
+            .problem(format!("`{}` is not a valid glob: {}", pattern, source))
+            .build(),
+
+        ResourceError::GlobWalk {
+            pattern,
+            source,
+            source_info,
+        } => DiagnosticMessageBuilder::error("Failed walking glob matches for `resources:`")
+            .with_code("Q-RSC-3")
+            .with_location(source_info.clone())
+            .problem(format!("Walking `{}` failed: {}", pattern, source))
+            .build(),
+    };
+
+    crate::error::ParseError::new(vec![diagnostic], source_context)
+}
+
+/// Diagnostic-aware variant of [`collect_static_resources`]. Same
+/// result on success; on error returns a fully-rendered
+/// [`crate::error::ParseError`] with the YAML span attached.
+///
+/// Splits the project-level and per-document calls so each error can
+/// be attributed to the right source file (`_quarto.yml` vs. the
+/// declaring `.qmd`).
+pub fn collect_static_resources_with_diagnostics(
+    project: &crate::project::ProjectContext,
+    index: &crate::project::index::ProjectIndex,
+) -> Result<Vec<ResolvedResource>, crate::error::ParseError> {
+    let project_root = &project.dir;
+    let mut out = Vec::new();
+
+    // Project-level. Errors point into `_quarto.yml` (or `.yaml`).
+    let project_yaml = project
+        .config
+        .config_path
+        .clone()
+        .unwrap_or_else(|| project_root.join("_quarto.yml"));
+
+    if let Err(e) = (|| -> Result<(), ResourceError> {
+        out.extend(expand_patterns(
+            project_root,
+            project_root,
+            &project.config.resources,
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )?);
+        Ok(())
+    })() {
+        return Err(resource_error_to_parse_error(e, &project_yaml));
+    }
+
+    // Document-level. Errors point into the doc that declared the
+    // bad pattern.
+    for profile in index.profiles() {
+        if profile.resources.is_empty() {
+            continue;
+        }
+        let doc_source_abs = if profile.source_path.is_absolute() {
+            profile.source_path.clone()
+        } else {
+            project_root.join(&profile.source_path)
+        };
+        let doc_dir = doc_source_abs
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| project_root.clone());
+
+        if let Err(e) = (|| -> Result<(), ResourceError> {
+            out.extend(expand_patterns(
+                project_root,
+                &doc_dir,
+                &profile.resources,
+                || ResourceOrigin::DocumentMetadata {
+                    source: doc_source_abs.clone(),
+                },
+                ResourceScope::Page {
+                    source: doc_source_abs.clone(),
+                },
+            )?);
+            Ok(())
+        })() {
+            return Err(resource_error_to_parse_error(e, &doc_source_abs));
+        }
     }
 
     Ok(out)
@@ -697,6 +957,20 @@ mod tests {
         std::fs::write(path, b"x").unwrap();
     }
 
+    /// Test helper: build a `RawResourcePattern` with no source info.
+    /// Tests that exercise [`expand_patterns`] don't depend on source
+    /// info; tests that *do* care construct `RawResourcePattern`
+    /// directly with the relevant [`SourceInfo`].
+    fn raw(pattern: &str) -> RawResourcePattern {
+        RawResourcePattern::without_source(pattern)
+    }
+
+    /// Test helper: collect pattern strings out of an extract result,
+    /// dropping source info for value-only assertions.
+    fn just_patterns(v: &[RawResourcePattern]) -> Vec<String> {
+        v.iter().map(|r| r.pattern.clone()).collect()
+    }
+
     #[test]
     fn looks_like_glob_basic() {
         assert!(looks_like_glob("data/*.csv"));
@@ -715,7 +989,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &root,
-            &["a.txt".to_string()],
+            &[raw("a.txt")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -739,7 +1013,7 @@ mod tests {
         let mut resolved = expand_patterns(
             &root,
             &root,
-            &["data/*.csv".to_string()],
+            &[raw("data/*.csv")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -760,7 +1034,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &root,
-            &["data/*".to_string()],
+            &[raw("data/*")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -777,7 +1051,7 @@ mod tests {
         let err = expand_patterns(
             &root,
             &root,
-            &["../outside.csv".to_string()],
+            &[raw("../outside.csv")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -800,7 +1074,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &root,
-            &["/data/a.txt".to_string()],
+            &[raw("/data/a.txt")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -823,7 +1097,7 @@ mod tests {
         let mut resolved = expand_patterns(
             &root,
             &root,
-            &["/data/*.csv".to_string()],
+            &[raw("/data/*.csv")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -848,7 +1122,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &doc_dir,
-            &["/shared.js".to_string()],
+            &[raw("/shared.js")],
             || ResourceOrigin::DocumentMetadata {
                 source: doc_source.clone(),
             },
@@ -917,7 +1191,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &root,
-            &["demo".to_string()],
+            &[raw("demo")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -941,7 +1215,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &root,
-            &["demo/".to_string()],
+            &[raw("demo/")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -969,7 +1243,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &root,
-            &["/demo".to_string()],
+            &[raw("/demo")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -992,7 +1266,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &root,
-            &["demo".to_string()],
+            &[raw("demo")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -1016,7 +1290,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &root,
-            &["missing.txt".to_string()],
+            &[raw("missing.txt")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -1038,7 +1312,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &root,
-            &["a.txt".to_string()],
+            &[raw("a.txt")],
             || ResourceOrigin::ProjectMetadata,
             ResourceScope::Project,
         )
@@ -1063,7 +1337,7 @@ mod tests {
         let resolved = expand_patterns(
             &root,
             &doc_dir,
-            &["data/extra.html".to_string()],
+            &[raw("data/extra.html")],
             || ResourceOrigin::DocumentMetadata {
                 source: doc_source.clone(),
             },
@@ -1081,7 +1355,7 @@ mod tests {
         use quarto_pandoc_types::ConfigValue;
         let scalar = ConfigValue::from_path(&["resources"], "x.txt");
         assert_eq!(
-            extract_resource_patterns(&scalar, &["resources"]),
+            just_patterns(&extract_resource_patterns(&scalar, &["resources"])),
             vec!["x.txt".to_string()]
         );
     }
@@ -1091,11 +1365,194 @@ mod tests {
         use quarto_pandoc_types::ConfigValue;
         let cv = ConfigValue::from_path(&["project", "resources"], "x.txt");
         assert_eq!(
-            extract_resource_patterns(&cv, &["project", "resources"]),
+            just_patterns(&extract_resource_patterns(&cv, &["project", "resources"])),
             vec!["x.txt".to_string()]
         );
         // missing
         assert!(extract_resource_patterns(&cv, &["project", "missing"]).is_empty());
+    }
+
+    // === bd-c1et2: source_info preservation ===
+
+    fn synthetic_source_info(start: usize, end: usize) -> SourceInfo {
+        SourceInfo::Original {
+            file_id: quarto_source_map::FileId(42),
+            start_offset: start,
+            end_offset: end,
+        }
+    }
+
+    #[test]
+    fn extract_resource_patterns_preserves_source_info_per_array_item() {
+        // Given a `resources:` array of two scalars with distinct
+        // SourceInfo, extract_resource_patterns must keep each
+        // scalar's source location alongside its pattern.
+        use quarto_pandoc_types::ConfigValue;
+        use quarto_pandoc_types::config_value::ConfigMapEntry;
+
+        let si_first = synthetic_source_info(100, 110);
+        let si_second = synthetic_source_info(200, 215);
+        let array = ConfigValue::new_array(
+            vec![
+                ConfigValue::new_string("first.txt", si_first.clone()),
+                ConfigValue::new_string("second.txt", si_second.clone()),
+            ],
+            SourceInfo::default(),
+        );
+        let outer = ConfigValue::new_map(
+            vec![ConfigMapEntry {
+                key: "resources".into(),
+                key_source: SourceInfo::default(),
+                value: array,
+            }],
+            SourceInfo::default(),
+        );
+
+        let extracted = extract_resource_patterns(&outer, &["resources"]);
+        assert_eq!(extracted.len(), 2);
+        assert_eq!(extracted[0].pattern, "first.txt");
+        assert_eq!(extracted[0].source_info, si_first);
+        assert_eq!(extracted[1].pattern, "second.txt");
+        assert_eq!(extracted[1].source_info, si_second);
+    }
+
+    #[test]
+    fn extract_resource_patterns_preserves_source_info_for_scalar_shorthand() {
+        // Single-scalar shorthand: `resources: x.txt` — the scalar's
+        // own SourceInfo should be on the lone returned entry.
+        use quarto_pandoc_types::ConfigValue;
+        use quarto_pandoc_types::config_value::ConfigMapEntry;
+
+        let si = synthetic_source_info(50, 56);
+        let scalar = ConfigValue::new_string("x.txt", si.clone());
+        let outer = ConfigValue::new_map(
+            vec![ConfigMapEntry {
+                key: "resources".into(),
+                key_source: SourceInfo::default(),
+                value: scalar,
+            }],
+            SourceInfo::default(),
+        );
+
+        let extracted = extract_resource_patterns(&outer, &["resources"]);
+        assert_eq!(extracted.len(), 1);
+        assert_eq!(extracted[0].pattern, "x.txt");
+        assert_eq!(extracted[0].source_info, si);
+    }
+
+    #[test]
+    fn out_of_project_error_renders_as_diagnostic_with_yaml_span() {
+        // T3: end-to-end through the diagnostic helper. Given an
+        // out-of-project pattern with a real YAML file on disk:
+        // - the resulting ParseError carries the SourceInfo
+        // - rendered text contains the title, the Q-RSC-1 code, the
+        //   leading-`/` hint, *and* an Ariadne span showing the
+        //   exact YAML line.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let yaml_path = root.join("_quarto.yml");
+        // Hand-crafted contents so we can compute the byte offsets
+        // pointed to by the SourceInfo. The pattern lives on line 2,
+        // and spans the quoted string excluding the dash/space prefix.
+        let contents = "resources:\n  - \"../escape.csv\"\n";
+        std::fs::write(&yaml_path, contents).unwrap();
+
+        // Compute a SourceInfo for the pattern scalar. Hash the YAML
+        // filename the same way `quarto_yaml::parse_file` does so the
+        // diagnostic helper can look it up by FileId.
+        let filename = yaml_path.to_string_lossy().to_string();
+        let file_id = {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            filename.hash(&mut hasher);
+            quarto_source_map::FileId(hasher.finish() as usize)
+        };
+        let pattern_start = contents.find("\"../escape.csv\"").unwrap();
+        let pattern_end = pattern_start + "\"../escape.csv\"".len();
+        let si = SourceInfo::Original {
+            file_id,
+            start_offset: pattern_start,
+            end_offset: pattern_end,
+        };
+
+        let err = expand_patterns(
+            &root,
+            &root,
+            &[RawResourcePattern::new("../escape.csv", si.clone())],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap_err();
+
+        let parse_err = resource_error_to_parse_error(err, &yaml_path);
+        assert_eq!(parse_err.diagnostics.len(), 1);
+        let d = &parse_err.diagnostics[0];
+        assert_eq!(d.code.as_deref(), Some("Q-RSC-1"));
+        assert!(
+            d.title.as_str().contains("outside the project root"),
+            "title was: {}",
+            d.title.as_str()
+        );
+        assert_eq!(d.location.as_ref(), Some(&si));
+
+        // Render to text WITHOUT hyperlinks so the snapshot is
+        // path-independent. The Ariadne snippet should at least
+        // include the pattern text and the leading-`/` info hint.
+        let opts = quarto_error_reporting::TextRenderOptions {
+            enable_hyperlinks: false,
+        };
+        let rendered = d.to_text_with_options(Some(&parse_err.source_context), &opts);
+        assert!(
+            rendered.contains("Q-RSC-1"),
+            "rendered output missing code Q-RSC-1:\n{}",
+            rendered
+        );
+        assert!(
+            rendered.contains("../escape.csv"),
+            "rendered output missing pattern:\n{}",
+            rendered
+        );
+        assert!(
+            rendered.contains("project-root-relative"),
+            "rendered output missing leading-/ info hint:\n{}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn expand_patterns_out_of_project_error_carries_source_info() {
+        // T2: when expand_patterns rejects a pattern that escapes the
+        // project root, the resulting ResourceError carries the
+        // SourceInfo we passed in via RawResourcePattern. The
+        // orchestrator's diagnostic-rendering path reads this back.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let si = synthetic_source_info(300, 314);
+
+        let err = expand_patterns(
+            &root,
+            &root,
+            &[RawResourcePattern::new("../escape.csv", si.clone())],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap_err();
+
+        match &err {
+            ResourceError::OutOfProject {
+                pattern,
+                source_info,
+                ..
+            } => {
+                assert_eq!(pattern, "../escape.csv");
+                assert_eq!(source_info, &si);
+            }
+            other => panic!("expected OutOfProject, got {:?}", other),
+        }
+        // Accessor method also surfaces the same SourceInfo.
+        assert_eq!(err.source_info(), &si);
+        assert_eq!(err.pattern(), "../escape.csv");
     }
 
     // === DocumentResourceReport / resolve_reported_resources ===

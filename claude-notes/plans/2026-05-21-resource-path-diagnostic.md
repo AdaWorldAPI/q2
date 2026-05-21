@@ -143,22 +143,86 @@ filename doesn't leak absolute paths.
 
 ## Work Items
 
-- [ ] Define `RawResourcePattern` + thread through `ProjectConfig`,
+- [x] Define `RawResourcePattern` + thread through `ProjectConfig`,
   `DocumentProfile`, `extract_resource_patterns`, `expand_patterns`.
-- [ ] Add `source_info: SourceInfo` to `ResourceError` variants.
-- [ ] Write tests (1)–(4) above; verify they fail before the
-  rendering change.
-- [ ] Wire `ResourceError` → `DiagnosticMessage` in the orchestrator
-  (or in a `From` impl). Use `DiagnosticMessageBuilder::error` with
-  the appropriate `.with_label(source_info, "...")` and `.info(...)`.
-- [ ] Re-run tests; all pass.
-- [ ] Update the project-resources plan
-  `claude-notes/plans/2026-05-03-project-resources.md` with a
-  "diagnostics added in bd-..." note.
-- [ ] `cargo xtask verify --skip-hub-build` clean.
-- [ ] End-to-end: craft a tiny demo project with a real
-  out-of-project resource, run `q2 render`, paste the rendered
-  diagnostic into the PR description.
+- [x] Add `source_info: SourceInfo` to `ResourceError` variants
+  (`OutOfProject`, `InvalidGlob`, `GlobWalk`).
+- [x] Add `ResourceError::source_info()` and `pattern()` accessors
+  so callers don't have to match every variant by hand.
+- [x] Add `config_path: Option<PathBuf>` to `ProjectConfig` so the
+  diagnostic helper can locate the YAML file for source-context
+  loading. Populated by `parse_config`.
+- [x] Bump `DOCUMENT_PROFILE_VERSION` from 5 → 6 with a `bd-c1et2`
+  changelog note (`resources` shape changed; v5 profiles fail to
+  deserialize and the cache layer regenerates).
+- [x] Write tests T1 (extract preserves source_info per item; both
+  array and scalar shorthand), T2 (`expand_patterns` errors carry
+  the SourceInfo we passed in), T3 (full diagnostic round-trip:
+  rendered text contains code, pattern, leading-`/` hint, and the
+  Ariadne span resolves against a `SourceContext` built from a real
+  on-disk YAML file).
+- [x] Build `resource_error_to_parse_error(err, &source_file)` —
+  loads the YAML file into a `SourceContext` under the SourceInfo's
+  FileId and constructs a tidyverse-shaped `DiagnosticMessage` with
+  `.with_code("Q-RSC-…").with_location(source_info).problem(…).add_info(…)`.
+- [x] Build `collect_static_resources_with_diagnostics` that splits
+  the project-level and per-document calls so each error is
+  attributed to the right source file (`_quarto.yml` vs. the
+  declaring `.qmd`).
+- [x] Wire orchestrator to use the diagnostic-aware variant; map
+  the returned `ParseError` into `QuartoError::Parse(…)` instead of
+  `QuartoError::other(e.to_string())`.
+- [x] All quarto-core tests pass (2090 total, +4 new from this
+  issue), full `cargo xtask verify --skip-hub-build` clean.
+- [x] End-to-end demo: tiny project at `/tmp/q2-bd-c1et2-demo` with
+  an out-of-project resource entry. Rendered diagnostic captured
+  below.
+
+## End-to-end transcript (2026-05-21)
+
+`/tmp/q2-bd-c1et2-demo/_quarto.yml`:
+
+```yaml
+project:
+  type: website
+  resources:
+    - "/docs/legit.json"
+    - "../escape.csv"
+
+website:
+  title: "demo"
+```
+
+`cargo run --bin q2 -- render /tmp/q2-bd-c1et2-demo` (ANSI stripped):
+
+```
+Error: [Q-RSC-1] Resource path resolves outside the project root
+   ╭─[ /private/tmp/q2-bd-c1et2-demo/_quarto.yml:5:7 ]
+   │
+ 5 │     - "../escape.csv"
+   │       ──────┬──────
+   │             ╰──────── Pattern `../escape.csv` resolves outside
+   │                       `/private/tmp/q2-bd-c1et2-demo`. Project
+   │                       resources must live within the project
+   │                       directory.
+───╯
+ℹ A leading `/` is project-root-relative — e.g. `/docs/foo.json`
+  means `<project>/docs/foo.json`. To reference files outside the
+  project, copy them in or use `copy:` (Q1: not yet supported).
+```
+
+The Ariadne span correctly underlines `../escape.csv` on line 5
+where it appears in `_quarto.yml`. The "i" hint guides the user
+toward the leading-`/` fix from bd-wlza2 — the diagnostic and the
+earlier bug fix work as a pair.
+
+## Follow-up filed during this work
+
+- **bd-z2j7o** (discovered-from bd-c1et2, priority 3): audit the
+  codebase for `String → { String, SourceInfo }` refactors and
+  decide whether to unify them on a parametric
+  `WithSourceInfo<T>` wrapper. Worth considering as more
+  diagnostics get source-info-attached.
 
 ## Open questions
 
