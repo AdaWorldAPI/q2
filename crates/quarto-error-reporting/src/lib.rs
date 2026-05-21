@@ -58,6 +58,13 @@ pub mod catalog;
 // Phase 4: Builder API
 pub mod builder;
 
+// JSON wire shape for diagnostics, shared by wasm-quarto-hub-client
+// (WASM render bridge) and quarto-preview (server-side diagnostics
+// endpoint). Lifted from wasm-quarto-hub-client under bd-b9kzg so
+// the q2-preview SPA can consume both feeds without a translation
+// layer.
+pub mod json;
+
 // Macros for convenient error creation
 pub mod macros;
 
@@ -66,4 +73,7 @@ pub use builder::DiagnosticMessageBuilder;
 pub use catalog::{ERROR_CATALOG, ErrorCodeInfo, get_docs_url, get_error_info, get_subsystem};
 pub use diagnostic::{
     DetailItem, DetailKind, DiagnosticKind, DiagnosticMessage, MessageContent, TextRenderOptions,
+};
+pub use json::{
+    JsonDiagnostic, JsonDiagnosticDetail, JsonPass1Failure, diagnostic_to_json, with_source_file,
 };

@@ -30,6 +30,7 @@ use axum::{
 };
 use quarto_core::engine::EngineRegistry;
 use quarto_core::project::ProjectContext;
+use quarto_error_reporting::DiagnosticMessageBuilder;
 use quarto_hub::HubContext;
 use quarto_hub::context::SharedContext;
 use quarto_hub::index::{CaptureRef, CaptureState};
@@ -40,6 +41,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::record_capture_cached;
 use crate::capture_driver::CAPTURE_MIME_TYPE;
+use crate::diagnostics;
 
 /// Process-wide set of paths currently being re-executed. Used to
 /// detect concurrent POSTs for the same path (→ 409). Lazy because
@@ -260,7 +262,23 @@ fn claim_and_spawn(
                     .index()
                     .set_capture(&rel_path_for_task, &errored);
             }
-            tracing::warn!(rel_path = %rel_path_for_task, error = %msg, "re-execute failed");
+            // bd-b9kzg: emit a structured diagnostic to the sink so
+            // the SPA's diagnostics overlay can render the failure
+            // alongside other page-scoped issues. The existing
+            // `CaptureRef.last_error` write above continues to feed
+            // the StaleCaptureOverlay (Phase C.5) — both surfaces
+            // see engine errors today.
+            if let Some(sink) = diagnostics::current_sink() {
+                sink.emit(
+                    &rel_path_for_task,
+                    DiagnosticMessageBuilder::warning("Engine re-execute failed")
+                        .with_code("Q-PREVIEW-RE-1")
+                        .problem(msg.clone())
+                        .build(),
+                );
+            } else {
+                tracing::warn!(rel_path = %rel_path_for_task, error = %msg, "re-execute failed");
+            }
         }
     });
 

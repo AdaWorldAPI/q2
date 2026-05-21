@@ -27,6 +27,7 @@ pub mod cache;
 pub mod capture_driver;
 pub mod config;
 pub mod deps;
+pub mod diagnostics;
 pub mod re_execute;
 
 pub use config::EnginePolicy;
@@ -124,6 +125,14 @@ where
             .clone()
             .unwrap_or_else(|| config.data_dir.join("captures")),
     );
+
+    // bd-b9kzg: initialize the per-server diagnostic sink so the
+    // HTTP handler (`/api/preview/diagnostics`) and migrating
+    // callsites (capture_driver, deps, re_execute) share one
+    // page-keyed store. Same first-writer-wins OnceLock pattern;
+    // tests inject pre-built sinks by setting SINK before calling
+    // run_with_on_ready.
+    diagnostics::set_sink(std::sync::Arc::new(diagnostics::DiagnosticSink::new()));
 
     let storage = build_storage(&config).context("building storage manager")?;
     let hub_config = build_hub_config(&config);
@@ -290,6 +299,14 @@ pub fn extend_with_preview(
         // include-shortcode dep set here so it can filter unrelated
         // sibling edits out of `onFileContent`-driven re-renders.
         .route("/api/preview/deps", get(deps::deps_handler))
+        // bd-b9kzg: SPA fetches accumulated server-side diagnostics
+        // (capture-driver / deps-parse / re-execute failures) per
+        // page. Merged with the WASM render's own `result.warnings`
+        // in the overlay.
+        .route(
+            "/api/preview/diagnostics",
+            get(diagnostics::diagnostics_handler),
+        )
         .fallback(spa_handler)
 }
 

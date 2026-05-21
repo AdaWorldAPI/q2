@@ -831,3 +831,292 @@ describe('PreviewApp boot path', () => {
     });
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// bd-b9kzg: render diagnostics surface (Phase D.4 follow-up)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// These tests pin the contract for the new PreviewDiagnosticsOverlay
+// wiring (Phase 6): structured `diagnostics` / `warnings` /
+// `pass1_failures` from the WASM render flow into the overlay, the
+// `serverDiagnostics` lane is fed from `GET /api/preview/diagnostics`,
+// and warnings on an otherwise-successful render surface a collapsed
+// indicator rather than getting silently dropped.
+
+describe('PreviewApp diagnostics surface (bd-b9kzg)', () => {
+  // Extend the boot beforeEach fetch mock with a /api/preview/diagnostics
+  // route — defaults to an empty list. Individual tests override per-need.
+  let serverDiagnosticsFixture: unknown[] = [];
+
+  beforeEach(async () => {
+    serverDiagnosticsFixture = [];
+
+    // Reset the renderPageForPreview mock to its default behaviour
+    // (read from `runtimeMockState.renderResult`). The outer
+    // beforeEach's `vi.clearAllMocks()` only resets call history,
+    // not implementations — so a previous test's `mockImplementation`
+    // (used to give different results on first vs second call)
+    // would otherwise leak into the next test. Each test in this
+    // block can set its own `runtimeMockState.renderResult` and
+    // get the expected behaviour.
+    const runtime = await import('@quarto/preview-runtime');
+    (runtime.renderPageForPreview as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_path: string, _grammars?: unknown, _capture?: Uint8Array) =>
+        runtimeMockState.renderResult,
+    );
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) {
+          return new Response(
+            JSON.stringify({
+              status: 'ok',
+              index_document_id: 'automerge:test-index-doc',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (url.includes('/api/preview/diagnostics')) {
+          return new Response(
+            JSON.stringify({ diagnostics: serverDiagnosticsFixture }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (url.includes('/api/preview/deps')) {
+          return new Response(JSON.stringify({ deps: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+  });
+
+  function synthDiagnostic(title: string, code?: string) {
+    return {
+      kind: 'warning',
+      title,
+      code,
+      hints: [],
+      details: [],
+    };
+  }
+
+  it('surfaces structured warnings from a successful render via the diagnostics overlay', async () => {
+    runtimeMockState.files = [{ path: 'index.qmd', docId: 'automerge:i' }];
+    runtimeMockState.renderResult = {
+      success: true,
+      ast_json: '{"blocks":[]}',
+      warnings: [
+        synthDiagnostic('Body link references missing document', 'Q-13-4'),
+      ],
+    };
+
+    render(<PreviewApp />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+    });
+
+    // A successful render with warnings should surface the overlay
+    // in collapsed warnings-mode — the iframe stays mounted, the
+    // overlay is a non-intrusive indicator the user can expand.
+    await waitFor(() => {
+      expect(screen.queryByText(/warning/i)).not.toBeNull();
+    });
+    // And the iframe stays mounted — warnings don't take the user
+    // back to "Initializing…".
+    expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+  });
+
+  it('forwards structured diagnostics + pass1_failures to the overlay on failure', async () => {
+    runtimeMockState.files = [{ path: 'index.qmd', docId: 'automerge:i' }];
+
+    const runtime = await import('@quarto/preview-runtime');
+    let renderCallCount = 0;
+    (runtime.renderPageForPreview as ReturnType<typeof vi.fn>).mockImplementation(
+      async () => {
+        renderCallCount += 1;
+        if (renderCallCount === 1) {
+          return { success: true, ast_json: '{"blocks":[]}' };
+        }
+        return {
+          success: false,
+          error: 'render failed',
+          diagnostics: [synthDiagnostic('Parse error in active page')],
+          pass1_failures: [
+            {
+              source_file: 'sibling.qmd',
+              error: 'sibling parse error',
+              diagnostics: [synthDiagnostic('Sibling parse problem')],
+            },
+          ],
+        };
+      },
+    );
+
+    render(<PreviewApp />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+    });
+
+    const setHandlersCalls = (
+      runtime.setSyncHandlers as ReturnType<typeof vi.fn>
+    ).mock.calls;
+    const lastHandlers = setHandlersCalls[setHandlersCalls.length - 1][0] as {
+      onFileContent: (path: string, content: string) => void;
+    };
+
+    // Trigger the second (failing) render.
+    lastHandlers.onFileContent('index.qmd', 'busted');
+
+    // The overlay defaults to collapsed (Decision 2) — wait for
+    // the indicator to appear, click it to expand, then assert
+    // the structured content.
+    await waitFor(() => {
+      expect(screen.queryByText(/^error$/i)).not.toBeNull();
+    });
+    fireEvent.click(screen.getByText(/^error$/i));
+
+    // Both the active-page diagnostic and the sibling pass1 failure
+    // should reach the overlay's structured props (rendered as
+    // visible text in expanded mode).
+    await waitFor(() => {
+      expect(screen.queryByText(/Parse error in active page/)).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/Sibling parse problem/)).not.toBeNull();
+    });
+  });
+
+  it('clears the warnings overlay when the next render is clean', async () => {
+    runtimeMockState.files = [{ path: 'index.qmd', docId: 'automerge:i' }];
+
+    const runtime = await import('@quarto/preview-runtime');
+    let renderCallCount = 0;
+    (runtime.renderPageForPreview as ReturnType<typeof vi.fn>).mockImplementation(
+      async () => {
+        renderCallCount += 1;
+        if (renderCallCount === 1) {
+          return {
+            success: true,
+            ast_json: '{"blocks":[]}',
+            warnings: [synthDiagnostic('Transient warning')],
+          };
+        }
+        // Second render: clean.
+        return { success: true, ast_json: '{"blocks":[]}' };
+      },
+    );
+
+    render(<PreviewApp />);
+    await waitFor(() => {
+      expect(screen.queryByText(/warning/i)).not.toBeNull();
+    });
+
+    // Trigger the clean re-render.
+    const setHandlersCalls = (
+      runtime.setSyncHandlers as ReturnType<typeof vi.fn>
+    ).mock.calls;
+    const lastHandlers = setHandlersCalls[setHandlersCalls.length - 1][0] as {
+      onFileContent: (path: string, content: string) => void;
+    };
+    lastHandlers.onFileContent('index.qmd', 'clean content');
+
+    // The overlay's warnings indicator should clear on the
+    // successful re-render. Look for the collapsed-mode "warning"
+    // label specifically; substrings of larger blocks of body
+    // text could match — anchor on the affordance text.
+    await waitFor(() => {
+      expect(screen.queryByText(/^warning$/i)).toBeNull();
+    });
+  });
+
+  it('shows the overlay in terminal mode with structured diagnostics on first-render failure', async () => {
+    runtimeMockState.files = [{ path: 'index.qmd', docId: 'automerge:i' }];
+    runtimeMockState.renderResult = {
+      success: false,
+      error: 'first render failed',
+      diagnostics: [synthDiagnostic('First-render diagnostic', 'Q-FIRST-1')],
+    };
+
+    render(<PreviewApp />);
+
+    // No iframe should mount (no good ast_json to fall back on),
+    // and the structured diagnostic should reach the overlay.
+    await waitFor(() => {
+      expect(screen.queryByText(/First-render diagnostic/)).not.toBeNull();
+    });
+    expect(screen.queryByTestId('q2-preview-iframe-mock')).toBeNull();
+  });
+
+  it('fetches /api/preview/diagnostics and shows server-side diagnostics in the overlay', async () => {
+    runtimeMockState.files = [{ path: 'index.qmd', docId: 'automerge:i' }];
+    runtimeMockState.renderResult = { success: true, ast_json: '{"blocks":[]}' };
+
+    serverDiagnosticsFixture = [
+      {
+        kind: 'warning',
+        title: 'Eager capture failed',
+        code: 'Q-CAP-1',
+        hints: [],
+        details: [],
+      },
+    ];
+
+    render(<PreviewApp />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+    });
+
+    // The overlay defaults to collapsed (Decision 2). Wait for the
+    // warning indicator, click to expand, then assert the
+    // server-side diagnostic title shows up — the server-only
+    // case populates the `serverDiagnostics` lane even with an
+    // otherwise-successful render.
+    await waitFor(() => {
+      expect(screen.queryByText(/^warning$/i)).not.toBeNull();
+    });
+    fireEvent.click(screen.getByText(/^warning$/i));
+    await waitFor(() => {
+      expect(screen.queryByText(/Eager capture failed/)).not.toBeNull();
+    });
+  });
+
+  it('shows both server-side and WASM diagnostics together when both are present', async () => {
+    runtimeMockState.files = [{ path: 'index.qmd', docId: 'automerge:i' }];
+    runtimeMockState.renderResult = {
+      success: true,
+      ast_json: '{"blocks":[]}',
+      warnings: [synthDiagnostic('WASM-side warning', 'Q-13-4')],
+    };
+    serverDiagnosticsFixture = [
+      {
+        kind: 'warning',
+        title: 'Server-side warning',
+        code: 'Q-CAP-1',
+        hints: [],
+        details: [],
+      },
+    ];
+
+    render(<PreviewApp />);
+    // Wait for the warning indicator (collapsed mode is default
+    // per Decision 2), then click to expand. Both lanes — WASM
+    // warnings (rendered alongside `error.diagnostics`) and
+    // serverDiagnostics (its own visual group) — should be
+    // visible together once expanded.
+    await waitFor(() => {
+      expect(screen.queryByText(/^warning$/i)).not.toBeNull();
+    });
+    fireEvent.click(screen.getByText(/^warning$/i));
+    await waitFor(() => {
+      expect(screen.queryByText(/WASM-side warning/)).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/Server-side warning/)).not.toBeNull();
+    });
+  });
+});

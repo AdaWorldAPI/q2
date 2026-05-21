@@ -46,10 +46,11 @@ import {
   getBinaryDocById,
 } from '@quarto/preview-runtime';
 import { Q2PreviewIframe } from '@quarto/preview-renderer/iframe/Q2PreviewIframe';
-import { PreviewErrorOverlay } from '@quarto/preview-renderer/overlays/PreviewErrorOverlay';
 import { extractMetaString } from '@quarto/preview-renderer/framework';
+import type { Diagnostic, Pass1Failure } from '@quarto/preview-renderer/types/diagnostic';
 import type { CaptureRef, FileEntry } from '@quarto/quarto-automerge-schema';
 import { ForceRefreshButton } from './components/ForceRefreshButton';
+import { PreviewDiagnosticsOverlay } from './components/PreviewDiagnosticsOverlay';
 import { StaleCaptureOverlay } from './components/StaleCaptureOverlay';
 import { pickInitialPage } from './pickInitialPage';
 
@@ -135,14 +136,31 @@ interface PreviewAppState {
    */
   error: Error | null;
   /**
-   * Phase D.4 (bd-kw93.10): render-pipeline failure (WASM
-   * `renderPageForPreview` threw, or `result.success === false`).
-   * Render errors are *non-terminal*: the iframe keeps showing the
-   * last good `astJson` and `<PreviewErrorOverlay>` is overlaid on
-   * top so the user can see what broke without losing the prior
-   * render's context. A subsequent successful render clears this.
+   * Render-pipeline status (bd-b9kzg, extends Phase D.4 /
+   * bd-kw93.10). Carries both failures *and* warnings emitted by
+   * the WASM render: a successful render with warnings populates
+   * `warnings` (and leaves `failure` null), a failed render
+   * populates `failure` plus whatever structured diagnostics the
+   * render returned. The overlay surfaces are derived from this
+   * shape in the render block below.
+   *
+   * Render *failures* are non-terminal: the iframe keeps showing
+   * the last good `astJson` and the overlay is overlaid on top so
+   * the user can see what broke without losing the prior render's
+   * context. A subsequent successful render replaces this with a
+   * clean status (or warnings-only if the new render had any).
    */
-  renderError: Error | null;
+  render: RenderStatus;
+  /**
+   * Server-side diagnostics for the active page, fetched from
+   * `GET /api/preview/diagnostics?page=<rel>` (bd-b9kzg). Sourced
+   * from the per-server `DiagnosticSink` populated by the three
+   * Phase 3 callsite migrations (`capture_driver`, `deps`,
+   * `re_execute`). Distinct from the WASM render's own
+   * `result.warnings` so the overlay can render them in their own
+   * visual lane (the user knows where each diagnostic came from).
+   */
+  serverDiagnostics: Diagnostic[];
   /** Bumps on every onFileContent callback so the render effect re-fires. */
   contentTick: number;
   /**
@@ -155,6 +173,30 @@ interface PreviewAppState {
   captures: Record<string, CaptureRef>;
 }
 
+/**
+ * Render-pipeline status. The four fields cleanly cover the three
+ * outcomes a render can have:
+ *   - **Success, clean** → `failure: null`, all arrays empty.
+ *   - **Success with warnings** → `failure: null`, `warnings`
+ *     populated, possibly `pass1Failures` too.
+ *   - **Failure** → `failure: { message }`, plus whatever
+ *     structured `diagnostics` / `warnings` / `pass1Failures` the
+ *     render returned.
+ */
+interface RenderStatus {
+  failure: { message: string } | null;
+  diagnostics: Diagnostic[];
+  warnings: Diagnostic[];
+  pass1Failures: Pass1Failure[];
+}
+
+const EMPTY_RENDER_STATUS: RenderStatus = {
+  failure: null,
+  diagnostics: [],
+  warnings: [],
+  pass1Failures: [],
+};
+
 const INITIAL_STATE: PreviewAppState = {
   boot: 'loading',
   files: [],
@@ -165,7 +207,8 @@ const INITIAL_STATE: PreviewAppState = {
   themeFingerprint: undefined,
   deps: null,
   error: null,
-  renderError: null,
+  render: EMPTY_RENDER_STATUS,
+  serverDiagnostics: [],
   contentTick: 0,
   captures: {},
 };
@@ -196,6 +239,78 @@ function shouldRerenderForTextChange(
   if (!changedPath.toLowerCase().endsWith('.qmd')) return true;
   if (deps === null) return true;
   return deps.has(changedPath);
+}
+
+/**
+ * Shape the structured render status + server-diagnostics feed
+ * into props for `<PreviewDiagnosticsOverlay>` (bd-b9kzg).
+ *
+ * Visibility: shows whenever ANY feed has content (a failure, WASM
+ * diagnostics, WASM warnings, sibling pass-1 failures, or
+ * server-side diagnostics) — otherwise the overlay is hidden.
+ *
+ * Severity: "error" when the render carries an actual failure or
+ * structured `diagnostics` (which the WASM only emits on failure);
+ * "warning" for everything else (warnings-only, pass-1-only,
+ * server-only).
+ *
+ * Error payload: when there's a failure or structured diagnostics,
+ * builds the `{ message, diagnostics, pass1Failures }` shape the
+ * overlay expects, merging `warnings` into the `diagnostics` array
+ * so they render together. For warnings-only renders, builds a
+ * payload with an empty message and warnings as the diagnostics
+ * list. For server-only (no WASM-side content), returns `null` for
+ * `error` — the overlay handles the server-only case via its
+ * `serverDiagnostics` prop.
+ */
+export function computeOverlayInputs(
+  render: RenderStatus,
+  serverDiagnostics: Diagnostic[],
+): {
+  visible: boolean;
+  severity: 'error' | 'warning';
+  error: {
+    message: string;
+    diagnostics?: Diagnostic[];
+    pass1Failures?: Pass1Failure[];
+  } | null;
+} {
+  const hasFailure = render.failure !== null;
+  const hasDiagnostics = render.diagnostics.length > 0;
+  const hasWarnings = render.warnings.length > 0;
+  const hasPass1Failures = render.pass1Failures.length > 0;
+  const hasServerDiagnostics = serverDiagnostics.length > 0;
+
+  const visible =
+    hasFailure ||
+    hasDiagnostics ||
+    hasWarnings ||
+    hasPass1Failures ||
+    hasServerDiagnostics;
+  if (!visible) {
+    return { visible: false, severity: 'warning', error: null };
+  }
+
+  const severity: 'error' | 'warning' =
+    hasFailure || hasDiagnostics ? 'error' : 'warning';
+
+  // Server-only (no WASM-side payload at all) — return error=null
+  // and rely on the overlay's serverDiagnostics-only render path.
+  const hasWasmSidePayload =
+    hasFailure || hasDiagnostics || hasWarnings || hasPass1Failures;
+  if (!hasWasmSidePayload) {
+    return { visible: true, severity, error: null };
+  }
+
+  return {
+    visible: true,
+    severity,
+    error: {
+      message: render.failure?.message ?? '',
+      diagnostics: [...render.diagnostics, ...render.warnings],
+      pass1Failures: render.pass1Failures,
+    },
+  };
 }
 
 /**
@@ -479,6 +594,48 @@ export default function PreviewApp() {
     };
   }, [state.activeFile, state.contentTick]);
 
+  // bd-b9kzg: fetch the server-side diagnostic list for the
+  // active page. Same trigger as the dep fetch above (activeFile
+  // change + every contentTick bump) so a fresh diagnostic from
+  // the capture driver / re_execute / deps path becomes visible
+  // shortly after the file change that produced it. Fail-open:
+  // a fetch failure leaves `serverDiagnostics` at its prior
+  // value with a console warning — losing visibility on a
+  // diagnostic is annoying, but blocking the render on a
+  // transient network blip would be worse.
+  useEffect(() => {
+    if (!state.activeFile) return;
+    let cancelled = false;
+    const activePath = state.activeFile;
+    void (async () => {
+      try {
+        const resp = await fetch(
+          `/api/preview/diagnostics?page=${encodeURIComponent(activePath)}`,
+        );
+        if (cancelled) return;
+        if (!resp.ok) {
+          console.warn(
+            `diagnostics fetch returned ${resp.status} for ${activePath}; leaving prior list in place`,
+          );
+          return;
+        }
+        const body = (await resp.json()) as { diagnostics?: Diagnostic[] };
+        if (cancelled) return;
+        const list = body.diagnostics ?? [];
+        setState((s) =>
+          s.activeFile === activePath ? { ...s, serverDiagnostics: list } : s,
+        );
+      } catch (e) {
+        console.warn(
+          `diagnostics fetch threw for ${activePath}: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [state.activeFile, state.contentTick]);
+
   // Render the active page whenever it (or its content) changes.
   useEffect(() => {
     if (!state.activeFile) return;
@@ -523,13 +680,21 @@ export default function PreviewApp() {
           // render-failure branch below leaves the value untouched so
           // last-good styling survives transient errors.
           //
-          // Phase D.4 (bd-kw93.10): a successful render also clears
-          // `renderError` so the previous overlay (if any) goes away.
+          // bd-b9kzg: a successful render still carries `warnings` and
+          // `pass1_failures` — the overlay surfaces these even on
+          // success, in warning mode. `failure` and `diagnostics`
+          // (which only appear on failures) are cleared so the
+          // previous failure overlay (if any) goes away.
           setState((s) => ({
             ...s,
             astJson: result.ast_json ?? null,
             themeFingerprint: result.theme_fingerprint ?? null,
-            renderError: null,
+            render: {
+              failure: null,
+              diagnostics: [],
+              warnings: result.warnings ?? [],
+              pass1Failures: result.pass1_failures ?? [],
+            },
           }));
         } else {
           // Log the full result so we can diagnose surprises in the
@@ -538,17 +703,26 @@ export default function PreviewApp() {
             path: state.activeFile,
             result,
           });
-          // Phase D.4: route into the non-terminal `renderError`
-          // slot. We deliberately do NOT touch `boot` or `astJson` —
-          // the iframe keeps showing the last-good render underneath
-          // and the overlay surfaces the failure on top. Distinct
-          // from boot errors, which DO replace the UI (no good
-          // render exists to fall back to).
+          // bd-b9kzg: route into the non-terminal `render.failure`
+          // slot AND thread the structured diagnostics through. We
+          // deliberately do NOT touch `boot` or `astJson` — the iframe
+          // keeps showing the last-good render underneath and the
+          // overlay surfaces the failure (plus its diagnostics +
+          // sibling pass-1 failures) on top. Distinct from boot
+          // errors, which DO replace the UI (no good render exists
+          // to fall back to).
           setState((s) => ({
             ...s,
-            renderError: new Error(
-              result.error ?? `renderPageInProject failed: ${JSON.stringify(result)}`,
-            ),
+            render: {
+              failure: {
+                message:
+                  result.error ??
+                  `renderPageInProject failed: ${JSON.stringify(result)}`,
+              },
+              diagnostics: result.diagnostics ?? [],
+              warnings: result.warnings ?? [],
+              pass1Failures: result.pass1_failures ?? [],
+            },
           }));
         }
       } catch (err) {
@@ -563,9 +737,18 @@ export default function PreviewApp() {
         // Same non-terminal treatment as the non-success branch
         // above. A render that throws (e.g. malformed qmd hits the
         // WASM parser) overlays on top of the previous good render.
+        // The structured diagnostics arrays are empty here because
+        // we never got a `RenderResponse` to read them from — only
+        // the thrown error's message is available.
+        const message = err instanceof Error ? err.message : String(err);
         setState((s) => ({
           ...s,
-          renderError: err instanceof Error ? err : new Error(String(err)),
+          render: {
+            failure: { message },
+            diagnostics: [],
+            warnings: [],
+            pass1Failures: [],
+          },
         }));
       }
     })();
@@ -594,26 +777,37 @@ export default function PreviewApp() {
 
   // ── Render ────────────────────────────────────────────────────────────
 
+  // bd-b9kzg: derive overlay inputs from the structured render
+  // status + server-diagnostics feed. Both feeds share the same
+  // overlay; the overlay decides how to lay them out via `severity`
+  // and `serverDiagnostics` props.
+  const overlayInputs = computeOverlayInputs(state.render, state.serverDiagnostics);
+
   if (state.boot === 'error' && state.error) {
     return (
-      <PreviewErrorOverlay
+      <PreviewDiagnosticsOverlay
         error={{ message: state.error.message }}
         visible
         collapsed={false}
+        severity="error"
       />
     );
   }
 
-  // Phase D.4 (bd-kw93.10): if the *first* render failed (no good
-  // astJson exists to fall back to), show the overlay terminal-style.
-  // Subsequent failures with a prior good astJson take the
-  // overlay-on-top branch further down.
-  if (state.astJson === null && state.renderError) {
+  // bd-b9kzg (extends Phase D.4 / bd-kw93.10): if the *first*
+  // render failed (no good astJson exists to fall back to), show
+  // the overlay terminal-style. Subsequent failures with a prior
+  // good astJson take the overlay-on-top branch further down. The
+  // structured diagnostics + pass1Failures + serverDiagnostics
+  // flow through too — the user sees the full picture.
+  if (state.astJson === null && state.render.failure) {
     return (
-      <PreviewErrorOverlay
-        error={{ message: state.renderError.message }}
+      <PreviewDiagnosticsOverlay
+        error={overlayInputs.error}
         visible
         collapsed={false}
+        severity={overlayInputs.severity}
+        serverDiagnostics={state.serverDiagnostics}
       />
     );
   }
@@ -671,14 +865,22 @@ export default function PreviewApp() {
           lastError={activeCapture?.lastError}
         />
       )}
-      {/* Phase D.4 (bd-kw93.10): non-terminal render-error overlay.
-          Shown collapsed so it doesn't hide the last-good render the
-          user is looking at; click "Error" to expand for details. */}
-      {state.renderError && (
-        <PreviewErrorOverlay
-          error={{ message: state.renderError.message }}
+      {/* bd-b9kzg (extends Phase D.4): non-terminal diagnostics
+          overlay. The overlay defaults to its own internal
+          collapsed state (true) when the `collapsed` prop is
+          omitted — this lets the user click the indicator to
+          expand/collapse without PreviewApp having to thread a
+          piece of UI state through. Decision 2: collapsed by
+          default keeps the surface quiet so warnings don't
+          disrupt the rendered preview. Surfaces three feeds
+          (failure + WASM diagnostics, WASM warnings, server-side
+          sink). */}
+      {overlayInputs.visible && (
+        <PreviewDiagnosticsOverlay
+          error={overlayInputs.error}
           visible
-          collapsed
+          severity={overlayInputs.severity}
+          serverDiagnostics={state.serverDiagnostics}
         />
       )}
       <ForceRefreshButton onRefresh={handleRefresh} />

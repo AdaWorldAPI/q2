@@ -34,7 +34,9 @@ use quarto_core::{
     QuartoError, RenderContext, RenderOptions, ResourceResolverContext, render_qmd_to_html,
     render_qmd_to_preview_ast,
 };
-use quarto_error_reporting::{DiagnosticKind, DiagnosticMessage};
+use quarto_error_reporting::{
+    DiagnosticMessage, JsonDiagnostic, JsonPass1Failure, diagnostic_to_json, with_source_file,
+};
 use quarto_pandoc_types::ConfigValue;
 use quarto_sass::{
     BOOTSTRAP_RESOURCES, RESOURCE_PATH_PREFIX, ThemeConfig, ThemeContext, compile_theme_css,
@@ -531,202 +533,13 @@ pub fn vfs_read_binary_file(path: &str) -> String {
 // ============================================================================
 // DIAGNOSTIC TYPES FOR JSON TRANSPORT
 // ============================================================================
-
-/// A diagnostic detail item for JSON serialization.
-#[derive(Serialize)]
-struct JsonDiagnosticDetail {
-    kind: String,
-    content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    start_line: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    start_column: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    end_line: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    end_column: Option<u32>,
-}
-
-/// A diagnostic message for JSON serialization.
-///
-/// This struct is designed for transport to the TypeScript/Monaco layer.
-/// Line and column numbers are 1-based to match Monaco's expectations.
-#[derive(Serialize)]
-struct JsonDiagnostic {
-    kind: String,
-    title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    problem: Option<String>,
-    hints: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    start_line: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    start_column: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    end_line: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    end_column: Option<u32>,
-    /// Source-file attribution for project-scoped diagnostics
-    /// (bd-rqba). When the project pipeline emits a warning that
-    /// originates in *another* file (e.g., a sidebar entry that
-    /// references a sibling page), this field carries that
-    /// sibling's path so the in-app overlay can label the warning
-    /// with its source instead of free-floating text. `None` for
-    /// page-local diagnostics whose location already pins them
-    /// to the active page's source.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source_file: Option<String>,
-    details: Vec<JsonDiagnosticDetail>,
-}
-
-/// A Pass-1 failure (parse error or metadata error) in a project
-/// file *other than* the active page (bd-rqba). Active-page
-/// failures take the page-render error path; siblings flow through
-/// here so the overlay can render them with source attribution
-/// without forcing the lenient preview to abort.
-///
-/// Strict-vs-lenient policy lives at the consumer (Decision D1):
-/// `quarto preview` / hub-client surfaces these as warnings and
-/// keeps rendering; `quarto render` (CLI) treats any non-empty
-/// `pass1_failures` as a non-zero exit (`bd-creo`).
-#[derive(Serialize)]
-struct JsonPass1Failure {
-    /// Path of the failing file, lossy-stringified.
-    source_file: String,
-    /// User-facing error string (may include the rendered
-    /// ariadne snippet for parse errors).
-    error: String,
-    /// Structured diagnostics for Monaco markers + the in-app
-    /// overlay. Empty for non-`Parse` errors (`Io`, `Other`, …).
-    diagnostics: Vec<JsonDiagnostic>,
-}
-
-/// Convert a DiagnosticMessage to a JsonDiagnostic.
-///
-/// Uses the SourceContext to map byte offsets to 1-based line/column numbers.
-fn diagnostic_to_json(diag: &DiagnosticMessage, ctx: &SourceContext) -> JsonDiagnostic {
-    // Map the main location
-    let (start_line, start_column, end_line, end_column) = if let Some(loc) = &diag.location {
-        // Map start position (offset 0 relative to this SourceInfo)
-        let start = loc.map_offset(0, ctx);
-        // Map end position (offset = length of span)
-        let end = loc
-            .map_offset(loc.length(), ctx)
-            .or_else(|| {
-                // Fallback: if end mapping fails, try length-1
-                if loc.length() > 0 {
-                    loc.map_offset(loc.length() - 1, ctx)
-                } else {
-                    None
-                }
-            })
-            .or_else(|| start.clone());
-
-        match (start, end) {
-            (Some(s), Some(e)) => (
-                Some((s.location.row + 1) as u32),    // 1-based line
-                Some((s.location.column + 1) as u32), // 1-based column
-                Some((e.location.row + 1) as u32),
-                Some((e.location.column + 1) as u32),
-            ),
-            (Some(s), None) => (
-                Some((s.location.row + 1) as u32),
-                Some((s.location.column + 1) as u32),
-                None,
-                None,
-            ),
-            _ => (None, None, None, None),
-        }
-    } else {
-        (None, None, None, None)
-    };
-
-    // Convert details
-    let details: Vec<JsonDiagnosticDetail> = diag
-        .details
-        .iter()
-        .map(|detail| {
-            let (d_start_line, d_start_col, d_end_line, d_end_col) =
-                if let Some(loc) = &detail.location {
-                    let start = loc.map_offset(0, ctx);
-                    let end = loc.map_offset(loc.length(), ctx).or_else(|| start.clone());
-
-                    match (start, end) {
-                        (Some(s), Some(e)) => (
-                            Some((s.location.row + 1) as u32),
-                            Some((s.location.column + 1) as u32),
-                            Some((e.location.row + 1) as u32),
-                            Some((e.location.column + 1) as u32),
-                        ),
-                        (Some(s), None) => (
-                            Some((s.location.row + 1) as u32),
-                            Some((s.location.column + 1) as u32),
-                            None,
-                            None,
-                        ),
-                        _ => (None, None, None, None),
-                    }
-                } else {
-                    (None, None, None, None)
-                };
-
-            let kind_str = match detail.kind {
-                quarto_error_reporting::DetailKind::Error => "error",
-                quarto_error_reporting::DetailKind::Info => "info",
-                quarto_error_reporting::DetailKind::Note
-                | quarto_error_reporting::DetailKind::Faded => "note",
-            };
-
-            JsonDiagnosticDetail {
-                kind: kind_str.to_string(),
-                content: detail.content.as_str().to_string(),
-                start_line: d_start_line,
-                start_column: d_start_col,
-                end_line: d_end_line,
-                end_column: d_end_col,
-            }
-        })
-        .collect();
-
-    // Convert kind
-    let kind_str = match diag.kind {
-        DiagnosticKind::Error => "error",
-        DiagnosticKind::Warning => "warning",
-        DiagnosticKind::Info => "info",
-        DiagnosticKind::Note => "note",
-    };
-
-    // Convert hints
-    let hints: Vec<String> = diag.hints.iter().map(|h| h.as_str().to_string()).collect();
-
-    JsonDiagnostic {
-        kind: kind_str.to_string(),
-        title: diag.title.clone(),
-        code: diag.code.clone(),
-        problem: diag.problem.as_ref().map(|p| p.as_str().to_string()),
-        hints,
-        start_line,
-        start_column,
-        end_line,
-        end_column,
-        // Default unattributed; callers that know the source file
-        // (e.g., the Pass-1 failure path) tag it explicitly via
-        // `with_source_file`.
-        source_file: None,
-        details,
-    }
-}
-
-/// Tag a [`JsonDiagnostic`] with its source file (bd-rqba). Used
-/// when surfacing project-scoped warnings that originate in a
-/// file other than the active page.
-#[allow(dead_code)]
-fn with_source_file(mut diag: JsonDiagnostic, source_file: String) -> JsonDiagnostic {
-    diag.source_file = Some(source_file);
-    diag
-}
+//
+// The JSON wire shape (`JsonDiagnostic`, `JsonDiagnosticDetail`,
+// `JsonPass1Failure`) plus the per-diagnostic `diagnostic_to_json`
+// helper and the `with_source_file` tagger now live in
+// `quarto_error_reporting::json`, shared with `quarto-preview`'s
+// server-side diagnostics endpoint (bd-b9kzg). Local helpers that
+// build on those primitives stay below.
 
 /// Convert a list of [`FileFailure`]s into wire-shape
 /// [`JsonPass1Failure`]s, attaching structured diagnostics when

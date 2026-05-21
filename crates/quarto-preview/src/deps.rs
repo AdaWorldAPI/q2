@@ -55,8 +55,11 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use quarto_core::stage::stages::extract_include_path;
+use quarto_error_reporting::DiagnosticMessageBuilder;
 use quarto_hub::context::SharedContext;
 use serde::{Deserialize, Serialize};
+
+use crate::diagnostics;
 
 #[derive(Debug, Deserialize)]
 pub struct DepsQuery {
@@ -98,11 +101,28 @@ pub async fn deps_handler(
     let source = match std::fs::read(&abs_path) {
         Ok(s) => s,
         Err(e) => {
-            tracing::warn!(
-                rel_path = %rel_path,
-                error = %e,
-                "could not read source for dep extraction; returning empty",
-            );
+            // bd-b9kzg: surface IO failures via the per-page sink
+            // in addition to (instead of) the existing tracing
+            // line. `emit` calls `tracing::warn!` itself, so this
+            // remains a clean replacement when the sink is set,
+            // and falls back to the original log line when it
+            // isn't (e.g. unit tests that call the handler
+            // without booting a server).
+            if let Some(sink) = diagnostics::current_sink() {
+                sink.emit(
+                    &rel_path,
+                    DiagnosticMessageBuilder::warning("Could not analyze includes")
+                        .with_code("Q-PREVIEW-DEPS-1")
+                        .problem(format!("Failed to read source for dep extraction: {e}"))
+                        .build(),
+                );
+            } else {
+                tracing::warn!(
+                    rel_path = %rel_path,
+                    error = %e,
+                    "could not read source for dep extraction; returning empty",
+                );
+            }
             return Json(DepsResponse { deps: vec![] }).into_response();
         }
     };
@@ -139,10 +159,33 @@ pub fn extract_include_deps(source: &[u8], page_rel: &str) -> Vec<String> {
     );
 
     let Ok((pandoc, _ast_context, _warnings)) = parse_result else {
-        tracing::warn!(
-            page_rel = %page_rel,
-            "pampa parse failed during dep extraction; returning no deps",
-        );
+        // bd-b9kzg: parse failures surface to the SPA via the
+        // per-page sink in addition to the existing tracing line.
+        // Pampa's parser is robust enough that this branch is
+        // rarely hit in practice (the unit test
+        // `pathological_input_does_not_panic` covers garbage
+        // input), but when it IS hit, the user benefits from
+        // seeing "include analysis failed" in the overlay rather
+        // than the silent empty-deps fallback. As elsewhere,
+        // `emit` calls `tracing::warn!` itself, so this is a
+        // clean replacement when the sink is set.
+        if let Some(diag_sink) = diagnostics::current_sink() {
+            diag_sink.emit(
+                page_rel,
+                DiagnosticMessageBuilder::warning("Could not analyze includes")
+                    .with_code("Q-PREVIEW-DEPS-2")
+                    .problem(
+                        "Document failed to parse during include extraction; \
+                         dep-graph filter will fall back to broadcasting edits.",
+                    )
+                    .build(),
+            );
+        } else {
+            tracing::warn!(
+                page_rel = %page_rel,
+                "pampa parse failed during dep extraction; returning no deps",
+            );
+        }
         return Vec::new();
     };
 

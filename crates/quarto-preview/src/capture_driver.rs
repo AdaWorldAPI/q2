@@ -27,6 +27,7 @@ use std::sync::Arc;
 use quarto_core::engine::EngineRegistry;
 use quarto_core::engine::preview_record::compute_input_qmd;
 use quarto_core::project::ProjectContext;
+use quarto_error_reporting::DiagnosticMessageBuilder;
 use quarto_hub::HubContext;
 use quarto_hub::index::CaptureRef;
 use quarto_hub::resource::create_binary_document;
@@ -35,6 +36,7 @@ use quarto_trace::EngineCapture;
 
 use crate::cache::record_capture_cached;
 use crate::config::EnginePolicy;
+use crate::diagnostics;
 
 /// MIME type marker written into the capture binary doc so the
 /// browser-side reader can verify it's looking at the right payload
@@ -112,11 +114,29 @@ pub async fn record_eager_captures(
             Ok(true) => recorded += 1,
             Ok(false) => {} // no capture needed; not an error
             Err(e) => {
-                tracing::warn!(
-                    rel_path = %rel_path,
-                    error = %e,
-                    "failed to record engine capture; continuing",
-                );
+                // bd-b9kzg: also surface the failure to the SPA via
+                // the per-page diagnostic sink. `emit` calls
+                // `tracing::warn!` itself, so this is a clean
+                // replacement (no double-logging). The sink is only
+                // populated when the OnceLock is set — i.e. when
+                // run_with_on_ready bootstrapped it. Unit tests
+                // that call `record_eager_captures` directly without
+                // booting a server get a silent no-op.
+                if let Some(sink) = diagnostics::current_sink() {
+                    sink.emit(
+                        &rel_path,
+                        DiagnosticMessageBuilder::warning("Engine capture failed")
+                            .with_code("Q-PREVIEW-CAP-1")
+                            .problem(format!("{e}"))
+                            .build(),
+                    );
+                } else {
+                    tracing::warn!(
+                        rel_path = %rel_path,
+                        error = %e,
+                        "failed to record engine capture; continuing",
+                    );
+                }
             }
         }
     }
