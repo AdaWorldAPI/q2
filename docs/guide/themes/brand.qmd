@@ -1,0 +1,157 @@
+---
+title: "Brand themes via `_brand.yml`"
+---
+
+## Overview
+
+Quarto projects can be themed via three knobs that compose:
+
+1. A built-in Bootswatch theme name (e.g. `cosmo`, `darkly`).
+2. A `_brand.yml` file describing the project's colors, typography,
+   and logo.
+3. One or more custom `.scss` files with additional overrides.
+
+The `theme:` array picks which of these contribute to the final CSS,
+and **the order of entries controls precedence** — later entries
+override earlier ones.
+
+## A worked example
+
+```yaml
+# _quarto.yml
+project:
+  type: default
+format:
+  html:
+    theme:
+      - cosmo            # Bootswatch base
+      - brand            # _brand.yml layer
+      - extras.scss      # final user tweaks
+brand: _brand.yml
+```
+
+```yaml
+# _brand.yml
+color:
+  palette:
+    brand-blue: "#0066cc"
+  primary: brand-blue
+  foreground: "#222"
+typography:
+  base:
+    family: Georgia
+```
+
+Renders with `cosmo` as the base palette, brand colors / typography
+overlaid on top, and any rules from `extras.scss` last.
+
+## The `brand` token
+
+The literal token `brand` in the `theme:` array is a **position
+marker**. When the project also declares a `brand:` key, the marker
+expands to the brand-derived SCSS layers at that exact position.
+
+If you only set `brand:` (no `theme:`), Quarto auto-injects the
+marker at the end — equivalent to writing `theme: [brand]`.
+
+Writing `brand` in `theme:` without configuring a `brand:` source is
+an error.
+
+## `_brand.yml` shape
+
+```yaml
+color:
+  palette:
+    <name>: <css color>       # Named aliases. Emitted as $brand-<name>
+                              # SCSS variables and --brand-<name> CSS
+                              # custom properties.
+  primary: <name or color>    # Bootstrap theme color slots. Values
+  secondary: ...              # can reference palette entries.
+  foreground: ...
+  background: ...
+
+typography:
+  fonts:
+    - source: google           # or bunny / file / system
+      family: <name>
+      weight: <number, array, or keyword>
+      style: normal | italic | [normal, italic]
+  base:                        # Body text settings
+    family: <font name>
+    size: <CSS length>
+    weight: <number or keyword>
+    line-height: <number>
+  headings: { ... }            # Same shape as base
+  link: { color, weight, decoration, ... }
+  monospace: { ... }
+  monospace-inline: { ... }    # Overrides monospace for inline code
+  monospace-block: { ... }     # Overrides monospace for code blocks
+
+logo:
+  small: <path>                # Or { light, dark } for paired logos
+  medium: <path>
+  large: <path>
+  images:                      # Named extra images
+    <name>:
+      path: <path>
+      alt: <text>
+
+defaults:
+  bootstrap:
+    defaults:                  # Map of $sass-var: value, applied
+      font-size-base: 1.1rem   # before Bootstrap's own defaults
+    uses: |                    # Free-form SCSS passthrough into the
+      @use "sass:math";        # appropriate layer section
+    rules: |
+      .my-class { color: red; }
+```
+
+All sections are optional. A brand with just `color: { primary: red }`
+is valid.
+
+## Color resolution
+
+Color references are resolved through a chain:
+
+1. If the name is a palette key (`color.palette.<name>`), recurse on
+   its value.
+2. Else if the name is a theme color (`primary`, `secondary`,
+   `foreground`, `background`, ...) and that slot is set, recurse on
+   its value.
+3. Else, treat the name as a raw CSS color and return it.
+
+Aliases can chain (`primary: brand-blue` → `brand-blue: "#0066cc"`).
+Cycles are detected and reported as errors.
+
+## What CSS gets generated
+
+From the worked example above, the compiled theme CSS contains, among
+many other rules:
+
+```css
+/* From color.palette */
+:root {
+  --brand-brand-blue: #0066cc;
+}
+
+/* From the named theme colors and the format-specific name map */
+$primary: #0066cc !default;
+$foreground: #222 !default;
+$body-color: #222 !default;    /* foreground → body-color */
+$pre-color: #222 !default;     /* foreground → pre-color */
+
+/* From typography.base */
+$font-family-base: "Georgia" !default;
+```
+
+## What is **not** yet supported
+
+- **Light/dark brand pairs** (`brand: { light: ..., dark: ... }`) —
+  parsed but only the light half is used; tracked as a follow-up
+  until Q2 grows a light/dark seam in the SCSS pipeline.
+- **Inline brand block in document frontmatter** — only the
+  project-level `brand:` key in `_quarto.yml` is supported for now.
+- **Brand-aware favicon / navbar brand image** — the brand data is
+  available, but the website pipeline doesn't yet read it. Tracked
+  as separate follow-ups.
+- **Typst `_brand.yml`** — HTML only for now.

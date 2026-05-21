@@ -3853,6 +3853,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "quarto-brand"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "quarto-citeproc"
 version = "0.1.0"
 dependencies = [
@@ -3923,6 +3933,7 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2 0.11.0",
  "tempfile",
  "thiserror 2.0.18",
@@ -3931,6 +3942,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "walkdir",
  "which 8.0.2",
  "yaml-rust2",
 ]
@@ -4209,13 +4221,16 @@ dependencies = [
  "include_dir",
  "insta",
  "once_cell",
+ "quarto-brand",
  "quarto-pandoc-types",
  "quarto-source-map",
  "quarto-system-runtime",
  "regex",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2 0.11.0",
+ "tempfile",
  "thiserror 2.0.18",
  "yaml-rust2",
 ]

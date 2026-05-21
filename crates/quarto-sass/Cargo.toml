@@ -9,6 +9,8 @@ description = "SASS compilation infrastructure for Quarto"
 
 [dependencies]
 serde.workspace = true
+serde_yaml.workspace = true
+yaml-rust2.workspace = true
 thiserror.workspace = true
 regex.workspace = true
 once_cell.workspace = true
@@ -17,6 +19,8 @@ include_dir.workspace = true
 quarto-system-runtime.workspace = true
 # ConfigValue for theme config extraction
 quarto-pandoc-types.workspace = true
+# Brand (_brand.yml) data model and resolution
+quarto-brand.workspace = true
 
 [build-dependencies]
 sha2 = "0.11"
@@ -26,6 +30,8 @@ insta.workspace = true
 serde_json.workspace = true
 quarto-source-map.workspace = true
 yaml-rust2.workspace = true
+tempfile = "3"
+quarto-brand.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 grass.workspace = true
