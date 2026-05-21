@@ -199,6 +199,19 @@ fn cache_key(
                 })?;
                 hasher.update(&contents);
             }
+            ThemeSpec::Brand => {
+                hasher.update(b"brand:");
+                // Hash the resolved brand's YAML serialization (so any
+                // brand change → different key). When the brand is
+                // absent here we still hash the marker — `compile_with_doc_vars`
+                // will fail downstream, and the failure path bypasses
+                // the cache.
+                if let Some(brand) = theme_context.brand() {
+                    let yaml = serde_yaml::to_string(brand)
+                        .map_err(|e| format!("serialize brand for cache key: {e}"))?;
+                    hasher.update(yaml.as_bytes());
+                }
+            }
         }
         hasher.update(b"\n");
     }
@@ -344,7 +357,34 @@ impl PipelineStage for CompileThemeCssStage {
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
-        let theme_context = ThemeContext::new(document_dir, ctx.runtime.as_ref());
+
+        // Resolve the brand (if any) before building the theme context.
+        // I/O happens here; failures fall back to default CSS.
+        let resolved = match theme_config
+            .clone()
+            .resolve(ctx.runtime.as_ref(), &ctx.project.dir)
+        {
+            Ok(r) => r,
+            Err(e) => {
+                trace_event!(
+                    ctx,
+                    EventLevel::Warn,
+                    "failed to resolve brand: {}, using default CSS",
+                    e
+                );
+                store_default_css(ctx);
+                return Ok(PipelineData::DocumentAst(doc));
+            }
+        };
+
+        let mut theme_context = ThemeContext::new(document_dir, ctx.runtime.as_ref());
+        if let Some(brand) = resolved.brand.as_ref() {
+            let brand_dir = resolved
+                .brand_dir
+                .clone()
+                .unwrap_or_else(|| ctx.project.dir.clone());
+            theme_context = theme_context.with_brand(brand, brand_dir);
+        }
 
         let key = match cache_key(
             &theme_config,
@@ -1241,6 +1281,7 @@ mod tests {
             themes: vec![spec],
             minified,
             suppress_bootstrap: false,
+            brand_ref: None,
         }
     }
 
@@ -1249,6 +1290,7 @@ mod tests {
             themes: vec![ThemeSpec::Custom(PathBuf::from(path))],
             minified,
             suppress_bootstrap: false,
+            brand_ref: None,
         }
     }
 

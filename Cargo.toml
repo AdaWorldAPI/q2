@@ -156,6 +156,9 @@ path = "./crates/quarto-lsp-core"
 [workspace.dependencies.quarto-lsp]
 path = "./crates/quarto-lsp"
 
+[workspace.dependencies.quarto-brand]
+path = "./crates/quarto-brand"
+
 [workspace.dependencies.quarto-sass]
 path = "./crates/quarto-sass"
 

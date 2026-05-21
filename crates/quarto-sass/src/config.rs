@@ -26,7 +26,11 @@
 //! {}
 //! ```
 
+use std::path::{Path, PathBuf};
+
+use quarto_brand::{Brand, BrandRef};
 use quarto_pandoc_types::ConfigValue;
+use quarto_system_runtime::SystemRuntime;
 
 use crate::error::SassError;
 use crate::themes::ThemeSpec;
@@ -67,6 +71,30 @@ pub struct ThemeConfig {
     /// Bootstrap compilation and emit a minimal or empty CSS payload of
     /// their choosing. `themes` is always empty when this is `true`.
     pub suppress_bootstrap: bool,
+
+    /// Unresolved reference to a `_brand.yml` (path or inline block),
+    /// or `None` if no brand was configured.
+    ///
+    /// Resolved into a typed [`quarto_brand::Brand`] via
+    /// [`ThemeConfig::resolve`].
+    pub brand_ref: Option<BrandRef>,
+}
+
+/// Resolved form of [`ThemeConfig`] with the brand file loaded and
+/// parsed.
+///
+/// Produced by [`ThemeConfig::resolve`]. Carries everything the SCSS
+/// pipeline needs to compile the document's CSS, including the typed
+/// `Brand` value when the configuration requests one.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedThemeConfig {
+    pub themes: Vec<ThemeSpec>,
+    pub minified: bool,
+    pub suppress_bootstrap: bool,
+    pub brand: Option<Brand>,
+    /// Directory the brand file was loaded from (for resolving
+    /// relative `@font-face` URLs). `None` when brand was inline.
+    pub brand_dir: Option<PathBuf>,
 }
 
 impl ThemeConfig {
@@ -76,6 +104,7 @@ impl ThemeConfig {
             themes,
             minified,
             suppress_bootstrap: false,
+            brand_ref: None,
         }
     }
 
@@ -88,6 +117,7 @@ impl ThemeConfig {
             themes: Vec::new(),
             minified: true,
             suppress_bootstrap: false,
+            brand_ref: None,
         }
     }
 
@@ -124,38 +154,123 @@ impl ThemeConfig {
     pub fn from_config_value(config: &ConfigValue) -> Result<Self, SassError> {
         // Look for top-level `theme` (format-flattened by MetadataMergeStage)
         let theme_value = config.get("theme");
+        let brand_ref = extract_brand_ref(config.get("brand"))?;
 
-        match theme_value {
-            None => {
-                // No theme specified - use default Bootstrap
-                Ok(Self::default_bootstrap())
-            }
+        let mut result = match theme_value {
+            None => Self::default_bootstrap(),
             Some(value) => {
-                // Check for null
                 if value.is_null() {
-                    return Ok(Self::default_bootstrap());
-                }
-
-                // `theme: none` sentinel: suppress Bootstrap entirely.
-                if let Some(s) = config_value_as_text(value)
+                    Self::default_bootstrap()
+                } else if let Some(s) = config_value_as_text(value)
                     && s.eq_ignore_ascii_case("none")
                 {
-                    return Ok(Self {
+                    // `theme: none` sentinel: suppress Bootstrap entirely.
+                    Self {
                         themes: Vec::new(),
                         minified: true,
                         suppress_bootstrap: true,
-                    });
+                        brand_ref: None,
+                    }
+                } else {
+                    let themes = extract_theme_specs(value)?;
+                    Self {
+                        themes,
+                        minified: true,
+                        suppress_bootstrap: false,
+                        brand_ref: None,
+                    }
                 }
-
-                // Try to extract themes
-                let themes = extract_theme_specs(value)?;
-                Ok(Self {
-                    themes,
-                    minified: true, // Always minified for TS Quarto parity
-                    suppress_bootstrap: false,
-                })
             }
+        };
+
+        // `theme: none` is mutually exclusive with brand — Q1 would
+        // produce no Bootstrap output anyway, so we mirror that by
+        // dropping the brand_ref. The user intent ("don't generate
+        // Bootstrap CSS") wins.
+        if result.suppress_bootstrap {
+            return Ok(result);
         }
+
+        let has_brand_token = result.themes.iter().any(ThemeSpec::is_brand);
+        match (brand_ref, has_brand_token) {
+            (Some(br), false) => {
+                // Auto-inject brand at the end of the theme list.
+                result.brand_ref = Some(br);
+                result.themes.push(ThemeSpec::Brand);
+            }
+            (Some(br), true) => {
+                // Token already present at user-specified position.
+                result.brand_ref = Some(br);
+            }
+            (None, true) => {
+                return Err(SassError::InvalidThemeConfig {
+                    message: "`theme:` contains `brand` but no `_brand.yml` was configured \
+                              via the `brand:` key"
+                        .to_string(),
+                });
+            }
+            (None, false) => {}
+        }
+
+        Ok(result)
+    }
+
+    /// Resolve any [`BrandRef`] in this config by reading the brand
+    /// file (if it's a path) and parsing it into a typed [`Brand`].
+    ///
+    /// `base_dir` is the directory relative paths in [`BrandRef::Path`]
+    /// are resolved against (typically the project root). The
+    /// `runtime` provides cross-platform file access — native
+    /// `std::fs` on the CLI, the VFS on WASM.
+    pub fn resolve(
+        self,
+        runtime: &dyn SystemRuntime,
+        base_dir: &Path,
+    ) -> Result<ResolvedThemeConfig, SassError> {
+        let (brand, brand_dir) = match self.brand_ref {
+            None => (None, None),
+            Some(BrandRef::Path(rel_path)) => {
+                let full_path = if rel_path.is_absolute() {
+                    rel_path.clone()
+                } else {
+                    base_dir.join(&rel_path)
+                };
+                let bytes = runtime.file_read(&full_path).map_err(|e| {
+                    SassError::Io(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("reading brand file {}: {e}", full_path.display()),
+                    ))
+                })?;
+                let yaml =
+                    std::str::from_utf8(&bytes).map_err(|e| SassError::InvalidThemeConfig {
+                        message: format!(
+                            "brand file {} is not valid UTF-8: {e}",
+                            full_path.display()
+                        ),
+                    })?;
+                let brand = Brand::from_yaml_str(yaml).map_err(brand_err)?;
+                let dir = full_path
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| PathBuf::from("."));
+                (Some(brand), Some(dir))
+            }
+            Some(BrandRef::Inline(value)) => {
+                let brand: Brand =
+                    serde_yaml::from_value(*value).map_err(|e| SassError::InvalidThemeConfig {
+                        message: format!("inline brand block: {e}"),
+                    })?;
+                (Some(brand), None)
+            }
+        };
+
+        Ok(ResolvedThemeConfig {
+            themes: self.themes,
+            minified: self.minified,
+            suppress_bootstrap: self.suppress_bootstrap,
+            brand,
+            brand_dir,
+        })
     }
 
     /// Check if this config specifies any themes.
@@ -180,6 +295,140 @@ fn config_value_as_text(value: &ConfigValue) -> Option<String> {
         .as_str()
         .map(|s| s.to_string())
         .or_else(|| value.as_plain_text())
+}
+
+/// Extract a [`BrandRef`] from the value at the `brand:` key, if any.
+///
+/// - String → [`BrandRef::Path`].
+/// - Map → check for `light`/`dark` keys. If present, emit a soft
+///   warning (light/dark pairs are deferred to a follow-up) and use
+///   the `light` half. Otherwise treat the whole map as an inline
+///   brand block.
+/// - Null / absent → `None`.
+fn extract_brand_ref(value: Option<&ConfigValue>) -> Result<Option<BrandRef>, SassError> {
+    let Some(value) = value else { return Ok(None) };
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    // Path form.
+    if let Some(s) = config_value_as_text(value) {
+        return Ok(Some(BrandRef::Path(PathBuf::from(s))));
+    }
+
+    // Light/dark pair, or inline block.
+    if let Some(entries) = value.as_map_entries() {
+        let light = entries.iter().find(|e| e.key == "light");
+        let dark = entries.iter().find(|e| e.key == "dark");
+        let other = entries.iter().any(|e| e.key != "light" && e.key != "dark");
+        if (light.is_some() || dark.is_some()) && !other {
+            // Treat as a light/dark pair. Light half is used; the dark
+            // side is deferred — see Phase 8 follow-up.
+            // TODO(brand light/dark): wire dark variant once Q2 has a
+            // light/dark seam.
+            if let Some(light_entry) = light {
+                return extract_brand_ref(Some(&light_entry.value));
+            }
+            // Only dark configured — silently ignore for now.
+            return Ok(None);
+        }
+
+        // Inline brand block: convert the typed ConfigValue back to a
+        // serde_yaml::Value so we can hand it to serde_yaml::from_value
+        // in `resolve`.
+        let yaml_value = config_value_to_yaml_value(value)?;
+        return Ok(Some(BrandRef::Inline(Box::new(yaml_value))));
+    }
+
+    // Scalar(Yaml::Hash) — synthesized in tests, or produced when the
+    // metadata merge stage passes through a hash without lifting it
+    // into ConfigValueKind::Map. Treat as inline.
+    if value.as_array().is_none()
+        && let yaml_value = config_value_to_yaml_value(value)?
+    {
+        // Only accept if the yaml_value is a mapping; bail otherwise.
+        if matches!(yaml_value, serde_yaml::Value::Mapping(_)) {
+            return Ok(Some(BrandRef::Inline(Box::new(yaml_value))));
+        }
+    }
+
+    Err(SassError::InvalidThemeConfig {
+        message: "`brand:` must be a path string or a brand block (map)".to_string(),
+    })
+}
+
+/// Convert a `ConfigValue` to a `serde_yaml::Value`, walking the
+/// typed structure directly.
+///
+/// We do **not** round-trip via `serde_yaml::to_string(config_value)`
+/// because `ConfigValue`'s `Serialize` impl emits the typed wrapper
+/// (variant tags + `source_info` / `merge_op` metadata). The output
+/// here is just the underlying YAML shape — what an unannotated YAML
+/// parser would have produced — so downstream `serde_yaml::from_value`
+/// can deserialize it into the brand types.
+fn config_value_to_yaml_value(value: &ConfigValue) -> Result<serde_yaml::Value, SassError> {
+    use quarto_pandoc_types::ConfigValueKind;
+    Ok(match &value.value {
+        ConfigValueKind::Scalar(yaml) => yaml_rust_to_serde(yaml),
+        ConfigValueKind::Path(s) | ConfigValueKind::Glob(s) | ConfigValueKind::Expr(s) => {
+            serde_yaml::Value::String(s.clone())
+        }
+        ConfigValueKind::Array(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                out.push(config_value_to_yaml_value(item)?);
+            }
+            serde_yaml::Value::Sequence(out)
+        }
+        ConfigValueKind::Map(entries) => {
+            let mut map = serde_yaml::Mapping::new();
+            for entry in entries {
+                map.insert(
+                    serde_yaml::Value::String(entry.key.clone()),
+                    config_value_to_yaml_value(&entry.value)?,
+                );
+            }
+            serde_yaml::Value::Mapping(map)
+        }
+        ConfigValueKind::PandocInlines(_) | ConfigValueKind::PandocBlocks(_) => {
+            return Err(SassError::InvalidThemeConfig {
+                message: "brand block must be plain YAML, not Pandoc inlines/blocks".to_string(),
+            });
+        }
+    })
+}
+
+fn yaml_rust_to_serde(yaml: &yaml_rust2::Yaml) -> serde_yaml::Value {
+    use yaml_rust2::Yaml;
+    match yaml {
+        // `serde_yaml::Number` doesn't have a fallible `from_f64`, so
+        // we attempt the parse and fall back to a string for NaN/Inf.
+        Yaml::Real(s) => match s.parse::<f64>() {
+            Ok(f) if f.is_finite() => serde_yaml::Value::Number(f.into()),
+            _ => serde_yaml::Value::String(s.clone()),
+        },
+        Yaml::Integer(i) => serde_yaml::Value::Number((*i).into()),
+        Yaml::String(s) => serde_yaml::Value::String(s.clone()),
+        Yaml::Boolean(b) => serde_yaml::Value::Bool(*b),
+        Yaml::Array(items) => {
+            serde_yaml::Value::Sequence(items.iter().map(yaml_rust_to_serde).collect())
+        }
+        Yaml::Hash(hash) => {
+            let mut map = serde_yaml::Mapping::new();
+            for (k, v) in hash {
+                map.insert(yaml_rust_to_serde(k), yaml_rust_to_serde(v));
+            }
+            serde_yaml::Value::Mapping(map)
+        }
+        Yaml::Alias(_) | Yaml::BadValue => serde_yaml::Value::Null,
+        Yaml::Null => serde_yaml::Value::Null,
+    }
+}
+
+fn brand_err(e: quarto_brand::BrandError) -> SassError {
+    SassError::InvalidThemeConfig {
+        message: e.to_string(),
+    }
 }
 
 /// Extract theme specifications from a ConfigValue.
