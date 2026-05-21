@@ -183,20 +183,45 @@ into this one (CLAUDE.md "isolate and fix one bug at a time").
 
 ## Work Items
 
-- [ ] Add the 6 tests above. Confirm tests 1–4 fail pre-fix; tests
-  5–6 pass pre-fix.
-- [ ] Implement the directory-detect + recursive-expand path in
-  the literal branch of `expand_one`. Add the small
-  `expand_directory_recursive` helper next to it.
-- [ ] Update doc comment on `expand_patterns` and on the literal
-  branch of `expand_one` to describe directory semantics.
-- [ ] Re-run the 6 tests; all pass.
-- [ ] `cargo nextest run -p quarto-core` clean.
-- [ ] `cargo xtask verify --skip-hub-build` clean.
-- [ ] End-to-end on quarto-web; record results per the
-  transcript template above.
-- [ ] Update this plan with the e2e transcript and any
-  follow-up issues filed.
+- [x] Add the 6 tests above. Confirmed tests 1–4 fail pre-fix;
+  tests 5–6 pass pre-fix.
+- [x] Implement the directory-detect + recursive-expand path in
+  the literal branch of `expand_one`. Factored the glob-expansion
+  loop into a shared `expand_glob_files` helper used by both the
+  glob branch and the synthesized-from-directory case.
+- [x] Update doc comment on `expand_patterns` to describe
+  directory semantics; revise the in-branch comment so it no
+  longer claims `dir/**/*` is the only way (it was the only way
+  pre-bd-47w7o).
+- [x] Re-run the 6 tests; all pass (2086 quarto-core tests total).
+- [x] `cargo nextest run -p quarto-core` clean.
+- [x] `cargo xtask verify --skip-hub-build` clean.
+- [x] End-to-end on quarto-web (see transcript below).
+- [x] Updated plan with e2e transcript and follow-up issue.
+
+## End-to-end transcript (2026-05-21)
+
+```
+$ rm -rf external-sources/quarto-web/_site
+$ cargo run --quiet --bin q2 -- render external-sources/quarto-web
+error: …/website-blog.qmd: Invalid theme configuration: theme must be a string or array of strings
+error: …/website-llms.qmd: Invalid theme configuration: theme must be a string or array of strings
+error: …/index.qmd: Invalid theme configuration: theme must be a string or array of strings
+error: …/license.qmd: Invalid theme configuration: theme must be a string or array of strings
+error: …/trademark.qmd: Invalid theme configuration: theme must be a string or array of strings
+
+$ find external-sources/quarto-web/_site/docs/blog/posts/2024-07-02-beautiful-tables-in-typst/demo -type f | wc -l
+70
+$ find external-sources/quarto-web/docs/blog/posts/2024-07-02-beautiful-tables-in-typst/demo -type f | wc -l
+70
+```
+
+Demo directory: 70 source files, 70 destination files. The
+recursive-copy path works. The render then fails on an unrelated
+issue — quarto-web's `_quarto.yml` uses the dark-mode form
+`theme: { light: [cosmo, theme.scss], dark: [cosmo, theme-dark.scss] }`,
+which Q2 doesn't yet parse. Filed as **bd-0pic6**
+(discovered-from bd-47w7o).
 
 ## Out of scope
 

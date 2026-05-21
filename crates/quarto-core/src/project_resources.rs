@@ -167,6 +167,14 @@ fn looks_like_glob(s: &str) -> bool {
 /// headers. It does NOT apply to engine/Lua-filter contributions,
 /// which arrive through [`resolve_reported_resources`] and use
 /// real filesystem semantics for absolute paths.
+///
+/// **Directory expansion (TS Quarto parity, bd-47w7o).** A literal
+/// pattern (no glob characters) that resolves to an existing
+/// directory is equivalent to the recursive glob `<dir>/**/*` —
+/// every file under the directory becomes its own resource entry.
+/// Trailing-slash form (`"data/"`) and bare-directory form
+/// (`"data"`) behave identically. Subdirectories themselves are
+/// not emitted; only their files.
 pub fn expand_patterns(
     project_root: &Path,
     anchor: &Path,
@@ -216,33 +224,54 @@ fn expand_one(
     };
     if looks_like_glob(pat) {
         let combined = base.join(pat);
-        let combined_str = combined.to_string_lossy().to_string();
-        let entries = glob::glob(&combined_str).map_err(|e| ResourceError::InvalidGlob {
-            pattern: pattern.to_string(),
-            source: e,
-        })?;
-        let mut matched = Vec::new();
-        for entry in entries {
-            let path = entry.map_err(|e| ResourceError::GlobWalk {
-                pattern: pattern.to_string(),
-                source: e,
-            })?;
-            // Skip directories — only files become published
-            // resources. (A directory match would be ambiguous: do
-            // we copy the dir contents recursively, or not at all?
-            // Q1 requires explicit `dir/**/*` for recursive copy.)
-            if path.is_dir() {
-                continue;
-            }
-            let canonical = canonicalize_within_project(project_root, &path, pattern)?;
-            matched.push(canonical);
-        }
-        Ok(matched)
+        return expand_glob_files(project_root, &combined.to_string_lossy(), pattern);
+    }
+
+    // Literal path. Resolve and project-containment-check first; then
+    // decide whether it's a directory (TS Quarto parity, bd-47w7o:
+    // a literal directory is equivalent to the recursive glob
+    // `<dir>/**/*`) or a single file/missing path.
+    let absolute = base.join(pat);
+    let canonical = canonicalize_within_project(project_root, &absolute, pattern)?;
+    if canonical.is_dir() {
+        let dir_glob = format!("{}/**/*", canonical.display());
+        expand_glob_files(project_root, &dir_glob, pattern)
     } else {
-        let absolute = base.join(pat);
-        let canonical = canonicalize_within_project(project_root, &absolute, pattern)?;
         Ok(vec![canonical])
     }
+}
+
+/// Run `glob::glob(glob_pattern)`, drop directory entries, and
+/// project-containment-check every remaining file. Shared by the
+/// glob branch of `expand_one` and the literal-directory branch
+/// (where we synthesize `<dir>/**/*`). `original_pattern` is the
+/// user-supplied YAML string, preserved for any error message.
+fn expand_glob_files(
+    project_root: &Path,
+    glob_pattern: &str,
+    original_pattern: &str,
+) -> Result<Vec<PathBuf>, ResourceError> {
+    let entries = glob::glob(glob_pattern).map_err(|e| ResourceError::InvalidGlob {
+        pattern: original_pattern.to_string(),
+        source: e,
+    })?;
+    let mut matched = Vec::new();
+    for entry in entries {
+        let path = entry.map_err(|e| ResourceError::GlobWalk {
+            pattern: original_pattern.to_string(),
+            source: e,
+        })?;
+        // Skip directories — only files become published resources.
+        // The recursive-copy intent is expressed elsewhere: either by
+        // the user writing `dir/**/*`, or by the literal-directory
+        // branch above synthesising that pattern for a bare `dir`.
+        if path.is_dir() {
+            continue;
+        }
+        let canonical = canonicalize_within_project(project_root, &path, original_pattern)?;
+        matched.push(canonical);
+    }
+    Ok(matched)
 }
 
 fn canonicalize_within_project(
@@ -857,6 +886,169 @@ mod tests {
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].source, supporting);
         assert_eq!(resolved[0].output_relative, "posts/foo_files/data.png");
+    }
+
+    // === Directory resources expand recursively ===
+    //
+    // TS Quarto parity (see external-sources/quarto-cli/src/core/path.ts:269-278):
+    // a literal `resources:` entry that resolves to an existing
+    // directory is equivalent to the recursive glob `dir/**/*`.
+    // Trailing-slash and bare-directory forms are equivalent. See
+    // bd-47w7o.
+
+    fn touch_many(root: &Path, rel_paths: &[&str]) {
+        for rel in rel_paths {
+            touch(&root.join(rel));
+        }
+    }
+
+    fn sorted_output_relatives(resolved: &[ResolvedResource]) -> Vec<String> {
+        let mut v: Vec<String> = resolved.iter().map(|r| r.output_relative.clone()).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn expand_literal_directory_recursively_enumerates_files() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        touch_many(&root, &["demo/a.html", "demo/sub/b.css", "demo/sub/c.png"]);
+
+        let resolved = expand_patterns(
+            &root,
+            &root,
+            &["demo".to_string()],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap();
+        assert_eq!(
+            sorted_output_relatives(&resolved),
+            vec![
+                "demo/a.html".to_string(),
+                "demo/sub/b.css".to_string(),
+                "demo/sub/c.png".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn expand_literal_directory_with_trailing_slash_works() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        touch_many(&root, &["demo/a.html", "demo/sub/b.css", "demo/sub/c.png"]);
+
+        let resolved = expand_patterns(
+            &root,
+            &root,
+            &["demo/".to_string()],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap();
+        assert_eq!(
+            sorted_output_relatives(&resolved),
+            vec![
+                "demo/a.html".to_string(),
+                "demo/sub/b.css".to_string(),
+                "demo/sub/c.png".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn expand_leading_slash_directory_recursively_enumerates_files() {
+        // Composes the bd-wlza2 leading-`/` rule with the bd-47w7o
+        // directory-expansion rule. Mirrors the quarto-web case:
+        // a project-level `"/demo"` entry resolves to a directory,
+        // expanded to every file inside.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        touch_many(&root, &["demo/a.html", "demo/sub/b.css"]);
+
+        let resolved = expand_patterns(
+            &root,
+            &root,
+            &["/demo".to_string()],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap();
+        assert_eq!(
+            sorted_output_relatives(&resolved),
+            vec!["demo/a.html".to_string(), "demo/sub/b.css".to_string()]
+        );
+    }
+
+    #[test]
+    fn expand_literal_directory_with_only_empty_subdir_yields_no_resources() {
+        // The directory itself and any nested subdirs must NOT appear
+        // as resources; only files do. An empty `sub/` produces zero
+        // entries.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("demo/sub")).unwrap();
+
+        let resolved = expand_patterns(
+            &root,
+            &root,
+            &["demo".to_string()],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap();
+        assert!(
+            resolved.is_empty(),
+            "expected no entries for a directory containing only an empty subdir; got: {:?}",
+            sorted_output_relatives(&resolved)
+        );
+    }
+
+    #[test]
+    fn expand_literal_nonexistent_path_returns_single_entry() {
+        // Regression: a missing file is NOT silently dropped. Today
+        // we hand back the unresolved (lexically-normalized) path; the
+        // downstream copy step then surfaces the
+        // "does not exist on disk" error to the user.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+
+        let resolved = expand_patterns(
+            &root,
+            &root,
+            &["missing.txt".to_string()],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].output_relative, "missing.txt");
+    }
+
+    #[test]
+    fn expand_literal_file_unchanged_after_directory_support() {
+        // Regression for the file case under the same code path that
+        // now also handles directories. Mirrors `expand_literal_path`
+        // but is placed here so a directory-detect regression doesn't
+        // silently break the file case.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        touch(&root.join("a.txt"));
+
+        let resolved = expand_patterns(
+            &root,
+            &root,
+            &["a.txt".to_string()],
+            || ResourceOrigin::ProjectMetadata,
+            ResourceScope::Project,
+        )
+        .unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].output_relative, "a.txt");
+        assert_eq!(
+            resolved[0].source,
+            root.join("a.txt").canonicalize().unwrap()
+        );
     }
 
     #[test]
