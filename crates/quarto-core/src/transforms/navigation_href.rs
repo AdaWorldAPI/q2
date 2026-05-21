@@ -90,11 +90,13 @@ impl<'a> NavSurface<'a> {
 /// Build the structured "missing document" diagnostic for a navigation
 /// surface (Q-13-1 through Q-13-4, Q-13-7).
 ///
-/// `location` is forward-looking: today every callsite passes `None`
-/// because the navigation parsers strip `SourceInfo` from href strings.
-/// bd-qor9a plumbs `SourceInfo` through to these callsites; once that
-/// lands, the same diagnostic gets the source location filled in
-/// without changing this helper's signature.
+/// `location` carries the `SourceInfo` of the offending href when
+/// available: bd-qor9a plumbed it through for nav-surface callsites
+/// (sidebar / navbar / footer / page-nav) via the paired `href_source`
+/// field; bd-c05x6 wired the body-link callsite (Q-13-4) by reading
+/// `Link.target_source.url`. `None` is still accepted — programmatic
+/// callers (filter-introduced links, in-memory nav builders) won't
+/// have source info available.
 fn missing_document_warning(
     surface: &NavSurface<'_>,
     raw_path: &str,
@@ -135,8 +137,9 @@ fn missing_document_warning(
 ///
 /// `surface` identifies the navigation surface for diagnostics (sidebar,
 /// navbar, page-footer, page-nav). `location` carries the YAML
-/// `SourceInfo` for the offending href when available; today every
-/// callsite passes `None` (bd-qor9a plumbs it through).
+/// `SourceInfo` for the offending href when available — the nav-surface
+/// callsites pass `href_source` here (wired in bd-qor9a). `None` is
+/// the defensive default for programmatic / in-memory callers.
 ///
 /// **Symmetry with body links.** Phase 6's
 /// [`resolve_doc_relative_href`] handles body-content links the
@@ -282,8 +285,10 @@ pub fn resolve_doc_relative_target(raw: &str, source_relative: &str) -> Option<P
 ///    callers always pass a resolver; only out-of-band callers
 ///    might not.
 ///
-/// `location` is forward-looking: today the body-link callsite passes
-/// `None`; bd-qor9a plumbs the link's source `SourceInfo` through.
+/// `location` carries the `SourceInfo` of the link's URL when
+/// available — the body-link callsite (bd-c05x6) reads
+/// `Link.target_source.url`. `None` for filter-introduced links
+/// that bypass the parser.
 pub fn resolve_doc_relative_href(
     raw: &str,
     source_relative: &str,
