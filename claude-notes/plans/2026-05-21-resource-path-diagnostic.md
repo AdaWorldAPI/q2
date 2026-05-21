@@ -193,10 +193,15 @@ website:
   title: "demo"
 ```
 
-`cargo run --bin q2 -- render /tmp/q2-bd-c1et2-demo` (ANSI stripped):
+`cargo run --bin q2 -- render /tmp/q2-bd-c1et2-demo` (ANSI stripped).
+Codes follow the `Q-<subsystem>-<number>` convention from
+`CONTRIBUTING-ERRORS.md`; `5` is the "Projects and Structure"
+subsystem. The three codes Q-5-1 (out-of-project), Q-5-2 (invalid
+glob), and Q-5-3 (glob walk failure) are registered in
+`crates/quarto-error-reporting/error_catalog.json`:
 
 ```
-Error: [Q-RSC-1] Resource path resolves outside the project root
+Error: [Q-5-1] Resource path resolves outside the project root
    ╭─[ /private/tmp/q2-bd-c1et2-demo/_quarto.yml:5:7 ]
    │
  5 │     - "../escape.csv"

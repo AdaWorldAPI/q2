@@ -663,7 +663,7 @@ pub fn resource_error_to_parse_error(
         } => DiagnosticMessageBuilder::error(
             "Resource path resolves outside the project root",
         )
-        .with_code("Q-RSC-1")
+        .with_code("Q-5-1")
         .with_location(source_info.clone())
         .problem(format!(
             "Pattern `{}` resolves outside `{}`. Project resources must live within the project directory.",
@@ -681,7 +681,7 @@ pub fn resource_error_to_parse_error(
             source,
             source_info,
         } => DiagnosticMessageBuilder::error("Invalid glob pattern in `resources:`")
-            .with_code("Q-RSC-2")
+            .with_code("Q-5-2")
             .with_location(source_info.clone())
             .problem(format!("`{}` is not a valid glob: {}", pattern, source))
             .build(),
@@ -691,7 +691,7 @@ pub fn resource_error_to_parse_error(
             source,
             source_info,
         } => DiagnosticMessageBuilder::error("Failed walking glob matches for `resources:`")
-            .with_code("Q-RSC-3")
+            .with_code("Q-5-3")
             .with_location(source_info.clone())
             .problem(format!("Walking `{}` failed: {}", pattern, source))
             .build(),
@@ -1441,6 +1441,27 @@ mod tests {
     }
 
     #[test]
+    fn resource_error_codes_are_registered_in_catalog() {
+        // Belt-and-braces: every code emitted by
+        // `resource_error_to_parse_error` should be findable in the
+        // shared error catalog. If a future change adds a new variant
+        // and forgets to register a code, this test fails loudly.
+        for code in ["Q-5-1", "Q-5-2", "Q-5-3"] {
+            assert!(
+                quarto_error_reporting::catalog::get_error_info(code).is_some(),
+                "code {} is not registered in error_catalog.json",
+                code
+            );
+            assert_eq!(
+                quarto_error_reporting::catalog::get_subsystem(code),
+                Some("project"),
+                "code {} should be under the 'project' subsystem",
+                code
+            );
+        }
+    }
+
+    #[test]
     fn out_of_project_error_renders_as_diagnostic_with_yaml_span() {
         // T3: end-to-end through the diagnostic helper. Given an
         // out-of-project pattern with a real YAML file on disk:
@@ -1488,7 +1509,7 @@ mod tests {
         let parse_err = resource_error_to_parse_error(err, &yaml_path);
         assert_eq!(parse_err.diagnostics.len(), 1);
         let d = &parse_err.diagnostics[0];
-        assert_eq!(d.code.as_deref(), Some("Q-RSC-1"));
+        assert_eq!(d.code.as_deref(), Some("Q-5-1"));
         assert!(
             d.title.as_str().contains("outside the project root"),
             "title was: {}",
@@ -1504,8 +1525,8 @@ mod tests {
         };
         let rendered = d.to_text_with_options(Some(&parse_err.source_context), &opts);
         assert!(
-            rendered.contains("Q-RSC-1"),
-            "rendered output missing code Q-RSC-1:\n{}",
+            rendered.contains("Q-5-1"),
+            "rendered output missing code Q-5-1:\n{}",
             rendered
         );
         assert!(
