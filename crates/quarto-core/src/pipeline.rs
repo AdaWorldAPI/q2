@@ -665,6 +665,10 @@ pub async fn run_pipeline(
     // bd-o8pr Phase 2: transfer the per-doc resource report into
     // the stage context so engine + filter stages can append to it.
     stage_ctx.resource_report = std::mem::take(&mut ctx.resource_report);
+    // bd-cfl67: same shape for resource-copy intents (image / asset
+    // copies collected by AST transforms). The outer renderer drains
+    // these into the sink after the pipeline returns.
+    stage_ctx.resource_copies = std::mem::take(&mut ctx.resource_copies);
 
     // Create input from content
     let input = PipelineData::LoadedSource(LoadedSource::new(
@@ -681,6 +685,9 @@ pub async fn run_pipeline(
     // bd-o8pr Phase 2: transfer engine/filter-collected resources
     // back to the caller (`render_document_to_file` reads this).
     ctx.resource_report = stage_ctx.resource_report;
+    // bd-cfl67: bridge transform-collected copy intents back to the
+    // outer renderer for the sink-flush step.
+    ctx.resource_copies = stage_ctx.resource_copies;
     // Transfer writer-side `format_options` populated by transforms
     // running inside the pipeline (e.g. `AttributionRenderTransform`
     // writes `attribution_by_node` / `attribution_actors` here). The

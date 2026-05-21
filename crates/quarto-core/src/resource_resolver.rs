@@ -239,10 +239,73 @@ impl ResourceResolverContext {
         }
     }
 
+    /// Roots under which the resolver's resolved on-disk paths
+    /// are guaranteed to land. Producers of destructive disk ops
+    /// pass this to [`crate::output_sink::OutputSink`] as the
+    /// declared `allowed_roots` set; any resolved path that
+    /// escapes this set (typically because a producer passed an
+    /// absolute artifact path that bypassed `scope_root.join` —
+    /// the resolver-side half of bd-cfl67) is then refused by the
+    /// sink rather than written.
+    pub fn allowed_output_roots(&self) -> Vec<PathBuf> {
+        if let Some(root) = &self.vfs_root_mode {
+            return vec![root.clone()];
+        }
+        vec![self.site_root.clone()]
+    }
+
+    /// Whether the resolver is in VFS-root mode (WASM hub-client).
+    ///
+    /// Producers of user-resource copy intents use this to
+    /// short-circuit destination computation: in VFS-root mode
+    /// `page_output` is a synthetic root-of-VFS path that doesn't
+    /// reflect the source qmd's directory depth, so naively
+    /// joining a URL like `../hero.png` against `page_dir()`
+    /// would escape the VFS root. The hub-client's asset walker
+    /// reads bytes directly from the VFS source path instead, so
+    /// the producer can skip emitting copies entirely.
+    pub fn is_vfs_root_mode(&self) -> bool {
+        self.vfs_root_mode.is_some()
+    }
+
+    /// Absolute on-disk directory containing the current page's
+    /// rendered HTML output. Used by resource-copy producers
+    /// (e.g. [`crate::transforms::ResourceCollectorTransform`])
+    /// to compute the destination for user-authored resources
+    /// (images, etc.) referenced from the page: a URL like
+    /// `figs/diagram.png` in the source is copied to
+    /// `page_dir().join("figs/diagram.png")` in the output,
+    /// preserving the page-relative position the rendered HTML
+    /// expects.
+    pub fn page_dir(&self) -> &Path {
+        self.page_output.parent().unwrap_or_else(|| Path::new("."))
+    }
+
     /// Compute the absolute on-disk path where an artifact's bytes
     /// should be written. In VFS-root mode this is `{vfs_root}/{artifact_path}`
     /// regardless of scope.
+    ///
+    /// **`artifact_path` must be relative.** Passing an absolute path
+    /// silently bypasses `scope_root` (Rust's `Path::join` returns the
+    /// absolute path unchanged), which historically allowed source
+    /// files to be opened as artifact destinations — see bd-cfl67. We
+    /// catch that footgun in dev/CI via `debug_assert!`; the
+    /// release-mode safety net is the [`OutputSink`]'s
+    /// `allowed_roots` check (the resolver's escaped output fails the
+    /// under-root test there).
+    ///
+    /// [`OutputSink`]: crate::output_sink::OutputSink
     pub fn on_disk_path_for(&self, scope: ArtifactScope, artifact_path: &Path) -> PathBuf {
+        // `has_root()` rather than `is_absolute()`: the latter is
+        // false on `wasm32-unknown-unknown` for paths like `/foo`
+        // (the target has no `target_family`), but those paths
+        // *are* the WASM VFS's "rooted" form and bypass `scope_root`
+        // exactly the same way an OS-absolute path would on native.
+        debug_assert!(
+            !artifact_path.has_root(),
+            "artifact path must be relative (got {}); root-prefixed paths bypass scope_root and risk overwriting source files (bd-cfl67)",
+            artifact_path.display(),
+        );
         if let Some(root) = &self.vfs_root_mode {
             return root.join(artifact_path);
         }
@@ -437,6 +500,24 @@ mod tests {
         let r = ResourceResolverContext::single_doc("/tmp/doc.html", "doc");
         let url = r.html_url_for(ArtifactScope::Page, Path::new("styles.css"));
         assert_eq!(url, "doc_files/styles.css");
+    }
+
+    /// R2 (bd-cfl67): `on_disk_path_for` must reject absolute
+    /// artifact paths. Producers contractually store *relative*
+    /// destinations; an absolute path slipping through made
+    /// `scope_root.join(absolute)` a no-op and was the resolver-side
+    /// half of the source-truncation bug.
+    ///
+    /// We catch it via `debug_assert!` so the footgun is loud in
+    /// dev/CI. Release-mode protection comes from the sink's
+    /// `allowed_roots` check (R3).
+    #[test]
+    #[should_panic(expected = "artifact path must be relative")]
+    fn resolver_on_disk_path_rejects_absolute_artifact_path() {
+        let r = ResourceResolverContext::single_doc("/tmp/doc.html", "doc");
+        // The original bug shape: an absolute "source path" sneaks
+        // into the artifact store and gets passed here.
+        let _ = r.on_disk_path_for(ArtifactScope::Page, Path::new("/tmp/elephant.png"));
     }
 
     /// Phase 5 / Task #13: VFS-root resolver routes every

@@ -327,6 +327,33 @@ impl WasmPassTwoOutput {
     }
 }
 
+/// Drain `(src, dest)` resource-copy intents collected during the
+/// pipeline into the validated [`OutputSink`] and flush.
+///
+/// This is the WASM/preview-side equivalent of the `sink.copy(...)`
+/// loop in `render_to_file::render_document_to_file`. Both
+/// renderers in this module call it after their artifact-flush
+/// branch, so user-resource copies are committed alongside the
+/// rest of the render's destructive output, governed by the sink's
+/// `allowed_roots` and `src == dest` checks (bd-cfl67).
+fn flush_resource_copies(
+    copies: Vec<(std::path::PathBuf, std::path::PathBuf)>,
+    resolver: &ResourceResolverContext,
+    runtime: &dyn quarto_system_runtime::SystemRuntime,
+) -> Result<()> {
+    if copies.is_empty() {
+        return Ok(());
+    }
+    let mut sink = crate::output_sink::OutputSink::new(resolver.allowed_output_roots());
+    for (src, dest) in copies {
+        sink.copy(src, dest)
+            .map_err(crate::error::QuartoError::from)?;
+    }
+    sink.flush(runtime)
+        .map_err(crate::error::QuartoError::from)?;
+    Ok(())
+}
+
 /// In-memory Pass-2 renderer used by the WASM hub-client live
 /// preview.
 ///
@@ -481,6 +508,18 @@ impl Pass2Renderer for RenderToHtmlRenderer {
                 ))
             })?;
         }
+
+        // bd-cfl67: drain user-resource copy intents (images etc.
+        // collected by `ResourceCollectorTransform`) into the
+        // validated sink so the bytes land at the destination the
+        // rendered HTML's `<img src>` URL points to (in WASM
+        // hub-client mode that's `{vfs_root}/<url>`; in a native
+        // website that's `{output_dir}/<page_relative>/<url>`).
+        flush_resource_copies(
+            std::mem::take(&mut ctx.resource_copies),
+            &resolver,
+            runtime.as_ref(),
+        )?;
 
         Ok(WasmPassTwoOutput {
             source_path: doc_info.input.clone(),
@@ -723,6 +762,13 @@ impl Pass2Renderer for RenderToPreviewAstRenderer {
                 ))
             })?;
         }
+
+        // bd-cfl67: see the matching comment in the HTML renderer.
+        flush_resource_copies(
+            std::mem::take(&mut ctx.resource_copies),
+            &resolver,
+            runtime.as_ref(),
+        )?;
 
         Ok(WasmPassTwoOutput {
             source_path: doc_info.input.clone(),

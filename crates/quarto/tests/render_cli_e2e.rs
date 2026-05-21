@@ -726,3 +726,69 @@ fn multi_arg_outside_project_errors() {
         "error message should mention single-project requirement; got: {stderr}"
     );
 }
+
+/// A small but real PNG byte sequence — using a real header so we
+/// exercise the same `file_copy` path a user-uploaded image would.
+const PNG_BYTES: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89,
+];
+
+fn write_bytes(path: &Path, contents: &[u8]) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(path, contents).unwrap();
+}
+
+/// F5 (Phase 2, bd-cfl67): the CLI binary `q2 render` against a
+/// website project that references a binary image must (a) leave
+/// the source image bytes unchanged and (b) copy the image into
+/// `_site/` at the position the rendered HTML expects.
+///
+/// This is the user-facing reproduction of the original bug
+/// translated into an automated test: it spawns the real `q2`
+/// binary the user runs, against a website fixture, with a single
+/// PNG.
+#[test]
+fn render_preserves_source_image_and_copies_to_site() {
+    let temp = TempDir::new().unwrap();
+    let dir = canonical(temp.path());
+
+    write_file(
+        &dir.join("_quarto.yml"),
+        "project:\n  type: website\n  output-dir: _site\n",
+    );
+    write_file(
+        &dir.join("index.qmd"),
+        "---\ntitle: Home\n---\n\n![Caption](elephant.png)\n",
+    );
+    write_bytes(&dir.join("elephant.png"), PNG_BYTES);
+
+    let out = run_q2(&dir, &["index.qmd"]);
+    assert!(
+        out.status.success(),
+        "q2 render should succeed; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Source image bytes unchanged.
+    let source_after = std::fs::read(dir.join("elephant.png")).expect("read source after");
+    assert_eq!(
+        source_after, PNG_BYTES,
+        "source image must be byte-identical after `q2 render`"
+    );
+
+    // Image copied into _site/elephant.png.
+    let copied =
+        std::fs::read(dir.join("_site/elephant.png")).expect("expected image copied to _site/");
+    assert_eq!(copied, PNG_BYTES, "copied bytes must match source bytes");
+
+    // Rendered HTML references the image.
+    let html = std::fs::read_to_string(dir.join("_site/index.html")).expect("read rendered html");
+    assert!(
+        html.contains("elephant.png"),
+        "rendered HTML must reference elephant.png; html:\n{html}",
+    );
+}

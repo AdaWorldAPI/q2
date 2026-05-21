@@ -7,11 +7,29 @@
 
 //! Resource collection transform.
 //!
-//! This transform walks the AST and collects resource dependencies:
-//! - Image files referenced in the document
-//! - Other embedded resources
+//! This transform walks the AST and collects user-authored resource
+//! files (images, etc.) that the rendered document references and
+//! that must be copied from the source tree to the output tree so
+//! the rendered HTML can resolve its `<img src="...">` URLs.
 //!
-//! Resources are stored in the ArtifactStore for later processing.
+//! Each discovered resource is recorded as a
+//! `(source_path, destination_path)` pair on
+//! [`RenderContext::resource_copies`]. The render orchestrator
+//! drains those pairs into the per-render
+//! [`crate::output_sink::OutputSink`] before flush, so every
+//! destructive copy goes through the sink's `allowed_roots` and
+//! `src != dest` checks. When source and destination canonicalize
+//! to the same path (the common single-doc case where the output
+//! dir equals the input dir), the sink silently skips the copy —
+//! the file is already where the HTML expects it.
+//!
+//! Pre-bd-cfl67 this transform stored an empty artifact whose
+//! `path` field carried the *source* path; the writer then opened
+//! that source path with truncating write semantics and zeroed the
+//! user's file. The artifact-store route is gone; the
+//! [`crate::artifact::Artifact`] contract now requires relative
+//! paths, and this producer no longer touches the artifact store
+//! at all.
 
 use std::path::{Path, PathBuf};
 
@@ -21,16 +39,21 @@ use quarto_pandoc_types::inline::Inline;
 use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
-use crate::artifact::Artifact;
 use crate::render::RenderContext;
 use crate::transform::AstTransform;
 
-/// Transform that collects resource dependencies from the AST.
+/// Transform that collects user-authored resource dependencies
+/// (images, etc.) referenced from the AST and records them as
+/// copy intents on [`RenderContext::resource_copies`].
 ///
-/// This walks through all blocks and inlines, identifying external resources
-/// that need to be available for the rendered output (e.g., images).
-///
-/// Resources are stored in the ArtifactStore with the key prefix `resource:`.
+/// Walks through all blocks and inlines, identifying external
+/// resources that need to land in the output tree for the rendered
+/// HTML to function. The destination is the
+/// [`crate::resource_resolver::ResourceResolverContext::page_dir`]
+/// joined with the URL as written in the source — so a
+/// `![](figs/diagram.png)` inside `docs/index.qmd` becomes a copy
+/// from `<input_dir>/docs/figs/diagram.png` to
+/// `<output_dir>/docs/figs/diagram.png`.
 pub struct ResourceCollectorTransform;
 
 impl ResourceCollectorTransform {
@@ -53,43 +76,69 @@ impl AstTransform for ResourceCollectorTransform {
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {
-        let base_dir = ctx.document.input.parent().unwrap_or(Path::new("."));
-        let mut collector = ResourceVisitor::new(base_dir);
+        let input_dir = ctx.document.input.parent().unwrap_or(Path::new("."));
 
-        // Walk the AST and collect resources
+        // Without a resolver, we have no destination to compute.
+        // This happens in some unit-test scaffolding paths; let the
+        // walk be a no-op rather than guess a destination.
+        let Some(resolver) = ctx.resource_resolver.as_ref() else {
+            tracing::debug!("resource-collector: no resolver attached to context; skipping");
+            return Ok(());
+        };
+        // In VFS-root mode (WASM hub-client preview) the synthetic
+        // `page_output` lives at the root of the VFS regardless of
+        // the source qmd's depth, so `page_dir().join("../hero.png")`
+        // escapes the VFS root. The hub-client's parent-side asset
+        // walker reads bytes directly from the VFS source path
+        // (matching the bd-3gtn-era "skip empty content" behavior the
+        // old artifact-store route degraded to), so the producer
+        // doesn't need to emit copies at all in that mode.
+        if resolver.is_vfs_root_mode() {
+            tracing::debug!(
+                "resource-collector: vfs_root mode — asset walker handles VFS reads directly; skipping copy intents"
+            );
+            return Ok(());
+        }
+        let page_dir = resolver.page_dir().to_path_buf();
+
+        let mut collector = ResourceVisitor::new(input_dir, &page_dir);
         for block in &ast.blocks {
             collector.visit_block(block);
         }
 
-        // Store collected resources in the artifact store
-        for (i, resource) in collector.resources.iter().enumerate() {
-            let key = format!("resource:image:{}", i);
-            ctx.artifacts.store(
-                key,
-                Artifact::from_path(resource.clone(), "application/octet-stream"),
-            );
-        }
+        let count = collector.copies.len();
+        ctx.resource_copies.extend(collector.copies);
 
-        tracing::debug!(
-            "Collected {} resource(s) from document",
-            collector.resources.len()
-        );
-
+        tracing::debug!("Collected {} resource copy intent(s) from document", count);
         Ok(())
     }
 }
 
-/// Visitor that collects resources from the AST.
+/// Visitor that collects user-authored resources from the AST.
+///
+/// `input_dir` is the directory containing the source qmd —
+/// relative URLs in the document resolve against it (the
+/// source-side anchor). `output_dir` is the directory containing
+/// the page's rendered HTML — the *same* relative URL must land
+/// there in the output tree (the destination-side anchor).
 struct ResourceVisitor<'a> {
-    base_dir: &'a Path,
-    resources: Vec<PathBuf>,
+    input_dir: &'a Path,
+    output_dir: &'a Path,
+    /// `(source_absolute, destination_absolute)` pairs in
+    /// discovery order. The producer dedupes by URL — see
+    /// [`Self::collect_resource`].
+    copies: Vec<(PathBuf, PathBuf)>,
+    /// Set of URLs already added, for dedup within a single page.
+    seen_urls: std::collections::HashSet<String>,
 }
 
 impl<'a> ResourceVisitor<'a> {
-    fn new(base_dir: &'a Path) -> Self {
+    fn new(input_dir: &'a Path, output_dir: &'a Path) -> Self {
         Self {
-            base_dir,
-            resources: Vec::new(),
+            input_dir,
+            output_dir,
+            copies: Vec::new(),
+            seen_urls: std::collections::HashSet::new(),
         }
     }
 
@@ -347,7 +396,8 @@ impl<'a> ResourceVisitor<'a> {
     }
 
     fn collect_resource(&mut self, url: &str) {
-        // Skip external URLs
+        // Skip external URLs and inlined data URIs — nothing on
+        // disk to copy.
         if url.starts_with("http://")
             || url.starts_with("https://")
             || url.starts_with("data:")
@@ -355,18 +405,22 @@ impl<'a> ResourceVisitor<'a> {
         {
             return;
         }
-
-        // Resolve relative path
-        let path = if url.starts_with('/') {
-            PathBuf::from(url)
-        } else {
-            self.base_dir.join(url)
-        };
-
-        // Add to resources if not already present
-        if !self.resources.contains(&path) {
-            self.resources.push(path);
+        // Filesystem-root-anchored URLs (rare in qmd, but historically
+        // tolerated) name a source path directly. Treat them as
+        // out-of-scope for resource copy: we don't know where they
+        // should land in the output and we definitely shouldn't
+        // copy `/etc/passwd` etc.
+        if url.starts_with('/') {
+            return;
         }
+
+        if !self.seen_urls.insert(url.to_string()) {
+            return;
+        }
+
+        let src = self.input_dir.join(url);
+        let dest = self.output_dir.join(url);
+        self.copies.push((src, dest));
     }
 }
 
@@ -410,6 +464,25 @@ mod tests {
         }
     }
 
+    /// Build a website-style resolver pointing the page at
+    /// `<project>/_site/doc.html`, so the output dir is distinct
+    /// from the input dir and we can observe the destination path
+    /// the collector computes.
+    fn website_resolver_for_doc() -> crate::resource_resolver::ResourceResolverContext {
+        crate::resource_resolver::ResourceResolverContext::website(
+            "/project/_site",
+            "/project/_site/doc.html",
+            "site_libs",
+            "doc",
+        )
+    }
+
+    /// R5 (bd-cfl67): the collector pushes a `(src, dest)` pair
+    /// into `ctx.resource_copies`, where `src` is the source-tree
+    /// path the qmd points at and `dest` is the matching position
+    /// under the page's output dir. **It no longer stores anything
+    /// in `ctx.artifacts`** — the artifact-store route was the
+    /// source-truncation footgun.
     #[tokio::test]
     async fn test_collects_local_images() {
         let mut ast = Pandoc {
@@ -435,12 +508,60 @@ mod tests {
         let format = Format::html();
         let binaries = BinaryDependencies::new();
         let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        ctx.resource_resolver = Some(website_resolver_for_doc());
 
         let transform = ResourceCollectorTransform::new();
         transform.transform(&mut ast, &mut ctx).await.unwrap();
 
-        // Check that the image was collected
-        assert!(ctx.artifacts.get("resource:image:0").is_some());
+        assert_eq!(ctx.resource_copies.len(), 1);
+        assert_eq!(
+            ctx.resource_copies[0],
+            (
+                PathBuf::from("/project/images/photo.png"),
+                PathBuf::from("/project/_site/images/photo.png"),
+            ),
+            "src under input_dir, dest under page_dir, same relative position",
+        );
+        // The artifact store is untouched — the contract is that
+        // user resources flow through `resource_copies`, not
+        // through `artifacts`.
+        assert!(ctx.artifacts.is_empty());
+    }
+
+    /// Duplicate URLs in the same document are deduped — we emit
+    /// exactly one copy intent per unique URL.
+    #[tokio::test]
+    async fn test_dedupes_repeated_urls() {
+        let image = |url: &str| {
+            Inline::Image(Image {
+                attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
+                content: vec![],
+                target: (url.to_string(), String::new()),
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+                target_source: TargetSourceInfo::empty(),
+            })
+        };
+
+        let mut ast = Pandoc {
+            meta: quarto_pandoc_types::ConfigValue::default(),
+            blocks: vec![Block::Paragraph(Paragraph {
+                content: vec![image("photo.png"), image("photo.png")],
+                source_info: dummy_source_info(),
+            })],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::html();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        ctx.resource_resolver = Some(website_resolver_for_doc());
+
+        let transform = ResourceCollectorTransform::new();
+        transform.transform(&mut ast, &mut ctx).await.unwrap();
+
+        assert_eq!(ctx.resource_copies.len(), 1);
     }
 
     #[tokio::test]
@@ -465,12 +586,13 @@ mod tests {
         let format = Format::html();
         let binaries = BinaryDependencies::new();
         let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        ctx.resource_resolver = Some(website_resolver_for_doc());
 
         let transform = ResourceCollectorTransform::new();
         transform.transform(&mut ast, &mut ctx).await.unwrap();
 
-        // Should not collect external URLs
-        assert!(ctx.artifacts.get("resource:image:0").is_none());
+        // No external URL → no copy intent.
+        assert!(ctx.resource_copies.is_empty());
     }
 
     #[tokio::test]
@@ -495,12 +617,13 @@ mod tests {
         let format = Format::html();
         let binaries = BinaryDependencies::new();
         let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        ctx.resource_resolver = Some(website_resolver_for_doc());
 
         let transform = ResourceCollectorTransform::new();
         transform.transform(&mut ast, &mut ctx).await.unwrap();
 
-        // Should not collect data URLs
-        assert!(ctx.artifacts.get("resource:image:0").is_none());
+        // No data URL → no copy intent.
+        assert!(ctx.resource_copies.is_empty());
     }
 
     #[tokio::test]

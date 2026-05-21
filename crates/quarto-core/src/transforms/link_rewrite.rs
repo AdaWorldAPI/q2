@@ -221,7 +221,7 @@ impl<'a> LinkRewriter<'a> {
                     self.source,
                     self.resolver,
                     Some(self.index),
-                    None,
+                    link.target_source.url.clone(),
                     self.diagnostics,
                 );
                 link.target.0 = new_url;
@@ -298,7 +298,7 @@ mod tests {
     use quarto_pandoc_types::inline::{Emph, Image, Inline, Link, Str};
     use quarto_pandoc_types::pandoc::Pandoc;
     use quarto_pandoc_types::{ConfigMapEntry, Slot};
-    use quarto_source_map::SourceInfo;
+    use quarto_source_map::{FileId, SourceInfo};
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -337,6 +337,26 @@ mod tests {
             source_info: SourceInfo::default(),
             attr_source: AttrSourceInfo::empty(),
             target_source: TargetSourceInfo::empty(),
+        })
+    }
+
+    /// Like `link_inline`, but stamps `target_source.url` with a real
+    /// `SourceInfo` so tests can assert that diagnostics receive the
+    /// link URL's source location.
+    fn link_inline_with_url_source(url: &str, text: &str, url_source: SourceInfo) -> Inline {
+        Inline::Link(Link {
+            attr: Attr::default(),
+            content: vec![Inline::Str(Str {
+                text: text.to_string(),
+                source_info: SourceInfo::default(),
+            })],
+            target: (url.to_string(), String::new()),
+            source_info: SourceInfo::default(),
+            attr_source: AttrSourceInfo::empty(),
+            target_source: TargetSourceInfo {
+                url: Some(url_source),
+                title: None,
+            },
         })
     }
 
@@ -649,6 +669,32 @@ mod tests {
                 .unwrap_or(false),
             "Q-13-4 problem must mention missing.qmd; got {:?}",
             d.problem
+        );
+    }
+
+    /// bd-c05x6: body-link Q-13-4 diagnostic carries the URL's
+    /// `SourceInfo` when the link node has `target_source.url` set
+    /// (i.e. when the link was produced by the qmd parser, not
+    /// programmatically constructed by a filter).
+    #[tokio::test]
+    async fn link_rewrite_diagnostic_carries_source_location() {
+        // Place the URL at byte range [4, 15) of `FileId(0)` — the
+        // exact range doesn't matter, only that it survives.
+        let url_loc = SourceInfo::original(FileId(0), 4, 15);
+        let blocks = vec![para(vec![link_inline_with_url_source(
+            "missing.qmd",
+            "X",
+            url_loc.clone(),
+        )])];
+        let (_out, diags) = run(blocks, "index.qmd", "index.html", vec![], true).await;
+        assert_eq!(diags.len(), 1, "expected exactly one diagnostic");
+        let d = &diags[0];
+        assert_eq!(d.code.as_deref(), Some("Q-13-4"));
+        assert_eq!(
+            d.location.as_ref(),
+            Some(&url_loc),
+            "Q-13-4 must carry the link URL's SourceInfo; got {:?}",
+            d.location
         );
     }
 }

@@ -46,6 +46,7 @@ pub mod error;
 pub mod extension;
 pub mod filter_resolve;
 pub mod format;
+pub mod output_sink;
 pub mod pipeline;
 pub mod project;
 pub mod project_resources;

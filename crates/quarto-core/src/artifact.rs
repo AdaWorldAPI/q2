@@ -105,19 +105,49 @@ impl Artifact {
     ///
     /// The content is empty; this is used to record that a file at a given
     /// path is needed as a resource.
+    ///
+    /// `path` must be a **relative** destination — the resolver
+    /// joins it under a scope-specific root (`{stem}_files/` or
+    /// `{lib_dir}/`) when computing the on-disk write location. An
+    /// absolute path silently bypasses that scope root (Rust's
+    /// `Path::join` returns absolute paths unchanged) and was the
+    /// producer-side half of bd-cfl67. Caught in dev/CI by the
+    /// debug-assert; release builds rely on
+    /// [`crate::output_sink::OutputSink`]'s `allowed_roots` check.
     pub fn from_path(path: impl Into<PathBuf>, content_type: impl Into<String>) -> Self {
+        let path = path.into();
+        // `has_root()` rather than `is_absolute()`: the latter is
+        // false on `wasm32-unknown-unknown` for paths like `/foo`,
+        // but those paths are still "rooted" enough to bypass
+        // `scope_root.join` in the resolver. See bd-cfl67.
+        debug_assert!(
+            !path.has_root(),
+            "Artifact::from_path requires a relative destination path (got {}); root-prefixed paths bypass the resolver's scope root and risk overwriting source files (bd-cfl67)",
+            path.display(),
+        );
         Self {
             content: Vec::new(),
             content_type: content_type.into(),
-            path: Some(path.into()),
+            path: Some(path),
             metadata: HashMap::new(),
             scope: ArtifactScope::default(),
         }
     }
 
-    /// Set the file path for this artifact
+    /// Set the file path for this artifact.
+    ///
+    /// Same relative-path contract as [`Artifact::from_path`] — see
+    /// its docs.
     pub fn with_path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.path = Some(path.into());
+        let path = path.into();
+        // See `from_path` for why this uses `has_root()` not
+        // `is_absolute()`.
+        debug_assert!(
+            !path.has_root(),
+            "Artifact::with_path requires a relative destination path (got {}); root-prefixed paths bypass the resolver's scope root and risk overwriting source files (bd-cfl67)",
+            path.display(),
+        );
+        self.path = Some(path);
         self
     }
 
@@ -403,11 +433,12 @@ mod tests {
 
     #[test]
     fn test_artifact_with_path_and_metadata() {
+        // Path must be relative (see Artifact::with_path docs / bd-cfl67).
         let artifact = Artifact::from_string("content", "text/plain")
-            .with_path("/path/to/file.txt")
+            .with_path("path/to/file.txt")
             .with_metadata("version", serde_json::json!("1.0"));
 
-        assert_eq!(artifact.path, Some(PathBuf::from("/path/to/file.txt")));
+        assert_eq!(artifact.path, Some(PathBuf::from("path/to/file.txt")));
         assert_eq!(
             artifact.metadata.get("version"),
             Some(&serde_json::json!("1.0"))
@@ -468,7 +499,7 @@ mod tests {
         let b = Artifact::from_bytes(vec![0u8, 1, 2], "image/png");
         assert_eq!(b.scope, ArtifactScope::Page);
 
-        let c = Artifact::from_path("/tmp/file.css", "text/css");
+        let c = Artifact::from_path("relative/file.css", "text/css");
         assert_eq!(c.scope, ArtifactScope::Page);
     }
 
@@ -477,7 +508,7 @@ mod tests {
     #[test]
     fn artifact_with_scope_builder_only_touches_scope() {
         let original = Artifact::from_string("body {}", "text/css")
-            .with_path("/tmp/styles.css")
+            .with_path("styles.css")
             .with_metadata("k", serde_json::json!("v"));
 
         let scoped = original.clone().with_scope(ArtifactScope::Project);

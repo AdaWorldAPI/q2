@@ -336,14 +336,24 @@ fn pipeline_body_link_broken_qmd_emits_diagnostic() {
         "expected dangling .qmd href preserved, got:\n{}",
         body
     );
-    assert!(
-        diags.iter().any(|d| d.code.as_deref() == Some("Q-13-4")
+    let q_13_4 = diags.iter().find(|d| {
+        d.code.as_deref() == Some("Q-13-4")
             && d.problem
                 .as_ref()
                 .map(|p| p.as_str().contains("nope.qmd"))
-                .unwrap_or(false)),
+                .unwrap_or(false)
+    });
+    assert!(
+        q_13_4.is_some(),
         "expected Q-13-4 'Body link' diagnostic naming nope.qmd; got: {:?}",
         diags
+    );
+    // bd-c05x6: Q-13-4 should carry a source location pointing at
+    // the URL inside `index.qmd`.
+    assert!(
+        q_13_4.unwrap().location.is_some(),
+        "expected Q-13-4 to carry a SourceInfo location; got: {:?}",
+        q_13_4.unwrap()
     );
 }
 
@@ -381,14 +391,24 @@ fn pipeline_body_link_unresolvable_in_website_warns() {
         "expected raw .qmd to survive when target is unknown, got:\n{}",
         body
     );
-    assert!(
-        diags.iter().any(|d| d.code.as_deref() == Some("Q-13-4")
+    let q_13_4 = diags.iter().find(|d| {
+        d.code.as_deref() == Some("Q-13-4")
             && d.problem
                 .as_ref()
                 .map(|p| p.as_str().contains("other.qmd"))
-                .unwrap_or(false)),
+                .unwrap_or(false)
+    });
+    assert!(
+        q_13_4.is_some(),
         "expected Q-13-4 'Body link' diagnostic naming other.qmd; got: {:?}",
         diags
+    );
+    // bd-c05x6: Q-13-4 should carry a source location pointing at
+    // the URL inside `doc.qmd`.
+    assert!(
+        q_13_4.unwrap().location.is_some(),
+        "expected Q-13-4 to carry a SourceInfo location; got: {:?}",
+        q_13_4.unwrap()
     );
 }
 

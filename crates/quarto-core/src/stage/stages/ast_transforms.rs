@@ -202,6 +202,11 @@ impl PipelineStage for AstTransformsStage {
         // calls `build()` itself anymore.
         render_ctx.attribution_provider = ctx.attribution_provider.clone();
         render_ctx.attribution_data = ctx.attribution_data.clone();
+        // bd-cfl67: resource-copy intents collected by transforms
+        // (notably `ResourceCollectorTransform`) need to surface to
+        // the outer renderer for the final sink flush. Move ownership
+        // across the bridge in both directions, same as `artifacts`.
+        render_ctx.resource_copies = std::mem::take(&mut ctx.resource_copies);
 
         // Execute the transform pipeline
         let result = pipeline
@@ -210,6 +215,7 @@ impl PipelineStage for AstTransformsStage {
 
         // Transfer mutable state back to StageContext
         ctx.artifacts = render_ctx.artifacts;
+        ctx.resource_copies = render_ctx.resource_copies;
         ctx.includes = render_ctx.includes;
         ctx.ref_type_registry = render_ctx.ref_type_registry;
         ctx.crossref_index = render_ctx.crossref_index;

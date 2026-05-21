@@ -793,11 +793,23 @@ fn website_q2_preview_renders_through_orchestrator() {
         "expected the image filename to appear in the AST URL; got:\n{}",
         snip()
     );
-    // page_artifacts carries the image as an artifact entry.
+    // bd-cfl67: in VFS-root mode (this q2-preview path), the
+    // hub-client's parent-side asset walker reads image bytes
+    // directly from the VFS source location — there's no native
+    // copy step at all. The wiring assertion is therefore that
+    // the source bytes are preserved (post-render image equals
+    // pre-render image), which the byte-snapshot check at the
+    // bottom of this test already pins down (see the bd-3gtn
+    // comment). No artifact-store entry is required either: the
+    // collector emits copy intents on `ctx.resource_copies`,
+    // which `RenderToPreviewAstRenderer` discards in VFS-root
+    // mode (the walker handles asset loading instead).
     assert!(
-        !output.page_artifacts.is_empty(),
-        "expected ResourceCollectorTransform to emit a page-scoped \
-         artifact for hero.png; got empty page_artifacts"
+        output.page_artifacts.is_empty(),
+        "VFS-root mode produces no page-scoped artifacts for user \
+         images (the walker reads bytes from VFS source directly); \
+         got: {:?}",
+        output.page_artifacts.iter().collect::<Vec<_>>()
     );
 
     // SidebarGenerateTransform is in the q2-preview transform
