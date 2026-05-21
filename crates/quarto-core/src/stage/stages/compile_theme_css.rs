@@ -258,20 +258,19 @@ impl PipelineStage for CompileThemeCssStage {
             ));
         };
 
-        // Extract theme config from merged metadata
-        let theme_config = match ThemeConfig::from_config_value(&doc.ast.meta) {
-            Ok(config) => config,
-            Err(e) => {
-                trace_event!(
-                    ctx,
-                    EventLevel::Warn,
-                    "failed to extract theme config: {}, using default CSS",
-                    e
-                );
-                store_default_css(ctx);
-                return Ok(PipelineData::DocumentAst(doc));
-            }
-        };
+        // Extract theme config from merged metadata.
+        //
+        // Any error here is a **user-facing configuration error**
+        // (malformed `theme:`, `brand:` token without a `brand:` key,
+        // unknown theme name, etc.) — we propagate as a stage error so
+        // it surfaces in the CLI rather than silently shipping a
+        // minimal DEFAULT_CSS that would render the page as unstyled
+        // and leave the user wondering what went wrong. Q2 is
+        // deliberately stricter than Q1 here; once we wire source
+        // locations into `SassError`, these diagnostics can point at
+        // the offending YAML directly.
+        let theme_config = ThemeConfig::from_config_value(&doc.ast.meta)
+            .map_err(|e| PipelineError::stage_error(self.name(), e.to_string()))?;
 
         // `theme: none` → ship the static lightweight DEFAULT_CSS without
         // compiling Bootstrap. This is the explicit opt-out path.
@@ -359,23 +358,17 @@ impl PipelineStage for CompileThemeCssStage {
             .unwrap_or_else(|| PathBuf::from("."));
 
         // Resolve the brand (if any) before building the theme context.
-        // I/O happens here; failures fall back to default CSS.
-        let resolved = match theme_config
+        // I/O happens here. Failures are user-facing configuration
+        // errors (missing `_brand.yml`, invalid YAML, unknown brand
+        // shape) — propagate them rather than silently shipping
+        // DEFAULT_CSS, same reasoning as the `from_config_value`
+        // error path above.
+        let resolved = theme_config
             .clone()
             .resolve(ctx.runtime.as_ref(), &ctx.project.dir)
-        {
-            Ok(r) => r,
-            Err(e) => {
-                trace_event!(
-                    ctx,
-                    EventLevel::Warn,
-                    "failed to resolve brand: {}, using default CSS",
-                    e
-                );
-                store_default_css(ctx);
-                return Ok(PipelineData::DocumentAst(doc));
-            }
-        };
+            .map_err(|e| {
+                PipelineError::stage_error(self.name(), format!("brand resolution: {e}"))
+            })?;
 
         let mut theme_context = ThemeContext::new(document_dir, ctx.runtime.as_ref());
         if let Some(brand) = resolved.brand.as_ref() {
@@ -1117,21 +1110,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_invalid_theme_falls_back_to_default() {
+    async fn test_invalid_theme_produces_loud_error() {
+        // Q2 treats configuration errors as user-facing failures
+        // rather than silently shipping DEFAULT_CSS. An unknown theme
+        // name is a typo in the user's YAML and we want them to know.
+        // This replaces the previous silent-fallback test that paired
+        // with the now-removed swallow path.
         let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> =
             Arc::new(quarto_system_runtime::NativeRuntime::new());
         let mut ctx = make_stage_context(runtime);
         let stage = CompileThemeCssStage::new();
 
-        // "nonexistent" is not a valid theme name
         let input = make_doc_ast(meta_with_theme("nonexistent"));
-        let output = stage.run(input, &mut ctx).await.unwrap();
-
-        assert!(output.into_document_ast().is_some());
-
-        // Should fall back to DEFAULT_CSS
-        let css = get_css_artifact(&ctx);
-        assert_eq!(css, DEFAULT_CSS);
+        let err = stage
+            .run(input, &mut ctx)
+            .await
+            .expect_err("unknown theme should fail loudly");
+        let msg = err.to_string();
+        assert!(
+            msg.to_lowercase().contains("nonexistent")
+                || msg.to_lowercase().contains("unknown theme"),
+            "error should mention the offending theme, got: {msg}"
+        );
     }
 
     #[tokio::test]

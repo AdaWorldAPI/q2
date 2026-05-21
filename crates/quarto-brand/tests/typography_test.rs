@@ -84,6 +84,22 @@ fn effective_monospace_returns_none_when_neither_set() {
 }
 
 #[test]
+fn font_slot_accepts_bare_string_as_family_shorthand() {
+    // Q1 accepts `base: "Open Sans"` as shorthand for
+    // `base: { family: "Open Sans" }`. Same for monospace and the
+    // other font slots.
+    let b = brand(
+        "typography:\n\
+         \x20 base: Open Sans\n\
+         \x20 monospace: IBM Plex Mono\n",
+    );
+    let base = b.font_slot("base").expect("base slot");
+    assert_eq!(base.family.as_deref(), Some("Open Sans"));
+    let mono = b.font_slot("monospace").expect("monospace slot");
+    assert_eq!(mono.family.as_deref(), Some("IBM Plex Mono"));
+}
+
+#[test]
 fn fonts_iterates_in_source_order() {
     let b = brand(
         "typography:\n\

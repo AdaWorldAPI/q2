@@ -54,8 +54,21 @@ expands to the brand-derived SCSS layers at that exact position.
 If you only set `brand:` (no `theme:`), Quarto auto-injects the
 marker at the end — equivalent to writing `theme: [brand]`.
 
-Writing `brand` in `theme:` without configuring a `brand:` source is
-an error.
+### `brand:` must be declared explicitly
+
+Quarto 2 does **not** auto-discover `_brand.yml` from the project
+root. If you want brand styling, you must declare the `brand:` key
+in `_quarto.yml`:
+
+```yaml
+brand: _brand.yml
+```
+
+If `brand` appears in `theme:` without a corresponding `brand:` key,
+the render fails with a clear configuration error rather than
+silently shipping an unstyled page. This is deliberately stricter
+than Quarto 1's auto-discovery: an explicit error pointing at the
+missing configuration is more useful than a quietly broken render.
 
 ## `_brand.yml` shape
 

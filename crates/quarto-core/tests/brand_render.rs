@@ -130,3 +130,50 @@ fn brand_only_no_theme_key_still_renders_brand_layer() {
         "expected primary color #ff6600 in CSS"
     );
 }
+
+/// Q2 is intentionally **stricter** than Q1 about missing brand
+/// configuration: `theme: [..., brand, ...]` without a `brand:` key
+/// (or a discoverable `_brand.yml` referenced via that key) must be a
+/// hard error, not a silent fallback to default CSS.
+///
+/// Q1 auto-discovers `_brand.yml` from the project root; Q2 doesn't.
+/// The reasoning is that an unstyled page is a worse failure mode
+/// than a clear "you asked for brand but didn't say where it is"
+/// diagnostic — see CLAUDE.md "Debugging Approach" / "End-to-end
+/// verification". We can revisit auto-discovery once we have proper
+/// source-location diagnostics that point at the offending YAML.
+#[test]
+fn theme_brand_without_brand_key_fails_loudly() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write(
+        &root.join("_quarto.yml"),
+        "project:\n  type: default\nformat:\n  html:\n    theme:\n      - cosmo\n      - brand\n",
+    );
+    // Note: a `_brand.yml` is present on disk, but no `brand:` key
+    // points at it. Q2 must refuse to render rather than silently
+    // ignore the `brand` token.
+    write(&root.join("_brand.yml"), "color:\n  primary: \"#00ff00\"\n");
+    write(
+        &root.join("doc.qmd"),
+        "---\ntitle: Loud Failure\n---\n\n# Hi\n",
+    );
+
+    let runtime: Arc<dyn SystemRuntime> = Arc::new(NativeRuntime::new());
+    let result = render_to_file(
+        &root.join("doc.qmd"),
+        "html",
+        &RenderToFileOptions {
+            quiet: true,
+            ..Default::default()
+        },
+        runtime,
+    );
+
+    let err = result.expect_err("render should fail when `brand` in theme has no `brand:` key");
+    let msg = err.to_string();
+    assert!(
+        msg.to_lowercase().contains("brand"),
+        "error message should mention brand, got: {msg}"
+    );
+}

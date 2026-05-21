@@ -237,26 +237,77 @@ pub struct BrandTypography {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fonts: Vec<BrandFont>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_typography_options",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub base: Option<BrandTypographyOptions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_typography_options",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub headings: Option<BrandTypographyOptions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_typography_options",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub link: Option<BrandTypographyOptions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_typography_options",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub monospace: Option<BrandTypographyOptions>,
     #[serde(
         default,
         rename = "monospace-inline",
+        deserialize_with = "deserialize_typography_options",
         skip_serializing_if = "Option::is_none"
     )]
     pub monospace_inline: Option<BrandTypographyOptions>,
     #[serde(
         default,
         rename = "monospace-block",
+        deserialize_with = "deserialize_typography_options",
         skip_serializing_if = "Option::is_none"
     )]
     pub monospace_block: Option<BrandTypographyOptions>,
+}
+
+/// Accept either a bare string (treated as `{ family: <string> }`) or
+/// a full options map. Matches Q1's `_brand.yml` shorthand:
+///
+/// ```yaml
+/// typography:
+///   base: Open Sans            # ← shorthand
+///   headings:                  # ← explicit
+///     family: Rubik
+///     weight: 400
+/// ```
+fn deserialize_typography_options<'de, D>(
+    deserializer: D,
+) -> Result<Option<BrandTypographyOptions>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrOptions {
+        Family(String),
+        Options(BrandTypographyOptions),
+    }
+
+    let opt = Option::<StringOrOptions>::deserialize(deserializer)?;
+    Ok(opt.map(|v| match v {
+        StringOrOptions::Family(s) => BrandTypographyOptions {
+            family: Some(s),
+            ..Default::default()
+        },
+        StringOrOptions::Options(o) => o,
+    }))
 }
 
 /// One font-slot's options (base / headings / link / monospace / ...).
