@@ -57,24 +57,42 @@ function severityLabel(severity: DiagnosticsOverlaySeverity): string {
   return severity === 'warning' ? 'Warning' : 'Error';
 }
 
+/**
+ * Render a list of diagnostics, picking the rich ariadne snippet
+ * when present and falling back to the compact one-line form
+ * when it isn't (bd-352bh). Returns `null` for an empty list so
+ * the caller can elide the surrounding wrapper.
+ *
+ * The "split into two visual modes" approach mirrors how
+ * `q2 render` prints to stdout — every diagnostic with a
+ * location gets the rich source-context box; diagnostics
+ * without one (rare; project-level errors mostly) fall back to
+ * the structured fields.
+ */
 function renderDiagnosticList(
   diagnostics: Diagnostic[],
   className: string,
 ): React.ReactElement | null {
   if (diagnostics.length === 0) return null;
   return (
-    <ul className={className}>
-      {diagnostics.map((d, i) => (
-        <li key={i}>
-          {d.start_line != null && (
-            <span className="diagnostic-line">Line {d.start_line}: </span>
-          )}
-          {d.code && <span className="diagnostic-code">[{d.code}] </span>}
-          <span className="diagnostic-title">{d.title}</span>
-          {d.problem && <span className="diagnostic-problem"> - {d.problem}</span>}
-        </li>
-      ))}
-    </ul>
+    <div className={className}>
+      {diagnostics.map((d, i) =>
+        d.rendered ? (
+          <pre key={i} className="preview-error-diagnostic-rendered">
+            {stripAnsi(d.rendered)}
+          </pre>
+        ) : (
+          <div key={i} className="preview-error-diagnostic-compact">
+            {d.start_line != null && (
+              <span className="diagnostic-line">Line {d.start_line}: </span>
+            )}
+            {d.code && <span className="diagnostic-code">[{d.code}] </span>}
+            <span className="diagnostic-title">{d.title}</span>
+            {d.problem && <span className="diagnostic-problem"> - {d.problem}</span>}
+          </div>
+        ),
+      )}
+    </div>
   );
 }
 

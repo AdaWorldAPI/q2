@@ -76,6 +76,18 @@ pub struct JsonDiagnostic {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_file: Option<String>,
     pub details: Vec<JsonDiagnosticDetail>,
+    /// Pre-rendered ariadne source-context snippet (bd-352bh).
+    /// Populated when the diagnostic carries a `location` and the
+    /// converting site has a [`SourceContext`] to draw from
+    /// (i.e. always, in [`diagnostic_to_json`]). Same text the
+    /// `q2 render` CLI prints to stdout — ANSI-coded; strip on the
+    /// JS side for browser display. Consumers can render this
+    /// verbatim in a `<pre>` block for the rich source-context
+    /// view, or ignore it and fall back to the structured fields
+    /// for a compact summary. `None` for unlocated diagnostics
+    /// (rare but possible for project-level errors with no span).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rendered: Option<String>,
 }
 
 /// A Pass-1 failure (parse error or metadata error) in a project
@@ -190,6 +202,22 @@ pub fn diagnostic_to_json(diag: &DiagnosticMessage, ctx: &SourceContext) -> Json
 
     let hints: Vec<String> = diag.hints.iter().map(|h| h.as_str().to_string()).collect();
 
+    // bd-352bh: pre-render the ariadne source-context snippet for
+    // diagnostics that have a location. `DiagnosticMessage::to_text`
+    // delegates to ariadne when both the diagnostic's location AND
+    // the supplied `SourceContext` are present (see
+    // `crates/quarto-error-reporting/src/diagnostic.rs`'s
+    // `to_text_with_options`); for locationless diagnostics the
+    // function would produce a tidyverse text block instead, which
+    // duplicates what the structured fields already carry. So we
+    // gate on `diag.location.is_some()` to avoid shipping that
+    // redundant text on the wire.
+    let rendered = if diag.location.is_some() {
+        Some(diag.to_text(Some(ctx)))
+    } else {
+        None
+    };
+
     JsonDiagnostic {
         kind: kind_str.to_string(),
         title: diag.title.clone(),
@@ -205,6 +233,7 @@ pub fn diagnostic_to_json(diag: &DiagnosticMessage, ctx: &SourceContext) -> Json
         // [`with_source_file`].
         source_file: None,
         details,
+        rendered,
     }
 }
 
@@ -261,5 +290,91 @@ mod tests {
         );
         let tagged = with_source_file(json, "other.qmd".to_string());
         assert_eq!(tagged.source_file.as_deref(), Some("other.qmd"));
+    }
+
+    // ─── bd-352bh: ariadne `rendered` field ──────────────────────
+
+    /// Build a `(DiagnosticMessage, SourceContext)` pair where the
+    /// diagnostic has a location pointing into a registered file
+    /// — enough for ariadne to draw a source-context box.
+    fn synth_located_diag() -> (DiagnosticMessage, SourceContext) {
+        use quarto_source_map::{
+            SourceInfo,
+            types::{Location, Range},
+        };
+        let mut ctx = SourceContext::new();
+        let file_id = ctx.add_file(
+            "fixture.qmd".to_string(),
+            Some("# Title\n\nA paragraph that has _unclosed emphasis.\n".to_string()),
+        );
+        // Point at the underscore on row 2. Exact span isn't
+        // important for the rendered-vs-not assertions.
+        let info = SourceInfo::from_range(
+            file_id,
+            Range {
+                start: Location {
+                    offset: 28,
+                    row: 2,
+                    column: 19,
+                },
+                end: Location {
+                    offset: 29,
+                    row: 2,
+                    column: 20,
+                },
+            },
+        );
+        let mut diag =
+            DiagnosticMessage::warning("Unclosed Underscore Emphasis").with_code("Q-2-5");
+        diag.location = Some(info);
+        (diag, ctx)
+    }
+
+    #[test]
+    fn rendered_is_some_when_location_present() {
+        let (diag, ctx) = synth_located_diag();
+        let json = diagnostic_to_json(&diag, &ctx);
+        let rendered = json
+            .rendered
+            .as_deref()
+            .expect("rendered should be populated when the diagnostic has a location");
+        // Ariadne's source-context box always opens with the
+        // U+256D "BOX DRAWINGS LIGHT ARC DOWN AND RIGHT" character.
+        // Pinning that single byte sequence is robust to font /
+        // padding tweaks while still proving "ariadne ran."
+        assert!(
+            rendered.contains('\u{256D}'),
+            "rendered text should contain ariadne's box-drawing chars; got: {rendered:?}",
+        );
+        // The diagnostic's title and code should also appear.
+        assert!(rendered.contains("Unclosed Underscore Emphasis"));
+        assert!(rendered.contains("Q-2-5"));
+    }
+
+    #[test]
+    fn rendered_is_none_when_location_absent() {
+        let diag = DiagnosticMessage::warning("Floating warning").with_code("Q-9-9");
+        let ctx = SourceContext::new();
+        let json = diagnostic_to_json(&diag, &ctx);
+        assert!(
+            json.rendered.is_none(),
+            "rendered should be None for a diagnostic without a location; got: {:?}",
+            json.rendered,
+        );
+    }
+
+    #[test]
+    fn rendered_skipped_in_json_when_none() {
+        // The serde attribute `skip_serializing_if = "Option::is_none"`
+        // keeps the wire shape clean for diagnostics that don't have
+        // a location — the field shouldn't appear in the JSON at all.
+        let diag = DiagnosticMessage::warning("Floating warning");
+        let ctx = SourceContext::new();
+        let json = diagnostic_to_json(&diag, &ctx);
+        let serialized = serde_json::to_string(&json).unwrap();
+        assert!(
+            !serialized.contains("\"rendered\""),
+            "JSON should omit `rendered` when None; got: {serialized}",
+        );
     }
 }

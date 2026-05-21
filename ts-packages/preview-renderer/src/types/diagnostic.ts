@@ -36,6 +36,17 @@ export interface Diagnostic {
   end_line?: number;
   end_column?: number;
   details: DiagnosticDetail[];
+  /**
+   * Pre-rendered ariadne source-context snippet (bd-352bh). Present
+   * when the diagnostic has a `start_line` and the producer had a
+   * SourceContext available (i.e. always, for diagnostics produced
+   * by `diagnostic_to_json`). Same text the `q2 render` CLI prints
+   * to stdout — render verbatim in a `<pre>` block with `stripAnsi`
+   * for the rich source-context view. Falls back to the structured
+   * fields (title / code / problem / start_line) for compact
+   * display when absent.
+   */
+  rendered?: string;
 }
 
 /**

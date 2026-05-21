@@ -156,4 +156,114 @@ describe('PreviewDiagnosticsOverlay', () => {
     );
     expect(screen.queryByText(/Eager capture failed/)).not.toBeNull();
   });
+
+  // ─── bd-352bh: ariadne `rendered` field ──────────────────────
+
+  it('renders the ariadne snippet verbatim when `rendered` is populated', () => {
+    // A diagnostic with `rendered` set should produce a <pre>
+    // block containing that text (post-ANSI-strip). The compact
+    // one-line summary is suppressed — the ariadne snippet
+    // already includes the title and problem.
+    const ariadne =
+      'Warning: [Q-13-4] Body link references missing document\n' +
+      '   ╭─[ /project/x.qmd:89:23 ]\n' +
+      '   │\n' +
+      '89 │   * [Markdown Basics](./markdown-basics.qmd)\n' +
+      '   │                       ──┬──\n' +
+      "   │                         ╰─ 'markdown-basics.qmd' is not in the project index.\n" +
+      '───╯';
+    render(
+      <PreviewDiagnosticsOverlay
+        error={{
+          message: '',
+          diagnostics: [
+            {
+              ...diag('Body link references missing document', 'Q-13-4'),
+              rendered: ariadne,
+            },
+          ],
+        }}
+        visible
+        collapsed={false}
+        severity="warning"
+      />,
+    );
+    const pre = document.querySelector('.preview-error-diagnostic-rendered');
+    expect(pre).not.toBeNull();
+    expect(pre?.textContent).toContain('Body link references missing document');
+    expect(pre?.textContent).toContain('markdown-basics.qmd');
+    expect(pre?.tagName).toBe('PRE');
+  });
+
+  it('falls back to the compact line when `rendered` is absent', () => {
+    // Diagnostics without locations don't get an ariadne render
+    // server-side (the field is None / omitted from the JSON).
+    // The overlay must still surface them via the compact
+    // one-line list.
+    render(
+      <PreviewDiagnosticsOverlay
+        error={{
+          message: '',
+          diagnostics: [diag('Unlocated warning', 'Q-9-9')],
+        }}
+        visible
+        collapsed={false}
+        severity="warning"
+      />,
+    );
+    expect(screen.queryByText(/Unlocated warning/)).not.toBeNull();
+    expect(
+      document.querySelector('.preview-error-diagnostic-rendered'),
+    ).toBeNull();
+  });
+
+  it('mixes ariadne and compact entries when some have `rendered` and some do not', () => {
+    render(
+      <PreviewDiagnosticsOverlay
+        error={{
+          message: '',
+          diagnostics: [
+            {
+              ...diag('Located warning', 'Q-13-4'),
+              rendered: 'Warning: ╭─[ x.qmd ]',
+            },
+            diag('Unlocated warning', 'Q-9-9'),
+          ],
+        }}
+        visible
+        collapsed={false}
+        severity="warning"
+      />,
+    );
+    expect(
+      document.querySelector('.preview-error-diagnostic-rendered'),
+    ).not.toBeNull();
+    expect(screen.queryByText(/Unlocated warning/)).not.toBeNull();
+  });
+
+  it('strips ANSI escape sequences from the rendered snippet', () => {
+    // ariadne emits ANSI color codes by default; the overlay
+    // must strip them so they don't render as visible garbage.
+    const ansiWrapped =
+      '[31mWarning:[0m [33m[Q-13-4][0m colored title';
+    render(
+      <PreviewDiagnosticsOverlay
+        error={{
+          message: '',
+          diagnostics: [
+            { ...diag('colored title', 'Q-13-4'), rendered: ansiWrapped },
+          ],
+        }}
+        visible
+        collapsed={false}
+        severity="warning"
+      />,
+    );
+    const pre = document.querySelector('.preview-error-diagnostic-rendered');
+    expect(pre).not.toBeNull();
+    // No literal ESC character in the rendered DOM text.
+    expect(pre?.textContent).not.toMatch(//);
+    expect(pre?.textContent).toContain('Warning:');
+    expect(pre?.textContent).toContain('colored title');
+  });
 });
