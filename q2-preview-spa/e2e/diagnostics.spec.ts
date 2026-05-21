@@ -33,7 +33,15 @@ import { startPreviewServer, type PreviewServerHandle } from './helpers/previewS
 // `[Q-13-4]` body-link-references-missing-document. The link target
 // (`missing.qmd`) is deliberately not in the fixture, so
 // `LinkResolutionStage` (in the q2-preview WASM pipeline) flags it
-// as a warning during render.
+// as a warning during render. The check requires project context —
+// LinkResolutionStage looks up the link target in the project index
+// to decide whether the link points to a known document. Without a
+// `_quarto.yml` the SPA runs the single-doc pipeline and the
+// project-scoped link check doesn't fire.
+const QUARTO_YML = `project:
+  type: default
+`;
+
 const INDEX_WITH_BAD_LINK = `# Index
 
 This page links to [a missing sibling](./missing.qmd).
@@ -43,7 +51,10 @@ let server: PreviewServerHandle;
 
 test.beforeEach(async () => {
   server = await startPreviewServer({
-    fixtureFiles: [{ path: 'index.qmd', content: INDEX_WITH_BAD_LINK }],
+    fixtureFiles: [
+      { path: '_quarto.yml', content: QUARTO_YML },
+      { path: 'index.qmd', content: INDEX_WITH_BAD_LINK },
+    ],
   });
 });
 
@@ -74,7 +85,10 @@ test('body-link warning surfaces a collapsed "Warning" indicator in the overlay'
   // first render — the render-effect populates `render.warnings`
   // synchronously off the WASM result, so it should be near-
   // instant once the render completes.
-  await expect(page.getByRole('button', { name: /^warning$/i })).toBeVisible({
+  // The button's accessible name includes the warning-icon
+  // character (⚠) prepended to "Warning"; match the label
+  // substring rather than anchoring on word boundaries.
+  await expect(page.getByRole('button', { name: /warning/i })).toBeVisible({
     timeout: 5_000,
   });
 });
