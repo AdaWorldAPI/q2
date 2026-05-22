@@ -3,938 +3,931 @@
     "subsystem": "internal",
     "title": "Internal Error",
     "message_template": "An internal error occurred. This is a bug in Quarto.",
-    "docs_url": "https://quarto.org/docs/errors/Q-0-1",
+    "docs_url": "https://quarto.org/docs/errors/internal/Q-0-1",
     "since_version": "99.9.9"
   },
   "Q-0-99": {
     "subsystem": "internal",
     "title": "Generic Error",
     "message_template": "Uncategorized Error. This should never appear in production, and is a bug in Quarto.",
-    "docs_url": "https://quarto.org/docs/errors/Q-0-99",
+    "docs_url": "https://quarto.org/docs/errors/internal/Q-0-99",
     "since_version": "99.9.9"
   },
   "Q-1-1": {
     "subsystem": "yaml",
     "title": "YAML Syntax Error",
     "message_template": "There is a syntax error in the YAML document being parsed.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-1",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-1",
     "since_version": "99.9.9"
   },
   "Q-1-10": {
     "subsystem": "yaml",
     "title": "Missing Required Property",
     "message_template": "A required property is missing from the YAML document.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-10",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-10",
     "since_version": "99.9.9"
   },
   "Q-1-11": {
     "subsystem": "yaml",
     "title": "Type Mismatch",
     "message_template": "The value has an incorrect type (expected one type, got another).",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-11",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-11",
     "since_version": "99.9.9"
   },
   "Q-1-12": {
     "subsystem": "yaml",
     "title": "Invalid Enum Value",
     "message_template": "The value is not one of the allowed enumeration values.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-12",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-12",
     "since_version": "99.9.9"
   },
   "Q-1-13": {
     "subsystem": "yaml",
     "title": "Array Length Constraint Violation",
     "message_template": "The array length does not meet the minimum or maximum item constraints.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-13",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-13",
     "since_version": "99.9.9"
   },
   "Q-1-14": {
     "subsystem": "yaml",
     "title": "String Pattern Mismatch",
     "message_template": "The string value does not match the required pattern.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-14",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-14",
     "since_version": "99.9.9"
   },
   "Q-1-15": {
     "subsystem": "yaml",
     "title": "Number Range Violation",
     "message_template": "The numeric value is outside the allowed range or not a valid multiple.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-15",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-15",
     "since_version": "99.9.9"
   },
   "Q-1-16": {
     "subsystem": "yaml",
     "title": "Object Property Count Violation",
     "message_template": "The object has too many or too few properties.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-16",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-16",
     "since_version": "99.9.9"
   },
   "Q-1-17": {
     "subsystem": "yaml",
     "title": "Unresolved Schema Reference",
     "message_template": "A $ref reference in the schema could not be resolved.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-17",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-17",
     "since_version": "99.9.9"
   },
   "Q-1-18": {
     "subsystem": "yaml",
     "title": "Unknown Property",
     "message_template": "An unknown property was found in a closed object schema.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-18",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-18",
     "since_version": "99.9.9"
   },
   "Q-1-19": {
     "subsystem": "yaml",
     "title": "Array Uniqueness Violation",
     "message_template": "Array items must be unique but duplicates were found.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-19",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-19",
     "since_version": "99.9.9"
   },
   "Q-1-20": {
     "subsystem": "yaml",
     "title": "Failed to parse metadata value as markdown",
     "message_template": "Invalid markdown will be interpreted as a string. Consider adding a '!str' tag to the entry.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-20",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-20",
     "since_version": "99.9.9"
   },
   "Q-1-21": {
     "subsystem": "yaml",
     "title": "Unknown Tag Component",
     "message_template": "Unknown component in YAML tag. Valid components are: prefer, concat, md, str, path, glob, expr.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-21",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-21",
     "since_version": "99.9.9"
   },
   "Q-1-22": {
     "subsystem": "yaml",
     "title": "Unrecognized Tag",
     "message_template": "Unrecognized YAML tag. Valid tags include: prefer, concat, md, str, path, glob, expr.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-22",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-22",
     "since_version": "99.9.9"
   },
   "Q-1-23": {
     "subsystem": "yaml",
     "title": "Config Layer Parse Failure",
     "message_template": "Failed to parse a configuration layer. Check the YAML syntax in the specified file.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-23",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-23",
     "since_version": "99.9.9"
   },
   "Q-1-24": {
     "subsystem": "yaml",
     "title": "Empty Tag Component",
     "message_template": "YAML tag contains an empty component. Check for leading, trailing, or consecutive commas.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-24",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-24",
     "since_version": "99.9.9"
   },
   "Q-1-25": {
     "subsystem": "yaml",
     "title": "Whitespace in Tag",
     "message_template": "YAML tag contains whitespace. Remove spaces around tag components.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-25",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-25",
     "since_version": "99.9.9"
   },
   "Q-1-26": {
     "subsystem": "yaml",
     "title": "Invalid Tag Character",
     "message_template": "YAML tag contains invalid characters. Only letters, numbers, and commas are allowed.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-26",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-26",
     "since_version": "99.9.9"
   },
   "Q-1-27": {
     "subsystem": "yaml",
     "title": "Config Nesting Too Deep",
     "message_template": "Configuration nesting exceeds maximum depth. Simplify the configuration structure.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-27",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-27",
     "since_version": "99.9.9"
   },
   "Q-1-28": {
     "subsystem": "yaml",
     "title": "Conflicting Merge Operations",
     "message_template": "YAML tag specifies both 'prefer' and 'concat'. Use only one merge operation per tag.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-28",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-28",
     "since_version": "99.9.9"
   },
   "Q-1-99": {
     "subsystem": "yaml",
     "title": "Generic Validation Error",
     "message_template": "A validation error occurred.",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-99",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-99",
     "since_version": "99.9.9"
   },
   "Q-2-1": {
     "subsystem": "markdown",
     "title": "Unclosed Span",
     "message_template": "I reached the end of the block before finding a closing ']' for the span or link.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-1",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-1",
     "since_version": "99.9.9"
   },
   "Q-2-2": {
     "subsystem": "markdown",
     "title": "Mismatched Delimiter in Attribute Specifier",
     "message_template": "I expected a '}', language specifier, an identifier, a class specifier, or a key-value pair.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-2",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-2",
     "since_version": "99.9.9"
   },
   "Q-2-3": {
     "subsystem": "markdown",
     "title": "Key-value Pair Before Class Specifier in Attribute",
     "message_template": "This class specifier appears after the key-value pair.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-3",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-3",
     "since_version": "99.9.9"
   },
   "Q-2-4": {
     "subsystem": "markdown",
     "title": "Missing Space After Div Fence",
     "message_template": "A space is required after ':::' when specifying div attributes.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-4",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-4",
     "since_version": "99.9.9"
   },
   "Q-2-5": {
     "subsystem": "markdown",
     "title": "Unclosed Emphasis",
     "message_template": "I reached the end of the block before finding a closing '_' for the emphasis.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-5",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-5",
     "since_version": "99.9.9"
   },
   "Q-2-6": {
     "subsystem": "markdown",
     "title": "HTML Element Found in Document",
     "message_template": "\"Naked\" HTML elements are not allowed.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-6",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-6",
     "since_version": "99.9.9"
   },
   "Q-2-7": {
     "subsystem": "markdown",
     "title": "Unclosed Single Quote",
     "message_template": "I reached the end of the block before finding a closing \"'\" for the quote.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-7",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-7",
     "since_version": "99.9.9"
   },
   "Q-2-8": {
     "subsystem": "markdown",
     "title": "Unsupported Code Block Syntax",
     "message_template": "Quarto Markdown requires executable code block options in YAML.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-8",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-8",
     "since_version": "99.9.9"
   },
   "Q-2-9": {
     "subsystem": "markdown",
     "title": "HTML Element Auto-converted",
     "message_template": "HTML elements are automatically converted to raw HTML inlines.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-9",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-9",
     "since_version": "99.9.9"
   },
   "Q-2-10": {
     "subsystem": "markdown",
     "title": "Closing Quote Without Matching Open Quote",
     "message_template": "A space is causing a quote mark to be interpreted as a quotation close.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-10",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-10",
     "since_version": "99.9.9"
   },
   "Q-2-11": {
     "subsystem": "markdown",
     "title": "Unclosed Double Quote",
     "message_template": "I reached the end of the block before finding a closing '\"' for the quote.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-11",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-11",
     "since_version": "99.9.9"
   },
   "Q-2-12": {
     "subsystem": "markdown",
     "title": "Unclosed Star Emphasis",
     "message_template": "I reached the end of the block before finding a closing '*' for the emphasis.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-12",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-12",
     "since_version": "99.9.9"
   },
   "Q-2-13": {
     "subsystem": "markdown",
     "title": "Unclosed Strong Star Emphasis",
     "message_template": "I reached the end of the block before finding a closing '**' for the strong emphasis.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-13",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-13",
     "since_version": "99.9.9"
   },
   "Q-2-14": {
     "subsystem": "markdown",
     "title": "Unclosed Underscore Emphasis",
     "message_template": "I reached the end of the block before finding a closing '_' for the emphasis.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-14",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-14",
     "since_version": "99.9.9"
   },
   "Q-2-15": {
     "subsystem": "markdown",
     "title": "Unclosed Strong Underscore Emphasis",
     "message_template": "I reached the end of the block before finding a closing '__' for the strong emphasis.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-15",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-15",
     "since_version": "99.9.9"
   },
   "Q-2-16": {
     "subsystem": "markdown",
     "title": "Unclosed Superscript",
     "message_template": "I reached the end of the block before finding a closing '^' for the superscript.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-16",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-16",
     "since_version": "99.9.9"
   },
   "Q-2-17": {
     "subsystem": "markdown",
     "title": "Unclosed Subscript",
     "message_template": "I reached the end of the block before finding a closing '~' for the subscript.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-17",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-17",
     "since_version": "99.9.9"
   },
   "Q-2-18": {
     "subsystem": "markdown",
     "title": "Unclosed Strikeout",
     "message_template": "I reached the end of the block before finding a closing '~~' for the strikeout.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-18",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-18",
     "since_version": "99.9.9"
   },
   "Q-2-19": {
     "subsystem": "markdown",
     "title": "Unclosed Editorial Insert",
     "message_template": "I reached the end of the block before finding a closing ']' for the editorial insert.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-19",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-19",
     "since_version": "99.9.9"
   },
   "Q-2-20": {
     "subsystem": "markdown",
     "title": "Unclosed Editorial Delete",
     "message_template": "I reached the end of the block before finding a closing ']' for the editorial delete.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-20",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-20",
     "since_version": "99.9.9"
   },
   "Q-2-21": {
     "subsystem": "markdown",
     "title": "Unclosed Editorial Comment",
     "message_template": "I reached the end of the block before finding a closing ']' for the editorial comment.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-21",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-21",
     "since_version": "99.9.9"
   },
   "Q-2-22": {
     "subsystem": "markdown",
     "title": "Unclosed Editorial Highlight",
     "message_template": "I reached the end of the block before finding a closing ']' for the editorial highlight.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-22",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-22",
     "since_version": "99.9.9"
   },
   "Q-2-23": {
     "subsystem": "markdown",
     "title": "Unclosed Inline Math",
     "message_template": "I reached the end of the block before finding a closing '$' for the inline math.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-23",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-23",
     "since_version": "99.9.9"
   },
   "Q-2-24": {
     "subsystem": "markdown",
     "title": "Unclosed Code Span",
     "message_template": "I reached the end of the block before finding a closing '`' for the code span.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-24",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-24",
     "since_version": "99.9.9"
   },
   "Q-2-25": {
     "subsystem": "markdown",
     "title": "Unclosed Image",
     "message_template": "I reached the end of the block before finding a closing '](url)' for the image.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-25",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-25",
     "since_version": "99.9.9"
   },
   "Q-2-26": {
     "subsystem": "markdown",
     "title": "Unclosed Inline Footnote",
     "message_template": "I reached the end of the block before finding a closing ']' for the inline footnote.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-26",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-26",
     "since_version": "99.9.9"
   },
   "Q-2-27": {
     "subsystem": "markdown",
     "title": "Line Break Before Shortcode Close",
     "message_template": "Line breaks are not allowed immediately before the shortcode closing delimiter `>}}`.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-27",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-27",
     "since_version": "99.9.9"
   },
   "Q-2-28": {
     "subsystem": "markdown",
     "title": "Line Break Before Escaped Shortcode Close",
     "message_template": "Line breaks are not allowed immediately before the escaped shortcode closing delimiter `>}}}`.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-28",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-28",
     "since_version": "99.9.9"
   },
   "Q-2-29": {
     "subsystem": "markdown",
     "title": "Indented Footnote Content Not Supported",
     "message_template": "Quarto markdown does not support indented footnote content. Use the div syntax instead: `::: ^ref ... :::`",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-29",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-29",
     "since_version": "99.9.9"
   },
   "Q-2-30": {
     "subsystem": "markdown",
     "title": "Multi-Paragraph Footnote Indentation Not Supported",
     "message_template": "Indented paragraph following footnote definition suggests Pandoc multi-paragraph footnote syntax, which is not supported in quarto-markdown. Use the div syntax instead: `::: ^ref ... :::`",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-30",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-30",
     "since_version": "99.9.9"
   },
   "Q-2-31": {
     "subsystem": "markdown",
     "title": "Inline Code Execution Not Allowed in URLs",
     "message_template": "Inline code execution syntax (`{language} ...) cannot be used inside image or link destinations.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-31",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-31",
     "since_version": "99.9.9"
   },
   "Q-2-32": {
     "subsystem": "markdown",
     "title": "Triple Star Emphasis Not Allowed",
     "message_template": "Quarto Markdown doesn't support `***`. Consider using `*__` instead.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-32",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-32",
     "since_version": "99.9.9"
   },
   "Q-2-33": {
     "subsystem": "markdown",
     "title": "Spaces in Link Targets",
     "message_template": "Link targets cannot contain spaces. Replace spaces with %20.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-33",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-33",
     "since_version": "99.9.9"
   },
   "Q-2-34": {
     "subsystem": "markdown",
     "title": "Unquoted Shortcode Parameter Starting with Digit",
     "message_template": "Shortcode parameter values starting with digits must be quoted.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-34",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-34",
     "since_version": "99.9.9"
   },
   "Q-2-35": {
     "subsystem": "markdown",
     "title": "Invalid List-Table Structure",
     "message_template": "A div with class 'list-table' has an invalid structure and cannot be converted to a table.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-35",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-35",
     "since_version": "99.9.9"
   },
   "Q-2-39": {
     "subsystem": "markdown",
     "title": "Grid tables are not supported",
     "message_template": "Grid tables aren't supported. Use a list table instead.",
-    "docs_url": "https://quarto.org/docs/errors/Q-2-39",
+    "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-39",
     "since_version": "99.9.9"
   },
-
   "Q-3-1": {
     "subsystem": "writer",
     "title": "IO Error During Write",
     "message_template": "An I/O error occurred while writing output.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-1",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-1",
     "since_version": "99.9.9"
   },
   "Q-3-10": {
     "subsystem": "writer",
     "title": "Inline Note Definition Not Supported",
     "message_template": "Inline note definitions ([^id]: content) cannot be rendered in this output format because they require content coalescing, which is not yet implemented.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-10",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-10",
     "since_version": "99.9.9"
   },
   "Q-3-11": {
     "subsystem": "writer",
     "title": "Fenced Note Definition Not Supported",
     "message_template": "Fenced note definitions cannot be rendered in this output format because they require content coalescing, which is not yet implemented.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-11",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-11",
     "since_version": "99.9.9"
   },
   "Q-3-12": {
     "subsystem": "writer",
     "title": "Unresolved Note Reference",
     "message_template": "A note reference was not converted to a Span during postprocessing. This is a bug in the postprocessor.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-12",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-12",
     "since_version": "99.9.9"
   },
   "Q-3-20": {
     "subsystem": "writer",
     "title": "Block Metadata Not Supported",
     "message_template": "YAML metadata blocks are internal AST nodes that cannot be rendered in this output format.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-20",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-20",
     "since_version": "99.9.9"
   },
   "Q-3-21": {
     "subsystem": "writer",
     "title": "Caption Block Not Supported",
     "message_template": "Standalone caption blocks cannot be rendered in this output format. Captions should be attached to figures or tables.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-21",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-21",
     "since_version": "99.9.9"
   },
   "Q-3-30": {
     "subsystem": "writer",
     "title": "Shortcode Not Supported",
     "message_template": "Quarto shortcodes are not representable in this output format.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-30",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-30",
     "since_version": "99.9.9"
   },
   "Q-3-31": {
     "subsystem": "writer",
     "title": "Unprocessed Note Reference",
     "message_template": "Note reference was not converted to Span during postprocessing. This may indicate a bug or a filter that bypassed postprocessing.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-31",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-31",
     "since_version": "99.9.9"
   },
   "Q-3-32": {
     "subsystem": "writer",
     "title": "Standalone Attribute Not Supported",
     "message_template": "Standalone attributes (e.g., in table cells or headings) are not representable in this output format.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-32",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-32",
     "since_version": "99.9.9"
   },
   "Q-3-33": {
     "subsystem": "writer",
     "title": "Unprocessed Insert Markup",
     "message_template": "Insert editorial markup ([++...]) was not desugared to Span during postprocessing.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-33",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-33",
     "since_version": "99.9.9"
   },
   "Q-3-34": {
     "subsystem": "writer",
     "title": "Unprocessed Delete Markup",
     "message_template": "Delete editorial markup ([--...]) was not desugared to Span during postprocessing.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-34",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-34",
     "since_version": "99.9.9"
   },
   "Q-3-35": {
     "subsystem": "writer",
     "title": "Unprocessed Highlight Markup",
     "message_template": "Highlight editorial markup ([!!...]) was not desugared to Span during postprocessing.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-35",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-35",
     "since_version": "99.9.9"
   },
   "Q-3-36": {
     "subsystem": "writer",
     "title": "Unprocessed EditComment Markup",
     "message_template": "EditComment editorial markup ([>>...]) was not desugared to Span during postprocessing.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-36",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-36",
     "since_version": "99.9.9"
   },
   "Q-3-38": {
     "subsystem": "writer",
     "title": "JSON Serialization Failed",
     "message_template": "The AST-to-JSON serialization process failed.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-38",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-38",
     "since_version": "99.9.9"
   },
   "Q-3-40": {
     "subsystem": "writer",
     "title": "Invalid Metadata Structure",
     "message_template": "Document metadata must be a map structure for this output format.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-40",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-40",
     "since_version": "99.9.9"
   },
   "Q-3-50": {
     "subsystem": "writer",
     "title": "LineBlock Not Supported in ANSI Format",
     "message_template": "LineBlock elements cannot be rendered in ANSI terminal output.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-50",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-50",
     "since_version": "99.9.9"
   },
   "Q-3-51": {
     "subsystem": "writer",
     "title": "CodeBlock Not Supported in ANSI Format",
     "message_template": "CodeBlock elements cannot be rendered in ANSI terminal output.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-51",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-51",
     "since_version": "99.9.9"
   },
   "Q-3-52": {
     "subsystem": "writer",
     "title": "Table Not Supported in ANSI Format",
     "message_template": "Table elements cannot be rendered in ANSI terminal output.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-52",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-52",
     "since_version": "99.9.9"
   },
   "Q-3-53": {
     "subsystem": "writer",
     "title": "Figure Not Supported in ANSI Format",
     "message_template": "Figure elements cannot be rendered in ANSI terminal output.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-53",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-53",
     "since_version": "99.9.9"
   },
   "Q-3-54": {
     "subsystem": "writer",
     "title": "NoteDefinitionPara Not Supported in ANSI Format",
     "message_template": "Note definitions cannot be rendered in ANSI terminal output.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-54",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-54",
     "since_version": "99.9.9"
   },
   "Q-3-55": {
     "subsystem": "writer",
     "title": "NoteDefinitionFencedBlock Not Supported in ANSI Format",
     "message_template": "Fenced note definitions cannot be rendered in ANSI terminal output.",
-    "docs_url": "https://quarto.org/docs/errors/Q-3-55",
+    "docs_url": "https://quarto.org/docs/errors/writer/Q-3-55",
     "since_version": "99.9.9"
   },
-
   "Q-9-1": {
     "subsystem": "xml",
     "title": "XML Syntax Error",
     "message_template": "There is a syntax error in the XML document being parsed.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-1",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-1",
     "since_version": "99.9.9"
   },
   "Q-9-2": {
     "subsystem": "xml",
     "title": "Unexpected End of XML Input",
     "message_template": "The XML document ended unexpectedly before parsing was complete.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-2",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-2",
     "since_version": "99.9.9"
   },
   "Q-9-3": {
     "subsystem": "xml",
     "title": "Mismatched XML End Tag",
     "message_template": "An XML end tag does not match its corresponding start tag.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-3",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-3",
     "since_version": "99.9.9"
   },
   "Q-9-4": {
     "subsystem": "xml",
     "title": "Invalid XML Structure",
     "message_template": "The XML document has an invalid structure.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-4",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-4",
     "since_version": "99.9.9"
   },
   "Q-9-5": {
     "subsystem": "xml",
     "title": "Empty XML Document",
     "message_template": "The XML document contains no root element.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-5",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-5",
     "since_version": "99.9.9"
   },
   "Q-9-6": {
     "subsystem": "xml",
     "title": "Multiple XML Root Elements",
     "message_template": "The XML document contains multiple root elements, which is not valid XML.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-6",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-6",
     "since_version": "99.9.9"
   },
   "Q-9-7": {
     "subsystem": "xml",
     "title": "Missing Required Attribute",
     "message_template": "A required attribute is missing from a CSL element.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-7",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-7",
     "since_version": "99.9.9"
   },
   "Q-9-8": {
     "subsystem": "xml",
     "title": "Invalid Attribute Value",
     "message_template": "An attribute value in the CSL file is not valid.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-8",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-8",
     "since_version": "99.9.9"
   },
   "Q-9-9": {
     "subsystem": "xml",
     "title": "Missing Required Element",
     "message_template": "A required child element is missing from a CSL element.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-9",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-9",
     "since_version": "99.9.9"
   },
   "Q-9-10": {
     "subsystem": "xml",
     "title": "Unexpected Element",
     "message_template": "An element appears in an unexpected location in the CSL file.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-10",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-10",
     "since_version": "99.9.9"
   },
   "Q-9-11": {
     "subsystem": "xml",
     "title": "Missing Text Source",
     "message_template": "A text element must specify a source (variable, macro, term, or value).",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-11",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-11",
     "since_version": "99.9.9"
   },
   "Q-9-12": {
     "subsystem": "xml",
     "title": "Undefined Macro",
     "message_template": "A macro reference refers to a macro that is not defined.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-12",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-12",
     "since_version": "99.9.9"
   },
   "Q-9-13": {
     "subsystem": "xml",
     "title": "Circular Macro Dependency",
     "message_template": "Macro references form a circular dependency.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-13",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-13",
     "since_version": "99.9.9"
   },
   "Q-9-14": {
     "subsystem": "xml",
     "title": "Duplicate Macro Definition",
     "message_template": "A macro is defined more than once.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-14",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-14",
     "since_version": "99.9.9"
   },
   "Q-9-15": {
     "subsystem": "xml",
     "title": "Invalid CSL Version",
     "message_template": "The CSL version string is not valid.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-15",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-15",
     "since_version": "99.9.9"
   },
   "Q-9-16": {
     "subsystem": "xml",
     "title": "Invalid Root Element",
     "message_template": "CSL document must have <style> as the root element.",
-    "docs_url": "https://quarto.org/docs/errors/Q-9-16",
+    "docs_url": "https://quarto.org/docs/errors/xml/Q-9-16",
     "since_version": "99.9.9"
   },
-
   "Q-10-1": {
     "subsystem": "template",
     "title": "Template Parse Error",
     "message_template": "Failed to parse the template syntax.",
-    "docs_url": "https://quarto.org/docs/errors/Q-10-1",
+    "docs_url": "https://quarto.org/docs/errors/template/Q-10-1",
     "since_version": "99.9.9"
   },
   "Q-10-2": {
     "subsystem": "template",
     "title": "Undefined Variable",
     "message_template": "The variable referenced in the template is not defined in the context.",
-    "docs_url": "https://quarto.org/docs/errors/Q-10-2",
+    "docs_url": "https://quarto.org/docs/errors/template/Q-10-2",
     "since_version": "99.9.9"
   },
   "Q-10-3": {
     "subsystem": "template",
     "title": "Partial Not Found",
     "message_template": "The referenced partial template file could not be found.",
-    "docs_url": "https://quarto.org/docs/errors/Q-10-3",
+    "docs_url": "https://quarto.org/docs/errors/template/Q-10-3",
     "since_version": "99.9.9"
   },
   "Q-10-4": {
     "subsystem": "template",
     "title": "Recursive Partial",
     "message_template": "Partial templates are nested too deeply, possibly indicating infinite recursion.",
-    "docs_url": "https://quarto.org/docs/errors/Q-10-4",
+    "docs_url": "https://quarto.org/docs/errors/template/Q-10-4",
     "since_version": "99.9.9"
   },
   "Q-10-5": {
     "subsystem": "template",
     "title": "Unresolved Partial Reference",
     "message_template": "A partial reference was not resolved during template compilation.",
-    "docs_url": "https://quarto.org/docs/errors/Q-10-5",
+    "docs_url": "https://quarto.org/docs/errors/template/Q-10-5",
     "since_version": "99.9.9"
   },
   "Q-10-6": {
     "subsystem": "template",
     "title": "Unknown Pipe",
     "message_template": "The pipe transformation specified in the template is not recognized.",
-    "docs_url": "https://quarto.org/docs/errors/Q-10-6",
+    "docs_url": "https://quarto.org/docs/errors/template/Q-10-6",
     "since_version": "99.9.9"
   },
   "Q-10-7": {
     "subsystem": "template",
     "title": "Invalid Pipe Arguments",
     "message_template": "The arguments provided to the pipe transformation are invalid.",
-    "docs_url": "https://quarto.org/docs/errors/Q-10-7",
+    "docs_url": "https://quarto.org/docs/errors/template/Q-10-7",
     "since_version": "99.9.9"
   },
-
   "Q-5-1": {
     "subsystem": "project",
     "title": "Resource Path Resolves Outside the Project Root",
     "message_template": "A `resources:` pattern in `_quarto.yml` or a document frontmatter resolves to a path outside the project root. Project resources must live within the project directory. A leading `/` is treated as project-root-relative, e.g. `/docs/foo.json` means `<project>/docs/foo.json`.",
-    "docs_url": "https://quarto.org/docs/errors/Q-5-1",
+    "docs_url": "https://quarto.org/docs/errors/project/Q-5-1",
     "since_version": "99.9.9"
   },
   "Q-5-2": {
     "subsystem": "project",
     "title": "Invalid Glob Pattern in `resources:`",
     "message_template": "A `resources:` glob pattern in `_quarto.yml` or a document frontmatter is malformed and could not be parsed as a glob.",
-    "docs_url": "https://quarto.org/docs/errors/Q-5-2",
+    "docs_url": "https://quarto.org/docs/errors/project/Q-5-2",
     "since_version": "99.9.9"
   },
   "Q-5-3": {
     "subsystem": "project",
     "title": "Failed Walking Glob Matches for `resources:`",
     "message_template": "An I/O error occurred while enumerating files that match a `resources:` glob.",
-    "docs_url": "https://quarto.org/docs/errors/Q-5-3",
+    "docs_url": "https://quarto.org/docs/errors/project/Q-5-3",
     "since_version": "99.9.9"
   },
-
   "Q-7-1": {
     "subsystem": "cli",
     "title": "Missing Newline at End of File",
     "message_template": "The input file does not end with a newline.",
-    "docs_url": "https://quarto.org/docs/errors/Q-7-1",
+    "docs_url": "https://quarto.org/docs/errors/cli/Q-7-1",
     "since_version": "99.9.9"
   },
-
   "Q-11-1": {
     "subsystem": "lua",
     "title": "Lua Filter Diagnostic",
     "message_template": "A diagnostic was emitted by a Lua filter via quarto.warn() or quarto.error().",
-    "docs_url": "https://quarto.org/docs/errors/Q-11-1",
+    "docs_url": "https://quarto.org/docs/errors/lua/Q-11-1",
     "since_version": "99.9.9"
   },
-
   "Q-12-1": {
     "subsystem": "listing",
     "title": "Custom Listing Template Not Yet Supported",
     "message_template": "Custom listing templates land in a follow-up (bd-rqgx). For now, this listing falls back to the `default` built-in. Set `type: default | grid | table` to silence this diagnostic.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-1",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-1",
     "since_version": "99.9.9"
   },
   "Q-12-2": {
     "subsystem": "listing",
     "title": "Inline Listing Contents Not Yet Supported",
     "message_template": "An inline metadata record in `contents:` is not yet supported. The entry is skipped; glob entries continue to process.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-2",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-2",
     "since_version": "99.9.9"
   },
   "Q-12-3": {
     "subsystem": "listing",
     "title": "Unknown Sort Field",
     "message_template": "The field referenced by `sort:` is not a recognized listing-item field.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-3",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-3",
     "since_version": "99.9.9"
   },
   "Q-12-4": {
     "subsystem": "listing",
     "title": "Listing Id Collision",
     "message_template": "Two listings on the same page declare the same `id`. The first one wins; later ones are dropped.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-4",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-4",
     "since_version": "99.9.9"
   },
   "Q-12-5": {
     "subsystem": "listing",
     "title": "Invalid field-display-names Value",
     "message_template": "`field-display-names` entries must map field names to display strings. Non-string values are dropped.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-5",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-5",
     "since_version": "99.9.9"
   },
   "Q-12-6": {
     "subsystem": "listing",
     "title": "listing: false Not Allowed",
     "message_template": "`listing: false` is not a valid value. Listings are page-local; remove the key entirely or set `listing: true` for a default listing.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-6",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-6",
     "since_version": "99.9.9"
   },
   "Q-12-7": {
     "subsystem": "listing",
     "title": "template Requires type: custom",
     "message_template": "A `template:` field was set but `type:` is not `custom`. Falling back to the built-in template for the declared type.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-7",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-7",
     "since_version": "99.9.9"
   },
   "Q-12-8": {
     "subsystem": "listing",
     "title": "Listing Template File Missing",
     "message_template": "The file referenced by `template:` could not be found relative to the host page.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-8",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-8",
     "since_version": "99.9.9"
   },
   "Q-12-9": {
     "subsystem": "listing",
     "title": "Deprecated .ejs.md Template Extension",
     "message_template": "The `.ejs.md` template extension is a Q1 idiom and is not supported by Q2 doctemplate. See the Q1 → Q2 migration guide.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-9",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-9",
     "since_version": "99.9.9"
   },
   "Q-12-10": {
     "subsystem": "listing",
     "title": "Listing Markdown Re-parse Diagnostics",
     "message_template": "Re-parsing the doctemplate output of a listing produced one or more diagnostics. The first diagnostic is included; full source-info threading is a follow-up (bd-0jyl).",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-10",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-10",
     "since_version": "99.9.9"
   },
   "Q-12-11": {
     "subsystem": "listing",
     "title": "Mixed Category Modes On One Page",
     "message_template": "Two or more listings on this page declare different `categories:` modes; the first non-disabled mode in declaration order wins for the rendered sidebar. Set the same mode on every listing, or set `categories: false` on the listings whose mode you do not want to use.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-11",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-11",
     "since_version": "99.9.9"
   },
   "Q-12-12": {
     "subsystem": "listing",
     "title": "Categories Enabled But No Item Has Any",
     "message_template": "A listing on this page sets `categories:` to a non-disabled mode, but no resolved listing item has any categories defined; the categories sidebar is suppressed. Add `categories: [...]` to the listing's content posts (in their frontmatter or `listing-item:` block), or set `categories: false` to silence this warning.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-12",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-12",
     "since_version": "99.9.9"
   },
   "Q-12-13": {
     "subsystem": "listing",
     "title": "Listing Item Produced No Preview Content",
     "message_template": "Listing item from {href} produced no preview content; using static fallback description. The sibling output file is missing or has no usable first paragraph; the listing remains correct but uses the description from the post's frontmatter / first source paragraph rather than the engine-rendered output.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-13",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-13",
     "since_version": "99.9.9"
   },
   "Q-12-14": {
     "subsystem": "listing",
     "title": "Listing Type custom Without template Path",
     "message_template": "A `type: custom` listing requires a `template:` field pointing at a doctemplate file. Falling back to the built-in `default` template.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-14",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-14",
     "since_version": "99.9.9"
   },
   "Q-12-15": {
     "subsystem": "listing",
     "title": "Listing Feed Skipped: Missing site-url",
     "message_template": "A listing has `feed:` configured, but the project's `website.site-url` is missing. Feeds require an absolute base URL to construct item links. Set `website.site-url` in `_quarto.yml` to enable feed generation. The listing host page renders correctly otherwise.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-15",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-15",
     "since_version": "99.9.9"
   },
   "Q-12-16": {
     "subsystem": "listing",
     "title": "Listing Feed: Sibling Output Unreadable",
     "message_template": "While building a listing feed, the substitution step tried to read the rendered HTML at {path} for an item but the file could not be opened. The feed was emitted with an empty `<description>` for this item. Re-running the project render usually resolves transient I/O issues; persistent failures suggest a misconfigured output directory.",
-    "docs_url": "https://quarto.org/docs/errors/Q-12-16",
+    "docs_url": "https://quarto.org/docs/errors/listing/Q-12-16",
     "since_version": "99.9.9"
   },
   "Q-13-1": {
     "subsystem": "navigation",
     "title": "Sidebar references missing document",
     "message_template": "A `website.sidebar` entry references a path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set.",
-    "docs_url": "https://quarto.org/docs/errors/Q-13-1",
+    "docs_url": "https://quarto.org/docs/errors/navigation/Q-13-1",
     "since_version": "99.9.9"
   },
   "Q-13-2": {
     "subsystem": "navigation",
     "title": "Navbar references missing document",
     "message_template": "A `website.navbar` entry references a path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set.",
-    "docs_url": "https://quarto.org/docs/errors/Q-13-2",
+    "docs_url": "https://quarto.org/docs/errors/navigation/Q-13-2",
     "since_version": "99.9.9"
   },
   "Q-13-3": {
     "subsystem": "navigation",
     "title": "Page footer references missing document",
     "message_template": "A `website.page-footer` entry references a path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set.",
-    "docs_url": "https://quarto.org/docs/errors/Q-13-3",
+    "docs_url": "https://quarto.org/docs/errors/navigation/Q-13-3",
     "since_version": "99.9.9"
   },
   "Q-13-4": {
     "subsystem": "navigation",
     "title": "Body link references missing document",
     "message_template": "An inline link in the document body references a `.qmd` path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set. The link is preserved verbatim in the rendered output so the dangling reference is visible to readers.",
-    "docs_url": "https://quarto.org/docs/errors/Q-13-4",
+    "docs_url": "https://quarto.org/docs/errors/navigation/Q-13-4",
     "since_version": "99.9.9"
   },
   "Q-13-5": {
     "subsystem": "navigation",
     "title": "Sidebar `auto:` ignored",
     "message_template": "A sidebar `auto:` entry was dropped because no project index is available to expand it. This usually means the document is being rendered standalone rather than as part of a project. Render this document inside a project to expand `auto:` entries.",
-    "docs_url": "https://quarto.org/docs/errors/Q-13-5",
+    "docs_url": "https://quarto.org/docs/errors/navigation/Q-13-5",
     "since_version": "99.9.9"
   },
   "Q-13-6": {
     "subsystem": "navigation",
     "title": "Sidebar `auto:` matched no documents",
     "message_template": "A sidebar `auto:` entry was expanded against the project index but matched no documents. The entry is dropped from the rendered sidebar. Check the path or glob pattern in the `auto:` spec, or confirm the target files exist in the project.",
-    "docs_url": "https://quarto.org/docs/errors/Q-13-6",
+    "docs_url": "https://quarto.org/docs/errors/navigation/Q-13-6",
     "since_version": "99.9.9"
   },
   "Q-13-7": {
     "subsystem": "navigation",
     "title": "Page navigation references missing document",
     "message_template": "A `prev:` or `next:` page-navigation entry references a path that is not in the project index. The referenced path is reported as a missing document. Check the spelling, or confirm the target file is included in the render set.",
-    "docs_url": "https://quarto.org/docs/errors/Q-13-7",
+    "docs_url": "https://quarto.org/docs/errors/navigation/Q-13-7",
     "since_version": "99.9.9"
   },
   "Q-14-1": {
     "subsystem": "theme",
     "title": "Invalid theme configuration",
     "message_template": "The `theme:` value in `_quarto.yml` or document metadata is not a recognized shape. Use a single theme name (e.g. `theme: cosmo`), an array of names (e.g. `theme: [cosmo, custom.scss]`), or `theme: none` to suppress Bootstrap.",
-    "docs_url": "https://quarto.org/docs/errors/Q-14-1",
+    "docs_url": "https://quarto.org/docs/errors/theme/Q-14-1",
     "since_version": "99.9.9"
   },
   "Q-14-2": {
     "subsystem": "theme",
     "title": "Unknown theme name",
     "message_template": "The `theme:` value names a theme Quarto does not recognize. Use one of the built-in Bootswatch theme names (e.g. `cosmo`, `darkly`), a path to a `.scss`/`.css` file, or `theme: none` to suppress Bootstrap.",
-    "docs_url": "https://quarto.org/docs/errors/Q-14-2",
+    "docs_url": "https://quarto.org/docs/errors/theme/Q-14-2",
     "since_version": "99.9.9"
   }
 }

@@ -60,7 +60,7 @@ Problem: Missing required property 'author'
 
   ? Add the `author` property to your YAML document?
 
-See https://quarto.org/docs/errors/Q-1-10 for more information
+See https://quarto.org/docs/errors/yaml/Q-1-10 for more information
 ```
 
 ## Features
@@ -97,7 +97,7 @@ Validation errors include searchable error codes:
 - **Q-1-19**: Array uniqueness violation
 - **Q-1-99**: Generic validation error
 
-Each error code links to detailed documentation at `https://quarto.org/docs/errors/Q-1-XX`.
+Each error code links to detailed documentation at `https://quarto.org/docs/errors/yaml/Q-1-XX`.
 
 ## Exit Codes
 

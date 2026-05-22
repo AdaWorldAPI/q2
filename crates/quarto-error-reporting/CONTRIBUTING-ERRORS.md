@@ -119,7 +119,7 @@ Edit `error_catalog.json`:
     "subsystem": "yaml",
     "title": "Your Error Title",
     "message_template": "Brief description of the error",
-    "docs_url": "https://quarto.org/docs/errors/Q-1-42",
+    "docs_url": "https://quarto.org/docs/errors/yaml/Q-1-42",
     "since_version": "99.9.9"
   }
 }

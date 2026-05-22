@@ -2790,6 +2790,7 @@ dependencies = [
  "once_cell",
  "quarto-brand",
  "quarto-pandoc-types",
+ "quarto-source-map",
  "quarto-system-runtime",
  "regex",
  "serde",
