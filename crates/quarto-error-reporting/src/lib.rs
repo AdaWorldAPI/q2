@@ -68,9 +68,17 @@ pub mod json;
 // Macros for convenient error creation
 pub mod macros;
 
+// Cross-source diagnostic coalescing (bd-9hlja).
+//
+// When per-page diagnostics share a source location across many
+// pages, this module groups them into a single emission listing the
+// affected pages — used by the render summary printer in the CLI.
+pub mod coalesce;
+
 // Re-export main types for convenience
 pub use builder::DiagnosticMessageBuilder;
 pub use catalog::{ERROR_CATALOG, ErrorCodeInfo, get_docs_url, get_error_info, get_subsystem};
+pub use coalesce::{CoalescedDiagnostic, coalesce_by_source};
 pub use diagnostic::{
     DetailItem, DetailKind, DiagnosticKind, DiagnosticMessage, MessageContent, TextRenderOptions,
 };
