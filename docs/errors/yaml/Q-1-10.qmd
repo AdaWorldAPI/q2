@@ -1,0 +1,101 @@
+---
+title: "Missing Required Property"
+description: "A YAML document is missing a property that its schema marks as required."
+code: Q-1-10
+subsystem: yaml
+status: complete
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-10` — Missing Required Property
+
+> A YAML document is missing a property that its schema marks as
+> required.
+
+## What this means
+
+Quarto's configuration files (such as `_quarto.yml`) and many of
+its metadata blocks follow schemas that define which properties
+must appear. This error fires when your YAML omits a required
+property: schema validation rejects the document, and Quarto
+refuses to proceed.
+
+The error names the missing property and the location of the
+surrounding YAML object — the place in the file where the
+property should appear.
+
+## Why this happens
+
+The three common causes:
+
+- **The property is genuinely missing.** You started a
+  configuration block but did not fill in every required field
+  before saving.
+- **The property name is misspelled.** What you intended as the
+  required property landed under a typo, so the schema does not
+  see it.
+- **You copied an incomplete example.** A snippet that worked in
+  another context was not, on its own, a complete configuration
+  for the schema it landed in.
+
+## How to fix
+
+Add the missing property at the same nesting level the schema
+expects, then re-run Quarto. The error message shows both the
+property name and the path inside the YAML where it belongs, so
+the place to add it is unambiguous.
+
+If the property looks present but the error still fires, check the
+spelling carefully — YAML key names are case-sensitive, and a
+required `title` will not be satisfied by `Title` or `titel`.
+
+If the schema's requirement looks wrong for your case, consult the
+Quarto documentation for the configuration block in question. A
+property is required because something downstream cannot run
+without it; the documentation should explain why.
+
+## Example
+
+A `_quarto.yml` declares a website but omits the `title` property:
+
+```yaml
+# _quarto.yml
+project:
+  type: website
+
+website:
+  navbar:
+    left:
+      - href: index.qmd
+```
+
+Running `quarto render` reports the missing `title` and points at
+the `website` block where it should appear.
+
+Fix the configuration by adding the required property at the
+correct nesting level:
+
+```yaml
+project:
+  type: website
+
+website:
+  title: "My Site"
+  navbar:
+    left:
+      - href: index.qmd
+```
+
+## Related
+
+- `Q-1-11` — type mismatch: the property is present, but its value
+  has the wrong type.
+- `Q-1-18` — unknown property: a property is present but the
+  schema does not recognize it (often a typo of a different
+  required property).
+
+Cross-references render as plain code spans until the target pages
+exist; the [`README`](../../../docs/errors/README.md) describes
+the convention for promoting them to links once the targets land.

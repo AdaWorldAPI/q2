@@ -1,0 +1,46 @@
+---
+title: "Error reference"
+description: "One page per error code emitted by Quarto. Pages explain what each error means, why it typically fires, and how to fix it."
+listing:
+  contents: "*/Q-*.qmd"
+  type: table
+  fields: [code, title, subsystem, status]
+  field-display-names:
+    code: "Code"
+    title: "Title"
+    subsystem: "Subsystem"
+    status: "Status"
+  field-links: [code, title]
+  # Workarounds for two Q2 listing limitations:
+  # - bd-2qjnd: parse_sort scalar arm rejects PandocInlines, so we
+  #   use the array form which goes through as_plain_text().
+  # - bd-otmqu: only built-in sort fields are recognized. `code`
+  #   would be ideal but isn't recognized; we sort by `filename`
+  #   instead (Q-1-10.qmd, Q-1-11.qmd, ... sorts close enough
+  #   alphanumerically, though Q-1-10 sorts before Q-1-2).
+  sort: [filename]
+  categories: numbered
+  filter-ui: true
+  sort-ui: true
+---
+
+This page lists every error code Quarto can emit, with a link to
+the per-code reference page. Use the filter above to narrow by
+subsystem or status.
+
+The catalog of codes lives in
+[`crates/quarto-error-reporting/error_catalog.json`](../../crates/quarto-error-reporting/error_catalog.json).
+The pages here are the prose layer over that catalog: where the
+catalog says *which* codes exist, the pages explain them.
+
+## Status legend
+
+| Status       | Meaning                                                                              |
+| ------------ | ------------------------------------------------------------------------------------ |
+| `complete`   | Canonical reference. Has met the prose-quality bar described in the README.          |
+| `stub`       | A human has reviewed and lightly filled out the page. Not yet a finished reference.  |
+| `draft`      | Page exists with auto-generated placeholder body. No human prose yet.                |
+| `deprecated` | Newer Quarto versions no longer emit this code, but the page stays live so users on older versions can still look it up. |
+
+See [`docs/errors/README.md`](../../docs/errors/README.md) on
+GitHub for the full authoring conventions.

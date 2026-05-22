@@ -1,0 +1,223 @@
+# Error reference pages
+
+This directory holds one page per error code emitted by Quarto.
+Each page expands a terminal-format error message into a fuller
+explanation: what the error means in plain language, why it
+typically fires, and how a user can fix it. The codes themselves
+live in the catalog at
+[`crates/quarto-error-reporting/error_catalog.json`](../../crates/quarto-error-reporting/error_catalog.json),
+which defines which codes exist; the pages in this directory
+explain them.
+
+## Directory layout
+
+Pages are organized by subsystem:
+
+```
+docs/errors/
+├── README.md          ← this file
+├── index.qmd          ← top-level listing (all codes, grouped)
+├── yaml/
+│   ├── Q-1-1.qmd
+│   ├── Q-1-10.qmd
+│   └── ...
+├── markdown/
+│   ├── Q-2-1.qmd
+│   └── ...
+└── ...
+```
+
+Every page is named `<code>.qmd` and sits in a directory named for
+its subsystem. The rendered URL is
+`/docs/errors/<subsystem>/<code>.html`, and this URL must match the
+`docs_url` field of the corresponding catalog entry.
+
+The per-subsystem directories give Quarto a natural place to attach
+subsystem-wide settings later through `_metadata.yml`, without
+restructuring.
+
+## Front-matter schema
+
+Each page begins with YAML front matter:
+
+```yaml
+---
+title: "YAML Syntax Error"
+description: "The YAML document being parsed has a syntax error that prevents parsing."
+code: Q-1-1
+subsystem: yaml
+status: complete
+since: "99.9.9"
+categories:
+  - yaml
+---
+```
+
+| Field         | Type                  | Required | Purpose                                                                 |
+| ------------- | --------------------- | -------- | ----------------------------------------------------------------------- |
+| `title`       | string                | yes      | Page title. Must match the catalog's `title` for this code.             |
+| `description` | string                | yes      | One-sentence summary used in the listing page.                          |
+| `code`        | string (`Q-X-Y`)      | yes      | Error code. Must match the filename and the catalog key.                |
+| `subsystem`   | string                | yes      | Must match the catalog's `subsystem` and the parent directory name.    |
+| `status`      | enum (see below)      | yes      | Authoring health. Tooling reports rollups by status.                    |
+| `since`       | string (semver)       | yes      | Must match the catalog's `since_version`.                               |
+| `categories`  | list of strings       | yes      | At minimum `[<subsystem>]`. Drives grouping in the listing page.        |
+
+### `description` is not `message_template`
+
+The catalog field `message_template` is the text Quarto prints to
+the terminal when the error fires. The page field `description` is
+the one-sentence summary shown next to the code in the listing.
+They serve different audiences and can legitimately differ — the
+audit tool does not flag drift between them.
+
+A `message_template` is often terse so it fits a terminal line;
+a `description` has more room and can be plainer.
+
+## Status enum
+
+The `status` field tracks authoring health. The audit tool
+(`cargo xtask error-docs`) rolls up coverage by status.
+
+| Status       | Meaning                                                                              |
+| ------------ | ------------------------------------------------------------------------------------ |
+| `draft`      | Page exists with auto-generated placeholder body. No human has written prose yet.   |
+| `stub`       | A human has reviewed and lightly filled out the page. Not yet a finished reference. |
+| `complete`   | Usable as the canonical reference. Has met the prose-quality bar described below.   |
+| `deprecated` | Newer Quarto versions no longer emit this code, but the page stays live so users on older versions can still look it up. |
+
+Error codes themselves are append-only in the catalog: once a
+code has been emitted by any released Quarto version, it stays.
+The `deprecated` status applies to *pages*, not to the catalog.
+When a newer Quarto version stops emitting a code, the page
+becomes `deprecated` so readers know it's no longer current, but
+the catalog entry stays in place.
+
+## Page template
+
+Pages follow this body structure:
+
+```markdown
+# `Q-X-Y` — {{title}}
+
+> {{description}}
+
+## What this means
+
+Plain-language explanation, written for someone who hit this error
+and does not know Quarto internals.
+
+## Why this happens
+
+Common causes, ordered roughly by frequency.
+
+## How to fix
+
+Specific remediation steps. Where it helps, show the bad input
+and the corrected version side by side.
+
+## Example (optional)
+
+A minimal reproducer.
+
+## Related errors (optional)
+
+Cross-references to related codes.
+```
+
+The three required sections — **What this means**, **Why this
+happens**, and **How to fix** — match the order a reader needs:
+first they confirm they're on the right page, then they understand
+the cause, then they apply the fix.
+
+## Adding a new page
+
+Two paths:
+
+### With tooling (preferred, once `cargo xtask error-docs` ships)
+
+```
+cargo xtask error-docs new Q-X-Y
+```
+
+The command reads the catalog entry, creates
+`docs/errors/<subsystem>/Q-X-Y.qmd` with all front-matter fields
+populated from the catalog, and inserts `<!-- TODO: ... -->`
+placeholders in each body section. The new page starts at
+`status: draft`.
+
+### By hand
+
+1. Find the catalog entry in `error_catalog.json`.
+2. Create `docs/errors/<subsystem>/Q-X-Y.qmd`, copying the template
+   above.
+3. Fill the front-matter fields from the catalog entry. Start at
+   `status: draft` until you write real prose.
+
+## Promoting through the status enum
+
+Once the page exists at `draft`:
+
+- **`draft` → `stub`** when a human has read the auto-generated
+  body and replaced each placeholder with at least a one-sentence
+  human draft. Stub-quality is the minimum needed for the audit
+  tool to mark a subsystem "covered".
+- **`stub` → `complete`** when all three required sections carry
+  substantive content, the "How to fix" section gives a concrete
+  action a user can take, and the prose has been revised through
+  the [reader-expectations-prose](../../.claude/skills/reader-expectations-prose/SKILL.md)
+  methodology (run `/reader-expectations-prose` on the file).
+- **anything → `deprecated`** when newer Quarto versions stop
+  emitting the code. The page stays live and the catalog entry
+  stays in place; only the front-matter status changes.
+
+## Verifying your work
+
+Before committing a new page:
+
+```
+cargo run --bin q2 -- render docs/
+```
+
+The `docs/` website is rendered by **Quarto 2** (built from this
+repo), not by the system `quarto` binary (which is Quarto 1). Using
+Q1 to verify will produce misleading results because the two
+versions accept different YAML schemas.
+
+The Errors entry in the navbar should resolve. Your new page
+should appear in the listing at `docs/errors/index.html`, and the
+page itself should render without warnings (other than `Q-13-4`
+for cross-references whose target pages do not yet exist; see
+the cross-reference convention below).
+
+Once the audit tool ships, also run:
+
+```
+cargo xtask error-docs audit
+```
+
+The audit verifies that your page's front-matter matches the
+catalog and that the page lives at the path the catalog expects.
+
+## Cross-reference convention
+
+The page template's *Related* section uses code spans
+(`` `Q-X-Y` ``) rather than links (`` [`Q-X-Y`](Q-X-Y.qmd) ``) when
+the target page does not yet exist. Q2 emits a `Q-13-4` warning
+for any link whose target is not in the project index, which would
+pollute the audit signal. When the target page lands, promote the
+cross-reference from a code span to a real link in the same commit
+that adds the target.
+
+The audit tool (`cargo xtask error-docs`, bd-8otua) will eventually
+flag eligible-but-not-linked cross-references so this promotion
+doesn't get forgotten.
+
+## Related
+
+- [`crates/quarto-error-reporting/README.md`](../../crates/quarto-error-reporting/README.md)
+  — the error-reporting crate itself, with the API used to emit
+  these errors from Quarto code.
+- [`crates/quarto-error-reporting/CONTRIBUTING-ERRORS.md`](../../crates/quarto-error-reporting/CONTRIBUTING-ERRORS.md)
+  — guidance for *introducing* a new error code (catalog side).
+  Once you add a code there, also add a stub page here.
