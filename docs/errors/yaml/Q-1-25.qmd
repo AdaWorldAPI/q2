@@ -1,0 +1,42 @@
+---
+title: "Whitespace in Tag"
+description: "A YAML tag contains whitespace around a component."
+code: Q-1-25
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-25` — Whitespace in Tag
+
+> A YAML tag contains whitespace around a component.
+
+## What this means
+
+Quarto's configuration tags are written in compact form, with no
+spaces between or around their components: `!prefer_md`, not
+`! prefer_md` or `!prefer _ md`. The YAML parser usually strips
+whitespace before Quarto sees the tag, but this check exists for
+the rare cases where some whitespace survives.
+
+## Why this happens
+
+If you see this error, the most likely cause is a stray space
+inserted by an editor or by hand-editing. The recognized tag
+components themselves never contain spaces.
+
+## How to fix
+
+Remove the whitespace from the tag. The tag, including underscores,
+should be one continuous token immediately after the `!`.
+
+## Related
+
+- [`Q-1-24`](Q-1-24.qmd) — empty tag component: caused by misplaced underscores,
+  often discovered in the same edit that introduces stray
+  whitespace.
+- [`Q-1-26`](Q-1-26.qmd) — invalid tag character: a broader form of the same
+  check, which catches non-alphanumeric, non-underscore characters
+  in the tag.

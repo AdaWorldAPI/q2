@@ -90,12 +90,8 @@ website:
 
 ## Related
 
-- `Q-1-11` — type mismatch: the property is present, but its value
-  has the wrong type.
-- `Q-1-18` — unknown property: a property is present but the
-  schema does not recognize it (often a typo of a different
+- [`Q-1-11`](Q-1-11.qmd) — type mismatch: the property is present,
+  but its value has the wrong type.
+- [`Q-1-18`](Q-1-18.qmd) — unknown property: a property is present
+  but the schema does not recognize it (often a typo of a different
   required property).
-
-Cross-references render as plain code spans until the target pages
-exist; the [`README`](../../../docs/errors/README.md) describes
-the convention for promoting them to links once the targets land.

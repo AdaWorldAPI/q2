@@ -1,0 +1,58 @@
+---
+title: "Config Layer Parse Failure"
+description: "A configuration layer could not be validated as a coherent YAML configuration."
+code: Q-1-23
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-23` — Config Layer Parse Failure
+
+> A configuration layer could not be validated as a coherent YAML
+> configuration.
+
+## What this means
+
+Quarto loads configuration from several sources — `_quarto.yml`,
+profile files, project metadata, document front-matter — and
+merges them layer by layer. Each layer is validated for structural
+soundness *before* being merged in. This error fires when one of
+the layers fails that structural check.
+
+The error message includes both the underlying problem (forwarded
+from the structural validator) and a location pointing at the
+configuration file in question, so you can identify which layer
+failed.
+
+## Why this happens
+
+The error is the wrapper Quarto attaches to whatever the layer
+validator complains about. Common underlying causes:
+
+- **A tag-related error** inside the layer — for example `Q-1-24`
+  (empty tag component), `Q-1-26` (invalid tag character), or
+  `Q-1-28` (conflicting merge operations). The layer is otherwise
+  well-formed YAML, but a tag inside it is malformed.
+- **A structural inconsistency** the merger cannot reconcile, for
+  example a value that should be a map appearing as a scalar in
+  one layer.
+
+## How to fix
+
+Read the error message's "Failed to validate config layer:" detail
+to see the underlying problem, then jump to the file and location
+that the location field points to. The fix is whatever the
+underlying error needs — `Q-1-23` itself is just the contextual
+wrapper.
+
+If the underlying error is one of the tag errors, see the page for
+the specific code in the message.
+
+## Related
+
+- [`Q-1-1`](Q-1-1.qmd) — YAML syntax error: the layer is not even valid YAML.
+- [`Q-1-24`](Q-1-24.qmd), [`Q-1-25`](Q-1-25.qmd), [`Q-1-26`](Q-1-26.qmd), [`Q-1-28`](Q-1-28.qmd) — specific tag errors
+  that commonly surface through this wrapper.

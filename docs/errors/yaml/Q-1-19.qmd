@@ -1,0 +1,45 @@
+---
+title: "Array Uniqueness Violation"
+description: "An array contains duplicate items where the schema requires every item to be unique."
+code: Q-1-19
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-19` — Array Uniqueness Violation
+
+> An array contains duplicate items where the schema requires
+> every item to be unique.
+
+## What this means
+
+Schemas can mark an array as requiring distinct items — no value
+may appear twice. When your YAML lists the same value more than
+once in such an array, this error fires.
+
+## Why this happens
+
+The pattern usually appears in lists of identifiers where the same
+identifier appears more than once: an author listed twice in a
+document's `author` field, a CSS class included redundantly in a
+chunk's `classes`, or a tag duplicated in a post's `categories`.
+
+In configurations assembled by hand from several sources (one
+example pulled from documentation, another adapted from a
+template), the duplicate is often unintentional.
+
+## How to fix
+
+Remove the duplicate. If the duplicates have slightly different
+spellings or capitalizations and you want both to appear, decide
+which form is canonical and unify the entries — the schema treats
+them as identical only when they match exactly, so a typo can
+hide the duplication.
+
+## Related
+
+- [`Q-1-13`](Q-1-13.qmd) — array length: a similar constraint, but on the
+  number of items rather than their distinctness.

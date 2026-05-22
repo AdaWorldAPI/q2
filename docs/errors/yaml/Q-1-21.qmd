@@ -1,0 +1,65 @@
+---
+title: "Unknown Tag Component"
+description: "A YAML tag in the configuration includes a component name Quarto does not recognize."
+code: Q-1-21
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-21` — Unknown Tag Component
+
+> A YAML tag in the configuration includes a component name
+> Quarto does not recognize.
+
+## What this means
+
+Quarto extends YAML with a small family of tags that control how
+configuration values are merged across layers (`_quarto.yml`,
+profile files, project metadata) and how the value should be
+interpreted (as markdown, a plain string, a path, a glob, an
+expression). The recognized components are:
+
+- merge operations: `prefer`, `concat`
+- interpretations: `md`, `str`, `path`, `glob`, `expr`
+
+A tag combines one or more of these with underscores, for example
+`!prefer_md` or `!concat_path`. This warning fires when a tag
+contains a component outside that list.
+
+The warning does not block the build. Quarto preserves the unknown
+component so downstream handling can decide whether to act on it,
+and proceeds with whatever it could recognize.
+
+## Why this happens
+
+Common patterns:
+
+- **Typos** of recognized names: `!prefre` for `!prefer`, `!mark`
+  for `!md`, `!filepath` for `!path`.
+- **English-language forms** of the canonical names: `!markdown`,
+  `!string`, `!file`, `!expression`. Quarto suggests the canonical
+  name in the warning when the typo is recognizable.
+- **Forward-looking tags** that have not been implemented yet.
+
+## How to fix
+
+Replace the unknown component with the canonical name. The warning
+message includes a "Did you mean ...?" hint for the typos Quarto
+recognizes; otherwise pick from the list above based on what you
+intended.
+
+If the tag was intentional and the unknown component is meaningful
+to a downstream consumer, the warning is informational and you can
+leave the tag in place.
+
+## Related
+
+- [`Q-1-22`](Q-1-22.qmd) — unrecognized tag: the entire tag is unknown, not
+  just one component.
+- [`Q-1-24`](Q-1-24.qmd) — empty tag component: the tag is well-formed but
+  contains an empty component.
+- [`Q-1-26`](Q-1-26.qmd) — invalid tag character: the tag contains characters
+  outside the allowed set.

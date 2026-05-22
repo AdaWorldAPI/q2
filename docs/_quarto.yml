@@ -24,7 +24,27 @@ website:
         - errors/index.qmd
         - section: "yaml"
           contents:
+            - errors/yaml/Q-1-1.qmd
             - errors/yaml/Q-1-10.qmd
+            - errors/yaml/Q-1-11.qmd
+            - errors/yaml/Q-1-12.qmd
+            - errors/yaml/Q-1-13.qmd
+            - errors/yaml/Q-1-14.qmd
+            - errors/yaml/Q-1-15.qmd
+            - errors/yaml/Q-1-16.qmd
+            - errors/yaml/Q-1-17.qmd
+            - errors/yaml/Q-1-18.qmd
+            - errors/yaml/Q-1-19.qmd
+            - errors/yaml/Q-1-20.qmd
+            - errors/yaml/Q-1-21.qmd
+            - errors/yaml/Q-1-22.qmd
+            - errors/yaml/Q-1-23.qmd
+            - errors/yaml/Q-1-24.qmd
+            - errors/yaml/Q-1-25.qmd
+            - errors/yaml/Q-1-26.qmd
+            - errors/yaml/Q-1-27.qmd
+            - errors/yaml/Q-1-28.qmd
+            - errors/yaml/Q-1-99.qmd
 
 format:
   html:

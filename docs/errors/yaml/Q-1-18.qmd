@@ -1,0 +1,59 @@
+---
+title: "Unknown Property"
+description: "A YAML object has a property the schema does not recognize."
+code: Q-1-18
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-18` — Unknown Property
+
+> A YAML object has a property the schema does not recognize.
+
+## What this means
+
+Some schemas restrict which properties an object may have, in
+addition to which are required (`Q-1-10`). Schemas of this kind
+are called *closed*: any property name outside the known set is an
+error. This is in contrast to *open* schemas, which silently
+accept extra properties.
+
+When you place a property name a closed schema does not know, this
+error fires. The terminal message names the unknown property and
+the object path where it appeared.
+
+## Why this happens
+
+The most common causes:
+
+- **A typo.** What you intended as a recognized property name
+  landed under a misspelling. The schema does not see the intended
+  property, and the typo looks like an unknown property.
+- **A renamed property.** Quarto sometimes renames properties
+  between versions. A configuration that worked in an older
+  version may contain a name the current schema no longer accepts.
+- **A property that belongs to a different block.** Nesting a key
+  under the wrong parent in `_quarto.yml` (for example, a
+  format-specific key directly under `project:`).
+
+## How to fix
+
+Check the spelling of the property name first; YAML keys are
+case-sensitive. If the spelling is right, consult the documentation
+for the configuration block — the property may have been renamed,
+or it may belong in a sibling block.
+
+If the property is genuinely needed and the schema rejects it, the
+schema may be wrong for your case; raise it as an issue with the
+Quarto project, naming the property and the block where you wanted
+to set it.
+
+## Related
+
+- [`Q-1-10`](Q-1-10.qmd) — missing required property: the schema requires a
+  property and your object does not have it.
+- [`Q-1-16`](Q-1-16.qmd) — object property count: the property names are all
+  valid, but the *count* is wrong.

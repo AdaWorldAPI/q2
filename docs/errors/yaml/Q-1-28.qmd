@@ -1,0 +1,68 @@
+---
+title: "Conflicting Merge Operations"
+description: "A YAML tag specifies both `prefer` and `concat` — only one merge operation is allowed per tag."
+code: Q-1-28
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-28` — Conflicting Merge Operations
+
+> A YAML tag specifies both `prefer` and `concat` — only one merge
+> operation is allowed per tag.
+
+## What this means
+
+When Quarto merges configuration across layers, each tagged value
+can declare one of two merge strategies: `prefer` (this value
+overrides the same key in earlier layers) or `concat` (this value
+is appended to the same key in earlier layers). The two strategies
+are mutually exclusive — a single value cannot both override and
+append at once — so a tag may name at most one.
+
+This error fires when a tag combines both `prefer` and `concat`,
+in either order: `!prefer_concat`, `!concat_prefer`, or any tag
+with both components mixed in among other component names.
+
+## Why this happens
+
+The two situations:
+
+- **Hand-construction.** Someone deliberately wrote both operations
+  into a single tag, perhaps trying to express a hybrid behavior
+  Quarto does not offer.
+- **Merging of edited tags.** A configuration that started with one
+  operation had the other appended by a later edit, instead of
+  replacing the first.
+
+## How to fix
+
+Decide which behavior you want and remove the other component.
+
+If you want the later layer's value to **override** earlier layers,
+keep `prefer`:
+
+```yaml
+authors: !prefer_md
+  - "[Pat](mailto:pat@example.com)"
+```
+
+If you want the later layer's value to **append** to earlier layers,
+keep `concat`:
+
+```yaml
+authors: !concat_md
+  - "[Sam](mailto:sam@example.com)"
+```
+
+If you really need both behaviors for different parts of the value,
+restructure the configuration so that each part of the value is
+tagged separately.
+
+## Related
+
+- [`Q-1-21`](Q-1-21.qmd) — unknown tag component: a different problem where one
+  of the component names is unrecognized.

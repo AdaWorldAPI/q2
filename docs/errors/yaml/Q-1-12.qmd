@@ -1,0 +1,58 @@
+---
+title: "Invalid Enum Value"
+description: "A value is not one of the choices the schema's enumeration allows."
+code: Q-1-12
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-12` — Invalid Enum Value
+
+> A value is not one of the choices the schema's enumeration
+> allows.
+
+## What this means
+
+Some Quarto configuration fields accept only a fixed set of
+values. Output format names, theme names, engine names, and many
+other configuration choices are restricted this way. The schema
+calls this restriction an *enumeration* — literally the list of
+values it will accept.
+
+This error fires when your YAML's value passes the basic type
+check (the field expects a string and you provided a string), but
+the value itself isn't on the allowed list. The error message
+includes both the value you provided and the full list of
+acceptable values.
+
+## Why this happens
+
+Three common cases:
+
+- **Typo in the value.** `html5` instead of `html`, `gfm-md` instead
+  of `gfm`, or capitalization mismatches like `HTML` for `html`.
+  Enum matching is case-sensitive.
+- **A value valid in a different release.** A name that worked in
+  Quarto 1 might not exist in Quarto 2, or a third-party format
+  may not be installed.
+- **Confusion between similar fields.** Providing a theme name in
+  a slot that wants an output format, or the other way around.
+
+## How to fix
+
+The error message lists every allowed value for the property. Pick
+the one you meant, paying attention to spelling and case. If none
+of them is what you wanted, the property may not be the right
+place for what you are configuring — check the documentation for
+the configuration block the property belongs to.
+
+## Related
+
+- [`Q-1-11`](Q-1-11.qmd) — type mismatch: the value has the wrong type entirely,
+  not just an unrecognized choice.
+- [`Q-1-14`](Q-1-14.qmd) — string pattern mismatch: a less strict version where
+  the schema accepts strings matching a pattern rather than an
+  exact list.
