@@ -151,22 +151,69 @@ deleted. Net: ~30 lines simpler.
 
 ## Test strategy
 
-1. **No new functional tests required** — existing tests cover
-   the parser surface, and the migration is a pure
-   identifier-scheme change. Behavior is unchanged.
-2. **Lock in the new contract**: add one test in `pampa` that
-   asserts `ASTContext::with_filename("foo.qmd").current_file_id()
-   == quarto_yaml::file_id_for_filename("foo.qmd")`. This is the
-   one invariant the next bridge consumer will rely on.
-3. **Drop the `debug_assert_eq!` desync check** in
-   `include_expansion.rs` as part of the simplification, but
-   first add a test that includes a sub-document and asserts a
-   diagnostic in the sub-doc resolves to a SourceContext entry
-   with the right path (this currently passes via the lockstep
-   assertion; under hash FileIds it should pass without it).
-4. Run full `cargo nextest run --workspace` + `cargo xtask
-   verify`. The "no functional change" claim is testable: if
-   tests fail, it means we changed semantics somewhere.
+**Important framing.** We don't need new *functional* tests — the
+migration is a pure identifier-scheme change, so existing
+parser-output and writer-output tests already cover that contract.
+
+But this is still a TDD job. The desired behavior — that pampa
+and `quarto_yaml` agree on FileIds — is **wrong today**, and the
+proof-of-correctness is a set of new tests that *fail on main and
+pass after the migration*. Following the standard TDD loop, these
+should be written first, confirmed to be red, then turned green
+by the implementation. They lock the new contract so it can't
+silently regress.
+
+### Red-then-green contract tests to add
+
+1. **Single-parser invariant.** In `pampa`:
+   ```rust
+   assert_eq!(
+       ASTContext::with_filename("foo.qmd").current_file_id(),
+       quarto_yaml::file_id_for_filename("foo.qmd"),
+   );
+   ```
+   Fails today (pampa returns `FileId(0)`, the hash is some
+   16-20-digit number). Passes after the constructor switch.
+
+2. **Cross-parser agreement.** Parse the same `_quarto.yml` via
+   `quarto_yaml::parse_file` and via pampa's recursive
+   metadata parser; assert the root `SourceInfo`s' FileIds
+   match. Fails today because pampa wraps everything as
+   `FileId(0)`.
+
+3. **Include-expansion sub-document.** Build a 2-file fixture
+   (parent + included sub), render through the pipeline, and
+   assert that a diagnostic emitted from the sub-document
+   carries a `SourceInfo` whose `FileId ==
+   file_id_for_filename(<sub-path>)`. Today this is masked: the
+   remap rewrites it to a freshly-assigned sequential ID. After
+   the migration the assertion holds without remap, which is
+   what proves the simplification in `include_expansion.rs` is
+   safe.
+
+4. **Fresh-SourceContext rendering.** Take a pampa-produced
+   `SourceInfo`, build a `SourceContext` populated **only** via
+   `add_file_with_id(file_id_for_filename(path), path,
+   content)`, and assert that ariadne renders it correctly. This
+   is the no-out-of-band-binding property the bridge layer is
+   ultimately trying to buy. Fails today (the SourceContext's
+   FileId for `path` doesn't match the SourceInfo's `FileId(0)`).
+
+### Non-tests (existing coverage)
+
+- All current parser tests, writer tests, snapshot tests, and
+  `cargo xtask verify` legs — they exercise behavior that is
+  *not* changing. If any of them fail, the migration changed
+  something it shouldn't have, and the test failure tells us
+  where.
+
+### Cleanup tests
+
+- **Drop the `debug_assert_eq!` desync check** in
+  `include_expansion.rs:187-190` as part of the simplification.
+  Contract test #3 above is the replacement: it proves the same
+  invariant from the outside, so the internal assertion is no
+  longer carrying weight.
 
 ## Coordination
 
@@ -188,25 +235,31 @@ ensure no interaction. Specifically:
 - [ ] Create implementation branch off main (NOT direct-to-main).
 - [ ] Probe `FileId(0)` references in pampa with a fresh grep
       against current HEAD — the count above may have drifted.
+- [ ] **Write the four red contract tests** from § Test strategy
+      first. Confirm each one fails on the current main with the
+      expected error (e.g. `assertion left: FileId(0), right:
+      FileId(17847…)`). Do not proceed until red is verified.
 - [ ] Add `primary_file_id: FileId` field to `ASTContext`;
       update three constructors.
 - [ ] Change `current_file_id()` to return `self.primary_file_id`.
+- [ ] Run the red contract tests — they should now go green.
+      Run the full pampa test suite too; expect zero functional
+      regressions.
 - [ ] Replace any literal `FileId(0)` in pampa source that should
       reference the context's primary file.
 - [ ] Simplify `include_expansion.rs:162-211` — drop the remap +
-      parallel-SourceContext invariant.
+      parallel-SourceContext invariant. Contract test #3 is the
+      proof this is safe.
+- [ ] Run `cargo xtask verify` — full pass, not Rust-only —
+      because this touches the WASM build's pampa.
 - [ ] Optional follow-up: simplify
       `sass_error_to_parse_error` signature to `(&[Path])` now
       that all candidates share the same FileId scheme. (Could be
       a follow-up issue.)
-- [ ] Add the one invariant test
-      (`with_filename(x).current_file_id() ==
-      file_id_for_filename(x)`).
-- [ ] Run `cargo xtask verify` — full pass, not Rust-only —
-      because this touches the WASM build's pampa.
-- [ ] Open PR. Include reproducer-quality test: a multi-file
-      project with include-expansion + a cross-document diagnostic
-      should render correctly under both schemes.
+- [ ] Open PR. Include the four contract tests + a
+      reproducer-quality test: a multi-file project with
+      include-expansion + a cross-document diagnostic renders
+      correctly under both schemes.
 
 ## Risks
 
