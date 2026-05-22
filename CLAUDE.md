@@ -489,6 +489,7 @@ This repository has Claude Code hooks configured in `.claude/settings.json`.
 - Sometimes you get confused by macOS's using many different /private/tmp directories linked to /tmp. Prefer to use temporary directories local to the project you're working on (which you can later clean)
 - When using `echo` on Bash, be careful about escaping. `!` requires you to use single quotes. BAD, DO NOT USE: echo "![](hello)". GOOD, DO USE: '![](hello)'.
 - The documentation in docs/ is a user-facing Quarto website. There, you should document usage and not technical details.
+- **The docs/ website is rendered with Quarto 2, NOT Quarto 1.** Always use `cargo run --bin q2 -- render docs/` (or `cargo run --bin q2 -- preview docs/`), never `quarto render` / `quarto preview`. The user's system `quarto` binary may be symlinked to a quarto-cli dev checkout and is *not* what builds this site. Verifying changes with Q1 produces misleading results: Q1 may reject Q2-specific YAML schema entries that Q2 accepts, and vice versa.
 - **CRITICALLY IMPORTANT**. IF YOU EVER FIND YOURSELF WANTING TO WRITE A HACKY SOLUTION (OR A "TODO" THAT UNDOES EXISTING WORK), STOP AND ASK THE USER. THAT MEANS YOUR PLAN IS NOT GOOD ENOUGH
 
 ## External Sources Policy
