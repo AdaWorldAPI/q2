@@ -1,0 +1,47 @@
+---
+title: "Unclosed Editorial Insert"
+description: "An editorial-insert span opens with `[++` but no closing `]` appears before the end of the block."
+code: Q-2-19
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-19` — Unclosed Editorial Insert
+
+> An editorial-insert span opens with `[++` but no closing `]`
+> appears before the end of the block.
+
+## What this means
+
+Quarto markdown supports an editorial-markup family for tracked
+changes: `[++inserted text]` for insertions, `[--deleted text]`
+for deletions, `[>>highlighted]` for highlights, and
+`[!!comment]` for editorial comments. This error fires when the
+insert form `[++ ...` is opened but never closed.
+
+## Why this happens
+
+Most often the closing `]` was deleted in an edit, or a literal
+`[++` somehow ended up in text without an editorial intent.
+
+## How to fix
+
+Add the closing `]` at the intended end of the inserted text.
+
+If the construct was not intended as editorial markup, escape the
+opening bracket: `\[++text]`.
+
+## Example
+
+```markdown
+[++
+```
+
+## Related
+
+- [`Q-2-20`](Q-2-20.qmd) — unclosed editorial delete (`[--`).
+- [`Q-2-21`](Q-2-21.qmd) — unclosed editorial comment (`[!!`).
+- [`Q-2-22`](Q-2-22.qmd) — unclosed editorial highlight (`[>>`).

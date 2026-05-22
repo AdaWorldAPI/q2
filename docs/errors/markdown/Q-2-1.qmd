@@ -1,0 +1,59 @@
+---
+title: "Unclosed Span"
+description: "A bracketed span or link begins with `[` but no closing `]` appears before the end of the block."
+code: Q-2-1
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-1` — Unclosed Span
+
+> A bracketed span or link begins with `[` but no closing `]`
+> appears before the end of the block.
+
+## What this means
+
+Square brackets in Quarto markdown open one of several inline
+constructs: a link, a citation, a bracketed span. The parser
+expects every `[` to be balanced by a matching `]` within the
+same paragraph or block. This error fires when the closing
+bracket never appears.
+
+## Why this happens
+
+Common causes:
+
+- **A literal `[` you intended as text.** Outside of links and
+  spans, a left bracket should be escaped as `\[`.
+- **A typo that consumed the closing bracket.** The bracket may
+  have been deleted in a recent edit but its open form left
+  behind.
+- **An unintended line break inside the construct.** Many
+  bracketed constructs do not survive a paragraph boundary.
+
+## How to fix
+
+Add the closing `]` at the intended end of the construct. If you
+meant the `[` literally, escape it with a backslash:
+
+```markdown
+A literal \[bracket\] in prose.
+```
+
+## Example
+
+The parser reports the error on input like:
+
+```markdown
+an [unclosed span
+```
+
+## Related
+
+- [`Q-2-25`](Q-2-25.qmd) — unclosed image: the same problem,
+  inside an image construct.
+- [`Q-2-26`](Q-2-26.qmd) — unclosed inline footnote: similar
+  shape, for `^[...]`.

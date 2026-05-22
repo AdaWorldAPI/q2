@@ -1,0 +1,51 @@
+---
+title: "Missing Space After Div Fence"
+description: "A div fence (`:::`) is missing the space the parser expects between the fence and its attribute list."
+code: Q-2-4
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-4` — Missing Space After Div Fence
+
+> A div fence (`:::`) is missing the space the parser expects
+> between the fence and its attribute list.
+
+## What this means
+
+A fenced div opens with three (or more) colons followed by
+optional attributes:
+
+```markdown
+::: {.callout-note}
+content
+:::
+```
+
+The parser requires a space between the closing `:::` and the
+attribute braces. This error fires when that space is missing —
+for example `:::{.callout-note}` runs the fence and the
+attributes together with no separator.
+
+## Why this happens
+
+A typo or an auto-format that closed the gap. Code generators
+that assemble div fences from variables sometimes drop the
+separator.
+
+## How to fix
+
+Insert a space between the colons and the attribute braces:
+
+```markdown
+::: {.callout-note}
+content
+:::
+```
+
+## Related
+
+- [`Q-2-2`](Q-2-2.qmd) — attribute shape errors inside `{...}`.

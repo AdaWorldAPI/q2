@@ -1,0 +1,43 @@
+---
+title: "Unclosed Inline Footnote"
+description: "An inline footnote opens with `^[` but the closing `]` does not appear before the end of the block."
+code: Q-2-26
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-26` — Unclosed Inline Footnote
+
+> An inline footnote opens with `^[` but the closing `]` does
+> not appear before the end of the block.
+
+## What this means
+
+Pandoc-style inline footnotes attach a parenthetical aside to the
+text by wrapping the body in `^[ ... ]`. The opener `^[` must be
+balanced by a matching `]` inside the same block. This error
+fires when the closing bracket never appears.
+
+## Why this happens
+
+The closing bracket was deleted, or a literal `^[` was read as
+an inline-footnote opener.
+
+## How to fix
+
+Complete the footnote with a `]` at the intended end, or escape
+the opener so the parser treats it as plain text:
+
+```markdown
+The caret \^[is literal here].
+```
+
+## Related
+
+- [`Q-2-16`](Q-2-16.qmd) — unclosed superscript (`^...^`): same
+  opening character, different construct.
+- [`Q-2-29`](Q-2-29.qmd) — indented footnote content not
+  supported: a different footnote shape.

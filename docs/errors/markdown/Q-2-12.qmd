@@ -1,0 +1,48 @@
+---
+title: "Unclosed Star Emphasis"
+description: "A `*emphasized*` run opens with `*` but no closing `*` appears before the end of the block."
+code: Q-2-12
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-12` — Unclosed Star Emphasis
+
+> A `*emphasized*` run opens with `*` but no closing `*` appears
+> before the end of the block.
+
+## What this means
+
+Star-delimited emphasis (`*text*`) must be balanced inside the
+same block. This error fires when an opening `*` appears without
+a matching close before the block ends.
+
+## Why this happens
+
+A typo, an unclosed sentence mid-edit, or — less commonly — a
+literal asterisk in plain prose that the parser took as an
+emphasis opener.
+
+## How to fix
+
+Add the closing `*` at the intended end, or escape a literal
+asterisk:
+
+```markdown
+The marker \* (literal asterisk).
+```
+
+## Example
+
+```markdown
+foo* a
+```
+
+## Related
+
+- [`Q-2-5`](Q-2-5.qmd) — same problem for underscore emphasis.
+- [`Q-2-13`](Q-2-13.qmd) — unclosed `**` strong emphasis.
+- [`Q-2-32`](Q-2-32.qmd) — triple `***` emphasis (disallowed).

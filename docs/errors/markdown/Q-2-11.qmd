@@ -1,0 +1,49 @@
+---
+title: "Unclosed Double Quote"
+description: "A double-quoted construct opens with `\"` but no closing `\"` appears before the end of the block."
+code: Q-2-11
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-11` — Unclosed Double Quote
+
+> A double-quoted construct opens with `"` but no closing `"`
+> appears before the end of the block.
+
+## What this means
+
+Quarto markdown recognizes `"…"` as a typographic double-quote
+pair when the quotes are balanced within a block. This error
+fires when an opening `"` has no matching close.
+
+## Why this happens
+
+A missed closing quote in a hand-written passage, or a passage
+where the closing quote was deleted by an edit but the opener
+left behind.
+
+## How to fix
+
+Add the closing `"` at the intended end, or escape literal
+double quotes that the parser is mis-reading:
+
+```markdown
+He said \"this is verbatim\".
+```
+
+## Example
+
+```markdown
+a" b.
+```
+
+## Related
+
+- [`Q-2-7`](Q-2-7.qmd) — unclosed single quote: same problem for
+  `'`.
+- [`Q-2-10`](Q-2-10.qmd) — closing quote without matching open
+  quote: the mirror error.

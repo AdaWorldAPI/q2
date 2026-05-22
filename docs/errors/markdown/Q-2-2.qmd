@@ -1,0 +1,62 @@
+---
+title: "Mismatched Delimiter in Attribute Specifier"
+description: "Inside `{...}` attribute braces, the parser saw a delimiter that does not fit any of the expected attribute forms."
+code: Q-2-2
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-2` — Mismatched Delimiter in Attribute Specifier
+
+> Inside `{...}` attribute braces, the parser saw a delimiter
+> that does not fit any of the expected attribute forms.
+
+## What this means
+
+A `{...}` attribute specifier on a span, link, image, or code
+block accepts a fixed set of forms: an identifier `#name`, a class
+`.classname`, a key-value pair `key=value`, or a language tag
+inside a code block. When the parser sees a delimiter that
+doesn't fit any of those — typically a stray bracket, brace, or
+punctuation — it reports this error.
+
+The expected continuations are: `}`, a language specifier, an
+identifier (`#...`), a class (`.…`), or a key-value pair.
+
+## Why this happens
+
+The pattern often appears when nested brackets inside the
+attribute block confuse the parser:
+
+- **Nested unescaped brackets.** A `[` or `{` appearing inside
+  attribute braces without an obvious meaning.
+- **A typo in a key-value or class form.** A misplaced character
+  that the attribute grammar does not recognize.
+
+## How to fix
+
+Re-examine the attribute braces at the location named in the
+error. Each piece inside `{...}` should be one of the allowed
+forms, separated by whitespace.
+
+If a value really needs to contain special characters, quote it:
+
+```markdown
+[span]{key="value with [brackets]"}
+```
+
+## Example
+
+```markdown
+A bad [attribute]{[
+```
+
+The `[` inside the attribute braces is the unexpected delimiter.
+
+## Related
+
+- [`Q-2-3`](Q-2-3.qmd) — key-value pair before class specifier:
+  attribute order matters.

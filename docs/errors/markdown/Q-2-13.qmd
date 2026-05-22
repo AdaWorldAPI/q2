@@ -1,0 +1,43 @@
+---
+title: "Unclosed Strong Star Emphasis"
+description: "A `**strong**` run opens with `**` but no closing `**` appears before the end of the block."
+code: Q-2-13
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-13` — Unclosed Strong Star Emphasis
+
+> A `**strong**` run opens with `**` but no closing `**` appears
+> before the end of the block.
+
+## What this means
+
+Double-star strong emphasis (`**text**`) must be balanced inside
+the same block. This error fires when an opening `**` appears
+without a matching close before the block ends.
+
+## Why this happens
+
+A typo, an unclosed sentence mid-edit, or a deletion that removed
+the closing `**` but left the opener.
+
+## How to fix
+
+Add the closing `**` at the intended end, or escape literal
+asterisks if you intended them as plain characters.
+
+## Example
+
+```markdown
+**
+```
+
+## Related
+
+- [`Q-2-12`](Q-2-12.qmd) — unclosed single-star emphasis.
+- [`Q-2-15`](Q-2-15.qmd) — unclosed `__` strong emphasis
+  (underscore form).

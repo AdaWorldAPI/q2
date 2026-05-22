@@ -1,0 +1,48 @@
+---
+title: "Unclosed Inline Math"
+description: "An inline-math span opens with `$` but no closing `$` appears before the end of the block."
+code: Q-2-23
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-23` — Unclosed Inline Math
+
+> An inline-math span opens with `$` but no closing `$` appears
+> before the end of the block.
+
+## What this means
+
+Inline math (`$x^2 + y^2 = z^2$`) must be balanced inside the
+same block. This error fires when an opening `$` has no matching
+close.
+
+## Why this happens
+
+The most common cause is a literal `$` for a currency amount
+being read as a math opener — for instance `$5 to $10` opens
+math at the first dollar sign and runs until the next.
+
+## How to fix
+
+For currency, escape the dollar signs:
+
+```markdown
+The range is \$5 to \$10.
+```
+
+For real math, add the closing `$` at the intended end.
+
+## Example
+
+```markdown
+$
+```
+
+## Related
+
+- The display-math form `$$ ... $$` is parsed as a block, not
+  inline; an unclosed display math reports differently.

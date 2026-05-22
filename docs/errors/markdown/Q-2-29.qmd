@@ -1,0 +1,65 @@
+---
+title: "Indented Footnote Content Not Supported"
+description: "Pandoc-style indented footnote content does not work in Quarto markdown; use the `::: ^ref … :::` div syntax instead."
+code: Q-2-29
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-29` — Indented Footnote Content Not Supported
+
+> Pandoc-style indented footnote content does not work in Quarto
+> markdown; use the `::: ^ref … :::` div syntax instead.
+
+## What this means
+
+Pandoc supports a footnote-definition form where the content
+sits as an indented block beneath the reference:
+
+```markdown
+Some text[^1].
+
+[^1]:
+    The footnote content, indented.
+```
+
+Quarto markdown does not parse that form. Instead, it represents
+footnote bodies as fenced divs labelled with the reference:
+
+```markdown
+Some text[^1].
+
+::: ^1
+The footnote content.
+:::
+```
+
+## Why this happens
+
+Most often the markdown was copied from a Pandoc document, or
+written by someone familiar with Pandoc but new to Quarto.
+
+## How to fix
+
+Convert the indented body to the div form. The reference inside
+the div (`^1` in the example) must match the reference in the
+text.
+
+## Example
+
+```markdown
+Some text[^1].
+
+[^1]:
+    Body.
+```
+
+## Related
+
+- [`Q-2-30`](Q-2-30.qmd) — multi-paragraph footnote indentation:
+  a multi-paragraph variant of the same incompatibility.
+- [`Q-2-26`](Q-2-26.qmd) — unclosed inline footnote (`^[...]`):
+  a different, supported footnote form.

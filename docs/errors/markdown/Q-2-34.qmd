@@ -1,0 +1,54 @@
+---
+title: "Unquoted Shortcode Parameter Starting with Digit"
+description: "A shortcode parameter value that starts with a digit must be quoted."
+code: Q-2-34
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-34` — Unquoted Shortcode Parameter Starting with Digit
+
+> A shortcode parameter value that starts with a digit must be
+> quoted.
+
+## What this means
+
+Shortcode parameter parsing uses leading-digit as a hint about
+whether a value is a number or a string. Values that begin with
+a digit but contain non-numeric characters are ambiguous, so
+Quarto requires them to be quoted explicitly.
+
+## Why this happens
+
+A version string, an identifier, or a mixed-format token that
+starts with a digit:
+
+```markdown
+{{< a k=1b >}}
+```
+
+`1b` is neither a clean number nor an obvious string — Quarto
+asks the author to disambiguate.
+
+## How to fix
+
+Wrap the value in double quotes:
+
+```markdown
+{{< a k="1b" >}}
+```
+
+## Example
+
+```markdown
+{{< a k=1b >}}
+```
+
+## Related
+
+- [`Q-2-27`](Q-2-27.qmd) — line break before shortcode close.
+- [`Q-2-28`](Q-2-28.qmd) — line break before escaped shortcode
+  close.
