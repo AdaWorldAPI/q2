@@ -733,6 +733,11 @@ fn print_render_diagnostics(
             info!("Output: {}", result.output_path.display());
         }
     }
+
+    // bd-c5u2g: emit per-process engine-discovery counters when
+    // QUARTO_PERF_STATS=1. No-op otherwise. Placed before any
+    // subsequent process::exit so the gauge always lands.
+    quarto_core::engine::print_discovery_stats_if_enabled();
 }
 
 /// Resolve format string to Format (without metadata)

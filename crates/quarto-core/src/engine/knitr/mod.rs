@@ -48,7 +48,9 @@ use crate::resources::ResourceBundle;
 pub use error_parser::{RErrorInfo, RErrorType, parse_r_error};
 pub use format::KnitrFormatConfig;
 pub use preprocess::resolve_inline_r_expressions;
-pub use subprocess::{CallROptions, call_r, determine_working_dir, find_rscript};
+pub use subprocess::{
+    CallROptions, call_r, determine_working_dir, find_rscript, find_rscript_call_count,
+};
 pub use types::{KnitrExecuteParams, KnitrExecuteResult, KnitrIncludes};
 
 // ============================================================================

@@ -84,6 +84,26 @@ pub use jupyter::JupyterEngine;
 #[cfg(not(target_arch = "wasm32"))]
 pub use knitr::KnitrEngine;
 
+/// Print `perf.engine-discover jupyter=N rscript=N` to stderr when
+/// `QUARTO_PERF_STATS=1`. Call once at the end of a top-level
+/// command (e.g. `q2 render`) so the gauge survives the work it
+/// measures. See `claude-notes/plans/2026-05-22-engine-discovery-cache.md`.
+pub fn print_discovery_stats_if_enabled() {
+    if !std::env::var_os("QUARTO_PERF_STATS").is_some_and(|v| v == "1") {
+        return;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let jupyter = jupyter::find_jupyter_call_count();
+        let rscript = knitr::find_rscript_call_count();
+        eprintln!("perf.engine-discover jupyter={jupyter} rscript={rscript}");
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        eprintln!("perf.engine-discover jupyter=0 rscript=0");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

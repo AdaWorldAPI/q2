@@ -122,10 +122,20 @@ super-linear, with a concrete fix proposal.
 
 ## Work Items
 
-- [ ] Phase 1 baseline + flamegraph
-- [ ] Phase 2 counter instrumentation
-- [ ] Phase 3 geometric-scale confirmation
-- [ ] Phase 4 written synthesis + follow-up issues filed
+- [x] Phase 1 baseline + sample profile
+      (`claude-notes/research/2026-05-21-quarto-web-render-profile.md`).
+      `samply` not installed; used macOS `/usr/bin/sample` for the
+      initial pass — sufficient to identify the two dominant
+      hotspots. If we want a flamegraph SVG, we should `cargo
+      install samply` and re-run.
+- [ ] Phase 2 counter instrumentation (deferred — the sample
+      already identified two large hotspots; counters become useful
+      once we want to verify a *fix* didn't regress something else).
+- [x] Phase 3 geometric-scale confirmation (linear: ~4 ms/doc).
+- [x] Phase 4 written synthesis at
+      `claude-notes/research/2026-05-21-quarto-web-render-profile.md`.
+      Follow-up issues *suggested* in the synthesis but not yet
+      filed in beads — pending user direction on which to prioritize.
 
 ## Constraints / caveats
 
@@ -145,3 +155,20 @@ super-linear, with a concrete fix proposal.
   interesting work.
 - The diagnostic plan (`2026-05-21-resource-path-diagnostic.md`) is
   *not* a blocker for this; it can land in parallel.
+
+## Result
+
+See `claude-notes/research/2026-05-21-quarto-web-render-profile.md`
+for the full write-up. Headlines:
+
+- Two hotspots account for ~80 % of main-thread CPU on the 3.28 s
+  render:
+  - per-doc `JupyterEngine::new()` subprocess spawn (~37 %);
+  - per-doc tree-sitter `set_logger` formatting (~45 %).
+- Both can be addressed independently and the fixes are small.
+- A *separate* UX bug — batching diagnostics to end-of-render —
+  explains the 3.28 s of silence the user observed; fixing it
+  alone would make Q2 *feel* fast even before the perf hotspots
+  are touched.
+- Five candidate follow-up issues identified, none filed yet
+  pending user direction.
