@@ -453,6 +453,37 @@ pub trait SystemRuntime: Send + Sync {
         Ok(secs)
     }
 
+    /// Monotonic clock reading in nanoseconds from an arbitrary, runtime-chosen
+    /// epoch.
+    ///
+    /// Suitable for elapsed-time measurements (subtract two readings); not
+    /// suitable for wall-clock or cross-process comparison. Native uses
+    /// `std::time::Instant` anchored at first call; WASM uses
+    /// `performance.now()` (high-resolution monotonic clock provided by the
+    /// browser / Node).
+    ///
+    /// `std::time::Instant::now()` panics on `wasm32-unknown-unknown`
+    /// ("time not implemented on this platform"), so any timing code that
+    /// runs in both native and WASM contexts must route through this method
+    /// instead of calling `Instant::now()` directly.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn monotonic_now_nanos(&self) -> u64 {
+        use std::sync::OnceLock;
+        use std::time::Instant;
+        static START: OnceLock<Instant> = OnceLock::new();
+        START.get_or_init(Instant::now).elapsed().as_nanos() as u64
+    }
+
+    /// Monotonic clock reading in nanoseconds — WASM default.
+    ///
+    /// The default returns `0` so timing code degrades to a no-op on WASM
+    /// runtimes that don't override. `WasmRuntime` overrides this with
+    /// `performance.now()`.
+    #[cfg(target_arch = "wasm32")]
+    fn monotonic_now_nanos(&self) -> u64 {
+        0
+    }
+
     /// XDG base directory lookup.
     ///
     /// Corresponds to: `pandoc.system.xdg`

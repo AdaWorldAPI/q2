@@ -844,8 +844,21 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
         Vec<crate::document_profile::DocumentProfile>,
         Vec<FileFailure>,
     ) {
-        let start = std::time::Instant::now();
+        // bd-3y7ul: route the monotonic clock through SystemRuntime so the
+        // WASM build doesn't hit `std::time::Instant::now()` (which panics
+        // with "time not implemented on this platform" on
+        // wasm32-unknown-unknown). Native uses `Instant`; WASM uses
+        // `performance.now()`.
+        let start_nanos = self.runtime.monotonic_now_nanos();
+        // bd-3y7ul: WASM can't use `pollster::block_on` (no condvar), so it
+        // routes through `pass_one_dispatch_async` and `.await`s each
+        // per-doc future. Native keeps the sync `pass_one_dispatch` for
+        // rayon compatibility.
+        #[cfg(not(target_arch = "wasm32"))]
         let (profiles, failures) = pass_one_dispatch(&self.runtime, self.project, &self.format);
+        #[cfg(target_arch = "wasm32")]
+        let (profiles, failures) =
+            pass_one_dispatch_async(&self.runtime, self.project, &self.format).await;
         // bd-m7x9s Phase 0: feed the `perf.pass1` gauge with cumulative
         // doc count and wall time. `pass1_profile_with_cache`
         // increments the thread-set; here we add the per-`pass_one`
@@ -857,7 +870,9 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
             std::sync::atomic::Ordering::Relaxed,
         );
         PASS1_WALL_NANOS.fetch_add(
-            start.elapsed().as_nanos() as u64,
+            self.runtime
+                .monotonic_now_nanos()
+                .saturating_sub(start_nanos),
             std::sync::atomic::Ordering::Relaxed,
         );
         (profiles, failures)
@@ -1066,6 +1081,7 @@ fn pass1_worker_count() -> usize {
 /// Pass-1 stage graph has no tokio runtime requirements (see the
 /// Phase-0 pollster-compat audit in
 /// `claude-notes/plans/2026-05-22-parallelize-pass-one.md`).
+#[cfg(not(target_arch = "wasm32"))]
 fn pass_one_dispatch(
     runtime: &Arc<dyn SystemRuntime>,
     project: &ProjectContext,
@@ -1074,24 +1090,18 @@ fn pass_one_dispatch(
     Vec<crate::document_profile::DocumentProfile>,
     Vec<FileFailure>,
 ) {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let workers = pass1_worker_count();
-        if workers == 1 || project.files.len() <= 1 {
-            return pass_one_dispatch_sequential(runtime, project, format);
-        }
-        pass_one_dispatch_parallel(runtime, project, format, workers)
+    let workers = pass1_worker_count();
+    if workers == 1 || project.files.len() <= 1 {
+        return pass_one_dispatch_sequential(runtime, project, format);
     }
-    #[cfg(target_arch = "wasm32")]
-    {
-        pass_one_dispatch_sequential(runtime, project, format)
-    }
+    pass_one_dispatch_parallel(runtime, project, format, workers)
 }
 
 /// Sequential fan-out — the pre-Phase-2 behavior. Used:
 /// - on WASM (no OS threads, rayon doesn't compile);
 /// - when `QUARTO_JOBS=1` is set;
 /// - when the project has 0 or 1 files (parallelism has no payoff).
+#[cfg(not(target_arch = "wasm32"))]
 fn pass_one_dispatch_sequential(
     runtime: &Arc<dyn SystemRuntime>,
     project: &ProjectContext,
@@ -1104,6 +1114,34 @@ fn pass_one_dispatch_sequential(
     let mut failures = Vec::new();
     for doc_info in &project.files {
         match pollster::block_on(pass1_profile_with_cache(runtime, project, format, doc_info)) {
+            Ok(profile) => profiles.push(profile),
+            Err(e) => failures.push(file_failure_from_error(doc_info.input.clone(), e)),
+        }
+    }
+    (profiles, failures)
+}
+
+/// WASM dispatch — async sequential fan-out, driven by `.await`.
+///
+/// `pollster::block_on` (used on native) calls `Condvar::wait()`
+/// internally, which panics with "condvar wait not supported" on
+/// `wasm32-unknown-unknown` (no OS threads). WASM is already
+/// single-threaded, so we just await each per-doc future directly —
+/// the caller (`ProjectPipeline::pass_one`) is already an `async fn`
+/// driven by the host's `wasm_bindgen_futures` executor.
+#[cfg(target_arch = "wasm32")]
+async fn pass_one_dispatch_async(
+    runtime: &Arc<dyn SystemRuntime>,
+    project: &ProjectContext,
+    format: &Format,
+) -> (
+    Vec<crate::document_profile::DocumentProfile>,
+    Vec<FileFailure>,
+) {
+    let mut profiles = Vec::with_capacity(project.files.len());
+    let mut failures = Vec::new();
+    for doc_info in &project.files {
+        match pass1_profile_with_cache(runtime, project, format, doc_info).await {
             Ok(profile) => profiles.push(profile),
             Err(e) => failures.push(file_failure_from_error(doc_info.input.clone(), e)),
         }
