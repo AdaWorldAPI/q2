@@ -408,3 +408,93 @@ attractiveness changes after this fix:
   speedup on multi-core machines. Worth a separate plan.
 - (kept) **Audit `ConfigValueKind` drop / clone weight** — still
   visible in the profile, lower priority than the items above.
+
+## 2026-05-22 follow-up #2 — Pass-1 parallelized via rayon (bd-m7x9s)
+
+After landing bd-m7x9s (Phase 2: rayon `par_iter` fan-out over
+`ProjectPipeline::pass_one`):
+
+### Wall-time comparison
+
+Measured on the same 18-core M-series Mac as the post-engine-discovery
+follow-up. Cold cache means `rm -rf _site .quarto/cache` before each
+run. Numbers are means of 3 runs; release-perf binary.
+
+| Scenario                                                     | Pass-1 wall | Total wall | vs sequential Pass-1 | vs sequential total |
+|--------------------------------------------------------------|------------:|-----------:|---------------------:|--------------------:|
+| Sequential (`QUARTO_JOBS=1`), cold cache                     |     2230 ms |    3.73 s  |       — (baseline)   |      — (baseline)   |
+| Parallel (default 18 workers), cold cache                    |     1280 ms |    2.81 s  |             1.74×    |            1.33×    |
+| Sequential (`QUARTO_JOBS=1`), warm cache                     |      800 ms |    2.29 s  |       — (baseline)   |      — (baseline)   |
+| Parallel (default), warm cache                               |      520 ms |    2.03 s  |             1.54×    |            1.13×    |
+
+### Scaling with `QUARTO_JOBS`
+
+Cold cache, varying worker count:
+
+| QUARTO_JOBS | Pass-1 wall | Total wall |
+|------------:|------------:|-----------:|
+|           1 |     2230 ms |     3.73 s |
+|           2 |     1446 ms |     2.94 s |
+|           4 |     1326 ms |     2.85 s |
+|           8 |     1671 ms |     3.21 s |
+|          18 |     1284 ms |     2.81 s |
+
+Returns diminish sharply past 2 workers; FS-bound work (cache file
+atomic rename per doc, source file reads, layered `_metadata.yml`
+walks) serializes at the file-system level. The 8-worker outlier is
+within run-to-run noise.
+
+### Post-parallel profile (samply, symbolicated)
+
+Captured at `2026-05-22-quarto-web-parallel-pass1-profile.json.gz`.
+
+Top self-time symbols (cold-cache, default worker count, 21 393
+samples ≈ 21 s of CPU time across all threads):
+
+| pct    | symbol                                   |
+|-------:|------------------------------------------|
+| 53.15% | `__ulock_wait2` (libsystem_kernel.dylib) |
+| 20.36% | `__ulock_wake`                           |
+|  2.37% | `os_unfair_lock_lock` (libsystem_platform) |
+|  2.24% | `_platform_memmove`                      |
+|  1.30% | `_os_unfair_lock_lock_slow`              |
+|  0.71% | `__open` (libsystem_kernel)              |
+|  0.70% | `core::str::converts::from_utf8` (q2)    |
+|  0.66% | `ts_parser__advance` (q2)                |
+|  0.65% | `mkdir`                                  |
+|  0.49% | `ts_language_next_state` (q2)            |
+|  0.45% | `ts_subtree_summarize_children`          |
+|  0.43% | `__psynch_cvwait`                        |
+|  0.35% | `stat`                                   |
+|  0.30% | `TreeSitterLogObserver::log` (q2)        |
+
+74% of CPU-time samples are now in kernel wait/wake (rayon worker
+idle time at the work-stealing barrier — the workers finish Pass-1
+quickly and then idle while the still-sequential Pass-2 + post-render
+run on the main thread). The actual Rust work is < 5% of samples.
+
+This is consistent with the wall-time scaling pattern: Pass-1 itself
+is no longer a bottleneck per-thread — the limiter is now the
+fraction of total work that's still sequential (Amdahl).
+
+### Suggested follow-ups (after Pass-1 parallel lands)
+
+- (new top candidate) **Parallelize Pass-2** — the remaining 1.5 s of
+  the 2.8 s cold-cache wall time. Larger refactor (per-doc Pass-2
+  drains into shared `project_artifacts`, `resource_copies`; the
+  orchestrator currently mutates these serially). File as a separate
+  beads issue.
+- (kept) **Stream `pass1_failures` to stderr as they happen.** UX
+  win, no perf change.
+- (kept) **`_platform_memmove` audit.** 2.24% of samples now, mostly
+  in PathBuf/String allocations downstream of cache-key construction.
+- (kept) **Stop attaching tree-sitter `set_logger` on success path.**
+  ~0.3% of samples; still cheap to remove.
+- (new) **Reduce per-doc temp-dir creation.** Each
+  `StageContext::new` does `runtime.temp_dir(...)` which lands a
+  `mkdir` syscall. Pass-1 stages don't appear to use the temp dir at
+  all; making the temp-dir creation lazy would remove `mkdir`,
+  `__open`, and the FS contention they cause.
+- (new) **Batch profile-cache writes.** Atomic-rename per doc is
+  ~4 syscalls each. Holding writes in memory and committing at
+  pass_one return would cut FS syscalls by 4×.

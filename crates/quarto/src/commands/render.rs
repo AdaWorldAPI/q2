@@ -775,6 +775,8 @@ fn print_render_diagnostics(
     // QUARTO_PERF_STATS=1. No-op otherwise. Placed before any
     // subsequent process::exit so the gauge always lands.
     quarto_core::engine::print_discovery_stats_if_enabled();
+    // bd-m7x9s: pass-1 docs / threads_used / wall_ms gauge.
+    quarto_core::project::orchestrator::print_pass1_stats_if_enabled();
 }
 
 /// Resolve format string to Format (without metadata)

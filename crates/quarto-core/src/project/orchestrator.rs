@@ -85,6 +85,96 @@ use super::pass2_renderer::RenderToFileRenderer;
 #[derive(Debug)]
 pub struct RenderToFileResult;
 
+/// Process-wide accumulator of the OS thread IDs that have executed
+/// at least one Pass-1 profile extraction. Backed by a `Mutex` over
+/// `HashSet<ThreadId>` because the cardinality is low (one entry per
+/// rayon worker thread; ~`available_parallelism()` total) and 574
+/// lock acquisitions per render are invisible against tree-sitter
+/// CPU cost.
+///
+/// Pre-parallelization (bd-m7x9s Phase 0) this is always `{current
+/// thread}` ⇒ `len() == 1`. Post-Phase-2 it should grow to the size
+/// of the rayon pool. Surfaced through [`pass1_threads_used()`] /
+/// [`pass1_threads_snapshot()`] for the
+/// `perf.pass1 threads_used=K` gauge and the
+/// `pass_one_uses_multiple_threads_when_parallelism_available` unit
+/// test that pins the invariant.
+static PASS1_THREADS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashSet<std::thread::ThreadId>>,
+> = std::sync::OnceLock::new();
+
+/// Cumulative count of documents processed by Pass-1 since process
+/// start. Pairs with [`pass1_wall_nanos()`] to derive average per-doc
+/// cost from `QUARTO_PERF_STATS=1` output.
+static PASS1_DOCS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Cumulative wall-clock time spent in [`ProjectPipeline::pass_one`]
+/// since process start, in nanoseconds. Only the outer pass_one
+/// timer contributes — individual `profile_with_cache` calls don't
+/// stop the clock — so under rayon this is wall time, not the sum
+/// of per-doc CPU.
+static PASS1_WALL_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn pass1_threads_record() {
+    let mu = PASS1_THREADS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+    if let Ok(mut set) = mu.lock() {
+        set.insert(std::thread::current().id());
+    }
+}
+
+/// Number of distinct OS threads that have executed at least one
+/// Pass-1 profile extraction since the process started.
+///
+/// Reports `0` if no Pass-1 has run yet (the underlying set is
+/// lazy-initialized on first record).
+pub fn pass1_threads_used() -> usize {
+    PASS1_THREADS
+        .get()
+        .map(|mu| mu.lock().map(|s| s.len()).unwrap_or(0))
+        .unwrap_or(0)
+}
+
+/// Snapshot of the set of OS thread IDs that have executed at least
+/// one Pass-1 profile extraction since the process started.
+///
+/// Tests use this with a before/after subtraction to determine how
+/// many new threads were used by a specific `pass_one` invocation,
+/// which is stable across concurrent or interleaved tests in the
+/// same process. The cumulative `pass1_threads_used()` is fine for
+/// single-render CLI invocations but not for tests that share a
+/// process.
+pub fn pass1_threads_snapshot() -> std::collections::HashSet<std::thread::ThreadId> {
+    PASS1_THREADS
+        .get()
+        .and_then(|mu| mu.lock().ok().map(|s| s.clone()))
+        .unwrap_or_default()
+}
+
+/// Number of documents Pass-1 has processed since process start.
+pub fn pass1_docs_seen() -> usize {
+    PASS1_DOCS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Cumulative wall-clock time (nanoseconds) spent in
+/// [`ProjectPipeline::pass_one`] since process start.
+pub fn pass1_wall_nanos() -> u64 {
+    PASS1_WALL_NANOS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Print `perf.pass1 docs=N threads_used=K wall_ms=W` to stderr when
+/// `QUARTO_PERF_STATS=1`. Call once at the end of a top-level command
+/// (e.g. `q2 render`) — counterpart of
+/// [`crate::engine::print_discovery_stats_if_enabled`].
+pub fn print_pass1_stats_if_enabled() {
+    if !std::env::var_os("QUARTO_PERF_STATS").is_some_and(|v| v == "1") {
+        return;
+    }
+    let docs = pass1_docs_seen();
+    let threads = pass1_threads_used();
+    let wall_ms = pass1_wall_nanos() / 1_000_000;
+    eprintln!("perf.pass1 docs={docs} threads_used={threads} wall_ms={wall_ms}");
+}
+
 /// Orchestration hooks implemented by each project kind.
 ///
 /// Phase-1 ships [`DefaultProjectType`] (no-op hooks used for
@@ -728,239 +818,61 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
     /// before the head pipeline runs. On hit, the cached profile is
     /// returned directly. On miss, the head pipeline runs and the
     /// resulting profile is saved.
+    /// Test-only accessor that drives [`Self::pass_one`] and returns
+    /// its raw output (profiles + per-file failures). Exists so
+    /// integration tests in `crates/quarto-core/tests/` can assert
+    /// invariants on Pass-1's collected ordering — checks that the
+    /// public `run()` summary alone cannot make (Pass-2 re-iterates
+    /// `project.files` so `summary.outputs` ordering is a Pass-2
+    /// invariant, not a Pass-1 one).
+    ///
+    /// The name is deliberately unwieldy. Do not call this outside
+    /// of tests.
+    #[doc(hidden)]
+    pub async fn __pass_one_for_test_only(
+        &self,
+    ) -> (
+        Vec<crate::document_profile::DocumentProfile>,
+        Vec<FileFailure>,
+    ) {
+        self.pass_one().await
+    }
+
     async fn pass_one(
         &self,
     ) -> (
         Vec<crate::document_profile::DocumentProfile>,
         Vec<FileFailure>,
     ) {
-        let mut profiles = Vec::with_capacity(self.project.files.len());
-        let mut failures = Vec::new();
-        for doc_info in &self.project.files {
-            match self.profile_with_cache(doc_info).await {
-                Ok(profile) => profiles.push(profile),
-                Err(e) => failures.push(file_failure_from_error(doc_info.input.clone(), e)),
-            }
-        }
+        let start = std::time::Instant::now();
+        let (profiles, failures) = pass_one_dispatch(&self.runtime, self.project, &self.format);
+        // bd-m7x9s Phase 0: feed the `perf.pass1` gauge with cumulative
+        // doc count and wall time. `pass1_profile_with_cache`
+        // increments the thread-set; here we add the per-`pass_one`
+        // doc count and elapsed wall time. Outer-timer placement is
+        // intentional — under rayon the dispatch's wall time is what
+        // we want, not the sum of per-doc CPU.
+        PASS1_DOCS.fetch_add(
+            profiles.len() + failures.len(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        PASS1_WALL_NANOS.fetch_add(
+            start.elapsed().as_nanos() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         (profiles, failures)
-    }
-
-    /// Compute the [`pass1_key`](crate::project::cache_key::pass1_key)
-    /// for a document, then try the cache, falling back to a live
-    /// Pass-1 on miss.
-    ///
-    /// The cache load verifies the cached profile's
-    /// [`includes`](crate::document_profile::DocumentProfile::includes)
-    /// against current file bytes — see
-    /// [`profile_cache::load`](crate::project::profile_cache::load).
-    /// Any include drift triggers a miss.
-    async fn profile_with_cache(
-        &self,
-        doc_info: &DocumentInfo,
-    ) -> Result<crate::document_profile::DocumentProfile> {
-        // Read source bytes — used for both the cache key
-        // computation and the live pipeline below.
-        let source_bytes = self.runtime.file_read(&doc_info.input).map_err(|e| {
-            QuartoError::other(format!(
-                "Failed to read {} during pass 1: {}",
-                doc_info.input.display(),
-                e
-            ))
-        })?;
-
-        // Compute the project-relative source path the same way
-        // DocumentProfileStage does. The math goes through
-        // canonicalize when possible (matches the orchestrator's
-        // file-discovery path); otherwise falls back to file_name.
-        let source_path = self.project_relative_source_path(&doc_info.input);
-        let format_id = self.format.target_format.clone();
-
-        // Layered _metadata.yml raw bytes for the cache-key domain.
-        // We re-read the raw bytes (not the parsed ConfigValue)
-        // because byte-for-byte changes invalidate the key — a
-        // comment-only edit to _metadata.yml correctly invalidates
-        // the cache, which is intentional v1 behavior.
-        let metadata_files = self.layered_metadata_raw_bytes(&doc_info.input);
-
-        // _quarto.yml raw bytes (project root). Empty when the
-        // project has no config file (single-file render).
-        let quarto_yml_bytes = self.read_quarto_yml_bytes();
-
-        // Format extensions: TODO follow-up. For v1 we pass empty
-        // contributions; extension changes require `--clean`.
-        // See plan §"Sub-phase 8.4" for the user-facing escape
-        // hatch and §Decision 2 footnote for the rationale.
-        let extension_contributions: Vec<(String, Vec<u8>)> = Vec::new();
-
-        let key_inputs = crate::project::cache_key::Pass1KeyInputs {
-            format_id: &format_id,
-            source_path: &source_path,
-            source_bytes: &source_bytes,
-            metadata_files: &metadata_files,
-            quarto_yml_bytes: &quarto_yml_bytes,
-            extension_contributions: &extension_contributions,
-        };
-        let key_bytes = crate::project::cache_key::pass1_key(&key_inputs);
-        let key_hex = crate::project::cache_key::hex_encode(&key_bytes);
-
-        // Cache lookup. The include resolver reads each include's
-        // current bytes and computes their SHA-256 to compare
-        // against the cached profile's recorded content_hashes.
-        // A miss here (load returns Ok(None)) just means we do a
-        // live extraction and overwrite.
-        let runtime = self.runtime.clone();
-        let include_resolver = move |path: &std::path::Path| {
-            let bytes = runtime.file_read(path)?;
-            Ok(crate::document_profile::IncludeEntry::hash_bytes(&bytes))
-        };
-
-        match crate::project::profile_cache::load(self.runtime.as_ref(), &key_hex, include_resolver)
-            .await
-        {
-            Ok(Some(profile)) => return Ok(profile),
-            // Cache miss / verification failure / runtime error
-            // (e.g. cache directory unwritable): degrade to a live
-            // extraction. We don't surface the error because the
-            // orchestrator never wants a cache hiccup to abort an
-            // otherwise-fine render.
-            Ok(None) | Err(_) => {}
-        }
-
-        // Cache miss → live extraction.
-        let profile = self
-            .profile_single_file_live(doc_info, &source_bytes)
-            .await?;
-
-        // Best-effort save. A save failure here is also non-fatal
-        // — the profile is already computed and downstream code can
-        // use it for this run; the next run will just retry the
-        // cache write.
-        let _ =
-            crate::project::profile_cache::save(self.runtime.as_ref(), &key_hex, &profile).await;
-
-        Ok(profile)
-    }
-
-    /// Run the head pipeline live (no cache lookup). Used by
-    /// [`profile_with_cache`] when the cache misses.
-    async fn profile_single_file_live(
-        &self,
-        doc_info: &DocumentInfo,
-        source_bytes: &[u8],
-    ) -> Result<crate::document_profile::DocumentProfile> {
-        use crate::pipeline::run_pipeline;
-        use crate::render::{BinaryDependencies, RenderContext};
-        use crate::stage::{
-            DocumentProfileStage, IncludeExpansionStage, LinkResolutionStage, MetadataMergeStage,
-            ParseDocumentStage, PipelineStage,
-        };
-
-        let source_name = doc_info.input.to_string_lossy().to_string();
-        let binaries = BinaryDependencies::new();
-        let mut ctx = RenderContext::new(self.project, doc_info, &self.format, &binaries);
-
-        let stages: Vec<Box<dyn PipelineStage>> = vec![
-            Box::new(ParseDocumentStage::new()),
-            Box::new(MetadataMergeStage::new()),
-            // Include-expansion threads child content through the
-            // profile so transitive `{{< include … >}}` is visible
-            // (bd-xfwx). Phase 8 sub-phase 8.0d's LinkResolutionStage
-            // also depends on it: the AST walk must see post-include
-            // content so a body link inside an included child counts
-            // as a dependency edge of the parent.
-            Box::new(IncludeExpansionStage::new()),
-            Box::new(DocumentProfileStage::new()),
-            // Pass-1 cross-doc body-link resolution. Reads the
-            // post-include AST, writes
-            // `profile.body_link_targets` for the dependency graph.
-            Box::new(LinkResolutionStage::new()),
-        ];
-
-        let (output, _diagnostics) = run_pipeline(
-            source_bytes,
-            &source_name,
-            &mut ctx,
-            self.runtime.clone(),
-            stages,
-        )
-        .await?;
-
-        let profile = output.into_at_profile().ok_or_else(|| {
-            QuartoError::other(
-                "Pass 1 did not produce an AtProfile variant — pipeline shape unexpected",
-            )
-        })?;
-        Ok(profile.profile)
     }
 
     /// Helper: project-relative source path for cache-key
     /// construction. Mirrors `DocumentProfileStage`'s computation
     /// (canonicalize when possible, fall back to file name).
+    ///
+    /// Thin `&self` wrapper around the free
+    /// [`pass1_project_relative_source_path`] helper — kept because
+    /// `compute_augmented_render_set` (Pass-2 setup) uses it from an
+    /// `&self` context that already has the project context handy.
     fn project_relative_source_path(&self, input: &std::path::Path) -> String {
-        if let Ok(rel) = input.strip_prefix(&self.project.dir) {
-            rel.to_string_lossy().into_owned()
-        } else if let Some(name) = input.file_name() {
-            name.to_string_lossy().into_owned()
-        } else {
-            input.to_string_lossy().into_owned()
-        }
-    }
-
-    /// Helper: walk the layered `_metadata.yml` files for a doc
-    /// and return their raw bytes for cache-key hashing. Skips any
-    /// file that can't be read; the cache key for that doc just
-    /// reflects the available subset (matching what the head
-    /// pipeline would see).
-    fn layered_metadata_raw_bytes(
-        &self,
-        document_path: &std::path::Path,
-    ) -> Vec<(std::path::PathBuf, Vec<u8>)> {
-        if self.project.is_single_file {
-            return Vec::new();
-        }
-        let document_path = self
-            .runtime
-            .canonicalize(document_path)
-            .unwrap_or_else(|_| document_path.to_path_buf());
-        let document_dir = match document_path.parent() {
-            Some(p) => p,
-            None => return Vec::new(),
-        };
-        let project_dir = &self.project.dir;
-        let relative_path = match document_dir.strip_prefix(project_dir) {
-            Ok(rel) => rel,
-            Err(_) => return Vec::new(),
-        };
-
-        let mut out = Vec::new();
-        let mut current = project_dir.clone();
-        for component in relative_path.components() {
-            current = current.join(component);
-            for candidate in ["_metadata.yml", "_metadata.yaml"] {
-                let path = current.join(candidate);
-                if let Ok(bytes) = self.runtime.file_read(&path) {
-                    out.push((path.clone(), bytes));
-                    break; // prefer .yml; if both exist this picks .yml
-                }
-            }
-        }
-        out
-    }
-
-    /// Helper: read the project's `_quarto.yml` (or `_quarto.yaml`)
-    /// raw bytes for cache-key hashing. Empty `Vec` when the
-    /// project has no config file.
-    fn read_quarto_yml_bytes(&self) -> Vec<u8> {
-        if self.project.is_single_file {
-            return Vec::new();
-        }
-        for candidate in ["_quarto.yml", "_quarto.yaml"] {
-            let path = self.project.dir.join(candidate);
-            if let Ok(bytes) = self.runtime.file_read(&path) {
-                return bytes;
-            }
-        }
-        Vec::new()
+        pass1_project_relative_source_path(&self.project.dir, input)
     }
 
     /// Compute the absolute-path render set for Pass-2 dispatch.
@@ -1100,6 +1012,442 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
         }
         (outputs, failures)
     }
+}
+
+// === Pass-1 free functions (bd-m7x9s Phase 1) =============================
+//
+// These are extracted from `ProjectPipeline` so the Phase-2 rayon
+// fan-out can dispatch them across worker threads without sharing
+// `&self`. Each call captures only `Send + Sync` data:
+//
+// - `Arc<dyn SystemRuntime>` — the trait is `Send + Sync` on native
+//   (see `crates/quarto-system-runtime/src/traits.rs:243`).
+// - `&ProjectContext` — pure data, no `Rc`/`RefCell`.
+// - `&Format` — pure data, no interior mutability.
+// - `&DocumentInfo` — pure data.
+//
+// The bodies are byte-for-byte the previous `&self` method bodies
+// with `self.runtime`/`self.project`/`self.format` substituted for
+// the explicit parameters; behavior is unchanged in Phase 1.
+
+/// Resolve the worker-count knob for [`pass_one_dispatch_parallel`].
+///
+/// - `QUARTO_JOBS=<n>` if set and parses as a positive integer.
+/// - Otherwise `std::thread::available_parallelism()`, capped at 16
+///   to avoid pathological over-subscription on large servers.
+/// - Falls back to 4 if `available_parallelism()` returns `Err`.
+///
+/// Returns `1` to mean "force sequential" — callers short-circuit
+/// the rayon dispatch when `worker_count() == 1` or
+/// `files.len() <= 1`.
+#[cfg(not(target_arch = "wasm32"))]
+fn pass1_worker_count() -> usize {
+    if let Some(raw) = std::env::var_os("QUARTO_JOBS") {
+        if let Some(s) = raw.to_str() {
+            if let Ok(n) = s.parse::<usize>() {
+                if n >= 1 {
+                    return n;
+                }
+            }
+        }
+    }
+    std::thread::available_parallelism()
+        .map(|n| n.get().min(16))
+        .unwrap_or(4)
+}
+
+/// Pass-1 fan-out: on native targets, dispatch each document through
+/// the rayon work-stealing pool; on WASM, run sequentially.
+///
+/// The native parallel path uses `IndexedParallelIterator::collect()`
+/// to preserve input order — see the `pass_one_preserves_input_order`
+/// regression test. Each rayon worker runs `pollster::block_on` over
+/// the (still `?Send`) Pass-1 future; this is safe because the
+/// Pass-1 stage graph has no tokio runtime requirements (see the
+/// Phase-0 pollster-compat audit in
+/// `claude-notes/plans/2026-05-22-parallelize-pass-one.md`).
+fn pass_one_dispatch(
+    runtime: &Arc<dyn SystemRuntime>,
+    project: &ProjectContext,
+    format: &Format,
+) -> (
+    Vec<crate::document_profile::DocumentProfile>,
+    Vec<FileFailure>,
+) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let workers = pass1_worker_count();
+        if workers == 1 || project.files.len() <= 1 {
+            return pass_one_dispatch_sequential(runtime, project, format);
+        }
+        pass_one_dispatch_parallel(runtime, project, format, workers)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        pass_one_dispatch_sequential(runtime, project, format)
+    }
+}
+
+/// Sequential fan-out — the pre-Phase-2 behavior. Used:
+/// - on WASM (no OS threads, rayon doesn't compile);
+/// - when `QUARTO_JOBS=1` is set;
+/// - when the project has 0 or 1 files (parallelism has no payoff).
+fn pass_one_dispatch_sequential(
+    runtime: &Arc<dyn SystemRuntime>,
+    project: &ProjectContext,
+    format: &Format,
+) -> (
+    Vec<crate::document_profile::DocumentProfile>,
+    Vec<FileFailure>,
+) {
+    let mut profiles = Vec::with_capacity(project.files.len());
+    let mut failures = Vec::new();
+    for doc_info in &project.files {
+        match pollster::block_on(pass1_profile_with_cache(runtime, project, format, doc_info)) {
+            Ok(profile) => profiles.push(profile),
+            Err(e) => failures.push(file_failure_from_error(doc_info.input.clone(), e)),
+        }
+    }
+    (profiles, failures)
+}
+
+/// Native parallel fan-out via rayon.
+///
+/// Each per-doc closure captures `Send + Sync` data only
+/// (`&Arc<dyn SystemRuntime>` clones the inner `Arc`,
+/// `&ProjectContext` / `&Format` are immutable borrows of `Send +
+/// Sync` data). Inside the closure we run `pollster::block_on` to
+/// drive the `?Send` Pass-1 future on the rayon worker thread —
+/// the future never crosses thread boundaries.
+///
+/// `std::panic::catch_unwind` per worker converts any panic to a
+/// `FileFailure`, matching the per-file isolation we already have
+/// for `Result::Err`. Without it a single misbehaving stage would
+/// abort the entire render.
+///
+/// `IndexedParallelIterator::collect_into_vec` preserves input
+/// order; downstream consumers (dependency graph builder,
+/// diagnostic emission) see the same profile sequence pre and post
+/// Phase 2.
+#[cfg(not(target_arch = "wasm32"))]
+fn pass_one_dispatch_parallel(
+    runtime: &Arc<dyn SystemRuntime>,
+    project: &ProjectContext,
+    format: &Format,
+    workers: usize,
+) -> (
+    Vec<crate::document_profile::DocumentProfile>,
+    Vec<FileFailure>,
+) {
+    use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+
+    enum DocOutcome {
+        Profile(crate::document_profile::DocumentProfile),
+        Failure(FileFailure),
+    }
+
+    // Build a local rayon pool sized to `workers` so `QUARTO_JOBS`
+    // actually constrains parallelism. Using the global pool with
+    // `par_iter()` always spawns `available_parallelism()` workers
+    // regardless of how the work is partitioned — fine for the
+    // default case, but the env-var override would silently no-op.
+    // Pool construction is a few-ms thread spawn; amortized over the
+    // hundreds of docs Pass-1 typically processes, the cost is
+    // invisible (and tests covering the small-N case run via the
+    // sequential short-circuit, see `pass_one_dispatch`).
+    let pool = match rayon::ThreadPoolBuilder::new()
+        .num_threads(workers)
+        .thread_name(|i| format!("quarto-pass1-{i}"))
+        .build()
+    {
+        Ok(p) => p,
+        // Pool construction failed (extremely rare — typically an
+        // OOM or thread-limit signal from the OS). Degrade to the
+        // sequential path rather than aborting the render.
+        Err(_) => return pass_one_dispatch_sequential(runtime, project, format),
+    };
+
+    let mut outcomes: Vec<DocOutcome> = Vec::with_capacity(project.files.len());
+    pool.install(|| {
+        // `collect_into_vec` is the order-preserving sink for
+        // `IndexedParallelIterator`. Calling it explicitly (rather
+        // than `.collect::<Vec<_>>()`) documents the dependency on
+        // indexed ordering and keeps the `IndexedParallelIterator`
+        // import load-bearing — see the
+        // `pass_one_preserves_input_order` regression test.
+        project
+            .files
+            .par_iter()
+            .map(|doc_info| {
+                let input = doc_info.input.clone();
+                // catch_unwind so a panic in
+                // `pass1_profile_with_cache` (e.g. tree-sitter
+                // assertion on a malformed input) maps to a
+                // per-file failure rather than aborting the whole
+                // render. The closure only borrows `Send` data so
+                // it satisfies `UnwindSafe`'s practical
+                // requirements; `AssertUnwindSafe` papers over the
+                // strict checker.
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    pollster::block_on(pass1_profile_with_cache(runtime, project, format, doc_info))
+                }));
+                match result {
+                    Ok(Ok(profile)) => DocOutcome::Profile(profile),
+                    Ok(Err(e)) => DocOutcome::Failure(file_failure_from_error(input, e)),
+                    Err(panic_payload) => {
+                        let msg = panic_message(&panic_payload);
+                        DocOutcome::Failure(file_failure_from_error(
+                            input,
+                            QuartoError::other(format!(
+                                "internal error during Pass-1 (panic): {msg}",
+                            )),
+                        ))
+                    }
+                }
+            })
+            .collect_into_vec(&mut outcomes);
+    });
+
+    let mut profiles = Vec::with_capacity(project.files.len());
+    let mut failures = Vec::new();
+    for outcome in outcomes {
+        match outcome {
+            DocOutcome::Profile(p) => profiles.push(p),
+            DocOutcome::Failure(f) => failures.push(f),
+        }
+    }
+    (profiles, failures)
+}
+
+/// Extract a printable message from a `catch_unwind` payload —
+/// `Box<dyn Any + Send + 'static>` — by trying the two canonical
+/// concrete types panics carry (`&'static str` and `String`).
+#[cfg(not(target_arch = "wasm32"))]
+fn panic_message(payload: &Box<dyn std::any::Any + Send + 'static>) -> String {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        return (*s).to_string();
+    }
+    if let Some(s) = payload.downcast_ref::<String>() {
+        return s.clone();
+    }
+    "<non-string panic payload>".to_string()
+}
+
+/// Compute the project-relative source path used as input to
+/// [`cache_key::pass1_key`]. Mirrors `DocumentProfileStage`'s
+/// computation: prefer canonical relative-to-project, fall back to
+/// the file name, fall back to the raw input.
+fn pass1_project_relative_source_path(
+    project_dir: &std::path::Path,
+    input: &std::path::Path,
+) -> String {
+    if let Ok(rel) = input.strip_prefix(project_dir) {
+        rel.to_string_lossy().into_owned()
+    } else if let Some(name) = input.file_name() {
+        name.to_string_lossy().into_owned()
+    } else {
+        input.to_string_lossy().into_owned()
+    }
+}
+
+/// Walk the layered `_metadata.yml` chain for a document (from the
+/// project root down to the document's directory) and return each
+/// file's raw bytes. Skips files that can't be read; the cache key
+/// for that doc will reflect only the available subset, which is
+/// also what the head pipeline sees. Returns an empty vec for
+/// single-file pseudo-projects.
+fn pass1_layered_metadata_raw_bytes(
+    runtime: &dyn SystemRuntime,
+    project: &ProjectContext,
+    document_path: &std::path::Path,
+) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    if project.is_single_file {
+        return Vec::new();
+    }
+    let document_path = runtime
+        .canonicalize(document_path)
+        .unwrap_or_else(|_| document_path.to_path_buf());
+    let document_dir = match document_path.parent() {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    let project_dir = &project.dir;
+    let relative_path = match document_dir.strip_prefix(project_dir) {
+        Ok(rel) => rel,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    let mut current = project_dir.clone();
+    for component in relative_path.components() {
+        current = current.join(component);
+        for candidate in ["_metadata.yml", "_metadata.yaml"] {
+            let path = current.join(candidate);
+            if let Ok(bytes) = runtime.file_read(&path) {
+                out.push((path.clone(), bytes));
+                break; // prefer .yml; if both exist this picks .yml
+            }
+        }
+    }
+    out
+}
+
+/// Read the project's `_quarto.yml` (or `_quarto.yaml`) raw bytes
+/// for cache-key hashing. Returns an empty vec when the project
+/// has no config file (single-file pseudo-project) or it can't be
+/// read.
+fn pass1_read_quarto_yml_bytes(runtime: &dyn SystemRuntime, project: &ProjectContext) -> Vec<u8> {
+    if project.is_single_file {
+        return Vec::new();
+    }
+    for candidate in ["_quarto.yml", "_quarto.yaml"] {
+        let path = project.dir.join(candidate);
+        if let Ok(bytes) = runtime.file_read(&path) {
+            return bytes;
+        }
+    }
+    Vec::new()
+}
+
+/// Try the on-disk profile cache for `doc_info`, falling back to a
+/// live head-pipeline run on miss. See `profile_cache::load` for the
+/// include-verification semantics.
+///
+/// Pass-1 entry point — every call records the current OS thread in
+/// the `PASS1_THREADS` set via [`pass1_threads_record`] so the
+/// `perf.pass1 threads_used=K` gauge stays accurate when this
+/// function is dispatched across rayon workers.
+async fn pass1_profile_with_cache(
+    runtime: &Arc<dyn SystemRuntime>,
+    project: &ProjectContext,
+    format: &Format,
+    doc_info: &DocumentInfo,
+) -> Result<crate::document_profile::DocumentProfile> {
+    pass1_threads_record();
+
+    // Read source bytes — used for both the cache key
+    // computation and the live pipeline below.
+    let source_bytes = runtime.file_read(&doc_info.input).map_err(|e| {
+        QuartoError::other(format!(
+            "Failed to read {} during pass 1: {}",
+            doc_info.input.display(),
+            e
+        ))
+    })?;
+
+    // Compute the project-relative source path the same way
+    // DocumentProfileStage does (canonicalize when possible, else
+    // fall back to file_name).
+    let source_path = pass1_project_relative_source_path(&project.dir, &doc_info.input);
+    let format_id = format.target_format.clone();
+
+    // Layered _metadata.yml raw bytes for the cache-key domain.
+    // We re-read the raw bytes (not the parsed ConfigValue) because
+    // byte-for-byte changes invalidate the key — a comment-only
+    // edit to _metadata.yml correctly invalidates the cache.
+    let metadata_files =
+        pass1_layered_metadata_raw_bytes(runtime.as_ref(), project, &doc_info.input);
+
+    // _quarto.yml raw bytes (project root). Empty when the project
+    // has no config file (single-file render).
+    let quarto_yml_bytes = pass1_read_quarto_yml_bytes(runtime.as_ref(), project);
+
+    // Format extensions: TODO follow-up. For v1 we pass empty
+    // contributions; extension changes require `--clean`. See
+    // `claude-notes/plans/2026-04-27-websites-phase-8.md` §
+    // "Sub-phase 8.4" for the user-facing escape hatch and
+    // §Decision 2 footnote for the rationale.
+    let extension_contributions: Vec<(String, Vec<u8>)> = Vec::new();
+
+    let key_inputs = crate::project::cache_key::Pass1KeyInputs {
+        format_id: &format_id,
+        source_path: &source_path,
+        source_bytes: &source_bytes,
+        metadata_files: &metadata_files,
+        quarto_yml_bytes: &quarto_yml_bytes,
+        extension_contributions: &extension_contributions,
+    };
+    let key_bytes = crate::project::cache_key::pass1_key(&key_inputs);
+    let key_hex = crate::project::cache_key::hex_encode(&key_bytes);
+
+    // Cache lookup. The include resolver reads each include's
+    // current bytes and computes their SHA-256 to compare against
+    // the cached profile's recorded content_hashes. A miss here
+    // (load returns Ok(None)) just means we do a live extraction
+    // and overwrite.
+    let resolver_runtime = runtime.clone();
+    let include_resolver = move |path: &std::path::Path| {
+        let bytes = resolver_runtime.file_read(path)?;
+        Ok(crate::document_profile::IncludeEntry::hash_bytes(&bytes))
+    };
+
+    match crate::project::profile_cache::load(runtime.as_ref(), &key_hex, include_resolver).await {
+        Ok(Some(profile)) => return Ok(profile),
+        // Cache miss / verification failure / runtime error: degrade
+        // to a live extraction. We don't surface the error because the
+        // orchestrator never wants a cache hiccup to abort an
+        // otherwise-fine render.
+        Ok(None) | Err(_) => {}
+    }
+
+    let profile =
+        pass1_profile_single_file_live(runtime.clone(), project, format, doc_info, &source_bytes)
+            .await?;
+
+    // Best-effort save. A save failure is also non-fatal — the
+    // profile is already computed and downstream code can use it for
+    // this run; the next run will just retry the cache write.
+    let _ = crate::project::profile_cache::save(runtime.as_ref(), &key_hex, &profile).await;
+
+    Ok(profile)
+}
+
+/// Run the head pipeline live (no cache lookup). Used by
+/// [`pass1_profile_with_cache`] when the cache misses.
+async fn pass1_profile_single_file_live(
+    runtime: Arc<dyn SystemRuntime>,
+    project: &ProjectContext,
+    format: &Format,
+    doc_info: &DocumentInfo,
+    source_bytes: &[u8],
+) -> Result<crate::document_profile::DocumentProfile> {
+    use crate::pipeline::run_pipeline;
+    use crate::render::{BinaryDependencies, RenderContext};
+    use crate::stage::{
+        DocumentProfileStage, IncludeExpansionStage, LinkResolutionStage, MetadataMergeStage,
+        ParseDocumentStage, PipelineStage,
+    };
+
+    let source_name = doc_info.input.to_string_lossy().to_string();
+    let binaries = BinaryDependencies::new();
+    let mut ctx = RenderContext::new(project, doc_info, format, &binaries);
+
+    let stages: Vec<Box<dyn PipelineStage>> = vec![
+        Box::new(ParseDocumentStage::new()),
+        Box::new(MetadataMergeStage::new()),
+        // Include-expansion threads child content through the
+        // profile so transitive `{{< include … >}}` is visible
+        // (bd-xfwx). Phase 8 sub-phase 8.0d's LinkResolutionStage
+        // also depends on it: the AST walk must see post-include
+        // content so a body link inside an included child counts as
+        // a dependency edge of the parent.
+        Box::new(IncludeExpansionStage::new()),
+        Box::new(DocumentProfileStage::new()),
+        // Pass-1 cross-doc body-link resolution. Reads the
+        // post-include AST, writes `profile.body_link_targets` for
+        // the dependency graph.
+        Box::new(LinkResolutionStage::new()),
+    ];
+
+    let (output, _diagnostics) =
+        run_pipeline(source_bytes, &source_name, &mut ctx, runtime, stages).await?;
+
+    let profile = output.into_at_profile().ok_or_else(|| {
+        QuartoError::other(
+            "Pass 1 did not produce an AtProfile variant — pipeline shape unexpected",
+        )
+    })?;
+    Ok(profile.profile)
 }
 
 #[cfg(test)]

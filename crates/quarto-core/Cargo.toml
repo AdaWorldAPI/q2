@@ -92,6 +92,14 @@ scraper = { workspace = true }
 # §"Image metadata via `imagesize`".
 imagesize = "0.13"
 
+# `rayon` work-stealing thread pool, used by
+# `ProjectPipeline::pass_one` to parallelize per-document profile
+# extraction (bd-m7x9s). Native-only: rayon doesn't compile on
+# `wasm32-unknown-unknown` (no OS threads). The WASM build keeps a
+# sequential for-loop; see `pass_one` cfg branches in
+# `crates/quarto-core/src/project/orchestrator.rs`.
+rayon = "1"
+
 # Jupyter engine dependencies (native only)
 runtimelib = { version = "2.0", features = ["tokio-runtime"] }
 jupyter-protocol = "2.0"
