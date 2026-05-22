@@ -57,6 +57,7 @@ pub mod resource_resolver;
 pub mod resources;
 pub mod stage;
 pub mod template;
+pub mod theme_diagnostic;
 pub mod transform;
 pub mod transforms;
 

@@ -713,7 +713,18 @@ fn print_render_diagnostics(
         );
     }
     for failure in &summary.pass2_failures {
-        eprintln!("error: {}: {}", failure.input.display(), failure.error);
+        // Prefer the structured ariadne form when the failure
+        // carries diagnostics — that's the case for QuartoError::Parse
+        // (parse errors, theme-config errors via Q-14-1, etc.).
+        // Otherwise fall back to the legacy single-line form so
+        // non-structured errors still surface.
+        if !failure.diagnostics.is_empty() {
+            for diagnostic in &failure.diagnostics {
+                eprintln!("{}", diagnostic.to_text(failure.source_context.as_ref()));
+            }
+        } else {
+            eprintln!("error: {}: {}", failure.input.display(), failure.error);
+        }
     }
     for diagnostic in &summary.project_diagnostics {
         eprintln!("{}", diagnostic.to_text(None));

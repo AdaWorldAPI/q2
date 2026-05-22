@@ -262,15 +262,24 @@ impl PipelineStage for CompileThemeCssStage {
         //
         // Any error here is a **user-facing configuration error**
         // (malformed `theme:`, `brand:` token without a `brand:` key,
-        // unknown theme name, etc.) — we propagate as a stage error so
-        // it surfaces in the CLI rather than silently shipping a
-        // minimal DEFAULT_CSS that would render the page as unstyled
-        // and leave the user wondering what went wrong. Q2 is
-        // deliberately stricter than Q1 here; once we wire source
-        // locations into `SassError`, these diagnostics can point at
-        // the offending YAML directly.
-        let theme_config = ThemeConfig::from_config_value(&doc.ast.meta)
-            .map_err(|e| PipelineError::stage_error(self.name(), e.to_string()))?;
+        // unknown theme name, etc.). When we know the offending
+        // value lives in `_quarto.yml`, we lift the error into a
+        // structured ariadne diagnostic via `theme_diagnostic` so
+        // the user gets a code (Q-14-1) and a source span. When the
+        // source file is unknown (single-file renders, brand
+        // resolution failures without a config path), we fall back
+        // to the legacy stage-error path so the message still lands
+        // even without a span.
+        let theme_config = match ThemeConfig::from_config_value(&doc.ast.meta) {
+            Ok(c) => c,
+            Err(e) => {
+                if let Some(config_path) = ctx.project.config.config_path.as_deref() {
+                    let pe = crate::theme_diagnostic::sass_error_to_parse_error(&e, config_path);
+                    return Err(PipelineError::Structured(pe));
+                }
+                return Err(PipelineError::stage_error(self.name(), e.to_string()));
+            }
+        };
 
         // `theme: none` → ship the static lightweight DEFAULT_CSS without
         // compiling Bootstrap. This is the explicit opt-out path.

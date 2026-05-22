@@ -214,30 +214,89 @@ Entry:
 }
 ```
 
+## Implementation revisions discovered during the work
+
+1. **Reuse `QuartoError::Parse(ParseError)`** instead of adding a new
+   `QuartoError::Config(ConfigDiagnostic)` variant. `ParseError` is
+   already the project's "diagnostics + source-context envelope"
+   (precedent: `resource_error_to_parse_error` for Q-5-1..Q-5-3).
+   Cleaner, smaller blast radius.
+
+2. **Add `PipelineError::Structured(ParseError)` variant.** The
+   existing bridge in `pipeline.rs:700-715` synthesizes a
+   `SourceContext` from the *document content*. That doesn't contain
+   `_quarto.yml`, so a diagnostic whose `location` points there
+   wouldn't render an ariadne snippet. The new variant is passed
+   through the bridge verbatim (`Structured(pe) => QuartoError::Parse(pe)`)
+   so the cross-file `SourceContext` survives. Display delegates to
+   the wrapped `ParseError`, which is `Display` via its full ariadne
+   render.
+
+3. **`file_failure_from_error` did not need changes** — it already
+   extracts `QuartoError::Parse`'s diagnostics + source_context onto
+   `FileFailure`.
+
 ## Work items
 
-- [ ] Write red tests (sass-level + orchestrator-level + e2e fixture).
-- [ ] Add `location: Option<SourceInfo>` to `SassError::InvalidThemeConfig`
-      and propagate at `config.rs:454` and `:463`.
-- [ ] Allocate `Q-14-1` (or chosen subsystem) in `error_catalog.json`.
-- [ ] Add `QuartoError::Config(ConfigDiagnostic)` variant + `Display`.
-- [ ] Convert the throw site in `CompileThemeCssStage::run`.
-- [ ] Extend `file_failure_from_error` to handle the new variant.
-- [ ] Update the CLI failure-rendering loop to use structured
-      diagnostics when present.
-- [ ] Confirm `StageContext` exposes a `SourceContext` for project
-      YAML; if not, plumb it (this may grow the PR).
-- [ ] Run `cargo xtask verify --skip-hub-build` (and `--skip-hub-build`
-      is fine since `quarto-sass` / `quarto-core` Rust-only changes
-      don't affect WASM — but if `QuartoError` is re-exported via
-      `wasm-quarto-hub-client`, run full `cargo xtask verify`).
-- [ ] Record CLI output in this plan as proof of end-to-end success.
+- [x] Investigate `SourceContext` plumbing — resolved by reading
+      `_quarto.yml` from disk in the converter, mirroring
+      `resource_error_to_parse_error`.
+- [x] Write red tests (sass-level + theme-diagnostic-level).
+- [x] Add `location: Option<SourceInfo>` to `SassError::InvalidThemeConfig`
+      and propagate at `config.rs:454` + `:463` (plus null-`location`
+      at the internal brand sites: `config.rs:206/355/394`,
+      `brand_layer.rs` two sites, `themes.rs` two sites).
+- [x] Allocate `Q-14-1` in `error_catalog.json` (subsystem `theme`).
+- [x] Build `crates/quarto-core/src/theme_diagnostic.rs` with
+      `sass_error_to_parse_error(err, source_file)`. Mirrors
+      `resource_error_to_parse_error`.
+- [x] Add `PipelineError::Structured(ParseError)` variant + Display
+      delegation + pass-through in the pipeline-to-QuartoError bridge.
+- [x] Convert the throw site in `CompileThemeCssStage::run`.
+- [x] Update the CLI failure-rendering loop in
+      `print_render_diagnostics` to use structured diagnostics from
+      `pass2_failures` when present (legacy `error: <path>: <err>`
+      fallback preserved for non-structured errors).
+- [x] Run `cargo nextest run --workspace` — 9395 tests pass (5 net
+      new from this branch; baseline was 9390).
+- [x] Run end-to-end against the user's `external-sources/quarto-web`
+      fixture and record output below.
 
-## Risks
+## Verification
 
-- The `SourceContext` for `_quarto.yml` may not currently live on
-  `StageContext` (the parse path's `SourceContext` is per-document).
-  If we have to plumb a project-level `SourceContext`, the PR is larger.
-  Probe this early.
-- `QuartoError` is widely used; adding a new variant may force `match`
-  arms in many places. Use `#[non_exhaustive]` or grep before changing.
+```bash
+NO_COLOR=1 cargo run --bin q2 -- render \
+  /Users/cscheid/rooms/room-2/q2/external-sources/quarto-web
+```
+
+One representative emission (there are 345 identical copies — bd-9hlja
+coalesces them):
+
+```
+Error: [Q-14-1] Invalid theme configuration
+     ╭─[ /…/external-sources/quarto-web/_quarto.yml:686:15 ]
+     │
+ 686 │       light: [cosmo, theme.scss]
+     │               ──┬──
+     │                 ╰──── theme must be a string or array of strings
+─────╯
+```
+
+`grep -c "Q-14-1"` ⇒ **345** structured diagnostics.
+`grep "^error:"` ⇒ **0** legacy plain-text emissions for the theme
+case (was hundreds before this branch). The ariadne renderer also
+emits a working hyperlink to `file:///…/_quarto.yml#686:15`.
+
+The remaining duplication is by design for this issue; bd-9hlja
+collapses it.
+
+## Risks (resolved)
+
+- ~~`SourceContext` for `_quarto.yml` may not live on `StageContext`~~ —
+  not needed; the converter reads YAML from disk on demand.
+- ~~`QuartoError` exhaustive matches would force changes everywhere~~ —
+  avoided by reusing `QuartoError::Parse`.
+- New `PipelineError::Structured` variant: grep'd for `PipelineError`
+  matches; the only non-trivial exhaustive site was the bridge in
+  `pipeline.rs`, which we updated. `match` arms elsewhere either use
+  `_` fallthrough or pattern-match a single variant.
