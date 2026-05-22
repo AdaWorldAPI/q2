@@ -560,11 +560,7 @@ fn pass1_failures_to_json(
                     .collect(),
                 None => Vec::new(),
             };
-            JsonPass1Failure {
-                source_file,
-                error: failure.error.clone(),
-                diagnostics,
-            }
+            JsonPass1Failure::new(source_file, failure.error.clone(), diagnostics)
         })
         .collect()
 }
