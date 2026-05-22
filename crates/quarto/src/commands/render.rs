@@ -34,6 +34,11 @@ use tracing::info;
 use quarto_core::attribution::AttributionMode;
 use quarto_core::project::orchestrator::{ProjectPipeline, RenderMode, project_type_for};
 use quarto_core::{Format, ProjectContext, QuartoError, RenderToFileOptions};
+use quarto_error_reporting::{
+    DiagnosticMessage, DiagnosticMessageBuilder, JsonDiagnostic, JsonPass1Failure,
+    diagnostic_to_json, with_source_file,
+};
+use quarto_source_map::SourceContext;
 use quarto_system_runtime::{NativeRuntime, SystemRuntime};
 
 /// Arguments for the render command.
@@ -68,6 +73,12 @@ pub struct RenderArgs {
     /// Resolved attribution mode from the `--attribution=<value>`
     /// flag. `None` means "absent — defer to YAML." Phase 3c.
     pub attribution: Option<AttributionMode>,
+    /// Emit diagnostics as NDJSON on stderr instead of human-readable
+    /// ariadne text (bd-iey8o). Each emitted line carries a `$schema`
+    /// field; the schema docs live in
+    /// `crates/quarto-error-reporting/schemas/`. Exit codes are
+    /// unchanged.
+    pub json_errors: bool,
 }
 
 /// What to render after argument classification.
@@ -524,9 +535,20 @@ pub fn execute(args: RenderArgs) -> Result<()> {
         );
     }
 
-    // Classify inputs into a render target.
-    let target =
-        classify_inputs(&args.inputs, &cwd, &runtime).map_err(|e| anyhow::anyhow!("{}", e))?;
+    // Classify inputs into a render target. Under --json-errors,
+    // surface the structured DispatchError as a JsonDiagnostic on
+    // stderr before exiting so machine consumers can discriminate
+    // by code (Q-7-2..8).
+    let target = match classify_inputs(&args.inputs, &cwd, &runtime) {
+        Ok(t) => t,
+        Err(e) => {
+            if args.json_errors {
+                emit_dispatch_error_json(&e);
+                std::process::exit(1);
+            }
+            return Err(anyhow::anyhow!("{}", e));
+        }
+    };
 
     // bd-45yw: load replay capture if --replay <path> or
     // QUARTO_REPLAY=<path> is set. Hard-fail on read errors and on
@@ -594,13 +616,17 @@ fn execute_single_doc(
     let summary = match pollster::block_on(pipeline.run()) {
         Ok(s) => s,
         Err(QuartoError::Parse(parse_error)) => {
-            eprintln!("{}", parse_error);
+            if args.json_errors {
+                emit_parse_error_json(&parse_error, Some(&input));
+            } else {
+                eprintln!("{}", parse_error);
+            }
             std::process::exit(1);
         }
         Err(e) => return Err(anyhow::anyhow!("{}", e)),
     };
 
-    print_render_diagnostics(&summary, args.quiet);
+    print_render_diagnostics(&summary, args);
 
     if should_exit_nonzero(&summary) {
         std::process::exit(1);
@@ -657,13 +683,17 @@ fn execute_project(
     let summary = match pollster::block_on(pipeline.run()) {
         Ok(s) => s,
         Err(QuartoError::Parse(parse_error)) => {
-            eprintln!("{}", parse_error);
+            if args.json_errors {
+                emit_parse_error_json(&parse_error, None);
+            } else {
+                eprintln!("{}", parse_error);
+            }
             std::process::exit(1);
         }
         Err(e) => return Err(anyhow::anyhow!("{}", e)),
     };
 
-    print_render_diagnostics(&summary, args.quiet);
+    print_render_diagnostics(&summary, args);
 
     let rendered = summary.outputs.len();
     if let Some(line) = render_summary_line(false, total_files, rendered)
@@ -702,6 +732,27 @@ fn should_exit_nonzero(summary: &quarto_core::project::orchestrator::ProjectRend
 }
 
 fn print_render_diagnostics(
+    summary: &quarto_core::project::orchestrator::ProjectRenderSummary,
+    args: &RenderArgs,
+) {
+    if args.json_errors {
+        print_render_diagnostics_json(summary);
+    } else {
+        print_render_diagnostics_text(summary, args.quiet);
+    }
+
+    // bd-c5u2g: emit per-process engine-discovery counters when
+    // QUARTO_PERF_STATS=1. No-op otherwise. Placed before any
+    // subsequent process::exit so the gauge always lands.
+    quarto_core::engine::print_discovery_stats_if_enabled();
+    // bd-m7x9s: pass-1 docs / threads_used / wall_ms gauge.
+    quarto_core::project::orchestrator::print_pass1_stats_if_enabled();
+}
+
+/// Text path: the existing ariadne-formatted output. Kept verbatim
+/// from before bd-iey8o; the only change is that the perf-stats
+/// emission moved one level up into `print_render_diagnostics`.
+fn print_render_diagnostics_text(
     summary: &quarto_core::project::orchestrator::ProjectRenderSummary,
     quiet: bool,
 ) {
@@ -770,18 +821,230 @@ fn print_render_diagnostics(
             info!("Output: {}", result.output_path.display());
         }
     }
-
-    // bd-c5u2g: emit per-process engine-discovery counters when
-    // QUARTO_PERF_STATS=1. No-op otherwise. Placed before any
-    // subsequent process::exit so the gauge always lands.
-    quarto_core::engine::print_discovery_stats_if_enabled();
-    // bd-m7x9s: pass-1 docs / threads_used / wall_ms gauge.
-    quarto_core::project::orchestrator::print_pass1_stats_if_enabled();
 }
 
 /// Resolve format string to Format (without metadata)
 fn resolve_format(format_str: &str) -> Result<Format> {
     Format::from_format_string(format_str).map_err(|e| anyhow::anyhow!("{}", e))
+}
+
+// ====================================================================
+// --json-errors emission (bd-iey8o)
+//
+// All functions in this section write one JSON object per line to
+// stderr. The wire shapes are `JsonDiagnostic` and `JsonPass1Failure`
+// from `quarto-error-reporting`; each emitted object carries a
+// `$schema` field pointing at the JSON Schema in
+// `crates/quarto-error-reporting/schemas/`.
+//
+// Stdout is NEVER written by this module — the render outputs still
+// go to disk (or to stdout via `--output -`); the diagnostics stream
+// is stderr-only so machine consumers can split clearly.
+// ====================================================================
+
+/// JSON branch of `print_render_diagnostics`. Mirrors the structure
+/// of the text branch (one source of diagnostics at a time) but
+/// emits NDJSON instead.
+fn print_render_diagnostics_json(
+    summary: &quarto_core::project::orchestrator::ProjectRenderSummary,
+) {
+    // Pass-1 failures: emit one JsonPass1Failure per failure. If the
+    // failure has structured diagnostics + a source context, attach
+    // them in JsonDiagnostic form (each tagged with the source
+    // file). If not, the wrapper still carries the source_file and
+    // error string so the agent can route the error.
+    for failure in &summary.pass1_failures {
+        let source_file = failure.input.display().to_string();
+        let diagnostics: Vec<JsonDiagnostic> = match &failure.source_context {
+            Some(ctx) => failure
+                .diagnostics
+                .iter()
+                .map(|d| with_source_file(diagnostic_to_json(d, ctx), source_file.clone()))
+                .collect(),
+            None => Vec::new(),
+        };
+        emit_json_line(&JsonPass1Failure::new(
+            source_file,
+            failure.error.clone(),
+            diagnostics,
+        ));
+    }
+
+    // Pass-2 failures: emit each structured diagnostic as its own
+    // JsonDiagnostic line. For failures with no structured
+    // diagnostics, synthesize a single JsonDiagnostic from the
+    // error string and the input path.
+    for failure in &summary.pass2_failures {
+        if failure.diagnostics.is_empty() {
+            let source_file = failure.input.display().to_string();
+            let diag = DiagnosticMessageBuilder::error("Render failed")
+                .problem(failure.error.clone())
+                .build();
+            let json = with_source_file(
+                diagnostic_to_json(&diag, &SourceContext::new()),
+                source_file,
+            );
+            emit_json_line(&json);
+            continue;
+        }
+        let ctx_owned;
+        let ctx_ref: &SourceContext = match &failure.source_context {
+            Some(c) => c,
+            None => {
+                ctx_owned = SourceContext::new();
+                &ctx_owned
+            }
+        };
+        let source_file = failure.input.display().to_string();
+        for d in &failure.diagnostics {
+            let json = with_source_file(diagnostic_to_json(d, ctx_ref), source_file.clone());
+            emit_json_line(&json);
+        }
+    }
+
+    // Project-level diagnostics (e.g. Q-PROJECT-EMPTY): no source
+    // context, no source-file attribution — pure project-scope.
+    let empty_ctx = SourceContext::new();
+    for diagnostic in &summary.project_diagnostics {
+        emit_json_line(&diagnostic_to_json(diagnostic, &empty_ctx));
+    }
+
+    // Per-page render diagnostics on successful outputs. The
+    // RenderToFileResult does not carry the input path (see the
+    // comment in the text branch), so these are emitted without a
+    // source_file tag — agents have to attribute them via the
+    // location.file_id encoded in the diagnostic.
+    for result in &summary.outputs {
+        for d in &result.render_output.diagnostics {
+            emit_json_line(&diagnostic_to_json(d, &result.render_output.source_context));
+        }
+    }
+}
+
+/// Emit a `QuartoError::Parse` as one or more JSON diagnostics on
+/// stderr. Each attached structured diagnostic becomes its own
+/// `JsonDiagnostic` line (tagged with `source_file` when an input
+/// path is known). If the parse error has no structured
+/// diagnostics, a single synthetic diagnostic is emitted from
+/// the error string so callers still get a JSON line.
+fn emit_parse_error_json(parse_error: &quarto_core::ParseError, input: Option<&Path>) {
+    let source_file = input.map(|p| p.display().to_string());
+    if parse_error.diagnostics.is_empty() {
+        let mut diag = DiagnosticMessageBuilder::error("Parse error")
+            .problem(parse_error.to_string())
+            .build();
+        // Preserve any source context we can; ParseError owns one.
+        let mut json = diagnostic_to_json(&diag, &parse_error.source_context);
+        if let Some(sf) = source_file {
+            json = with_source_file(json, sf);
+        }
+        emit_json_line(&json);
+        // Touch `diag` so clippy doesn't warn about the unused
+        // builder var on the trivial path.
+        let _ = &mut diag;
+        return;
+    }
+    for d in &parse_error.diagnostics {
+        let mut json = diagnostic_to_json(d, &parse_error.source_context);
+        if let Some(sf) = &source_file {
+            json = with_source_file(json, sf.clone());
+        }
+        emit_json_line(&json);
+    }
+}
+
+/// Map a `DispatchError` to a `DiagnosticMessage` carrying its
+/// `Q-7-N` code, then emit on stderr as one JSON line.
+///
+/// Codes are catalog entries in
+/// `crates/quarto-error-reporting/error_catalog.json` — keep them
+/// in sync.
+fn emit_dispatch_error_json(e: &DispatchError) {
+    emit_json_line(&diagnostic_to_json(
+        &dispatch_error_to_diagnostic(e),
+        &SourceContext::new(),
+    ));
+}
+
+fn dispatch_error_to_diagnostic(e: &DispatchError) -> DiagnosticMessage {
+    match e {
+        DispatchError::PathNotFound(p) => DiagnosticMessageBuilder::error("Input Path Not Found")
+            .with_code("Q-7-2")
+            .problem(format!("Input path does not exist: {}", p.display()))
+            .add_hint("Check the path is correct and exists relative to the current directory.")
+            .build(),
+        DispatchError::NoInputAndNoProject(cwd) => {
+            DiagnosticMessageBuilder::error("No Input and No Project")
+                .with_code("Q-7-3")
+                .problem(format!(
+                    "No input given and no `_quarto.yml` found at or above {}",
+                    cwd.display()
+                ))
+                .add_hint("Pass at least one `.qmd` path, or run from inside a Quarto project.")
+                .build()
+        }
+        DispatchError::MultiArgNonProject => {
+            DiagnosticMessageBuilder::error("Multiple Inputs Without a Project")
+                .with_code("Q-7-4")
+                .problem(
+                    "Multiple input paths require a project (a `_quarto.yml`-rooted directory). \
+                     To render a single standalone file, pass exactly one path."
+                        .to_string(),
+                )
+                .build()
+        }
+        DispatchError::MultiProjectArgs { first, second } => {
+            DiagnosticMessageBuilder::error("Inputs Span Multiple Projects")
+                .with_code("Q-7-5")
+                .problem(format!(
+                    "Input paths span more than one project: {} and {}. \
+                     Render one project at a time.",
+                    first.display(),
+                    second.display()
+                ))
+                .build()
+        }
+        DispatchError::NotInRenderList { path, project_dir } => DiagnosticMessageBuilder::error(
+            "Input Excluded From Render List",
+        )
+        .with_code("Q-7-6")
+        .problem(format!(
+            "{} is excluded from the render list of project {}.",
+            path.display(),
+            project_dir.display()
+        ))
+        .add_hint(
+            "Check `project.render` in `_quarto.yml` and the underscore/hidden file conventions.",
+        )
+        .build(),
+        DispatchError::NoRenderableMatches { path } => {
+            DiagnosticMessageBuilder::error("No Renderable Files Matched")
+                .with_code("Q-7-7")
+                .problem(format!(
+                    "No renderable `.qmd` files matched: {}",
+                    path.display()
+                ))
+                .build()
+        }
+        DispatchError::Discover(msg) => DiagnosticMessageBuilder::error("Project Discovery Failed")
+            .with_code("Q-7-8")
+            .problem(format!("Project discovery failed: {msg}"))
+            .build(),
+    }
+}
+
+/// Write one `serde_json` value to stderr followed by a newline.
+/// Compact (single-line) JSON — that's the NDJSON contract.
+fn emit_json_line<T: serde::Serialize>(value: &T) {
+    match serde_json::to_string(value) {
+        Ok(line) => eprintln!("{line}"),
+        Err(e) => {
+            // Should be impossible: our wire types are derived Serialize
+            // structs with String / Option / Vec fields. Surface the
+            // failure as plain text on stderr so it's still observable.
+            eprintln!("(internal: failed to serialize diagnostic for --json-errors: {e})");
+        }
+    }
 }
 
 #[cfg(test)]

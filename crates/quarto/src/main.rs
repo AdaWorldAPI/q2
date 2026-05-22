@@ -153,6 +153,15 @@ enum Commands {
         /// disables attribution even when the YAML opts in.
         #[arg(long, value_enum)]
         attribution: Option<AttributionMode>,
+
+        /// Emit diagnostics as one JSON object per line on stderr
+        /// instead of human-readable text. Intended for agents and
+        /// other programs driving `q2 render`. Each emitted line
+        /// carries a `$schema` field pointing at the JSON Schema
+        /// describing its wire shape (see
+        /// `crates/quarto-error-reporting/schemas/`). bd-iey8o.
+        #[arg(long = "json-errors")]
+        json_errors: bool,
     },
 
     /// Start a live preview of a Quarto document or project.
@@ -567,6 +576,7 @@ fn main() -> Result<()> {
             replay,
             debug,
             attribution,
+            json_errors,
             ..
         } => commands::render::execute(commands::render::RenderArgs {
             inputs,
@@ -578,6 +588,7 @@ fn main() -> Result<()> {
             replay,
             debug,
             attribution,
+            json_errors,
         }),
         Commands::Preview {
             path,

@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "JsonDiagnosticDetail": {
+      "description": "One detail item in a [`JsonDiagnostic`].",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "end_column": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "end_line": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": "string"
+        },
+        "start_column": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "start_line": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "content"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A diagnostic message in transport-friendly JSON form.\n\nLine and column numbers are 1-based to match Monaco.\n\n## `$schema` field (bd-iey8o)\n\nEach instance carries a `$schema` field pointing at\n[`JsonDiagnostic::SCHEMA_URL`] so that consumers reading the\ndiagnostic over the wire (CLI stderr, WASM bridge, preview API)\ncan discover the JSON Schema describing this shape without prior\nknowledge. The field is a static-string field with a default\nmatching the const URL — the only place `JsonDiagnostic` is\nconstructed (`diagnostic_to_json`) sets it, and downstream\ntransforms like `with_source_file` preserve it.",
+  "properties": {
+    "$schema": {
+      "description": "JSON Schema URI describing this object's shape. Const value\nis [`JsonDiagnostic::SCHEMA_URL`]; included on the wire so\nconsumers can self-discover the contract.",
+      "type": "string"
+    },
+    "code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "details": {
+      "items": {
+        "$ref": "#/$defs/JsonDiagnosticDetail"
+      },
+      "type": "array"
+    },
+    "end_column": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "end_line": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "hints": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "problem": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rendered": {
+      "description": "Pre-rendered ariadne source-context snippet (bd-352bh).\nPopulated when the diagnostic carries a `location` and the\nconverting site has a [`SourceContext`] to draw from\n(i.e. always, in [`diagnostic_to_json`]). Same text the\n`q2 render` CLI prints to stdout — ANSI-coded; strip on the\nJS side for browser display. Consumers can render this\nverbatim in a `<pre>` block for the rich source-context\nview, or ignore it and fall back to the structured fields\nfor a compact summary. `None` for unlocated diagnostics\n(rare but possible for project-level errors with no span).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_file": {
+      "description": "Source-file attribution for project-scoped diagnostics\n(bd-rqba). When the project pipeline emits a warning that\noriginates in *another* file (e.g., a sidebar entry that\nreferences a sibling page), this field carries that\nsibling's path so the in-app overlay can label the warning\nwith its source instead of free-floating text. `None` for\npage-local diagnostics whose location already pins them\nto the active page's source.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "start_column": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "start_line": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "$schema",
+    "kind",
+    "title",
+    "hints",
+    "details"
+  ],
+  "title": "JsonDiagnostic",
+  "type": "object"
+}

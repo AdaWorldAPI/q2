@@ -25,13 +25,14 @@
 //! * [`with_source_file`] — tag a `JsonDiagnostic` with the file
 //!   it came from (used by sibling Pass-1 failures, see bd-rqba).
 
+use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::diagnostic::{DetailKind, DiagnosticKind, DiagnosticMessage};
 use quarto_source_map::SourceContext;
 
 /// One detail item in a [`JsonDiagnostic`].
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct JsonDiagnosticDetail {
     pub kind: String,
     pub content: String,
@@ -48,8 +49,25 @@ pub struct JsonDiagnosticDetail {
 /// A diagnostic message in transport-friendly JSON form.
 ///
 /// Line and column numbers are 1-based to match Monaco.
-#[derive(Debug, Clone, Serialize)]
+///
+/// ## `$schema` field (bd-iey8o)
+///
+/// Each instance carries a `$schema` field pointing at
+/// [`JsonDiagnostic::SCHEMA_URL`] so that consumers reading the
+/// diagnostic over the wire (CLI stderr, WASM bridge, preview API)
+/// can discover the JSON Schema describing this shape without prior
+/// knowledge. The field is a static-string field with a default
+/// matching the const URL — the only place `JsonDiagnostic` is
+/// constructed (`diagnostic_to_json`) sets it, and downstream
+/// transforms like `with_source_file` preserve it.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct JsonDiagnostic {
+    /// JSON Schema URI describing this object's shape. Const value
+    /// is [`JsonDiagnostic::SCHEMA_URL`]; included on the wire so
+    /// consumers can self-discover the contract.
+    #[serde(rename = "$schema")]
+    #[schemars(rename = "$schema")]
+    pub schema: &'static str,
     pub kind: String,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -100,11 +118,45 @@ pub struct JsonDiagnostic {
 /// `quarto preview` / hub-client surfaces these as warnings and
 /// keeps rendering; `quarto render` (CLI) treats any non-empty
 /// `pass1_failures` as a non-zero exit (`bd-creo`).
-#[derive(Debug, Clone, Serialize)]
+///
+/// `$schema` carries [`JsonPass1Failure::SCHEMA_URL`] so consumers
+/// can distinguish this shape from a plain `JsonDiagnostic` line on
+/// a mixed stderr stream and self-discover its contract.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct JsonPass1Failure {
+    /// JSON Schema URI describing this object's shape. Const value
+    /// is [`JsonPass1Failure::SCHEMA_URL`].
+    #[serde(rename = "$schema")]
+    #[schemars(rename = "$schema")]
+    pub schema: &'static str,
     pub source_file: String,
     pub error: String,
     pub diagnostics: Vec<JsonDiagnostic>,
+}
+
+impl JsonDiagnostic {
+    /// JSON Schema URI for the `JsonDiagnostic` wire shape.
+    /// Versioned under `/v1/` so future incompatible changes get a
+    /// new URL rather than silently breaking old consumers.
+    pub const SCHEMA_URL: &'static str = "https://quarto.org/schemas/v1/json-diagnostic.json";
+}
+
+impl JsonPass1Failure {
+    /// JSON Schema URI for the `JsonPass1Failure` wire shape.
+    pub const SCHEMA_URL: &'static str = "https://quarto.org/schemas/v1/json-pass1-failure.json";
+
+    /// Build a `JsonPass1Failure` for a sibling Pass-1 failure
+    /// (parse or metadata error) whose diagnostics have already been
+    /// converted to [`JsonDiagnostic`] form. The `$schema` field is
+    /// populated from the const.
+    pub fn new(source_file: String, error: String, diagnostics: Vec<JsonDiagnostic>) -> Self {
+        Self {
+            schema: Self::SCHEMA_URL,
+            source_file,
+            error,
+            diagnostics,
+        }
+    }
 }
 
 /// Convert a [`DiagnosticMessage`] to a [`JsonDiagnostic`], using
@@ -219,6 +271,7 @@ pub fn diagnostic_to_json(diag: &DiagnosticMessage, ctx: &SourceContext) -> Json
     };
 
     JsonDiagnostic {
+        schema: JsonDiagnostic::SCHEMA_URL,
         kind: kind_str.to_string(),
         title: diag.title.clone(),
         code: diag.code.clone(),
@@ -290,6 +343,53 @@ mod tests {
         );
         let tagged = with_source_file(json, "other.qmd".to_string());
         assert_eq!(tagged.source_file.as_deref(), Some("other.qmd"));
+    }
+
+    /// bd-iey8o: every emitted `JsonDiagnostic` carries a `$schema`
+    /// field with the const URL, and it survives `with_source_file`.
+    #[test]
+    fn diagnostic_carries_schema_url() {
+        let json = diagnostic_to_json(
+            &DiagnosticMessage::warning("with schema"),
+            &SourceContext::new(),
+        );
+        assert_eq!(json.schema, JsonDiagnostic::SCHEMA_URL);
+
+        let tagged = with_source_file(json, "a.qmd".to_string());
+        assert_eq!(tagged.schema, JsonDiagnostic::SCHEMA_URL);
+    }
+
+    /// bd-iey8o: `JsonDiagnostic::SCHEMA_URL` is the value seen on
+    /// the wire under the `$schema` key (note the `$` prefix from
+    /// the serde rename).
+    #[test]
+    fn diagnostic_serializes_schema_field_as_dollar_schema() {
+        let json = diagnostic_to_json(
+            &DiagnosticMessage::warning("wire form"),
+            &SourceContext::new(),
+        );
+        let s = serde_json::to_value(&json).unwrap();
+        assert_eq!(
+            s.get("$schema").and_then(|v| v.as_str()),
+            Some(JsonDiagnostic::SCHEMA_URL)
+        );
+        assert!(
+            s.get("schema").is_none(),
+            "the serde rename should suppress the un-renamed `schema` key"
+        );
+    }
+
+    /// bd-iey8o: `JsonPass1Failure::new` populates `$schema` from
+    /// the const, and the wire form uses the `$` prefix.
+    #[test]
+    fn pass1_failure_carries_schema_url() {
+        let f = JsonPass1Failure::new("other.qmd".to_string(), "boom".to_string(), vec![]);
+        assert_eq!(f.schema, JsonPass1Failure::SCHEMA_URL);
+        let s = serde_json::to_value(&f).unwrap();
+        assert_eq!(
+            s.get("$schema").and_then(|v| v.as_str()),
+            Some(JsonPass1Failure::SCHEMA_URL)
+        );
     }
 
     // ─── bd-352bh: ariadne `rendered` field ──────────────────────

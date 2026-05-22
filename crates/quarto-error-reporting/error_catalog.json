@@ -748,6 +748,63 @@
     "docs_url": "https://quarto.org/docs/errors/cli/Q-7-1",
     "since_version": "99.9.9"
   },
+
+  "Q-7-2": {
+    "subsystem": "cli",
+    "title": "Input Path Not Found",
+    "message_template": "The input path passed to `quarto render` does not exist on disk.",
+    "docs_url": "https://quarto.org/docs/errors/cli/Q-7-2",
+    "since_version": "99.9.9"
+  },
+
+  "Q-7-3": {
+    "subsystem": "cli",
+    "title": "No Input and No Project",
+    "message_template": "`quarto render` was called with no path arguments and no `_quarto.yml` was found at or above the current directory.",
+    "docs_url": "https://quarto.org/docs/errors/cli/Q-7-3",
+    "since_version": "99.9.9"
+  },
+
+  "Q-7-4": {
+    "subsystem": "cli",
+    "title": "Multiple Inputs Without a Project",
+    "message_template": "`quarto render` requires a project (a `_quarto.yml`-rooted directory) when given multiple input paths. To render a single standalone file, pass exactly one path.",
+    "docs_url": "https://quarto.org/docs/errors/cli/Q-7-4",
+    "since_version": "99.9.9"
+  },
+
+  "Q-7-5": {
+    "subsystem": "cli",
+    "title": "Inputs Span Multiple Projects",
+    "message_template": "The input paths span more than one project. Render one project at a time.",
+    "docs_url": "https://quarto.org/docs/errors/cli/Q-7-5",
+    "since_version": "99.9.9"
+  },
+
+  "Q-7-6": {
+    "subsystem": "cli",
+    "title": "Input Excluded From Render List",
+    "message_template": "The named input is excluded from its project's render list (check `project.render` in `_quarto.yml` and the underscore/hidden file conventions).",
+    "docs_url": "https://quarto.org/docs/errors/cli/Q-7-6",
+    "since_version": "99.9.9"
+  },
+
+  "Q-7-7": {
+    "subsystem": "cli",
+    "title": "No Renderable Files Matched",
+    "message_template": "The directory or glob input expanded to zero renderable `.qmd` files after the project's render list was applied.",
+    "docs_url": "https://quarto.org/docs/errors/cli/Q-7-7",
+    "since_version": "99.9.9"
+  },
+
+  "Q-7-8": {
+    "subsystem": "cli",
+    "title": "Project Discovery Failed",
+    "message_template": "Project discovery failed (parse error in `_quarto.yml`, I/O error, or other unrelated failure).",
+    "docs_url": "https://quarto.org/docs/errors/cli/Q-7-8",
+    "since_version": "99.9.9"
+  },
+
   "Q-11-1": {
     "subsystem": "lua",
     "title": "Lua Filter Diagnostic",
