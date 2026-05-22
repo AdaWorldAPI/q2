@@ -662,6 +662,7 @@ pub fn resolve_theme_spec(
             message: "ThemeSpec::Brand cannot be resolved as a single ResolvedTheme — \
                       use process_theme_specs instead, which expands it into multiple layers"
                 .to_string(),
+            location: None,
         }),
     }
 }
@@ -778,6 +779,7 @@ pub fn process_theme_specs(
                     .ok_or_else(|| SassError::InvalidThemeConfig {
                         message: "`brand` appears in `theme:` but no `_brand.yml` was provided"
                             .to_string(),
+                        location: None,
                     })?;
                 // Path prefix for @font-face URLs: brand_dir relative
                 // to the document_dir (matches Q1's

@@ -3,6 +3,8 @@
 //! Copyright (c) 2025 Posit, PBC
 
 use std::path::PathBuf;
+
+use quarto_source_map::SourceInfo;
 use thiserror::Error;
 
 /// Errors that can occur during SASS operations
@@ -32,9 +34,19 @@ pub enum SassError {
     #[error("Custom SCSS file doesn't have layer boundary markers: {path}")]
     InvalidScssFile { path: PathBuf },
 
-    /// Invalid theme configuration in document/project config
+    /// Invalid theme configuration in document/project config.
+    ///
+    /// `location` is the SourceInfo of the offending value in the
+    /// declaring YAML (typically `_quarto.yml`). It's `Option<…>`
+    /// because some internal call sites construct this error without
+    /// a concrete ConfigValue in scope (brand parsing, etc.). When
+    /// `Some`, the diagnostic path uses it to render an ariadne
+    /// span at the relevant key.
     #[error("Invalid theme configuration: {message}")]
-    InvalidThemeConfig { message: String },
+    InvalidThemeConfig {
+        message: String,
+        location: Option<SourceInfo>,
+    },
 
     /// File I/O error
     #[error("Failed to read SASS file: {0}")]

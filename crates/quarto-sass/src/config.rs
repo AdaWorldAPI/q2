@@ -207,6 +207,7 @@ impl ThemeConfig {
                     message: "`theme:` contains `brand` but no `_brand.yml` was configured \
                               via the `brand:` key"
                         .to_string(),
+                    location: config.get("theme").map(|v| v.source_info.clone()),
                 });
             }
             (None, false) => {}
@@ -247,6 +248,7 @@ impl ThemeConfig {
                             "brand file {} is not valid UTF-8: {e}",
                             full_path.display()
                         ),
+                        location: None,
                     })?;
                 let brand = Brand::from_yaml_str(yaml).map_err(brand_err)?;
                 let dir = full_path
@@ -259,6 +261,7 @@ impl ThemeConfig {
                 let brand: Brand =
                     serde_yaml::from_value(*value).map_err(|e| SassError::InvalidThemeConfig {
                         message: format!("inline brand block: {e}"),
+                        location: None,
                     })?;
                 (Some(brand), None)
             }
@@ -354,6 +357,7 @@ fn extract_brand_ref(value: Option<&ConfigValue>) -> Result<Option<BrandRef>, Sa
 
     Err(SassError::InvalidThemeConfig {
         message: "`brand:` must be a path string or a brand block (map)".to_string(),
+        location: Some(value.source_info.clone()),
     })
 }
 
@@ -393,6 +397,7 @@ fn config_value_to_yaml_value(value: &ConfigValue) -> Result<serde_yaml::Value, 
         ConfigValueKind::PandocInlines(_) | ConfigValueKind::PandocBlocks(_) => {
             return Err(SassError::InvalidThemeConfig {
                 message: "brand block must be plain YAML, not Pandoc inlines/blocks".to_string(),
+                location: Some(value.source_info.clone()),
             });
         }
     })
@@ -428,6 +433,7 @@ fn yaml_rust_to_serde(yaml: &yaml_rust2::Yaml) -> serde_yaml::Value {
 fn brand_err(e: quarto_brand::BrandError) -> SassError {
     SassError::InvalidThemeConfig {
         message: e.to_string(),
+        location: None,
     }
 }
 
@@ -453,6 +459,7 @@ fn extract_theme_specs(value: &ConfigValue) -> Result<Vec<ThemeSpec>, SassError>
             } else {
                 return Err(SassError::InvalidThemeConfig {
                     message: "theme array must contain only strings".to_string(),
+                    location: Some(value.source_info.clone()),
                 });
             }
         }
@@ -462,6 +469,7 @@ fn extract_theme_specs(value: &ConfigValue) -> Result<Vec<ThemeSpec>, SassError>
     // Neither string nor array - invalid
     Err(SassError::InvalidThemeConfig {
         message: "theme must be a string or array of strings".to_string(),
+        location: Some(value.source_info.clone()),
     })
 }
 
@@ -621,7 +629,7 @@ mod tests {
         let result = ThemeConfig::from_config_value(&config);
         assert!(result.is_err());
         match result {
-            Err(SassError::InvalidThemeConfig { message }) => {
+            Err(SassError::InvalidThemeConfig { message, .. }) => {
                 assert!(message.contains("string or array"));
             }
             _ => panic!("Expected InvalidThemeConfig error"),
@@ -664,7 +672,7 @@ mod tests {
         let result = ThemeConfig::from_config_value(&config);
         assert!(result.is_err());
         match result {
-            Err(SassError::InvalidThemeConfig { message }) => {
+            Err(SassError::InvalidThemeConfig { message, .. }) => {
                 assert!(message.contains("only strings"));
             }
             _ => panic!("Expected InvalidThemeConfig error"),
@@ -871,5 +879,98 @@ mod tests {
         let theme_config = ThemeConfig::from_config_value(&config).unwrap();
         assert!(theme_config.themes.is_empty());
         assert!(!theme_config.has_themes());
+    }
+
+    // === Source-location propagation tests (bd-pgczr) ===
+    //
+    // These guard that the SourceInfo carried by the offending
+    // ConfigValue makes it onto SassError::InvalidThemeConfig.location,
+    // which downstream uses to render an ariadne span pointing at the
+    // offending key in _quarto.yml.
+
+    /// `theme:` set to a map (the unsupported `light:/dark:` shape)
+    /// must produce a SassError carrying the offending value's
+    /// SourceInfo, not None.
+    #[test]
+    fn test_invalid_theme_map_carries_location() {
+        // Distinctive offsets so we can assert the right source_info
+        // propagated (not just any non-default value).
+        let theme_source = SourceInfo::original(quarto_source_map::FileId(7), 100, 200);
+
+        let theme_value = ConfigValue {
+            value: ConfigValueKind::Map(vec![]),
+            source_info: theme_source.clone(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+
+        let root_entry = ConfigMapEntry {
+            key: "theme".to_string(),
+            key_source: SourceInfo::default(),
+            value: theme_value,
+        };
+
+        let config = ConfigValue {
+            value: ConfigValueKind::Map(vec![root_entry]),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+
+        match ThemeConfig::from_config_value(&config) {
+            Err(SassError::InvalidThemeConfig { message, location }) => {
+                assert!(message.contains("string or array"));
+                assert_eq!(
+                    location.as_ref(),
+                    Some(&theme_source),
+                    "expected location to carry the offending value's source_info",
+                );
+            }
+            other => panic!("expected InvalidThemeConfig error, got: {:?}", other),
+        }
+    }
+
+    /// `theme: [<non-string>]` must produce a SassError carrying the
+    /// offending *array's* SourceInfo.
+    #[test]
+    fn test_invalid_theme_array_carries_location() {
+        let theme_source = SourceInfo::original(quarto_source_map::FileId(7), 300, 400);
+
+        let items = vec![
+            ConfigValue {
+                value: ConfigValueKind::Scalar(Yaml::String("cosmo".to_string())),
+                source_info: SourceInfo::default(),
+                merge_op: quarto_pandoc_types::MergeOp::Concat,
+            },
+            ConfigValue {
+                value: ConfigValueKind::Scalar(Yaml::Integer(42)),
+                source_info: SourceInfo::default(),
+                merge_op: quarto_pandoc_types::MergeOp::Concat,
+            },
+        ];
+
+        let theme_value = ConfigValue {
+            value: ConfigValueKind::Array(items),
+            source_info: theme_source.clone(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+
+        let root_entry = ConfigMapEntry {
+            key: "theme".to_string(),
+            key_source: SourceInfo::default(),
+            value: theme_value,
+        };
+
+        let config = ConfigValue {
+            value: ConfigValueKind::Map(vec![root_entry]),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+
+        match ThemeConfig::from_config_value(&config) {
+            Err(SassError::InvalidThemeConfig { message, location }) => {
+                assert!(message.contains("only strings"));
+                assert_eq!(location.as_ref(), Some(&theme_source));
+            }
+            other => panic!("expected InvalidThemeConfig error, got: {:?}", other),
+        }
     }
 }

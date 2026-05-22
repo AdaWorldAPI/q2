@@ -239,6 +239,7 @@ fn emit_bootstrap_defaults(
     }
     Err(SassError::InvalidThemeConfig {
         message: "defaults.bootstrap.defaults must be a string or a mapping".to_string(),
+        location: None,
     })
 }
 
@@ -603,5 +604,6 @@ fn join_url_path(prefix: &Path, rel: &str) -> String {
 fn brand_err(e: quarto_brand::BrandError) -> SassError {
     SassError::InvalidThemeConfig {
         message: e.to_string(),
+        location: None,
     }
 }

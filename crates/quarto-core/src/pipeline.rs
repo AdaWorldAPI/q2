@@ -699,6 +699,11 @@ pub async fn run_pipeline(
 
     result
         .map_err(|e| match e {
+            // Already-structured errors (built by stages that know
+            // their span lives outside the document — see
+            // `theme_diagnostic`). Pass through verbatim so the
+            // ariadne renderer can resolve cross-file references.
+            crate::stage::PipelineError::Structured(pe) => crate::error::QuartoError::Parse(pe),
             crate::stage::PipelineError::StageError { diagnostics, .. }
                 if !diagnostics.is_empty() =>
             {

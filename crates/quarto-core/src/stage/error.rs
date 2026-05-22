@@ -13,6 +13,7 @@
 use quarto_error_reporting::DiagnosticMessage;
 
 use super::data::PipelineDataKind;
+use crate::error::ParseError;
 
 /// Error that occurs during pipeline validation (construction).
 #[derive(Debug, Clone)]
@@ -77,6 +78,18 @@ pub enum PipelineError {
         /// Diagnostic messages describing the error
         diagnostics: Vec<DiagnosticMessage>,
     },
+
+    /// Stage execution failed with a fully-built [`ParseError`]
+    /// (diagnostics + their own SourceContext).
+    ///
+    /// Use this when the diagnostic's source span references a file
+    /// *other than* the document being rendered (e.g. `_quarto.yml`).
+    /// The [`StageError`] variant doesn't carry a SourceContext, so
+    /// the pipeline-to-QuartoError bridge synthesizes one from the
+    /// document content — that wouldn't resolve cross-file
+    /// references. `Structured` is passed through to
+    /// `QuartoError::Parse` verbatim.
+    Structured(ParseError),
 
     /// Pipeline was cancelled (e.g., Ctrl+C)
     Cancelled,
@@ -155,6 +168,11 @@ impl std::fmt::Display for PipelineError {
                 } else {
                     write!(f, "Stage '{}' failed: {}", stage, diagnostics[0].title)
                 }
+            }
+            PipelineError::Structured(pe) => {
+                // Delegate to ParseError's Display, which renders the
+                // full ariadne report.
+                write!(f, "{}", pe)
             }
             PipelineError::Cancelled => write!(f, "Pipeline execution was cancelled"),
             PipelineError::Validation(e) => write!(f, "Pipeline validation error: {}", e),
