@@ -44,6 +44,7 @@ website:
             - errors/yaml/Q-1-26.qmd
             - errors/yaml/Q-1-27.qmd
             - errors/yaml/Q-1-28.qmd
+            - errors/yaml/Q-1-29.qmd
             - errors/yaml/Q-1-99.qmd
 
 format:
