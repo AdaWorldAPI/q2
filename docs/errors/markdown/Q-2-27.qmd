@@ -1,0 +1,53 @@
+---
+title: "Line Break Before Shortcode Close"
+description: "A `{{< … >}}` shortcode contains a line break immediately before its closing `>}}`."
+code: Q-2-27
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-27` — Line Break Before Shortcode Close
+
+> A `{{< … >}}` shortcode contains a line break immediately
+> before its closing `>}}`.
+
+## What this means
+
+Quarto shortcodes are single-line constructs. The closing `>}}`
+must appear on the same line as the rest of the shortcode body.
+This error fires when a newline sits between the last argument
+and the closing delimiter.
+
+## Why this happens
+
+A long shortcode line that someone wrapped across multiple lines
+for readability, or a copy-paste that introduced a line break
+before the closer.
+
+## How to fix
+
+Collapse the shortcode onto a single line:
+
+```markdown
+{{< hello world >}}
+```
+
+If the content really needs to span multiple lines, use a
+different mechanism — shortcodes are not the right tool.
+
+## Example
+
+```markdown
+{{< hello
+>}}
+```
+
+## Related
+
+- [`Q-2-28`](Q-2-28.qmd) — line break before escaped shortcode
+  close (`>}}}` form).
+- [`Q-2-34`](Q-2-34.qmd) — shortcode parameter starting with a
+  digit must be quoted.

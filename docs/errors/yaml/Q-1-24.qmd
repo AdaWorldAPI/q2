@@ -1,0 +1,51 @@
+---
+title: "Empty Tag Component"
+description: "A YAML tag has an empty component, usually caused by leading, trailing, or consecutive underscores."
+code: Q-1-24
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-24` — Empty Tag Component
+
+> A YAML tag has an empty component, usually caused by leading,
+> trailing, or consecutive underscores.
+
+## What this means
+
+Quarto's configuration tags use the underscore as a separator
+between components: `!prefer_md`, `!concat_path`. Each
+underscore-separated piece must be a non-empty name. This error
+fires when the split produces an empty piece, which happens when
+underscores are doubled, lead, or trail.
+
+## Why this happens
+
+Three shapes trigger this error:
+
+- **Leading underscore**: `!_md`, which splits into an empty
+  component followed by `md`.
+- **Trailing underscore**: `!prefer_`, which splits into `prefer`
+  followed by an empty component.
+- **Consecutive underscores**: `!prefer__md`, which splits with an
+  empty component between `prefer` and `md`.
+
+## How to fix
+
+Remove the offending underscores. The corrected forms of the
+examples above are `!md`, `!prefer`, and `!prefer_md` respectively.
+
+If you intended an underscore to be part of the *value* rather
+than the tag, the value is on the next line and the tag should
+not contain it. Underscores inside the YAML value itself pass
+through normally.
+
+## Related
+
+- [`Q-1-25`](Q-1-25.qmd) — whitespace in tag: a related shape error where the
+  tag contains whitespace around a component.
+- [`Q-1-26`](Q-1-26.qmd) — invalid tag character: the tag contains characters
+  outside the allowed set entirely.

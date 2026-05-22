@@ -1,0 +1,45 @@
+---
+title: "Inline Code Execution Not Allowed in URLs"
+description: "Inline executable code (`` `{lang} expr` ``) cannot appear inside the URL portion of a link or image."
+code: Q-2-31
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-31` — Inline Code Execution Not Allowed in URLs
+
+> Inline executable code (`` `{lang} expr` ``) cannot appear
+> inside the URL portion of a link or image.
+
+## What this means
+
+Quarto supports inline code execution: a backtick run containing
+`{language}` followed by an expression evaluates the expression
+at render time and inserts the result. This error fires when an
+author places that form inside the destination of a link or
+image — the `(...)` after `[text]` or `![alt]`.
+
+The URL parser reads the backtick run as part of the URL
+literal, so the executable code never runs.
+
+## Why this happens
+
+Most often, an author who wanted to compute a URL dynamically
+tried to drop inline execution into the URL slot of a link or
+image.
+
+## How to fix
+
+Compute the URL ahead of time in a code chunk, then build the
+link or image inside that chunk and emit the result as markdown.
+The exact pattern depends on the engine (Python, R, Julia),
+but the principle is the same: do not embed inline execution
+inside link or image destinations.
+
+## Related
+
+- [`Q-2-33`](Q-2-33.qmd) — spaces in link targets: another
+  restriction on link URL contents.

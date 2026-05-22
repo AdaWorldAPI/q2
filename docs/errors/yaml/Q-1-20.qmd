@@ -1,0 +1,68 @@
+---
+title: "Failed to parse metadata value as markdown"
+description: "Quarto tried to parse a metadata value as markdown and could not. The value will be treated as a plain string."
+code: Q-1-20
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-20` — Failed to parse metadata value as markdown
+
+> Quarto tried to parse a metadata value as markdown and could
+> not. The value will be treated as a plain string.
+
+## What this means
+
+Quarto 2 parses string-valued YAML metadata as markdown by default,
+so that markup like `*emphasis*` and `[links](./other.qmd)` inside
+fields such as `title:` or `subtitle:` renders correctly downstream.
+This error fires when the markdown parser cannot make sense of the
+value.
+
+The error comes in two flavors:
+
+- **Warning** when the value carries no explicit tag and the
+  markdown parse fails: Quarto falls back to treating the value as
+  a plain string and continues.
+- **Error** when the value is explicitly tagged `!md` (forcing
+  markdown interpretation) and the markdown parse fails: Quarto
+  cannot honor the tag, so it rejects the value.
+
+## Why this happens
+
+Most often, a metadata string that looks ordinary contains
+characters the markdown parser interprets as syntax:
+
+- A value with unbalanced square brackets, parentheses, or
+  asterisks looks like an incomplete link or emphasis run.
+- A value beginning with `#` looks like a heading.
+- Pipe characters or backticks can look like table or code syntax.
+
+## How to fix
+
+For values you want to keep as plain strings, add the `!str` tag:
+
+```yaml
+title: !str "Q-1-20: a markdown puzzle"
+```
+
+The `!str` tag tells Quarto to skip markdown parsing for this
+value, so any of the characters above pass through unchanged.
+
+For values you genuinely want to render as markdown, fix the
+markdown so that it parses. The hint in the error message points
+at the value Quarto was unable to parse; the surrounding context
+in the YAML file shows what the metadata is.
+
+If the value is explicitly tagged `!md` and you do not actually
+need markdown interpretation, remove the tag.
+
+## Related
+
+- [`Q-1-22`](Q-1-22.qmd) — unrecognized tag: a different problem with the tag
+  syntax itself.
+- [`Q-1-21`](Q-1-21.qmd) — unknown tag component: a tag uses a component name
+  Quarto does not recognize.

@@ -1,0 +1,60 @@
+---
+title: "Closing Quote Without Matching Open Quote"
+description: "A closing single-quote mark appears with no opening single-quote earlier in the block."
+code: Q-2-10
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-10` — Closing Quote Without Matching Open Quote
+
+> A closing single-quote mark appears with no opening
+> single-quote earlier in the block.
+
+## What this means
+
+Quarto markdown treats single quotes as a paired construct: a
+`'` preceded by a word-character is read as a closing quote.
+When the parser sees a closing position without an earlier
+matching open, it raises this error.
+
+The diagnostic message points at the closing quote as the
+trigger; the actual mistake is usually the missing opening
+quote.
+
+## Why this happens
+
+The most common cause is a contraction or possessive — `it's`,
+`don't`, `Mary's` — where the apostrophe is being read as a
+closing quote. The parser distinguishes apostrophes from quote
+marks by surrounding context, and a stray space can flip the
+interpretation.
+
+## How to fix
+
+If the mark is an apostrophe, ensure no spurious whitespace
+precedes it. If the construction really is a quotation, add the
+opening `'` at the intended start.
+
+For literal apostrophes that the parser keeps mis-reading,
+escape them:
+
+```markdown
+The variable \'x\' (treated literally).
+```
+
+## Example
+
+```markdown
+a' b.
+```
+
+The `'` after `a` is read as a closing quote with no opener.
+
+## Related
+
+- [`Q-2-7`](Q-2-7.qmd) — unclosed single quote: the opposite
+  asymmetry.

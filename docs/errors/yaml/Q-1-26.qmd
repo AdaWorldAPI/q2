@@ -1,0 +1,52 @@
+---
+title: "Invalid Tag Character"
+description: "A YAML tag contains characters outside the allowed alphanumeric-and-underscore set."
+code: Q-1-26
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-26` — Invalid Tag Character
+
+> A YAML tag contains characters outside the allowed
+> alphanumeric-and-underscore set.
+
+## What this means
+
+Quarto's configuration tags accept only letters, digits, and
+underscores between components. Any other character — punctuation,
+hyphens, dots, or symbols — causes the tag parser to reject the
+tag outright.
+
+## Why this happens
+
+The character most likely to trigger this error is the hyphen:
+`!prefer-md` instead of `!prefer_md`. Quarto chose the underscore
+as the component separator because it is fully supported by
+standard YAML parsers, where the hyphen would have other meanings
+in tag URIs.
+
+Other characters that occasionally appear by accident: dots
+(`!prefer.md`), commas, slashes, and dollar signs left over from
+shell-style identifier conventions.
+
+## How to fix
+
+Replace the invalid character with the appropriate separator. For
+component separators, that is the underscore: `!prefer-md` becomes
+`!prefer_md`.
+
+If your tag intentionally contains a character outside the allowed
+set — for instance a custom tag inherited from another tool —
+Quarto's tag system cannot interpret it. Remove the tag, or rename
+it to use only allowed characters.
+
+## Related
+
+- [`Q-1-21`](Q-1-21.qmd) — unknown tag component: the characters are valid, but
+  one of the component names is not recognized.
+- [`Q-1-24`](Q-1-24.qmd) — empty tag component: the characters are valid, but
+  the underscores are placed in a way that leaves an empty piece.

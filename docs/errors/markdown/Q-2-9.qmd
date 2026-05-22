@@ -1,0 +1,50 @@
+---
+title: "HTML Element Auto-converted"
+description: "An HTML element in markdown text was auto-converted to a raw-HTML inline. Warning only."
+code: Q-2-9
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-9` — HTML Element Auto-converted
+
+> An HTML element in markdown text was auto-converted to a
+> raw-HTML inline. Warning only.
+
+## What this means
+
+When Quarto encounters raw HTML (like `<span>` or a custom tag)
+inside markdown, it does not reject the element; it converts it
+to a Pandoc `RawInline` with format `html` and emits this warning.
+The output is identical to what an explicit raw-HTML attribute
+would produce, but the warning calls attention to the implicit
+conversion.
+
+## Why this happens
+
+The pattern shows up whenever raw HTML appears in markdown text:
+
+- A custom HTML element copied from elsewhere.
+- A `<span>` or `<div>` used for styling.
+- Embedded widget markup.
+
+## How to fix
+
+The warning does not block the build, so no action is strictly
+required. To silence the warning, mark the snippet explicitly as
+raw HTML using Pandoc's raw-attribute form:
+
+```markdown
+`<custom-tag>content</custom-tag>`{=html}
+```
+
+This is also the form Quarto recommends — it makes the intent
+explicit and is portable across formats.
+
+## Related
+
+- [`Q-2-6`](Q-2-6.qmd) — HTML element found: the reserved error
+  for a stricter future mode that rejects raw HTML outright.

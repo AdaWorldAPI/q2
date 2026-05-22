@@ -1,0 +1,57 @@
+---
+title: "Number Range Violation"
+description: "A numeric value is outside the allowed range or is not a valid multiple of the required step."
+code: Q-1-15
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-15` — Number Range Violation
+
+> A numeric value is outside the allowed range or is not a valid
+> multiple of the required step.
+
+## What this means
+
+A schema can require that a numeric property fall inside a range
+(an inclusive or exclusive minimum and maximum) or be a multiple
+of a specific step. This error fires when the number you provided
+does not meet that constraint.
+
+The terminal message reports the bound that was violated. For range
+violations it reads "less than minimum N", "greater than maximum
+N", "not greater than N" (exclusive minimum), or "not less than N"
+(exclusive maximum). For multiple-of violations it reads "not a
+multiple of N".
+
+## Why this happens
+
+Common causes:
+
+- **Off-by-one mistakes** near an inclusive vs exclusive bound, for
+  example providing `0` to a property that requires "greater than
+  zero".
+- **Mistaking units.** Pixels supplied where percentages were
+  expected, milliseconds where seconds were expected, or fractions
+  where integers were expected.
+- **Multiple-of constraints** on values that look natural but are
+  not, such as page-size fractions that must align with a grid.
+
+## How to fix
+
+Inspect the bound named in the error message. If the value is
+close to a boundary, check whether the boundary is inclusive
+(`minimum`/`maximum`) or exclusive (`exclusiveMinimum`/
+`exclusiveMaximum`).
+
+If the violation is a multiple-of constraint, round the value to
+the nearest multiple. If that loses information your configuration
+depended on, the property is the wrong place for what you are
+trying to express.
+
+## Related
+
+- [`Q-1-11`](Q-1-11.qmd) — type mismatch: the value is not a number at all.

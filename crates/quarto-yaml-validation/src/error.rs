@@ -159,7 +159,7 @@ impl ValidationErrorKind {
             ValidationErrorKind::UnresolvedReference { .. } => "Q-1-17",
             ValidationErrorKind::UnknownProperty { .. } => "Q-1-18",
             ValidationErrorKind::ArrayItemsNotUnique => "Q-1-19",
-            ValidationErrorKind::StringLengthInvalid { .. } => "Q-1-20",
+            ValidationErrorKind::StringLengthInvalid { .. } => "Q-1-29",
             ValidationErrorKind::Other { .. } => "Q-1-99",
         }
     }
@@ -724,7 +724,7 @@ mod tests {
             min_length: Some(10),
             max_length: None,
         };
-        assert_eq!(kind.error_code(), "Q-1-20");
+        assert_eq!(kind.error_code(), "Q-1-29");
     }
 
     // Tests for ValidationErrorKind::message edge cases

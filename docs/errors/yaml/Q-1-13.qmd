@@ -1,0 +1,55 @@
+---
+title: "Array Length Constraint Violation"
+description: "An array has too few or too many items for the schema's length constraint."
+code: Q-1-13
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-13` — Array Length Constraint Violation
+
+> An array has too few or too many items for the schema's length
+> constraint.
+
+## What this means
+
+A schema can require that an array contain at least *N* items, at
+most *M* items, or both. This error fires when your array is
+outside that allowed range.
+
+The terminal message names the actual length and the bound that
+was violated — either "less than minimum N" or "greater than
+maximum M". Inspect both numbers when diagnosing.
+
+## Why this happens
+
+Two typical situations:
+
+- **An empty array where the schema requires at least one item.**
+  Defining a configuration block (such as `navbar.left`) but
+  leaving its contents list empty.
+- **An over-long array.** Less common; usually appears when a
+  schema is being strict about a slot intended to hold one or two
+  entries.
+
+## How to fix
+
+If the bound is a minimum, add the missing items. The schema
+description for the property should explain what each item
+represents.
+
+If the bound is a maximum, remove items, or check whether the
+content belongs in this property at all — sometimes a long array
+is a signal that the configuration is in the wrong shape (for
+example, a flat list that wants to be nested into sub-groups).
+
+## Related
+
+- [`Q-1-19`](Q-1-19.qmd) — array uniqueness: the items are unique within the
+  array but the array length itself was wrong.
+- [`Q-1-16`](Q-1-16.qmd) — object property count: the same constraint, but for
+  the number of *keys* in an object rather than the number of
+  *items* in an array.

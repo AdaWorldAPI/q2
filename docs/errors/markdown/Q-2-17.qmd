@@ -1,0 +1,46 @@
+---
+title: "Unclosed Subscript"
+description: "A `~subscript~` run opens with `~` but no closing `~` appears before the end of the block."
+code: Q-2-17
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-17` — Unclosed Subscript
+
+> A `~subscript~` run opens with `~` but no closing `~` appears
+> before the end of the block.
+
+## What this means
+
+Tilde-delimited subscript (`~text~`) must be balanced inside the
+same block. This error fires when an opening `~` appears without
+a matching close.
+
+## Why this happens
+
+A typo, or a literal `~` (a home-directory shorthand, for
+instance) read as a subscript opener.
+
+## How to fix
+
+Add the closing `~`. For literal tildes in prose, escape:
+
+```markdown
+The home directory \~/work/.
+```
+
+## Example
+
+```markdown
+~
+```
+
+## Related
+
+- [`Q-2-16`](Q-2-16.qmd) — unclosed superscript (`^`).
+- [`Q-2-18`](Q-2-18.qmd) — unclosed `~~` strikeout: same delimiter,
+  doubled.

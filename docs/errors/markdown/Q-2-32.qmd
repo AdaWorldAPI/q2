@@ -1,0 +1,43 @@
+---
+title: "Triple Star Emphasis Not Allowed"
+description: "`***text***` for bold-italic is not supported in Quarto markdown; use `*__text__*` (or another nested form) instead."
+code: Q-2-32
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-32` — Triple Star Emphasis Not Allowed
+
+> `***text***` for bold-italic is not supported in Quarto
+> markdown; use `*__text__*` (or another nested form) instead.
+
+## What this means
+
+Several markdown dialects accept `***text***` as a shorthand for
+emphasis nested inside strong (or vice versa). Quarto markdown
+does not. The error fires when an opener of three consecutive
+asterisks appears.
+
+## Why this happens
+
+Most often the syntax is carried over from another markdown
+dialect (CommonMark, GFM, Pandoc) where it is supported.
+
+## How to fix
+
+Nest the emphases explicitly. Either of these works:
+
+```markdown
+*__bold italic__*
+**_bold italic_**
+```
+
+The two forms produce the same output; the choice is stylistic.
+
+## Related
+
+- [`Q-2-12`](Q-2-12.qmd) — unclosed `*` emphasis.
+- [`Q-2-13`](Q-2-13.qmd) — unclosed `**` strong emphasis.

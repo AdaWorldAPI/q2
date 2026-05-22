@@ -1,0 +1,51 @@
+---
+title: "Multi-Paragraph Footnote Indentation Not Supported"
+description: "A multi-paragraph indented block following a footnote definition is Pandoc syntax that Quarto markdown does not support."
+code: Q-2-30
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-30` — Multi-Paragraph Footnote Indentation Not Supported
+
+> A multi-paragraph indented block following a footnote
+> definition is Pandoc syntax that Quarto markdown does not
+> support.
+
+## What this means
+
+In Pandoc, indenting multiple paragraphs under a footnote label
+attaches all of them to the footnote:
+
+```markdown
+[^1]:
+    First paragraph of the footnote.
+
+    Second paragraph, also part of the footnote.
+```
+
+Quarto markdown does not parse that form. Use the fenced-div
+footnote form instead, with multiple paragraphs inside the div.
+
+## How to fix
+
+Convert to the div form:
+
+```markdown
+::: ^1
+First paragraph of the footnote.
+
+Second paragraph, also part of the footnote.
+:::
+```
+
+The reference inside the div must match the reference in the
+text.
+
+## Related
+
+- [`Q-2-29`](Q-2-29.qmd) — single-paragraph version of the same
+  Pandoc incompatibility.

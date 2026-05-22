@@ -1,0 +1,60 @@
+---
+title: "String Pattern Mismatch"
+description: "A string value does not match the regular-expression pattern the schema requires."
+code: Q-1-14
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-14` — String Pattern Mismatch
+
+> A string value does not match the regular-expression pattern the
+> schema requires.
+
+## What this means
+
+Some Quarto configuration fields restrict their string values to a
+specific shape — a file extension, a CSS class name, a version
+identifier, a Quarto error code, and so on. The schema enforces
+this by attaching a regular-expression *pattern* that any accepted
+value must match.
+
+This error fires when the value at the property is a string (the
+type is right) but the string does not match the pattern. The
+terminal message includes both the offending value and the
+pattern the schema requires.
+
+## Why this happens
+
+The most common causes:
+
+- **A typo or unexpected character.** A trailing space, a stray
+  punctuation mark, or an unintended uppercase letter in a slot
+  the pattern requires lowercase.
+- **A value from a related-but-different format.** A full URL
+  where a path is required, or a path with a leading slash where
+  the pattern expects a relative form.
+- **A version-style string that does not parse.** Properties like
+  `since_version` often require a semver-style shape.
+
+## How to fix
+
+Read the pattern in the error message. Regular-expression syntax
+can be dense, but the pattern usually narrows the problem to a
+small number of mistakes — try removing extraneous characters
+first.
+
+If the value comes from another system (a generated path, an
+external URL), the pattern may be a signal that the schema expects
+the value in normalized form. Normalize the value before placing
+it in the YAML.
+
+## Related
+
+- [`Q-1-12`](Q-1-12.qmd) — invalid enum value: a stricter version of the same
+  idea, where the schema lists exact acceptable values rather
+  than a pattern.
+- [`Q-1-11`](Q-1-11.qmd) — type mismatch: the value is not a string at all.
