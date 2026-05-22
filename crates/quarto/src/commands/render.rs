@@ -712,17 +712,43 @@ fn print_render_diagnostics(
             failure.error
         );
     }
-    for failure in &summary.pass2_failures {
-        // Prefer the structured ariadne form when the failure
-        // carries diagnostics — that's the case for QuartoError::Parse
-        // (parse errors, theme-config errors via Q-14-1, etc.).
-        // Otherwise fall back to the legacy single-line form so
-        // non-structured errors still surface.
-        if !failure.diagnostics.is_empty() {
-            for diagnostic in &failure.diagnostics {
-                eprintln!("{}", diagnostic.to_text(failure.source_context.as_ref()));
-            }
-        } else {
+    // bd-9hlja: coalesce pass2_failures whose structured diagnostics
+    // share a source location, so a single bad key in _quarto.yml
+    // emits one report listing affected pages rather than N copies.
+    // Non-structured failures (no diagnostics) take the legacy
+    // single-line form as before.
+    //
+    // Per-page warning diagnostics from successful renders
+    // (`outputs[i].render_output.diagnostics`) are not coalesced
+    // here in v1 because `RenderToFileResult` does not currently
+    // carry the input path; the theme-error use case lives entirely
+    // in `pass2_failures`. A follow-up could add `input_path` to
+    // `RenderToFileResult` and route the successful-render
+    // diagnostics through the coalescer too.
+    {
+        use quarto_error_reporting::coalesce_by_source;
+
+        let mut legacy_failures: Vec<&_> = Vec::new();
+        let entries = summary
+            .pass2_failures
+            .iter()
+            .filter_map(|f| {
+                if f.diagnostics.is_empty() {
+                    legacy_failures.push(f);
+                    None
+                } else {
+                    Some(f)
+                }
+            })
+            .flat_map(|f| {
+                f.diagnostics
+                    .iter()
+                    .map(move |d| (f.input.clone(), d.clone(), f.source_context.clone()))
+            });
+        for group in coalesce_by_source(entries) {
+            eprintln!("{}", group.to_text());
+        }
+        for failure in legacy_failures {
             eprintln!("error: {}: {}", failure.input.display(), failure.error);
         }
     }

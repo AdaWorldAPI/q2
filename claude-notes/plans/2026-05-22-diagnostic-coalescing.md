@@ -169,20 +169,70 @@ where `diagnostics.is_empty()`.
 
 ## Work items
 
-- [ ] Write red coalescer unit tests.
-- [ ] Implement `LocationKey` + `coalesce_by_source` +
-      `CoalescedDiagnostic::to_text` in `quarto-error-reporting`.
-- [ ] Decide and document the affected-files display cap
-      (proposed: 3 + count). Tiny test.
-- [ ] Wire the coalescer into `print_render_diagnostics` in
-      `crates/quarto/src/commands/render.rs`. Preserve the legacy
-      "no diagnostics" fallback.
-- [ ] Verify the `outputs[i].input_path` field exists / is the right
-      name (cite-and-correct during impl; the orchestrator returns
-      `RenderToFileResult` so check that type's fields).
-- [ ] Snapshot test of the coalesced text output.
-- [ ] Run `cargo xtask verify --skip-hub-build`.
-- [ ] Record manual run output against quarto-web in this plan.
+- [x] Write red coalescer unit tests (12 cases) — same-location
+      collapses; different-location/file-id/code don't; Substring
+      composes; Concat / no-location pass through as singletons;
+      cap behavior with singular/plural "other"; encounter-order
+      stability; first-encounter supplies representative.
+- [x] Implement `LocationKey` + `coalesce_by_source` +
+      `CoalescedDiagnostic::to_text` in
+      `crates/quarto-error-reporting/src/coalesce.rs`. No new crate
+      deps (the `quarto-source-map` dep was already pre-existing).
+- [x] Affected-files display cap: `AFFECTED_FILES_CAP = 3`, public
+      const so a follow-up can tune. Singular/plural "other"
+      handled. Covered by two tests.
+- [x] Wire the coalescer into `print_render_diagnostics` in
+      `crates/quarto/src/commands/render.rs`. Legacy
+      `error: <path>: <err>` fallback preserved for failures whose
+      `diagnostics` is empty.
+- [x] **Discovered during implementation**: `RenderToFileResult`
+      does not carry an `input_path` field — only `output_path`.
+      For v1, only `pass2_failures` (which have `FileFailure.input`)
+      flow through the coalescer; the successful-render
+      `outputs[i].render_output.diagnostics` path is left
+      unchanged. The theme-error case lives entirely in
+      `pass2_failures`, so the user's reproducer collapses
+      correctly. A follow-up could add `input_path` to
+      `RenderToFileResult` and route successful-render diagnostics
+      through the coalescer too. Not in scope for bd-9hlja.
+- [x] Run `cargo xtask verify --skip-hub-build --skip-hub-tests
+      --skip-shared-package-tests --skip-q2-preview-spa-build`
+      (Rust-only — the hub-side legs require a warm `npm install`
+      that a fresh worktree doesn't have; those steps were
+      verified-green on `main` separately).
+- [x] Record manual run output against quarto-web — see below.
+
+## Verification
+
+```bash
+NO_COLOR=1 cargo run --bin q2 -- render \
+  /Users/cscheid/rooms/room-2/q2/external-sources/quarto-web 2>&1 \
+  | grep -c "Q-14-1"
+# → 1   (was 345 before this branch)
+```
+
+Rendered output of the coalesced theme diagnostic (ANSI stripped):
+
+```
+Error: [Q-14-1] Invalid theme configuration
+     ╭─[ /…/external-sources/quarto-web/_quarto.yml:686:15 ]
+     │
+ 686 │       light: [cosmo, theme.scss]
+     │               ──┬──
+     │                 ╰──── theme must be a string or array of strings
+─────╯
+Affected files: /…/404.qmd, /…/about.qmd, /…/docs/advanced/html/external-sources.qmd (and 342 others)
+```
+
+A separate `Error: SASS error / Unknown theme: default` also shows
+once — this is a different SassError variant that doesn't carry a
+location yet (it's surfaced as a no-location structured diagnostic
+via the bd-pgczr fallback path). It correctly passes through the
+coalescer as a singleton. Plumbing a SourceInfo through that
+variant is a follow-up beyond the scope of this epic.
+
+345 ariadne blocks → 1 block + 1 "Affected files:" line, listing
+3 paths + a count of the remaining 342.
 
 ## Risks and edge cases
 
