@@ -273,11 +273,22 @@ impl PipelineStage for CompileThemeCssStage {
         let theme_config = match ThemeConfig::from_config_value(&doc.ast.meta) {
             Ok(c) => c,
             Err(e) => {
-                if let Some(config_path) = ctx.project.config.config_path.as_deref() {
-                    let pe = crate::theme_diagnostic::sass_error_to_parse_error(&e, config_path);
-                    return Err(PipelineError::Structured(pe));
+                // The error's source span can point at either the
+                // project's _quarto.yml (most common) OR the
+                // document's own frontmatter (when the document
+                // overrides `theme:`). Hand the converter both
+                // candidates with their FileId bindings:
+                // - _quarto.yml uses the YAML parser's hash-based
+                //   FileId (via `quarto_yaml::file_id_for_filename`).
+                // - The document uses pampa's primary FileId(0).
+                let mut candidates: Vec<(quarto_source_map::FileId, &std::path::Path)> = Vec::new();
+                if let Some(p) = ctx.project.config.config_path.as_deref() {
+                    let fid = quarto_yaml::file_id_for_filename(&p.to_string_lossy());
+                    candidates.push((fid, p));
                 }
-                return Err(PipelineError::stage_error(self.name(), e.to_string()));
+                candidates.push((quarto_source_map::FileId(0), ctx.document.input.as_path()));
+                let pe = crate::theme_diagnostic::sass_error_to_parse_error(&e, &candidates);
+                return Err(PipelineError::Structured(pe));
             }
         };
 

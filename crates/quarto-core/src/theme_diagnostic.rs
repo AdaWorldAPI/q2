@@ -20,35 +20,56 @@ use quarto_source_map::{FileId, SourceContext};
 
 use crate::error::ParseError;
 
-/// Build a [`ParseError`] from a [`SassError`], loading
-/// `source_file` so the resulting diagnostic can render an ariadne
-/// snippet pointing at the offending YAML value.
+/// Build a [`ParseError`] from a [`SassError`], loading the source
+/// file matching the diagnostic's [`FileId`] from
+/// `candidate_sources` so the resulting diagnostic can render an
+/// ariadne snippet pointing at the offending YAML value.
 ///
-/// Currently handles [`SassError::InvalidThemeConfig`] specifically;
-/// other variants fall back to a span-less diagnostic carrying the
-/// raw error message (still tidyverse-shaped, still better than the
-/// legacy plain text).
+/// `candidate_sources` is a slice of `(FileId, &Path)` pairs — the
+/// caller declares the FileId binding for each plausible source
+/// file. This matters because different parsers use different
+/// FileId schemes:
 ///
-/// If `source_file` cannot be read or the error's `location` has no
-/// resolvable `FileId` (e.g. `Concat`, `FilterProvenance`, or `None`),
-/// the diagnostic still renders — just without the source snippet.
-pub fn sass_error_to_parse_error(err: &SassError, source_file: &Path) -> ParseError {
-    // The location only applies to InvalidThemeConfig today; pull it out
-    // up front so the SourceContext loader gets the right FileId.
-    let location = match err {
-        SassError::InvalidThemeConfig { location, .. } => location.clone(),
-        _ => None,
-    };
+/// - `quarto_yaml::parse_file` hashes the filename string to derive
+///   a `FileId`.
+/// - Pampa's [`ASTContext`] uses sequential `FileId(0)` for the
+///   document's primary file.
+///
+/// The caller knows which scheme applies to which path, so it
+/// computes the FileId explicitly. The converter looks for the
+/// candidate whose FileId equals the one on the diagnostic and
+/// loads its file content into the [`SourceContext`].
+///
+/// Handles [`SassError::InvalidThemeConfig`] (Q-14-1) and
+/// [`SassError::UnknownTheme`] (Q-14-2) specifically; other
+/// variants fall back to a span-less diagnostic carrying the raw
+/// error message.
+///
+/// If no candidate matches the diagnostic's FileId, or the error
+/// has no `location`, the diagnostic still renders — just without
+/// the source snippet.
+pub fn sass_error_to_parse_error(
+    err: &SassError,
+    candidate_sources: &[(FileId, &Path)],
+) -> ParseError {
+    let location = sass_error_location(err);
 
     let mut source_context = SourceContext::new();
     if let Some(loc) = &location
         && let Some((fid_usize, _, _)) = loc.resolve_byte_range()
+        && let Some((file_id, source_file)) =
+            candidate_sources.iter().find(|(fid, _)| fid.0 == fid_usize)
+        && let Ok(content) = std::fs::read_to_string(source_file)
     {
-        let content = std::fs::read_to_string(source_file).ok();
+        // Only register the file when we actually have its content.
+        // A SourceFile with `content = None` triggers ariadne to
+        // re-read from disk at render time and panic on absence —
+        // which would mask the diagnostic with a noisier error.
+        // No content ⇒ span-less render, same as no location.
         source_context.add_file_with_id(
-            FileId(fid_usize),
+            *file_id,
             source_file.to_string_lossy().into_owned(),
-            content,
+            Some(content),
         );
     }
 
@@ -62,11 +83,28 @@ pub fn sass_error_to_parse_error(err: &SassError, source_file: &Path) -> ParseEr
             }
             b.build()
         }
-        // Fallback for non-theme-config SassError variants. We don't
-        // expect these on the user-facing render path today, but
-        // returning *something* structured is better than the legacy
-        // plain `e.to_string()` form. No code is assigned — the
-        // catalog only covers theme-config errors at the moment.
+        SassError::UnknownTheme { name, location } => {
+            let mut b = DiagnosticMessageBuilder::error("Unknown theme name")
+                .with_code("Q-14-2")
+                .problem(format!(
+                    "`{}` is not a recognized built-in theme and is not a path to a \
+                     `.scss`/`.css` file.",
+                    name
+                ))
+                .add_hint(
+                    "Use one of the built-in Bootswatch names (e.g. `cosmo`, `darkly`), \
+                     a path to a `.scss`/`.css` file, or `theme: none` to suppress \
+                     Bootstrap?",
+                );
+            if let Some(loc) = location {
+                b = b.with_location(loc.clone());
+            }
+            b.build()
+        }
+        // Fallback for SassError variants we haven't migrated yet.
+        // Returning *something* structured is better than the legacy
+        // plain `e.to_string()` form — no code is assigned because
+        // the catalog only covers migrated variants.
         other => DiagnosticMessageBuilder::error("SASS error")
             .problem(other.to_string())
             .build(),
@@ -75,22 +113,30 @@ pub fn sass_error_to_parse_error(err: &SassError, source_file: &Path) -> ParseEr
     ParseError::new(vec![diagnostic], source_context)
 }
 
+/// Extract the source location carried by a [`SassError`], if any.
+/// Centralized so the variant-to-location mapping lives in one
+/// place — both the SourceContext loader and the diagnostic
+/// constructor use it.
+fn sass_error_location(err: &SassError) -> Option<quarto_source_map::SourceInfo> {
+    match err {
+        SassError::InvalidThemeConfig { location, .. } => location.clone(),
+        SassError::UnknownTheme { location, .. } => location.clone(),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use quarto_source_map::SourceInfo;
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
     use tempfile::TempDir;
 
-    /// `quarto_yaml::parse_file` derives a file's `FileId` by hashing
-    /// its filename. We replicate that here so the SourceInfo we
-    /// produce in tests is the one the renderer will look up.
+    /// Look up the [`FileId`] the YAML parser would assign to this
+    /// path, via the canonical helper in `quarto_yaml`. Tests use
+    /// this to mint SourceInfo whose FileId matches what the
+    /// converter will find in `candidate_sources`.
     fn file_id_for(path: &Path) -> FileId {
-        let filename = path.to_string_lossy().to_string();
-        let mut hasher = DefaultHasher::new();
-        filename.hash(&mut hasher);
-        FileId(hasher.finish() as usize)
+        quarto_yaml::file_id_for_filename(&path.to_string_lossy())
     }
 
     /// Strip ANSI SGR / hyperlink escapes so substring assertions
@@ -161,7 +207,7 @@ mod tests {
             location: Some(location.clone()),
         };
 
-        let parse_err = sass_error_to_parse_error(&err, &yaml_path);
+        let parse_err = sass_error_to_parse_error(&err, &[(file_id_for(&yaml_path), &yaml_path)]);
         assert_eq!(parse_err.diagnostics.len(), 1);
         let d = &parse_err.diagnostics[0];
         assert_eq!(d.code.as_deref(), Some("Q-14-1"));
@@ -214,7 +260,7 @@ mod tests {
             message: "no source info available".to_string(),
             location: None,
         };
-        let parse_err = sass_error_to_parse_error(&err, Path::new("/nonexistent"));
+        let parse_err = sass_error_to_parse_error(&err, &[(FileId(0), Path::new("/nonexistent"))]);
         assert_eq!(parse_err.diagnostics.len(), 1);
         let d = &parse_err.diagnostics[0];
         assert_eq!(d.code.as_deref(), Some("Q-14-1"));
@@ -223,15 +269,96 @@ mod tests {
 
     #[test]
     fn theme_diagnostic_code_is_registered_in_catalog() {
-        // Belt-and-braces: Q-14-1 must exist in the shared error
+        // Belt-and-braces: every code emitted by
+        // sass_error_to_parse_error must exist in the shared
         // catalog, under the 'theme' subsystem.
+        for code in ["Q-14-1", "Q-14-2"] {
+            assert!(
+                quarto_error_reporting::catalog::get_error_info(code).is_some(),
+                "{} is not registered in error_catalog.json",
+                code,
+            );
+            assert_eq!(
+                quarto_error_reporting::catalog::get_subsystem(code),
+                Some("theme"),
+                "{} should live under the 'theme' subsystem",
+                code,
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_theme_renders_with_q142_code_and_span() {
+        // Parallel to invalid_theme_config_renders_with_code_and_span,
+        // but for the UnknownTheme variant. A document with
+        // `theme: default` in its frontmatter triggers
+        // ThemeSpec::parse("default") → UnknownTheme; the helper
+        // must lift it into a Q-14-2 ariadne diagnostic whose
+        // location points back at the document.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        // Imagine this is the document frontmatter (or a
+        // _metadata.yml referenced by the page). The byte offset of
+        // the `default` token is what we point at.
+        let yaml_path = root.join("doc.qmd");
+        let contents = "---\nformat:\n  html:\n    theme: default\n---\n";
+        std::fs::write(&yaml_path, contents).unwrap();
+
+        let scalar_start = contents.find("default").unwrap();
+        let scalar_end = scalar_start + "default".len();
+        let location = SourceInfo::Original {
+            file_id: file_id_for(&yaml_path),
+            start_offset: scalar_start,
+            end_offset: scalar_end,
+        };
+
+        let err = SassError::UnknownTheme {
+            name: "default".to_string(),
+            location: Some(location.clone()),
+        };
+
+        let parse_err = sass_error_to_parse_error(&err, &[(file_id_for(&yaml_path), &yaml_path)]);
+        assert_eq!(parse_err.diagnostics.len(), 1);
+        let d = &parse_err.diagnostics[0];
+        assert_eq!(d.code.as_deref(), Some("Q-14-2"));
         assert!(
-            quarto_error_reporting::catalog::get_error_info("Q-14-1").is_some(),
-            "Q-14-1 is not registered in error_catalog.json",
+            d.title.contains("Unknown theme name"),
+            "title was: {}",
+            d.title,
         );
-        assert_eq!(
-            quarto_error_reporting::catalog::get_subsystem("Q-14-1"),
-            Some("theme"),
+        assert_eq!(d.location.as_ref(), Some(&location));
+
+        let opts = quarto_error_reporting::TextRenderOptions {
+            enable_hyperlinks: false,
+        };
+        let rendered = d.to_text_with_options(Some(&parse_err.source_context), &opts);
+        assert!(
+            rendered.contains("Q-14-2"),
+            "rendered output missing code Q-14-2:\n{}",
+            rendered,
         );
+        assert!(
+            rendered.contains("not a recognized"),
+            "rendered output missing problem text:\n{}",
+            rendered,
+        );
+        let stripped = strip_ansi(&rendered);
+        assert!(
+            stripped.contains("4 │"),
+            "rendered output missing line marker for the `theme:` line:\n{}",
+            stripped,
+        );
+    }
+
+    #[test]
+    fn unknown_theme_without_location_renders_span_less() {
+        let err = SassError::UnknownTheme {
+            name: "whatever".to_string(),
+            location: None,
+        };
+        let parse_err = sass_error_to_parse_error(&err, &[(FileId(0), Path::new("/nonexistent"))]);
+        let d = &parse_err.diagnostics[0];
+        assert_eq!(d.code.as_deref(), Some("Q-14-2"));
+        assert_eq!(d.location, None);
     }
 }

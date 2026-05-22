@@ -446,7 +446,7 @@ fn brand_err(e: quarto_brand::BrandError) -> SassError {
 fn extract_theme_specs(value: &ConfigValue) -> Result<Vec<ThemeSpec>, SassError> {
     // Handle string value (single theme) — covers both Scalar and PandocInlines
     if let Some(s) = config_value_as_text(value) {
-        let spec = ThemeSpec::parse(&s)?;
+        let spec = ThemeSpec::parse(&s).map_err(|e| e.with_location(value.source_info.clone()))?;
         return Ok(vec![spec]);
     }
 
@@ -455,7 +455,9 @@ fn extract_theme_specs(value: &ConfigValue) -> Result<Vec<ThemeSpec>, SassError>
         let mut specs = Vec::with_capacity(items.len());
         for item in items {
             if let Some(s) = config_value_as_text(item) {
-                specs.push(ThemeSpec::parse(&s)?);
+                specs.push(
+                    ThemeSpec::parse(&s).map_err(|e| e.with_location(item.source_info.clone()))?,
+                );
             } else {
                 return Err(SassError::InvalidThemeConfig {
                     message: "theme array must contain only strings".to_string(),
@@ -600,7 +602,7 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(SassError::UnknownTheme(name)) => assert_eq!(name, "nonexistent"),
+            Err(SassError::UnknownTheme { name, .. }) => assert_eq!(name, "nonexistent"),
             _ => panic!("Expected UnknownTheme error"),
         }
     }
@@ -971,6 +973,90 @@ mod tests {
                 assert_eq!(location.as_ref(), Some(&theme_source));
             }
             other => panic!("expected InvalidThemeConfig error, got: {:?}", other),
+        }
+    }
+
+    // === Source-location propagation for UnknownTheme (bd-1pwy8) ===
+
+    /// A `theme: <unknown name>` value (scalar) must surface a
+    /// SassError::UnknownTheme carrying the offending value's
+    /// SourceInfo. Without this, the diagnostic falls back to a
+    /// span-less "SASS error" line at the CLI.
+    #[test]
+    fn test_unknown_theme_scalar_carries_location() {
+        let theme_source = SourceInfo::original(quarto_source_map::FileId(7), 500, 510);
+
+        let theme_value = ConfigValue {
+            value: ConfigValueKind::Scalar(Yaml::String("default".to_string())),
+            source_info: theme_source.clone(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let root_entry = ConfigMapEntry {
+            key: "theme".to_string(),
+            key_source: SourceInfo::default(),
+            value: theme_value,
+        };
+        let config = ConfigValue {
+            value: ConfigValueKind::Map(vec![root_entry]),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+
+        match ThemeConfig::from_config_value(&config) {
+            Err(SassError::UnknownTheme { name, location }) => {
+                assert_eq!(name, "default");
+                assert_eq!(
+                    location.as_ref(),
+                    Some(&theme_source),
+                    "expected scalar value's source_info to propagate",
+                );
+            }
+            other => panic!("expected UnknownTheme error, got: {:?}", other),
+        }
+    }
+
+    /// `theme: [<unknown>, cosmo]` — when an array item is an
+    /// unknown built-in name, the *item's* source_info should
+    /// propagate (not the array's), so the diagnostic points at
+    /// the offending element.
+    #[test]
+    fn test_unknown_theme_in_array_carries_item_location() {
+        let item_source = SourceInfo::original(quarto_source_map::FileId(7), 600, 610);
+
+        let items = vec![
+            ConfigValue {
+                value: ConfigValueKind::Scalar(Yaml::String("nosuchtheme".to_string())),
+                source_info: item_source.clone(),
+                merge_op: quarto_pandoc_types::MergeOp::Concat,
+            },
+            ConfigValue {
+                value: ConfigValueKind::Scalar(Yaml::String("cosmo".to_string())),
+                source_info: SourceInfo::default(),
+                merge_op: quarto_pandoc_types::MergeOp::Concat,
+            },
+        ];
+        let theme_value = ConfigValue {
+            value: ConfigValueKind::Array(items),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+        let root_entry = ConfigMapEntry {
+            key: "theme".to_string(),
+            key_source: SourceInfo::default(),
+            value: theme_value,
+        };
+        let config = ConfigValue {
+            value: ConfigValueKind::Map(vec![root_entry]),
+            source_info: SourceInfo::default(),
+            merge_op: quarto_pandoc_types::MergeOp::Concat,
+        };
+
+        match ThemeConfig::from_config_value(&config) {
+            Err(SassError::UnknownTheme { name, location }) => {
+                assert_eq!(name, "nosuchtheme");
+                assert_eq!(location.as_ref(), Some(&item_source));
+            }
+            other => panic!("expected UnknownTheme error, got: {:?}", other),
         }
     }
 }

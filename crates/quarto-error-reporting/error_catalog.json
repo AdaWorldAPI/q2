@@ -929,5 +929,12 @@
     "message_template": "The `theme:` value in `_quarto.yml` or document metadata is not a recognized shape. Use a single theme name (e.g. `theme: cosmo`), an array of names (e.g. `theme: [cosmo, custom.scss]`), or `theme: none` to suppress Bootstrap.",
     "docs_url": "https://quarto.org/docs/errors/Q-14-1",
     "since_version": "99.9.9"
+  },
+  "Q-14-2": {
+    "subsystem": "theme",
+    "title": "Unknown theme name",
+    "message_template": "The `theme:` value names a theme Quarto does not recognize. Use one of the built-in Bootswatch theme names (e.g. `cosmo`, `darkly`), a path to a `.scss`/`.css` file, or `theme: none` to suppress Bootstrap.",
+    "docs_url": "https://quarto.org/docs/errors/Q-14-2",
+    "since_version": "99.9.9"
   }
 }
