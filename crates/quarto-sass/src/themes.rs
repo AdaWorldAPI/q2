@@ -173,7 +173,10 @@ impl FromStr for BuiltInTheme {
             "vapor" => Ok(BuiltInTheme::Vapor),
             "yeti" => Ok(BuiltInTheme::Yeti),
             "zephyr" => Ok(BuiltInTheme::Zephyr),
-            _ => Err(SassError::UnknownTheme(s.to_string())),
+            _ => Err(SassError::UnknownTheme {
+                name: s.to_string(),
+                location: None,
+            }),
         }
     }
 }
@@ -1036,7 +1039,7 @@ mod tests {
         assert!(result.is_err());
         // Verify it's the right error type
         match result {
-            Err(SassError::UnknownTheme(name)) => assert_eq!(name, "nonexistent"),
+            Err(SassError::UnknownTheme { name, .. }) => assert_eq!(name, "nonexistent"),
             _ => panic!("Expected UnknownTheme error"),
         }
     }
