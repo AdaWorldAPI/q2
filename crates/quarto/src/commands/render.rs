@@ -458,18 +458,22 @@ pub fn run_clean_cache(
 
 /// Compute the trailing summary line for a render.
 ///
-/// Returns `None` for single-file renders: the line `"1 of 1 rendered"`
-/// would be noise. Multi-file projects always get a summary line, even
+/// Returns `None` for single-file renders: the per-file output path is
+/// already obvious. Multi-file projects always get a summary line, even
 /// when zero pages rendered (e.g. all skipped due to errors).
 pub fn render_summary_line(
     is_single_file: bool,
     total_files: usize,
     rendered: usize,
+    output_dir: &Path,
 ) -> Option<String> {
     if is_single_file {
         return None;
     }
-    Some(format!("{rendered} of {total_files} rendered"))
+    Some(format!(
+        "Rendered {rendered} of {total_files} files to {}",
+        output_dir.display()
+    ))
 }
 
 /// bd-45yw: resolve the replay activation source and load the trace.
@@ -598,9 +602,7 @@ fn execute_single_doc(
     let mut project = ProjectContext::discover(&input, runtime_arc.as_ref())
         .context("Failed to discover project context")?;
 
-    if !args.quiet {
-        info!("Rendering single file: {}", input.display());
-    }
+    quarto_util::user_status!(args.quiet, "Rendering single file: {}", input.display());
 
     let project_type = project_type_for(&project);
     let format_str = format.identifier.to_string();
@@ -655,13 +657,12 @@ fn execute_project(
     let mut project = ProjectContext::discover(&project_dir, runtime_arc.as_ref())
         .context("Failed to discover project context")?;
 
-    if !args.quiet {
-        info!(
-            "Rendering project: {} (type: {})",
-            project.dir.display(),
-            project.project_kind().as_str()
-        );
-    }
+    quarto_util::user_status!(
+        args.quiet,
+        "Rendering project: {} (type: {})",
+        project.dir.display(),
+        project.project_kind().as_str()
+    );
 
     let project_type = project_type_for(&project);
     let total_files = project.files.len();
@@ -696,10 +697,8 @@ fn execute_project(
     print_render_diagnostics(&summary, args);
 
     let rendered = summary.outputs.len();
-    if let Some(line) = render_summary_line(false, total_files, rendered)
-        && !args.quiet
-    {
-        info!("{}", line);
+    if let Some(line) = render_summary_line(false, total_files, rendered, &project.output_dir) {
+        quarto_util::user_status!(args.quiet, "{}", line);
     }
 
     if should_exit_nonzero(&summary) {
@@ -817,6 +816,9 @@ fn print_render_diagnostics_text(
             }
         }
 
+        // Per-file output line stays on `tracing::info!` (opt-in via
+        // `-v`); enumerating every file is too noisy for a large
+        // site, and the post-render summary covers the common case.
         if !quiet {
             info!("Output: {}", result.output_path.display());
         }
@@ -1694,22 +1696,22 @@ mod tests {
 
     #[test]
     fn summary_line_none_for_single_file() {
-        assert_eq!(render_summary_line(true, 1, 1), None);
+        assert_eq!(render_summary_line(true, 1, 1, Path::new("/tmp/out")), None);
     }
 
     #[test]
     fn summary_line_for_multi_file_project_full() {
         assert_eq!(
-            render_summary_line(false, 5, 5),
-            Some("5 of 5 rendered".to_string())
+            render_summary_line(false, 5, 5, Path::new("/tmp/_site")),
+            Some("Rendered 5 of 5 files to /tmp/_site".to_string())
         );
     }
 
     #[test]
     fn summary_line_for_multi_file_project_partial() {
         assert_eq!(
-            render_summary_line(false, 5, 1),
-            Some("1 of 5 rendered".to_string())
+            render_summary_line(false, 5, 1, Path::new("/tmp/_site")),
+            Some("Rendered 1 of 5 files to /tmp/_site".to_string())
         );
     }
 
@@ -1717,8 +1719,8 @@ mod tests {
     fn summary_line_zero_rendered_still_emits() {
         // All pages failed Pass-2 — rendered=0. Still informative.
         assert_eq!(
-            render_summary_line(false, 3, 0),
-            Some("0 of 3 rendered".to_string())
+            render_summary_line(false, 3, 0, Path::new("/tmp/_site")),
+            Some("Rendered 0 of 3 files to /tmp/_site".to_string())
         );
     }
 }
