@@ -1,0 +1,52 @@
+---
+title: "IO Error During Write"
+description: "An I/O error occurred while writing rendered output to its destination."
+code: Q-3-1
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-1` — IO Error During Write
+
+> An I/O error occurred while writing rendered output to its
+> destination.
+
+## What this means
+
+Quarto produced a complete document but could not finish writing
+it. The render itself succeeded; the failure is in the step that
+hands bytes to the filesystem (or another sink). The underlying
+operating-system error is included in the message.
+
+## Why this happens
+
+Common causes:
+
+- **Permission denied** on the output file or its parent
+  directory.
+- **Disk full**, or a quota limit reached on the volume that
+  holds the output.
+- **A missing parent directory** for the output path. Quarto
+  does not create intermediate directories implicitly.
+- **The output file is locked** by another process (a viewer, an
+  editor, a sync client).
+
+## How to fix
+
+Read the OS error after `Failed to write output:` — it names the
+specific cause (`Permission denied`, `No space left on device`,
+`No such file or directory`, ...). The fix depends on the cause:
+
+- For permission errors, confirm you have write access to the
+  output directory.
+- For missing-directory errors, create the parent directory
+  first.
+- For locked files, close the application holding the file.
+
+## Related
+
+- `Q-3-38` — JSON serialization failed: a different writer-side
+  failure mode, triggered before any bytes reach the sink.

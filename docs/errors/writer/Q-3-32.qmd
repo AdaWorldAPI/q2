@@ -1,0 +1,47 @@
+---
+title: "Standalone Attribute Not Supported"
+description: "Standalone attributes (e.g., in table cells or headings) are not representable in this output format."
+code: Q-3-32
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-32` — Standalone Attribute Not Supported
+
+> Standalone attributes (e.g., in table cells or headings) are
+> not representable in this output format.
+
+## What this means
+
+In qmd, an attribute block (`{#id .class key=value}`) usually
+attaches to the construct that immediately precedes it: a
+header, a span, a code fence. The parser also accepts attributes
+in positions where there is no obvious carrier — a bare
+`{#cell}` inside a table cell, for instance — and represents
+them as a *standalone attribute* AST node.
+
+The writer for this output format has no way to attach that
+attribute to anything, so it cannot serialize it. The error
+fires and the attribute is dropped from the rendered output.
+
+## Why this happens
+
+Most often: an attribute was written in a position where the
+writer's target format has no notion of attaching attributes
+(table cells, certain block boundaries). The qmd syntax accepts
+it; the format cannot represent it.
+
+## How to fix
+
+If you need the attribute to take effect, move it to a position
+where the writer can attach it — for example, attach the class
+to the heading or paragraph immediately before the cell rather
+than to the cell itself.
+
+If you do not need the attribute in this format, render to JSON
+(`q2 render --to json`) to inspect what the writer was told to
+emit, and remove the attribute from the source if it was
+unintentional.

@@ -1,0 +1,46 @@
+---
+title: "Fenced Note Definition Not Supported"
+description: "Fenced note definitions cannot be rendered in this output format because content coalescing is not yet implemented."
+code: Q-3-11
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-11` — Fenced Note Definition Not Supported
+
+> Fenced note definitions cannot be rendered in this output
+> format because content coalescing is not yet implemented.
+
+## What this means
+
+A fenced note definition is the multi-paragraph form of a
+footnote: the body lives inside a fenced block attached to the
+note reference, rather than on a single line after `[^id]:`.
+
+The writer for this output format does not yet coalesce note
+content back into the reference location, so it cannot place the
+fenced body where the reader expects to see it. The error fires
+once per orphan definition.
+
+## Why this happens
+
+Your document uses the fenced form for one or more footnotes and
+the selected output format does not yet support coalescing.
+
+## How to fix
+
+If the note body is short enough, rewrite it as an inline
+footnote (`text^[body]`). If the body is genuinely
+multi-paragraph, switch to an output format that supports
+footnotes (HTML, LaTeX) or split the long note into shorter
+inline ones.
+
+## Related
+
+- `Q-3-10` — the same limitation for one-line `[^id]: body`
+  definitions.
+- `Q-3-55` — fenced note definitions are also not supported in
+  ANSI output.

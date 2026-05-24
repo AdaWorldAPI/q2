@@ -1,0 +1,40 @@
+---
+title: "NoteDefinitionFencedBlock Not Supported in ANSI Format"
+description: "Fenced note definitions cannot be rendered in ANSI terminal output."
+code: Q-3-55
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-55` — NoteDefinitionFencedBlock Not Supported in ANSI Format
+
+> Fenced note definitions cannot be rendered in ANSI terminal
+> output.
+
+## What this means
+
+A fenced note definition is the multi-paragraph form of a
+footnote — the body lives inside a fenced block attached to the
+note reference. The ANSI writer (used when rendering to a
+terminal) does not render footnotes at all, regardless of form.
+
+## Why this happens
+
+Your document uses the fenced form of a note definition and you
+rendered to ANSI output.
+
+## How to fix
+
+Render to a different format. HTML, PDF, and the markdown
+writers all handle fenced footnotes. If the body is short
+enough, you can also rewrite it as a one-line inline footnote
+(`text^[body]`).
+
+## Related
+
+- `Q-3-54` — the same limitation for one-line `[^id]: body`
+  definitions.
+- `Q-3-11` — the same limitation for the qmd writer.

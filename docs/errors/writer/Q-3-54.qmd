@@ -1,0 +1,44 @@
+---
+title: "NoteDefinitionPara Not Supported in ANSI Format"
+description: "Note definitions cannot be rendered in ANSI terminal output."
+code: Q-3-54
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-54` — NoteDefinitionPara Not Supported in ANSI Format
+
+> Note definitions cannot be rendered in ANSI terminal output.
+
+## What this means
+
+A note definition is the body of a footnote whose reference
+appears elsewhere in the document. The ANSI writer (used when
+rendering to a terminal) does not yet render footnotes: a
+terminal has no notion of a footnoted page, and the writer does
+not currently coalesce the body into the reference site either.
+
+## Why this happens
+
+Your document uses note-definition syntax (`[^id]: body`) and
+you rendered to ANSI output.
+
+## How to fix
+
+Two options:
+
+- **Render to a different format.** HTML, PDF, and the markdown
+  writers all handle footnotes.
+- **Rewrite the footnote inline.** Change `text[^id]` plus
+  `[^id]: body` into `text^[body]`, which puts the note body
+  directly at the reference site.
+
+## Related
+
+- `Q-3-55` — fenced note definitions, same limitation for the
+  multi-paragraph form.
+- `Q-3-10` — the same limitation for the qmd writer, which has
+  a different remediation story.

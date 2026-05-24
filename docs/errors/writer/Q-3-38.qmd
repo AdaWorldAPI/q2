@@ -1,0 +1,47 @@
+---
+title: "JSON Serialization Failed"
+description: "The AST-to-JSON serialization process failed."
+code: Q-3-38
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-38` — JSON Serialization Failed
+
+> The AST-to-JSON serialization process failed.
+
+## What this means
+
+Quarto's JSON writer turns the document AST into the JSON form
+that downstream tools (filters, Pandoc, the hub-client renderer)
+consume. This error fires when the serialization step itself
+fails — the document was parsed and processed, but converting
+the in-memory AST to a JSON string did not succeed.
+
+## Why this happens
+
+The most common underlying cause is a `serde_json` failure:
+typically a non-finite floating-point number (`NaN`, `±∞`) in
+the AST, since JSON does not represent those values. Any node
+field that holds a number can in principle trigger this if it
+was filled in with a non-finite value.
+
+## How to fix
+
+If the document does not visibly contain numeric content that
+could be non-finite, suspect a Lua filter or other processing
+step that introduced one. Render to a non-JSON format
+(`--to native` or `--to qmd`) to confirm the issue is in
+serialization, not in the pipeline.
+
+If no custom processing is in use, report the document at the
+Quarto issue tracker — Quarto should not produce non-finite
+numbers itself.
+
+## Related
+
+- `Q-3-1` — IO error during write: a different writer-side
+  failure mode, after serialization succeeded.

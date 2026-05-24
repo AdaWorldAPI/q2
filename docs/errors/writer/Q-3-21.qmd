@@ -1,0 +1,51 @@
+---
+title: "Caption Block Not Supported"
+description: "Standalone caption blocks cannot be rendered in this output format. Captions should be attached to figures or tables."
+code: Q-3-21
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-21` — Caption Block Not Supported
+
+> Standalone caption blocks cannot be rendered in this output
+> format. Captions should be attached to figures or tables.
+
+## What this means
+
+A caption is a piece of text bound to the thing it describes — a
+figure, a table, a code block. The Quarto AST has a `Caption`
+node type, but every well-formed render attaches that caption to
+its parent before the writer runs. A *standalone* caption is one
+that lost (or never had) its parent, and the writer has no
+target to associate it with.
+
+## Why this happens
+
+Two known triggers:
+
+- **A Lua filter dropped the parent.** The filter removed a
+  figure or table but left its caption behind in the document.
+- **A filter generated an orphan caption.** The filter produced
+  a `CaptionBlock` node directly, without attaching it to a
+  block.
+
+The default Quarto pipeline does not produce orphan captions.
+
+## How to fix
+
+If a custom filter is in use, audit it for block-removal logic
+that does not also drop the caption, or for caption-emitting
+logic that forgets to attach to a parent.
+
+If no custom filter is in use, report the document at the Quarto
+issue tracker — postprocessing should have associated the
+caption with its block.
+
+## Related
+
+- `Q-3-20` — another shape of orphaned AST node reaching the
+  writer (block-level metadata rather than a caption).
