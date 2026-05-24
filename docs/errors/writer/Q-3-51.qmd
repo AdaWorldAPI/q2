@@ -1,0 +1,41 @@
+---
+title: "CodeBlock Not Supported in ANSI Format"
+description: "CodeBlock elements cannot be rendered in ANSI terminal output."
+code: Q-3-51
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-51` — CodeBlock Not Supported in ANSI Format
+
+> CodeBlock elements cannot be rendered in ANSI terminal output.
+
+## What this means
+
+A code block is a fenced or indented region of pre-formatted
+text, typically used for source code. The ANSI writer (used
+when rendering to a terminal) does not yet support code blocks
+and emits the error rather than rendering an unstyled block.
+
+The omission is intentional: faithful ANSI rendering of a code
+block needs syntax-highlighting integration that the writer
+does not yet have.
+
+## Why this happens
+
+Your document contains a fenced or indented code block and you
+rendered to ANSI output.
+
+## How to fix
+
+Render to a different output format if you need the code blocks
+visible. HTML output uses a syntax highlighter; markdown output
+preserves the fences for downstream tooling to highlight.
+
+## Related
+
+- `Q-3-50`, `Q-3-52`, `Q-3-53`, `Q-3-54`, `Q-3-55` — other
+  block types the ANSI writer does not yet support.

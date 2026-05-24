@@ -1,0 +1,44 @@
+---
+title: "Unprocessed Delete Markup"
+description: !str "Delete editorial markup ({--...--}) was not desugared to a Span during postprocessing."
+code: Q-3-34
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-34` — Unprocessed Delete Markup
+
+> Delete editorial markup `{--...--}` was not desugared to a
+> Span during postprocessing.
+
+## What this means
+
+Quarto's CriticMarkup-style deletion construct `{--...--}` is
+parsed as a `Delete` AST node. Postprocessing rewrites it as a
+`Span` with the `.del` class before the writer runs. This error
+fires when a raw `Delete` node reaches the writer.
+
+This is a defensive guard. The condition is a pipeline bug, not
+a source-level mistake.
+
+## Why this happens
+
+Two known triggers:
+
+- **A Lua filter ran after postprocessing** and reintroduced a
+  `Delete` AST node.
+- **A bug in the postprocessor** that misses some deletions.
+
+## How to fix
+
+If a custom filter is in use, ensure it does not produce
+`Delete` AST nodes after postprocessing. If no filter is in use,
+report the document at the Quarto issue tracker.
+
+## Related
+
+- `Q-3-33`, `Q-3-35`, `Q-3-36` — same condition for `Insert`,
+  `Highlight`, and `EditComment` markup respectively.

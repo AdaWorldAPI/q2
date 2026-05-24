@@ -1,0 +1,53 @@
+---
+title: "Block Metadata Not Supported"
+description: "YAML metadata blocks are internal AST nodes that cannot be rendered in this output format."
+code: Q-3-20
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-20` — Block Metadata Not Supported
+
+> YAML metadata blocks are internal AST nodes that cannot be
+> rendered in this output format.
+
+## What this means
+
+Quarto represents document-level YAML (the `---` front matter)
+and block-level metadata fences as their own AST node type. The
+render pipeline normally consumes these nodes *before* they reach
+the writer — front matter becomes document metadata, block
+metadata is attached to the block it annotates, and the
+metadata-as-node form disappears.
+
+This error fires when a `BlockMetadata` node survives to the
+writer. The writer has nowhere to put it: it is structurally a
+block, but its content is YAML, not prose.
+
+## Why this happens
+
+Most often a Lua filter, or another non-default processing path,
+left a metadata block in the AST when it should have consumed or
+attached it. The error is defensive — the normal pipeline does
+not produce this shape.
+
+## How to fix
+
+Identify the filter or processing step that introduced the
+orphan metadata. If a filter is creating `BlockMetadata` nodes
+deliberately, either consume them within the filter or rewrite
+them into a representation the writer can render (a `RawBlock`,
+for example).
+
+If no custom filter is in use, report the document at the Quarto
+issue tracker — the pipeline should not leave block metadata
+behind.
+
+## Related
+
+- `Q-3-40` — invalid document metadata structure: a related
+  metadata-shape problem, but at the document level rather than
+  the block level.
