@@ -107,6 +107,24 @@ website:
             - errors/writer/Q-3-53.qmd
             - errors/writer/Q-3-54.qmd
             - errors/writer/Q-3-55.qmd
+        - section: "listing"
+          contents:
+            - errors/listing/Q-12-1.qmd
+            - errors/listing/Q-12-2.qmd
+            - errors/listing/Q-12-3.qmd
+            - errors/listing/Q-12-4.qmd
+            - errors/listing/Q-12-5.qmd
+            - errors/listing/Q-12-6.qmd
+            - errors/listing/Q-12-7.qmd
+            - errors/listing/Q-12-8.qmd
+            - errors/listing/Q-12-9.qmd
+            - errors/listing/Q-12-10.qmd
+            - errors/listing/Q-12-11.qmd
+            - errors/listing/Q-12-12.qmd
+            - errors/listing/Q-12-13.qmd
+            - errors/listing/Q-12-14.qmd
+            - errors/listing/Q-12-15.qmd
+            - errors/listing/Q-12-16.qmd
 
 format:
   html:

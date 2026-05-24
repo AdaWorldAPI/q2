@@ -1,0 +1,63 @@
+---
+title: "Listing Feed Skipped: Missing site-url"
+description: "A listing has `feed:` configured but the project's `website.site-url` is missing; feed generation is skipped."
+code: Q-12-15
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-15` — Listing Feed Skipped: Missing site-url
+
+> A listing has `feed:` configured but the project's
+> `website.site-url` is missing; feed generation is skipped.
+
+## What this means
+
+A listing's `feed:` key asks Quarto to emit an Atom/RSS feed
+for the listing's items. Every item in the feed needs an
+absolute URL — `<link>` and `<id>` elements require it — and
+those URLs are built by joining the project's `website.site-url`
+to each item's relative path. Without a `site-url`, Quarto
+cannot construct the links and refuses to emit a feed that
+would be invalid.
+
+The listing's host page renders correctly; only the feed file
+(`listing.xml`, or your configured feed path) is skipped.
+
+## Why this happens
+
+The project is missing the `site-url` field in
+`_quarto.yml`:
+
+```yaml
+website:
+  title: "My Site"
+  # site-url not set
+```
+
+Local-only projects often do not bother setting `site-url`
+because most things work without it; feeds are one of the few
+features that genuinely require it.
+
+## How to fix
+
+Add `site-url:` under `website:` in `_quarto.yml`:
+
+```yaml
+website:
+  title: "My Site"
+  site-url: "https://example.com"
+```
+
+Use the URL the site will be hosted at in production. The
+feed's links are baked into the output at render time, so the
+URL needs to be the deploy URL even when you are previewing
+locally.
+
+## Related
+
+- `Q-12-16` — a different feed-time problem: a sibling output
+  file was unreadable, so its description field is empty.

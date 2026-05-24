@@ -1,0 +1,53 @@
+---
+title: "Categories Enabled But No Item Has Any"
+description: "A listing configures `categories:` but no resolved item has any categories defined; the sidebar is suppressed."
+code: Q-12-12
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-12` — Categories Enabled But No Item Has Any
+
+> A listing configures `categories:` but no resolved item has
+> any categories defined; the sidebar is suppressed.
+
+## What this means
+
+A listing's `categories:` key asks Quarto to render a sidebar
+that groups items by their `categories` front-matter field. If
+the listing is configured for that sidebar but every resolved
+item is missing `categories:`, there is nothing to group on,
+and the sidebar would render empty. Quarto suppresses it
+instead and emits this warning.
+
+## Why this happens
+
+Two common causes:
+
+- **The category fields exist on the items but under a
+  different key.** Quarto reads `categories:` (plural); a
+  single `category:` does not contribute.
+- **The listing is freshly authored** and none of its items
+  carry categories yet.
+
+## How to fix
+
+Add `categories:` to the front matter of the items that should
+appear in each group:
+
+```yaml
+---
+title: "My post"
+categories: [news, weekly]
+---
+```
+
+If you do not want a categories sidebar at all, set
+`categories: false` on the listing to silence this warning.
+
+## Related
+
+- `Q-12-11` — mixed `categories:` modes on the same page.
