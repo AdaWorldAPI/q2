@@ -1,0 +1,53 @@
+---
+title: "Resource Path Resolves Outside the Project Root"
+description: "A path in the `resources:` list resolves outside the project root, which is not allowed."
+code: Q-5-1
+subsystem: project
+status: stub
+since: "99.9.9"
+categories:
+  - project
+---
+
+# `Q-5-1` — Resource Path Resolves Outside the Project Root
+
+> A path in the `resources:` list resolves outside the project
+> root, which is not allowed.
+
+## What this means
+
+The `resources:` key in `_quarto.yml` (or under a per-page
+front matter) lists files Quarto should copy into the rendered
+output alongside the HTML. Quarto requires those paths to
+resolve inside the project root: a project's output is a
+self-contained directory, and copying from arbitrary
+filesystem locations would break that guarantee. This error
+fires when a pattern resolves outside the project.
+
+Pay attention to the leading-slash convention:
+a leading `/` is *project-root-relative* — `/docs/foo.json`
+means `<project>/docs/foo.json`, not the filesystem `/docs/`.
+A relative path with `..` segments that walks above the
+project root will trip this error.
+
+## Why this happens
+
+Common causes:
+
+- **A `..` segment** that escapes the project: `../shared/x`.
+- **A symlink** whose target is outside the project.
+- **A pattern that was correct before the project was
+  reorganized** but now reaches above the new root.
+
+## How to fix
+
+Move (or copy) the resource into the project, then reference
+it with a path that stays inside. If the file is shared across
+multiple projects and you cannot duplicate it, that is a
+limitation Quarto does not yet have an answer for — track the
+relevant feature request at the Quarto issue tracker.
+
+## Related
+
+- `Q-5-2` — invalid glob pattern in `resources:`.
+- `Q-5-3` — glob walk failed.

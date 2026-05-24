@@ -1,0 +1,47 @@
+---
+title: "Project Discovery Failed"
+description: "Quarto found a `_quarto.yml` but could not load it as a project."
+code: Q-7-8
+subsystem: cli
+status: stub
+since: "99.9.9"
+categories:
+  - cli
+---
+
+# `Q-7-8` — Project Discovery Failed
+
+> Quarto found a `_quarto.yml` but could not load it as a
+> project.
+
+## What this means
+
+Quarto's project discovery walks upward from the input paths
+looking for `_quarto.yml`. This error fires when that walk
+succeeds but the file Quarto found cannot be loaded as a
+project: it is unreadable, malformed, or its content does not
+satisfy the project configuration schema. The message includes
+the underlying reason.
+
+## Why this happens
+
+Common causes:
+
+- **A malformed `_quarto.yml`** — invalid YAML, or YAML that
+  parses but does not match the project schema.
+- **A permissions problem** that prevents reading the file.
+- **A `_quarto.yml` from a different tool** that happens to
+  share the name but has incompatible content.
+
+## How to fix
+
+Read the underlying reason in the error message. For YAML
+syntax issues, fix the file — the per-file YAML errors in the
+[yaml subsystem](../yaml/) (`Q-1-*`) cover the most common
+shapes. For schema mismatches, consult the project
+configuration reference and align the file accordingly.
+
+## Related
+
+- `Q-7-3` — no project was found at all; a related discovery
+  failure mode.

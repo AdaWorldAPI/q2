@@ -1,0 +1,50 @@
+---
+title: "Unresolved Partial Reference"
+description: "A `$partial(name)$` reference was not resolved during template compilation."
+code: Q-10-5
+subsystem: template
+status: stub
+since: "99.9.9"
+categories:
+  - template
+---
+
+# `Q-10-5` — Unresolved Partial Reference
+
+> A `$partial(name)$` reference was not resolved during
+> template compilation.
+
+## What this means
+
+The template engine resolves partial references at compile
+time: each `$partial("name")$` is replaced with the parsed body
+of the named partial. This error fires when an unresolved
+reference survives into the evaluation stage — the engine
+should have substituted it but did not.
+
+In day-to-day use this presents as a missing-partial error
+from a different code path than `Q-10-3`. If you are seeing it
+and not also `Q-10-3`, the situation is likely a Quarto bug
+rather than a source-level mistake.
+
+## Why this happens
+
+The unresolved reference reaches evaluation either because the
+compile-time resolution step was skipped (a programmatic
+caller bypassing the normal compile path) or because the
+resolution step silently dropped a reference it should have
+flagged.
+
+## How to fix
+
+Confirm the partial exists, as you would for `Q-10-3`. If the
+partial is present and `Q-10-3` is not also reported, report
+the template and the calling configuration at the Quarto issue
+tracker — the failure path is unusual.
+
+## Related
+
+- `Q-10-3` — partial not found: the same underlying problem
+  surfaced earlier in the pipeline.
+- `Q-10-4` — recursive partial: a related partial-resolution
+  failure.

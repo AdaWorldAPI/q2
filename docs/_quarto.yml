@@ -143,6 +143,50 @@ website:
             - errors/xml/Q-9-14.qmd
             - errors/xml/Q-9-15.qmd
             - errors/xml/Q-9-16.qmd
+        - section: "cli"
+          contents:
+            - errors/cli/Q-7-1.qmd
+            - errors/cli/Q-7-2.qmd
+            - errors/cli/Q-7-3.qmd
+            - errors/cli/Q-7-4.qmd
+            - errors/cli/Q-7-5.qmd
+            - errors/cli/Q-7-6.qmd
+            - errors/cli/Q-7-7.qmd
+            - errors/cli/Q-7-8.qmd
+        - section: "navigation"
+          contents:
+            - errors/navigation/Q-13-1.qmd
+            - errors/navigation/Q-13-2.qmd
+            - errors/navigation/Q-13-3.qmd
+            - errors/navigation/Q-13-4.qmd
+            - errors/navigation/Q-13-5.qmd
+            - errors/navigation/Q-13-6.qmd
+            - errors/navigation/Q-13-7.qmd
+        - section: "template"
+          contents:
+            - errors/template/Q-10-1.qmd
+            - errors/template/Q-10-2.qmd
+            - errors/template/Q-10-3.qmd
+            - errors/template/Q-10-4.qmd
+            - errors/template/Q-10-5.qmd
+            - errors/template/Q-10-6.qmd
+            - errors/template/Q-10-7.qmd
+        - section: "project"
+          contents:
+            - errors/project/Q-5-1.qmd
+            - errors/project/Q-5-2.qmd
+            - errors/project/Q-5-3.qmd
+        - section: "internal"
+          contents:
+            - errors/internal/Q-0-1.qmd
+            - errors/internal/Q-0-99.qmd
+        - section: "theme"
+          contents:
+            - errors/theme/Q-14-1.qmd
+            - errors/theme/Q-14-2.qmd
+        - section: "lua"
+          contents:
+            - errors/lua/Q-11-1.qmd
 
 format:
   html:

@@ -1,0 +1,50 @@
+---
+title: "Undefined Variable"
+description: "A template references a variable that is not defined in the current scope."
+code: Q-10-2
+subsystem: template
+status: stub
+since: "99.9.9"
+categories:
+  - template
+---
+
+# `Q-10-2` — Undefined Variable
+
+> A template references a variable that is not defined in the
+> current scope.
+
+## What this means
+
+Pandoc-flavored templates render variables with `$name$` or
+`$nested.path$`. This error fires when the named variable does
+not exist in the current scope — Quarto cannot fill the slot.
+The template's behavior depends on its strict-mode setting: a
+warning by default, an error when strict mode is on. In either
+case the missing variable expands to the empty string.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in the variable name** (`$titel$` instead of
+  `$title$`).
+- **A variable that is set on some documents but not on
+  others.** A shared template that references `$author$` will
+  warn for any document whose front matter omits it.
+- **A nested path that misses a field**: `$book.title$` when
+  `book` is set but `book.title` is not.
+
+## How to fix
+
+Either add the variable (in the document's front matter, in
+`_quarto.yml`, or in an included `_variables.yml`), or change
+the template to use `$if(name)$ ... $endif$` to render the
+slot only when the variable is present.
+
+## Related
+
+- `Q-10-1` — template parse error: a related, more severe
+  template-side failure.
+- `Q-10-5` — unresolved partial reference: a related
+  unresolved-reference shape.

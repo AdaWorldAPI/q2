@@ -1,0 +1,45 @@
+---
+title: "Invalid Pipe Arguments"
+description: "A template pipe received arguments it cannot accept."
+code: Q-10-7
+subsystem: template
+status: stub
+since: "99.9.9"
+categories:
+  - template
+---
+
+# `Q-10-7` — Invalid Pipe Arguments
+
+> A template pipe received arguments it cannot accept.
+
+## What this means
+
+Several template pipes take arguments — `$x/left 10$` needs a
+width, `$x/alpha$` needs its input to be a positive integer,
+and so on. This error fires when the pipe's arguments (or the
+input value) are not of the shape the pipe needs. The
+template's strict-mode setting determines whether the
+diagnostic is a warning or an error; the value passes through
+unchanged.
+
+## Why this happens
+
+Common causes:
+
+- **A width pipe given a non-integer width**
+  (`$x/left "ten"$`).
+- **An `alpha:` or `roman:` pipe given a non-positive-integer
+  value** (`$x/alpha$` where `x` is a string).
+- **Too few or too many arguments** for the pipe's signature.
+
+## How to fix
+
+Check the pipe's expected arguments against the Pandoc template
+documentation. If the input is the problem, transform the value
+upstream (or set it with a sensible default) so the pipe
+receives what it expects.
+
+## Related
+
+- `Q-10-6` — the pipe name itself was unrecognized.

@@ -1,0 +1,50 @@
+---
+title: "Template Parse Error"
+description: "A Quarto document template failed to parse."
+code: Q-10-1
+subsystem: template
+status: stub
+since: "99.9.9"
+categories:
+  - template
+---
+
+# `Q-10-1` — Template Parse Error
+
+> A Quarto document template failed to parse.
+
+## What this means
+
+Quarto's document template engine reads Pandoc-flavored
+templates (`$variable$`, `$if(x)$...$endif$`, `$partial(name)$`,
+`$x/pipe$`). This error fires when the engine cannot parse a
+template at all — usually because of an unbalanced delimiter,
+an unrecognized control construct, or a syntactically malformed
+expression.
+
+Without a parsable template, the surrounding render cannot
+continue: there is no fallback rendering for a template that
+cannot be read.
+
+## Why this happens
+
+Common causes:
+
+- **A `$` that was meant as a literal** in non-template text.
+  Literal dollar signs must be doubled: `$$`.
+- **An unbalanced control block** — `$if(x)$` with no
+  `$endif$`, or vice versa.
+- **A typo in a control keyword** (`$endfi$` instead of
+  `$endif$`).
+
+## How to fix
+
+Read the error message — the engine names the position where
+parsing failed. Common fixes: balance the `$if/$endif$` pair,
+escape literal `$` characters, correct the keyword spelling.
+
+## Related
+
+- `Q-10-2` — undefined variable: parsing succeeded, but a
+  reference was unresolved.
+- `Q-10-5` — partial reference unresolved.

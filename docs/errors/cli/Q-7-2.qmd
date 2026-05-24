@@ -1,0 +1,38 @@
+---
+title: "Input Path Not Found"
+description: "An input path given on the command line does not exist."
+code: Q-7-2
+subsystem: cli
+status: stub
+since: "99.9.9"
+categories:
+  - cli
+---
+
+# `Q-7-2` — Input Path Not Found
+
+> An input path given on the command line does not exist.
+
+## What this means
+
+Quarto could not find a file or directory at one of the paths
+you passed. The error fires before any render work begins.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in the path** (`docs/index.qdm` instead of
+  `docs/index.qmd`).
+- **A path resolved against the wrong current directory.**
+  Relative paths are resolved from your shell's working
+  directory, not from the project root.
+- **A file that was renamed or deleted** but is still
+  referenced in a script or alias you are running.
+
+## How to fix
+
+Check the path. `ls` (or `dir` on Windows) the parent directory
+to confirm the file is where you expect. If the path is correct
+but Quarto cannot see it, confirm your current working directory
+with `pwd`.

@@ -1,0 +1,47 @@
+---
+title: "No Renderable Files Matched"
+description: "An input directory or glob matched no renderable files."
+code: Q-7-7
+subsystem: cli
+status: stub
+since: "99.9.9"
+categories:
+  - cli
+---
+
+# `Q-7-7` — No Renderable Files Matched
+
+> An input directory or glob matched no renderable files.
+
+## What this means
+
+When you pass a directory path or a glob pattern to
+`quarto render`, Quarto expands it to a list of renderable
+files
+(`.qmd`, `.md`, and similar). This error fires when the
+expansion is empty — the directory has no `.qmd` files in it,
+or the glob matched only non-renderable files.
+
+## Why this happens
+
+Common causes:
+
+- **A glob that does not match anything** —
+  `quarto render docs/*.qmd` in a directory with no `.qmd`
+  files at the top level.
+- **A directory holding only output files** (`_site/`) and no
+  sources.
+- **A typo in the directory name** — Quarto found the
+  directory but it was not the one you meant.
+
+## How to fix
+
+Check what the glob expands to from the shell (`ls docs/*.qmd`).
+If that command lists no files, your glob is the problem; if it
+lists files but Quarto still reports none, the files may be
+hidden or underscore-prefixed (which Quarto excludes by
+default).
+
+## Related
+
+- `Q-7-6` — files matched but were explicitly excluded.

@@ -1,0 +1,50 @@
+---
+title: "Sidebar `auto:` ignored"
+description: "A sidebar `auto:` entry was ignored because the document is being rendered without a project index."
+code: Q-13-5
+subsystem: navigation
+status: stub
+since: "99.9.9"
+categories:
+  - navigation
+---
+
+# `Q-13-5` — Sidebar `auto:` Ignored
+
+> A sidebar `auto:` entry was ignored because the document is
+> being rendered without a project index.
+
+## What this means
+
+Sidebars support an `auto:` shorthand: instead of listing every
+document by hand, the entry says "include every renderable
+document under this directory" and Quarto expands it against
+the project's index at render time. This warning fires when an
+`auto:` entry is encountered but no project index is available
+— typically because the document is being rendered standalone,
+not as part of a project build.
+
+The render still succeeds; the `auto:` entry simply expands to
+nothing.
+
+## Why this happens
+
+Most often: rendering a single file
+(`quarto render report.qmd`) that has been authored as part of
+a project. The
+file's sidebar configuration is processed, but standalone
+renders do not build a project index, so `auto:` has nothing
+to expand against.
+
+## How to fix
+
+Render the document as part of a project build (`quarto render`
+with no arguments, from inside the project root). If you do
+want to render a single file standalone with the sidebar
+present, replace the `auto:` entry with an explicit list of
+documents.
+
+## Related
+
+- `Q-13-6` — `auto:` matched zero documents during a project
+  render.

@@ -1,0 +1,47 @@
+---
+title: "Failed Walking Glob Matches for `resources:`"
+description: "A `resources:` glob pattern parsed successfully but the filesystem walk failed."
+code: Q-5-3
+subsystem: project
+status: stub
+since: "99.9.9"
+categories:
+  - project
+---
+
+# `Q-5-3` — Failed Walking Glob Matches for `resources:`
+
+> A `resources:` glob pattern parsed successfully but the
+> filesystem walk failed.
+
+## What this means
+
+After parsing a `resources:` pattern, Quarto walks the
+filesystem to collect the matches. This error fires when that
+walk itself fails — typically because of a filesystem error
+(permission denied on a directory, an I/O error mid-walk, a
+symlink loop). The pattern is valid; the filesystem responded
+in a way the walk could not handle.
+
+## Why this happens
+
+Common causes:
+
+- **A directory in the walk path that the process cannot
+  read** (permissions).
+- **A symlink loop** under the walked tree.
+- **An I/O error** — disk problem, network mount went away,
+  or similar transient failure.
+
+## How to fix
+
+The message includes the underlying error. For permissions,
+adjust ownership or move the resource out of the unreadable
+directory. For symlink loops, replace the loop with the real
+target. For transient I/O errors, retry — and consider whether
+the directory should be on a more reliable filesystem.
+
+## Related
+
+- `Q-5-1` — pattern resolves outside the project root.
+- `Q-5-2` — pattern is syntactically invalid.

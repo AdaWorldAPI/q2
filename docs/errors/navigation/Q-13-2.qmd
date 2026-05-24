@@ -1,0 +1,42 @@
+---
+title: "Navbar references missing document"
+description: "A navbar entry points at a document that is not in the project's render index."
+code: Q-13-2
+subsystem: navigation
+status: stub
+since: "99.9.9"
+categories:
+  - navigation
+---
+
+# `Q-13-2` — Navbar references missing document
+
+> A navbar entry points at a document that is not in the
+> project's render index.
+
+## What this means
+
+The website navbar (the top bar of links rendered above every
+page) is built from `website.navbar` entries in `_quarto.yml`.
+Each entry that names a document is looked up in the project
+index at render time. This error fires when the name does not
+appear in that index. The navbar still renders, but the entry
+has no working link.
+
+## Why this happens
+
+Same family of causes as `Q-13-1` (sidebar missing document):
+typo in the navbar entry, renamed or deleted document,
+excluded-from-render file, wrong relative-path base.
+
+## How to fix
+
+Update the navbar entry to point at a file that is in the
+render set, or add the missing file. The message names the
+missing path.
+
+## Related
+
+- `Q-13-1`, `Q-13-3`, `Q-13-4`, `Q-13-7` — same shape of
+  diagnostic for sidebar, page footer, body link, and
+  page-navigation surfaces respectively.

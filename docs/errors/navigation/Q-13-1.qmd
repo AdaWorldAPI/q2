@@ -1,0 +1,50 @@
+---
+title: "Sidebar references missing document"
+description: "A sidebar entry points at a document that is not in the project's render index."
+code: Q-13-1
+subsystem: navigation
+status: stub
+since: "99.9.9"
+categories:
+  - navigation
+---
+
+# `Q-13-1` — Sidebar references missing document
+
+> A sidebar entry points at a document that is not in the
+> project's render index.
+
+## What this means
+
+A Quarto website builds its sidebars from `_quarto.yml` entries
+that name documents (`- foo.qmd`, `- href: bar.qmd`). At render
+time, each name is looked up in the project index — the list of
+documents the project will actually produce. This error fires
+when the name does not appear in that index. The sidebar still
+renders, but the entry has no working link.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in the filename** as it appears under `sidebar:`.
+- **The document was renamed or deleted** but `_quarto.yml`
+  still references it.
+- **The document is excluded from rendering** by a
+  `project.render` filter or by an underscore-prefixed
+  filename.
+- **A relative path resolved against the wrong base** —
+  sidebar paths are relative to the project root, not to the
+  `_quarto.yml` location if those differ.
+
+## How to fix
+
+Update the entry to point at a file that is in the render set,
+or add the missing file. The message names both the sidebar id
+and the missing path so the offending entry is easy to locate.
+
+## Related
+
+- `Q-13-2`, `Q-13-3`, `Q-13-4`, `Q-13-7` — same shape of
+  diagnostic for navbar, page footer, body link, and
+  page-navigation surfaces respectively.

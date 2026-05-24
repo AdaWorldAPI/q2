@@ -1,0 +1,50 @@
+---
+title: "Multiple Inputs Without a Project"
+description: "Multiple input paths were given, but they are not part of a Quarto project."
+code: Q-7-4
+subsystem: cli
+status: stub
+since: "99.9.9"
+categories:
+  - cli
+---
+
+# `Q-7-4` — Multiple Inputs Without a Project
+
+> Multiple input paths were given, but they are not part of a
+> Quarto project.
+
+## What this means
+
+Quarto accepts two shapes of invocation: render a single
+standalone file (`quarto render report.qmd`) or render some
+subset of a project's files (which requires the files to live
+inside a `_quarto.yml`-rooted directory). This error fires when
+you pass more than one path and none of them resolves to a
+project.
+
+Multiple standalone files at once are not currently supported.
+
+## Why this happens
+
+Common causes:
+
+- **A glob expansion** (`quarto render *.qmd`) that ran in a
+  directory with no `_quarto.yml`.
+- **A script that batches files** with no enclosing project.
+
+## How to fix
+
+Two options:
+
+- **Render the files one at a time** with separate invocations.
+- **Create a `_quarto.yml`** in the directory containing the
+  files so they are recognized as a project. The minimum
+  contents are an empty file or a single `project:` block.
+
+## Related
+
+- `Q-7-3` — no inputs and no project, the related "where am I?"
+  failure.
+- `Q-7-5` — inputs span multiple projects, the related "this
+  set of inputs is incoherent" failure.

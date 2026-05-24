@@ -1,0 +1,52 @@
+---
+title: "Generic Error"
+description: "A fallback error code used when no more specific code applies."
+code: Q-0-99
+subsystem: internal
+status: stub
+since: "99.9.9"
+categories:
+  - internal
+---
+
+# `Q-0-99` — Generic Error
+
+> A fallback error code used when no more specific code
+> applies.
+
+## What this means
+
+`Q-0-99` is the catalog's catch-all: an error reached the
+diagnostic system without being classified under one of the
+more specific codes. It is reserved for situations where the
+emitting code path has not yet been wired into the catalog,
+and serves as a placeholder until a real code is assigned.
+
+If you encounter this code in the wild, the underlying problem
+is not necessarily an internal bug — it might be a perfectly
+ordinary error that Quarto has not yet given a proper code.
+The diagnostic message that accompanies the code is the
+authoritative description of what went wrong.
+
+## Why this happens
+
+The trigger varies entirely with the underlying error.
+`Q-0-99` indicates that the emitter chose not to (or could
+not) classify the condition further.
+
+## How to fix
+
+Treat the message as the primary information. If the message
+points at a user-fixable problem (a malformed file, a missing
+configuration option), fix that. If the message points at an
+internal failure, treat it like a `Q-0-1` and report it.
+
+In either case, an issue at the Quarto tracker noting that
+the error surfaced as `Q-0-99` is useful — it points the
+maintainers at a code path that should be promoted to a
+specific code.
+
+## Related
+
+- `Q-0-1` — internal error: the sentinel for *expected*
+  bug-class errors, as opposed to "unclassified" errors.
