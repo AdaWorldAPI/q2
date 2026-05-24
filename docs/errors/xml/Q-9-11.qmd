@@ -1,0 +1,47 @@
+---
+title: "Missing Text Source"
+description: "A `<cs:text>` element does not specify any source for the text it should render."
+code: Q-9-11
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-11` — Missing Text Source
+
+> A `<cs:text>` element does not specify any source for the
+> text it should render.
+
+## What this means
+
+The CSL `<cs:text>` element renders text drawn from one of four
+sources, selected by exactly one of these attributes:
+`variable` (a citation field like `title` or `author`),
+`macro` (the name of another macro), `term` (a CSL localized
+term), or `value` (a literal string). The element must specify
+exactly one. This error fires when it specifies none.
+
+## Why this happens
+
+Common causes:
+
+- **A hand-edited `<cs:text>`** where the source attribute was
+  deleted but the element itself was kept.
+- **A typo** in the attribute name — `varaible="..."` instead
+  of `variable="..."` — so the parser sees the attribute as
+  unknown and the element as without a source.
+
+## How to fix
+
+Add one of the four source attributes. Pick the one that
+matches what the text should render: a field from the citation
+(`variable`), the result of another macro (`macro`), a
+localized term (`term`), or a literal string (`value`).
+
+## Related
+
+- `Q-9-7` — required attribute missing: the same family of
+  error, for elements that require a specific attribute (as
+  opposed to "one of these four").

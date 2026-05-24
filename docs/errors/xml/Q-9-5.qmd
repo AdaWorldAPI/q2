@@ -1,0 +1,48 @@
+---
+title: "Empty XML Document"
+description: "The XML document contains no root element."
+code: Q-9-5
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-5` — Empty XML Document
+
+> The XML document contains no root element.
+
+## What this means
+
+Every well-formed XML document has exactly one root element —
+the single outermost tag that contains everything else. This
+error fires when the parser reaches end-of-input without ever
+seeing one: the file is empty, contains only whitespace,
+contains only comments or processing instructions, or the
+content that was supposed to be the root element was malformed
+enough to be skipped.
+
+## Why this happens
+
+Common causes:
+
+- **An empty file.** A zero-byte XML document.
+- **A file that contains only the XML declaration**
+  (`<?xml version="1.0"?>`) and no actual content.
+- **A failed download** that wrote no bytes.
+
+## How to fix
+
+Add a root element to the document. For a CSL style, that is
+`<style>...</style>`; for other XML formats, consult the
+schema the document is supposed to follow.
+
+If you did not expect the file to be empty, re-fetch it or
+restore from a known-good copy.
+
+## Related
+
+- `Q-9-6` — multiple root elements: the opposite mistake.
+- `Q-9-16` — invalid root element: a root *is* present, but it
+  is not the one CSL expects.

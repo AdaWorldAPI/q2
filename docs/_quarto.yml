@@ -125,6 +125,24 @@ website:
             - errors/listing/Q-12-14.qmd
             - errors/listing/Q-12-15.qmd
             - errors/listing/Q-12-16.qmd
+        - section: "xml"
+          contents:
+            - errors/xml/Q-9-1.qmd
+            - errors/xml/Q-9-2.qmd
+            - errors/xml/Q-9-3.qmd
+            - errors/xml/Q-9-4.qmd
+            - errors/xml/Q-9-5.qmd
+            - errors/xml/Q-9-6.qmd
+            - errors/xml/Q-9-7.qmd
+            - errors/xml/Q-9-8.qmd
+            - errors/xml/Q-9-9.qmd
+            - errors/xml/Q-9-10.qmd
+            - errors/xml/Q-9-11.qmd
+            - errors/xml/Q-9-12.qmd
+            - errors/xml/Q-9-13.qmd
+            - errors/xml/Q-9-14.qmd
+            - errors/xml/Q-9-15.qmd
+            - errors/xml/Q-9-16.qmd
 
 format:
   html:

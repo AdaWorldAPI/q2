@@ -1,0 +1,47 @@
+---
+title: "Missing Required Attribute"
+description: "A CSL element is missing an attribute that its schema requires."
+code: Q-9-7
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-7` — Missing Required Attribute
+
+> A CSL element is missing an attribute that its schema
+> requires.
+
+## What this means
+
+Many CSL elements have required attributes. `<cs:macro>`
+requires `name`, `<cs:style>` requires `version`, `<cs:term>`
+requires `name`. This error fires when one of those required
+attributes is missing. The message names both the element and
+the attribute.
+
+## Why this happens
+
+Common causes:
+
+- **A hand-edited CSL style** where the attribute was deleted
+  by mistake.
+- **A style copied from an incomplete example.**
+- **A migration from an older CSL version** where the
+  attribute was not yet required.
+
+## How to fix
+
+Add the attribute. The message tells you both which element is
+incomplete and which attribute is missing, so the fix is
+mechanical. The official CSL specification lists every required
+attribute per element.
+
+## Related
+
+- `Q-9-8` — invalid attribute value: the attribute is present
+  but its value is wrong.
+- `Q-9-9` — missing required element: the same family of
+  schema-required-thing-is-missing, but for child elements.

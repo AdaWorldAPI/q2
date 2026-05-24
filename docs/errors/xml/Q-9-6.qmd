@@ -1,0 +1,44 @@
+---
+title: "Multiple XML Root Elements"
+description: "The XML document contains more than one top-level element."
+code: Q-9-6
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-6` — Multiple XML Root Elements
+
+> The XML document contains more than one top-level element.
+
+## What this means
+
+A well-formed XML document has exactly one root element. This
+error fires when the parser, after finishing the first
+top-level element, finds another element at the document's top
+level instead of end-of-input.
+
+## Why this happens
+
+Common causes:
+
+- **Two documents concatenated** without a wrapping root.
+- **A stray closing tag** that prematurely ended the intended
+  root, leaving the rest of the content at top level.
+- **Hand-edited XML** where a wrapping element was deleted by
+  mistake.
+
+## How to fix
+
+Wrap the top-level elements in a single container, or remove
+the spurious element if it does not belong. The message names
+the location where the second root element starts — that is
+where to look.
+
+## Related
+
+- `Q-9-5` — empty XML document: no root element at all.
+- `Q-9-4` — invalid XML structure: other structural constraints
+  the parser enforces.

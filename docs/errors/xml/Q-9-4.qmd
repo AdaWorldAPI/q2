@@ -1,0 +1,49 @@
+---
+title: "Invalid XML Structure"
+description: "The XML document is well-formed at the token level but its structure violates a constraint the parser enforces."
+code: Q-9-4
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-4` — Invalid XML Structure
+
+> The XML document is well-formed at the token level but its
+> structure violates a constraint the parser enforces.
+
+## What this means
+
+`Q-9-4` is the catch-all the XML parser uses when the input is
+syntactically well-formed (all tags balanced, no stray
+characters) but the *structure* breaks an XML rule the parser
+cares about — for instance, content appearing where only
+declarations are allowed, or a processing instruction outside
+its permitted position. The message names the specific
+constraint that failed.
+
+## Why this happens
+
+Common causes:
+
+- **Content before the XML declaration.** `<?xml version="1.0"?>`
+  must be the very first thing in the document.
+- **A namespace prefix used without being declared.**
+- **A construct that is legal XML in general but illegal in the
+  position it appears in.**
+
+## How to fix
+
+Read the message — it names the specific constraint. The fix
+usually has the same shape as the constraint: move the
+declaration earlier, declare the namespace, or remove the
+out-of-place construct.
+
+## Related
+
+- `Q-9-1` — generic XML syntax error: lower-level
+  well-formedness problems.
+- `Q-9-6` — multiple root elements: a specific structural
+  constraint that has its own diagnostic.

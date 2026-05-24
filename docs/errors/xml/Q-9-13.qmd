@@ -1,0 +1,47 @@
+---
+title: "Circular Macro Dependency"
+description: "CSL macro references form a cycle: macro A invokes B, B invokes A (directly or transitively)."
+code: Q-9-13
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-13` — Circular Macro Dependency
+
+> CSL macro references form a cycle: macro A invokes B, B
+> invokes A (directly or transitively).
+
+## What this means
+
+CSL macros call each other through `<cs:text macro="...">`. The
+parser builds a call graph and requires it to be acyclic — a
+macro that ultimately depends on itself can never finish
+rendering. This error fires when the parser detects a cycle.
+The message includes the cycle itself, as a chain of macro
+names connected by `->`.
+
+## Why this happens
+
+Two common causes:
+
+- **An author refactor** that introduced a circular call by
+  accident — renaming a macro and updating some but not all
+  callers, or splitting one macro into two that reference each
+  other.
+- **A hand-translated style** from a different citation
+  framework where the equivalent recursion was allowed.
+
+## How to fix
+
+Break the cycle. The message shows the cycle as a chain of
+names: pick the edge that does not need to be a macro call and
+inline its content, or rework the design so that no macro
+needs to invoke a transitive ancestor.
+
+## Related
+
+- `Q-9-12` — undefined macro: a different macro-reference
+  problem, where the called name does not exist at all.
