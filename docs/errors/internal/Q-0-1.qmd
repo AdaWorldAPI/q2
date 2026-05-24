@@ -1,0 +1,53 @@
+---
+title: "Internal Error"
+description: "An error condition that points at a bug in Quarto itself."
+code: Q-0-1
+subsystem: internal
+status: stub
+since: "99.9.9"
+categories:
+  - internal
+---
+
+# `Q-0-1` — Internal Error
+
+> An error condition that points at a bug in Quarto itself.
+
+## What this means
+
+`Q-0-1` is the catalog's sentinel for errors that should not
+occur during normal operation. The condition was reached by a
+code path Quarto did not expect to reach — an invariant
+violated, a defensive `unreachable!` taken, a state machine
+that landed in an unexpected branch.
+
+If you are seeing it, you have most likely found a bug.
+
+## Why this happens
+
+The trigger varies — by definition, `Q-0-1` is what Quarto
+emits when it does not have a more specific code that fits.
+The accompanying message names the immediate condition; the
+context (the document, the configuration, the command line)
+is what reproduces it.
+
+## How to fix
+
+Report the failure at the Quarto issue tracker. The most
+useful report includes:
+
+- The Quarto version (`quarto --version`).
+- The command you ran.
+- The full error output.
+- A minimal reproducer, if you can construct one.
+
+If the error blocks work you need to ship, you may be able to
+find a workaround by changing the input that triggers it
+(a different output format, a different configuration option).
+The workaround does not fix the underlying problem but can
+unblock you while the bug is investigated.
+
+## Related
+
+- `Q-0-99` — generic error: a similar sentinel, used when even
+  the "internal" classification is uncertain.

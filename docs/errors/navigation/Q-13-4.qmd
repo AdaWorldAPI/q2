@@ -1,0 +1,54 @@
+---
+title: "Body link references missing document"
+description: "A link in document body content points at a project file that is not in the render index."
+code: Q-13-4
+subsystem: navigation
+status: stub
+since: "99.9.9"
+categories:
+  - navigation
+---
+
+# `Q-13-4` — Body link references missing document
+
+> A link in document body content points at a project file
+> that is not in the render index.
+
+## What this means
+
+When you write `[See report](report.qmd)` in a Quarto document,
+the renderer rewrites the link so the rendered page links to
+`report.html` (the output filename) instead of the source. The
+rewrite requires the target to be in the project index — Quarto
+has to know the target will exist. This error fires when the
+target name does not appear in the index. The link still
+renders but with the original `.qmd` path, which the published
+site will treat as broken.
+
+This is the warning you will see most often if you are writing
+cross-references to pages that have not been authored yet.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in the link target.**
+- **A link to a page that is planned but not yet created** —
+  this happens during iterative authoring.
+- **A link to a deleted page** whose references were not
+  cleaned up.
+- **An underscore-prefixed file** linked from a non-excluded
+  one — the target is intentionally not in the render set.
+
+## How to fix
+
+Make sure the target exists in the project and is in the render
+set. If you are linking to a page that does not exist yet,
+either create a stub for it now or accept the warning until the
+page lands.
+
+## Related
+
+- `Q-13-1`, `Q-13-2`, `Q-13-3`, `Q-13-7` — same shape of
+  diagnostic for sidebar, navbar, page footer, and
+  page-navigation surfaces respectively.

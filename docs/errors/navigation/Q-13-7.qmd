@@ -1,0 +1,47 @@
+---
+title: "Page navigation references missing document"
+description: "A page `prev:`/`next:` link points at a document that is not in the project's render index."
+code: Q-13-7
+subsystem: navigation
+status: stub
+since: "99.9.9"
+categories:
+  - navigation
+---
+
+# `Q-13-7` — Page Navigation References Missing Document
+
+> A page `prev:`/`next:` link points at a document that is not
+> in the project's render index.
+
+## What this means
+
+A Quarto website page can declare explicit previous/next links
+in its front matter:
+
+```yaml
+prev: intro.qmd
+next: chapter-2.qmd
+```
+
+These render as page-navigation buttons (typically at the
+bottom of the page). At render time, each name is looked up in
+the project index. This error fires when the target is not
+there. The button still renders, but its link is broken.
+
+## Why this happens
+
+Same family of causes as `Q-13-1` (sidebar missing document):
+typo, renamed or deleted document, excluded file, wrong
+relative-path base.
+
+## How to fix
+
+Update the `prev:` or `next:` value to point at a file in the
+render set, or remove the entry if no such file is appropriate.
+
+## Related
+
+- `Q-13-1`, `Q-13-2`, `Q-13-3`, `Q-13-4` — same shape of
+  diagnostic for sidebar, navbar, page footer, and body-link
+  surfaces respectively.

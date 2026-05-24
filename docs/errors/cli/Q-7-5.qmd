@@ -1,0 +1,42 @@
+---
+title: "Inputs Span Multiple Projects"
+description: "Input paths belong to more than one Quarto project; render one project at a time."
+code: Q-7-5
+subsystem: cli
+status: stub
+since: "99.9.9"
+categories:
+  - cli
+---
+
+# `Q-7-5` — Inputs Span Multiple Projects
+
+> Input paths belong to more than one Quarto project; render
+> one project at a time.
+
+## What this means
+
+When you pass multiple input paths, Quarto resolves each one to
+its enclosing project (the nearest ancestor directory with a
+`_quarto.yml`). All inputs must resolve to the *same* project —
+a render run carries one project's configuration, build
+options, output directory, and so on. This error fires when at
+least two of the paths land in different projects.
+
+## Why this happens
+
+Common causes:
+
+- **A glob expansion** that crossed a project boundary.
+- **A script collecting files from multiple sibling
+  directories**, each of which is its own Quarto project.
+
+## How to fix
+
+Render each project separately. If the files truly belong
+together, restructure so they live under a single
+`_quarto.yml`.
+
+## Related
+
+- `Q-7-4` — multiple inputs with no project at all.

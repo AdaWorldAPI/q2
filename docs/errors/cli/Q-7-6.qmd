@@ -1,0 +1,51 @@
+---
+title: "Input Excluded From Render List"
+description: "The named input is inside a Quarto project but the project's render list excludes it."
+code: Q-7-6
+subsystem: cli
+status: stub
+since: "99.9.9"
+categories:
+  - cli
+---
+
+# `Q-7-6` — Input Excluded From Render List
+
+> The named input is inside a Quarto project but the project's
+> render list excludes it.
+
+## What this means
+
+A Quarto project can opt into rendering only a subset of its
+files via `project.render` in `_quarto.yml`, and Quarto skips
+files that match the conventions for hidden or in-progress
+content (filenames starting with `_` or `.`). This error fires
+when you pass an explicit path to a file that is otherwise
+excluded — Quarto refuses to render it, because the project's
+configuration says it shouldn't.
+
+## Why this happens
+
+Common causes:
+
+- **An underscore-prefixed file** (`_draft.qmd`) — these are
+  excluded by convention.
+- **A file outside an explicit `project.render` list** — when
+  `project.render` is set, only listed paths render.
+- **A hidden directory** (`.hidden/`) — files inside hidden
+  directories are excluded too.
+
+## How to fix
+
+Either:
+
+- **Render without naming the file**, if you want the project's
+  exclusion to stand.
+- **Rename or move the file** out of the excluded position.
+- **Update `project.render`** in `_quarto.yml` to include the
+  file.
+
+## Related
+
+- `Q-7-7` — the file's pattern matched no renderable files at
+  all.

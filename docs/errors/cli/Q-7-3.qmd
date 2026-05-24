@@ -1,0 +1,49 @@
+---
+title: "No Input and No Project"
+description: "No input was given and the current directory is not inside a Quarto project."
+code: Q-7-3
+subsystem: cli
+status: stub
+since: "99.9.9"
+categories:
+  - cli
+---
+
+# `Q-7-3` — No Input and No Project
+
+> No input was given and the current directory is not inside a
+> Quarto project.
+
+## What this means
+
+`quarto render` with no arguments expects to be run inside a
+Quarto project — that is, in a directory whose ancestors include
+a `_quarto.yml`. Without that anchor and without an explicit
+input file, Quarto does not know what to render.
+
+## Why this happens
+
+Common causes:
+
+- **You meant to render a specific file** but forgot the path.
+- **You meant to render the whole project** but you are running
+  from outside it. Quarto walks upward from the current
+  directory looking for `_quarto.yml` and gives up if it
+  reaches the filesystem root.
+- **The project's `_quarto.yml` was deleted** (or never
+  created).
+
+## How to fix
+
+Either:
+
+- Pass at least one `.qmd` path to render a specific file.
+- Change directory into a Quarto project (one with a
+  `_quarto.yml` at its root) and rerun the command.
+- Create `_quarto.yml` to turn the current directory into a
+  Quarto project.
+
+## Related
+
+- `Q-7-8` — project discovery failed: a `_quarto.yml` was found
+  but Quarto could not load it.

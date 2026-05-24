@@ -1,0 +1,50 @@
+---
+title: "Partial Not Found"
+description: "A template's `$partial(name)$` reference names a partial file that does not exist."
+code: Q-10-3
+subsystem: template
+status: stub
+since: "99.9.9"
+categories:
+  - template
+---
+
+# `Q-10-3` — Partial Not Found
+
+> A template's `$partial(name)$` reference names a partial file
+> that does not exist.
+
+## What this means
+
+Pandoc-flavored templates can compose smaller fragments
+(partials) through `$partial("name.tex")$` or
+`$partial("name.html")$`. The partial is looked up at compile
+time. This error fires when no partial with the requested name
+can be found on the template search path.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in the partial filename.**
+- **The partial lives in a directory** that the template
+  engine is not searching. Partials are resolved relative to
+  the calling template's directory and any directories the
+  build adds to the search path.
+- **A partial that was renamed or deleted** without updating
+  its references.
+
+## How to fix
+
+Confirm the partial file exists at the path the engine is
+looking for. The simplest verification is to put the file
+beside the calling template — if the reference resolves then,
+the previous location was off the search path.
+
+## Related
+
+- `Q-10-5` — unresolved partial reference: similar shape, but
+  the reference made it into the parsed template without being
+  resolved at compile time (a different code path).
+- `Q-10-4` — recursive partial: the partial exists but
+  ultimately includes itself.

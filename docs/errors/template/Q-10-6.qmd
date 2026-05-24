@@ -1,0 +1,47 @@
+---
+title: "Unknown Pipe"
+description: "A template applied a pipe name the engine does not recognize."
+code: Q-10-6
+subsystem: template
+status: stub
+since: "99.9.9"
+categories:
+  - template
+---
+
+# `Q-10-6` — Unknown Pipe
+
+> A template applied a pipe name the engine does not
+> recognize.
+
+## What this means
+
+Pandoc-flavored templates apply transformations through pipes:
+`$name/uppercase$` runs `name` through the `uppercase` pipe,
+`$x/left 10$` pads `x` to width 10 with left alignment, and so
+on. This error fires when the pipe name does not match any
+pipe the engine knows about. The template's strict-mode setting
+determines whether the diagnostic is a warning or an error;
+either way, the variable's value is passed through unchanged.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in the pipe name** (`$x/uppercas$`).
+- **A pipe from a different template engine** (Liquid, Jinja,
+  Handlebars) that does not exist in Pandoc templates.
+- **A pipe that was removed or renamed** between Quarto
+  versions.
+
+## How to fix
+
+Replace the pipe with one that exists. The Pandoc template
+documentation lists the available pipes; common ones include
+`uppercase`, `lowercase`, `pairs`, `length`, `left`, `right`,
+`center`, `alpha`, `roman`.
+
+## Related
+
+- `Q-10-7` — pipe arguments were invalid: the same family of
+  pipe errors, but the pipe itself was recognized.
