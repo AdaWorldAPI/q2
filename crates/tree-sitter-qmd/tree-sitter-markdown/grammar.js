@@ -361,7 +361,22 @@ module.exports = grammar({
 
         pandoc_math: $ => seq(
             '$',
-            /[^$ \t\n]([ \t]*[^$ \t\n]+|\\\$)*/,
+            /[^$ \t\n\r]([ \t]*[^$ \t\n\r]+|\\\$)*/,
+            // bd-ilv8p: allow inline math to span multiple lines. Each
+            // line's content must still satisfy the "no whitespace
+            // adjacent to a delimiter" rule, so we model multi-line
+            // math as one-or-more line segments joined by
+            // _soft_line_break (which itself consumes the line ending
+            // plus any block-continuation prefix — `> `, list indent,
+            // etc.). The break is aliased to pandoc_soft_break so the
+            // post-processor can find its byte range and strip the
+            // gutter when assembling the InlineMath text. The regex
+            // also now excludes \r as a pre-existing CRLF correctness
+            // fix.
+            repeat(seq(
+                alias($._soft_line_break, $.pandoc_soft_break),
+                /[^$ \t\n\r]([ \t]*[^$ \t\n\r]+|\\\$)*/
+            )),
             '$',
         ),
 
@@ -373,11 +388,18 @@ module.exports = grammar({
 
         pandoc_code_span: $ => prec.right(seq(
             alias($._code_span_start, $.code_span_delimiter),
-            // this is a goofy construction but it lets the external scanner in to 
+            // this is a goofy construction but it lets the external scanner in to
             // do add the code_span_code token
             alias(repeat1(choice(
-                    /[^`]+/,
-                    /[`]/
+                    /[^`\n\r]+/,
+                    /[`]/,
+                    // bd-ilv8p: line breaks inside content. The scanner's
+                    // parse_code_span look-ahead allows the opener to commit
+                    // across newlines (up to a blank line); _soft_line_break
+                    // is _soft_line_ending + optional(block_continuation), so
+                    // the `> ` / list-indent gutter is consumed structurally
+                    // here rather than appearing in the text segments.
+                    alias($._soft_line_break, $.pandoc_soft_break)
                 )), $.content),
             alias($._code_span_close, $.code_span_delimiter),
             optional($.attribute_specifier)

@@ -76,3 +76,53 @@ $$
       (section
         (pandoc_paragraph
           (pandoc_display_math))))
+================================================================================
+6 - multi-line inline math in a plain paragraph
+================================================================================
+Math $a +
+b$ here.
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_paragraph
+      (pandoc_str)
+      (pandoc_space)
+      (pandoc_math
+        (pandoc_soft_break))
+      (pandoc_space)
+      (pandoc_str))))
+================================================================================
+7 - multi-line inline math inside a block quote (with `> ` gutter)
+================================================================================
+> Math $a +
+> b$ here.
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_block_quote
+      (block_quote_marker)
+      (pandoc_paragraph
+        (pandoc_str)
+        (pandoc_space)
+        (pandoc_math
+          (pandoc_soft_break))
+        (pandoc_space)
+        (pandoc_str)))))
+================================================================================
+8 - multi-line inline math inside a bullet-list item
+================================================================================
+- Math $a +
+  b$ here.
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_list
+      (list_item
+        (list_marker_minus)
+        (pandoc_paragraph
+          (pandoc_str)
+          (pandoc_space)
+          (pandoc_math
+            (pandoc_soft_break))
+          (pandoc_space)
+          (pandoc_str))))))

@@ -684,7 +684,9 @@ foo
     (pandoc_paragraph
       (pandoc_code_span
         (code_span_delimiter)
-        (content)
+        (content
+          (pandoc_soft_break)
+          (pandoc_soft_break))
         (code_span_delimiter)))))
 ================================================================================
 Example 92 - https://github.github.com/gfm/#example-92

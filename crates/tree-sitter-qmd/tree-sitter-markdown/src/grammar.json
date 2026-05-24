@@ -1540,7 +1540,28 @@
         },
         {
           "type": "PATTERN",
-          "value": "[^$ \\t\\n]([ \\t]*[^$ \\t\\n]+|\\\\\\$)*"
+          "value": "[^$ \\t\\n\\r]([ \\t]*[^$ \\t\\n\\r]+|\\\\\\$)*"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_soft_line_break"
+                },
+                "named": true,
+                "value": "pandoc_soft_break"
+              },
+              {
+                "type": "PATTERN",
+                "value": "[^$ \\t\\n\\r]([ \\t]*[^$ \\t\\n\\r]+|\\\\\\$)*"
+              }
+            ]
+          }
         },
         {
           "type": "STRING",
@@ -1589,11 +1610,20 @@
                 "members": [
                   {
                     "type": "PATTERN",
-                    "value": "[^`]+"
+                    "value": "[^`\\n\\r]+"
                   },
                   {
                     "type": "PATTERN",
                     "value": "[`]"
+                  },
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_soft_line_break"
+                    },
+                    "named": true,
+                    "value": "pandoc_soft_break"
                   }
                 ]
               }

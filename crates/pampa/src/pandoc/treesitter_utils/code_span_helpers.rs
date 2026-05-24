@@ -12,6 +12,63 @@ use crate::pandoc::attr::{Attr, AttrSourceInfo, empty_attr};
 use crate::pandoc::inline::{Code, Inline, Space};
 use crate::pandoc::location::node_source_info_with_context;
 
+/// Extract the code-span text from a `content` tree-sitter node.
+///
+/// The grammar (bd-ilv8p) allows multi-line code spans: the content
+/// node may contain `pandoc_soft_break` children whose byte range
+/// covers the line ending plus any block-continuation gutter (e.g.
+/// `> ` for blockquotes, the indent for list items). To recover the
+/// pandoc-equivalent code text:
+///
+///   1. The text between soft_break children is appended verbatim
+///      (preserving doubled spaces — pandoc does not collapse them).
+///   2. Each `pandoc_soft_break` range collapses to a single space.
+///
+/// On the single-line path (no children), the function falls back to
+/// reading the content node's raw byte range, identical to the old
+/// behavior.
+fn extract_code_span_text(content_node: &tree_sitter::Node, input_bytes: &[u8]) -> String {
+    let mut text = String::new();
+    let mut cursor = content_node.walk();
+    if !cursor.goto_first_child() {
+        // No named children — single-line content (just text segments,
+        // which are anonymous regex tokens not exposed in the tree).
+        let bytes = &input_bytes[content_node.start_byte()..content_node.end_byte()];
+        return std::str::from_utf8(bytes).unwrap().to_string();
+    }
+    let mut byte_cursor = content_node.start_byte();
+    loop {
+        let child = cursor.node();
+        // Append any text from byte_cursor up to the child's start.
+        if child.start_byte() > byte_cursor {
+            let bytes = &input_bytes[byte_cursor..child.start_byte()];
+            text.push_str(std::str::from_utf8(bytes).unwrap());
+        }
+        match child.kind() {
+            "pandoc_soft_break" => {
+                // Newline + block-continuation gutter → single space.
+                text.push(' ');
+            }
+            _ => {
+                // Unexpected named child — preserve its bytes to stay
+                // forward-compatible with grammar additions.
+                let bytes = &input_bytes[child.start_byte()..child.end_byte()];
+                text.push_str(std::str::from_utf8(bytes).unwrap());
+            }
+        }
+        byte_cursor = child.end_byte();
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    // Append any trailing text after the last child.
+    if byte_cursor < content_node.end_byte() {
+        let bytes = &input_bytes[byte_cursor..content_node.end_byte()];
+        text.push_str(std::str::from_utf8(bytes).unwrap());
+    }
+    text
+}
+
 /// Process pandoc_code_span node
 pub fn process_pandoc_code_span(
     node: &tree_sitter::Node,
@@ -29,16 +86,32 @@ pub fn process_pandoc_code_span(
     let mut has_leading_space = false;
     let mut checked_opening_delimiter = false;
 
+    // Find the content child via a direct tree walk: we can't rely on
+    // the intermediate `child` value, because the bottom-up visitor
+    // collapses the content node's anonymous text-segment regexes and
+    // the multi-line case has structural pandoc_soft_break children
+    // whose surrounding text segments are lost in the intermediate
+    // form.
+    {
+        let mut cursor = node.walk();
+        if cursor.goto_first_child() {
+            loop {
+                let child = cursor.node();
+                if child.kind() == "content" {
+                    code_text = extract_code_span_text(&child, input_bytes);
+                    break;
+                }
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
+    }
+
     for (node_name, child) in &children {
         match node_name.as_str() {
             "content" => {
-                // Extract text from content node
-                if let PandocNativeIntermediate::IntermediateUnknown(range) = child {
-                    code_text =
-                        std::str::from_utf8(&input_bytes[range.start.offset..range.end.offset])
-                            .unwrap()
-                            .to_string();
-                }
+                // Handled above via direct tree walk.
             }
             "code_span_delimiter" => {
                 // Check if opening delimiter includes leading space

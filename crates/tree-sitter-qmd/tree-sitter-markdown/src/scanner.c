@@ -664,6 +664,68 @@ static bool parse_fenced_div_marker(Scanner *s, TSLexer *lexer,
     return false;
 }
 
+// Look ahead for a closing inline code-span delimiter of length `level`.
+// Returns true if a matching close exists before a blank line / EOF,
+// false otherwise. Used by both parse_code_span (mid-paragraph) and
+// parse_fenced_code_block (start-of-paragraph) so the two emission
+// sites stay in sync (bd-ilv8p). The advances are speculative; callers
+// must have called mark_end before invoking this — tree-sitter rewinds
+// to that position between scan calls.
+static bool code_span_close_exists_ahead(TSLexer *lexer, uint8_t level) {
+    size_t close_level = 0;
+    while (!lexer->eof(lexer)) {
+        if (lexer->lookahead == '`') {
+            close_level++;
+            lexer->advance(lexer, false);
+            continue;
+        }
+        if (lexer->lookahead == '\n' || lexer->lookahead == '\r') {
+            // A newline terminates an in-progress matching run.
+            if (close_level == level) {
+                return true;
+            }
+            // Consume the line ending.
+            if (lexer->lookahead == '\r') {
+                lexer->advance(lexer, false);
+                if (lexer->lookahead == '\n') {
+                    lexer->advance(lexer, false);
+                }
+            } else {
+                lexer->advance(lexer, false);
+            }
+            // Skip ASCII spaces / tabs on the next line.
+            while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
+                lexer->advance(lexer, false);
+            }
+            // Blank line (or EOF after a whitespace-only line) is a
+            // paragraph terminator — the code span never forms.
+            if (lexer->eof(lexer) ||
+                lexer->lookahead == '\n' ||
+                lexer->lookahead == '\r') {
+                return false;
+            }
+            // Continue scanning. Do not advance past the first
+            // non-whitespace character of the new line — it may be a
+            // backtick that starts a new run. We do not skip block-
+            // continuation prefixes (`> `, list indent) here: they are
+            // ordinary non-backtick characters for the purpose of
+            // finding a closing delimiter, and the real parse pass
+            // will consume them as block_continuation tokens via the
+            // grammar's _soft_line_break rule.
+            close_level = 0;
+            continue;
+        }
+        // Other non-backtick character.
+        if (close_level == level) {
+            return true;
+        }
+        close_level = 0;
+        lexer->advance(lexer, false);
+    }
+    // EOF reached — accept if the last characters formed a matching run.
+    return close_level == level;
+}
+
 static bool parse_fenced_code_block(Scanner *s, const char delimiter,
                                     TSLexer *lexer, const bool *valid_symbols) {
     // count the number of backticks
@@ -674,8 +736,12 @@ static bool parse_fenced_code_block(Scanner *s, const char delimiter,
     }
     mark_end(s, lexer);
 
-    // we might need to open a code span at the start of a paragraph
-    if (valid_symbols[CODE_SPAN_START] && delimiter == '`' && level < 3) {
+    // We might need to open a code span at the start of a paragraph.
+    // Gate on the same close-ahead look-ahead used by parse_code_span
+    // (bd-ilv8p): pandoc rejects an unclosed opener and only allows
+    // the span to extend within one paragraph (no blank line crossing).
+    if (valid_symbols[CODE_SPAN_START] && delimiter == '`' && level < 3 &&
+        code_span_close_exists_ahead(lexer, level)) {
         s->code_span_delimiter_length = level;
         EMIT_TOKEN(CODE_SPAN_START);
     }
@@ -1601,9 +1667,11 @@ static bool parse_fenced_div_note_id(Scanner *s, TSLexer *lexer,
     EMIT_TOKEN(FENCED_DIV_NOTE_ID);
 }
 
-// Parse code span delimiters for pipe table cells
-// This is similar to the inline scanner's parse_backtick but simplified
-// since we only need to handle code spans within a single line
+// Parse code span delimiters for inline code spans (and pipe table cells).
+// Dispatched from the main inline scanner at the '`' case (around
+// scanner.c:2374) whenever CODE_SPAN_START / CODE_SPAN_CLOSE is valid.
+// The CODE_SPAN_START look-ahead lives in code_span_close_exists_ahead
+// and is shared with parse_fenced_code_block (start-of-paragraph path).
 static bool parse_code_span(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
     // Count backticks
     uint8_t level = 0;
@@ -1619,28 +1687,11 @@ static bool parse_code_span(Scanner *s, TSLexer *lexer, const bool *valid_symbol
         EMIT_TOKEN(CODE_SPAN_CLOSE);
     }
 
-    // Try to open a new code span by looking ahead for a matching closing delimiter
-    if (valid_symbols[CODE_SPAN_START]) {
-        size_t close_level = 0;
-        // Look ahead within the same line to find a closing delimiter
-        while (!lexer->eof(lexer) && lexer->lookahead != '\n' && lexer->lookahead != '\r') {
-            if (lexer->lookahead == '`') {
-                close_level++;
-            } else {
-                if (close_level == level) {
-                    // Found a matching delimiter
-                    break;
-                }
-                close_level = 0;
-            }
-            lexer->advance(lexer, false);
-        }
-
-        if (close_level == level) {
-            // Found matching closing delimiter
-            s->code_span_delimiter_length = level;
-            EMIT_TOKEN(CODE_SPAN_START);
-        }
+    // Try to open a new code span by looking ahead for a matching closing delimiter.
+    if (valid_symbols[CODE_SPAN_START] &&
+        code_span_close_exists_ahead(lexer, level)) {
+        s->code_span_delimiter_length = level;
+        EMIT_TOKEN(CODE_SPAN_START);
     }
 
     return false;
@@ -2612,20 +2663,55 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
                 first_peeked = true;
             }
 
-            if ((!(s->state & STATE_INSIDE_ATX)) &&
-                (first_lookahead != '*' || !first_starts_with_star_block) &&
-                first_lookahead != '-' &&
-                first_lookahead != '+' && first_lookahead != '>' &&
-                first_lookahead != ':' && first_lookahead != '#' &&
-                !first_starts_with_fence &&
-                first_lookahead > ' ' && !(first_lookahead >= '0' && first_lookahead <= '9')) {
+            // bd-ilv8p: when we're inside an open inline code span,
+            // pandoc absorbs all content (including characters that
+            // would otherwise interrupt a paragraph — heading markers,
+            // list markers, fence delimiters, etc.) as literal text up
+            // to the matching close. The code_span_close_exists_ahead
+            // look-ahead at CODE_SPAN_START already established that a
+            // close exists within the paragraph, so we want the soft-
+            // break to always go through here and let the grammar's
+            // _soft_line_break consume the line ending.
+            //
+            // Exception: when first_lookahead is `>`, defer to match_line
+            // + the second gate so the block-quote prefix is folded into
+            // the SOFT_LINE_ENDING token range (otherwise the `> ` would
+            // be left between the soft-break and the next text segment,
+            // and the content extractor would pick it up as literal
+            // backtick text). The second-gate bypass below handles the
+            // post-match_line side of this.
+            bool inside_code_span =
+                (s->code_span_delimiter_length > 0) &&
+                valid_symbols[SOFT_LINE_ENDING] &&
+                !(s->state & STATE_CLOSE_BLOCK) &&
+                first_lookahead != '>';
+            if (inside_code_span ||
+                ((!(s->state & STATE_INSIDE_ATX)) &&
+                 (first_lookahead != '*' || !first_starts_with_star_block) &&
+                 first_lookahead != '-' &&
+                 first_lookahead != '+' && first_lookahead != '>' &&
+                 first_lookahead != ':' && first_lookahead != '#' &&
+                 !first_starts_with_fence &&
+                 first_lookahead > ' ' && !(first_lookahead >= '0' && first_lookahead <= '9'))) {
                 s->state |= STATE_WAS_SOFT_LINE_BREAK;
-                if (first_peeked) {
-                    // Peek-advanced past indent + delimiter run;
-                    // SOFT_LINE_ENDING token range is pre-indent (mark from
-                    // line 2247). Set STATE_MATCHING so the indent is
-                    // emitted as block_continuation on the next scan via
-                    // match_line.
+                if (first_peeked || inside_code_span) {
+                    // Peek-advanced past indent + delimiter run (or this
+                    // is the code-span bypass): leave SOFT_LINE_ENDING's
+                    // token range at pre-indent (mark_end from line 2511,
+                    // immediately after the line feed). Set STATE_MATCHING
+                    // so any continuation indent / block prefix is emitted
+                    // as block_continuation on the next scan via match_line.
+                    //
+                    // For the code-span path (bd-ilv8p) this is critical:
+                    // a regular paragraph's continuation-line leading
+                    // whitespace would normally be folded into the soft
+                    // break, but pandoc preserves that whitespace as
+                    // content inside a code span. Skipping the
+                    // mark_end-at-post-indent here keeps the leading
+                    // whitespace as input to the next scan (where it
+                    // either becomes block_continuation via match_line
+                    // when an open block claims it, or is consumed as
+                    // text by the code-span content rule).
                     s->matched = 0;
                     s->indentation = 0;
                     if (s->open_blocks.size > 0) {
@@ -2732,14 +2818,21 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
                 }
             }
 
+            // bd-ilv8p: same inside-code-span bypass as the first gate
+            // above. Inside an open inline code span, the block-marker
+            // checks (#, -, +, etc.) should not gate SOFT_LINE_ENDING —
+            // pandoc treats those as content, and the matching close is
+            // guaranteed to exist within the paragraph by the look-ahead
+            // at CODE_SPAN_START time.
             if (valid_symbols[SOFT_LINE_ENDING] && might_be_soft_break && all_will_be_matched &&
-                ((second_lookahead != '*' || !second_starts_with_star_block) &&
-                 second_lookahead != '-' &&
-                 second_lookahead != '+' && second_lookahead != '>' &&
-                 second_lookahead != ':' && second_lookahead != '#' &&
-                 !second_starts_with_fence &&
-                 second_lookahead > ' ' && !(second_lookahead >= '0' &&
-                 second_lookahead <= '9'))) {
+                ((s->code_span_delimiter_length > 0) ||
+                 ((second_lookahead != '*' || !second_starts_with_star_block) &&
+                  second_lookahead != '-' &&
+                  second_lookahead != '+' && second_lookahead != '>' &&
+                  second_lookahead != ':' && second_lookahead != '#' &&
+                  !second_starts_with_fence &&
+                  second_lookahead > ' ' && !(second_lookahead >= '0' &&
+                  second_lookahead <= '9')))) {
                 s->indentation = 0;
                 s->column = 0;
                 // If the last line break ended a paragraph and no new block opened,

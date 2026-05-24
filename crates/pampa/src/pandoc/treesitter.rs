@@ -418,6 +418,57 @@ fn strip_continuation_prefix(content: &str, start_col: usize) -> String {
     result
 }
 
+/// Extract the body of a `pandoc_math` node, stripping delimiters and folding
+/// each `pandoc_soft_break` child range down to a single literal `\n`.
+///
+/// The math node's byte range covers `$ ... $` and, for multi-line math
+/// (bd-ilv8p), one or more `pandoc_soft_break` children whose ranges include
+/// the line ending plus any enclosing block's continuation prefix (`> ` for
+/// blockquotes, the indent for list items). Pandoc preserves the literal `\n`
+/// in `Math InlineMath` text and strips the gutter, so we replace each
+/// soft_break range with `\n` and append the text segments verbatim.
+fn extract_inline_math_text(node: &tree_sitter::Node, input_bytes: &[u8]) -> String {
+    let start = node.start_byte();
+    let end = node.end_byte();
+    // Strip the opening / closing `$` (each is exactly 1 byte).
+    let body_start = start + 1;
+    let body_end = end - 1;
+    debug_assert!(body_start <= body_end);
+
+    let mut text = String::new();
+    let mut cursor = node.walk();
+    if !cursor.goto_first_child() {
+        // No structural children — single-line math.
+        let bytes = &input_bytes[body_start..body_end];
+        return std::str::from_utf8(bytes).unwrap().to_string();
+    }
+    let mut byte_cursor = body_start;
+    loop {
+        let child = cursor.node();
+        if child.kind() == "pandoc_soft_break" {
+            // Append text from byte_cursor to child.start_byte, then `\n`.
+            if child.start_byte() > byte_cursor {
+                let bytes = &input_bytes[byte_cursor..child.start_byte()];
+                text.push_str(std::str::from_utf8(bytes).unwrap());
+            }
+            text.push('\n');
+            byte_cursor = child.end_byte();
+        }
+        // Other kinds — including anonymous `$` delimiter tokens — are
+        // outside the body range we care about. Skip them; trailing text
+        // is recovered after the loop.
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    // Append any trailing text up to the body end.
+    if byte_cursor < body_end {
+        let bytes = &input_bytes[byte_cursor..body_end];
+        text.push_str(std::str::from_utf8(bytes).unwrap());
+    }
+    text
+}
+
 /// Detect whether a list item's tree-sitter node contains a blank line between
 /// its block-level children. This is done by checking whether any `pandoc_paragraph`
 /// child that precedes another block-level sibling contains a `block_continuation`
@@ -589,15 +640,20 @@ fn native_visitor<T: Write>(
             PandocNativeIntermediate::IntermediateUnknown(node_location(node))
         }
         "pandoc_math" => {
-            // Extract math content (text between $ delimiters)
-            // Node structure: '$' content '$'
-            // Get the full text and strip the delimiters
-            let full_text = node.utf8_text(input_bytes).unwrap();
-            let content = &full_text[1..full_text.len() - 1]; // Strip leading and trailing $
+            // Extract math content (text between $ delimiters).
+            //
+            // Node structure: '$' text_segment (pandoc_soft_break text_segment)* '$'
+            // — the multi-line case (bd-ilv8p) puts pandoc_soft_break children
+            // between text segments, with each break's byte range covering the
+            // line ending plus any block-continuation gutter (e.g. `> ` for
+            // blockquotes, the indent for list items). Pandoc preserves the
+            // literal `\n` in the math text and strips the gutter, so we
+            // collapse each pandoc_soft_break range to a single `\n`.
+            let text = extract_inline_math_text(node, input_bytes);
 
             PandocNativeIntermediate::IntermediateInline(Inline::Math(Math {
                 math_type: MathType::InlineMath,
-                text: content.to_string(),
+                text,
                 source_info: node_source_info_with_context(node, context),
             }))
         }

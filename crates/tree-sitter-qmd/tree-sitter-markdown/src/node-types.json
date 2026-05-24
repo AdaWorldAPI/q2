@@ -1514,7 +1514,17 @@
   {
     "type": "pandoc_math",
     "named": true,
-    "fields": {}
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "pandoc_soft_break",
+          "named": true
+        }
+      ]
+    }
   },
   {
     "type": "pandoc_paragraph",
