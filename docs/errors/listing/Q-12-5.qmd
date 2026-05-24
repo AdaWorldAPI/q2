@@ -1,0 +1,47 @@
+---
+title: "Invalid field-display-names Value"
+description: "A `field-display-names` entry has a non-string value; that entry is dropped."
+code: Q-12-5
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-5` — Invalid field-display-names Value
+
+> A `field-display-names` entry has a non-string value; that
+> entry is dropped.
+
+## What this means
+
+The `field-display-names:` key on a listing lets you rename the
+column headers shown in the table or grid view: `date: "Posted"`
+turns the default *Date* header into *Posted*. Every value under
+this key must be a string — the display name itself. This error
+fires when a value is a number, a boolean, a map, or any other
+non-string shape.
+
+The offending entry is dropped; other entries continue to apply.
+
+## Why this happens
+
+Common causes:
+
+- **A bare number or boolean** that was supposed to be quoted
+  (`date: 2024` instead of `date: "2024"`).
+- **A nested map** mistakenly used here when the author meant a
+  more elaborate column-customization API.
+
+## How to fix
+
+Make sure every value under `field-display-names:` is a string.
+If you need both a display name and other column customization,
+the other options live under different keys (such as
+`field-types:`).
+
+## Related
+
+- `Q-12-1` — `field-types:` value error: a related per-field
+  configuration mistake.

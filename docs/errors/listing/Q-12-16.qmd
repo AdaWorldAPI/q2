@@ -1,0 +1,54 @@
+---
+title: "Listing Feed: Sibling Output Unreadable"
+description: "A listing feed entry could not read its sibling output file; that item's description is left empty."
+code: Q-12-16
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-16` — Listing Feed: Sibling Output Unreadable
+
+> A listing feed entry could not read its sibling output file;
+> that item's description is left empty.
+
+## What this means
+
+Each entry in a listing's feed (Atom or RSS) carries a
+`<description>` element — typically the first paragraph or the
+explicit `description:` of the source item. To build that
+field, Quarto opens the item's *rendered sibling* (the HTML
+file produced from the source) and extracts a description from
+it.
+
+This warning fires when that read fails: the sibling file is
+not where Quarto expected it, or the process does not have
+permission to read it. The feed is still produced, but the
+affected entry's `<description>` is empty.
+
+## Why this happens
+
+Common causes:
+
+- **The item failed to render**, so no sibling output exists.
+- **The render output directory is inconsistent** — a partial
+  build, an interrupted previous render, or an output that was
+  cleaned out between the listing-resolution pass and the feed
+  pass.
+- **A filesystem permissions issue** on the output directory.
+
+## How to fix
+
+Re-render from a clean state (`q2 render --clean` or remove the
+output directory by hand). If the problem persists, render the
+single offending source file directly and check for render-time
+errors that prevented the sibling output from being written.
+
+## Related
+
+- `Q-12-13` — a related preview-time failure: the source
+  rendered, but no preview-eligible content was extracted.
+- `Q-12-15` — feed generation skipped entirely because
+  `site-url` is missing.

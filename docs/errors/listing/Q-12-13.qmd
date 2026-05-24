@@ -1,0 +1,51 @@
+---
+title: "Listing Item Produced No Preview Content"
+description: "A listing item produced no preview content; a static fallback description is used in its place."
+code: Q-12-13
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-13` — Listing Item Produced No Preview Content
+
+> A listing item produced no preview content; a static fallback
+> description is used in its place.
+
+## What this means
+
+Each item in a listing usually shows a short preview — the
+first paragraph or an explicit `description:` from the source
+document. To build that preview, Quarto looks for preview-eligible
+content in the rendered output of the source. This warning fires
+when Quarto cannot find any: the rendered output is empty, has
+only non-preview-eligible content (headings, raw HTML, ...), or
+the source render did not produce a sibling file Quarto could
+inspect.
+
+The item still appears in the listing, with a static fallback
+description.
+
+## Why this happens
+
+Common causes:
+
+- **The item is a near-empty document** — no body paragraph
+  before the first heading, no `description:` in front matter.
+- **The item's front matter has nothing the listing template
+  knows to surface** (no `title`, no `description`).
+- **A custom render path** (filter, post-processor) stripped
+  the content the preview pass would have used.
+
+## How to fix
+
+Add a `description:` field to the item's front matter, or write
+a short opening paragraph before the first heading. Both are
+preview-eligible and will replace the fallback.
+
+## Related
+
+- `Q-12-16` — sibling output unreadable: a related failure mode
+  where the file existed but could not be read.

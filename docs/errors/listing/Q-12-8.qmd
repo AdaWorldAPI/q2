@@ -1,0 +1,52 @@
+---
+title: "Listing Template File Missing"
+description: "The path given as `template:` does not exist or could not be read; the default built-in template is used instead."
+code: Q-12-8
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-8` — Listing Template File Missing
+
+> The path given as `template:` does not exist or could not be
+> read; the default built-in template is used instead.
+
+## What this means
+
+A listing with `type: custom` and `template: path/to/file`
+expects to find that file on disk, relative to the document
+that hosts the listing. This error fires when Quarto tries to
+read the file and the read fails — usually because the path is
+wrong, the file is missing, or the process does not have
+permission to read it.
+
+The listing falls back to the `default` built-in template so
+the document still renders, but the layout will not match what
+the custom template would have produced.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in the path** (`template: my-listng.ejs`).
+- **The file moved or was renamed** but the `template:` value
+  was not updated.
+- **A path relative to the wrong base.** `template:` is
+  resolved relative to the host document, not to the project
+  root.
+
+## How to fix
+
+Confirm the file exists at the expected location. If you are
+not sure where Quarto is looking, try an absolute path
+temporarily — if that works, the original path was being
+resolved against the wrong base directory.
+
+## Related
+
+- `Q-12-14` — `type: custom` without any `template:` path.
+- `Q-12-7` — `template:` set without `type: custom`.
+- `Q-12-9` — `template:` points at a deprecated `.ejs.md` file.

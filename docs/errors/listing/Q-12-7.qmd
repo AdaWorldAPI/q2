@@ -1,0 +1,51 @@
+---
+title: "template Requires type: custom"
+description: "`template:` was set but `type:` is not `custom`; the built-in template for the declared type is used instead."
+code: Q-12-7
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-7` — `template:` Requires `type: custom`
+
+> `template:` was set but `type:` is not `custom`; the built-in
+> template for the declared type is used instead.
+
+## What this means
+
+A listing's `template:` key points at a custom template file
+(typically an EJS or Handlebars file) that Quarto uses to render
+each item. The key only has an effect when `type: custom` —
+otherwise the listing uses one of the four built-in templates
+(`default`, `grid`, `table`, ...) and there is no point at which
+the custom template would be consulted.
+
+When you set `template:` on a non-custom type, Quarto warns and
+ignores the template — the built-in for the declared type
+renders the listing.
+
+## Why this happens
+
+Two common causes:
+
+- **Migration from Quarto 1**, where some templates were
+  attached to non-custom types in a way Quarto 2 does not
+  preserve.
+- **A copy-paste mistake** that combined fields from two
+  listings without keeping the matching `type:`.
+
+## How to fix
+
+Either set `type: custom` (so the template is used) or remove
+the `template:` line (if you wanted the built-in for the
+declared type all along).
+
+## Related
+
+- `Q-12-14` — the reverse: `type: custom` was set but no
+  `template:` path was given.
+- `Q-12-8` — `template:` set, but the file at that path could
+  not be read.
