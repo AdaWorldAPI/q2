@@ -1,0 +1,48 @@
+---
+title: "Unexpected End of XML Input"
+description: "The XML document ended before the parser had finished what it was reading."
+code: Q-9-2
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-2` — Unexpected End of XML Input
+
+> The XML document ended before the parser had finished what it
+> was reading.
+
+## What this means
+
+The parser hit end-of-input mid-construct: an open element with
+no closing tag, an attribute value missing its closing quote, a
+comment with no `-->`, an entity reference with no `;`. The
+message names what the parser was expecting when the input ran
+out.
+
+## Why this happens
+
+Common causes:
+
+- **A truncated download** — the file was not fully written.
+- **A missing closing tag** at the end of the document.
+- **An unterminated comment, CDATA section, or processing
+  instruction**: the parser is still inside one of those when
+  the input ends.
+
+## How to fix
+
+Add the missing closing construct (`</tag>`, `-->`, `]]>`, or
+the closing quote) at the appropriate place. If you suspect a
+truncation, compare the file size with the source and re-fetch
+if needed.
+
+## Related
+
+- `Q-9-1` — general XML syntax error: covers the same family of
+  malformed input.
+- `Q-9-3` — mismatched end tag, a related but distinct case
+  where a closing tag *was* found but did not match the open
+  one.

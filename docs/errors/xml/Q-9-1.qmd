@@ -1,0 +1,51 @@
+---
+title: "XML Syntax Error"
+description: "The XML parser rejected the input as syntactically invalid."
+code: Q-9-1
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-1` — XML Syntax Error
+
+> The XML parser rejected the input as syntactically invalid.
+
+## What this means
+
+Quarto parses XML in a few places — most prominently when
+loading a CSL citation style — and uses a strict XML parser
+that rejects malformed input rather than guessing. This error
+fires when the parser cannot make sense of what it is reading:
+a stray `<`, an unterminated entity, an attribute value missing
+its closing quote, and so on.
+
+The message names the underlying issue and, where the parser
+can pinpoint it, a byte offset into the document.
+
+## Why this happens
+
+Common causes:
+
+- **An unescaped `<`, `&`, or `>` in textual content.** These
+  must be written as `&lt;`, `&amp;`, `&gt;`.
+- **An attribute value missing a quote** (`name=value` instead
+  of `name="value"`).
+- **A CDATA or comment block that was never closed.**
+
+## How to fix
+
+Read the byte offset in the message — it usually points within
+a few characters of the actual problem. If you cannot spot the
+issue by inspection, paste the document into an XML validator
+(any browser will do for a quick check) and fix the issues it
+reports.
+
+## Related
+
+- `Q-9-2` — unexpected end of input: the parser reached the
+  end before finishing what it started.
+- `Q-9-3` — mismatched end tag, a more specific syntax failure
+  with its own diagnostic.

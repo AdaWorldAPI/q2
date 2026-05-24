@@ -1,0 +1,48 @@
+---
+title: "Unexpected Element"
+description: "A CSL element appears in a position where it is not allowed."
+code: Q-9-10
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-10` — Unexpected Element
+
+> A CSL element appears in a position where it is not allowed.
+
+## What this means
+
+CSL constrains which elements can appear inside which others —
+`<cs:layout>` is allowed inside `<cs:citation>` and
+`<cs:bibliography>` but nowhere else; `<cs:macro>` is a
+top-level element under `<cs:style>` only. This error fires
+when the parser finds an element in a position the schema does
+not allow. The message names the element and the context it
+appeared in.
+
+## Why this happens
+
+Common causes:
+
+- **A misplaced element** — moved to the wrong parent during
+  hand-editing.
+- **A typo in an element name** that happens to match a real
+  CSL element but is not the one meant for this position.
+- **A vendor-specific extension** that some other tool accepts
+  but Quarto's CSL parser does not.
+
+## How to fix
+
+Move the element to a parent that is allowed to contain it, or
+remove it if it does not belong. The CSL specification lists
+the allowed children for every element.
+
+## Related
+
+- `Q-9-9` — required child element missing: the opposite
+  problem, where an expected element is absent.
+- `Q-9-8` — invalid attribute value: similar shape, for
+  attributes rather than elements.
