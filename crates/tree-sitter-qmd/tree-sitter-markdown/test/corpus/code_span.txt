@@ -195,3 +195,51 @@ span` lazy.
             (code_span_delimiter))
           (pandoc_space)
           (pandoc_str))))))
+
+================================================================================
+11 inline code span containing literal triple asterisk (bd-qhb2o)
+================================================================================
+a `***` z
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_paragraph
+      (pandoc_str)
+      (pandoc_code_span
+        (code_span_delimiter)
+        (content)
+        (code_span_delimiter))
+      (pandoc_space)
+      (pandoc_str))))
+
+================================================================================
+12 inline code span containing triple asterisk prefix (bd-qhb2o)
+================================================================================
+a `***hello` z
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_paragraph
+      (pandoc_str)
+      (pandoc_code_span
+        (code_span_delimiter)
+        (content)
+        (code_span_delimiter))
+      (pandoc_space)
+      (pandoc_str))))
+
+================================================================================
+13 inline code span containing quadruple asterisk (regression guard, bd-qhb2o)
+================================================================================
+a `****` z
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_paragraph
+      (pandoc_str)
+      (pandoc_code_span
+        (code_span_delimiter)
+        (content)
+        (code_span_delimiter))
+      (pandoc_space)
+      (pandoc_str))))

@@ -844,7 +844,34 @@ static bool parse_star(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
         // line is empty so don't interrupt paragraphs if this is a list marker
         dont_interrupt = s->matched == s->open_blocks.size;
     }
-    if (star_count == 3 && !line_end && no_spaces) {
+    // bd-qhb2o: gate TRIPLE_STAR emission on valid_symbols[EMPHASIS_OPEN_STAR].
+    // TRIPLE_STAR is intentionally an error-trigger token — the merr-style
+    // state→Q-code table (resources/error-corpus/_autogen-table.json) maps
+    // the resulting parse error to Q-2-32 (`***` disallowed, suggest `*__`).
+    // Before bd-ilv8p the external scanner was never invoked inside
+    // pandoc_code_span content (the content rule was pure-regex), so emitting
+    // TRIPLE_STAR unconditionally was harmless. bd-ilv8p added a
+    // _soft_line_break alternative to the content rule, putting an external
+    // token in the valid-symbols set for code-span content states; the
+    // scanner is now called there, and an unconditional TRIPLE_STAR emission
+    // produces a spurious Q-2-32 on well-formed pandoc input like `\`***\``
+    // (which should parse to Code "***").
+    //
+    // EMPHASIS_OPEN_STAR is the cleanest discriminator because TRIPLE_STAR
+    // is *only* meaningful in states where emphasis could plausibly open —
+    // it diagnoses the user's apparent intent to write `***foo***` (strong+
+    // emph). Inside code-span content emphasis cannot open, so
+    // EMPHASIS_OPEN_STAR is not in the valid-symbols set there; at document
+    // / paragraph / span / list-item / etc. levels it is. The same gate
+    // also harmlessly suppresses TRIPLE_STAR in any other future state
+    // that does not admit emphasis opens (e.g. attribute-spec values).
+    //
+    // Note that valid_symbols[TRIPLE_STAR] itself cannot be the gate: the
+    // token is deliberately *not* in any parser state's valid set — its
+    // whole role is to provoke a parse error that the autogen table
+    // catches. So gating on it would suppress every emission and break
+    // Q-2-32 entirely.
+    if (valid_symbols[EMPHASIS_OPEN_STAR] && star_count == 3 && !line_end && no_spaces) {
         mark_end(s, lexer);
         EMIT_TOKEN(TRIPLE_STAR);
     }
