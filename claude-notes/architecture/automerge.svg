@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 900"
+     preserveAspectRatio="xMidYMid meet" role="img"
+     aria-labelledby="title desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="title">hub-client Automerge structure and WASM preview</title>
+  <desc id="desc">A Quarto project as an Automerge CRDT: a ProjectSetDocument lists projects, each
+  pointing to an IndexDocument that maps file paths to per-file Automerge documents and engine-capture
+  sidecars. The live preview mirrors document changes into a WASM virtual filesystem and renders them
+  with the in-browser quarto-core pipeline, returning a Pandoc AST that a React renderer paints.</desc>
+
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a6573"/>
+    </marker>
+    <marker id="arwt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2f8f8f"/>
+    </marker>
+    <style>
+      .h1  { font-size: 27px; font-weight: 700; fill: #16202e; }
+      .sub { font-size: 13px; fill: #5a6573; }
+      .col { font-size: 14px; font-weight: 700; letter-spacing: .03em; fill: #16202e; }
+      .dt  { font-size: 13.5px; font-weight: 700; fill: #16202e; }
+      .dsub{ font-size: 10.5px; fill: #7a8696; }
+      .fld { font-size: 11px; fill: #29333f; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .key { font-size: 10px; fill: #7a4fbf; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .step{ font-size: 12px; fill: #1a2330; }
+      .mono{ font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .ref { font-size: 10.5px; fill: #7a8696; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .api { font-size: 10.5px; fill: #29333f; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .apil{ font-size: 11px; font-weight: 700; }
+      .note{ font-size: 11px; fill: #3a4656; }
+      .flow{ stroke: #5a6573; stroke-width: 1.6; fill: none; }
+    </style>
+  </defs>
+
+  <text class="h1" x="40" y="42">Quarto&#160;2 &#8212; hub-client: Automerge + WASM Preview</text>
+  <text class="sub" x="42" y="64">A project as a CRDT document &#183; live in-browser rendering via <tspan class="mono">wasm-quarto-hub-client</tspan></text>
+
+  <text class="ref" x="1224" y="32" text-anchor="end" fill="#6a7bd0" font-weight="700">&#9656; Companion reading guide</text>
+  <text class="ref" x="1224" y="48" text-anchor="end">claude-notes/architecture/03-hub-client-automerge.md</text>
+  <text x="1224" y="65" text-anchor="end" font-size="10.5" fill="#5a6573">numbered marker = note in guide &#183; <tspan fill="#c47e10" font-weight="700">amber = note worth reading first</tspan></text>
+
+  <!-- ============ A · AUTOMERGE DOCUMENT MODEL (left) ============ -->
+  <text class="col" x="40" y="100">A &#183; AUTOMERGE DOCUMENT MODEL</text>
+
+  <!-- ProjectSetDocument -->
+  <rect x="56" y="112" width="534" height="92" rx="9" fill="#f4f1fb" stroke="#7a4fbf" stroke-width="1.6"/>
+  <text class="dt"  x="72" y="133">ProjectSetDocument <tspan class="dsub" font-weight="400">&#8212; the user&#8217;s project list (root)</tspan></text>
+  <text class="dsub" x="72" y="149">per user &#183; synced across browsers &#183; each browser stores only this doc&#8217;s id</text>
+  <text class="fld" x="72" y="170">projects: Record&lt;key, ProjectSetEntry&gt;</text>
+  <text class="fld" x="72" y="186">version: 1</text>
+  <text class="key" x="318" y="170">ProjectSetEntry {</text>
+  <text class="key" x="318" y="184">  indexDocId, syncServer, description,</text>
+  <text class="key" x="318" y="197">  addedAt, lastAccessed }</text>
+
+  <path class="flow" d="M323,204 L323,236" marker-end="url(#arw)"/>
+  <text class="ref" x="333" y="225" fill="#6a3faf">projects[key].indexDocId &#8594;</text>
+
+  <!-- IndexDocument -->
+  <rect x="56" y="236" width="534" height="128" rx="9" fill="#f4f1fb" stroke="#7a4fbf" stroke-width="1.6"/>
+  <text class="dt"  x="72" y="257">IndexDocument <tspan class="dsub" font-weight="400">&#8212; root of one project</tspan></text>
+  <text class="fld" x="72" y="280">files: Record&lt;path, docId&gt;</text>
+  <text class="fld" x="72" y="298">version: 2</text>
+  <text class="fld" x="72" y="316">identities: Record&lt;actorId, {name, color}&gt;</text>
+  <text class="fld" x="72" y="334">captures: Record&lt;path, CaptureRef&gt; <tspan class="dsub">(V2+)</tspan></text>
+  <text class="key" x="72" y="352">CaptureRef { captureDocId, staleness, state, lastError }</text>
+  <circle cx="590" cy="236" r="8.5" fill="#6a7bd0"/><text x="590" y="240" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+
+  <!-- arrows to file docs and capture docs -->
+  <path class="flow" d="M185,364 L185,416" marker-end="url(#arw)"/>
+  <text class="ref" x="120" y="386" fill="#6a3faf">files[path] &#8594;</text>
+  <path class="flow" d="M461,364 L461,416" marker-end="url(#arw)"/>
+  <text class="ref" x="372" y="386" fill="#6a3faf">captures[path]</text>
+  <text class="ref" x="372" y="399" fill="#6a3faf">.captureDocId &#8594;</text>
+
+  <!-- File documents -->
+  <rect x="56" y="416" width="258" height="116" rx="9" fill="#f4f1fb" stroke="#7a4fbf" stroke-width="1.6"/>
+  <text class="dt"  x="72" y="437" font-size="12.5">File documents</text>
+  <text class="dsub" x="72" y="453">one Automerge doc per file (per docId)</text>
+  <text class="fld" x="72" y="476">Text { text }</text>
+  <text class="dsub" x="180" y="476">&#8592; CRDT Text</text>
+  <text class="fld" x="72" y="498">Binary { content,</text>
+  <text class="fld" x="72" y="514">         mimeType, hash }</text>
+
+  <!-- Capture documents -->
+  <rect x="332" y="416" width="258" height="116" rx="9" fill="#fdf4e3" stroke="#d6a23c" stroke-width="1.6"/>
+  <text class="dt"  x="348" y="437" font-size="12.5">Capture documents</text>
+  <text class="dsub" x="348" y="453">one per captureDocId</text>
+  <text class="fld" x="348" y="476">serialized EngineCapture</text>
+  <text class="note" x="348" y="498" font-size="10.5">recorded engine output, replayed</text>
+  <text class="note" x="348" y="513" font-size="10.5">by capture-splice &#8594; diagram 1</text>
+
+  <!-- ============ B · LIVE PREVIEW WASM INFRA (right) ============ -->
+  <text class="col" x="640" y="100">B &#183; LIVE PREVIEW &#8212; WASM INFRASTRUCTURE</text>
+
+  <!-- Sync server -->
+  <rect x="656" y="112" width="568" height="34" rx="8" fill="#e9f2fb" stroke="#4a8fd4" stroke-width="1.5"/>
+  <text class="step" x="672" y="134">Sync server &#160;<tspan class="mono" font-size="11">WebSocket /ws</tspan> &#160;<tspan class="ref">(quarto-hub, or q2 preview ephemeral &#8594; diagram 4)</tspan></text>
+  <path class="flow" d="M940,146 L940,158" marker-end="url(#arw)"/>
+  <path class="flow" d="M940,158 L940,146" marker-end="url(#arw)"/>
+
+  <!-- Automerge Repo -->
+  <rect x="656" y="158" width="568" height="46" rx="8" fill="#e9f2fb" stroke="#4a8fd4" stroke-width="1.5"/>
+  <text class="step" x="672" y="178"><tspan class="mono" font-size="11">@automerge/automerge-repo</tspan> &#160;Repo</text>
+  <text class="ref"  x="672" y="195">net: Browser / Node WS adapter &#160;&#183;&#160; storage: IndexedDB / Memory adapter</text>
+  <path class="flow" d="M940,204 L940,216" marker-end="url(#arw)"/>
+
+  <!-- sync-client -->
+  <rect x="656" y="216" width="568" height="46" rx="8" fill="#e9f2fb" stroke="#4a8fd4" stroke-width="1.5"/>
+  <text class="step" x="672" y="236"><tspan class="mono" font-size="11">@quarto/quarto-sync-client</tspan></text>
+  <text class="ref"  x="672" y="253">onFileChanged(path,text) &#183; onIdentities/Captures &#183; presence (ephemeral cursors)</text>
+  <path class="flow" d="M940,262 L940,274" marker-end="url(#arw)"/>
+
+  <!-- vfs_add_file -->
+  <rect x="656" y="274" width="568" height="36" rx="8" fill="#e8f6f6" stroke="#2f8f8f" stroke-width="1.5"/>
+  <text class="step" x="672" y="296"><tspan class="mono" font-size="11">vfs_add_file(path, text)</tspan> &#8594; WASM VFS &#160;<tspan class="ref">/project/&#8230;</tspan></text>
+  <circle cx="1224" cy="274" r="8.5" fill="#e8941f"/><text x="1224" y="278" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+  <path class="flow" d="M940,310 L940,322" marker-end="url(#arwt)"/>
+
+  <!-- render entry -->
+  <rect x="656" y="322" width="568" height="36" rx="8" fill="#e8f6f6" stroke="#2f8f8f" stroke-width="1.5"/>
+  <text class="step" x="672" y="344"><tspan class="mono" font-size="11">render_page_in_project_with_attribution(path)</tspan> &#160;[WASM]</text>
+  <path class="flow" d="M940,358 L940,370" marker-end="url(#arwt)"/>
+
+  <!-- pipeline -->
+  <rect x="656" y="370" width="568" height="36" rx="8" fill="#fdf4e3" stroke="#d6a23c" stroke-width="1.5"/>
+  <text class="step" x="672" y="392"><tspan class="mono" font-size="11">quarto-core</tspan> q2-preview pipeline over the VFS &#160;<tspan class="ref">&#8594; diagram 1</tspan></text>
+  <path class="flow" d="M940,406 L940,418" marker-end="url(#arw)"/>
+
+  <!-- AST -> React -->
+  <rect x="656" y="418" width="568" height="52" rx="8" fill="#e8f5ee" stroke="#5aa66f" stroke-width="1.5"/>
+  <text class="step" x="672" y="438">Pandoc AST <tspan class="ref">(JSON)</tspan> &#8594; React renderer <tspan class="ref">(@quarto/preview-renderer)</tspan></text>
+  <text class="ref"  x="672" y="456">renders in iframe &#183; <tspan class="mono">/.quarto/&#8230;</tspan> artifacts served from the VFS (no network)</text>
+
+  <!-- ============ WASM API SURFACE (full-width band) ============ -->
+  <rect x="40" y="552" width="1184" height="176" rx="10" fill="#fff" stroke="#2f8f8f" stroke-width="1.5"/>
+  <text class="col" x="56" y="576" fill="#1d6b6b" font-size="13">WASM ENTRY-POINT SURFACE &#160;<tspan class="ref" font-weight="400" fill="#7a8696">#[wasm_bindgen] exports of wasm-quarto-hub-client</tspan></text>
+  <!-- col 1 -->
+  <text class="apil" x="56" y="600" fill="#2c7e7e">Render</text>
+  <text class="api"  x="56" y="616">render_qmd &#183; render_qmd_content</text>
+  <text class="api"  x="56" y="631">render_page_in_project[_with_attribution]</text>
+  <text class="api"  x="56" y="646">render_page_for_preview</text>
+  <text class="apil" x="56" y="668" fill="#2c7e7e">Parse / convert</text>
+  <text class="api"  x="56" y="684">parse_qmd_content &#183; parse_qmd_to_ast[_with_attribution]</text>
+  <text class="api"  x="56" y="699">ast_to_qmd &#183; incremental_write_qmd</text>
+  <!-- col 2 -->
+  <text class="apil" x="520" y="600" fill="#2c7e7e">VFS</text>
+  <text class="api"  x="520" y="616">vfs_add_file &#183; vfs_add_binary_file &#183; vfs_remove_file</text>
+  <text class="api"  x="520" y="631">vfs_clear &#183; vfs_list_files &#183; vfs_read_file/_binary_file</text>
+  <text class="api"  x="520" y="646">vfs_set/get_runtime_metadata</text>
+  <text class="apil" x="520" y="668" fill="#2c7e7e">LSP</text>
+  <text class="api"  x="520" y="684">lsp_analyze_document &#183; lsp_get_diagnostics</text>
+  <text class="api"  x="520" y="699">lsp_get_symbols &#183; lsp_get_folding_ranges</text>
+  <!-- col 3 -->
+  <text class="apil" x="940" y="600" fill="#2c7e7e">Theme / SCSS</text>
+  <text class="api"  x="940" y="616">compile_theme_css_by_name</text>
+  <text class="api"  x="940" y="631">compile_scss[_with_bootstrap]</text>
+  <text class="api"  x="940" y="646">compile_default_bootstrap_css</text>
+  <text class="apil" x="940" y="668" fill="#2c7e7e">Project / init</text>
+  <text class="api"  x="940" y="684">create_project &#183; get_project_choices</text>
+  <text class="api"  x="940" y="699">get_builtin_template &#183; prepare_template &#183; init</text>
+
+  <!-- ============ NOTES / CROSS-LINKS band ============ -->
+  <rect x="40" y="748" width="1184" height="120" rx="10" fill="#f4f6f8" stroke="#8a93a0" stroke-width="1.2"/>
+  <text class="col" x="56" y="772" font-size="13" fill="#5d6775">KEY FACTS</text>
+  <text class="note" x="56" y="794"><tspan font-weight="700">Source of truth = Automerge.</tspan> The VFS is an ephemeral, one-way replica (Automerge &#8594; VFS via <tspan class="mono">vfs_add_file</tspan>), cleared on disconnect &#8212; see note &#9313;.</text>
+  <text class="note" x="56" y="814"><tspan font-weight="700">Same engine as the CLI.</tspan> In-browser rendering runs the <tspan class="mono">quarto-core</tspan> pipeline compiled to wasm32 &#8212; identical stages to <tspan class="mono">q2 render</tspan> (diagram 1), via the WASM crate (diagram 2).</text>
+  <text class="note" x="56" y="834"><tspan font-weight="700">Two sync servers, one schema.</tspan> The standalone <tspan class="mono">quarto-hub</tspan> server and the <tspan class="mono">q2 preview</tspan> ephemeral server both speak this Automerge schema &#8212; see diagram 4.</text>
+  <text class="note" x="56" y="854"><tspan font-weight="700">Presence is separate.</tspan> Live cursors/selections travel as ephemeral messages (<tspan class="mono">presenceService</tspan>), not document changes.</text>
+</svg>

@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 980"
+     preserveAspectRatio="xMidYMid meet" role="img"
+     aria-labelledby="title desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="title">Quarto 2 crate and package map</title>
+  <desc id="desc">The Quarto 2 Rust workspace (45 crates) grouped into subsystems from binaries
+  down to a shared foundation, with the parser hub pampa and orchestrator quarto-core in the middle.
+  Three WASM-only crates outside the workspace recompile the same engine to wasm32 for the browser,
+  where the TypeScript npm-workspace packages and apps (hub-client, q2-preview-spa) consume it.</desc>
+
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a6573"/>
+    </marker>
+    <style>
+      .h1  { font-size: 27px; font-weight: 700; fill: #16202e; }
+      .sub { font-size: 13px; fill: #5a6573; }
+      .band{ font-size: 13px; font-weight: 700; letter-spacing: .04em; }
+      .crate { font-size: 11px; fill: #29333f; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .hub   { font-size: 11px; font-weight: 700; fill: #2f4bc0; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .bin   { font-size: 11px; font-weight: 700; fill: #16202e; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .ref   { font-size: 10.5px; fill: #7a8696; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .note  { font-size: 11px; fill: #3a4656; }
+      .foot  { font-size: 11px; fill: #5a6573; }
+      .flow  { stroke: #5a6573; stroke-width: 1.6; fill: none; }
+    </style>
+  </defs>
+
+  <text class="h1" x="40" y="42">Quarto&#160;2 &#8212; Crate &amp; Package Map</text>
+  <text class="sub" x="42" y="64">45 Rust workspace crates &#183; 3 WASM-only crates outside the workspace &#183; TypeScript in npm workspaces</text>
+
+  <!-- companion-guide pointer -->
+  <text class="ref" x="1196" y="32" text-anchor="end" fill="#6a7bd0" font-weight="700">&#9656; Companion reading guide</text>
+  <text class="ref" x="1196" y="48" text-anchor="end">claude-notes/architecture/02-crates.md</text>
+  <text x="1196" y="65" text-anchor="end" font-size="10.5" fill="#5a6573">numbered marker = note in guide &#183; <tspan fill="#c47e10" font-weight="700">amber = note worth reading first</tspan></text>
+
+  <!-- ============ RUST WORKSPACE (left) ============ -->
+  <text class="band" x="48" y="100" fill="#16202e">RUST WORKSPACE &#160;&#183;&#160; crates/*</text>
+
+  <!-- Band A: Binaries -->
+  <rect x="48" y="110" width="692" height="96" rx="9" fill="#fff" stroke="#6a7bd0" stroke-width="1.5"/>
+  <rect x="48" y="110" width="6" height="96" rx="3" fill="#6a7bd0"/>
+  <text class="band" x="64" y="128" fill="#3a49a0">BINARIES &#8212; native entry points</text>
+  <text class="bin"   x="76"  y="152">quarto (q2)</text>
+  <text class="crate" x="306" y="152">hub</text>
+  <text class="crate" x="536" y="152">pampa</text>
+  <text class="crate" x="76"  y="174">qmd-syntax-helper</text>
+  <text class="crate" x="306" y="174">validate-yaml</text>
+  <text class="crate" x="536" y="174">perf-harness</text>
+  <text class="crate" x="76"  y="196">reconcile-viewer</text>
+  <text class="crate" x="306" y="196">xtask</text>
+
+  <!-- Band B: CLI features & LSP -->
+  <rect x="48" y="218" width="692" height="96" rx="9" fill="#fff" stroke="#4a8fd4" stroke-width="1.5"/>
+  <rect x="48" y="218" width="6" height="96" rx="3" fill="#4a8fd4"/>
+  <text class="band" x="64" y="236" fill="#2f6db0">CLI FEATURES &amp; LSP</text>
+  <text class="crate" x="76"  y="260">quarto-preview</text>
+  <text class="crate" x="306" y="260">quarto-publish</text>
+  <text class="crate" x="536" y="260">quarto-test</text>
+  <text class="crate" x="76"  y="282">quarto-trace-server</text>
+  <text class="crate" x="306" y="282">quarto-project-create</text>
+  <text class="crate" x="536" y="282">quarto-hub</text>
+  <text class="crate" x="76"  y="304">quarto-lsp</text>
+  <text class="crate" x="306" y="304">quarto-lsp-core</text>
+
+  <!-- Band C: Engine & orchestration -->
+  <rect x="48" y="326" width="692" height="64" rx="9" fill="#fdf7ec" stroke="#d6a23c" stroke-width="1.8"/>
+  <rect x="48" y="326" width="6" height="64" rx="3" fill="#d6a23c"/>
+  <text class="band" x="64" y="344" fill="#b07d1e">ENGINE &amp; ORCHESTRATION</text>
+  <rect x="300" y="350" width="180" height="32" rx="7" fill="#fff" stroke="#d6a23c" stroke-width="1.5"/>
+  <text class="hub" x="312" y="367" fill="#b07d1e">&#9733; quarto-core</text>
+  <text class="ref" x="312" y="379" font-size="9">pipeline orchestrator</text>
+  <rect x="520" y="350" width="180" height="32" rx="7" fill="#fff" stroke="#d6a23c" stroke-width="1.5"/>
+  <text class="hub" x="532" y="367" fill="#b07d1e">&#9733; pampa</text>
+  <text class="ref" x="532" y="379" font-size="9">parser + writers + filters</text>
+  <path class="flow" d="M500,366 L520,366" marker-end="url(#arw)"/>
+
+  <!-- Band D: Document features -->
+  <rect x="48" y="402" width="692" height="96" rx="9" fill="#fff" stroke="#5aa66f" stroke-width="1.5"/>
+  <rect x="48" y="402" width="6" height="96" rx="3" fill="#5aa66f"/>
+  <text class="band" x="64" y="420" fill="#3f7a52">DOCUMENT FEATURES</text>
+  <text class="crate" x="76"  y="444">quarto-doctemplate</text>
+  <text class="crate" x="306" y="444">quarto-citeproc</text>
+  <text class="crate" x="536" y="444">quarto-csl</text>
+  <text class="crate" x="76"  y="466">quarto-highlight</text>
+  <text class="crate" x="306" y="466">quarto-sass</text>
+  <text class="crate" x="536" y="466">quarto-config</text>
+  <text class="crate" x="76"  y="488">quarto-navigation</text>
+  <text class="crate" x="306" y="488">quarto-analysis</text>
+
+  <!-- Band E: AST & types -->
+  <rect x="48" y="510" width="692" height="56" rx="9" fill="#fff" stroke="#7a4fbf" stroke-width="1.5"/>
+  <rect x="48" y="510" width="6" height="56" rx="3" fill="#7a4fbf"/>
+  <text class="band" x="64" y="528" fill="#6a3faf">AST &amp; TYPES</text>
+  <text class="hub"   x="76"  y="552">&#9733; quarto-pandoc-types</text>
+  <text class="crate" x="306" y="552">quarto-ast-reconcile</text>
+  <text class="crate" x="536" y="552">comrak-to-pandoc</text>
+
+  <!-- Band F: Parsing & syntax -->
+  <rect x="48" y="578" width="692" height="96" rx="9" fill="#fff" stroke="#3fa3a3" stroke-width="1.5"/>
+  <rect x="48" y="578" width="6" height="96" rx="3" fill="#3fa3a3"/>
+  <text class="band" x="64" y="596" fill="#2c7e7e">PARSING &amp; SYNTAX</text>
+  <text class="crate" x="76"  y="620">tree-sitter-qmd</text>
+  <text class="crate" x="306" y="620">tree-sitter-doctemplate</text>
+  <text class="crate" x="536" y="620">quarto-treesitter-ast</text>
+  <text class="crate" x="76"  y="642">quarto-yaml</text>
+  <text class="crate" x="306" y="642">quarto-yaml-validation</text>
+  <text class="crate" x="536" y="642">quarto-parse-errors</text>
+  <text class="crate" x="76"  y="664">quarto-xml</text>
+
+  <!-- Band G: Foundation -->
+  <rect x="48" y="686" width="692" height="96" rx="9" fill="#f4f6f8" stroke="#8a93a0" stroke-width="1.5"/>
+  <rect x="48" y="686" width="6" height="96" rx="3" fill="#8a93a0"/>
+  <text class="band" x="64" y="704" fill="#5d6775">FOUNDATION</text>
+  <text class="hub"   x="76"  y="728">&#9733; quarto-source-map</text>
+  <text class="crate" x="306" y="728">quarto-error-reporting</text>
+  <text class="crate" x="536" y="728">quarto-util</text>
+  <text class="crate" x="76"  y="750">quarto-trace</text>
+  <text class="crate" x="306" y="750">quarto-system-runtime &#9670;</text>
+  <text class="crate" x="536" y="750">quarto-highlight-encoding</text>
+  <text class="crate" x="76"  y="772">quarto-brand</text>
+  <text class="crate" x="306" y="772">quarto-error-message-macros</text>
+
+  <!-- downward "depends on" arrows between bands -->
+  <path class="flow" d="M394,206 L394,218" marker-end="url(#arw)"/>
+  <path class="flow" d="M394,314 L394,326" marker-end="url(#arw)"/>
+  <path class="flow" d="M394,390 L394,402" marker-end="url(#arw)"/>
+  <path class="flow" d="M394,498 L394,510" marker-end="url(#arw)"/>
+  <path class="flow" d="M394,566 L394,578" marker-end="url(#arw)"/>
+  <path class="flow" d="M394,674 L394,686" marker-end="url(#arw)"/>
+  <text class="ref" x="404" y="214" fill="#6b7682">depends on &#8595;</text>
+
+  <!-- ============ TYPESCRIPT / WEB (right) ============ -->
+  <text class="band" x="762" y="100" fill="#16202e">TYPESCRIPT / WEB &#160;&#183;&#160; npm workspaces &#160;<tspan class="ref" font-weight="400">(@quarto/ prefix omitted)</tspan></text>
+
+  <!-- ts-packages -->
+  <rect x="762" y="110" width="434" height="338" rx="9" fill="#fff" stroke="#9a5fb0" stroke-width="1.5"/>
+  <rect x="762" y="110" width="6" height="338" rx="3" fill="#9a5fb0"/>
+  <text class="band" x="778" y="130" fill="#7e4a93">ts-packages/* &#160;(9)</text>
+  <text class="crate" x="784" y="156">pandoc-types</text>
+  <text class="crate" x="784" y="178">mapped-string</text>
+  <text class="crate" x="784" y="200">annotated-qmd <tspan class="ref">&#8594; mapped-string, pandoc-types</tspan></text>
+  <text class="hub"   x="784" y="222">automerge-schema <tspan class="ref" font-weight="400" fill="#7a8696">&#8594; diagram 3</tspan></text>
+  <text class="crate" x="784" y="244">sync-client <tspan class="ref">&#8594; automerge-schema</tspan></text>
+  <text class="crate" x="784" y="266">preview-renderer &#8646; preview-runtime</text>
+  <text class="crate" x="784" y="288">preview-runtime <tspan class="ref">&#8594; pandoc-types, sync-client &#183; loads .wasm</tspan></text>
+  <text class="crate" x="784" y="310">hub-mcp <tspan class="ref">&#8594; automerge-schema, sync-client</tspan></text>
+  <text class="crate" x="784" y="332">sync-test-harness <tspan class="ref">&#8594; schema, sync-client</tspan></text>
+  <text class="crate" x="784" y="354">wasm-js-bridge</text>
+  <text class="ref"   x="784" y="384" fill="#7e4a93">&#9670; mutual dep (renderer &#8646; runtime) &#8212; see note &#9313;</text>
+  <circle cx="1188" cy="110" r="8.5" fill="#6a7bd0"/><text x="1188" y="114" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+
+  <!-- apps -->
+  <rect x="762" y="460" width="434" height="150" rx="9" fill="#fff" stroke="#b5742e" stroke-width="1.5"/>
+  <rect x="762" y="460" width="6" height="150" rx="3" fill="#b5742e"/>
+  <text class="band" x="778" y="480" fill="#9a611f">apps</text>
+  <text class="bin"   x="784" y="504">hub-client <tspan class="ref" font-weight="400">&#8212; collaborative editor</tspan></text>
+  <text class="ref"   x="800" y="520">&#8594; automerge-repo, sync-client, automerge-schema</text>
+  <text class="bin"   x="784" y="546">q2-preview-spa <tspan class="ref" font-weight="400">&#8212; embedded in the q2 binary</tspan></text>
+  <text class="ref"   x="800" y="562">&#8594; preview-renderer, preview-runtime</text>
+  <text class="bin"   x="784" y="588">trace-viewer <tspan class="ref" font-weight="400">&#8212; standalone</tspan></text>
+
+  <!-- bridge note -->
+  <rect x="762" y="622" width="434" height="160" rx="9" fill="#eef2fb" stroke="#6a7bd0" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text class="band" x="778" y="642" fill="#3a49a0">RUST &#8594; BROWSER BRIDGE</text>
+  <text class="note" x="778" y="666">The Rust engine enters the browser as the compiled</text>
+  <text class="note" x="778" y="684"><tspan font-family="ui-monospace, Menlo, monospace" font-weight="700">wasm-quarto-hub-client</tspan> .wasm, loaded by</text>
+  <text class="note" x="778" y="702"><tspan font-family="ui-monospace, Menlo, monospace">preview-runtime</tspan> and <tspan font-family="ui-monospace, Menlo, monospace">hub-client</tspan>.</text>
+  <text class="note" x="778" y="728">Both the collaborative editor and the embedded</text>
+  <text class="note" x="778" y="746"><tspan font-family="ui-monospace, Menlo, monospace">q2 preview</tspan> SPA render through it.</text>
+  <text class="ref"  x="778" y="768" fill="#3a49a0">&#8594; diagram 3 (Automerge + WASM) &#183; diagram 4 (build &amp; embedding)</text>
+
+  <!-- ============ WASM BUILD band (bridges Rust + TS) ============ -->
+  <rect x="48" y="800" width="1148" height="138" rx="10" fill="#e8f6f6" stroke="#2f8f8f" stroke-width="1.6" stroke-dasharray="6 4"/>
+  <rect x="48" y="800" width="6" height="138" rx="3" fill="#2f8f8f"/>
+  <text class="band" x="68" y="824" fill="#1d6b6b">WASM BUILD &#8212; outside the main [workspace] (separate wasm32 toolchain)</text>
+  <text class="crate" x="68" y="850" fill="#235">wasm-quarto-hub-client (cdylib) &#183; wasm-qmd-parser (cdylib+rlib) &#183; wasm-printf-fmt &#183; tree-sitter-language (shim) &#183; lua-src (wasm) &#183; wasm-bindgen-futures (patch)</text>
+  <text class="note" x="68" y="878">Recompiles the <tspan font-weight="700">same engine crates</tspan> (<tspan font-family="ui-monospace, Menlo, monospace">pampa</tspan>, <tspan font-family="ui-monospace, Menlo, monospace">quarto-core</tspan>, <tspan font-family="ui-monospace, Menlo, monospace">quarto-lsp-core</tspan>, &#8230;) to <tspan font-family="ui-monospace, Menlo, monospace">wasm32</tspan> as a <tspan font-family="ui-monospace, Menlo, monospace">cdylib</tspan> the browser loads.</text>
+  <text class="note" x="68" y="898">This is why the engine must stay native+WASM-clean &#8212; the I/O seam is <tspan font-family="ui-monospace, Menlo, monospace">quarto-system-runtime &#9670;</tspan> (filesystem vs. VFS). See <tspan font-family="ui-monospace, Menlo, monospace">.claude/rules/wasm.md</tspan>.</text>
+  <text class="note" x="68" y="918" fill="#1d6b6b">Reuses the Engine + Foundation crates above; produces the <tspan font-family="ui-monospace, Menlo, monospace">.wasm</tspan> consumed by the TypeScript layer on the right. &#8594; diagram 4.</text>
+  <circle cx="1188" cy="800" r="8.5" fill="#e8941f"/><text x="1188" y="804" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+
+  <!-- arrow: WASM band up to the bridge/TS column -->
+  <path class="flow" stroke="#2f8f8f" d="M980,800 L980,782" marker-end="url(#arw)"/>
+  <text class="ref" x="990" y="796" fill="#2c7e7e">compiled .wasm &#8593;</text>
+
+  <!-- footer key -->
+  <text class="foot" x="48" y="962">&#9733; = highest fan-in (hub) crate &#160;&#183;&#160; &#9670; = native/WASM I/O seam (<tspan font-family="ui-monospace, Menlo, monospace">quarto-system-runtime</tspan>) &#160;&#183;&#160; arrows = &#8220;depends on&#8221; &#160;&#183;&#160; subsystem-level edges only (not every crate edge)</text>
+</svg>

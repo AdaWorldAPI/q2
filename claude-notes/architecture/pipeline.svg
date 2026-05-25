@@ -1,0 +1,317 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 1460"
+     preserveAspectRatio="xMidYMid meet" role="img"
+     aria-labelledby="title desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="title">Quarto 2 render pipeline</title>
+  <desc id="desc">Two-pass document processing in crates/quarto-core. Pass 1 performs front-end
+  parsing, validation, and inter-file dependency extraction across all project files. Pass 2
+  performs per-file AST processing, split into format-agnostic "generate" steps and
+  format-specific "render" steps, ending in an HTML document. A variant pipeline powers q2 preview.</desc>
+
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a6573"/>
+    </marker>
+    <style>
+      .h1   { font-size: 27px; font-weight: 700; fill: #16202e; }
+      .sub  { font-size: 13px; fill: #5a6573; }
+      .band { font-size: 15px; font-weight: 700; letter-spacing: .04em; fill: #16202e; }
+      .bandsub { font-size: 12px; fill: #5a6573; }
+      .sname { font-size: 13.5px; font-weight: 600; fill: #1a2330; }
+      .sref  { font-size: 10.5px; fill: #7a8696; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .chip  { font-size: 10.5px; fill: #3a4656; }
+      .chiplbl { font-size: 9px; font-weight: 700; letter-spacing: .06em; fill: #8a6d2e; }
+      .data  { font-size: 10px; fill: #6b7682; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .ptitle { font-size: 12.5px; font-weight: 700; fill: #1a2330; }
+      .ptxt  { font-size: 10.5px; fill: #46505f; }
+      .tag   { font-size: 9px; font-weight: 700; letter-spacing: .05em; }
+      .leg   { font-size: 11px; fill: #3a4656; }
+      .legt  { font-size: 11.5px; font-weight: 700; fill: #16202e; letter-spacing:.04em;}
+      .flow  { stroke: #5a6573; stroke-width: 1.6; fill: none; }
+      .conn  { stroke: #b3bdc9; stroke-width: 1.2; stroke-dasharray: 3 3; fill: none; }
+      .zoom  { stroke: #6a7bd0; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+      .stage { fill: #ffffff; stroke: #cdd5df; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <!-- ===================== HEADER ===================== -->
+  <text class="h1" x="40" y="42">Quarto&#160;2 &#8212; Render Pipeline</text>
+  <text class="sub" x="42" y="64">Two-pass document processing &#183; <tspan font-family="ui-monospace, Menlo, monospace">crates/quarto-core</tspan> &#183; one shared stage graph for native render &amp; WASM preview</text>
+
+  <!-- companion-guide pointer (drill-down: diagram to guide to source) -->
+  <text class="sref" x="1132" y="32" text-anchor="end" fill="#6a7bd0" font-weight="700">&#9656; Companion reading guide</text>
+  <text class="sref" x="1132" y="48" text-anchor="end">claude-notes/architecture/01-pipeline.md</text>
+  <text x="1132" y="65" text-anchor="end" font-size="10.5" fill="#5a6573">numbered marker = note in guide &#183; <tspan fill="#c47e10" font-weight="700">amber = diagram idealizes; current impl differs</tspan></text>
+
+  <!-- ===================== INPUT ===================== -->
+  <rect class="stage" x="430" y="86" width="320" height="40" rx="7"/>
+  <text class="sname" x="590" y="111" text-anchor="middle">Project files &#160;<tspan class="sref">*.qmd&#160;&#160;_quarto.yml</tspan></text>
+  <path class="flow" d="M590,126 L590,150" marker-end="url(#arw)"/>
+
+  <!-- ===================== PASS 1 ===================== -->
+  <rect x="40" y="152" width="1100" height="158" rx="12" fill="#e9f2fb" stroke="#4a8fd4" stroke-width="1.5"/>
+  <text class="band" x="64" y="180">PASS&#160;1 &#8212; FRONT-END</text>
+  <text class="bandsub" x="240" y="180">per file, run in parallel (rayon) &#183; parse &#183; validate &#183; extract profile &#183; resolve inter-file dependencies</text>
+  <g><circle cx="1124" cy="152" r="8.5" fill="#e8941f"/><text x="1124" y="156" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text></g>
+
+  <!-- five pass-1 stage boxes -->
+  <!-- x positions: 64, 276, 488, 700(checkpoint), 912 ; width 196 -->
+  <g>
+    <rect class="stage" x="64"  y="198" width="196" height="56" rx="7"/>
+    <text class="sname" x="74" y="222">parse-document</text>
+    <text class="sref"  x="74" y="240">stages/parse_document.rs &#183; pampa</text>
+
+    <rect class="stage" x="276" y="198" width="196" height="56" rx="7"/>
+    <text class="sname" x="286" y="222">metadata-merge</text>
+    <text class="sref"  x="286" y="240">stages/metadata_merge.rs</text>
+
+    <rect class="stage" x="488" y="198" width="196" height="56" rx="7"/>
+    <text class="sname" x="498" y="222">include-expansion</text>
+    <text class="sref"  x="498" y="240">stages/include_expansion.rs</text>
+
+    <rect x="700" y="198" width="196" height="56" rx="7" fill="#efe7fb" stroke="#7a4fbf" stroke-width="1.8"/>
+    <text class="sname" x="710" y="221">&#11041; document-profile</text>
+    <g><circle cx="896" cy="198" r="8.5" fill="#6a7bd0"/><text x="896" y="202" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text></g>
+    <text class="sref"  x="710" y="239" fill="#7a4fbf">CHECKPOINT &#183; document_profile.rs</text>
+
+    <rect class="stage" x="912" y="198" width="196" height="56" rx="7"/>
+    <text class="sname" x="922" y="222">link-resolution</text>
+    <text class="sref"  x="922" y="240">stages/link_resolution.rs</text>
+
+    <!-- horizontal arrows -->
+    <path class="flow" d="M260,226 L276,226" marker-end="url(#arw)"/>
+    <path class="flow" d="M472,226 L488,226" marker-end="url(#arw)"/>
+    <path class="flow" d="M684,226 L700,226" marker-end="url(#arw)"/>
+    <path class="flow" d="M896,226 L912,226" marker-end="url(#arw)"/>
+  </g>
+  <text class="bandsub" x="590" y="288" text-anchor="middle">each file&#8217;s <tspan font-family="ui-monospace, Menlo, monospace" fill="#7a4fbf">DocumentProfile</tspan> (title, outline, includes, link targets, resources) is collected into a shared <tspan font-family="ui-monospace, Menlo, monospace">ProjectIndex</tspan></text>
+
+  <path class="flow" d="M590,310 L590,330" marker-end="url(#arw)"/>
+
+  <!-- ===================== BRIDGE ===================== -->
+  <rect x="40" y="332" width="1100" height="58" rx="12" fill="#eef7ee" stroke="#6fae6f" stroke-width="1.5"/>
+  <text class="band" x="64" y="357">BETWEEN PASSES</text>
+  <text class="bandsub" x="64" y="375"><tspan font-family="ui-monospace, Menlo, monospace">ProjectType::pre_render()</tspan> &#183; <tspan font-family="ui-monospace, Menlo, monospace">ProjectDependencyGraph</tspan> selects the render set &#8212; Full / Subset / ActivePage (the q2-preview &amp; hub-client live-preview mode)</text>
+
+  <path class="flow" d="M590,390 L590,410" marker-end="url(#arw)"/>
+
+  <!-- ===================== PASS 2 ===================== -->
+  <rect x="40" y="412" width="1100" height="858" rx="12" fill="#fdf4e3" stroke="#d6a23c" stroke-width="1.5"/>
+  <text class="band" x="64" y="440">PASS&#160;2 &#8212; AST PROCESSING</text>
+  <text class="bandsub" x="318" y="440">per file &#183; generate format-agnostic structures, then render to format-specific output</text>
+
+  <!-- == LEGEND (top-right, above detail panel) == -->
+  <rect x="712" y="414" width="420" height="92" rx="9" fill="#ffffff" stroke="#d8dee6" stroke-width="1.2"/>
+  <text class="legt" x="724" y="432">LEGEND</text>
+  <g>
+    <rect x="724" y="442" width="16" height="12" rx="3" fill="#e9f2fb" stroke="#4a8fd4"/>
+    <text class="leg" x="746" y="452">Pass&#160;1 (front-end)</text>
+    <rect x="884" y="442" width="16" height="12" rx="3" fill="#fdf4e3" stroke="#d6a23c"/>
+    <text class="leg" x="906" y="452">Pass&#160;2 (AST)</text>
+    <rect x="1028" y="442" width="16" height="12" rx="3" fill="#efe7fb" stroke="#7a4fbf"/>
+    <text class="leg" x="1050" y="452">checkpoint</text>
+
+    <rect x="724" y="464" width="16" height="12" rx="3" fill="#e8f5ee" stroke="#5aa66f"/>
+    <text class="leg" x="746" y="474">GENERATE = format-agnostic</text>
+    <rect x="952" y="464" width="16" height="12" rx="3" fill="#eef2fb" stroke="#6a7bd0"/>
+    <text class="leg" x="974" y="474">RENDER = format-specific HTML</text>
+
+    <rect x="724" y="486" width="16" height="12" rx="3" fill="#f3f6f9" stroke="#aeb9c6" stroke-dasharray="3 2"/>
+    <text class="leg" x="746" y="496">native-only stage (skipped on WASM)</text>
+  </g>
+
+  <!-- == SPINE (left): 14 stages == -->
+  <!-- box: x=70 w=300 h=40 ; tops at 470 + 52*i ; center x=220 -->
+  <!-- entry data label -->
+  <text class="data" x="82" y="464">from checkpoint &#9656; AtProfile</text>
+
+  <g>
+    <!-- r1 -->
+    <rect class="stage" x="70" y="470" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="487">unwrap-profile</text>
+    <g><circle cx="370" cy="470" r="8.5" fill="#e8941f"/><text x="370" y="474" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">3</text></g>
+    <text class="sref"  x="84" y="502">stages/unwrap_profile.rs &#183; resume AST</text>
+    <!-- r2 -->
+    <rect class="stage" x="70" y="522" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="539">pre-engine-sugaring</text>
+    <text class="sref"  x="84" y="554">stages/pre_engine_sugaring.rs</text>
+    <!-- r3 -->
+    <rect class="stage" x="70" y="574" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="591">engine-execution</text>
+    <text class="sref"  x="84" y="606">stages/engine_execution.rs</text>
+    <!-- r4 -->
+    <rect class="stage" x="70" y="626" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="643">compile-theme-css</text>
+    <text class="sref"  x="84" y="658">stages/compile_theme_css.rs</text>
+    <!-- r5 native -->
+    <rect class="stage" x="70" y="678" width="300" height="40" rx="7" fill="#f3f6f9" stroke="#aeb9c6" stroke-dasharray="4 3"/>
+    <text class="sname" x="84" y="695">asset-injection <tspan class="tag" fill="#7a8696">NATIVE</tspan></text>
+    <text class="sref"  x="84" y="710">bootstrap_js.rs &#183; clipboard_js.rs</text>
+    <!-- r6 -->
+    <rect class="stage" x="70" y="730" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="747">attribution-generate</text>
+    <text class="sref"  x="84" y="762">stages/attribution_generate.rs</text>
+    <!-- r7 -->
+    <rect class="stage" x="70" y="782" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="799">user-filters-pre</text>
+    <text class="sref"  x="84" y="814">stages/user_filters.rs</text>
+    <!-- r8 ast-transforms (zoom) -->
+    <rect x="70" y="834" width="300" height="40" rx="7" fill="#fff" stroke="#6a7bd0" stroke-width="2"/>
+    <text class="sname" x="84" y="851">ast-transforms</text>
+    <text class="sref"  x="84" y="866" fill="#6a7bd0">stages/ast_transforms.rs &#8212; expand &#9656;</text>
+    <!-- r9 -->
+    <rect class="stage" x="70" y="886" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="903">user-filters-post</text>
+    <text class="sref"  x="84" y="918">stages/user_filters.rs</text>
+    <!-- r10 -->
+    <rect class="stage" x="70" y="938" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="955">resource-report</text>
+    <text class="sref"  x="84" y="970">stages/resource_report.rs</text>
+    <!-- r11 -->
+    <rect class="stage" x="70" y="990" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="1007">code-highlight</text>
+    <text class="sref"  x="84" y="1022">stages/code_highlight.rs</text>
+    <!-- r12 -->
+    <rect class="stage" x="70" y="1042" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="1059">math-js</text>
+    <text class="sref"  x="84" y="1074">stages/math_js.rs</text>
+    <!-- r13 -->
+    <rect class="stage" x="70" y="1094" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="1111">render-html-body</text>
+    <text class="sref"  x="84" y="1126">stages/render_html.rs &#183; pampa</text>
+    <!-- r14 -->
+    <rect class="stage" x="70" y="1146" width="300" height="40" rx="7"/>
+    <text class="sname" x="84" y="1163">apply-template</text>
+    <text class="sref"  x="84" y="1178">stages/apply_template.rs</text>
+
+    <!-- spine arrows (x=220) -->
+    <path class="flow" d="M220,510 L220,522" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,562 L220,574" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,614 L220,626" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,666 L220,678" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,718 L220,730" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,770 L220,782" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,822 L220,834" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,874 L220,886" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,926 L220,938" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,978 L220,990" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,1030 L220,1042" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,1082 L220,1094" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,1134 L220,1146" marker-end="url(#arw)"/>
+    <path class="flow" d="M220,1186 L220,1208" marker-end="url(#arw)"/>
+
+    <!-- data labels on the spine -->
+    <text class="data" x="234" y="519">DocumentAst</text>
+    <text class="data" x="234" y="1143">RenderedOutput</text>
+
+    <!-- output -->
+    <rect x="70" y="1208" width="300" height="40" rx="7" fill="#eaf5ee" stroke="#2f8f57" stroke-width="2.2"/>
+    <text class="sname" x="220" y="1233" fill="#1d5e38" text-anchor="middle">Output &#8212; HTML document</text>
+  </g>
+
+  <!-- == FEATURE CHIPS (right of spine) == -->
+  <!-- chip: x=392 w=312 h=26, y=rowtop+7 ; connector at y=rowtop+20 -->
+  <g>
+    <path class="conn" d="M370,542 L392,542"/>
+    <rect x="392" y="529" width="312" height="26" rx="13" fill="#eef1f5" stroke="#c8d0da"/>
+    <text class="chip" x="404" y="546">Cross-references: seed registry &#183; sugar shorthand</text>
+
+    <path class="conn" d="M370,594 L392,594"/>
+    <rect x="392" y="581" width="312" height="26" rx="13" fill="#eef1f5" stroke="#c8d0da"/>
+    <text class="chip" x="404" y="598">Code execution: Jupyter &#183; Knitr &#183; markdown engines</text>
+
+    <path class="conn" d="M370,646 L392,646"/>
+    <rect x="392" y="633" width="312" height="26" rx="13" fill="#eef1f5" stroke="#c8d0da"/>
+    <text class="chip" x="404" y="650">Theme: Bootstrap SCSS &#8594; CSS (quarto-sass)</text>
+
+    <path class="conn" d="M370,698 L392,698"/>
+    <rect x="392" y="685" width="312" height="26" rx="13" fill="#eef1f5" stroke="#c8d0da"/>
+    <text class="chip" x="404" y="702">Project assets: bootstrap.js &#183; clipboard.js (code-copy)</text>
+
+    <path class="conn" d="M370,750 L392,750"/>
+    <rect x="392" y="737" width="312" height="26" rx="13" fill="#eef1f5" stroke="#c8d0da"/>
+    <text class="chip" x="404" y="754">Author attribution sidecar</text>
+
+    <path class="conn" d="M370,802 L392,802"/>
+    <rect x="392" y="789" width="312" height="26" rx="13" fill="#fff6e9" stroke="#e0b970"/>
+    <text class="chiplbl" x="404" y="803">USER EXTENSIBILITY</text>
+    <text class="chip" x="560" y="803" fill="#7a5a1e">Lua &#183; JSON &#183; citeproc filters (pre)</text>
+
+    <!-- ast-transforms zoom connector (clear band, no chip on r8) -->
+    <path class="zoom" d="M370,854 L710,854" marker-end="url(#arw)"/>
+    <text class="sref" x="540" y="848" fill="#6a7bd0" text-anchor="middle">expand transform pipeline &#9656;</text>
+
+    <path class="conn" d="M370,906 L392,906"/>
+    <rect x="392" y="893" width="312" height="26" rx="13" fill="#fff6e9" stroke="#e0b970"/>
+    <text class="chip" x="404" y="910" fill="#7a5a1e">User filters (post) &#8212; Lua &#183; JSON &#183; citeproc</text>
+
+    <path class="conn" d="M370,1010 L392,1010"/>
+    <rect x="392" y="997" width="312" height="26" rx="13" fill="#eef1f5" stroke="#c8d0da"/>
+    <text class="chip" x="404" y="1014">Syntax highlighting &#8594; data-hl-spans on code</text>
+
+    <path class="conn" d="M370,1062 L392,1062"/>
+    <rect x="392" y="1049" width="312" height="26" rx="13" fill="#eef1f5" stroke="#c8d0da"/>
+    <text class="chip" x="404" y="1066">Math: MathJax / KaTeX loader (meta.math)</text>
+
+    <path class="conn" d="M370,1114 L392,1114"/>
+    <rect x="392" y="1101" width="312" height="26" rx="13" fill="#eef1f5" stroke="#c8d0da"/>
+    <text class="chip" x="404" y="1118">AST &#8594; HTML body (pampa writer)</text>
+
+    <path class="conn" d="M370,1166 L392,1166"/>
+    <rect x="392" y="1153" width="312" height="26" rx="13" fill="#eef1f5" stroke="#c8d0da"/>
+    <text class="chip" x="404" y="1170">Template engine (quarto-doctemplate)</text>
+  </g>
+
+  <!-- == AST-TRANSFORMS DETAIL PANEL (right) == -->
+  <rect x="712" y="520" width="420" height="600" rx="10" fill="#f7f9ff" stroke="#6a7bd0" stroke-width="1.5"/>
+  <text class="ptitle" x="726" y="544">ast-transforms &#8212; transform pipeline</text>
+  <text class="sref" x="726" y="560">build_transform_pipeline() &#183; transforms/*.rs</text>
+
+  <!-- phase boxes: x=724 w=396 -->
+  <g>
+    <rect x="724" y="572" width="396" height="86" rx="7" fill="#e8f5ee" stroke="#5aa66f"/>
+    <text class="ptitle" x="736" y="592">1 &#183; Normalization <tspan class="tag" fill="#3f7a52">GENERATE</tspan></text>
+    <text class="ptxt" x="736" y="612">callouts &#183; shortcodes &#183; metadata-normalize</text>
+    <text class="ptxt" x="736" y="628">title-block &#183; sectionize &#183; footnotes</text>
+    <text class="ptxt" x="736" y="644">theorem / proof / float sugar &#183; equation labels</text>
+
+    <rect x="724" y="666" width="396" height="48" rx="7" fill="#e8f5ee" stroke="#5aa66f"/>
+    <text class="ptitle" x="736" y="686">2 &#183; Cross-references <tspan class="tag" fill="#3f7a52">GENERATE</tspan></text>
+    <text class="ptxt" x="736" y="704">crossref-index &#8594; crossref-resolve (number, register)</text>
+
+    <rect x="724" y="722" width="396" height="66" rx="7" fill="#e8f5ee" stroke="#5aa66f"/>
+    <text class="ptitle" x="736" y="742">3 &#183; Navigation <tspan class="tag" fill="#3f7a52">GENERATE</tspan></text>
+    <text class="ptxt" x="736" y="760">toc &#183; navbar &#183; sidebar &#183; page-nav &#183; footer &#183; listing</text>
+    <text class="ptxt" x="736" y="776">&#8594; build format-agnostic structured data</text>
+
+    <rect x="724" y="796" width="396" height="66" rx="7" fill="#eef2fb" stroke="#6a7bd0"/>
+    <text class="ptitle" x="736" y="816">4 &#183; Navigation <tspan class="tag" fill="#465fb0">RENDER</tspan></text>
+    <text class="ptxt" x="736" y="834">*-render transforms &#183; listing render &#183; categories</text>
+    <text class="ptxt" x="736" y="850">RSS feeds &#8594; HTML strings for template injection</text>
+
+    <rect x="724" y="870" width="396" height="84" rx="7" fill="#eef2fb" stroke="#6a7bd0"/>
+    <text class="ptitle" x="736" y="890">5 &#183; Finalization <tspan class="tag" fill="#465fb0">RENDER</tspan></text>
+    <text class="ptxt" x="736" y="910">link-rewrite (cross-doc) &#183; appendix &#183; crossref-render</text>
+    <text class="ptxt" x="736" y="926">code-block-render &#183; resource-collector</text>
+    <text class="ptxt" x="736" y="942">table classes &#183; attribution-render</text>
+  </g>
+
+  <text class="ptxt" x="726" y="982" font-style="italic" fill="#6a7bd0">The Generate / Render split recurs as paired transforms across the</text>
+  <text class="ptxt" x="726" y="998" font-style="italic" fill="#6a7bd0">pipeline: e.g. TocGenerate / TocRender, ListingGenerate / ListingRender,</text>
+  <text class="ptxt" x="726" y="1014" font-style="italic" fill="#6a7bd0">CrossrefIndex / CrossrefRender, CodeBlockGenerate / CodeBlockRender.</text>
+
+  <text class="ptxt" x="726" y="1046" fill="#46505f"><tspan font-weight="700">Phase dispatch:</tspan> the same stage runs a different transform</text>
+  <text class="ptxt" x="726" y="1062" fill="#46505f">list for HTML render vs. q2-preview, keyed on</text>
+  <text class="ptxt" x="726" y="1078" fill="#46505f" font-family="ui-monospace, Menlo, monospace">ctx.format.pipeline_kind.</text>
+
+  <!-- ===================== Q2 PREVIEW VARIANT ===================== -->
+  <rect x="40" y="1296" width="1100" height="140" rx="12" fill="#e8f6f6" stroke="#3fa3a3" stroke-width="1.6" stroke-dasharray="6 4"/>
+  <text class="band" x="64" y="1324" fill="#1d6b6b">q2 preview &#8212; PIPELINE VARIANT</text>
+  <text class="bandsub" x="318" y="1324" fill="#2c6f6f">same stage graph, reused in WASM (wasm-quarto-hub-client) for the live in-browser preview</text>
+  <g>
+    <text class="chip" x="64" y="1352" fill="#235">&#8226; Drops the three HTML-emitting stages: <tspan font-family="ui-monospace, Menlo, monospace">math-js</tspan> &#183; <tspan font-family="ui-monospace, Menlo, monospace">render-html-body</tspan> &#183; <tspan font-family="ui-monospace, Menlo, monospace">apply-template</tspan></text>
+    <text class="chip" x="64" y="1374" fill="#235">&#8226; Inserts <tspan font-family="ui-monospace, Menlo, monospace">capture-splice</tspan> before <tspan font-family="ui-monospace, Menlo, monospace">engine-execution</tspan> &#8212; replays server-recorded engine output instead of re-running engines</text>
+    <text class="chip" x="64" y="1396" fill="#235">&#8226; Returns the Pandoc AST as JSON to the React renderer (<tspan font-family="ui-monospace, Menlo, monospace">ts-packages/preview-renderer</tspan>), not an HTML string</text>
+    <text class="chip" x="64" y="1418" fill="#235">&#8226; Keeps <tspan font-family="ui-monospace, Menlo, monospace">code-highlight</tspan> (AST-level <tspan font-family="ui-monospace, Menlo, monospace">data-hl-spans</tspan> read by the React CodeBlock component)</text>
+  </g>
+</svg>
