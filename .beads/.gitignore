@@ -43,5 +43,8 @@ redirect
 # Migration artifacts
 *.migrated
 
+# br operation backups (e.g. issues.jsonl.orig left behind by older br runs)
+*.orig
+
 # Local version marker
 .local_version
