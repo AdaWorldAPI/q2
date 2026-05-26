@@ -1016,7 +1016,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
                 key={currentFile?.path ?? ''}
                 height="100%"
                 language={getLanguageForFile(currentFile?.path ?? '')}
-                theme={effectiveTheme === 'dark' ? 'vs-dark' : 'light'}
+                theme={effectiveTheme === 'dark' ? 'vs-dark' : 'vs'}
                 // Use defaultValue instead of value to make Monaco uncontrolled.
                 // This prevents the wrapper from calling setValue() on re-renders,
                 // which would reset cursor position. We manage content via executeEdits().
