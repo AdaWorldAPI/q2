@@ -92,7 +92,7 @@ async function loadCustomComponents(componentsCode: Record<string, string>) {
       const blob = new Blob([code], { type: 'application/javascript' });
       const url = URL.createObjectURL(blob);
       try {
-        const module = await import(url);
+        const module = await import(/* @vite-ignore */ url);
         loadedModules.push(module as ComponentExports);
         console.log(`[Q2DebugIframe] Loaded custom component: ${componentName}`);
       } finally {
