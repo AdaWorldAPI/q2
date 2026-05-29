@@ -20,6 +20,8 @@ import { useAttribution } from '../../hooks/useAttribution';
 import { stripAnsi } from '@quarto/preview-renderer/utils/stripAnsi';
 import { PreviewErrorOverlay } from '@quarto/preview-renderer/overlays/PreviewErrorOverlay';
 import { usePreference } from '../../hooks/usePreference';
+import { useScrollSync } from '../../hooks/useScrollSync';
+import type { Q2PreviewIframeHandle } from '@quarto/preview-renderer/iframe/Q2PreviewIframe';
 import ReactRenderer from './ReactRenderer';
 
 /**
@@ -407,6 +409,9 @@ export default function ReactPreview({
   files,
   fileContents,
   scrollSyncEnabled,
+  editorRef,
+  editorReady,
+  editorHasFocusRef,
   onFileChange,
   onOpenNewFileDialog,
   onDiagnosticsChange,
@@ -463,6 +468,24 @@ export default function ReactPreview({
       ),
     [unlockNestingCursor, rendered.renderedContent, rendered.untransformedAstJson],
   );
+
+  // Scroll sync (editor ↔ preview). Mirrors `Preview.tsx`: the q2-preview
+  // iframe exposes `scrollToLine` / `getScrollRatio` via this handle, and
+  // forwards its own scroll/click events through `handlePreviewScroll` /
+  // `handlePreviewClick`. Only the q2-preview format wires this; other
+  // React formats (q2-debug, slides) leave the handle unattached.
+  const previewScrollRef = useRef<Q2PreviewIframeHandle>(null);
+  const { handlePreviewScroll, handlePreviewClick } = useScrollSync({
+    editorRef,
+    scrollPreviewToLine: (line: number) => {
+      previewScrollRef.current?.scrollToLine(line);
+    },
+    getPreviewScrollRatio: () => {
+      return previewScrollRef.current?.getScrollRatio() ?? null;
+    },
+    enabled: scrollSyncEnabled && editorReady,
+    editorHasFocusRef,
+  });
 
   // Three-way theme fingerprint (Plan 2A item 11):
   //   `undefined` → pre-first-render or render failed; iframe keeps
@@ -771,6 +794,9 @@ export default function ReactPreview({
             currentActor={getActorId()}
             unlockNestingCursor={unlockNestingCursor}
             nestedEditBuffers={nestedEditBuffers}
+            scrollHandleRef={previewScrollRef}
+            onPreviewScroll={handlePreviewScroll}
+            onPreviewClick={handlePreviewClick}
           />
         ) : previewState === 'ERROR_AT_START' && currentError ? (
           <div style={{ padding: '20px', color: 'red' }}>

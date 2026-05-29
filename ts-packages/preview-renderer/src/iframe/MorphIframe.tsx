@@ -2,6 +2,12 @@ import { useRef, useEffect, useCallback, useImperativeHandle } from 'react';
 import type { Ref } from 'react';
 import morphdom from 'morphdom';
 import { postProcessIframe } from '../utils/iframePostProcessor';
+import {
+  parseDataLoc,
+  findElementForLine,
+  isElementVisible,
+  type SourceLocation,
+} from './scrollSyncDom';
 
 // Methods exposed via ref
 export interface MorphIframeHandle {
@@ -37,77 +43,10 @@ interface MorphIframeProps {
   ref: Ref<MorphIframeHandle>;
 }
 
-/**
- * Parsed source location from data-loc attribute.
- * Format: "fileId:startLine:startCol-endLine:endCol" (1-based)
- */
-export interface SourceLocation {
-  fileId: number;
-  startLine: number;
-  startCol: number;
-  endLine: number;
-  endCol: number;
-}
-
-/**
- * Parse a data-loc attribute string into a SourceLocation object.
- * Returns null if the format is invalid.
- */
-function parseDataLoc(dataLoc: string): SourceLocation | null {
-  const match = dataLoc.match(/^(\d+):(\d+):(\d+)-(\d+):(\d+)$/);
-  if (!match) return null;
-  return {
-    fileId: parseInt(match[1], 10),
-    startLine: parseInt(match[2], 10),
-    startCol: parseInt(match[3], 10),
-    endLine: parseInt(match[4], 10),
-    endCol: parseInt(match[5], 10),
-  };
-}
-
-/**
- * Find the best matching element for a given line number.
- * Prefers the most specific (smallest range) match.
- */
-function findElementForLine(
-  doc: Document,
-  line: number
-): HTMLElement | null {
-  const elements = doc.querySelectorAll('[data-loc]');
-  let bestMatch: HTMLElement | null = null;
-  let bestRangeSize = Infinity;
-
-  for (const element of elements) {
-    const dataLoc = element.getAttribute('data-loc');
-    if (!dataLoc) continue;
-
-    const loc = parseDataLoc(dataLoc);
-    if (!loc) continue;
-
-    // Check if line is within this element's range
-    if (line >= loc.startLine && line <= loc.endLine) {
-      const rangeSize = loc.endLine - loc.startLine;
-      // Prefer smaller (more specific) ranges
-      if (rangeSize < bestRangeSize) {
-        bestMatch = element as HTMLElement;
-        bestRangeSize = rangeSize;
-      }
-    }
-  }
-
-  return bestMatch;
-}
-
-/**
- * Check if an element is fully visible in the viewport.
- */
-function isElementVisible(element: HTMLElement): boolean {
-  const rect = element.getBoundingClientRect();
-  const viewportHeight = window.innerHeight;
-
-  // Element is visible if it's within the viewport bounds
-  return rect.top >= 0 && rect.bottom <= viewportHeight;
-}
+// `SourceLocation`, `parseDataLoc`, `findElementForLine`, and
+// `isElementVisible` are shared with `Q2PreviewIframe` via
+// `./scrollSyncDom`. The position-comparison + offset helpers below
+// are selection-sync specific and stay local.
 
 /**
  * Check if a position (line, col) is within or after the start of a data-loc range.
@@ -362,13 +301,14 @@ function MorphIframe({
     scrollToLine: (line: number) => {
       const iframe = iframeRef.current;
       const doc = iframe?.contentDocument;
-      if (!doc) return;
+      const win = iframe?.contentWindow;
+      if (!doc || !win) return;
 
       const element = findElementForLine(doc, line);
       if (!element) return;
 
       // Only scroll if element is not already visible
-      if (!isElementVisible(element)) {
+      if (!isElementVisible(element, win)) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     },

@@ -1,8 +1,8 @@
 import { useMemo, useRef, useCallback, Component } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import type { FileEntry } from '@quarto/preview-renderer/types/project';
 import { Q2DebugIframe } from './q2-debug/Q2DebugIframe';
-import { Q2PreviewIframe } from '@quarto/preview-renderer/iframe/Q2PreviewIframe';
+import { Q2PreviewIframe, type Q2PreviewIframeHandle } from '@quarto/preview-renderer/iframe/Q2PreviewIframe';
 import { Q2RawIframe } from './q2-raw/Q2RawIframe';
 import { SlideAst } from './ReactAstSlideRenderer';
 import { transpileTSX } from '../../services/tsxTranspiler';
@@ -117,6 +117,14 @@ interface ReactRendererProps {
    * `unlockNestingCursor`). Forwarded to `Q2PreviewIframe` only.
    */
   nestedEditBuffers?: Record<string, string>;
+  /**
+   * Scroll-sync wiring, forwarded to `Q2PreviewIframe` only (the
+   * q2-preview format). The other formats (q2-debug, q2-slides,
+   * revealjs) don't participate in editor↔preview scroll sync.
+   */
+  scrollHandleRef?: Ref<Q2PreviewIframeHandle>;
+  onPreviewScroll?: () => void;
+  onPreviewClick?: () => void;
 }
 
 /**
@@ -141,6 +149,9 @@ function ReactRenderer({
   currentActor,
   unlockNestingCursor,
   nestedEditBuffers,
+  scrollHandleRef,
+  onPreviewScroll,
+  onPreviewClick,
 }: ReactRendererProps) {
   // Stable wrappers for Q2PreviewIframe props that are useEffect dependencies.
   //
@@ -304,6 +315,9 @@ function ReactRenderer({
             nestedEditBuffers={nestedEditBuffers}
             currentSlideIndex={currentSlideIndex}
             onSlideChange={onSlideChange}
+            scrollHandleRef={scrollHandleRef}
+            onScroll={onPreviewScroll}
+            onClick={onPreviewClick}
           />
         </div>
       </ErrorBoundary>

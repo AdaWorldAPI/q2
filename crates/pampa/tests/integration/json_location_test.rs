@@ -128,3 +128,38 @@ fn test_json_location_1_indexed() {
     assert_eq!(location["b"]["l"], 1);
     assert_eq!(location["b"]["c"], 1);
 }
+
+#[test]
+fn test_json_location_on_block_nodes() {
+    // q2-preview scroll sync (bd-9kzfi) stamps `data-loc` on block-level
+    // elements (Header, Para, ...), so block nodes — not just their
+    // inline children — must carry the resolved `l` field when
+    // include_inline_locations is on.
+    let input = "# Title\n\nA paragraph.";
+    let mut output = io::sink();
+
+    let (pandoc, context, _errors) =
+        qmd::read(input.as_bytes(), false, "test.qmd", &mut output, true, None)
+            .expect("Failed to parse QMD");
+
+    let mut buf = Vec::new();
+    let config = JsonConfig {
+        include_inline_locations: true,
+        ..JsonConfig::default()
+    };
+    write_with_config(&pandoc, &context, &mut buf, &config).expect("Failed to write JSON");
+
+    let json: serde_json::Value = serde_json::from_slice(&buf).expect("Invalid JSON");
+
+    // Header block carries its own location spanning the header line.
+    let header = &json["blocks"][0];
+    assert_eq!(header["t"], "Header");
+    assert_eq!(header["l"]["b"]["l"], 1);
+    assert_eq!(header["l"]["b"]["c"], 1);
+
+    // Para block on line 3 carries its own location.
+    let para = &json["blocks"][1];
+    assert_eq!(para["t"], "Para");
+    assert_eq!(para["l"]["b"]["l"], 3);
+    assert_eq!(para["l"]["b"]["c"], 1);
+}

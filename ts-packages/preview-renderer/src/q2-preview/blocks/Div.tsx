@@ -1,5 +1,5 @@
 import { useContext, type CSSProperties, type ReactNode } from 'react';
-import { renderChildren } from '../../framework';
+import { renderChildren, dataLocProps } from '../../framework';
 import type { DivBlock, NodeArgs } from '../../framework';
 import { IncrementalContext } from '../IncrementalContext';
 import { PreviewContext } from '../PreviewContext';
@@ -68,15 +68,18 @@ export const Div = (args: NodeArgs<DivBlock>) => {
     // whose class list contains "section" (output of the sectionize
     // transform) renders as `<section>`, not `<div>`. Sections are
     // not editable at this phase (Plan 4); non-section divs get the
-    // affordance attribute.
+    // affordance attribute. Quarto theme CSS keys off the `<section>`
+    // tag, so emitting `<div>` here would cause spacing drift between
+    // `q2 render` and `q2 preview`.
+    const locProps = dataLocProps(args.node);
     if (classes.includes(SECTION)) {
-        return <section {...props}>{wrap(renderChildren(args))}</section>;
+        return <section {...props} {...locProps}>{wrap(renderChildren(args))}</section>;
     }
     // Revealjs speaker notes / asides — mirror the native writer's
     // `.notes` / `.aside` → <aside>. reveal.css hides `aside.notes`;
     // quarto-reveal.css styles `aside.aside` (bottom of slide, muted).
     if (classes.includes(NOTES) || classes.includes(ASIDE)) {
-        return <aside {...props}>{wrap(renderChildren(args))}</aside>;
+        return <aside {...props} {...locProps}>{wrap(renderChildren(args))}</aside>;
     }
     const resolved = ctx?.resolveSource ? ctx.resolveSource(args.node) : null;
     const isEditable = resolved != null && resolved.reachabilityClass !== 'Opaque' && poolId !== undefined;
@@ -84,5 +87,5 @@ export const Div = (args: NodeArgs<DivBlock>) => {
         props['data-block-pool-id'] = String(poolId);
         props.tabIndex = -1;
     }
-    return <div {...props}>{wrap(renderChildren(args))}</div>;
+    return <div {...props} {...locProps}>{wrap(renderChildren(args))}</div>;
 };

@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Node } from '../../framework';
+import { Node, dataLocProps } from '../../framework';
 import type { BlockNode, InlineNode, LineBlockBlock, NodeArgs } from '../../framework';
 import { PreviewContext } from '../PreviewContext';
 
@@ -16,7 +16,7 @@ export const LineBlock = (args: NodeArgs<LineBlockBlock>) => {
 
     const { node, setLocalAst, onNavigateToDocument } = args;
     return (
-        <div className="line-block" {...(isEditable ? { 'data-block-pool-id': poolId, tabIndex: -1 } : {})}>
+        <div className="line-block" {...(isEditable ? { 'data-block-pool-id': poolId, tabIndex: -1 } : {})} {...dataLocProps(node)}>
             {node.c.map((line, i) => (
                 <div key={i}>
                     {line.map((inl, j) => (

@@ -1,4 +1,5 @@
 import { useContext } from 'react';
+import { dataLocProps } from '../../framework';
 import type { NodeArgs, RawBlock as RawBlockType } from '../../framework';
 import { PreviewContext } from '../PreviewContext';
 
@@ -36,9 +37,10 @@ export const RawBlock = ({ node }: NodeArgs<RawBlockType>) => {
     const affordanceAttr = isEditable ? { 'data-block-pool-id': poolId, tabIndex: -1 } : {};
 
     const [format, content] = node.c;
+    const locProps = dataLocProps(node);
     if (format === 'html' || format === 'html5') {
         const className = rootHasClass(content, 'r-stretch') ? 'r-stretch' : undefined;
-        return <div className={className} {...affordanceAttr} dangerouslySetInnerHTML={{ __html: content }} />;
+        return <div className={className} {...affordanceAttr} {...locProps} dangerouslySetInnerHTML={{ __html: content }} />;
     }
-    return <pre {...affordanceAttr}>{content}</pre>;
+    return <pre {...affordanceAttr} {...locProps}>{content}</pre>;
 };

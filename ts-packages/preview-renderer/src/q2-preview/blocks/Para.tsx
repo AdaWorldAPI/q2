@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { renderChildren } from '../../framework';
+import { renderChildren, dataLocProps } from '../../framework';
 import type { NodeArgs, ParaBlock } from '../../framework';
 import { PreviewContext } from '../PreviewContext';
 
@@ -33,5 +33,5 @@ export const Para = (args: NodeArgs<ParaBlock>) => {
         domProps.tabIndex = -1;
     }
 
-    return <p {...domProps}>{renderChildren(args)}</p>;
+    return <p {...domProps} {...dataLocProps(args.node)}>{renderChildren(args)}</p>;
 };

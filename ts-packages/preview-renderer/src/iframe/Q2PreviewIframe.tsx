@@ -1,7 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import type { Ref } from 'react';
 import { vfsReadFile } from '@quarto/preview-runtime';
 import { DEFAULT_CSS_ARTIFACT_PATH } from '../types/artifactPaths';
 import { buildAssetManifest, type ManifestCacheEntry } from '../q2-preview/assetWalker';
+import { findElementForLine, isElementVisible } from './scrollSyncDom';
+
+/**
+ * Imperative scroll-sync handle, parallel to `MorphIframeHandle`. The
+ * q2-preview iframe is same-origin (`allow-same-origin`), so the parent
+ * reads `contentDocument` / `contentWindow` directly rather than going
+ * through postMessage. Editor→preview uses `data-loc` attributes the
+ * q2-preview leaves stamp via `dataLocProps`; preview→editor uses the
+ * raw scroll ratio.
+ */
+export interface Q2PreviewIframeHandle {
+  scrollToLine: (line: number) => void;
+  getScrollRatio: () => number | null;
+}
 
 interface Q2PreviewIframeProps {
   astJson: string;
@@ -108,6 +123,12 @@ interface Q2PreviewIframeProps {
    * in-deck navigation.
    */
   onSlideChange?: (slideIndex: number) => void;
+  /** Scroll-sync handle (scrollToLine / getScrollRatio). */
+  scrollHandleRef?: Ref<Q2PreviewIframeHandle>;
+  /** Called when the preview iframe is scrolled (preview→editor sync). */
+  onScroll?: () => void;
+  /** Called when the preview iframe is clicked (preview→editor sync). */
+  onClick?: () => void;
 }
 
 /**
@@ -146,6 +167,9 @@ export function Q2PreviewIframe({
   nestedEditBuffers,
   currentSlideIndex,
   onSlideChange,
+  scrollHandleRef,
+  onScroll,
+  onClick,
 }: Q2PreviewIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeReady, setIframeReady] = useState(false);
@@ -155,6 +179,60 @@ export function Q2PreviewIframe({
   // otherwise loop: cursor → SET_SLIDE → slidechanged → SLIDE_CHANGED →
   // editor state → SET_SLIDE …). Reset on IFRAME_READY (fresh iframe).
   const lastSentSlideRef = useRef<number | undefined>(undefined);
+
+  // Scroll-sync handle. Same-origin access to the iframe document lets
+  // us reuse the exact line→element mapping `MorphIframe` uses for the
+  // HTML preview.
+  useImperativeHandle(
+    scrollHandleRef,
+    () => ({
+      scrollToLine: (line: number) => {
+        const iframe = iframeRef.current;
+        const doc = iframe?.contentDocument;
+        const win = iframe?.contentWindow;
+        if (!doc || !win) return;
+        const element = findElementForLine(doc, line);
+        if (!element) return;
+        if (!isElementVisible(element, win)) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      },
+      getScrollRatio: () => {
+        const iframe = iframeRef.current;
+        const win = iframe?.contentWindow;
+        const doc = iframe?.contentDocument;
+        if (!win || !doc) return null;
+        const maxScroll =
+          doc.documentElement.scrollHeight - win.innerHeight;
+        if (maxScroll <= 0) return 0;
+        return win.scrollY / maxScroll;
+      },
+    }),
+    [],
+  );
+
+  // Forward iframe scroll / click to the parent for preview→editor sync.
+  // Attached once the iframe document exists (IFRAME_READY); the q2-preview
+  // app re-renders its body via React on each UPDATE_AST but never reloads
+  // the iframe, so the contentWindow/document — and these listeners —
+  // persist across edits.
+  useEffect(() => {
+    if (!iframeReady) return;
+    const iframe = iframeRef.current;
+    const win = iframe?.contentWindow;
+    const doc = iframe?.contentDocument;
+    if (!win || !doc) return;
+
+    const handleScroll = () => onScroll?.();
+    const handleClick = () => onClick?.();
+
+    win.addEventListener('scroll', handleScroll, { passive: true });
+    doc.addEventListener('click', handleClick);
+    return () => {
+      win.removeEventListener('scroll', handleScroll);
+      doc.removeEventListener('click', handleClick);
+    };
+  }, [iframeReady, onScroll, onClick]);
 
   // Track the last fingerprint we posted and the current outstanding
   // blob URL so we can dedupe re-sends and revoke replaced URLs.
