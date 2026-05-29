@@ -441,21 +441,17 @@ fn default_project_type_single_file_produces_output() {
 
 // === bd-m7x9s Phase 0: Pass-1 parallelization regression guards ===========
 //
-// These tests pin invariants we want to hold across the Phase 2 rayon
-// migration:
+// `pass_one_preserves_input_order` is a Phase 2 correctness guard:
+// `IndexedParallelIterator::collect()` must keep the resulting
+// `Vec<DocumentProfile>` in the same order as `project.files`. Passes
+// pre-Phase-2 (trivially); the test is here to fail loudly if Phase 2
+// accidentally uses an unordered collect.
 //
-// - `pass_one_uses_multiple_threads_when_parallelism_available`:
-//   the headline performance test. **Expected to FAIL pre-Phase-2** —
-//   the current sequential `for` loop runs every doc on the calling
-//   thread. Post-Phase-2 the rayon dispatch should produce
-//   `threads_used >= 2` on any multi-core machine (skipped on
-//   uniprocessor CI by `available_parallelism() < 2`).
-//
-// - `pass_one_preserves_input_order`: a Phase 2 correctness guard.
-//   `IndexedParallelIterator::collect()` must keep the resulting
-//   `Vec<DocumentProfile>` in the same order as `project.files`.
-//   Passes pre-Phase-2 (trivially); the test is here to fail loudly
-//   if Phase 2 accidentally uses an unordered collect.
+// A `pass_one_uses_multiple_threads_when_parallelism_available` test
+// once lived here as the "headline performance" guard; it was removed
+// in bd-3klmk because asserting a realized OS-thread count gates CI on
+// a non-deterministic rayon scheduling outcome. Parallelism is now
+// observed via the `perf.pass1 threads_used=K` gauge, not asserted.
 
 fn make_n_file_project(n: usize) -> (TempDir, ProjectContext) {
     let temp = TempDir::new().unwrap();
@@ -477,54 +473,6 @@ fn make_n_file_project(n: usize) -> (TempDir, ProjectContext) {
     let runtime = runtime_arc();
     let project = ProjectContext::discover(&project_dir, runtime.as_ref()).unwrap();
     (temp, project)
-}
-
-#[test]
-fn pass_one_uses_multiple_threads_when_parallelism_available() {
-    use std::num::NonZeroUsize;
-
-    let parallelism = std::thread::available_parallelism()
-        .unwrap_or(NonZeroUsize::new(1).unwrap())
-        .get();
-    if parallelism < 2 {
-        eprintln!("skipping: available_parallelism() = {parallelism}");
-        return;
-    }
-
-    // 32 docs is comfortably above any reasonable thread-pool size so
-    // the rayon dispatch has room to actually spread work across
-    // workers.
-    let (_temp, mut project) = make_n_file_project(32);
-    let options = RenderToFileOptions::default();
-    let runtime = runtime_arc();
-    let project_type = project_type_for(&project);
-
-    let pipeline = ProjectPipeline::new(
-        &mut project,
-        project_type,
-        html_format(),
-        "html",
-        &options,
-        runtime.clone(),
-    );
-
-    let before = quarto_core::project::orchestrator::pass1_threads_snapshot();
-    let (profiles, failures) = pollster::block_on(pipeline.__pass_one_for_test_only());
-    let after = quarto_core::project::orchestrator::pass1_threads_snapshot();
-
-    assert!(
-        failures.is_empty(),
-        "fixture docs should profile cleanly; got {failures:?}",
-    );
-    assert_eq!(profiles.len(), 32);
-
-    let new_threads = after.difference(&before).count();
-    assert!(
-        new_threads >= 2,
-        "expected pass_one to use ≥ 2 OS threads on a multi-core host \
-         (available_parallelism = {parallelism}), got {new_threads} new \
-         thread ids in the recorded set",
-    );
 }
 
 #[test]

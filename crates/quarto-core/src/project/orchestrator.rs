@@ -94,11 +94,11 @@ pub struct RenderToFileResult;
 ///
 /// Pre-parallelization (bd-m7x9s Phase 0) this is always `{current
 /// thread}` ⇒ `len() == 1`. Post-Phase-2 it should grow to the size
-/// of the rayon pool. Surfaced through [`pass1_threads_used()`] /
-/// [`pass1_threads_snapshot()`] for the
-/// `perf.pass1 threads_used=K` gauge and the
-/// `pass_one_uses_multiple_threads_when_parallelism_available` unit
-/// test that pins the invariant.
+/// of the rayon pool. Surfaced through [`pass1_threads_used()`] for
+/// the `perf.pass1 threads_used=K` gauge. This is observability only —
+/// realized thread count is a non-deterministic scheduler outcome, not
+/// a behavioral contract, so it is intentionally not asserted in tests
+/// (see bd-3klmk).
 static PASS1_THREADS: std::sync::OnceLock<
     std::sync::Mutex<std::collections::HashSet<std::thread::ThreadId>>,
 > = std::sync::OnceLock::new();
@@ -132,22 +132,6 @@ pub fn pass1_threads_used() -> usize {
         .get()
         .map(|mu| mu.lock().map(|s| s.len()).unwrap_or(0))
         .unwrap_or(0)
-}
-
-/// Snapshot of the set of OS thread IDs that have executed at least
-/// one Pass-1 profile extraction since the process started.
-///
-/// Tests use this with a before/after subtraction to determine how
-/// many new threads were used by a specific `pass_one` invocation,
-/// which is stable across concurrent or interleaved tests in the
-/// same process. The cumulative `pass1_threads_used()` is fine for
-/// single-render CLI invocations but not for tests that share a
-/// process.
-pub fn pass1_threads_snapshot() -> std::collections::HashSet<std::thread::ThreadId> {
-    PASS1_THREADS
-        .get()
-        .and_then(|mu| mu.lock().ok().map(|s| s.clone()))
-        .unwrap_or_default()
 }
 
 /// Number of documents Pass-1 has processed since process start.
