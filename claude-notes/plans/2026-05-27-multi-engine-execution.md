@@ -1,0 +1,672 @@
+# Sequential multi-engine execution
+
+**Issue:** bd-5yff4 — feature/design.
+
+**Status:** design / investigation. Implementation is gated on explicit
+user go-ahead after this plan is reviewed and iterated.
+
+## Overview
+
+Today a Quarto 2 document declares exactly one execution engine:
+
+```yaml
+engine: knitr
+```
+
+This plan investigates running **several engines in sequence** for one
+document:
+
+```yaml
+engine:
+  - knitr
+  - mermaidjs   # hypothetical future diagram engine
+```
+
+The two coupled pieces of work are (1) a YAML-config change to accept an
+ordered array of engines, and (2) a pipeline change to thread N engines
+through the engine-execution stage. A third concern — tracing, replay,
+and preview — must be redesigned because today's model assumes a single
+engine per document.
+
+### Decisions locked with the user (2026-05-27)
+
+1. **Engines are distinct within the sequence; order is significant.**
+   The same engine never appears twice. Ordering matters because engine
+   N may emit code cells that engine N+1 consumes. → Replay captures can
+   stay **keyed by engine name** (the current registry model), but the
+   execution order and per-engine input must be preserved.
+2. **Array merge uses the existing default (`!concat`).** We do *not*
+   introduce an engine-specific default merge op (e.g. `!prefer`).
+   Schema-specific tag defaults are deferred until we have a genuine
+   schema-driven merging system. Users opt into replacement with an
+   explicit `!prefer` tag.
+3. **Validate with a simple file-backed test engine**, not a real second
+   engine. The test engine reads a results file (per-cell outputs, in
+   order) and splices them in — deterministic, dependency-free, and a
+   small useful design in its own right. A real second engine (e.g.
+   mermaidjs) is a separate follow-up.
+4. **Trace records one snapshot per engine.** One AST snapshot **and**
+   one `EngineCapture` per engine invocation within the stage, mirroring
+   the existing `transform:<name>` sub-entry pattern — provided the
+   trace-format change stays tractable (it should; see §4).
+
+## Current architecture (what we're changing)
+
+### Engine detection — `crates/quarto-core/src/engine/detection.rs`
+
+`detect_engine(metadata) -> DetectedEngine` returns a **single** engine:
+
+```rust
+pub struct DetectedEngine {
+    pub name: String,                 // singular
+    pub config: Option<ConfigValue>,
+}
+```
+
+It handles three input shapes (`detection.rs:150-190`):
+- `engine: knitr` (string) → `DetectedEngine::new("knitr")`
+- `engine: { jupyter: { kernel: python3 } }` (map) → takes
+  `entries.first()` — the **first** key only
+- top-level `jupyter:`/`knitr:` key (no `engine:` key)
+- defaults to `markdown`
+
+There is **no array branch**. An `engine: [knitr, mermaidjs]` would fall
+into the map branch, find no `.first()` map entry on a sequence, and fall
+through to `markdown`.
+
+### Engine execution — `crates/quarto-core/src/stage/stages/engine_execution.rs`
+
+`EngineExecutionStage::run` (`engine_execution.rs:150-401`) does, once:
+
+1. `detect_engine(&doc_ast.ast.meta)` (single engine).
+2. Markdown engine → early return, passthrough (`:191-198`).
+3. `serialize_ast_to_qmd(&doc_ast.ast)` → `(qmd, source_info)` (`:201`).
+4. `engine.execute(&qmd, &exec_context)` → `ExecuteResult` (`:230`).
+5. Emit `EngineCapture` aux event (`:248-270`).
+6. Accumulate `includes` + `supporting_files` onto `ctx` (`:273-297`).
+7. Parse engine output back to AST against an intermediate filename
+   `<stem>.rmarkdown` (`:313-324`).
+8. Build a **2-slot** merged `ASTContext`: slot 0 = original `.qmd`
+   (`FileId(0)`), slot 1 = intermediate `.rmarkdown` (`:326-362`).
+9. Remap executed-AST `FileId(0)` → `FileId(1)` (`:368-370`).
+10. `quarto_ast_reconcile::reconcile(doc_ast.ast, executed_ast)` (`:376`).
+
+The serialize → execute → parse → reconcile loop is **already
+idempotent in type**: it consumes a `DocumentAst` and produces a
+`DocumentAst`. Threading N engines is mechanically a `for` loop over that
+body. The non-trivial part is the FileId/slot bookkeeping (step 8–9) and
+the trace/replay model (steps 5).
+
+### Engine registry — `crates/quarto-core/src/engine/registry.rs`
+
+`EngineRegistry` is a `HashMap<String, Arc<dyn ExecutionEngine>>` keyed by
+`engine.name()`. `register` is last-write-wins. `with_replay(capture)`
+(`registry.rs:157`) registers a single `ReplayEngine` under the recorded
+engine's name. Because names are the key and our sequences are
+name-distinct, registering one `ReplayEngine` per engine works — but the
+constructor only takes one capture today.
+
+### Engine trait — `crates/quarto-core/src/engine/traits.rs`
+
+```rust
+pub trait ExecutionEngine: Send + Sync {
+    fn name(&self) -> &str;
+    fn execute(&self, input: &str, ctx: &ExecutionContext)
+        -> Result<ExecuteResult, ExecutionError>;
+    fn can_freeze(&self) -> bool { false }
+    fn intermediate_files(&self, _input_path: &Path) -> Vec<PathBuf> { Vec::new() }
+    fn is_available(&self) -> bool { true }
+}
+```
+
+The trait is **per-invocation text→text** and needs no change to support
+sequencing — the *stage* drives the loop, not the engine.
+
+### Metadata merge + tags — `crates/quarto-config/`
+
+`!prefer` / `!concat` are parsed in `quarto-config/src/tag.rs:135-181`.
+The merge in `quarto-config/src/merged.rs:286-327` walks config layers
+lowest→highest; arrays **concatenate by default** (`MergeOp::Concat`),
+and `MergeOp::Prefer` clears prior items. `MetadataMergeStage`
+(`crates/quarto-core/src/stage/stages/metadata_merge.rs:133`) assembles
+the layers (project → extension → directory → document → runtime) and
+materializes the merged config into `doc.ast.meta`.
+
+→ **An `engine:` array Just Works under the existing array-merge
+machinery.** No merge-engine change is required; we only need to *read*
+the merged array and enforce distinctness (see §1, "Duplicate handling").
+
+### Trace / replay / preview — the single-capture assumption
+
+- `quarto-trace/src/lib.rs:111`: `TraceDocument.engine_capture:
+  Option<EngineCapture>` — **one** slot.
+- `EngineCapture` = `{ engine_name, input_qmd, result }`
+  (`lib.rs:138-155`).
+- Trace observer (`crates/quarto-core/src/stage/trace.rs:209-243`):
+  `on_auxiliary_data` routes the `EngineCapture` kind to the single
+  `engine_capture` slot. There is precedent for **intra-stage**
+  granularity: `on_transform_data` (`trace.rs:185-207`) emits a
+  `transform:<name>` `TraceEntry` per transform within
+  `AstTransformsStage`.
+- Replay engine (`crates/quarto-core/src/engine/replay.rs`): validates
+  `input_qmd` byte-equality and returns the recorded `ExecuteResult`;
+  hard-fails on mismatch.
+- Preview record (`crates/quarto-core/src/engine/preview_record.rs`):
+  `record_capture` runs the pipeline through `EngineExecutionStage`,
+  collects the **first** `EngineCapture` (`first-write-wins`,
+  `preview_record.rs:79-82`), returns `Option<EngineCapture>`.
+- Preview cache (`crates/quarto-preview/src/cache.rs`): caches one
+  capture per doc keyed by SHA-256 of the canonical input QMD; the
+  browser-side WASM replays it.
+
+All four hinge on "one engine ⇒ one capture." Multi-engine breaks the
+assumption.
+
+## Feasibility verdict
+
+**Feasible.** The type contract closes end-to-end (each engine consumes
+and produces a `DocumentAst`), the merge system already concatenates
+arrays, and the trace model has a precedent for intra-stage sub-entries.
+The genuine design work is in three places:
+
+1. Reading + validating the engine array (distinctness, ordering).
+2. Generalizing FileId/intermediate-slot bookkeeping from 2 → N+1.
+3. Turning the single-capture trace/replay/preview path into an ordered
+   list, with per-engine snapshots.
+
+Each is addressed below, with the open design questions called out.
+
+---
+
+## 1. YAML config: `engine:` as an ordered array
+
+### Accepted shapes (back-compat is mandatory)
+
+| YAML | Parsed sequence |
+|------|-----------------|
+| `engine: knitr` | `[knitr]` |
+| `engine: { jupyter: { kernel: python3 } }` | `[jupyter+config]` |
+| `engine: [knitr, mermaidjs]` | `[knitr, mermaidjs]` |
+| `engine:`<br>`  - knitr`<br>`  - mermaidjs: { theme: dark }` | `[knitr, mermaidjs+config]` |
+| top-level `jupyter:` (no `engine:`) | `[jupyter+config]` |
+| (none) | `[markdown]` |
+
+Array elements may be a bare string or a single-key map (engine name →
+config), matching the existing scalar/map forms element-wise.
+
+### New API
+
+Add `detect_engines(metadata) -> Vec<DetectedEngine>` alongside (or
+replacing the internals of) `detect_engine`. Keep `detect_engine` as a
+thin wrapper returning the first element for any remaining single-engine
+call sites, or migrate all call sites — TBD during implementation.
+
+### Merge behavior — verified against the code (2026-05-27)
+
+`MetadataMergeStage` materializes the merged config via
+`materialize_cursor` (`crates/quarto-config/src/materialize.rs:85`),
+which calls `MergedCursor::as_value`
+(`crates/quarto-config/src/merged.rs:238-256`). `as_value` walks layers
+**highest-priority-first and returns on the first layer that defines the
+key** — so the **topmost layer that sets `engine:` decides the kind**:
+
+| Project (lower) | Doc (higher) | Materialized `engine` | Detected sequence |
+|---|---|---|---|
+| `[knitr]` | `jupyter` (scalar) | scalar `jupyter` (array dropped) | `[jupyter]` |
+| `jupyter` (scalar) | `[knitr]` (array) | `[knitr]` (scalar dropped) | `[knitr]` |
+| `[jupyter]` | `[jupyter]` | `[jupyter, jupyter]` (concat) | dup → see below |
+| `[knitr]` | `[mermaidjs]` | `[knitr, mermaidjs]` (concat) | `[knitr, mermaidjs]` |
+
+Two consequences, both confirmed by reading `as_array`
+(`merged.rs:295-320`, which collects items **only** from layers whose
+kind is `Array`, line 297):
+
+1. **Duplicates arise only in the array + array case.** Scalar/array
+   mismatches never produce a duplicate, because the topmost layer's
+   kind wins and a mismatched lower layer is dropped wholesale. The only
+   shape that repeats an engine is two array layers naming the same
+   engine (e.g. project `engine: [jupyter]` and a doc that restates
+   `engine: [jupyter]`).
+2. **Gotcha to document:** because `as_array` drops lower *scalar*
+   layers, the "concat accumulates across layers" intuition holds **only
+   when every contributing layer uses array syntax.** A project-level
+   `engine: jupyter` (scalar) is silently discarded the instant any
+   higher layer writes `engine:` as an array. We surface this in user
+   docs.
+
+### Duplicate handling (resolved with user 2026-05-27)
+
+**Dedup keeping the first occurrence**, and emit a diagnostic naming any
+dropped duplicate. This fires only for the array + array repeated-engine
+case above. Erroring would be hostile to the benign "two array layers
+both say jupyter" case. The cost: a cross-layer *reordering* attempt
+(project `[knitr, jupyter]` + doc `[jupyter, knitr]` → deduped
+`[knitr, jupyter]`) is silently normalized to first-seen order;
+reordering requires an explicit `!prefer` to replace the list. Documented
+as a v1 limitation.
+
+### Schema / validation
+
+There is currently **no Rust-side schema** validating `engine:`
+(detection-only; unknown names fall back with a warning at the stage).
+We keep that posture: the array branch accepts any element shape and
+defers unknown-engine handling to the stage's existing
+`get_engine_with_fallback`. No new schema work in this plan.
+
+---
+
+## 2. Pipeline: thread N engines through `EngineExecutionStage`
+
+### Loop shape
+
+```text
+engines = detect_engines(meta)           // ordered, distinct
+ast = doc_ast.ast
+slots = [".qmd"]                          // FileId(0)
+for (i, engine) in engines.enumerate():
+    if engine.name == "markdown": continue   // per-engine no-op skip
+    (qmd, source_info) = serialize_ast_to_qmd(ast)
+    emit pre-engine capture input (qmd)      // for trace/replay
+    result = engine.execute(qmd, exec_ctx_for(engine, i))
+    record EngineCapture { engine_name, input_qmd: qmd, result }
+    accumulate includes + supporting_files
+    executed_ast = parse(result.markdown, intermediate_name(i))
+    merged_context.add_slot(intermediate_name(i))   // FileId(slots.len())
+    remap executed_ast FileId(0) -> FileId(slots.len()-1 .. )   // see below
+    (ast, plan) = reconcile(ast, executed_ast)
+    emit per-engine AST snapshot (trace)     // engine:<name>
+final DocumentAst { ast, ast_context: merged_context, ... }
+```
+
+### FileId / intermediate-slot bookkeeping (the hard part)
+
+Today (`engine_execution.rs:326-370`): 2 fixed slots, executed AST's
+`FileId(0)` remapped by `+1` to land in slot 1. For N engines we need
+**N+1 slots** (original + one intermediate per non-markdown engine) and
+the remap offset becomes "current slot count," not a constant `+1`.
+
+Invariant to preserve: a block's `FileId` identifies its provenance —
+the `.qmd` for kept blocks, the relevant intermediate for blocks first
+introduced by engine k. We must verify that `quarto_ast_reconcile`'s
+keep/replace/recurse decisions remain correct when the "original" side
+of the reconcile already carries FileIds from multiple prior slots.
+
+**Risk:** the second reconcile's "original" AST (output of the first
+reconcile) mixes `FileId(0)` and `FileId(1)`. Remapping the second
+engine's executed AST to `FileId(2)` must not collide. We add a dedicated
+test (Phase 1) that runs two appending engines and asserts three distinct
+FileIds land coherently.
+
+### Markdown skip
+
+Markdown engines anywhere in the sequence are individually skipped
+(passthrough), preserving the current optimization. A sequence of only
+markdown engines collapses to today's no-op fast path.
+
+### Includes / supporting files
+
+Already additive (`extend` / `add_engine_files`). Accumulating across
+engines needs no change beyond running inside the loop.
+
+### Determinism requirement (load-bearing for replay)
+
+Engine k+1's `input_qmd` is the serialization of the AST *after* engine
+k's reconcile. For replay to validate (byte-equality on `input_qmd`),
+serialize→reconcile→serialize must be **deterministic** across runs. This
+is already assumed by single-engine replay; we extend the assumption and
+add a regression test that records a two-engine trace and replays it
+byte-clean.
+
+---
+
+## 3. Test engine: file-backed cell-results splicer
+
+Per decision 3 — a deterministic, dependency-free engine to exercise
+sequencing. Proposed contract:
+
+- **Name:** `fixture` (working name; bikeshed later).
+- **Config:** `engine: { fixture: { results: results.json } }` — a path
+  (relative to the doc) to an ordered list of cell results.
+- **Behavior:** walk the input QMD's executable code cells in document
+  order; for cell i, splice the i-th entry from the results file as the
+  cell's output (as Quarto already represents engine output — e.g. an
+  output block / div following the source). Cells beyond the results
+  list pass through unchanged; surplus results are a diagnostic.
+
+To exercise **engine→engine handoff** (engine A emits a cell that engine
+B executes), the test fixtures use two registrations of the file-backed
+engine under two distinct names (e.g. `fixture-a`, `fixture-b`), where
+`fixture-a`'s results include a fenced `{fixture-b}` cell that
+`fixture-b` then fills. This proves the "engine N produces cells for
+engine N+1" requirement without any real runtime.
+
+This belongs in `crates/quarto-core/src/engine/` next to `markdown.rs`
+and `replay.rs`. **Registration is test-registry-only** (decision
+2026-05-27): the engine is constructed in tests via
+`EngineRegistry::register`, never wired into the default registry, and
+never user-selectable in a real render.
+
+**Not a freeze mechanism.** The file-backed engine resembles Quarto 1's
+freeze, but Quarto 2's freeze will instead reuse the **trace** directly —
+roughly "`engine: replay` as freeze": commit a trace file into the repo
+and flag Quarto to replay its recorded `ExecuteResult` instead of
+running the engine. So the test engine carries no freeze responsibility;
+it exists purely to make multi-engine sequencing testable without R /
+Python / Jupyter.
+
+---
+
+## 4. Trace / replay / preview redesign
+
+### Trace schema (one capture + one snapshot per engine)
+
+- `quarto-trace`: replace `engine_capture: Option<EngineCapture>` with
+  **`engine_captures: Vec<EngineCapture>`** (ordered by execution).
+  - Back-compat: readers fold a legacy single `engine_capture` into a
+    one-element vec; writers emit the vec. Keep `#[serde(default,
+    skip_serializing_if = "Vec::is_empty")]`.
+  - Bump `SCHEMA_VERSION` 2 → 3 and document; readers stay
+    forward/backward tolerant (unknown fields ignored).
+- Per-engine AST snapshot: emit an `engine:<name>` `TraceEntry` after
+  each engine's reconcile, **exactly mirroring** `on_transform_data` →
+  `transform:<name>` (`trace.rs:185-207`). This is the precedent that
+  makes "one snapshot per engine" *not* a big change: we add an
+  `on_engine_data(name, index, ast, ast_context)` observer hook (or
+  reuse the transform hook with an `engine:` prefix) and call it from the
+  stage loop. The dedup pass (bd-5qnj) collapses identical snapshots, so
+  the size cost is bounded.
+
+### Observer / capture plumbing
+
+- `engine_execution.rs` emits one `EngineCapture` aux event **per
+  engine** (already a loop after the change). The `index` field
+  distinguishes them.
+- `JsonTraceObserver::on_auxiliary_data` (`trace.rs:215`) pushes onto the
+  `engine_captures` vec instead of overwriting the single slot.
+
+### Replay
+
+- `EngineRegistry::with_replay(capture)` → `with_replay_many(captures:
+  Vec<EngineCapture>)`: register one `ReplayEngine` per capture, keyed by
+  `engine_name` (distinct names ⇒ no collision — decision 1).
+- The stage loop drives each engine; each `ReplayEngine` validates its
+  own `input_qmd`. Order is implied by the engine sequence in `meta`,
+  which must match the recording.
+- A replay miss on **any** engine surfaces as a stage error (extend the
+  existing single-engine behavior, `replay.rs`).
+
+### Preview (`q2 preview`) — in scope
+
+> **Design correction (2026-05-27, discovered during Phase 3→4):** the
+> WASM preview path does **not** use `ReplayEngine`/`with_replay`. Per
+> bd-lucp (`claude-notes/plans/2026-05-18-q2-preview-project-replay-engine.md`),
+> the browser threads the capture into **`CaptureSpliceStage`**
+> (`crates/quarto-core/src/engine/capture_splice.rs`), which treats the
+> capture as a recipe — `derive_cell_outputs(A1, B1)` then `splice_cells`
+> match engine cells by `(content-hash, occurrence)` and replace them
+> with the recorded `Div.cell` output. `EngineExecutionStage` is bypassed
+> in preview. So the Phase-4 plan below is revised accordingly.
+
+`q2 preview` support ships **with** this feature, not after it. The
+preview flow has two parts; both are in scope:
+
+1. **Capture the sequence + splice it in the browser** (the part that
+   makes preview *correct* for multi-engine docs):
+   - `record_capture` (`preview_record.rs:130`) returns
+     `Vec<EngineCapture>`; `CaptureCollector` collects **all** captures
+     in order instead of first-write-wins (`preview_record.rs:79`).
+   - `CaptureSpliceStage` **folds** the captures in order:
+     `a = a2; for cap in captures { a = apply_capture_splice(a,
+     parse(cap.input_qmd), parse(cap.result.markdown), cap.engine_name) }`.
+     Splice 1 turns engine-A cells into A's output; splice 2 turns
+     engine-B cells (authored, or produced by A) into B's output.
+   - **Known edge (follow-up):** `splice_cells` walks *top-level* blocks
+     only. If engine A emits engine-B's cell *inside* a `Div.cell`
+     wrapper, the fold won't reach it. The common case (each engine's
+     cells at top level) works. Document as a v1 limitation.
+   - Transport: the capture binary doc
+     (`capture_driver.rs` / `CAPTURE_MIME_TYPE`) payload becomes a JSON
+     **array** of captures (was a single object); the sidecar still
+     references one doc per file. WASM `parse_capture_from` deserializes
+     a `Vec<EngineCapture>`. hub-client TS likely needs no change (it
+     ships opaque bytes; only the WASM parse shape changes) — confirm.
+
+2. **Incremental capture cache** (the part that makes preview *fast*
+   across edits — `quarto-preview/src/cache.rs`'s `record_capture_cached`
+   keys a capture by SHA-256 of the canonical input QMD so unchanged code
+   cells don't re-run the engine). For a sequence this becomes:
+   - store/serve the **ordered vec** of captures per doc;
+   - staleness: engine 1's input is the doc's canonical QMD (today's
+     key); engines 2..N consume *derived* inputs (each is a
+     deterministic function of the prior engine's reconciled output), so
+     a single key on the doc's canonical QMD invalidates the whole
+     sequence correctly. We confirm this during implementation; if a
+     finer per-engine input vector is needed it's a localized change.
+
+   ("Cache sequencing" earlier referred to *this* incremental
+   optimization — not to preview support itself.)
+
+### "Overwhelmingly complex?" assessment
+
+No. The vec-ification of `engine_capture` is additive + a schema bump;
+the per-engine snapshot reuses the `transform:<name>` mechanism
+verbatim; `with_replay_many` is small; the preview collector change is
+collecting a vec instead of first-write-wins. The only piece with any
+unknowns is the incremental-cache staleness model for sequences, and
+even there the deterministic-derivation argument suggests the existing
+doc-keyed invalidation already covers it.
+
+---
+
+## Phased work plan (TDD)
+
+> Phases are ordered so each ends green. No implementation starts until
+> the user approves this plan.
+
+### Phase 0 — Test scaffolding
+- [x] Design + land the **file-backed test engine** (`FixtureEngine`,
+      `crates/quarto-core/src/engine/fixture.rs`) with 15 unit tests:
+      splices per-cell results in order; in-memory + JSON-file-backed
+      results; ignores other engines' cells / display blocks; skips
+      content inside non-matching fences; engine→engine handoff
+      (result introduces the next engine's cell); surplus/missing/
+      unterminated diagnostics; longer-fence round-trip. Gated to
+      non-WASM; **never** wired into the default registry. Verified the
+      cell form against pampa: executable cells serialize as
+      ```` ```{<name>} ```` (braces kept inside the class name).
+- [x] Duplicate-handling policy: **dedup keeping first occurrence +
+      diagnostic** (resolved with user; only fires for array+array
+      repeated engine).
+- [x] Test-engine registration scope: **test-registry-only** (resolved
+      with user; Q2 freeze will use trace-replay, not this engine).
+
+### Phase 1 — Pipeline threading (single → N engines) ✅
+- [x] **Failing test first:** `test_two_engines_run_in_sequence_with_handoff`
+      (`fixture-a` emits a `{fixture-b}` cell that `fixture-b` fills).
+      Confirmed it failed pre-implementation (array detected as markdown).
+- [x] `detect_engines() -> Vec<DetectedEngine>` + `detect_engine_sequence()
+      -> EngineSequence` with the array branch (bare names and single-key
+      maps) + back-compat for string/map/top-level forms. `detect_engine`
+      is now a first-of-sequence shim. 13 detection unit tests.
+- [x] Generalized `EngineExecutionStage::run` to loop over the sequence;
+      merged `ASTContext` grows one intermediate slot per engine; FileId
+      remap offset is the running file count (`merged_context.filenames.
+      len()`), strictly safer than the old hardcoded `+1`. Per-engine
+      intermediate label `<stem>.<engine>.rmarkdown`.
+- [x] **FileId coherence test:** `test_two_engines_assign_distinct_file_ids`
+      — three distinct FileIds (0=.qmd, 1=engine-a, 2=engine-b), no strays.
+- [x] Post-merge duplicate dedup + diagnostic:
+      `test_duplicate_engine_dedups_and_warns` (and detection-level dedup
+      tests).
+- [x] Markdown-in-sequence skip + all-markdown fast path:
+      `test_markdown_in_sequence_is_skipped` (+ existing markdown
+      passthrough tests still green). Full `quarto-core` suite: 2147 pass.
+- [x] Updated two existing single-engine tests for the new per-engine
+      intermediate label (no snapshots pinned `.rmarkdown`).
+
+### Phase 2 — YAML merge integration ✅
+- [x] Tests (`crates/quarto-core/tests/engine_merge.rs`, 7 cases):
+      `engine:` array merges via `!concat` default across project/dir/doc
+      layers (2- and 3-layer); `!prefer` replaces; scalar-over-array and
+      array-over-scalar kind resolution; cross-layer duplicate dedup +
+      reported drop; lone-scalar back-compat. Exercises the production
+      `MergedConfig::materialize()` → `detect_engine_sequence` path — the
+      executable form of the plan's verified-behavior table. **No
+      merge-engine code change was needed** (arrays already concat).
+- [ ] Full-render E2E with layered config → folded into **Phase 5**.
+      Note: the `q2` binary cannot use the test-only `FixtureEngine`, so
+      binary-level E2E uses a single-element array (`engine: [<real>]`)
+      with an available engine; the multi-engine *threading* is verified
+      end-to-end through the real HTML pipeline with a fixture registry.
+
+### Phase 3 — Trace / replay redesign ✅
+- [x] `quarto-trace`: `engine_capture: Option` → `engine_captures: Vec`.
+      **Kept `SCHEMA_VERSION = 2`** per the project rule (bump only on
+      pipeline-entry-shape changes; this is an additive top-level field).
+      Back-compat: a `TraceDocumentDe` deserialization mirror folds a
+      legacy single `engine_capture` object into the vec on read (covers
+      every read path, not just `read_trace`). Round-trip + legacy-fold
+      tests in `roundtrip.rs`.
+- [x] Per-engine `engine:<name>` AST snapshot via a new
+      `PipelineObserver::on_engine_data` hook (mirrors `on_transform_data`
+      → `transform:<name>`); `JsonTraceObserver` records one entry per
+      engine. The stage calls it after each reconcile.
+- [x] `on_auxiliary_data` pushes captures onto the vec (one per engine,
+      run_index order). `EngineRegistry::with_replay_many(Vec)`;
+      `with_replay` kept as a single-capture shim. CLI/`render_to_file`
+      replay path generalized (`load_replay_captures`,
+      `replay_captures: Vec`).
+- [x] Tests: `test_multi_engine_trace_records_per_engine_snapshots_and_captures`
+      (two ordered captures + `engine:fixture-a`/`engine:fixture-b`
+      snapshots, gzipped round-trip) and
+      `test_multi_engine_record_then_replay_is_byte_clean` (the
+      determinism invariant: record two-engine run, replay via
+      `with_replay_many`, output identical). Full workspace: 9482 pass.
+
+### Phase 4 — Preview integration (`q2 preview`) ✅
+Revised after the CaptureSpliceStage discovery (see §4):
+- [x] `CaptureSpliceStage` holds `Vec<EngineCapture>` and **folds** them
+      in order (`apply_capture_splices`); the stage parses + applies each
+      capture in sequence, fail-soft per capture. Unit tests: two-engine
+      fold (`{r}`→R1 then `{python}`→P1), empty-sequence identity, + the
+      documented top-level-only limitation.
+- [x] `record_capture` / `record_capture_cached` → `Vec<EngineCapture>`;
+      `CaptureCollector` collects all in execution order.
+- [x] Capture binary-doc payload → JSON **array** (`capture_driver.rs`
+      `write_capture_doc` / `read_capture_from_doc`); per-doc cache file
+      → array (`cache.rs`); both with a lenient single-object fallback
+      for stale docs. `re_execute.rs` updated. Staleness keys on the
+      **first** engine's `input_qmd` (deterministic-derivation argument).
+- [x] WASM `parse_capture_from` → `Vec<EngineCapture>` (array + single
+      fallback); `RenderToPreviewAstRenderer::with_captures`;
+      `build_q2_preview_pipeline_stages` / `render_qmd_to_preview_ast`
+      thread the vec; all WASM call sites updated.
+- [x] hub-client TS / q2-preview SPA: **no change needed** — confirmed
+      `PreviewApp.tsx` passes `binaryDoc.content` as opaque bytes; the
+      `CaptureRef` sidecar (one doc per file) is unchanged.
+- [x] Full `cargo xtask verify` (WASM rebuild + SPA bundle + hub-client
+      build + Rust/hub tests) — **green**. Workspace: 9484 tests pass.
+- [ ] **Verification gap (explicit):** a *browser* E2E of multi-engine
+      preview was not run — the preview server uses real engines, the
+      test-only `FixtureEngine` isn't available there, and knitr/jupyter
+      don't compose cleanly. The single-engine preview path is unchanged
+      in behavior (folding a one-element vec ≡ the old single-capture
+      splice) and the fold is unit-tested; the transport round-trips are
+      covered by `quarto-preview` integration tests.
+
+### Phase 5 — End-to-end verification
+- [x] **Real-binary E2E of the array config (2026-05-27).** Through the
+      actual `q2` CLI with R/knitr installed:
+      - `cargo run --bin q2 -- render mengine-e2e/array-engine.qmd` with
+        `engine:\n  - knitr` and an `{r}` cell `1 + 41` → output HTML
+        contains `<code>[1] 42</code>`, prose preserved. Proves the
+        **array** `engine:` form flows through real CLI arg parsing,
+        metadata merge, detection, and a real engine — inspected the HTML
+        directly.
+      - Scalar back-compat: `engine: knitr` with `2 * 21` → `[1] 42`.
+      - Two real engines (`engine: [knitr, jupyter]`, `{r}` + `{python}`)
+        is confounded by **knitr claiming `{python}` cells** (errors
+        without reticulate; with `python.reticulate: false` knitr runs
+        python itself and jupyter sees no cell). This is engine
+        cell-ownership — the "non-intuitive multi-engine behavior" we
+        anticipated — **not** a threading bug. Clean N-engine threading
+        is proven by the fixture-engine integration tests, which control
+        cell ownership precisely.
+- [x] `cargo xtask verify` (full, incl. WASM + hub-client build) — green
+      after Phases 1–3.
+- [x] Re-run full `cargo xtask verify` after Phase 4 — green.
+- [x] Single-engine trace/replay/preview parity preserved: all existing
+      single-capture tests pass unchanged; the splice/replay paths fold a
+      one-element vec identically to the prior single-capture behavior.
+
+### Phase 6 — Commit (await explicit push approval per CLAUDE.md)
+- [x] All work committed on `feature/multi-engine` (8 commits).
+- [ ] **Push gated on explicit user approval** (CLAUDE.md GIT PUSH POLICY).
+
+## Follow-ups filed (discovered-from bd-5yff4)
+- **bd-iq0hp** — Multi-engine preview: browser E2E + composing test
+  engines (the verification gap).
+- **bd-r8n4r** — CaptureSplice fold: handle engine-handoff cells nested
+  in cell wrappers (top-level-only splice limitation).
+- **bd-8h3sn** — Precise cross-engine source attribution in
+  EngineExecutionStage (engine 2+ error mapping is best-effort).
+
+## Status: Phases 0–5 complete
+
+Implemented and verified: ordered `engine:` array config + merge,
+sequential N-engine threading with per-engine FileId provenance, per-engine
+trace captures + snapshots, sequence replay, and multi-engine `q2 preview`
+(capture-sequence fold). Full `cargo xtask verify` green; real-binary E2E
+of the array config confirmed with knitr. Remaining: the browser-E2E gap
+(bd-iq0hp) and two minor limitations (bd-r8n4r, bd-8h3sn), all tracked.
+
+## Resolved with the user (2026-05-27)
+
+1. **Duplicate handling** (§1): dedup keeping first occurrence +
+   diagnostic. Verified this only ever fires for the array+array
+   repeated-engine case; scalar/array mismatches can't produce a
+   duplicate.
+2. **Test-engine registration** (§3): test-registry-only. Q2 freeze will
+   be trace-replay-based ("`engine: replay` as freeze"), so the test
+   engine has no freeze role.
+3. **Real second engine:** mermaidjs / any concrete engine is **out of
+   scope** here; separate follow-up.
+4. **Preview** (§4): `q2 preview` support ships **with** this feature.
+   "Cache sequencing" referred only to the incremental capture-cache
+   optimization, not to preview support; both are in scope, with the
+   incremental cache the only piece carrying minor unknowns.
+
+## Remaining open questions
+
+_None blocking. Surface during implementation if the FileId-coherence
+reconcile (§2) or the incremental-cache staleness model (§4) turns out
+harder than the analysis suggests._
+
+## Out of scope
+
+- A real second engine implementation (mermaidjs etc.) — follow-up.
+- Parallel engine execution (engines run strictly in sequence).
+- Schema-driven / key-specific merge-tag defaults — deferred until a
+  schema-driven merging system exists (user decision 2).
+- Cross-document engine sequencing concerns beyond a single doc.
+
+## Key source references
+
+- Engine detection: `crates/quarto-core/src/engine/detection.rs:150`
+- Engine stage: `crates/quarto-core/src/stage/stages/engine_execution.rs:150`
+- Registry / replay seam: `crates/quarto-core/src/engine/registry.rs:157`
+- Engine trait: `crates/quarto-core/src/engine/traits.rs`
+- Replay engine: `crates/quarto-core/src/engine/replay.rs`
+- Preview record: `crates/quarto-core/src/engine/preview_record.rs:130`
+- Preview cache: `crates/quarto-preview/src/cache.rs`
+- Trace schema: `crates/quarto-trace/src/lib.rs:91` (`TraceDocument`),
+  `:138` (`EngineCapture`)
+- Trace observer + `transform:<name>` precedent:
+  `crates/quarto-core/src/stage/trace.rs:185` (`on_transform_data`),
+  `:209` (`on_auxiliary_data`)
+- Merge tags: `crates/quarto-config/src/tag.rs:135`
+- Array merge: `crates/quarto-config/src/merged.rs:286`
+- Metadata merge stage:
+  `crates/quarto-core/src/stage/stages/metadata_merge.rs:133`
+- Pipeline builder + stage order:
+  `crates/quarto-core/src/pipeline.rs:242` (engine stage at `:288`)

@@ -63,6 +63,12 @@ mod registry;
 mod replay;
 mod traits;
 
+// File-backed test engine for exercising multi-engine sequencing
+// (bd-5yff4). Native-only test utility; never registered in the default
+// registry. See `fixture.rs` module docs.
+#[cfg(not(target_arch = "wasm32"))]
+mod fixture;
+
 // Native-only modules
 #[cfg(not(target_arch = "wasm32"))]
 pub mod jupyter;
@@ -71,8 +77,13 @@ mod knitr;
 
 // Re-export public types
 pub use context::{ExecuteResult, ExecutionContext};
-pub use detection::{DetectedEngine, KNOWN_ENGINES, detect_engine, is_known_engine};
+pub use detection::{
+    DetectedEngine, EngineSequence, KNOWN_ENGINES, detect_engine, detect_engine_sequence,
+    detect_engines, is_known_engine,
+};
 pub use error::ExecutionError;
+#[cfg(not(target_arch = "wasm32"))]
+pub use fixture::FixtureEngine;
 pub use markdown::MarkdownEngine;
 pub use registry::EngineRegistry;
 pub use replay::ReplayEngine;
