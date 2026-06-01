@@ -100,9 +100,8 @@ enum Commands {
         #[arg(long)]
         no_clean: bool,
 
-        /// Wipe the Pass-1 profile cache (`<project>/.quarto/cache/profiles/`)
-        /// and `nav-config-hash` before rendering. Preserves the SCSS
-        /// `sass/` cache. (Phase 8.)
+        /// Wipe caches before rendering. These include the Pass-1 profile cache
+        /// and `nav-config-hash` caches. Preserves the SCSS `sass/` cache.
         #[arg(long)]
         clean_cache: bool,
 
@@ -128,9 +127,7 @@ enum Commands {
 
         /// Replay engine output from a recorded trace file
         /// (`<trace>.json`) instead of running the real engine
-        /// (bd-45yw). Useful for reproducing reported bugs and
-        /// running CI regression tests without R/Python/Jupyter.
-        /// Hard-fails if the document's content does not match the
+        /// Fails if the document's content does not match the
         /// recorded input.
         ///
         /// Also activated by `QUARTO_REPLAY=<trace>` if the flag is
@@ -155,17 +152,12 @@ enum Commands {
         attribution: Option<AttributionMode>,
 
         /// Emit diagnostics as one JSON object per line on stderr
-        /// instead of human-readable text. Intended for agents and
-        /// other programs driving `q2 render`. Each emitted line
-        /// carries a `$schema` field pointing at the JSON Schema
-        /// describing its wire shape (see
-        /// `crates/quarto-error-reporting/schemas/`). bd-iey8o.
+        /// instead of human-readable text.
         #[arg(long = "json-errors")]
         json_errors: bool,
 
-        /// Stop rendering as soon as the first error occurs (Pass-1 or
-        /// Pass-2), instead of best-effort rendering everything. Useful
-        /// for an iterative fix loop.
+        /// Stop rendering as soon as the first error occurs.
+        /// When executed with many threads, many errors might still be reported.
         #[arg(long = "fail-fast")]
         fail_fast: bool,
     },
@@ -203,8 +195,6 @@ enum Commands {
         port: Option<u16>,
 
         /// Network interface to bind to. Defaults to `127.0.0.1`
-        /// (loopback-only — the preview is not reachable from
-        /// other machines on your network).
         #[arg(long)]
         host: Option<String>,
 
@@ -225,8 +215,7 @@ enum Commands {
         #[arg(long)]
         preview_dir: Option<std::path::PathBuf>,
 
-        /// Run as a bare sync server with no local project. The
-        /// opposite of the default project-mode boot.
+        /// Run as a bare sync server with no local project.
         #[arg(long)]
         no_project: bool,
     },
