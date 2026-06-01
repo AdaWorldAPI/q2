@@ -127,11 +127,46 @@ jobs:
       - name: Pre-build hub binary
         run: cargo build --bin hub
 
-      # Install Playwright browsers
+      # Cache the downloaded browser binaries across runs. Keyed on the
+      # lockfile so a Playwright version bump invalidates the cache and
+      # re-downloads; otherwise we skip the 175 MB chromium download
+      # entirely.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Install Playwright browsers.
+      #
+      # The browser download (chromium ~175 MB) comes from
+      # cdn.playwright.dev, which is fronted by Azure Front Door. The
+      # connection from the (also-Azure) GitHub runners to that CDN
+      # intermittently *stalls* mid-download — Playwright's downloader has
+      # no stall-timeout, so it sits on the dead connection until the 6h
+      # job cap kills the whole run (bd / Carlos report, 2026-05).
+      #
+      # Defend against that two ways: (1) OS deps go through apt
+      # (`install-deps`, no CDN) separately from the browser download, and
+      # (2) the browser download is wrapped in `timeout` + retry so a
+      # stalled connection is killed in ~4 min and retried — retries
+      # usually land on a healthy CDN edge. When the cache above hits,
+      # `playwright install` verifies the existing binaries and returns
+      # almost immediately, so the retry loop is a no-op on the happy path.
       - name: Install Playwright
         run: |
           cd hub-client
-          npx playwright install --with-deps chromium
+          npx playwright install-deps chromium
+          for attempt in 1 2 3 4 5; do
+            if timeout 240 npx playwright install chromium; then
+              echo "Playwright browsers installed (attempt $attempt)"
+              exit 0
+            fi
+            echo "::warning::Playwright browser install attempt $attempt stalled or failed; retrying in 10s"
+            sleep 10
+          done
+          echo "::error::Playwright browser install failed after 5 attempts"
+          exit 1
 
       # Delete all snapshots if recreating from scratch
       - name: Delete all snapshots (recreate mode)
