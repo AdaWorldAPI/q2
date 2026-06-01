@@ -139,34 +139,32 @@ jobs:
 
       # Install Playwright browsers.
       #
-      # The browser download (chromium ~175 MB) comes from
-      # cdn.playwright.dev, which is fronted by Azure Front Door. The
-      # connection from the (also-Azure) GitHub runners to that CDN
-      # intermittently *stalls* mid-download — Playwright's downloader has
-      # no stall-timeout, so it sits on the dead connection until the 6h
-      # job cap kills the whole run (bd / Carlos report, 2026-05).
+      # The full Chromium (Chrome for Testing) build is served from a
+      # SINGLE mirror with no fallback: cdn.playwright.dev/chrome-for-
+      # testing-public (Playwright's cftUrl() helper). cdn.playwright.dev
+      # is fronted by Azure Front Door, and from the (also-Azure) GitHub
+      # runners that front door sends all ~167 MiB and then holds the
+      # connection open without EOF — so Playwright's download promise
+      # never resolves and the step hangs until the 6h job cap. With no
+      # fallback mirror for Chrome for Testing, Playwright can't recover.
+      # (Carlos report, 2026-05; confirmed from the 100%-then-hang in the
+      # run-26760896905 log.)
       #
-      # Defend against that two ways: (1) OS deps go through apt
-      # (`install-deps`, no CDN) separately from the browser download, and
-      # (2) the browser download is wrapped in `timeout` + retry so a
-      # stalled connection is killed in ~4 min and retried — retries
-      # usually land on a healthy CDN edge. When the cache above hits,
-      # `playwright install` verifies the existing binaries and returns
-      # almost immediately, so the retry loop is a no-op on the happy path.
+      # Fix: point the chromium download host at the GCS origin that
+      # cdn.playwright.dev merely redirects to. That origin serves the zip
+      # with a correct content-length and a clean EOF. On linux-x64 BOTH
+      # the full Chromium and the headless-shell resolve via cftUrl(), so
+      # this one var fixes both; ffmpeg's name isn't "chromium*" so the
+      # override doesn't touch it and it keeps its 3-mirror fallback.
+      # PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT is a belt-and-suspenders so
+      # any future post-100% stall aborts in 2 min instead of hanging.
       - name: Install Playwright
+        env:
+          PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST: https://storage.googleapis.com/chrome-for-testing-public
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '120000'
         run: |
           cd hub-client
-          npx playwright install-deps chromium
-          for attempt in 1 2 3 4 5; do
-            if timeout 240 npx playwright install chromium; then
-              echo "Playwright browsers installed (attempt $attempt)"
-              exit 0
-            fi
-            echo "::warning::Playwright browser install attempt $attempt stalled or failed; retrying in 10s"
-            sleep 10
-          done
-          echo "::error::Playwright browser install failed after 5 attempts"
-          exit 1
+          npx playwright install --with-deps chromium
 
       # Delete all snapshots if recreating from scratch
       - name: Delete all snapshots (recreate mode)
