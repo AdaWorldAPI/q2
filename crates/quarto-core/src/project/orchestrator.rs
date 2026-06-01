@@ -159,6 +159,56 @@ pub fn print_pass1_stats_if_enabled() {
     eprintln!("perf.pass1 docs={docs} threads_used={threads} wall_ms={wall_ms}");
 }
 
+// ── Pass-2 perf gauge (bd-3gj56) — mirrors the Pass-1 statics above ──
+
+/// OS thread IDs that have rendered at least one Pass-2 document.
+/// One entry per active rayon worker; `len()` is the realized
+/// parallelism. Observability only — not a behavioral contract.
+static PASS2_THREADS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashSet<std::thread::ThreadId>>,
+> = std::sync::OnceLock::new();
+/// Cumulative count of documents rendered by Pass-2 since process start.
+static PASS2_DOCS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Cumulative wall-clock time (ns) spent in Pass-2 batch dispatch.
+static PASS2_WALL_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Record the current thread as having executed Pass-2 work. Called
+/// once per document (parallel: from each rayon worker; serial: from
+/// the dispatch thread).
+pub(crate) fn pass2_threads_record() {
+    let mu = PASS2_THREADS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+    if let Ok(mut set) = mu.lock() {
+        set.insert(std::thread::current().id());
+    }
+}
+
+/// Add to the cumulative Pass-2 doc count and wall time. Called once
+/// per `render_batch` dispatch.
+pub(crate) fn pass2_record(docs: usize, wall_nanos: u64) {
+    PASS2_DOCS.fetch_add(docs, std::sync::atomic::Ordering::Relaxed);
+    PASS2_WALL_NANOS.fetch_add(wall_nanos, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Number of distinct OS threads that rendered Pass-2 documents.
+pub fn pass2_threads_used() -> usize {
+    PASS2_THREADS
+        .get()
+        .map(|mu| mu.lock().map(|s| s.len()).unwrap_or(0))
+        .unwrap_or(0)
+}
+
+/// Print `perf.pass2 docs=N threads_used=K wall_ms=W` to stderr when
+/// `QUARTO_PERF_STATS=1`. Counterpart of [`print_pass1_stats_if_enabled`].
+pub fn print_pass2_stats_if_enabled() {
+    if !std::env::var_os("QUARTO_PERF_STATS").is_some_and(|v| v == "1") {
+        return;
+    }
+    let docs = PASS2_DOCS.load(std::sync::atomic::Ordering::Relaxed);
+    let threads = pass2_threads_used();
+    let wall_ms = PASS2_WALL_NANOS.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
+    eprintln!("perf.pass2 docs={docs} threads_used={threads} wall_ms={wall_ms}");
+}
+
 /// Orchestration hooks implemented by each project kind.
 ///
 /// Phase-1 ships [`DefaultProjectType`] (no-op hooks used for
@@ -408,7 +458,7 @@ pub struct FileFailure {
 /// Build a [`FileFailure`] from a [`QuartoError`], extracting
 /// structured diagnostics + source context when the error is a
 /// [`ParseError`](crate::error::ParseError).
-fn file_failure_from_error(input: std::path::PathBuf, e: QuartoError) -> FileFailure {
+pub(crate) fn file_failure_from_error(input: std::path::PathBuf, e: QuartoError) -> FileFailure {
     let (diagnostics, source_context) = match &e {
         QuartoError::Parse(pe) => (pe.diagnostics.clone(), Some(pe.source_context.clone())),
         _ => (Vec::new(), None),
@@ -558,6 +608,9 @@ pub struct ProjectPipeline<'a, R: Pass2Renderer> {
     /// seen (Pass-1 or Pass-2). Default `false` (best-effort:
     /// render everything, report all failures at the end).
     fail_fast: bool,
+    /// Explicit Pass-2 worker-count override (`with_jobs`). `None`
+    /// ⇒ use the `QUARTO_JOBS`/auto default via [`worker_count`].
+    jobs: Option<usize>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -612,6 +665,7 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
             project_artifacts: crate::artifact::ArtifactStore::new(),
             renderer,
             fail_fast: false,
+            jobs: None,
         }
     }
 
@@ -627,6 +681,15 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
     /// (Pass-1 or Pass-2), instead of best-effort rendering everything.
     pub fn with_fail_fast(mut self, fail_fast: bool) -> Self {
         self.fail_fast = fail_fast;
+        self
+    }
+
+    /// Pin the Pass-2 worker count, overriding the `QUARTO_JOBS`/auto
+    /// default. `1` forces serial. Primarily for tests that need
+    /// deterministic parallelism without mutating process-global env
+    /// (which is `unsafe` in edition 2024 and racy across tests).
+    pub fn with_jobs(mut self, jobs: usize) -> Self {
+        self.jobs = Some(jobs);
         self
     }
 
@@ -1005,53 +1068,40 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
         skip: &std::collections::HashSet<std::path::PathBuf>,
         render_set: Option<&std::collections::HashSet<std::path::PathBuf>>,
     ) -> (Vec<R::Output>, Vec<FileFailure>) {
-        let mut outputs = Vec::with_capacity(self.project.files.len());
-        let mut failures = Vec::new();
         // Snapshot the file list to avoid borrowing `self.project`
         // while we also mutate `self.project_artifacts`.
         let files: Vec<crate::project::DocumentInfo> = self.project.files.clone();
-        for doc_info in &files {
-            if skip.contains(&doc_info.input) {
-                continue;
-            }
-            // Mode B: skip pages outside the augmented render set.
-            // Their existing on-disk output is left untouched.
-            if let Some(set) = render_set {
-                if !set.contains(&doc_info.input) {
-                    continue;
-                }
-            }
-            // Phase 9 sub-phase 9.0: dispatch through `Pass2Renderer`
-            // so the orchestrator no longer hard-codes the
-            // disk-writing path. Native callers pass
-            // `RenderToFileRenderer` (preserving today's behavior);
-            // the WASM hub-client (sub-phase 9.2) supplies its own
-            // in-memory implementation.
-            match self
-                .renderer
-                .render(
-                    doc_info,
-                    &self.format,
-                    &self.format_str,
-                    self.project,
-                    index.clone(),
-                    self.runtime.clone(),
-                    &mut self.project_artifacts,
-                )
-                .await
-            {
-                Ok(result) => outputs.push(result),
-                Err(e) => {
-                    failures.push(file_failure_from_error(doc_info.input.clone(), e));
-                    // Fail-fast: stop rendering the rest of the project
-                    // at the first render error.
-                    if self.fail_fast {
-                        break;
-                    }
-                }
-            }
-        }
-        (outputs, failures)
+        // Apply `skip` (Pass-1 failures) and Mode-B `render_set`
+        // filtering up front, so the renderer batch only sees the
+        // documents we actually mean to render.
+        let docs: Vec<&crate::project::DocumentInfo> = files
+            .iter()
+            .filter(|d| !skip.contains(&d.input))
+            .filter(|d| render_set.is_none_or(|set| set.contains(&d.input)))
+            .collect();
+
+        // Worker count: an explicit `with_jobs` override wins; else the
+        // shared `QUARTO_JOBS`/auto default (capped at 16), same as Pass 1.
+        let workers = self.jobs.unwrap_or_else(worker_count);
+
+        // Phase 9 sub-phase 9.0: dispatch through `Pass2Renderer`.
+        // The native `RenderToFileRenderer` fans `render_batch` out
+        // across rayon workers (bd-3gj56); the WASM hub-client and the
+        // default trait impl run it serially. Either way, outputs come
+        // back in `docs` (= `project.files`) order.
+        self.renderer
+            .render_batch(
+                &docs,
+                &self.format,
+                &self.format_str,
+                self.project,
+                index,
+                self.runtime.clone(),
+                &mut self.project_artifacts,
+                workers,
+                self.fail_fast,
+            )
+            .await
     }
 }
 
@@ -1071,7 +1121,9 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
 // with `self.runtime`/`self.project`/`self.format` substituted for
 // the explicit parameters; behavior is unchanged in Phase 1.
 
-/// Resolve the worker-count knob for [`pass_one_dispatch_parallel`].
+/// Resolve the worker-count knob shared by Pass-1
+/// ([`pass_one_dispatch_parallel`]) and Pass-2
+/// ([`RenderToFileRenderer::render_batch`]).
 ///
 /// - `QUARTO_JOBS=<n>` if set and parses as a positive integer.
 /// - Otherwise `std::thread::available_parallelism()`, capped at 16
@@ -1082,7 +1134,7 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
 /// the rayon dispatch when `worker_count() == 1` or
 /// `files.len() <= 1`.
 #[cfg(not(target_arch = "wasm32"))]
-fn pass1_worker_count() -> usize {
+pub(crate) fn worker_count() -> usize {
     if let Some(raw) = std::env::var_os("QUARTO_JOBS") {
         if let Some(s) = raw.to_str() {
             if let Ok(n) = s.parse::<usize>() {
@@ -1095,6 +1147,13 @@ fn pass1_worker_count() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get().min(16))
         .unwrap_or(4)
+}
+
+/// WASM has no OS threads; Pass-2 always runs serially there (the
+/// default [`Pass2Renderer::render_batch`] ignores this value anyway).
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn worker_count() -> usize {
+    1
 }
 
 /// Pass-1 fan-out: on native targets, dispatch each document through
@@ -1117,7 +1176,7 @@ fn pass_one_dispatch(
     Vec<crate::document_profile::DocumentProfile>,
     Vec<FileFailure>,
 ) {
-    let workers = pass1_worker_count();
+    let workers = worker_count();
     if workers == 1 || project.files.len() <= 1 {
         return pass_one_dispatch_sequential(runtime, project, format, fail_fast);
     }

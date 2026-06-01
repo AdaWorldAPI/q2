@@ -47,6 +47,7 @@ use crate::Result;
 use crate::artifact::ArtifactStore;
 use crate::format::Format;
 use crate::project::index::ProjectIndex;
+use crate::project::orchestrator::{FileFailure, file_failure_from_error};
 use crate::project::{DocumentInfo, ProjectContext};
 use crate::resource_resolver::ResourceResolverContext;
 
@@ -100,6 +101,68 @@ pub trait Pass2Renderer {
         runtime: Arc<dyn SystemRuntime>,
         project_artifacts: &mut ArtifactStore,
     ) -> Result<Self::Output>;
+
+    /// Render a batch of pre-filtered documents, returning outputs in
+    /// `docs` order plus per-file failures.
+    ///
+    /// The orchestrator does `skip` / `render_set` filtering before
+    /// calling this, so every entry in `docs` is meant to be rendered.
+    /// Implementations must drain each render's Project-scoped
+    /// artifacts into `project_artifacts` (directly, or via per-worker
+    /// stores merged at the end — the merge is order-independent, see
+    /// [`ArtifactStore::merge_into_project`]).
+    ///
+    /// `workers` is the desired parallelism (1 = force serial); serial
+    /// renderers ignore it. `fail_fast` stops after the first failure
+    /// (best-effort under parallelism — in-flight renders may still
+    /// complete).
+    ///
+    /// **Default impl is serial** — it simply drives [`Self::render`]
+    /// per document. This is what the WASM in-memory renderer and any
+    /// other serial-only renderer use; they need no `Send`/`Sync`
+    /// bounds. The native [`RenderToFileRenderer`] overrides this with
+    /// a rayon fan-out (`Self::Output = RenderToFileResult` is `Send`
+    /// there, so the threading bounds stay confined to that impl).
+    async fn render_batch(
+        &mut self,
+        docs: &[&DocumentInfo],
+        format: &Format,
+        format_str: &str,
+        project: &ProjectContext,
+        index: Arc<ProjectIndex>,
+        runtime: Arc<dyn SystemRuntime>,
+        project_artifacts: &mut ArtifactStore,
+        _workers: usize,
+        fail_fast: bool,
+    ) -> (Vec<Self::Output>, Vec<FileFailure>) {
+        let mut outputs = Vec::with_capacity(docs.len());
+        let mut failures = Vec::new();
+        for doc_info in docs {
+            match self
+                .render(
+                    doc_info,
+                    format,
+                    format_str,
+                    project,
+                    index.clone(),
+                    runtime.clone(),
+                    project_artifacts,
+                )
+                .await
+            {
+                Ok(result) => outputs.push(result),
+                Err(e) => {
+                    failures.push(file_failure_from_error(doc_info.input.clone(), e));
+                    // Fail-fast: stop at the first error in document
+                    // order. Deterministic (single-threaded).
+                    if fail_fast {
+                        break;
+                    }
+                }
+            }
+        }
+        (outputs, failures)
+    }
 
     /// Extract the output's on-disk (or synthetic-VFS) path for
     /// downstream hooks that key off "which pages were rendered
@@ -215,6 +278,55 @@ impl<'a> Pass2Renderer for RenderToFileRenderer<'a> {
         )
     }
 
+    /// Native Pass-2 fan-out (bd-3gj56).
+    ///
+    /// Renders the batch across rayon workers, each producing a
+    /// **per-document** `ArtifactStore`. After the parallel section the
+    /// per-doc stores are merged into `project_artifacts` **in document
+    /// order**, so merge-conflict attribution and accumulation order
+    /// match the serial path exactly (the merge itself is
+    /// order-independent for the dedup case — see
+    /// [`ArtifactStore::merge_into_project`]).
+    ///
+    /// Degrades to serial for `workers <= 1`, `docs.len() <= 1`, or if
+    /// the rayon pool fails to build. Mirrors `pass_one_dispatch`.
+    async fn render_batch(
+        &mut self,
+        docs: &[&DocumentInfo],
+        _format: &Format,
+        format_str: &str,
+        project: &ProjectContext,
+        index: Arc<ProjectIndex>,
+        runtime: Arc<dyn SystemRuntime>,
+        project_artifacts: &mut ArtifactStore,
+        workers: usize,
+        fail_fast: bool,
+    ) -> (Vec<Self::Output>, Vec<FileFailure>) {
+        if workers <= 1 || docs.len() <= 1 {
+            return render_batch_serial(
+                self.options,
+                docs,
+                format_str,
+                project,
+                &index,
+                &runtime,
+                project_artifacts,
+                fail_fast,
+            );
+        }
+        render_batch_parallel(
+            self.options,
+            docs,
+            format_str,
+            project,
+            &index,
+            &runtime,
+            project_artifacts,
+            workers,
+            fail_fast,
+        )
+    }
+
     fn output_path(output: &Self::Output) -> Option<&Path> {
         Some(&output.output_path)
     }
@@ -232,6 +344,204 @@ impl<'a> Pass2Renderer for RenderToFileRenderer<'a> {
     ) -> Option<&crate::project_resources::DocumentResourceReport> {
         Some(&output.resource_report)
     }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Native Pass-2 batch dispatch (bd-3gj56). Free functions so the
+// rayon `Send`/`Sync` requirements stay confined to the concrete
+// `RenderToFileResult` output and never leak onto the `Pass2Renderer`
+// trait (which the non-`Send` WASM renderer also implements).
+// ───────────────────────────────────────────────────────────────────
+
+/// Serial batch render — the small-N / `QUARTO_JOBS=1` / pool-build
+/// fallback path. Merges each doc's Project-scoped artifacts straight
+/// into the shared accumulator, exactly as the pre-bd-3gj56 loop did.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::too_many_arguments)]
+fn render_batch_serial(
+    options: &crate::render_to_file::RenderToFileOptions,
+    docs: &[&DocumentInfo],
+    format_str: &str,
+    project: &ProjectContext,
+    index: &Arc<ProjectIndex>,
+    runtime: &Arc<dyn SystemRuntime>,
+    project_artifacts: &mut ArtifactStore,
+    fail_fast: bool,
+) -> (
+    Vec<crate::render_to_file::RenderToFileResult>,
+    Vec<FileFailure>,
+) {
+    let start = std::time::Instant::now();
+    crate::project::orchestrator::pass2_threads_record();
+    let mut outputs = Vec::with_capacity(docs.len());
+    let mut failures = Vec::new();
+    for doc in docs {
+        match crate::render_to_file::render_document_to_file(
+            &doc.input,
+            format_str,
+            options,
+            Some(project),
+            runtime.clone(),
+            Some(index.clone()),
+            Some(project_artifacts),
+        ) {
+            Ok(result) => outputs.push(result),
+            Err(e) => {
+                failures.push(file_failure_from_error(doc.input.clone(), e));
+                if fail_fast {
+                    break;
+                }
+            }
+        }
+    }
+    crate::project::orchestrator::pass2_record(docs.len(), start.elapsed().as_nanos() as u64);
+    (outputs, failures)
+}
+
+/// Parallel batch render — rayon fan-out, mirroring
+/// `pass_one_dispatch_parallel`.
+///
+/// Each rayon task renders one document into a **fresh per-document
+/// `ArtifactStore`** (no shared mutable state during render). After the
+/// parallel section the per-doc stores are merged into
+/// `project_artifacts` in **document order**, so a cross-document
+/// artifact-key conflict fails the later document — identical to the
+/// serial path's behavior.
+///
+/// `collect_into_vec` preserves document order. Fail-fast uses a shared
+/// `AtomicBool` to skip *starting* further renders (rayon does not
+/// cancel in-flight tasks — accepted, same contract as Pass 1).
+/// `catch_unwind` maps a panicking render to a per-file failure.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::too_many_arguments)]
+fn render_batch_parallel(
+    options: &crate::render_to_file::RenderToFileOptions,
+    docs: &[&DocumentInfo],
+    format_str: &str,
+    project: &ProjectContext,
+    index: &Arc<ProjectIndex>,
+    runtime: &Arc<dyn SystemRuntime>,
+    project_artifacts: &mut ArtifactStore,
+    workers: usize,
+    fail_fast: bool,
+) -> (
+    Vec<crate::render_to_file::RenderToFileResult>,
+    Vec<FileFailure>,
+) {
+    use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+
+    enum Outcome {
+        /// Rendered output + that document's drained Project-scoped
+        /// artifacts (merged into the master store after the section).
+        Ok(
+            Box<crate::render_to_file::RenderToFileResult>,
+            ArtifactStore,
+        ),
+        Failure(FileFailure),
+        /// Fail-fast short-circuit: another worker already errored, so
+        /// this document was never rendered.
+        Skipped,
+    }
+
+    let pool = match rayon::ThreadPoolBuilder::new()
+        .num_threads(workers)
+        .thread_name(|i| format!("quarto-pass2-{i}"))
+        .build()
+    {
+        Ok(p) => p,
+        // Pool construction failed (rare — OOM / thread-limit). Degrade
+        // to the serial path rather than aborting the render.
+        Err(_) => {
+            return render_batch_serial(
+                options,
+                docs,
+                format_str,
+                project,
+                index,
+                runtime,
+                project_artifacts,
+                fail_fast,
+            );
+        }
+    };
+
+    let start = std::time::Instant::now();
+    let aborted = std::sync::atomic::AtomicBool::new(false);
+    let mut outcomes: Vec<Outcome> = Vec::with_capacity(docs.len());
+
+    pool.install(|| {
+        docs.par_iter()
+            .map(|doc| {
+                if fail_fast && aborted.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Outcome::Skipped;
+                }
+                // Record this worker thread for the `perf.pass2`
+                // threads_used gauge.
+                crate::project::orchestrator::pass2_threads_record();
+                let mut doc_store = ArtifactStore::new();
+                let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    crate::render_to_file::render_document_to_file(
+                        &doc.input,
+                        format_str,
+                        options,
+                        Some(project),
+                        runtime.clone(),
+                        Some(index.clone()),
+                        Some(&mut doc_store),
+                    )
+                }));
+                match rendered {
+                    Ok(Ok(result)) => Outcome::Ok(Box::new(result), doc_store),
+                    Ok(Err(e)) => {
+                        if fail_fast {
+                            aborted.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        Outcome::Failure(file_failure_from_error(doc.input.clone(), e))
+                    }
+                    Err(_) => {
+                        if fail_fast {
+                            aborted.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        Outcome::Failure(file_failure_from_error(
+                            doc.input.clone(),
+                            crate::error::QuartoError::other(format!(
+                                "render panicked for {}",
+                                doc.input.display()
+                            )),
+                        ))
+                    }
+                }
+            })
+            .collect_into_vec(&mut outcomes);
+    });
+
+    // Reduce in document order: merge per-doc artifact stores into the
+    // shared accumulator and collect outputs/failures. A merge conflict
+    // is attributed to the document whose artifacts conflicted, matching
+    // the serial path (where the later doc's render returns the error).
+    let mut outputs = Vec::with_capacity(docs.len());
+    let mut failures = Vec::new();
+    for (doc, outcome) in docs.iter().zip(outcomes) {
+        match outcome {
+            Outcome::Ok(result, doc_store) => {
+                match project_artifacts.merge_into_project(doc_store) {
+                    Ok(_) => outputs.push(*result),
+                    Err(e) => failures.push(file_failure_from_error(
+                        doc.input.clone(),
+                        crate::error::QuartoError::other(format!(
+                            "Project-scoped artifact merge failed for {}: {}",
+                            doc.input.display(),
+                            e
+                        )),
+                    )),
+                }
+            }
+            Outcome::Failure(f) => failures.push(f),
+            Outcome::Skipped => {}
+        }
+    }
+    crate::project::orchestrator::pass2_record(docs.len(), start.elapsed().as_nanos() as u64);
+    (outputs, failures)
 }
 
 // ───────────────────────────────────────────────────────────────────

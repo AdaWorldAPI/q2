@@ -519,3 +519,159 @@ fn pass_one_preserves_input_order() {
         "pass_one must produce profiles in project.files input order",
     );
 }
+
+// === Pass-2 parallelization guards (bd-3gj56) ==============================
+//
+// Pass 2 fans out across rayon workers with per-worker artifact stores
+// merged at the end (see
+// `claude-notes/plans/2026-06-01-parallelize-pass-two.md`). These tests
+// pin the worker count via `with_jobs` (no process-global `QUARTO_JOBS`
+// mutation) and assert the two invariants parallelism can break:
+// output ordering and serial/parallel result equivalence.
+
+/// Run a full project render with a pinned Pass-2 worker count,
+/// re-discovering the project so no run-to-run state carries over.
+fn render_with_jobs(
+    project_dir: &std::path::Path,
+    jobs: usize,
+) -> quarto_core::project::orchestrator::ProjectRenderSummary {
+    let runtime = runtime_arc();
+    let mut project =
+        ProjectContext::discover(project_dir, runtime.as_ref()).expect("discover project");
+    let options = RenderToFileOptions::default();
+    let project_type = project_type_for(&project);
+    let mut pipeline = ProjectPipeline::new(
+        &mut project,
+        project_type,
+        html_format(),
+        "html",
+        &options,
+        runtime.clone(),
+    )
+    .with_jobs(jobs);
+    pollster::block_on(pipeline.run()).expect("project render")
+}
+
+/// Read every file under `root` into a `relative-path -> bytes` map for
+/// byte-exact tree comparison.
+fn read_tree(root: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn walk(
+        dir: &std::path::Path,
+        base: &std::path::Path,
+        out: &mut std::collections::BTreeMap<String, Vec<u8>>,
+    ) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let p = entry.unwrap().path();
+            if p.is_dir() {
+                walk(&p, base, out);
+            } else {
+                let rel = p.strip_prefix(base).unwrap().to_string_lossy().into_owned();
+                out.insert(rel, std::fs::read(&p).unwrap());
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    if root.is_dir() {
+        walk(root, root, &mut out);
+    }
+    out
+}
+
+/// Parallel Pass-2 must return outputs in `project.files` order — the
+/// `collect_into_vec` ordering guard (sitemap and downstream consumers
+/// rely on it). Mirrors `pass_one_preserves_input_order`.
+#[test]
+fn pass_two_preserves_input_order() {
+    let (temp, mut project) = make_n_file_project(12);
+    let project_dir = canonical(temp.path());
+    let expected_outputs: Vec<PathBuf> = project
+        .files
+        .iter()
+        .map(|f| {
+            // Output path = <project>/_site/<stem>.html
+            let stem = f.input.file_stem().unwrap().to_string_lossy();
+            project_dir.join("_site").join(format!("{stem}.html"))
+        })
+        .collect();
+
+    let options = RenderToFileOptions::default();
+    let runtime = runtime_arc();
+    let project_type = project_type_for(&project);
+    let mut pipeline = ProjectPipeline::new(
+        &mut project,
+        project_type,
+        html_format(),
+        "html",
+        &options,
+        runtime.clone(),
+    )
+    .with_jobs(16);
+    let summary = pollster::block_on(pipeline.run()).expect("run");
+
+    assert!(!summary.has_failures(), "unexpected failures: {summary:?}");
+    let got: Vec<PathBuf> = summary
+        .outputs
+        .iter()
+        .map(|o| o.output_path.clone())
+        .collect();
+    assert_eq!(
+        got, expected_outputs,
+        "parallel Pass-2 outputs must be in project.files input order",
+    );
+}
+
+/// The determinism guard: rendering the same project serially
+/// (`jobs=1`) and in parallel (`jobs=16`) must produce a byte-identical
+/// `_site/` tree (HTML pages *and* merged `site_libs/` artifacts). The
+/// artifact merge is order-independent, so per-worker accumulation must
+/// not change the result.
+#[test]
+fn pass_two_parallel_matches_serial() {
+    let (temp, _project) = make_n_file_project(16);
+    let project_dir = canonical(temp.path());
+    let site = project_dir.join("_site");
+
+    // Serial render, snapshot the output tree.
+    let s1 = render_with_jobs(&project_dir, 1);
+    assert!(!s1.has_failures(), "serial render failed: {s1:?}");
+    let serial_tree = read_tree(&site);
+    assert!(
+        serial_tree.keys().any(|k| k.ends_with(".html")),
+        "serial render produced no HTML under _site",
+    );
+
+    // Wipe and re-render in parallel into the same dir (identical paths
+    // ⇒ any difference is a genuine parallelism bug, not a path artifact).
+    std::fs::remove_dir_all(&site).ok();
+    let s16 = render_with_jobs(&project_dir, 16);
+    assert!(!s16.has_failures(), "parallel render failed: {s16:?}");
+    let parallel_tree = read_tree(&site);
+
+    let serial_keys: Vec<&String> = serial_tree.keys().collect();
+    let parallel_keys: Vec<&String> = parallel_tree.keys().collect();
+    assert_eq!(
+        serial_keys, parallel_keys,
+        "serial vs parallel produced a different set of output files",
+    );
+    for (rel, serial_bytes) in &serial_tree {
+        assert_eq!(
+            serial_bytes, &parallel_tree[rel],
+            "output file `{rel}` differs between serial and parallel render",
+        );
+    }
+}
+
+/// Sanity: a clean multi-file project renders every page under parallel
+/// dispatch (no docs dropped by the fan-out).
+#[test]
+fn pass_two_parallel_renders_all_pages() {
+    let (temp, _project) = make_n_file_project(20);
+    let project_dir = canonical(temp.path());
+    let summary = render_with_jobs(&project_dir, 16);
+    assert!(!summary.has_failures(), "unexpected failures: {summary:?}");
+    assert_eq!(
+        summary.outputs.len(),
+        20,
+        "all 20 pages should render under parallel Pass-2",
+    );
+}

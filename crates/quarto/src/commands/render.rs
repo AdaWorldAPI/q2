@@ -757,6 +757,8 @@ fn print_render_diagnostics(
     quarto_core::engine::print_discovery_stats_if_enabled();
     // bd-m7x9s: pass-1 docs / threads_used / wall_ms gauge.
     quarto_core::project::orchestrator::print_pass1_stats_if_enabled();
+    // bd-3gj56: pass-2 docs / threads_used / wall_ms gauge.
+    quarto_core::project::orchestrator::print_pass2_stats_if_enabled();
 }
 
 /// Text path: the existing ariadne-formatted output. Kept verbatim
