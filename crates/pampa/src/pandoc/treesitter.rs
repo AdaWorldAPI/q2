@@ -57,6 +57,28 @@ use core::panic;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::io::Write;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Number of times the shared whitespace-splitting regex (`\s+`) has been
+/// compiled since process start. It must be **exactly 1** for the life of
+/// the process, no matter how many tree-sitter nodes are visited.
+///
+/// Guards against re-introducing the per-node recompile bug (bd-2ercw),
+/// where this regex was a function-local `Lazy<Regex>` and so was rebuilt
+/// (and `\s+` recompiled) on every `native_visitor` call. A samply profile
+/// of a 565-file website render attributed ~5% of all samples to the
+/// regex NFA compiler under `native_visitor`. See
+/// `claude-notes/plans/2026-06-01-render-perf-profiling.md`.
+pub static WHITESPACE_RE_COMPILE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Shared whitespace-splitting regex (`\s+`), compiled once for the whole
+/// process. Hoisting this out of `native_visitor` (where it was a
+/// function-local `Lazy<Regex>`) is the fix for bd-2ercw — see
+/// [`WHITESPACE_RE_COMPILE_COUNT`].
+static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| {
+    WHITESPACE_RE_COMPILE_COUNT.fetch_add(1, Ordering::Relaxed);
+    Regex::new(r"\s+").unwrap()
+});
 
 use crate::traversals::bottomup_traverse_concrete_tree;
 
@@ -603,7 +625,6 @@ fn native_visitor<T: Write>(
     let link_buf = Vec::<u8>::new();
     let image_buf = Vec::<u8>::new();
 
-    let whitespace_re: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
     let node_text = || node.utf8_text(input_bytes).unwrap().to_string();
 
     let node_source_info_fn = || node_source_info_with_context(node, context);
@@ -611,7 +632,7 @@ fn native_visitor<T: Write>(
         process_native_inline(
             node_name,
             child,
-            &whitespace_re,
+            &WHITESPACE_RE,
             &mut inline_buf,
             node_text,
             node_source_info_fn,

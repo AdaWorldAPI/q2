@@ -66,6 +66,7 @@ pub mod test_unicode_error_offsets;
 pub mod test_unicode_whitespace;
 pub mod test_warnings;
 pub mod test_wasm_entrypoints;
+pub mod test_whitespace_re_compile_once;
 pub mod test_yaml_tag_regression;
 pub mod test_yaml_to_config_value;
 
