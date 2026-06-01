@@ -77,6 +77,49 @@ project-scoped artifacts into it) — a *mergeable* accumulator.
       per-entry `create_dir_all` in `cache_set`, per-lookup opens in
       `cache_get`.
 
+## Re-profile after bd-2ercw + bd-3gj56 (2026-06-01)
+
+Re-profiled `q2 render claude-notes/qmd-plans/` with both fixes landed.
+Regex compilation is gone; the parallel profile is clean (16 workers
+~6.2% each, only ~4.7% lock waits — the 7.3× is hardware-bound at
+8 cores, not contention). New serial (`jobs=1`) per-document buckets:
+
+| bucket | ~% | nature |
+|---|---|---|
+| tree-sitter parse | ~29% | inherent core |
+| `memmove` / AST construction (`String::clone`) | ~13% | diffuse; largest single lever |
+| filesystem syscalls | ~14% | see below |
+| SHA-256 cache keys | ~1.7% | per-doc |
+
+Filesystem breakdown surfaced a concrete, easy win:
+
+- **`StageContext::new` → eager `temp_dir()` `mkdir`: 2.9%** ✅ FIXED
+  (bd-tky36) — made lazy (`OnceLock`, created on first access). Engines
+  are the only consumer and they're behind the "nothing to run" fast
+  path, so markdown docs no longer `mkdir` (or leak) a per-page temp
+  dir. Verified: `mkdir` frame 3.01% → 0% in the profile; serial wall
+  3650 → 3560 ms; 0 leaked `quarto-pipeline_*` dirs (was +565/render).
+- cache layer (`cache_set` tempfile+rename, `cache_get` open): ~3–4%
+  — still open (the deferred constant-factor cleanup above).
+
+### Ranked remaining next steps
+
+1. ✅ Lazy temp dir (bd-tky36) — done.
+2. Cache-layer write churn (~3–4%): redundant per-entry `create_dir_all`,
+   tempfile+rename for content-addressed entries.
+3. AST-construction allocations (~13%, largest lever, architectural):
+   `String::clone` / `Vec<Inline>` reallocs in tree→Pandoc + postprocess.
+4. Tree-sitter parse (~29%): inherent core; hardest to move.
+
+## Experiment results (bd-2ercw regex fix)
+
+Native driver: `crates/perf-harness/src/bin/parse_corpus.rs`
+(`parse-corpus <dir> <threads> <iterations>`) parses every corpus file
+through `quarto_core::pipeline::parse_qmd_to_ast` (the `native_visitor`
+path), spreading files across N OS threads.
+
+Buggy vs fixed binaries differ only in the `whitespace_re` hoist (both
+
 ## Experiment results (bd-2ercw regex fix)
 
 Native driver: `crates/perf-harness/src/bin/parse_corpus.rs`

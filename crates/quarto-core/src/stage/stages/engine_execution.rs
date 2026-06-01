@@ -261,8 +261,12 @@ impl PipelineStage for EngineExecutionStage {
                 qmd.len()
             );
 
+            // Lazily materialize the pipeline temp dir — engines are the
+            // only consumers, so this is where the per-document `mkdir`
+            // actually happens now (bd-tky36).
+            let temp_dir = ctx.temp_dir()?.to_path_buf();
             let exec_context = ExecutionContext::new(
-                ctx.temp_dir.clone(),
+                temp_dir,
                 ctx.project.dir.clone(),
                 path.clone(),
                 &ctx.format.identifier.to_string(),
