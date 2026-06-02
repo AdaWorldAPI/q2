@@ -32,7 +32,9 @@ use anyhow::{Context, Result};
 use tracing::info;
 
 use quarto_core::attribution::AttributionMode;
-use quarto_core::project::orchestrator::{ProjectPipeline, RenderMode, project_type_for};
+use quarto_core::project::orchestrator::{
+    DiagnosticCounts, ProjectPipeline, RenderMode, project_type_for,
+};
 use quarto_core::{Format, ProjectContext, QuartoError, RenderToFileOptions};
 use quarto_error_reporting::{
     DiagnosticMessage, DiagnosticMessageBuilder, JsonDiagnostic, JsonPass1Failure,
@@ -482,6 +484,69 @@ pub fn render_summary_line(
     ))
 }
 
+/// Format the trailing "N errors, M warnings" clause for a render
+/// summary (bd-ooleh), or `None` when the run was clean.
+///
+/// Counts are diagnostic-level (see [`DiagnosticCounts`]) — an estimate
+/// of how many problems remain before a clean build. A zero count drops
+/// its clause entirely: `"3 errors"` on its own when there are no
+/// warnings, `"5 warnings"` on its own when there are no errors.
+///
+/// When `color` is true the error count is rendered red and the warning
+/// count yellow (raw ANSI SGR codes, matching the diagnostic palette).
+/// Callers pass `false` for non-tty, `NO_COLOR`, or `--json-errors`.
+fn format_counts_clause(counts: &DiagnosticCounts, color: bool) -> Option<String> {
+    if counts.is_empty() {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if counts.errors > 0 {
+        parts.push(colorize(
+            &count_phrase(counts.errors, "error"),
+            ANSI_RED,
+            color,
+        ));
+    }
+    if counts.warnings > 0 {
+        parts.push(colorize(
+            &count_phrase(counts.warnings, "warning"),
+            ANSI_YELLOW,
+            color,
+        ));
+    }
+    Some(parts.join(", "))
+}
+
+/// `"1 error"` / `"2 errors"` — English pluralization for a count noun.
+fn count_phrase(n: usize, noun: &str) -> String {
+    if n == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{n} {noun}s")
+    }
+}
+
+const ANSI_RED: &str = "31";
+const ANSI_YELLOW: &str = "33";
+
+/// Wrap `text` in an ANSI SGR color code when `color` is true; return it
+/// unchanged otherwise.
+fn colorize(text: &str, sgr_code: &str, color: bool) -> String {
+    if color {
+        format!("\x1b[{sgr_code}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
+}
+
+/// Whether the error/warning summary should use ANSI color on stderr:
+/// stderr is a terminal and `NO_COLOR` is unset. (`--json-errors`
+/// suppression is handled separately at the call site.)
+fn stderr_use_color() -> bool {
+    use std::io::IsTerminal;
+    std::env::var_os("NO_COLOR").is_none() && std::io::stderr().is_terminal()
+}
+
 /// bd-45yw: resolve the replay activation source and load the trace.
 ///
 /// `cli_replay` is the value of `--replay`. If `None`, falls through
@@ -640,6 +705,17 @@ fn execute_single_doc(
 
     print_render_diagnostics(&summary, args);
 
+    // bd-ooleh: a single-file render has no "Rendered N of M" line to
+    // augment, so the error/warning counts get their own line — printed
+    // only when there is something to report (clean runs stay silent)
+    // and never under the machine-readable `--json-errors` path.
+    if !args.json_errors {
+        if let Some(clause) = format_counts_clause(&summary.diagnostic_counts(), stderr_use_color())
+        {
+            quarto_util::user_status!(args.quiet, "{}", clause);
+        }
+    }
+
     if should_exit_nonzero(&summary) {
         std::process::exit(1);
     }
@@ -708,7 +784,18 @@ fn execute_project(
     print_render_diagnostics(&summary, args);
 
     let rendered = summary.outputs.len();
-    if let Some(line) = render_summary_line(false, total_files, rendered, &project.output_dir) {
+    if let Some(mut line) = render_summary_line(false, total_files, rendered, &project.output_dir) {
+        // bd-ooleh: augment the existing summary line with the total
+        // error/warning counts when there is something to report.
+        // Suppressed under `--json-errors` (machine consumers tally for
+        // themselves); the clean-run case drops the clause entirely.
+        if !args.json_errors {
+            if let Some(clause) =
+                format_counts_clause(&summary.diagnostic_counts(), stderr_use_color())
+            {
+                line = format!("{line} — {clause}");
+            }
+        }
         quarto_util::user_status!(args.quiet, "{}", line);
     }
 
@@ -1744,5 +1831,81 @@ mod tests {
             render_summary_line(false, 3, 0, Path::new("/tmp/_site")),
             Some("Rendered 0 of 3 files to /tmp/_site".to_string())
         );
+    }
+
+    // === bd-ooleh: error/warning counts clause ============================
+
+    fn counts(errors: usize, warnings: usize) -> DiagnosticCounts {
+        DiagnosticCounts { errors, warnings }
+    }
+
+    #[test]
+    fn counts_clause_none_when_clean() {
+        assert_eq!(format_counts_clause(&counts(0, 0), false), None);
+        assert_eq!(format_counts_clause(&counts(0, 0), true), None);
+    }
+
+    #[test]
+    fn counts_clause_errors_only() {
+        assert_eq!(
+            format_counts_clause(&counts(1, 0), false),
+            Some("1 error".to_string())
+        );
+        assert_eq!(
+            format_counts_clause(&counts(3, 0), false),
+            Some("3 errors".to_string())
+        );
+    }
+
+    #[test]
+    fn counts_clause_warnings_only() {
+        assert_eq!(
+            format_counts_clause(&counts(0, 1), false),
+            Some("1 warning".to_string())
+        );
+        assert_eq!(
+            format_counts_clause(&counts(0, 5), false),
+            Some("5 warnings".to_string())
+        );
+    }
+
+    #[test]
+    fn counts_clause_both_errors_and_warnings() {
+        assert_eq!(
+            format_counts_clause(&counts(3, 5), false),
+            Some("3 errors, 5 warnings".to_string())
+        );
+    }
+
+    #[test]
+    fn counts_clause_singular_plural_edges() {
+        assert_eq!(
+            format_counts_clause(&counts(1, 1), false),
+            Some("1 error, 1 warning".to_string())
+        );
+        assert_eq!(
+            format_counts_clause(&counts(2, 1), false),
+            Some("2 errors, 1 warning".to_string())
+        );
+    }
+
+    #[test]
+    fn counts_clause_color_wraps_counts_in_ansi() {
+        // Errors red (31), warnings yellow (33), each reset (0).
+        let clause = format_counts_clause(&counts(2, 1), true).unwrap();
+        assert!(
+            clause.contains("\x1b[31m2 errors\x1b[0m"),
+            "got: {clause:?}"
+        );
+        assert!(
+            clause.contains("\x1b[33m1 warning\x1b[0m"),
+            "got: {clause:?}"
+        );
+    }
+
+    #[test]
+    fn counts_clause_no_color_has_no_ansi() {
+        let clause = format_counts_clause(&counts(2, 1), false).unwrap();
+        assert!(!clause.contains('\x1b'), "got: {clause:?}");
     }
 }

@@ -40,7 +40,7 @@
 
 use async_trait::async_trait;
 
-use quarto_error_reporting::DiagnosticMessage;
+use quarto_error_reporting::{DiagnosticKind, DiagnosticMessage};
 
 use crate::Result;
 
@@ -505,6 +505,101 @@ impl<O> ProjectRenderSummary<O> {
     /// True if any file (Pass 1 or Pass 2) failed.
     pub fn has_failures(&self) -> bool {
         !self.pass1_failures.is_empty() || !self.pass2_failures.is_empty()
+    }
+}
+
+/// Total error / warning counts aggregated across an entire render
+/// (bd-ooleh).
+///
+/// These are **diagnostic-level** counts — an estimate of how many
+/// distinct problems a user must resolve to reach a clean build, not a
+/// count of failed files. Only [`DiagnosticKind::Error`] and
+/// [`DiagnosticKind::Warning`] are tallied; `Info` / `Note` are
+/// ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DiagnosticCounts {
+    pub errors: usize,
+    pub warnings: usize,
+}
+
+impl DiagnosticCounts {
+    /// True when there is nothing to report (a clean run).
+    pub fn is_empty(&self) -> bool {
+        self.errors == 0 && self.warnings == 0
+    }
+
+    /// Tally a slice of diagnostics by severity, ignoring `Info` /
+    /// `Note`.
+    fn add_diagnostics(&mut self, diagnostics: &[DiagnosticMessage]) {
+        for diagnostic in diagnostics {
+            match diagnostic.kind {
+                DiagnosticKind::Error => self.errors += 1,
+                DiagnosticKind::Warning => self.warnings += 1,
+                DiagnosticKind::Info | DiagnosticKind::Note => {}
+            }
+        }
+    }
+}
+
+/// Expose the per-page diagnostics carried by a Pass-2 output so
+/// [`ProjectRenderSummary::diagnostic_counts`] can tally warnings from
+/// *successful* renders without knowing the concrete output type
+/// (native [`RenderToFileResult`] vs the WASM `WasmPassTwoOutput`).
+pub trait OutputDiagnostics {
+    fn diagnostics(&self) -> &[DiagnosticMessage];
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl OutputDiagnostics for RenderToFileResult {
+    fn diagnostics(&self) -> &[DiagnosticMessage] {
+        &self.render_output.diagnostics
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl OutputDiagnostics for RenderToFileResult {
+    fn diagnostics(&self) -> &[DiagnosticMessage] {
+        // The WASM placeholder never carries diagnostics (see the
+        // `cfg(target_arch = "wasm32")` definition above).
+        &[]
+    }
+}
+
+impl<O: OutputDiagnostics> ProjectRenderSummary<O> {
+    /// Aggregate every reported error / warning across all four
+    /// diagnostic sources into a single [`DiagnosticCounts`].
+    ///
+    /// Counting rules (bd-ooleh):
+    /// - A Pass-1 or Pass-2 [`FileFailure`] with **no** structured
+    ///   diagnostics contributes **one error** — its top-level `error`
+    ///   string is the single problem. (This is also why pass-1
+    ///   failures read as errors rather than warnings: they almost
+    ///   always land here, keeping the summary in agreement with the
+    ///   non-zero exit code.)
+    /// - A failure **with** structured diagnostics contributes those
+    ///   diagnostics counted by [`DiagnosticKind`].
+    /// - [`Self::project_diagnostics`] and the per-page diagnostics of
+    ///   every successful render in [`Self::outputs`] are counted by
+    ///   kind.
+    /// - `Info` / `Note` severities are ignored.
+    pub fn diagnostic_counts(&self) -> DiagnosticCounts {
+        let mut counts = DiagnosticCounts::default();
+
+        for failure in self.pass1_failures.iter().chain(&self.pass2_failures) {
+            if failure.diagnostics.is_empty() {
+                counts.errors += 1;
+            } else {
+                counts.add_diagnostics(&failure.diagnostics);
+            }
+        }
+
+        counts.add_diagnostics(&self.project_diagnostics);
+
+        for output in &self.outputs {
+            counts.add_diagnostics(output.diagnostics());
+        }
+
+        counts
     }
 }
 
@@ -1704,6 +1799,150 @@ mod tests {
     fn default_project_type_lib_dir_is_empty() {
         let t = DefaultProjectType;
         assert_eq!(t.lib_dir(), "");
+    }
+
+    // === bd-ooleh: error/warning summary counts ===
+
+    use quarto_error_reporting::DiagnosticKind;
+
+    /// Minimal Pass-2 output stub so the counter tests don't have to
+    /// build a full `RenderToFileResult`. Carries only the per-page
+    /// diagnostics the counter reads through `OutputDiagnostics`.
+    #[derive(Debug, Default)]
+    struct StubOutput {
+        diagnostics: Vec<DiagnosticMessage>,
+    }
+
+    impl OutputDiagnostics for StubOutput {
+        fn diagnostics(&self) -> &[DiagnosticMessage] {
+            &self.diagnostics
+        }
+    }
+
+    fn failure(diagnostics: Vec<DiagnosticMessage>) -> FileFailure {
+        FileFailure {
+            input: PathBuf::from("doc.qmd"),
+            error: "boom".to_string(),
+            diagnostics,
+            source_context: None,
+        }
+    }
+
+    fn output_with(diagnostics: Vec<DiagnosticMessage>) -> StubOutput {
+        StubOutput { diagnostics }
+    }
+
+    #[test]
+    fn diagnostic_counts_empty_summary_is_zero() {
+        let summary: ProjectRenderSummary<StubOutput> = ProjectRenderSummary::default();
+        let counts = summary.diagnostic_counts();
+        assert_eq!(counts, DiagnosticCounts::default());
+        assert_eq!(counts.errors, 0);
+        assert_eq!(counts.warnings, 0);
+        assert!(counts.is_empty());
+    }
+
+    #[test]
+    fn diagnostic_counts_legacy_pass2_failure_is_one_error() {
+        // A render failure with no structured diagnostics counts as a
+        // single error (its top-level `error` string is the one
+        // problem).
+        let summary: ProjectRenderSummary<StubOutput> = ProjectRenderSummary {
+            pass2_failures: vec![failure(Vec::new())],
+            ..Default::default()
+        };
+        let counts = summary.diagnostic_counts();
+        assert_eq!(counts.errors, 1);
+        assert_eq!(counts.warnings, 0);
+        assert!(!counts.is_empty());
+    }
+
+    #[test]
+    fn diagnostic_counts_pass2_failure_counts_structured_diagnostics_by_kind() {
+        let summary: ProjectRenderSummary<StubOutput> = ProjectRenderSummary {
+            pass2_failures: vec![failure(vec![
+                DiagnosticMessage::error("e1"),
+                DiagnosticMessage::error("e2"),
+                DiagnosticMessage::warning("w1"),
+            ])],
+            ..Default::default()
+        };
+        let counts = summary.diagnostic_counts();
+        assert_eq!(counts.errors, 2);
+        assert_eq!(counts.warnings, 1);
+    }
+
+    #[test]
+    fn diagnostic_counts_pass1_failure_without_diagnostics_is_one_error() {
+        // D1 = option (a): a pass-1 failure with no structured
+        // diagnostics reads as an error so the summary agrees with the
+        // non-zero exit code (not the legacy `warning:` display prefix).
+        let summary: ProjectRenderSummary<StubOutput> = ProjectRenderSummary {
+            pass1_failures: vec![failure(Vec::new())],
+            ..Default::default()
+        };
+        let counts = summary.diagnostic_counts();
+        assert_eq!(counts.errors, 1);
+        assert_eq!(counts.warnings, 0);
+    }
+
+    #[test]
+    fn diagnostic_counts_project_diagnostics_ignore_info_and_note() {
+        let summary: ProjectRenderSummary<StubOutput> = ProjectRenderSummary {
+            project_diagnostics: vec![
+                DiagnosticMessage::error("e"),
+                DiagnosticMessage::warning("w"),
+                DiagnosticMessage::info("i"),
+                DiagnosticMessage::new(DiagnosticKind::Note, "n"),
+            ],
+            ..Default::default()
+        };
+        let counts = summary.diagnostic_counts();
+        assert_eq!(counts.errors, 1);
+        assert_eq!(counts.warnings, 1);
+    }
+
+    #[test]
+    fn diagnostic_counts_successful_render_warnings_are_counted() {
+        let summary: ProjectRenderSummary<StubOutput> = ProjectRenderSummary {
+            outputs: vec![
+                output_with(vec![DiagnosticMessage::warning("w1")]),
+                output_with(vec![
+                    DiagnosticMessage::warning("w2"),
+                    DiagnosticMessage::error("e1"),
+                ]),
+            ],
+            ..Default::default()
+        };
+        let counts = summary.diagnostic_counts();
+        assert_eq!(counts.errors, 1);
+        assert_eq!(counts.warnings, 2);
+    }
+
+    #[test]
+    fn diagnostic_counts_aggregates_all_four_sources() {
+        let summary: ProjectRenderSummary<StubOutput> = ProjectRenderSummary {
+            // 1 error (legacy, no diagnostics)
+            pass1_failures: vec![failure(Vec::new())],
+            // 1 error + 1 warning (structured)
+            pass2_failures: vec![failure(vec![
+                DiagnosticMessage::error("e"),
+                DiagnosticMessage::warning("w"),
+            ])],
+            // 1 error + 1 warning (+ ignored info)
+            project_diagnostics: vec![
+                DiagnosticMessage::error("pe"),
+                DiagnosticMessage::warning("pw"),
+                DiagnosticMessage::info("pi"),
+            ],
+            // 1 warning from a successful render
+            outputs: vec![output_with(vec![DiagnosticMessage::warning("ow")])],
+            stopped_early: false,
+        };
+        let counts = summary.diagnostic_counts();
+        assert_eq!(counts.errors, 3);
+        assert_eq!(counts.warnings, 3);
+        assert!(!counts.is_empty());
     }
 
     #[test]
