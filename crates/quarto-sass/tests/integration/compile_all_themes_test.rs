@@ -33,6 +33,17 @@ impl grass::Fs for EmbeddedFs {
     }
 }
 
+/// Compile a built-in theme to CSS.
+///
+/// **Scope warning:** `assemble_with_theme` covers Bootstrap + the
+/// Quarto layer + the theme only. It does NOT include the
+/// always-present built-in user layers (`title-block.scss`,
+/// `highlight.scss`) that the real render path adds via
+/// `compile_default_css` / `compile_with_doc_vars`. Assertions about
+/// content from those layers will fail against this helper's output
+/// no matter what the `.scss` files say — assemble with
+/// `assemble_with_user_layers` + the relevant `load_*_layer()`
+/// instead (see `test_compiled_css_resets_source_code_pre_margin`).
 fn compile_theme(theme: BuiltInTheme) -> Result<String, String> {
     let scss = assemble_with_theme(theme).map_err(|e| e.to_string())?;
 
@@ -209,5 +220,61 @@ fn test_compiled_css_has_editorial_marks() {
     assert!(
         comment_section.contains("font-style: italic"),
         ".quarto-edit-comment should have italic style"
+    );
+}
+
+/// Collect the bodies of all top-level rules whose selector list starts
+/// at a line beginning with `selector` (expanded output style puts each
+/// top-level selector at the start of a line).
+fn rule_bodies<'a>(css: &'a str, selector: &str) -> Vec<&'a str> {
+    let needle = format!("\n{selector} {{");
+    css.split(&needle)
+        .skip(1)
+        .filter_map(|rest| rest.split_once('}').map(|(body, _)| body))
+        .collect()
+}
+
+/// Regression test for bd-jby1i: highlighted code blocks rendered a
+/// stray empty line at the bottom because Bootstrap reboot's
+/// `pre { margin-bottom: 1rem }` was trapped inside the block
+/// formatting context created by `div.sourceCode { overflow-y: hidden }`.
+/// Quarto 1 inherits the counteracting rules from Pandoc's baseline
+/// highlighting CSS (`$highlighting-css$`); Quarto 2 must ship them in
+/// `highlight.scss`:
+///
+///   pre.sourceCode { margin: 0; }    -- kill the trapped margin
+///   div.sourceCode { margin: 1em 0; } -- div takes over outer spacing
+#[test]
+fn test_compiled_css_resets_source_code_pre_margin() {
+    // The highlight layer is not part of `assemble_with_theme`; the
+    // render path (`compile_default_css` / `compile_with_doc_vars`)
+    // passes it as an always-present user layer. Mirror that here.
+    use quarto_sass::bundle::{assemble_with_user_layers, load_highlight_layer};
+
+    let highlight = load_highlight_layer().expect("highlight layer should load");
+    let scss = assemble_with_user_layers(&[highlight]).expect("assembly should succeed");
+
+    let load_paths = default_load_paths();
+    let options = grass::Options::default()
+        .fs(&EmbeddedFs)
+        .load_paths(&load_paths)
+        .style(grass::OutputStyle::Expanded);
+    let css = grass::from_string(&scss, &options).expect("default + highlight should compile");
+
+    let pre_bodies = rule_bodies(&css, "pre.sourceCode");
+    assert!(
+        pre_bodies.iter().any(|body| body.contains("margin: 0")),
+        "some pre.sourceCode rule should reset margin to 0 \
+         (bd-jby1i: otherwise Bootstrap's pre margin-bottom is trapped \
+         inside div.sourceCode's BFC and renders as a stray empty line); \
+         found bodies: {pre_bodies:?}"
+    );
+
+    let div_bodies = rule_bodies(&css, "div.sourceCode");
+    assert!(
+        div_bodies.iter().any(|body| body.contains("margin: 1em 0")),
+        "some div.sourceCode rule should carry the outer margin (1em 0) \
+         that replaces the pre margin reset by bd-jby1i's fix; \
+         found bodies: {div_bodies:?}"
     );
 }

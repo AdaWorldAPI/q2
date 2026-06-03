@@ -30,6 +30,22 @@ code.sourceCode {
   white-space: pre;
 }
 
+// Quarto 1 inherits these from Pandoc's baseline highlighting CSS
+// ($highlighting-css$). Without `pre.sourceCode { margin: 0 }`,
+// Bootstrap reboot's `pre { margin-bottom: 1rem }` is trapped inside
+// the block formatting context created by
+// `div.sourceCode { overflow-y: hidden }` (_bootstrap-rules.scss) and
+// renders as a stray empty line at the bottom of every highlighted
+// code block (bd-jby1i). The div takes over the outer spacing role,
+// matching Q1's computed values.
+div.sourceCode {
+  margin: 1em 0;
+}
+
+pre.sourceCode {
+  margin: 0;
+}
+
 // -- Keywords -------------------------------------------------------------
 
 .hl-keyword,

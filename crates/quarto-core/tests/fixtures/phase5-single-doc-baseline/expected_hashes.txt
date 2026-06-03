@@ -114,5 +114,15 @@
 # CSS keys off `body.quarto-light` (matches Q1's default body class).
 # `<body class="fullcontent">` → `<body class="fullcontent quarto-light">`.
 # doc_files/styles.css hash unchanged: this is a template-only change.
+#
+# Re-captured 2026-06-03 (bd-jby1i): doc_files/styles.css hash updated
+# because `highlight.scss` gained the two margin rules Q1 inherits
+# from Pandoc's baseline highlighting CSS:
+# `div.sourceCode { margin: 1em 0 }` and `pre.sourceCode { margin: 0 }`.
+# Without them, Bootstrap reboot's `pre { margin-bottom: 1rem }` was
+# trapped inside the BFC created by `div.sourceCode { overflow-y:
+# hidden }` and rendered as a stray empty line at the bottom of every
+# highlighted code block. doc.html hash unchanged: the fixture has no
+# code blocks, and the change is CSS-only.
 doc.html f81f6b0c1ceac71d249f208dac84875e53b251b85d2ead6129169320c86ac7f6
-doc_files/styles.css cffeac275ea4dd0d0a9c5cc8fde678b033f2e2fdcce835455102d46e439df062
+doc_files/styles.css 7ffc66830849fc1107cc663797366e94942cf60634c639ec73a99ccd36eaafea
