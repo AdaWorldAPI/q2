@@ -1,6 +1,6 @@
 ---
 name: investigate-beads
-description: Investigate a beads issue in the current checkout, gather context from its dependency graph, and produce a plan-skeleton + triage verdict (ready / needs-info / blocked). Use when the user says "investigate bd-XXXX", "let's look at bd-XXXX", or pastes a beads issue ID and asks what's needed to work on it.
+description: Investigate a beads issue in the current checkout, gather context from its dependency graph, and produce a plan-skeleton + triage verdict (ready / needs-info / blocked). Use when the user provides a beads issue ID (bd-XXXX) and asks to investigate, scope, or understand the work needed.
 ---
 
 # Investigate-Beads Skill
