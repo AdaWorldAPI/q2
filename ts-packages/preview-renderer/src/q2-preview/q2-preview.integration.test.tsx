@@ -40,6 +40,7 @@ import type {
 } from '../framework';
 import { previewRegistry } from './registry';
 import { AssetManifestContext } from './AssetManifestContext';
+import { IncrementalContext } from './IncrementalContext';
 import {
     SECTION,
     SECTION_LEVEL_PREFIX,
@@ -57,6 +58,21 @@ function astJson(blocks: any[]): string {
 
 const noopNav = () => {};
 const noopSet = () => {};
+
+/** Mount inside a revealjs deck's incremental context (enabled). */
+function mountInDeck(blocks: any[]) {
+    return render(
+        <IncrementalContext.Provider value={{ enabled: true, incremental: false }}>
+            <Ast
+                astJson={astJson(blocks)}
+                currentFilePath="/project/test.qmd"
+                onNavigateToDocument={noopNav}
+                setAst={noopSet}
+                registry={previewRegistry}
+            />
+        </IncrementalContext.Provider>,
+    );
+}
 
 function mount(blocks: any[]) {
     return render(
@@ -484,6 +500,106 @@ describe('q2-preview Pandoc base-type gap-fill components', () => {
         // the rendered tree are fine.)
         const divWithSection = container.querySelector('div.section.level3');
         expect(divWithSection).toBeNull();
+    });
+
+    // Revealjs speaker notes — Div(.notes) → <aside class="notes">, mirroring
+    // the native writer (crates/pampa/src/writers/html.rs::Block::Div). reveal.css
+    // hides `aside.notes` on the slide; a `<div class="notes">` would not be
+    // hidden, so render/preview must agree on the element.
+    it('Div with class="notes" renders as <aside> (revealjs speaker notes)', () => {
+        const ast = [{
+            t: 'Div',
+            c: [
+                ['', ['notes'], []],
+                [PARA(STR('Speaker note.'))],
+            ],
+        }];
+        const { container } = mount(ast);
+        const aside = container.querySelector('aside.notes');
+        expect(aside).not.toBeNull();
+        expect(aside!.textContent).toContain('Speaker note.');
+        expect(container.querySelector('div.notes')).toBeNull();
+    });
+
+    // Columns — RevealColumnsTransform rewrites `.column width=X` to an inline
+    // `style="flex-basis: X"`; the preview Div must pass that style through (as
+    // a React style object) so columns lay out identically to `q2 render`.
+    it('Div with inline style renders the style (column flex-basis)', () => {
+        const ast = [{
+            t: 'Div',
+            c: [
+                ['', ['column'], [['style', 'flex-basis: 40%;']]],
+                [PARA(STR('Left'))],
+            ],
+        }];
+        const { container } = mount(ast);
+        const col = container.querySelector('div.column') as HTMLElement;
+        expect(col).not.toBeNull();
+        expect(col.style.flexBasis).toBe('40%');
+    });
+
+    // Incremental lists (2d) — inside a revealjs deck, a `.incremental` Div's
+    // list items get `class="fragment"` (the preview mirror of the native
+    // writer's writerIncremental; list items have no AST attr to carry it).
+    const BULLETS = {
+        t: 'BulletList',
+        c: [[PARA(STR('a'))], [PARA(STR('b'))], [PARA(STR('c'))]],
+    };
+    const incrementalDiv = (list: any) => ({
+        t: 'Div',
+        c: [['', ['incremental'], []], [list]],
+    });
+
+    it('incremental list items get class="fragment" inside a deck', () => {
+        const { container } = mountInDeck([incrementalDiv(BULLETS)]);
+        const frags = container.querySelectorAll('li.fragment');
+        expect(frags.length).toBe(3);
+    });
+
+    it('non-incremental list stays plain inside a deck', () => {
+        const { container } = mountInDeck([BULLETS]);
+        expect(container.querySelectorAll('li.fragment').length).toBe(0);
+        expect(container.querySelectorAll('li').length).toBe(3);
+    });
+
+    it('incremental is a no-op outside a deck (html preview)', () => {
+        // mount() has no IncrementalContext (enabled=false), like the html preview.
+        const { container } = mount([incrementalDiv(BULLETS)]);
+        expect(container.querySelectorAll('li.fragment').length).toBe(0);
+    });
+
+    it('.nonincremental opts out of global incremental', () => {
+        const nonIncDiv = {
+            t: 'Div',
+            c: [['', ['nonincremental'], []], [BULLETS]],
+        };
+        const { container } = render(
+            <IncrementalContext.Provider value={{ enabled: true, incremental: true }}>
+                <Ast
+                    astJson={astJson([nonIncDiv])}
+                    currentFilePath="/project/test.qmd"
+                    onNavigateToDocument={noopNav}
+                    setAst={noopSet}
+                    registry={previewRegistry}
+                />
+            </IncrementalContext.Provider>,
+        );
+        expect(container.querySelectorAll('li.fragment').length).toBe(0);
+    });
+
+    it('Div with class="aside" renders as <aside> (revealjs aside)', () => {
+        const ast = [{
+            t: 'Div',
+            c: [
+                ['', ['aside'], []],
+                [PARA(STR('An aside.'))],
+            ],
+        }];
+        const { container } = mount(ast);
+        const aside = container.querySelector('aside.aside');
+        expect(aside).not.toBeNull();
+        expect(aside!.textContent).toContain('An aside.');
+        expect(container.querySelector('div.aside')).toBeNull();
     });
 
     it('Div without "section" class still renders as <div>', () => {

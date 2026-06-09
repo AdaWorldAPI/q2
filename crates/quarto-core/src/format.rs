@@ -114,11 +114,133 @@ impl TryFrom<&str> for FormatIdentifier {
 /// lands.
 fn builtin_pseudo_format(name: &str) -> Option<(&'static str, Option<&'static str>)> {
     match name {
-        "q2-slides" => Some(("html", None)),
+        // `q2-slides` is the preview pseudo-format for `format: revealjs`
+        // (analogous to `q2-preview` for `html`). It uses the same AST/preview
+        // pipeline_kind so `render_page_for_preview` returns AST JSON; the
+        // reveal slide construction fires because `build_transform_pipeline`
+        // treats `target_format == "q2-slides"` as revealjs (see
+        // `is_revealjs_target`). The SPA renders the section AST with a reveal
+        // shell. See claude-notes/plans/2026-06-08-revealjs-presentations.md
+        // Phase 1P.
+        "q2-slides" => Some(("html", Some("preview"))),
         "q2-debug" => Some(("html", None)),
         "q2-preview" => Some(("html", Some("preview"))),
         _ => None,
     }
+}
+
+/// Whether a `target_format` string should build the reveal.js slide tree
+/// (`RevealSlidesTransform` replacing the generic title-block + sectionize).
+/// True for the native render format (`revealjs`) and its preview
+/// pseudo-format (`q2-slides`).
+pub fn is_revealjs_target(target_format: &str) -> bool {
+    matches!(target_format, "revealjs" | "q2-slides")
+}
+
+/// Extract the chosen output format from a document's leading YAML
+/// front-matter: the `format:` scalar, or the first key when `format:` is a
+/// map (e.g. `format: {revealjs: {...}}`). Returns `None` when there is no
+/// front matter or no `format:` key.
+///
+/// This is the lightweight, pre-pipeline peek used to resolve a per-document
+/// format (e.g. a `format: revealjs` deck inside an otherwise-HTML project)
+/// before the render context — and thus the transform pipeline / output
+/// extension — is chosen. The CLI's single-input detection delegates here so
+/// the two paths agree.
+pub fn format_key_from_frontmatter(content: &str) -> Option<String> {
+    let yaml = extract_yaml_frontmatter(content)?;
+    let value: serde_yaml::Value = serde_yaml::from_str(&yaml).ok()?;
+    match value.get("format")? {
+        serde_yaml::Value::String(s) => Some(s.clone()),
+        serde_yaml::Value::Mapping(m) => m.keys().find_map(|k| k.as_str().map(str::to_string)),
+        _ => None,
+    }
+}
+
+/// Return the text of the leading YAML front-matter block (between the opening
+/// `---` and the closing `---` / `...` line), if present.
+pub fn extract_yaml_frontmatter(content: &str) -> Option<String> {
+    let s = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let after_open = s
+        .strip_prefix("---\n")
+        .or_else(|| s.strip_prefix("---\r\n"))?;
+    for terminator in ["\n---", "\n..."] {
+        if let Some(idx) = after_open.find(terminator) {
+            return Some(after_open[..idx].to_string());
+        }
+    }
+    None
+}
+
+/// Extract the format key from a `format:` [`ConfigValue`]: the scalar string,
+/// or the first key when it is a map (`format: {revealjs: {...}}`).
+pub fn format_key_from_config_value(value: &ConfigValue) -> Option<String> {
+    if let Some(s) = value.as_str() {
+        return Some(s.to_string());
+    }
+    value
+        .as_map_entries()
+        .and_then(|entries| entries.first().map(|e| e.key.clone()))
+}
+
+/// Resolve a document's effective output format key by prefer-merging the
+/// `format:` declarations, lowest precedence to highest:
+///
+/// ```text
+///   project config   →   document front matter   →   `--to` override
+/// ```
+///
+/// The `--to` override is modeled as a synthesized `format: !prefer <to>`
+/// layer merged on top — uniform with a document that had written that
+/// instruction itself — so an explicit `--to` wins over every in-document
+/// declaration, while in its absence a per-file or project-level `format:` is
+/// honored (the per-file one winning over the project default). Returns
+/// `default` when no layer declares a format.
+///
+/// This runs *before* the render pipeline is built because the format key
+/// selects both the transform pipeline (reveal vs. generic) and the output
+/// file extension; the full format-specific config flattening still happens
+/// later in `MetadataMergeStage`.
+pub fn resolve_format_key(
+    project_format: Option<&str>,
+    document_format: Option<&str>,
+    cli_to: Option<&str>,
+    default: &str,
+) -> String {
+    use quarto_config::MergedConfig;
+    use quarto_pandoc_types::{ConfigMapEntry, MergeOp};
+    use quarto_source_map::SourceInfo;
+
+    // One `{format: !prefer <key>}` layer. All layers use `Prefer` (last
+    // wins); ordering project → document → `--to` encodes the precedence.
+    let format_layer = |key: &str| -> ConfigValue {
+        let si = SourceInfo::default();
+        ConfigValue::new_map(
+            vec![ConfigMapEntry {
+                key: "format".to_string(),
+                key_source: si.clone(),
+                value: ConfigValue::new_string(key, si.clone()).with_merge_op(MergeOp::Prefer),
+            }],
+            si,
+        )
+    };
+
+    let owned: Vec<ConfigValue> = [project_format, document_format, cli_to]
+        .into_iter()
+        .flatten()
+        .map(format_layer)
+        .collect();
+    if owned.is_empty() {
+        return default.to_string();
+    }
+    let layers: Vec<&ConfigValue> = owned.iter().collect();
+    MergedConfig::new(layers)
+        .materialize()
+        .ok()
+        .as_ref()
+        .and_then(|merged| merged.get("format"))
+        .and_then(format_key_from_config_value)
+        .unwrap_or_else(|| default.to_string())
 }
 
 /// Map a FormatIdentifier to its output file extension.
@@ -667,9 +789,12 @@ mod tests {
         assert_eq!(f.extension_name, None);
         assert_eq!(f.output_extension, "html");
         assert!(f.native_pipeline);
-        // q2-slides has no pipeline_kind today; future plan migrates
-        // it to the q2-preview pipeline (Plan 1 Decision A).
-        assert_eq!(f.pipeline_kind, None);
+        // revealjs epic Phase 1P: q2-slides is now the preview
+        // pseudo-format for `format: revealjs` — it uses the q2-preview
+        // pipeline_kind (AST path) so the SPA renders the reveal-section
+        // AST with a reveal shell. The reveal slide construction fires
+        // because `is_revealjs_target("q2-slides")` is true.
+        assert_eq!(f.pipeline_kind, Some("preview"));
     }
 
     #[test]
