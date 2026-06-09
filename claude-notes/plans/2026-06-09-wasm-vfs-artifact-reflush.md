@@ -174,6 +174,24 @@ Skeleton only — contents wait on the design discussion.
         not counted) so bd-w5qyuzeg inherits real numbers. Smoke-tested:
         one themed render stores 4 artifacts / 400,692 bytes
         (`perf.artifact-store stores=4 bytes_stored=400692`).
+        **Trimmed before merge — see "Instrumentation trim" below.**
+
+### Instrumentation trim (2026-06-09, pre-merge)
+
+The `perf.artifact-store` gauge was **removed before merging to main**.
+Rationale: unlike the bd-h5l7-convention counters (plain fields, truly
+free), this gauge required a `Drop` impl on `ArtifactStore`, and Rust
+forbids moving fields out of `Drop` types — forcing a non-obvious
+`mem::take` workaround inside `merge_into_project`. That is a permanent
+complexity tax on a core type for a diagnostic whose purpose is already
+served: the producer-side numbers bd-w5qyuzeg needed are measured,
+recorded in the Findings table above, and noted on that strand. The
+`vfs-flush` driver now computes `producer_bytes` by summing over the
+store directly, so the measurement remains reproducible without the
+core-type counters. The `perf.vfs-write` gauge on `VirtualFileSystem`
+**stays**: it has no `Drop`-related cost on hot types beyond the VFS
+itself, and its counters are what the change-detection tests assert
+against.
   - [x] Geometric scaling + before/after run on an idle machine
         (2026-06-09, see Findings below).
 

@@ -121,7 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Synthetic padding artifact: identical bytes each iteration,
         // standing in for stable plot images / webfonts. The store()
-        // is counted in producer_stats, like any real producer.
+        // is summed into producer_bytes, like any real producer.
         if pad_bytes > 0 {
             ctx.artifacts.store(
                 "pad:blob",
@@ -130,7 +130,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
 
-        let (producer_stores, producer_bytes) = ctx.artifacts.producer_stats();
+        // Producer-side cost (bd-w5qyuzeg): bytes materialized into the
+        // store this render. Summed here in the driver — ArtifactStore
+        // itself carries no counters (a Drop-based gauge was tried and
+        // removed; see the plan's "Instrumentation trim" note).
+        let producer_stores = ctx.artifacts.len();
+        let producer_bytes: usize = ctx.artifacts.iter().map(|(_, a)| a.content.len()).sum();
         let before = vfs.write_stats();
 
         // === The flush under investigation ===
