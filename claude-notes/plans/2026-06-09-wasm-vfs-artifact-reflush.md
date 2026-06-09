@@ -177,39 +177,40 @@ Skeleton only — contents wait on the design discussion.
   - [ ] Browser cross-check per playbook step 8 (sanity check only); record
         the end-to-end example here.
 
-## Open design questions for the user
+## Design decisions (settled with user, 2026-06-09)
 
-1. **Measure-then-fix gate.** If Phase 0 shows the flush is a small fraction
-   of per-keystroke render time, do we still land the skip (it's cheap and
-   strictly less work per render), or close with findings and downgrade? My
-   recommendation: land it anyway, but the Findings section will state its
-   measured share honestly.
-2. **Native proxy mechanism.** `VirtualFileSystem` is currently
-   `#[cfg(target_arch = "wasm32")]`-gated (`quarto-system-runtime/src/lib.rs:41`).
-   It's a pure in-memory HashMap with no wasm-specific deps. OK to compile it
-   (not `WasmRuntime` itself) on native targets so the perf-harness driver and
-   unit tests exercise the *actual* flush code? Alternative is a lookalike
-   micro-benchmark, which the playbook frowns on (proxy must run the same code).
-3. **Scope of site 3.** `flush_site_libs` also runs natively under `q2 render`
-   (per-invocation, not per-keystroke — much less interesting). Do we make
-   `OutputSink`/`flush_site_libs` change-aware everywhere, or only route the
-   WASM runtime's `file_write` through the compare? Native compare-before-write
-   means a disk read per artifact, which could *regress* CLI renders; my
-   recommendation is to do change detection only in the in-memory VFS layer
-   (free) and leave native disk writes as-is.
+1. **Measure-then-fix gate: land the skip regardless of measured share**,
+   with the measured share stated honestly in Findings — *unless* the fix
+   turns out to require an architectural change that could paint us into a
+   future corner. (`add_file_if_changed` as drafted is not architectural; if
+   Phase 0 pushes us toward something bigger, stop and re-align.)
+2. **Native proxy: yes**, un-gate `VirtualFileSystem` (not `WasmRuntime`) for
+   native builds so the perf-harness driver exercises the actual flush code.
+   Framing note from the user: the perf concern is **entirely hub-client
+   per-keystroke latency feel** — native builds are ~40–50× faster than
+   Quarto 1 and not a worry. The native proxy exists to measure/iterate, not
+   because native has a problem to fix.
+3. **Scope of site 3: change detection only in the in-memory VFS layer**;
+   native disk writes unchanged. User noted a slight preference for single
+   code paths but accepts this as one of the unavoidable native-vs-wasm cfg
+   splits.
+4. **Producer-side clones:** pending — context provided to user (see
+   question below), awaiting their call.
+5. **TS-side `cssVersion`: filed as bd-rrnn3se8** (discovered-from this
+   strand) — switch `cssVersion` to `RenderResponse.theme_fingerprint`,
+   delete the per-render VFS read + hash.
+
+## Remaining open question for the user
+
 4. **Producer-side clones (out of scope?).** The `include_bytes!` producers
    re-`to_vec()` ~370 KB of static bytes into `ctx.artifacts` every render
-   *before* the flush (clone #1). Fixing that means `Artifact` learning
-   `Cow<'static, [u8]>` or similar — wider surface. File as a separate
-   follow-up strand and keep this one flush-only?
-5. **TS-side `cssVersion` observation (separate strand?).**
-   `wasmRenderer.ts:1093` re-reads and re-hashes
-   `/.quarto/project-artifacts/styles.css` per render — and for themed docs the
-   theme artifact actually lives at `quarto/quarto-theme-<fp>.css`, while
-   `RenderResponse.theme_fingerprint` already carries exactly the
-   change-signal this hash approximates. Looks vestigial and possibly
-   wrong-path. File a discovered-from strand to switch `cssVersion` to
-   `theme_fingerprint`?
+   *before* the flush (clone #1), and the theme stage clones the cached CSS
+   bytes out of the SASS LRU cache similarly. Fixing that means changing
+   `Artifact.content: Vec<u8>` to a shared/borrowed representation
+   (`Cow<'static, [u8]>`, `Arc<[u8]>`, or `bytes::Bytes`) — a refactor of a
+   core type with many touch points across quarto-core. Recommendation: file
+   as a separate follow-up strand and keep this one flush-only; Phase 0's
+   numbers will tell us whether the remaining single copy matters.
 
 ## Risks / tradeoffs (draft)
 
