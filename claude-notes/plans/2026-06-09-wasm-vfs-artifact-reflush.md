@@ -150,10 +150,13 @@ Alternatives considered and deprioritized:
 Skeleton only — contents wait on the design discussion.
 
 - **Phase 0 — Quantify (playbook steps 1–4).**
-  - [ ] Native proxy: decide mechanism (question 2), likely un-gate
-        `VirtualFileSystem` for native builds + a `perf-harness` driver that
-        renders a theme-heavy website fixture in a loop (mimicking keystroke
-        re-renders) through the same flush code.
+  - [x] Un-gate `VirtualFileSystem` for native builds (decision 2): moved to
+        target-agnostic `quarto-system-runtime/src/vfs.rs`; `WasmRuntime`
+        stays wasm-only. The 7 `test_vfs_*` unit tests now run natively
+        (they were dead under the wasm gate). Native + wasm32 both compile
+        clean; workspace tests green.
+  - [ ] `perf-harness` driver that renders a theme-heavy website fixture in
+        a loop (mimicking keystroke re-renders) through the same flush code.
   - [ ] `perf.vfs-flush` gauge (QUARTO_PERF_STATS=1): per render —
         artifact count, bytes_total, bytes_skipped, flush time.
   - [ ] Also measure producer-side clone cost (artifact-store population
