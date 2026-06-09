@@ -155,8 +155,15 @@ Skeleton only — contents wait on the design discussion.
         stays wasm-only. The 7 `test_vfs_*` unit tests now run natively
         (they were dead under the wasm gate). Native + wasm32 both compile
         clean; workspace tests green.
-  - [ ] `perf-harness` driver that renders a theme-heavy website fixture in
-        a loop (mimicking keystroke re-renders) through the same flush code.
+  - [x] `perf-harness` driver `vfs-flush` (`crates/perf-harness/src/bin/vfs_flush.rs`):
+        renders the committed theme-heavy fixture
+        (`claude-notes/plans/wasm-vfs-artifact-reflush-investigation/theme-heavy.qmd`)
+        in a loop against a session-persistent `VirtualFileSystem`,
+        mirroring the wasm `render_qmd` tail byte-for-byte (incl. the
+        bd-3gtn skip); `pad_bytes` arg scales total artifact bytes.
+        Functional check: every iteration re-flushes 4 artifacts /
+        400,692 B; flush ≈10 µs vs render ≈50 ms native (PRELIMINARY —
+        busy machine, not the recorded numbers).
   - [x] Instrumentation (QUARTO_PERF_STATS=1, playbook conventions):
         gauge `perf.vfs-write` — counters on `VirtualFileSystem`
         (writes/bytes_written/skipped_writes/bytes_skipped; skip counters
@@ -167,8 +174,13 @@ Skeleton only — contents wait on the design discussion.
         not counted) so bd-w5qyuzeg inherits real numbers. Smoke-tested:
         one themed render stores 4 artifacts / 400,692 bytes
         (`perf.artifact-store stores=4 bytes_stored=400692`).
-  - [ ] Geometric scaling of total artifact bytes (synthetic binary assets /
-        plot images); record Findings table in this plan **before** Phase 2.
+  - [ ] Geometric scaling of total artifact bytes via `pad_bytes`; record
+        Findings table in this plan. **Deferred to a quiet-machine session**
+        (user note 2026-06-09: parallel agents make timings unreliable);
+        will run as a single before/after session once Phase 2's
+        `--mode` flag exists. Fix direction is already settled by
+        decision 1 (land the skip regardless), so Phases 1–2 proceed
+        meanwhile.
 - **Phase 1 — Test plan (TDD).**
   - [ ] Unit tests for `add_file_if_changed` semantics (new / changed /
         identical / empty).
