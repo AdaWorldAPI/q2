@@ -29,6 +29,7 @@
     "reveal.js-menu": "^2.1.0"
   },
   "devDependencies": {
+    "at-least-node": "^1.0.0",
     "fake-indexeddb": "^6.2.5"
   }
 }
