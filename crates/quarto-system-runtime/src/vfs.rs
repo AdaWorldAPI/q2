@@ -118,6 +118,25 @@ impl VirtualFileSystem {
         self.stats
     }
 
+    /// Write `contents` at `path` unless byte-identical content is
+    /// already present there (bd-q3bxnq2e change-detection: the WASM
+    /// render flushes its full artifact set every render, and skipping
+    /// the no-op writes avoids re-cloning unchanged theme CSS / fonts /
+    /// JS per keystroke).
+    ///
+    /// Returns `true` if a write happened, `false` if it was skipped.
+    /// Skipped writes are counted in `skipped_writes` / `bytes_skipped`.
+    ///
+    /// Note: unlike [`VirtualFileSystem::add_file`], this borrows the
+    /// contents — the clone happens only when the write does.
+    pub fn add_file_if_changed(&mut self, path: &Path, contents: &[u8]) -> bool {
+        // Stub preserving current always-write behavior; the compare
+        // lands with the Phase 2 implementation (TDD: the skip tests
+        // fail against this).
+        self.add_file(path, contents.to_vec());
+        true
+    }
+
     /// Update an existing file (same as add_file, but semantically clearer).
     pub fn update_file(&mut self, path: &Path, contents: Vec<u8>) {
         self.add_file(path, contents);
@@ -423,6 +442,71 @@ mod tests {
         // Root directories should still exist
         assert!(vfs.is_directory(Path::new("/")));
         assert!(vfs.is_directory(Path::new("/project")));
+    }
+
+    // === bd-q3bxnq2e: add_file_if_changed semantics ===
+
+    #[test]
+    fn test_add_file_if_changed_writes_new_file() {
+        let mut vfs = VirtualFileSystem::new();
+        let p = Path::new("/project/a.css");
+        assert!(vfs.add_file_if_changed(p, b"body{}"));
+        assert_eq!(vfs.read_file(p).unwrap(), b"body{}");
+        let s = vfs.write_stats();
+        assert_eq!(s.writes, 1);
+        assert_eq!(s.bytes_written, 6);
+        assert_eq!(s.skipped_writes, 0);
+        assert_eq!(s.bytes_skipped, 0);
+    }
+
+    #[test]
+    fn test_add_file_if_changed_overwrites_changed_content() {
+        let mut vfs = VirtualFileSystem::new();
+        let p = Path::new("/project/a.css");
+        assert!(vfs.add_file_if_changed(p, b"v1"));
+        assert!(vfs.add_file_if_changed(p, b"v2-longer"));
+        assert_eq!(vfs.read_file(p).unwrap(), b"v2-longer");
+        let s = vfs.write_stats();
+        assert_eq!(s.writes, 2);
+        assert_eq!(s.bytes_written, 2 + 9);
+        assert_eq!(s.skipped_writes, 0);
+    }
+
+    #[test]
+    fn test_add_file_if_changed_skips_identical_content() {
+        let mut vfs = VirtualFileSystem::new();
+        let p = Path::new("/project/a.css");
+        assert!(vfs.add_file_if_changed(p, b"same-bytes"));
+        // Identical second write must be skipped (return false), leave
+        // the content readable, and count toward the skip stats.
+        assert!(!vfs.add_file_if_changed(p, b"same-bytes"));
+        assert_eq!(vfs.read_file(p).unwrap(), b"same-bytes");
+        let s = vfs.write_stats();
+        assert_eq!(s.writes, 1);
+        assert_eq!(s.bytes_written, 10);
+        assert_eq!(s.skipped_writes, 1);
+        assert_eq!(s.bytes_skipped, 10);
+    }
+
+    #[test]
+    fn test_add_file_if_changed_normalizes_paths() {
+        // A relative spelling and its absolute normalization name the
+        // same file — the second identical write must be skipped.
+        let mut vfs = VirtualFileSystem::new();
+        assert!(vfs.add_file_if_changed(Path::new("a.css"), b"x"));
+        assert!(!vfs.add_file_if_changed(Path::new("/project/a.css"), b"x"));
+        assert_eq!(vfs.write_stats().skipped_writes, 1);
+    }
+
+    #[test]
+    fn test_add_file_if_changed_empty_content_still_writes() {
+        // VFS-level semantics unchanged: empty bytes are a valid file.
+        // The bd-3gtn empty-content skip lives at the flush sites (it
+        // means "manifest entry, never write"), not in the VFS.
+        let mut vfs = VirtualFileSystem::new();
+        assert!(vfs.add_file_if_changed(Path::new("/project/empty"), b""));
+        assert!(vfs.is_file(Path::new("/project/empty")));
+        assert!(!vfs.add_file_if_changed(Path::new("/project/empty"), b""));
     }
 
     #[test]
