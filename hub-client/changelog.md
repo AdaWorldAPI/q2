@@ -17,6 +17,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-06-09
 
+- [`57bc49cf`](https://github.com/quarto-dev/q2/commits/57bc49cf): Preview renders no longer re-copy unchanged artifacts (theme CSS, fonts, shared JS) into the virtual filesystem on every keystroke — byte-identical re-writes are now skipped.
 - [`749064d1`](https://github.com/quarto-dev/q2/commits/749064d1): Fix identity name defaulting to a random "Adjective Animal" instead of the authenticated user's name when a new project set is created.
 
 ### 2026-06-02
