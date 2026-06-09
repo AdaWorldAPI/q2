@@ -156,6 +156,8 @@ Skeleton only — contents wait on the design discussion.
         re-renders) through the same flush code.
   - [ ] `perf.vfs-flush` gauge (QUARTO_PERF_STATS=1): per render —
         artifact count, bytes_total, bytes_skipped, flush time.
+  - [ ] Also measure producer-side clone cost (artifact-store population
+        time/bytes per render) so bd-w5qyuzeg inherits real numbers.
   - [ ] Geometric scaling of total artifact bytes (synthetic binary assets /
         plot images); record Findings table in this plan **before** Phase 2.
 - **Phase 1 — Test plan (TDD).**
@@ -194,23 +196,19 @@ Skeleton only — contents wait on the design discussion.
    native disk writes unchanged. User noted a slight preference for single
    code paths but accepts this as one of the unavoidable native-vs-wasm cfg
    splits.
-4. **Producer-side clones:** pending — context provided to user (see
-   question below), awaiting their call.
+4. **Producer-side clones: out of scope, filed as bd-w5qyuzeg**
+   (discovered-from this strand). This strand stays flush-only. The
+   `Artifact.content: Vec<u8>` → `Cow<'static, [u8]>` / `Arc<[u8]>` /
+   `bytes::Bytes` refactor is gated on Phase 0's data: the instrumentation
+   here will measure producer-clone cost alongside flush cost, and
+   bd-w5qyuzeg is picked up only if the residual copy is a meaningful share
+   of per-keystroke latency.
 5. **TS-side `cssVersion`: filed as bd-rrnn3se8** (discovered-from this
    strand) — switch `cssVersion` to `RenderResponse.theme_fingerprint`,
    delete the per-render VFS read + hash.
 
-## Remaining open question for the user
-
-4. **Producer-side clones (out of scope?).** The `include_bytes!` producers
-   re-`to_vec()` ~370 KB of static bytes into `ctx.artifacts` every render
-   *before* the flush (clone #1), and the theme stage clones the cached CSS
-   bytes out of the SASS LRU cache similarly. Fixing that means changing
-   `Artifact.content: Vec<u8>` to a shared/borrowed representation
-   (`Cow<'static, [u8]>`, `Arc<[u8]>`, or `bytes::Bytes`) — a refactor of a
-   core type with many touch points across quarto-core. Recommendation: file
-   as a separate follow-up strand and keep this one flush-only; Phase 0's
-   numbers will tell us whether the remaining single copy matters.
+All five design questions are now settled. Next step: Phase 0
+(instrumentation + native proxy + measurements), on user go-ahead.
 
 ## Risks / tradeoffs (draft)
 
