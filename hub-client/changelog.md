@@ -15,6 +15,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-09
+
+- [`749064d1`](https://github.com/quarto-dev/q2/commits/749064d1): Fix identity name defaulting to a random "Adjective Animal" instead of the authenticated user's name when a new project set is created.
+
 ### 2026-06-02
 
 - [`301ca456`](https://github.com/quarto-dev/q2/commits/301ca456): Add "Import from ZIP" to the project selector — create a new project from an uploaded .zip archive (the inverse of "Export to ZIP").
