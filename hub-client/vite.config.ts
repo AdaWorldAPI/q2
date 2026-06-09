@@ -53,6 +53,9 @@ function attributionViewerCssPlugin(): Plugin {
 /** Hub server URL. Override with VITE_HUB_SERVER env var. */
 const hubTarget = process.env.VITE_HUB_SERVER || 'http://localhost:3000';
 
+/** Disable service worker in E2E tests to avoid caching interference */
+const isE2E = process.env.VITE_E2E === '1';
+
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
@@ -89,7 +92,8 @@ export default defineConfig({
         server.middlewares.use(middleware as any);
       },
     },
-    VitePWA({
+    // Disable PWA service worker in E2E tests to avoid caching interference
+    ...(!isE2E ? [VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['quarto-icon.svg'],
       manifest: {
@@ -143,7 +147,7 @@ export default defineConfig({
           }
         ]
       }
-    })
+    })] : [])
   ],
   define: {
     __GIT_COMMIT_HASH__: JSON.stringify(gitInfo.commitHash),
