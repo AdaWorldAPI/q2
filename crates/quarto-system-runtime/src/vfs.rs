@@ -130,9 +130,16 @@ impl VirtualFileSystem {
     /// Note: unlike [`VirtualFileSystem::add_file`], this borrows the
     /// contents — the clone happens only when the write does.
     pub fn add_file_if_changed(&mut self, path: &Path, contents: &[u8]) -> bool {
-        // Stub preserving current always-write behavior; the compare
-        // lands with the Phase 2 implementation (TDD: the skip tests
-        // fail against this).
+        let normalized = self.normalize_path(path);
+        if self.files.get(&normalized).is_some_and(|existing| {
+            // memcmp; equal-content compare costs a read pass but no
+            // allocation or insert churn.
+            existing.as_slice() == contents
+        }) {
+            self.stats.skipped_writes += 1;
+            self.stats.bytes_skipped += contents.len();
+            return false;
+        }
         self.add_file(path, contents.to_vec());
         true
     }

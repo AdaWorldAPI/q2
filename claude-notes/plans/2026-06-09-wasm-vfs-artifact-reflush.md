@@ -181,19 +181,50 @@ Skeleton only — contents wait on the design discussion.
         `--mode` flag exists. Fix direction is already settled by
         decision 1 (land the skip regardless), so Phases 1–2 proceed
         meanwhile.
-- **Phase 1 — Test plan (TDD).**
-  - [ ] Unit tests for `add_file_if_changed` semantics (new / changed /
-        identical / empty).
-  - [ ] Behavioral test: two consecutive renders of an unchanged doc → second
-        flush reports `bytes_skipped == bytes_total` (counter-observable);
-        changed theme → theme artifact rewritten.
-  - [ ] Regression guard: iframe read-back path still finds artifacts after a
-        skipped flush.
+- **Phase 1 — Test plan (TDD).** Committed red at `f2e328e8`; all five
+  skip-behavior tests verified failing against an always-write stub.
+  - [x] Unit tests for `add_file_if_changed` semantics (new / changed /
+        identical / empty / path-normalization) in
+        `quarto-system-runtime/src/vfs.rs`.
+  - [x] Flush-level tests in new `quarto-core/src/artifact_flush.rs`:
+        second flush of an unchanged store skips all writes
+        (counter-observable); changed artifact re-written while
+        unchanged siblings skip; bd-3gtn empty-content skip; pathless
+        skip; resolver-path read-back.
+  - [x] Read-back regression guard after a skipped flush (unit level +
+        WASM e2e, see Phase 2).
 - **Phase 2 — Implement.**
-  - [ ] `add_file_if_changed` in `quarto-system-runtime`.
-  - [ ] Switch flush sites 1 and 2 (`wasm-quarto-hub-client/src/lib.rs`).
-  - [ ] Switch site 3 (`flush_site_libs` / `OutputSink`) per question 3's
-        scoping decision.
+  - [x] `VirtualFileSystem::add_file_if_changed(&Path, &[u8]) -> bool` —
+        memcmp against the existing entry; clone+insert only on change;
+        skips counted in `skipped_writes`/`bytes_skipped`.
+  - [x] Sites 1 & 2 (`wasm-quarto-hub-client/src/lib.rs`,
+        `render_single_doc_to_response` +
+        `render_project_active_page_to_response`): inline loops replaced
+        by shared `quarto_core::flush_artifacts_to_vfs` via new
+        `WasmRuntime::with_vfs_mut` — single code path with the native
+        proxy and unit tests.
+  - [x] Site 3: `WasmRuntime::file_write` routes through
+        `add_file_if_changed` (decision 3 — in-memory VFS layer only;
+        `flush_site_libs`/`OutputSink` and native disk writes
+        unchanged).
+  - [x] Driver `--mode legacy|skip` flag for single-session
+        before/after timing. Functional check: skip-mode iteration 0
+        writes 4 artifacts / 400,692 B, iterations 1+ skip all
+        (`skipped_writes=4 bytes_skipped=400692`).
+  - [x] WASM e2e regression tests
+        (`hub-client/src/services/vfsArtifactReflush.wasm.test.ts`,
+        runs under `npm run test:wasm`): steady-state double render →
+        identical HTML + CSS artifact readable byte-identical from VFS;
+        keystroke edit → new HTML, CSS artifact intact. Full WASM suite
+        81/81 green against the rebuilt module.
+  - Environment discovery: in Node/vitest the bootswatch theme sources
+    are not in the VFS, so `theme:` docs fall back to the default CSS
+    bundle at `/.quarto/project-artifacts/styles.css` — relevant nuance
+    for bd-rrnn3se8 (the styles.css read is *correct* in the fallback
+    case; `theme_fingerprint` is still present and is still the better
+    signal). Also discovered `hub-client/test-wasm.mjs` is broken in
+    bare Node (raw_module imports need Vite aliasing) → filed
+    bd-ye90x1ga.
 - **Phase 3 — Verify.**
   - [ ] Native before/after numbers across scales (complexity-class table).
   - [ ] Full `cargo xtask verify` (WASM leg affected).

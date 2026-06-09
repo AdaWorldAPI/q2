@@ -32,8 +32,6 @@
 //!   readable at `resolver.on_disk_path_for(scope, path)` — whether
 //!   the write was performed or skipped as byte-identical.
 
-use std::path::Path;
-
 use quarto_system_runtime::VirtualFileSystem;
 
 use crate::artifact::ArtifactStore;
@@ -62,22 +60,22 @@ pub fn flush_artifacts_to_vfs(
     }
 }
 
-/// Read an artifact back from the VFS at the path the flush would have
-/// used. Test/diagnostic helper for the read-back contract.
-#[cfg(test)]
-fn read_back(
-    vfs: &VirtualFileSystem,
-    resolver: &ResourceResolverContext,
-    scope: crate::artifact::ArtifactScope,
-    path: &Path,
-) -> Option<Vec<u8>> {
-    vfs.read_file(&resolver.on_disk_path_for(scope, path)).ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::artifact::{Artifact, ArtifactScope};
+    use std::path::Path;
+
+    /// Read an artifact back from the VFS at the path the flush would
+    /// have used — the read-back contract helper.
+    fn read_back(
+        vfs: &VirtualFileSystem,
+        resolver: &ResourceResolverContext,
+        scope: ArtifactScope,
+        path: &Path,
+    ) -> Option<Vec<u8>> {
+        vfs.read_file(&resolver.on_disk_path_for(scope, path)).ok()
+    }
 
     fn resolver() -> ResourceResolverContext {
         ResourceResolverContext::vfs_root("/.quarto/project-artifacts")

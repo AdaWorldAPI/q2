@@ -18,13 +18,20 @@
 //! this investigation quantifies.
 //!
 //! Usage:
-//!     vfs-flush <fixture.qmd> [iterations] [pad_bytes]
+//!     vfs-flush <fixture.qmd> [iterations] [pad_bytes] [mode]
 //!
 //! `pad_bytes` (default 0) adds one synthetic binary artifact of that
 //! size to the store after each render, with identical bytes every
 //! iteration. This is the geometric-scaling knob for total artifact
 //! bytes (stands in for plot images / webfonts that a heavier document
 //! would accumulate).
+//!
+//! `mode` selects the flush implementation for before/after timing in
+//! a single binary/session:
+//!   - `legacy` (default): the pre-bd-q3bxnq2e unconditional
+//!     clone+insert loop, preserved inline below;
+//!   - `skip`: `quarto_core::flush_artifacts_to_vfs` — the shared
+//!     change-aware flush the WASM render tail now uses.
 //!
 //! Output (stderr, machine-readable): one `perf.vfs-flush` line per
 //! iteration with render/flush wall times and byte counters diffed from
@@ -55,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let fixture_arg = args
         .next()
-        .ok_or("usage: vfs-flush <fixture.qmd> [iterations] [pad_bytes]")?;
+        .ok_or("usage: vfs-flush <fixture.qmd> [iterations] [pad_bytes] [legacy|skip]")?;
     let iterations: usize = args
         .next()
         .as_deref()
@@ -68,6 +75,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(str::parse)
         .transpose()?
         .unwrap_or(0);
+    let mode = args.next().unwrap_or_else(|| "legacy".to_string());
+    if mode != "legacy" && mode != "skip" {
+        return Err(format!("mode must be 'legacy' or 'skip', got '{mode}'").into());
+    }
 
     let content = std::fs::read(&fixture_arg)?;
     let virtual_path = Path::new("/input.qmd");
@@ -123,26 +134,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let before = vfs.write_stats();
 
         // === The flush under investigation ===
-        // Byte-for-byte mirror of crates/wasm-quarto-hub-client/src/
-        // lib.rs:1417-1425 (including the bd-3gtn empty-content skip),
-        // with `vfs.add_file` standing in for `runtime.add_file` (the
-        // WasmRuntime method is a one-line RwLock passthrough to this
-        // same VirtualFileSystem::add_file).
         let t_flush = Instant::now();
-        for (_key, artifact) in ctx.artifacts.iter() {
-            if let Some(artifact_path) = &artifact.path {
-                if artifact.content.is_empty() {
-                    continue;
+        match mode.as_str() {
+            // The pre-bd-q3bxnq2e behavior: byte-for-byte mirror of the
+            // unconditional loop that lived at wasm lib.rs:1417-1425
+            // (including the bd-3gtn empty-content skip), with
+            // `vfs.add_file` standing in for `runtime.add_file` (a
+            // one-line RwLock passthrough).
+            "legacy" => {
+                for (_key, artifact) in ctx.artifacts.iter() {
+                    if let Some(artifact_path) = &artifact.path {
+                        if artifact.content.is_empty() {
+                            continue;
+                        }
+                        let vfs_path = resolver.on_disk_path_for(artifact.scope, artifact_path);
+                        vfs.add_file(&vfs_path, artifact.content.clone());
+                    }
                 }
-                let vfs_path = resolver.on_disk_path_for(artifact.scope, artifact_path);
-                vfs.add_file(&vfs_path, artifact.content.clone());
             }
+            // The fixed behavior: the exact shared function the WASM
+            // render tail calls.
+            _ => quarto_core::flush_artifacts_to_vfs(&ctx.artifacts, &resolver, &mut vfs),
         }
         let flush_us = t_flush.elapsed().as_secs_f64() * 1e6;
 
         let after = vfs.write_stats();
         eprintln!(
-            "perf.vfs-flush iter={} render_us={:.0} flush_us={:.1} writes={} bytes_written={} skipped_writes={} bytes_skipped={} producer_stores={} producer_bytes={} html_bytes={}",
+            "perf.vfs-flush mode={} iter={} render_us={:.0} flush_us={:.1} writes={} bytes_written={} skipped_writes={} bytes_skipped={} producer_stores={} producer_bytes={} html_bytes={}",
+            mode,
             iter,
             render_us,
             flush_us,

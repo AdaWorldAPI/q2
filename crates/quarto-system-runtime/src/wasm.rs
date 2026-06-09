@@ -247,6 +247,15 @@ impl WasmRuntime {
         self.vfs.write().unwrap().add_file(path, contents);
     }
 
+    /// Run `f` with mutable access to the VFS (single write-lock
+    /// acquisition). Lets callers drive multi-file VFS operations —
+    /// e.g. quarto-core's `flush_artifacts_to_vfs` (bd-q3bxnq2e) —
+    /// through one code path shared with native tests and perf
+    /// drivers.
+    pub fn with_vfs_mut<R>(&self, f: impl FnOnce(&mut VirtualFileSystem) -> R) -> R {
+        f(&mut self.vfs.write().unwrap())
+    }
+
     /// Update a file in the virtual filesystem.
     pub fn update_file(&self, path: &Path, contents: Vec<u8>) {
         self.vfs.write().unwrap().update_file(path, contents);
@@ -308,7 +317,16 @@ impl SystemRuntime for WasmRuntime {
     }
 
     fn file_write(&self, path: &Path, contents: &[u8]) -> RuntimeResult<()> {
-        self.vfs.write().unwrap().add_file(path, contents.to_vec());
+        // Change-detection in the in-memory VFS layer (bd-q3bxnq2e
+        // decision 3): byte-identical re-writes are skipped — this is
+        // what makes `flush_site_libs`'s per-render re-flush of
+        // unchanged project artifacts (theme CSS, fonts, shared JS)
+        // cheap. Native disk writes are intentionally not change-aware
+        // (a compare there would cost a disk read per artifact).
+        self.vfs
+            .write()
+            .unwrap()
+            .add_file_if_changed(path, contents);
         Ok(())
     }
 
