@@ -1,0 +1,40 @@
+---
+title: "Unclosed Strikeout"
+description: "A `~~struck-through~~` run opens with `~~` but no closing `~~` appears before the end of the block."
+code: Q-2-18
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-18` — Unclosed Strikeout
+
+> A `~~struck-through~~` run opens with `~~` but no closing `~~`
+> appears before the end of the block.
+
+## What this means
+
+Double-tilde strikeout (`~~text~~`) must be balanced inside the
+same block. This error fires when an opening `~~` appears
+without a matching close.
+
+## Why this happens
+
+A typo, an unfinished edit, or — rarely — a literal `~~` left in
+the text by accident.
+
+## How to fix
+
+Add the closing `~~` at the intended end.
+
+## Example
+
+```markdown
+~~
+```
+
+## Related
+
+- [`Q-2-17`](Q-2-17.qmd) — unclosed single-tilde subscript.

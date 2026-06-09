@@ -10,16 +10,52 @@ use quarto_pandoc_types::ConfigValue;
 use std::collections::HashMap;
 use std::io::Write;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 // =============================================================================
 // Configuration and Context
 // =============================================================================
+
+/// Per-node attribution record consumed by the HTML writer's
+/// `write_block_source_attrs` / `write_inline_source_attrs`.
+///
+/// Identity (display name, colour) is **not** carried here. The
+/// `AttributionViewerTransform` emits one CSS rule per distinct
+/// actor into `<head>` (publishing `--attr-color` / `--attr-name`
+/// custom properties), and the browser paints via the cascade. JS
+/// reads identity from computed style for the hover badge.
+#[derive(Debug, Clone)]
+pub struct HtmlAttributionRecord {
+    pub actor: Arc<str>,
+    pub time: i64,
+}
 
 /// Configuration for HTML output
 #[derive(Debug, Clone, Default)]
 pub struct HtmlConfig {
     /// Include source location tracking (data-loc, data-sid attributes)
     pub include_source_locations: bool,
+
+    /// Pointer-keyed lookup populated by
+    /// `quarto_core::transforms::AttributionRenderTransform`. Keys
+    /// are `&Block` / `&Inline` cast through `*const ()` to
+    /// `usize`. The writer's source-attr helpers do a single
+    /// `HashMap::get` per node to decide whether to emit
+    /// `data-attr-actor` / `data-attr-time`. `None` means attribution
+    /// is off for this render — same code path as the unflagged HTML
+    /// default.
+    pub attribution_by_node: Option<Arc<HashMap<usize, HtmlAttributionRecord>>>,
+
+    /// Emit `class="fragment"` on list items inside an incremental context
+    /// (revealjs). This is the render side of Pandoc's `writerIncremental`
+    /// behavior — list items have no AST `Attr`, so the class is attached by
+    /// the writer. `false` (default) for plain HTML: `.incremental` is a no-op,
+    /// matching Pandoc's slide-only gating. The reveal render path sets it.
+    pub incremental_lists: bool,
+
+    /// Initial incremental state — the global `incremental: true` default.
+    /// `.incremental` / `.nonincremental` Divs flip it per subtree.
+    pub incremental_default: bool,
 }
 
 /// Extract HTML configuration from document metadata.
@@ -40,6 +76,7 @@ pub fn extract_config_from_metadata(meta: &ConfigValue) -> HtmlConfig {
 
     HtmlConfig {
         include_source_locations,
+        ..HtmlConfig::default()
     }
 }
 
@@ -83,6 +120,10 @@ pub struct HtmlWriterContext<'ast, W: Write> {
     source_map: HashMap<*const (), SourceNodeInfo>,
     /// Configuration
     config: HtmlConfig,
+    /// Current incremental state (Pandoc's `writerIncremental`). Flipped by
+    /// `.incremental` / `.nonincremental` Divs during traversal; when true (and
+    /// `config.incremental_lists`), list items get `class="fragment"`.
+    incremental: bool,
     /// Lifetime marker
     _phantom: PhantomData<&'ast ()>,
 }
@@ -104,16 +145,19 @@ impl<'ast, W: Write> HtmlWriterContext<'ast, W> {
             writer,
             source_map: HashMap::new(),
             config: HtmlConfig::default(),
+            incremental: false,
             _phantom: PhantomData,
         }
     }
 
     /// Create a new context with config
     pub fn with_config(writer: W, config: HtmlConfig) -> Self {
+        let incremental = config.incremental_default;
         Self {
             writer,
             source_map: HashMap::new(),
             config,
+            incremental,
             _phantom: PhantomData,
         }
     }
@@ -138,6 +182,28 @@ impl<'ast, W: Write> HtmlWriterContext<'ast, W> {
     /// Check if source locations are enabled
     pub fn include_source_locations(&self) -> bool {
         self.config.include_source_locations
+    }
+
+    /// Look up attribution record for a block by `SourceInfo`
+    /// pointer identity. Returns `None` if attribution is off, or this
+    /// block has no resolved attribution (e.g. node from a different
+    /// file or a byte range with no run coverage).
+    ///
+    /// The map's key is the address of the block's `source_info` field
+    /// (set by `AttributionRenderTransform`), which is stable across
+    /// the writer's read-only walk.
+    pub fn get_block_attribution(&self, block: &Block) -> Option<&HtmlAttributionRecord> {
+        let map = self.config.attribution_by_node.as_ref()?;
+        let key = block.source_info() as *const quarto_source_map::SourceInfo as usize;
+        map.get(&key)
+    }
+
+    /// Look up attribution record for an inline by `SourceInfo`
+    /// pointer identity.
+    pub fn get_inline_attribution(&self, inline: &Inline) -> Option<&HtmlAttributionRecord> {
+        let map = self.config.attribution_by_node.as_ref()?;
+        let key = inline.source_info() as *const quarto_source_map::SourceInfo as usize;
+        map.get(&key)
     }
 }
 
@@ -507,6 +573,81 @@ fn write_code_container_attr<W: Write>(
     Ok(())
 }
 
+/// Emit a syntax-highlighted code block using Pandoc's nested structure:
+///
+/// ```html
+/// <div class="sourceCode [extras]" id="..."><pre class="sourceCode [lang]"><code class="sourceCode [lang]">…</code></pre></div>
+/// ```
+///
+/// The outer `<div>` carries the id and any non-language classes (e.g.
+/// `cell-code`), so that `div.sourceCode` CSS rules — which paint the
+/// rounded background — match. The first class in the code block's
+/// attribute list is treated as the language; remaining classes move to
+/// the div. Plain (un-highlighted) code blocks are emitted as a bare
+/// `<pre><code>` and never enter this path.
+fn write_highlighted_codeblock<W: Write>(
+    codeblock: &crate::pandoc::block::CodeBlock,
+    block: &Block,
+    spans: Option<&[quarto_highlight_encoding::HighlightSpan]>,
+    ctx: &mut HtmlWriterContext<'_, W>,
+) -> std::io::Result<()> {
+    let (id, classes, kvs) = &codeblock.attr;
+
+    // First class (if any) is the language, per Pandoc convention.
+    let (language, extras) = match classes.split_first() {
+        Some((first, rest)) => (Some(first.as_str()), rest),
+        None => (None, &classes[..]),
+    };
+
+    // <div class="sourceCode [extras]" id="..."> ...
+    write!(ctx, "<div class=\"sourceCode")?;
+    for c in extras {
+        write!(ctx, " {}", escape_html(c))?;
+    }
+    write!(ctx, "\"")?;
+    if !id.is_empty() {
+        write!(ctx, " id=\"{}\"", escape_html(id))?;
+    }
+    // Source-tracking / attribution attrs describe the block — they
+    // belong on the outermost element.
+    write_block_source_attrs(block, ctx)?;
+    write!(ctx, ">")?;
+
+    // <pre class="sourceCode [lang]" [kv attrs except hl-spans]>
+    write!(ctx, "<pre class=\"sourceCode")?;
+    if let Some(lang) = language {
+        write!(ctx, " {}", escape_html(lang))?;
+    }
+    write!(ctx, "\"")?;
+    for (k, v) in kvs {
+        if k == quarto_highlight_encoding::SPANS_ATTR_KEY {
+            continue;
+        }
+        if should_prefix_attribute(k) {
+            write!(ctx, " data-{}=\"{}\"", escape_html(k), escape_html(v))?;
+        } else {
+            write!(ctx, " {}=\"{}\"", escape_html(k), escape_html(v))?;
+        }
+    }
+    write!(ctx, ">")?;
+
+    // <code class="sourceCode [lang]">
+    write!(ctx, "<code class=\"sourceCode")?;
+    if let Some(lang) = language {
+        write!(ctx, " {}", escape_html(lang))?;
+    }
+    write!(ctx, "\">")?;
+
+    if let Some(spans) = spans {
+        write_highlighted_body(&codeblock.text, spans, ctx)?;
+    } else {
+        write!(ctx, "{}", escape_html(&codeblock.text))?;
+    }
+
+    writeln!(ctx, "</code></pre></div>")?;
+    Ok(())
+}
+
 /// Parse `data-hl-spans` from a code node's attribute map, if present.
 /// Returns `None` on missing, malformed, or empty JSON — callers fall
 /// back to plain escaped text.
@@ -594,64 +735,115 @@ fn capture_to_class(capture: &str) -> String {
     capture.replace('.', "-")
 }
 
-/// Write source location attributes for a block element.
+/// Write source-tracking and attribution attributes for a block.
 ///
-/// Outputs `data-sid` (pool ID) and `data-loc` (resolved location) if
-/// source tracking is enabled and we have source info for this block.
+/// The two attribute families gate independently:
+///
+/// - `data-sid` / `data-loc` (source locations) emit only when
+///   `include_source_locations` is on and the writer has source info
+///   for this block.
+/// - `data-attr-actor` / `data-attr-time` (attribution) emit whenever
+///   `attribution_by_node` has a record for this block's pointer,
+///   regardless of `include_source_locations`. Identity (display
+///   name, colour) is resolved by per-actor CSS rules emitted in
+///   `<head>` by `AttributionViewerTransform`; the writer never sees
+///   identity.
+///
+/// Pinned by Phase 0 test #7c (`attribution_on + source_locations_off
+/// compose_orthogonally`).
 fn write_block_source_attrs<W: Write>(
     block: &Block,
     ctx: &mut HtmlWriterContext<'_, W>,
 ) -> std::io::Result<()> {
-    if !ctx.include_source_locations() {
-        return Ok(());
-    }
+    if ctx.include_source_locations() {
+        // Extract values to avoid borrowing ctx through info
+        let source_attrs = ctx.get_block_info(block).map(|info| {
+            (
+                info.pool_id,
+                info.location.as_ref().map(|loc| loc.to_data_loc()),
+            )
+        });
 
-    // Extract values to avoid borrowing ctx through info
-    let source_attrs = ctx.get_block_info(block).map(|info| {
-        (
-            info.pool_id,
-            info.location.as_ref().map(|loc| loc.to_data_loc()),
-        )
-    });
-
-    if let Some((pool_id, loc_str)) = source_attrs {
-        write!(ctx, " data-sid=\"{}\"", pool_id)?;
-        if let Some(loc) = loc_str {
-            write!(ctx, " data-loc=\"{}\"", loc)?;
+        if let Some((pool_id, loc_str)) = source_attrs {
+            write!(ctx, " data-sid=\"{}\"", pool_id)?;
+            if let Some(loc) = loc_str {
+                write!(ctx, " data-loc=\"{}\"", loc)?;
+            }
         }
     }
+
+    write_block_attribution_attrs(block, ctx)?;
 
     Ok(())
 }
 
-/// Write source location attributes for an inline element.
-///
-/// Outputs `data-sid` (pool ID) and `data-loc` (resolved location) if
-/// source tracking is enabled and we have source info for this inline.
+/// Write source-tracking and attribution attributes for an inline.
+/// See [`write_block_source_attrs`] for the per-family gating.
 fn write_inline_source_attrs<W: Write>(
     inline: &Inline,
     ctx: &mut HtmlWriterContext<'_, W>,
 ) -> std::io::Result<()> {
-    if !ctx.include_source_locations() {
-        return Ok(());
-    }
+    if ctx.include_source_locations() {
+        // Extract values to avoid borrowing ctx through info
+        let source_attrs = ctx.get_inline_info(inline).map(|info| {
+            (
+                info.pool_id,
+                info.location.as_ref().map(|loc| loc.to_data_loc()),
+            )
+        });
 
-    // Extract values to avoid borrowing ctx through info
-    let source_attrs = ctx.get_inline_info(inline).map(|info| {
-        (
-            info.pool_id,
-            info.location.as_ref().map(|loc| loc.to_data_loc()),
-        )
-    });
-
-    if let Some((pool_id, loc_str)) = source_attrs {
-        write!(ctx, " data-sid=\"{}\"", pool_id)?;
-        if let Some(loc) = loc_str {
-            write!(ctx, " data-loc=\"{}\"", loc)?;
+        if let Some((pool_id, loc_str)) = source_attrs {
+            write!(ctx, " data-sid=\"{}\"", pool_id)?;
+            if let Some(loc) = loc_str {
+                write!(ctx, " data-loc=\"{}\"", loc)?;
+            }
         }
     }
 
+    write_inline_attribution_attrs(inline, ctx)?;
+
     Ok(())
+}
+
+/// Emit the per-node attribution attrs (`data-attr-actor`,
+/// `data-attr-time`) for a block when `attribution_by_node` has a
+/// record for it. Identity (display name, colour) is emitted once
+/// per actor as a CSS rule by `AttributionViewerTransform`; the
+/// writer is identity-free.
+fn write_block_attribution_attrs<W: Write>(
+    block: &Block,
+    ctx: &mut HtmlWriterContext<'_, W>,
+) -> std::io::Result<()> {
+    let Some(record) = ctx.get_block_attribution(block) else {
+        return Ok(());
+    };
+    let (actor, time) = (record.actor.clone(), record.time);
+    write_attribution_attrs(ctx, &actor, time)
+}
+
+/// Inline counterpart to [`write_block_attribution_attrs`].
+fn write_inline_attribution_attrs<W: Write>(
+    inline: &Inline,
+    ctx: &mut HtmlWriterContext<'_, W>,
+) -> std::io::Result<()> {
+    let Some(record) = ctx.get_inline_attribution(inline) else {
+        return Ok(());
+    };
+    let (actor, time) = (record.actor.clone(), record.time);
+    write_attribution_attrs(ctx, &actor, time)
+}
+
+fn write_attribution_attrs<W: Write>(
+    ctx: &mut HtmlWriterContext<'_, W>,
+    actor: &str,
+    time: i64,
+) -> std::io::Result<()> {
+    write!(
+        ctx,
+        " data-attr-actor=\"{}\" data-attr-time=\"{}\"",
+        escape_html(actor),
+        time,
+    )
 }
 
 /// Write inline elements
@@ -661,8 +853,13 @@ fn write_inline<W: Write>(
 ) -> std::io::Result<()> {
     match inline {
         Inline::Str(s) => {
-            if ctx.include_source_locations() {
-                // Wrap in span for source tracking
+            // Wrap in a span when *either* source-tracking or
+            // attribution wants to attach attrs to this text. Either
+            // family on its own is sufficient; both compose
+            // orthogonally (Phase 0 test #7c pins this composition).
+            let needs_wrapper =
+                ctx.include_source_locations() || ctx.get_inline_attribution(inline).is_some();
+            if needs_wrapper {
                 write!(ctx, "<span")?;
                 write_inline_source_attrs(inline, ctx)?;
                 write!(ctx, ">{}</span>", escape_html(&s.text))?;
@@ -901,8 +1098,141 @@ fn write_inlines<W: Write>(
     inlines: &Inlines,
     ctx: &mut HtmlWriterContext<'_, W>,
 ) -> std::io::Result<()> {
-    for inline in inlines {
-        write_inline(inline, ctx)?;
+    // Prose coalescing (Phase 4b): when contiguous prose inlines
+    // (`Str` / `Space` / `SoftBreak` / `LineBreak`) share the same
+    // `(actor, time)` attribution lookup, emit one outer
+    // `<span data-attr-*>` wrapper around the whole run rather than
+    // a per-inline wrapper. Structured inlines (Code, Emph, …) break
+    // the run; they carry their own attribution attrs on their
+    // element tag (via `write_inline_source_attrs`).
+    let mut i = 0;
+    while i < inlines.len() {
+        let run_end = find_attribution_run_end(inlines, i, ctx);
+        if run_end > i {
+            emit_attribution_run(&inlines[i..run_end], ctx)?;
+            i = run_end;
+        } else {
+            write_inline(&inlines[i], ctx)?;
+            i += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Returns the exclusive end of the maximal contiguous prose run
+/// starting at `start` whose `Str` members all share the same
+/// `(actor, time)` attribution lookup. Returns `start` (an empty
+/// run) when `inlines[start]` is not a `Str` with attribution.
+///
+/// Whitespace inlines (`Space` / `SoftBreak` / `LineBreak`) inside
+/// the run join the wrapper transparently; trailing whitespace at
+/// the end of the run is trimmed so it isn't pulled into a wrapper
+/// that wouldn't otherwise extend that far.
+fn find_attribution_run_end<W: Write>(
+    inlines: &Inlines,
+    start: usize,
+    ctx: &HtmlWriterContext<'_, W>,
+) -> usize {
+    let anchor = match &inlines[start] {
+        Inline::Str(_) => ctx
+            .get_inline_attribution(&inlines[start])
+            .map(|r| (Arc::clone(&r.actor), r.time)),
+        _ => None,
+    };
+    let Some(anchor) = anchor else {
+        return start;
+    };
+
+    let mut end = start + 1;
+    let mut last_str_end = end;
+    while end < inlines.len() {
+        match &inlines[end] {
+            Inline::Str(_) => {
+                let attr = ctx
+                    .get_inline_attribution(&inlines[end])
+                    .map(|r| (Arc::clone(&r.actor), r.time));
+                if attr.as_ref() == Some(&anchor) {
+                    end += 1;
+                    last_str_end = end;
+                } else {
+                    break;
+                }
+            }
+            Inline::Space(_) | Inline::SoftBreak(_) | Inline::LineBreak(_) => {
+                end += 1;
+            }
+            _ => break,
+        }
+    }
+    last_str_end
+}
+
+/// Emit a coalesced attribution run. The run's anchor (`run[0]`) is
+/// a `Str` with attribution; all other `Str` inlines in the run
+/// share that anchor's `(actor, time)`. Whitespace inlines are
+/// emitted transparently. When `include_source_locations` is on,
+/// each `Str` inside the wrapper gets its own
+/// `<span data-sid=…>` carrying only the source-location attrs —
+/// the outer wrapper provides the attribution attrs.
+fn emit_attribution_run<W: Write>(
+    run: &[Inline],
+    ctx: &mut HtmlWriterContext<'_, W>,
+) -> std::io::Result<()> {
+    let (actor, time) = {
+        let record = ctx
+            .get_inline_attribution(&run[0])
+            .expect("emit_attribution_run anchor has attribution");
+        (Arc::clone(&record.actor), record.time)
+    };
+
+    write!(ctx, "<span")?;
+    write_attribution_attrs(ctx, &actor, time)?;
+    write!(ctx, ">")?;
+
+    for x in run {
+        match x {
+            Inline::Str(s) => {
+                if ctx.include_source_locations() {
+                    write!(ctx, "<span")?;
+                    write_inline_locations_only_attrs(x, ctx)?;
+                    write!(ctx, ">{}</span>", escape_html(&s.text))?;
+                } else {
+                    write!(ctx, "{}", escape_html(&s.text))?;
+                }
+            }
+            Inline::Space(_) => write!(ctx, " ")?,
+            Inline::SoftBreak(_) => writeln!(ctx)?,
+            Inline::LineBreak(_) => write!(ctx, "<br />")?,
+            _ => unreachable!("emit_attribution_run only receives prose inlines"),
+        }
+    }
+
+    write!(ctx, "</span>")?;
+    Ok(())
+}
+
+/// Emit `data-sid` / `data-loc` for an inline, without the
+/// `data-attr-*` attribution attrs. Used by [`emit_attribution_run`]
+/// for per-`Str` inner spans inside an outer attribution wrapper:
+/// the outer wrapper already carries the attribution, so the inner
+/// span only needs the source-location attrs.
+fn write_inline_locations_only_attrs<W: Write>(
+    inline: &Inline,
+    ctx: &mut HtmlWriterContext<'_, W>,
+) -> std::io::Result<()> {
+    if ctx.include_source_locations() {
+        let source_attrs = ctx.get_inline_info(inline).map(|info| {
+            (
+                info.pool_id,
+                info.location.as_ref().map(|loc| loc.to_data_loc()),
+            )
+        });
+        if let Some((pool_id, loc_str)) = source_attrs {
+            write!(ctx, " data-sid=\"{}\"", pool_id)?;
+            if let Some(loc) = loc_str {
+                write!(ctx, " data-loc=\"{}\"", loc)?;
+            }
+        }
     }
     Ok(())
 }
@@ -936,6 +1266,17 @@ fn write_inlines_as_text<W: Write>(
 }
 
 /// Write block elements
+/// The opening `<li>` tag for the current incremental state — gains
+/// `class="fragment"` inside an incremental context (revealjs), since Pandoc
+/// list items have no per-item `Attr` to carry it. See Pandoc HTML.hs:493-496.
+fn list_item_open<W: Write>(ctx: &HtmlWriterContext<'_, W>) -> &'static str {
+    if ctx.incremental && ctx.config.incremental_lists {
+        "<li class=\"fragment\">"
+    } else {
+        "<li>"
+    }
+}
+
 fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> std::io::Result<()> {
     match block {
         Block::Plain(plain) => {
@@ -963,16 +1304,16 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
         Block::CodeBlock(codeblock) => {
             let spans = read_hl_spans(&codeblock.attr);
             let highlighted = spans.is_some();
-            write!(ctx, "<pre")?;
-            write_code_container_attr(&codeblock.attr, highlighted, ctx)?;
-            write_block_source_attrs(block, ctx)?;
-            write!(ctx, "><code>")?;
-            if let Some(spans) = &spans {
-                write_highlighted_body(&codeblock.text, spans, ctx)?;
+            if highlighted {
+                write_highlighted_codeblock(codeblock, block, spans.as_deref(), ctx)?;
             } else {
+                write!(ctx, "<pre")?;
+                write_code_container_attr(&codeblock.attr, false, ctx)?;
+                write_block_source_attrs(block, ctx)?;
+                write!(ctx, "><code>")?;
                 write!(ctx, "{}", escape_html(&codeblock.text))?;
+                writeln!(ctx, "</code></pre>")?;
             }
-            writeln!(ctx, "</code></pre>")?;
         }
         Block::RawBlock(raw) => {
             // Only output raw HTML if format is "html"
@@ -1005,8 +1346,9 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
             write!(ctx, " type=\"{}\"", list_type)?;
             write_block_source_attrs(block, ctx)?;
             writeln!(ctx, ">")?;
+            let li_open = list_item_open(ctx);
             for item in &list.content {
-                write!(ctx, "<li>")?;
+                write!(ctx, "{}", li_open)?;
                 write_blocks_inline(item, ctx)?;
                 writeln!(ctx, "</li>")?;
             }
@@ -1016,8 +1358,9 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
             write!(ctx, "<ul")?;
             write_block_source_attrs(block, ctx)?;
             writeln!(ctx, ">")?;
+            let li_open = list_item_open(ctx);
             for item in &list.content {
-                write!(ctx, "<li>")?;
+                write!(ctx, "{}", li_open)?;
                 write_blocks_inline(item, ctx)?;
                 writeln!(ctx, "</li>")?;
             }
@@ -1067,8 +1410,18 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
                 writeln!(ctx, "</caption>")?;
             }
 
-            // Column group (for alignment)
-            if !table.colspec.is_empty() {
+            // Column group (for alignment / width).
+            //
+            // bd-hixmy: suppress when every colspec entry is fully default.
+            // An all-default colspec carries no information, and emitting an
+            // empty colgroup of bare `<col />` elements diverges from
+            // Quarto 1 / Pandoc's reference HTML writer. Keep the colgroup
+            // whenever any column has a non-default alignment OR width.
+            let colgroup_meaningful = table.colspec.iter().any(|(align, width)| {
+                !matches!(align, crate::pandoc::table::Alignment::Default)
+                    || !matches!(width, crate::pandoc::table::ColWidth::Default)
+            });
+            if colgroup_meaningful {
                 writeln!(ctx, "<colgroup>")?;
                 for colspec in &table.colspec {
                     let align = match colspec.0 {
@@ -1083,28 +1436,42 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
             }
 
             // Head
+            //
+            // bd-12fpz: head rows get `class="header"`. Matches Quarto 1
+            // / Pandoc's reference HTML writer.
             if !table.head.rows.is_empty() {
                 writeln!(ctx, "<thead>")?;
                 for row in &table.head.rows {
-                    write_table_row(row, ctx, true)?;
+                    write_table_row(row, ctx, true, Some("header"))?;
                 }
                 writeln!(ctx, "</thead>")?;
             }
 
             // Bodies
+            //
+            // bd-12fpz: body rows alternate `class="odd"` / `class="even"`,
+            // starting at "odd" for the first row. Matches Pandoc's reference
+            // HTML writer. Striping is per-TableBody (a new tbody restarts
+            // the cycle from "odd").
             for body in &table.bodies {
                 writeln!(ctx, "<tbody>")?;
-                for row in &body.body {
-                    write_table_row(row, ctx, false)?;
+                for (i, row) in body.body.iter().enumerate() {
+                    let cls = if i % 2 == 0 { "odd" } else { "even" };
+                    write_table_row(row, ctx, false, Some(cls))?;
                 }
                 writeln!(ctx, "</tbody>")?;
             }
 
             // Foot
+            //
+            // bd-12fpz: foot rows currently emit a bare `<tr>` (no class).
+            // Pandoc's reference HTML writer treats foot rows specially
+            // (no odd/even, no header); the fixture set we mirror doesn't
+            // exercise tfoot, so we deliberately keep this minimal.
             if !table.foot.rows.is_empty() {
                 writeln!(ctx, "<tfoot>")?;
                 for row in &table.foot.rows {
-                    write_table_row(row, ctx, false)?;
+                    write_table_row(row, ctx, false, None)?;
                 }
                 writeln!(ctx, "</tfoot>")?;
             }
@@ -1127,9 +1494,19 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
             writeln!(ctx, "</figure>")?;
         }
         Block::Div(div) => {
-            // Use <section> tag for Divs with "section" class (from sectionize transform)
+            // Semantic HTML5 sectioning by class:
+            // - "section" (from the sectionize / reveal-slides transforms) → <section>
+            // - "notes" (revealjs speaker notes, `::: {.notes}`) → <aside>;
+            //   reveal.css hides `aside.notes` on the slide, and the notes
+            //   plugin surfaces it in speaker view.
+            // - "aside" (revealjs `::: {.aside}`) → <aside>; rendered small/muted
+            //   at the slide bottom by quarto-reveal.css. Harmless elsewhere.
             let tag = if div.attr.1.contains(&"section".to_string()) {
                 "section"
+            } else if div.attr.1.contains(&"notes".to_string())
+                || div.attr.1.contains(&"aside".to_string())
+            {
+                "aside"
             } else {
                 "div"
             };
@@ -1137,7 +1514,21 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
             write_attr(&div.attr, ctx)?;
             write_block_source_attrs(block, ctx)?;
             writeln!(ctx, ">")?;
+            // Incremental scope (Pandoc `writerIncremental`): `.incremental` /
+            // `.nonincremental` flip the state for this subtree; speaker notes
+            // are never incremental (Pandoc #1394). Saved/restored so siblings
+            // are unaffected.
+            let saved_incremental = ctx.incremental;
+            if div.attr.1.iter().any(|c| c == "incremental") {
+                ctx.incremental = true;
+            } else if div.attr.1.iter().any(|c| c == "nonincremental") {
+                ctx.incremental = false;
+            }
+            if tag == "aside" {
+                ctx.incremental = false;
+            }
             write_blocks(&div.content, ctx)?;
+            ctx.incremental = saved_incremental;
             writeln!(ctx, "</{}>", tag)?;
         }
         // Quarto extensions
@@ -1174,13 +1565,23 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
     Ok(())
 }
 
-/// Write a table row
+/// Write a table row.
+///
+/// `is_header` controls whether cells are emitted as `<th>` (true) or
+/// `<td>` (false). `row_class` is the value of the row's `class`
+/// attribute (e.g. `"header"`, `"odd"`, `"even"`); `None` emits a bare
+/// `<tr>`. Caller is responsible for the odd/even bookkeeping.
 fn write_table_row<W: Write>(
     row: &crate::pandoc::table::Row,
     ctx: &mut HtmlWriterContext<'_, W>,
     is_header: bool,
+    row_class: Option<&'static str>,
 ) -> std::io::Result<()> {
-    writeln!(ctx, "<tr>")?;
+    if let Some(cls) = row_class {
+        writeln!(ctx, "<tr class=\"{}\">", cls)?;
+    } else {
+        writeln!(ctx, "<tr>")?;
+    }
     for cell in &row.cells {
         let tag = if is_header { "th" } else { "td" };
         write!(ctx, "<{}", tag)?;
@@ -1278,12 +1679,14 @@ pub fn write_with_source_tracking<W: Write>(
 ) -> std::io::Result<()> {
     let config = HtmlConfig {
         include_source_locations: true,
+        ..HtmlConfig::default()
     };
     let mut ctx = HtmlWriterContext::with_config(writer, config);
 
     // Generate JSON with source locations enabled
     let json_config = JsonConfig {
         include_inline_locations: true,
+        ..JsonConfig::default()
     };
 
     match json::write_pandoc(pandoc, ast_context, &json_config) {
@@ -1332,13 +1735,59 @@ pub fn write<W: Write>(
     ast_context: &ASTContext,
     writer: W,
 ) -> std::io::Result<()> {
-    let config = extract_config_from_metadata(&pandoc.meta);
+    write_with_options(pandoc, ast_context, writer, HtmlConfig::default())
+}
+
+/// Write a Pandoc document to HTML, merging the caller-supplied
+/// [`HtmlConfig`] with any per-document metadata.
+///
+/// This is the entry point that lets the render pipeline pass
+/// pre-baked attribution data (the `attribution_by_node` field
+/// populated by `AttributionRenderTransform`) without losing the
+/// metadata-driven `source-location: full` opt-in.
+pub fn write_with_options<W: Write>(
+    pandoc: &Pandoc,
+    ast_context: &ASTContext,
+    writer: W,
+    mut config: HtmlConfig,
+) -> std::io::Result<()> {
+    // Metadata-derived flag is OR'd onto whatever the caller passed.
+    let meta_config = extract_config_from_metadata(&pandoc.meta);
+    config.include_source_locations |= meta_config.include_source_locations;
 
     if config.include_source_locations {
-        write_with_source_tracking(pandoc, ast_context, writer)
+        write_with_source_tracking_and_config(pandoc, ast_context, writer, config)
     } else {
         write_with_config(pandoc, writer, config)
     }
+}
+
+/// Like [`write_with_source_tracking`] but accepts an [`HtmlConfig`]
+/// so the caller can supply attribution lookups alongside the
+/// source-tracking flag. Internal helper for
+/// [`write_with_options`].
+fn write_with_source_tracking_and_config<W: Write>(
+    pandoc: &Pandoc,
+    ast_context: &ASTContext,
+    writer: W,
+    config: HtmlConfig,
+) -> std::io::Result<()> {
+    let mut ctx = HtmlWriterContext::with_config(writer, config);
+
+    let json_config = JsonConfig {
+        include_inline_locations: true,
+        ..JsonConfig::default()
+    };
+    match json::write_pandoc(pandoc, ast_context, &json_config) {
+        Ok(json_value) => {
+            let source_map = build_source_map(pandoc, &json_value);
+            ctx.set_source_map(source_map);
+        }
+        Err(_errors) => {}
+    }
+
+    write_blocks(&pandoc.blocks, &mut ctx)?;
+    Ok(())
 }
 
 /// Public wrapper to write blocks (for external callers)
@@ -1475,6 +1924,7 @@ mod tests {
     fn test_html_writer_context_include_source_locations() {
         let config = HtmlConfig {
             include_source_locations: true,
+            ..HtmlConfig::default()
         };
         let ctx: HtmlWriterContext<'_, Vec<u8>> =
             HtmlWriterContext::with_config(Vec::new(), config);
@@ -1899,6 +2349,385 @@ mod tests {
         assert!(
             html.contains("<span class=\"hl-variable-parameter-builtin\">foo</span>"),
             "capture names should flatten `.` to `-` in class names, got:\n{html}",
+        );
+    }
+
+    // =========================================================================
+    // div.sourceCode wrapper for highlighted code blocks (Pandoc-style)
+    // =========================================================================
+
+    fn codeblock_with_id_classes_and_spans(
+        id: &str,
+        classes: Vec<&str>,
+        text: &str,
+        spans_json: &str,
+    ) -> Block {
+        use hashlink::LinkedHashMap;
+        let mut kvs = LinkedHashMap::new();
+        kvs.insert("data-hl-spans".to_string(), spans_json.to_string());
+        Block::CodeBlock(CodeBlock {
+            attr: (
+                id.to_string(),
+                classes.into_iter().map(|s| s.to_string()).collect(),
+                kvs,
+            ),
+            text: text.to_string(),
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    #[test]
+    fn highlighted_codeblock_emits_div_sourcecode_wrapper() {
+        let html = render_block_to_html(codeblock_with_hl_spans(
+            "python",
+            "def foo()",
+            r#"[[0,3,"keyword"]]"#,
+        ));
+        assert!(
+            html.contains("<div class=\"sourceCode\">"),
+            "expected <div class=\"sourceCode\"> wrapper, got:\n{html}",
+        );
+        assert!(
+            html.contains("</div>"),
+            "expected closing </div>, got:\n{html}",
+        );
+    }
+
+    #[test]
+    fn highlighted_codeblock_id_goes_on_div_not_pre() {
+        let html = render_block_to_html(codeblock_with_id_classes_and_spans(
+            "cb1",
+            vec!["python"],
+            "def foo()",
+            r#"[[0,3,"keyword"]]"#,
+        ));
+        assert!(
+            html.contains("<div class=\"sourceCode\" id=\"cb1\">"),
+            "expected id on div wrapper, got:\n{html}",
+        );
+        assert!(
+            !html.contains("<pre class=\"sourceCode python\" id=\"cb1\"")
+                && !html.contains("<pre id=\"cb1\""),
+            "id should not appear on <pre>, got:\n{html}",
+        );
+    }
+
+    #[test]
+    fn highlighted_codeblock_non_language_classes_move_to_div() {
+        let html = render_block_to_html(codeblock_with_id_classes_and_spans(
+            "cb1",
+            vec!["r", "cell-code"],
+            "cat(\"hi\")",
+            r#"[[0,3,"function"]]"#,
+        ));
+        // div gets sourceCode + non-language classes
+        assert!(
+            html.contains("<div class=\"sourceCode cell-code\" id=\"cb1\">"),
+            "expected non-language class on div, got:\n{html}",
+        );
+        // pre gets sourceCode + language only
+        assert!(
+            html.contains("<pre class=\"sourceCode r\">"),
+            "expected pre to have only sourceCode + language, got:\n{html}",
+        );
+    }
+
+    #[test]
+    fn highlighted_codeblock_code_element_gets_sourcecode_class() {
+        let html = render_block_to_html(codeblock_with_hl_spans(
+            "python",
+            "def foo()",
+            r#"[[0,3,"keyword"]]"#,
+        ));
+        assert!(
+            html.contains("<code class=\"sourceCode python\">"),
+            "expected <code> to carry sourceCode + language, got:\n{html}",
+        );
+    }
+
+    #[test]
+    fn highlighted_codeblock_with_empty_language() {
+        // Highlight spans present but no language class — still wrap in
+        // div.sourceCode but with no language qualifier.
+        let html = render_block_to_html(codeblock_with_id_classes_and_spans(
+            "",
+            vec![],
+            "raw text",
+            r#"[[0,3,"keyword"]]"#,
+        ));
+        assert!(
+            html.contains("<div class=\"sourceCode\">"),
+            "expected div.sourceCode wrapper even without language, got:\n{html}",
+        );
+        assert!(
+            html.contains("<pre class=\"sourceCode\">"),
+            "expected pre.sourceCode without language, got:\n{html}",
+        );
+        assert!(
+            html.contains("<code class=\"sourceCode\">"),
+            "expected code.sourceCode without language, got:\n{html}",
+        );
+    }
+
+    #[test]
+    fn unhighlighted_codeblock_has_no_div_wrapper() {
+        // No data-hl-spans => no highlighting => no div.sourceCode wrapper.
+        use hashlink::LinkedHashMap;
+        let block = Block::CodeBlock(CodeBlock {
+            attr: (
+                "cb1".to_string(),
+                vec!["python".to_string()],
+                LinkedHashMap::new(),
+            ),
+            text: "def foo()".to_string(),
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        });
+        let html = render_block_to_html(block);
+        assert!(
+            !html.contains("<div class=\"sourceCode"),
+            "un-highlighted code blocks should not get a div wrapper, got:\n{html}",
+        );
+    }
+
+    /// bd-hixmy: helper that builds a minimal one-row Table whose
+    /// every cell is a "x" Plain. Lets the colgroup tests vary the
+    /// colspec without restating the rest of the AST.
+    fn table_with_colspec(colspec: Vec<crate::pandoc::table::ColSpec>) -> Block {
+        use crate::pandoc::block::Plain;
+        use crate::pandoc::table::{Alignment, Cell, Row, Table, TableBody, TableFoot, TableHead};
+        use hashlink::LinkedHashMap;
+        let empty_attr = || (String::new(), Vec::new(), LinkedHashMap::new());
+        let cell = |text: &str| Cell {
+            attr: empty_attr(),
+            alignment: Alignment::Default,
+            row_span: 1,
+            col_span: 1,
+            content: vec![Block::Plain(Plain {
+                content: vec![Inline::Str(Str {
+                    text: text.to_string(),
+                    source_info: dummy_source_info(),
+                })],
+                source_info: dummy_source_info(),
+            })],
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        let n = colspec.len();
+        let row = Row {
+            attr: empty_attr(),
+            cells: (0..n).map(|_| cell("x")).collect(),
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        Block::Table(Table {
+            attr: empty_attr(),
+            caption: quarto_pandoc_types::Caption {
+                short: None,
+                long: None,
+                source_info: dummy_source_info(),
+            },
+            colspec,
+            head: TableHead {
+                attr: empty_attr(),
+                rows: vec![],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            bodies: vec![TableBody {
+                attr: empty_attr(),
+                rowhead_columns: 0,
+                head: vec![],
+                body: vec![row],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            }],
+            foot: TableFoot {
+                attr: empty_attr(),
+                rows: vec![],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    /// bd-hixmy: an all-default colspec carries no information, so the
+    /// writer should suppress the `<colgroup>` entirely — matching
+    /// Quarto 1 / Pandoc's reference HTML writer.
+    #[test]
+    fn colgroup_suppressed_when_all_defaults() {
+        use crate::pandoc::table::{Alignment, ColWidth};
+        let block = table_with_colspec(vec![
+            (Alignment::Default, ColWidth::Default),
+            (Alignment::Default, ColWidth::Default),
+        ]);
+        let html = render_block_to_html(block);
+        assert!(
+            !html.contains("<colgroup>"),
+            "all-default colspec should suppress <colgroup>, got:\n{html}"
+        );
+        assert!(
+            !html.contains("<col "),
+            "no <col> elements expected when colgroup suppressed, got:\n{html}"
+        );
+    }
+
+    /// bd-hixmy: a non-default alignment must keep the colgroup so the
+    /// `<col align="...">` attributes carry through to the rendered HTML.
+    #[test]
+    fn colgroup_kept_when_any_alignment_set() {
+        use crate::pandoc::table::{Alignment, ColWidth};
+        let block = table_with_colspec(vec![
+            (Alignment::Default, ColWidth::Default),
+            (Alignment::Right, ColWidth::Default),
+        ]);
+        let html = render_block_to_html(block);
+        assert!(
+            html.contains("<colgroup>"),
+            "non-default alignment must keep <colgroup>, got:\n{html}"
+        );
+        assert!(
+            html.contains("align=\"right\""),
+            "expected align=\"right\" on the second <col>, got:\n{html}"
+        );
+    }
+
+    /// bd-hixmy: a non-default width must also keep the colgroup so a
+    /// future width-emitter (or downstream filter) can see / mutate it.
+    /// The width itself isn't rendered yet — only the presence check.
+    #[test]
+    fn colgroup_kept_when_any_width_set() {
+        use crate::pandoc::table::{Alignment, ColWidth};
+        let block = table_with_colspec(vec![
+            (Alignment::Default, ColWidth::Percentage(0.5)),
+            (Alignment::Default, ColWidth::Default),
+        ]);
+        let html = render_block_to_html(block);
+        assert!(
+            html.contains("<colgroup>"),
+            "non-default width must keep <colgroup>, got:\n{html}"
+        );
+    }
+
+    /// bd-12fpz: helper that builds a Table with one head row and
+    /// `body_row_count` body rows, each row has a single cell of
+    /// `Plain ["x"]`. Used by the row-class tests.
+    fn table_with_rows(head_rows: usize, body_rows: usize) -> Block {
+        use crate::pandoc::block::Plain;
+        use crate::pandoc::table::{
+            Alignment, Cell, ColWidth, Row, Table, TableBody, TableFoot, TableHead,
+        };
+        use hashlink::LinkedHashMap;
+        let empty_attr = || (String::new(), Vec::new(), LinkedHashMap::new());
+        let cell = |text: &str| Cell {
+            attr: empty_attr(),
+            alignment: Alignment::Default,
+            row_span: 1,
+            col_span: 1,
+            content: vec![Block::Plain(Plain {
+                content: vec![Inline::Str(Str {
+                    text: text.to_string(),
+                    source_info: dummy_source_info(),
+                })],
+                source_info: dummy_source_info(),
+            })],
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        let mk_row = |label: &str| Row {
+            attr: empty_attr(),
+            cells: vec![cell(label)],
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        };
+        Block::Table(Table {
+            attr: empty_attr(),
+            caption: quarto_pandoc_types::Caption {
+                short: None,
+                long: None,
+                source_info: dummy_source_info(),
+            },
+            colspec: vec![(Alignment::Default, ColWidth::Default)],
+            head: TableHead {
+                attr: empty_attr(),
+                rows: (0..head_rows).map(|i| mk_row(&format!("h{i}"))).collect(),
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            bodies: vec![TableBody {
+                attr: empty_attr(),
+                rowhead_columns: 0,
+                head: vec![],
+                body: (0..body_rows).map(|i| mk_row(&format!("b{i}"))).collect(),
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            }],
+            foot: TableFoot {
+                attr: empty_attr(),
+                rows: vec![],
+                source_info: dummy_source_info(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    /// bd-12fpz (D5): head rows get `<tr class="header">`.
+    #[test]
+    fn head_row_emits_header_class() {
+        let html = render_block_to_html(table_with_rows(1, 0));
+        assert!(
+            html.contains("<tr class=\"header\">"),
+            "expected <tr class=\"header\"> on the head row, got:\n{html}"
+        );
+    }
+
+    /// bd-12fpz (D4): body rows alternate `<tr class="odd">` /
+    /// `<tr class="even">`, starting at "odd". Matches Pandoc's
+    /// reference HTML writer.
+    #[test]
+    fn body_rows_alternate_odd_even() {
+        let html = render_block_to_html(table_with_rows(0, 4));
+        let odd_count = html.matches("<tr class=\"odd\">").count();
+        let even_count = html.matches("<tr class=\"even\">").count();
+        assert_eq!(
+            odd_count, 2,
+            "expected 2 odd body rows (positions 1, 3), got:\n{html}"
+        );
+        assert_eq!(
+            even_count, 2,
+            "expected 2 even body rows (positions 2, 4), got:\n{html}"
+        );
+        // Order check: odd before even.
+        let first_odd = html.find("<tr class=\"odd\">").unwrap();
+        let first_even = html.find("<tr class=\"even\">").unwrap();
+        assert!(
+            first_odd < first_even,
+            "first body row must be odd, got:\n{html}"
+        );
+    }
+
+    /// bd-12fpz: in a table with both head and body, the head still
+    /// uses `class="header"` while the body starts the odd/even cycle
+    /// from the first body row.
+    #[test]
+    fn head_and_body_classes_independent() {
+        let html = render_block_to_html(table_with_rows(1, 2));
+        assert!(
+            html.contains("<tr class=\"header\">"),
+            "expected header class, got:\n{html}"
+        );
+        assert!(
+            html.contains("<tr class=\"odd\">"),
+            "expected odd class on first body row, got:\n{html}"
+        );
+        assert!(
+            html.contains("<tr class=\"even\">"),
+            "expected even class on second body row, got:\n{html}"
         );
     }
 }

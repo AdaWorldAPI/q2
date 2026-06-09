@@ -1,0 +1,56 @@
+---
+title: "Key-value Pair Before Class Specifier in Attribute"
+description: "Inside `{...}` attribute braces, a class specifier (`.name`) appears after a key-value pair (`key=value`)."
+code: Q-2-3
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-3` — Key-value Pair Before Class Specifier in Attribute
+
+> Inside `{...}` attribute braces, a class specifier (`.name`)
+> appears after a key-value pair (`key=value`).
+
+## What this means
+
+The attribute specifier syntax requires a specific order: the
+identifier (`#id`) and class specifiers (`.class`) come first,
+and key-value pairs (`key=value`) follow. This error fires when
+a class specifier appears after at least one key-value pair has
+already been parsed.
+
+The constraint matches Pandoc's behavior and keeps the visual
+ordering of attributes consistent: identity, classes, then
+configuration.
+
+## Why this happens
+
+Usually a hand-written attribute that listed classes after
+configuration by accident — or a programmatically-generated
+attribute that assembled the pieces in the wrong order.
+
+## How to fix
+
+Reorder the attribute so all classes come before any key-value
+pairs:
+
+```markdown
+[foo]{#id .class key=value}    <!-- correct -->
+[foo]{#id key=value .class}    <!-- triggers Q-2-3 -->
+```
+
+## Example
+
+The parser flags this input:
+
+```markdown
+[foo]{#id key=value .class}
+```
+
+## Related
+
+- [`Q-2-2`](Q-2-2.qmd) — mismatched delimiter: a broader
+  shape error inside the same `{...}` construct.

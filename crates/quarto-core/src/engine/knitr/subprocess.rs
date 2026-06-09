@@ -44,10 +44,30 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tempfile::NamedTempFile;
+
+/// Number of times the underlying PATH lookup for Rscript has run
+/// during this process. With the `OnceLock`-backed cache in
+/// [`find_rscript`] this counter is capped at 1 for the lifetime
+/// of the process. See
+/// [`crate::engine::jupyter::find_jupyter_call_count`] for the
+/// rationale (regression tripwire for per-process memoization,
+/// bd-c5u2g).
+static FIND_RSCRIPT_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Process-wide cache for the resolved Rscript path. Initialized
+/// lazily on the first call to [`find_rscript`].
+static RSCRIPT_PATH_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Read the current value of [`FIND_RSCRIPT_CALL_COUNT`].
+pub fn find_rscript_call_count() -> usize {
+    FIND_RSCRIPT_CALL_COUNT.load(Ordering::Relaxed)
+}
 
 use super::KNITR_RESOURCES;
 use super::error_parser::{RErrorType, parse_r_error};
@@ -78,6 +98,17 @@ use crate::engine::error::ExecutionError;
 /// }
 /// ```
 pub fn find_rscript() -> Option<PathBuf> {
+    RSCRIPT_PATH_CACHE
+        .get_or_init(|| {
+            // Counter is incremented only on cache miss; see the
+            // matching pattern in `engine/jupyter/mod.rs`.
+            FIND_RSCRIPT_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
+            find_rscript_uncached()
+        })
+        .clone()
+}
+
+fn find_rscript_uncached() -> Option<PathBuf> {
     // First, check QUARTO_R environment variable
     if let Ok(quarto_r) = std::env::var("QUARTO_R") {
         let quarto_r_path = PathBuf::from(&quarto_r);
@@ -510,6 +541,21 @@ mod tests {
         assert!(!is_rscript(Path::new("/usr/bin/R")));
         assert!(!is_rscript(Path::new("/usr/bin/python")));
         assert!(!is_rscript(Path::new("R")));
+    }
+
+    // bd-c5u2g: per-process memoization. See the sibling assertion
+    // in `crates/quarto-core/src/engine/jupyter/mod.rs`.
+    #[test]
+    fn find_rscript_is_memoized_across_calls() {
+        let before = find_rscript_call_count();
+        for _ in 0..10 {
+            let _ = find_rscript();
+        }
+        let delta = find_rscript_call_count() - before;
+        assert!(
+            delta <= 1,
+            "expected find_rscript to run at most once across 10 calls (delta = {delta})"
+        );
     }
 
     // === within_active_renv tests ===

@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import MonacoEditor from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
-import type { ProjectEntry, FileEntry } from '../types/project';
-import { isBinaryExtension, isTextExtension } from '../types/project';
+import type { ProjectEntry, FileEntry } from '@quarto/preview-renderer/types/project';
+import { isBinaryExtension, isTextExtension } from '@quarto/preview-renderer/types/project';
 import type { Route } from '../utils/routing';
 import { buildFullUrl, buildShareableUrl } from '../utils/routing';
 import {
@@ -12,9 +12,9 @@ import {
   renameFile,
   exportProjectAsZip,
   type EditorContentChange,
-} from '../services/automergeSync';
-import { vfsAddFile, isWasmReady } from '../services/wasmRenderer';
-import type { Diagnostic } from '../types/diagnostic';
+} from '@quarto/preview-runtime';
+import { vfsAddFile, isWasmReady } from '@quarto/preview-runtime';
+import type { Diagnostic } from '@quarto/preview-renderer/types/diagnostic';
 import { registerIntelligenceProviders, disposeIntelligenceProviders } from '../services/monacoProviders';
 import { processFileForUpload } from '../services/resourceService';
 import { usePresence } from '../hooks/usePresence';
@@ -55,7 +55,7 @@ interface Props {
   /** Callback to update URL when file changes */
   onNavigateToFile: (filePath: string, options?: { anchor?: string; replace?: boolean }) => void;
   /** Actor ID -> identity mapping from the IndexDocument */
-  identities?: Record<string, import('../services/automergeSync').ActorIdentity>;
+  identities?: Record<string, import('@quarto/preview-runtime').ActorIdentity>;
   /** Whether the project is connected to the sync server */
   isOnline: boolean;
 }
@@ -218,6 +218,19 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
 
   // Scroll sync state (persisted in localStorage)
   const [scrollSyncEnabled, setScrollSyncEnabled] = usePreference('scrollSyncEnabled');
+
+  // Attribution overlay — session-only useState (not persisted).
+  // Owned here, surfaced via the toggle in the replay bar, and
+  // threaded into ReactPreview where `useAttribution` consumes it
+  // as the `enabled` flag. Treated as an inspection mode rather
+  // than a setting: resets on reload so a previously-curious view
+  // doesn't bleed into the next session.
+  const [attributionOn, setAttributionOn] = useState(false);
+  // `useAttribution` (inside ReactPreview) reports whether it's
+  // mid-build via `onAttributionGeneratingChange`; the flag drives
+  // the rotating-gradient border on the Attribution pill so a slow
+  // run-list build on a large document is visible to the user.
+  const [attributionGenerating, setAttributionGenerating] = useState(false);
   // Track if editor has focus (to prevent scroll feedback loop)
   const editorHasFocusRef = useRef(false);
   // Track when editor is mounted (for scroll sync initialization)
@@ -1003,7 +1016,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
                 key={currentFile?.path ?? ''}
                 height="100%"
                 language={getLanguageForFile(currentFile?.path ?? '')}
-                theme={effectiveTheme === 'dark' ? 'vs-dark' : 'light'}
+                theme={effectiveTheme === 'dark' ? 'vs-dark' : 'vs'}
                 // Use defaultValue instead of value to make Monaco uncontrolled.
                 // This prevents the wrapper from calling setValue() on re-renders,
                 // which would reset cursor position. We manage content via executeEdits().
@@ -1052,13 +1065,27 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
             onSlideChange={handleSlideChange}
             onFormatChange={handleFormatChange}
             onContentRewrite={handleContentRewrite}
+            identities={identities}
+            attributionOn={attributionOn}
+            onAttributionGeneratingChange={setAttributionGenerating}
           />
         </div>
       </main>
 
       {/* Replay mode drawer */}
       {!isFullscreenPreview && (
-        <ReplayDrawer state={replayState} controls={replayControls} disabled={!!currentFile && isBinaryExtension(currentFile.path)} identities={identities} />
+        <ReplayDrawer
+          state={replayState}
+          controls={replayControls}
+          disabled={!!currentFile && isBinaryExtension(currentFile.path)}
+          identities={identities}
+          attributionOn={attributionOn}
+          onAttributionChange={setAttributionOn}
+          attributionGenerating={attributionGenerating}
+          attributionDisabled={
+            currentFormat !== 'q2-debug' && currentFormat !== 'q2-preview'
+          }
+        />
       )}
 
       {/* New text-file dialog */}

@@ -1,13 +1,12 @@
 /**
  * Auth Service
  *
- * Manages Google OAuth2 authentication state via HttpOnly cookies.
- * The auth token lives in a server-set HttpOnly cookie — JavaScript
- * never sees or stores it. This module provides helpers to check auth
- * status and refresh tokens via server endpoints.
+ * Server-side helpers for the cookie-based auth flow. The auth token
+ * lives in a server-set HttpOnly cookie — JavaScript never sees or
+ * stores it. This module provides helpers to check auth status and
+ * refresh tokens via server endpoints. IdP-side signout is the
+ * `AuthProvider`'s concern, not this module's.
  */
-
-import { googleLogout } from '@react-oauth/google';
 
 /** User info returned by GET /auth/me. */
 export interface AuthState {
@@ -61,18 +60,17 @@ export async function fetchActorId(projectId: string): Promise<string | null> {
   return data.actor_id;
 }
 
-/** Clear the auth cookie server-side and revoke Google session. */
+/** Clear the auth cookie server-side. */
 export async function logout(): Promise<void> {
   await fetch('/auth/logout', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'X-Requested-With': 'XMLHttpRequest' },
   });
-  googleLogout();
 }
 
 /**
- * Send a fresh Google JWT to the server for validation and cookie refresh.
+ * Send a fresh OIDC ID token to the server for validation and cookie refresh.
  * Returns the updated user info on success, null on auth failure.
  */
 export async function refreshToken(credential: string): Promise<AuthState | null> {

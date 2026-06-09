@@ -1,0 +1,47 @@
+---
+title: "Invalid Root Element"
+description: "The root element of a CSL document is not `<style>`."
+code: Q-9-16
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-16` — Invalid Root Element
+
+> The root element of a CSL document is not `<style>`.
+
+## What this means
+
+A CSL document's root element must be `<style>` (or `<cs:style>`
+when the CSL namespace is used). This error fires when the
+parser reaches the root and finds something else — perhaps a
+generic `<root>`, perhaps an element from a different XML
+schema entirely. The message names what the parser found.
+
+## Why this happens
+
+Common causes:
+
+- **The file is not actually a CSL document.** It parses as
+  well-formed XML but follows a different schema (RSS, a
+  bibliography format, a configuration file).
+- **A failed download** that returned an error page (typically
+  HTML) instead of the intended style file.
+- **A hand-edited document** where the root element was
+  renamed.
+
+## How to fix
+
+If the file is supposed to be a CSL style, change its root to
+`<style>` (with appropriate attributes — see `Q-9-15` on
+`version`). If you suspect a download problem, fetch the file
+again and check that the response is XML, not an error page.
+
+## Related
+
+- `Q-9-5` — empty document: no root element at all.
+- `Q-9-15` — invalid CSL version: a related shape error on the
+  root attributes.

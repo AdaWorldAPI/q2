@@ -1,0 +1,51 @@
+---
+title: "Mismatched XML End Tag"
+description: "A closing tag does not match the most recent open tag."
+code: Q-9-3
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-3` — Mismatched XML End Tag
+
+> A closing tag does not match the most recent open tag.
+
+## What this means
+
+XML is strictly nested: every `<a>` must close as `</a>`, and
+elements must close in reverse opening order. This error fires
+when the parser encounters a closing tag whose name does not
+match what it was expecting. The message includes both the
+expected and the found tag name, plus the location.
+
+## Why this happens
+
+Common causes:
+
+- **A missing closing tag** somewhere earlier in the document.
+  The parser stayed inside the unclosed element and tripped
+  on the next closing tag it saw.
+- **A typo in the tag name** (`</nmae>` for `</name>`).
+- **A copy-paste mistake** that pasted a closing tag without
+  the matching opener.
+
+## How to fix
+
+The message names the unmatched closing tag — that is where the
+parser stopped. Read backward from that point until you find
+the element that was opened but never closed; that is the real
+source of the problem.
+
+If the closing tag is correct, an XML-aware editor (anything
+that highlights matching tags) makes the missing opener stand
+out.
+
+## Related
+
+- `Q-9-2` — unexpected end of input: the same nesting problem
+  if it survives to the end of the document.
+- `Q-9-1` — generic XML syntax error: covers tag-shape errors
+  that do not fit this specific case.

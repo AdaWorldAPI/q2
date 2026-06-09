@@ -95,8 +95,8 @@ mod traits;
 // Re-export public types
 pub use context::StageContext;
 pub use data::{
-    DocumentAst, DocumentSource, ExecutedDocument, FinalOutput, LoadedSource, PandocIncludes,
-    PipelineData, PipelineDataKind, RenderedOutput, SourceType,
+    DocumentAst, DocumentAtProfile, DocumentSource, ExecutedDocument, FinalOutput, LoadedSource,
+    PandocIncludes, PipelineData, PipelineDataKind, RenderedOutput, SourceType,
 };
 pub use error::{PipelineError, PipelineValidationError};
 pub use observer::{EventLevel, NoopObserver, PipelineObserver, TracingObserver};
@@ -106,11 +106,15 @@ pub use trace::{JsonTraceObserver, SummaryTraceObserver};
 pub use traits::PipelineStage;
 
 // Re-export concrete stages for convenience
+#[cfg(not(target_arch = "wasm32"))]
+pub use stages::BootstrapJsStage;
 pub use stages::CodeHighlightStage;
 pub use stages::{
-    ApplyTemplateStage, AstTransformsStage, CompileThemeCssStage, EngineExecutionStage,
-    IncludeExpansionStage, MetadataMergeStage, ParseDocumentStage, PreEngineSugaringStage,
-    RenderHtmlBodyStage, UserFiltersStage,
+    ApplyTemplateStage, AstTransformsStage, AttributionGenerateStage, CaptureSpliceStage,
+    CompileThemeCssStage, DocumentProfileStage, EngineExecutionStage, IncludeExpansionStage,
+    IncludeResolveStage, LinkResolutionStage, ListingItemInfoStage, MathJsStage,
+    MetadataMergeStage, ParseDocumentStage, PreEngineSugaringStage, RenderHtmlBodyStage,
+    ResourceReportStage, UnwrapProfileStage, UserFiltersStage,
 };
 
 // Re-export the trace_event macro

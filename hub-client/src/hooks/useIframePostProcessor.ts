@@ -9,8 +9,8 @@
 
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import type { RefObject } from 'react';
-import { postProcessIframe } from '../utils/iframePostProcessor';
-import type { PostProcessOptions } from '../utils/iframePostProcessor';
+import { postProcessIframe } from '@quarto/preview-renderer/utils/iframePostProcessor';
+import type { PostProcessOptions } from '@quarto/preview-renderer/utils/iframePostProcessor';
 
 /**
  * Hook for post-processing iframe content after render.
@@ -30,9 +30,10 @@ export function useIframePostProcessor(
   const memoizedOptions = useMemo(
     () => ({
       currentFilePath: options.currentFilePath,
+      projectFilePaths: options.projectFilePaths,
       onQmdLinkClick: options.onQmdLinkClick,
     }),
-    [options.currentFilePath, options.onQmdLinkClick]
+    [options.currentFilePath, options.projectFilePaths, options.onQmdLinkClick]
   );
 
   // Handler just signals "iframe loaded" - no work here

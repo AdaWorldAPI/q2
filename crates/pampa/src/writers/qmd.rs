@@ -44,6 +44,15 @@ pub struct QmdWriterContext {
     /// When writing nested Emph/Strong nodes, we check this stack to
     /// choose delimiters that won't create *** sequences.
     pub emphasis_stack: Vec<EmphasisStackFrame>,
+
+    /// Whether the byte most recently emitted into the output stream is
+    /// Unicode-alphanumeric. Consumed by `escape_markdown` when deciding
+    /// whether a `Str`-leading `'` needs to be escaped, so the rule can
+    /// look across inline boundaries (e.g. a `Code` span's closing
+    /// backtick) and not just within a single `Str` body. Updated by
+    /// `write_inline` after each inline emits its bytes and reset to
+    /// `false` at the start of every block. See bd-nsb9 / issue #205.
+    pub prev_emitted_alnum: bool,
 }
 
 impl Default for QmdWriterContext {
@@ -57,6 +66,7 @@ impl QmdWriterContext {
         Self {
             errors: Vec::new(),
             emphasis_stack: Vec::new(),
+            prev_emitted_alnum: false,
         }
     }
 
@@ -463,12 +473,14 @@ fn write_bulletlist(
     buf: &mut dyn std::io::Write,
     ctx: &mut QmdWriterContext,
 ) -> std::io::Result<()> {
-    // Determine if this is a tight list
-    // A list is tight if the first block of all items is Plain (not Para)
+    // A list is tight if every non-empty item starts with Plain (not Para).
+    // Length-0 items (Vec<Block> = []) carry no spacing information and
+    // are skipped here, so a list with a trailing empty item stays tight
+    // when its other items are tight.
     let is_tight = bulletlist
         .content
         .iter()
-        .all(|item| !item.is_empty() && matches!(item[0], Block::Plain(_)));
+        .all(|item| item.is_empty() || matches!(item[0], Block::Plain(_)));
 
     for (i, item) in bulletlist.content.iter().enumerate() {
         if i > 0 && !is_tight {
@@ -476,7 +488,18 @@ fn write_bulletlist(
             writeln!(buf)?;
         }
 
-        // Check if this is an empty list item (single Plain/Para block with empty content)
+        if item.is_empty() {
+            // Length-0 item (Vec<Block> = []). The reader parses a bare
+            // `*` (or `-`) marker line as an item with zero blocks; that
+            // is a distinct AST shape from `[Plain []]` handled below
+            // (`* []`, which parses as an inline `[]` inside Plain).
+            writeln!(buf, "*")?;
+            continue;
+        }
+
+        // Check for the `[Plain []]` / `[Paragraph []]` shape: a single
+        // block whose inline content is empty. The reader recovers this
+        // from `* []` (inline `[]` parsed as text inside Plain).
         let is_empty_item = item.len() == 1
             && match &item[0] {
                 Block::Plain(plain) => plain.content.is_empty(),
@@ -485,7 +508,6 @@ fn write_bulletlist(
             };
 
         if is_empty_item {
-            // Write "* []" for empty list items
             writeln!(buf, "* []")?;
         } else {
             let mut item_writer = BulletListContext::new(buf);
@@ -508,12 +530,11 @@ fn write_orderedlist(
 ) -> std::io::Result<()> {
     let (start_num, number_style, delimiter) = &orderedlist.attr;
 
-    // Determine if this is a tight list
-    // A list is tight if the first block of all items is Plain (not Para)
+    // See write_bulletlist: empty items don't carry spacing info.
     let is_tight = orderedlist
         .content
         .iter()
-        .all(|item| !item.is_empty() && matches!(item[0], Block::Plain(_)));
+        .all(|item| item.is_empty() || matches!(item[0], Block::Plain(_)));
 
     for (i, item) in orderedlist.content.iter().enumerate() {
         if i > 0 && !is_tight {
@@ -521,6 +542,25 @@ fn write_orderedlist(
             writeln!(buf)?;
         }
         let current_num = start_num + i;
+
+        if item.is_empty() {
+            // Length-0 item: emit a bare marker line (e.g. `1.`) so the
+            // reader recovers the empty Vec<Block>. Matches the bullet
+            // list bare-marker behavior — see write_bulletlist.
+            if matches!(number_style, ListNumberStyle::Example) {
+                writeln!(buf, "(@)")?;
+            } else {
+                let delim_str = match delimiter {
+                    ListNumberDelim::Period => ".",
+                    ListNumberDelim::OneParen => ")",
+                    ListNumberDelim::TwoParens => ")",
+                    _ => ".",
+                };
+                writeln!(buf, "{}{}", current_num, delim_str)?;
+            }
+            continue;
+        }
+
         let mut item_writer =
             OrderedListContext::new(buf, current_num, number_style.clone(), delimiter.clone());
         for (j, block) in item.iter().enumerate() {
@@ -625,11 +665,14 @@ fn write_codeblock(
 
     writeln!(buf)?;
 
-    // Write the code content
+    // Write the code content. The reader (matching Pandoc) joins content
+    // lines with `\n` and emits no trailing newline, so we always emit a
+    // separator newline before the closing fence for non-empty content. If
+    // `text` itself ends in `\n`, that newline is preserved as a content-line
+    // boundary and our extra writeln keeps the closing fence on its own line,
+    // round-tripping the trailing-blank-line case (issue #173).
     write!(buf, "{}", codeblock.text)?;
-
-    // Ensure we end on a newline
-    if !codeblock.text.ends_with('\n') {
+    if !codeblock.text.is_empty() {
         writeln!(buf)?;
     }
 
@@ -665,8 +708,8 @@ fn write_rawblock(rawblock: &RawBlock, buf: &mut dyn std::io::Write) -> std::io:
     if rawblock.format == "markdown" {
         write!(buf, "{}", rawblock.text)?;
     } else {
-        // For other formats, use fenced raw block notation
-        writeln!(buf, "```{{{}}}", rawblock.format)?;
+        // For other formats, use fenced raw block notation with `=` prefix
+        writeln!(buf, "```{{={}}}", rawblock.format)?;
         write!(buf, "{}", rawblock.text)?;
         if !rawblock.text.ends_with('\n') {
             writeln!(buf)?;
@@ -761,7 +804,13 @@ fn write_figure(
     if let Some(image) = match_implicit_figure_shape(figure) {
         let mut merged = image.clone();
         merged.attr.0 = figure.attr.0.clone();
-        return write_image(&merged, buf, ctx);
+        write_image(&merged, buf, ctx)?;
+        // Block-writer contract: every block ends with a trailing newline so
+        // the inter-block separator emitted by write_impl / write_div produces
+        // a blank line. write_image is an inline writer and does not append
+        // one. Issue #180 / bd-cpzp.
+        writeln!(buf)?;
+        return Ok(());
     }
 
     // Non-implicit shapes fall through to a fenced-div form. The current
@@ -919,6 +968,55 @@ fn alignment_to_char(align: &Alignment) -> char {
     }
 }
 
+/// Emit a list-table cell block whose first line continues on the inner
+/// bullet's marker line; continuation lines are indented to column 4 so the
+/// block stays inside the cell. Used for the first block of a cell when that
+/// block is not Plain/Paragraph (e.g. CodeBlock, BlockQuote, Div).
+fn write_cell_block_on_marker_line(
+    block: &crate::pandoc::Block,
+    buf: &mut dyn std::io::Write,
+    ctx: &mut QmdWriterContext,
+) -> std::io::Result<()> {
+    let mut block_buf = Vec::<u8>::new();
+    write_block(block, &mut block_buf, ctx)?;
+    let content = String::from_utf8_lossy(&block_buf);
+    let mut lines = content.lines();
+    if let Some(first_line) = lines.next() {
+        writeln!(buf, "{}", first_line)?;
+    } else {
+        writeln!(buf)?;
+    }
+    for line in lines {
+        if line.is_empty() {
+            writeln!(buf)?;
+        } else {
+            writeln!(buf, "    {}", line)?;
+        }
+    }
+    Ok(())
+}
+
+/// Emit a list-table cell block as a 4-space-indented stanza. Used for every
+/// block past the first in a cell (the first is handled inline on the marker
+/// line by the caller).
+fn write_cell_block_indented(
+    block: &crate::pandoc::Block,
+    buf: &mut dyn std::io::Write,
+    ctx: &mut QmdWriterContext,
+) -> std::io::Result<()> {
+    let mut block_buf = Vec::<u8>::new();
+    write_block(block, &mut block_buf, ctx)?;
+    let content = String::from_utf8_lossy(&block_buf);
+    for line in content.lines() {
+        if line.is_empty() {
+            writeln!(buf)?;
+        } else {
+            writeln!(buf, "    {}", line)?;
+        }
+    }
+    Ok(())
+}
+
 /// Write a table as a list-table div.
 /// This format supports multi-line cells, rowspan, colspan, etc.
 ///
@@ -940,8 +1038,11 @@ fn write_list_table(
     // Build attributes
     let mut attrs: Vec<String> = Vec::new();
 
-    // Add header-rows if there are header rows
-    if header_row_count > 0 {
+    // bd-fyb4z: emit `header-rows` whenever it differs from the parser
+    // default (1). `header-rows="0"` is essential — without it the
+    // re-parse would promote the first row to head. `header-rows="1"`
+    // is the default and can be omitted for cleaner output.
+    if header_row_count != 1 {
         attrs.push(format!("header-rows=\"{}\"", header_row_count));
     }
 
@@ -1057,54 +1158,51 @@ fn write_list_table(
                 write!(buf, "}} ")?;
             }
 
-            // Write cell content
+            // Write cell content. Three shapes:
+            //   - empty cell without attrs: bare `-` marker line; reader
+            //     parses this as a cell with empty Vec<Block>. Writing
+            //     literal `[]` here would round-trip to `[Plain []]`
+            //     because the reader interprets `[]` as inline text.
+            //   - empty cell with attrs: `[]{...attrs}` placeholder so
+            //     the attributes parse; the reader produces `[Plain []]`
+            //     content in this branch, which round-trips faithfully.
+            //   - first block is Plain/Paragraph: inlines on the marker line; any
+            //     subsequent blocks emit as blank-line-separated indented stanzas.
+            //   - first block is anything else (CodeBlock, BlockQuote, Div, …):
+            //     the block's opening line continues the marker line and
+            //     continuation lines indent to column 4 — same shape a regular
+            //     CommonMark list item uses for non-Plain content.
+            // The blank line before each non-first block is what makes the inner
+            // list item "loose" so the reader treats indented content as part of
+            // the cell.
             if cell.content.is_empty() {
-                // Empty cell - write empty span to mark it
-                if !needs_attrs {
-                    write!(buf, "[]")?;
-                }
+                // When !needs_attrs the bare `- ` token already written
+                // at L1125 is enough; no `[]` placeholder.
+                writeln!(buf)?;
             } else {
-                // Write cell content inline if single block with simple content
-                // Otherwise write as nested blocks
-                if cell.content.len() == 1 {
-                    match &cell.content[0] {
-                        Block::Plain(plain) => {
-                            for inline in &plain.content {
-                                write_inline(inline, buf, ctx)?;
-                            }
+                let (first, rest) = cell.content.split_first().unwrap();
+                match first {
+                    Block::Plain(p) => {
+                        for inline in &p.content {
+                            write_inline(inline, buf, ctx)?;
                         }
-                        Block::Paragraph(para) => {
-                            for inline in &para.content {
-                                write_inline(inline, buf, ctx)?;
-                            }
-                        }
-                        other => {
-                            writeln!(buf)?;
-                            // Indent the block content
-                            let mut block_buf = Vec::<u8>::new();
-                            write_block(other, &mut block_buf, ctx)?;
-                            let content = String::from_utf8_lossy(&block_buf);
-                            for line in content.lines() {
-                                writeln!(buf, "    {}", line)?;
-                            }
-                            continue; // Skip the newline at the end since we already wrote it
-                        }
+                        writeln!(buf)?;
                     }
-                } else {
-                    // Multiple blocks - write on new lines with indentation
-                    writeln!(buf)?;
-                    for block in &cell.content {
-                        let mut block_buf = Vec::<u8>::new();
-                        write_block(block, &mut block_buf, ctx)?;
-                        let content = String::from_utf8_lossy(&block_buf);
-                        for line in content.lines() {
-                            writeln!(buf, "    {}", line)?;
+                    Block::Paragraph(p) => {
+                        for inline in &p.content {
+                            write_inline(inline, buf, ctx)?;
                         }
+                        writeln!(buf)?;
                     }
-                    continue; // Skip the newline at the end since we already wrote it
+                    _ => {
+                        write_cell_block_on_marker_line(first, buf, ctx)?;
+                    }
+                }
+                for block in rest {
+                    writeln!(buf)?; // blank-line separator
+                    write_cell_block_indented(block, buf, ctx)?;
                 }
             }
-            writeln!(buf)?;
         }
     }
 
@@ -1174,6 +1272,15 @@ fn write_table(
         row_contents.push(cell_strings);
     }
 
+    // Pipe tables require a header line. A Pandoc `TableHead` with zero rows
+    // (parser output for tables whose header row was all-empty cells) would
+    // otherwise cause the first body row to be emitted as the header and lost
+    // on re-parse; insert a synthetic empty header so every body row stays a
+    // body row through round-trip.
+    if table.head.rows.is_empty() {
+        row_contents.insert(0, vec![String::new(); num_cols]);
+    }
+
     // Ensure minimum width of 3 for each column
     for width in &mut max_widths {
         if *width < 3 {
@@ -1218,8 +1325,20 @@ fn write_table(
         && !long_caption.is_empty()
     {
         writeln!(buf)?; // Blank line before caption
-        for block in long_caption {
-            // Extract inline content from Plain or Paragraph blocks in caption
+
+        // The table's attribute block is parsed from a trailing {…} on the
+        // caption line (see pipe_table.rs:191-195), so on output we attach it
+        // to the last caption line that actually emits content.
+        let last_emittable_idx = long_caption
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, b)| match b {
+                Block::Plain(_) | Block::Paragraph(_) => Some(i),
+                _ => None,
+            });
+
+        for (i, block) in long_caption.iter().enumerate() {
             let content = match block {
                 Block::Plain(plain) => Some(&plain.content),
                 Block::Paragraph(para) => Some(&para.content),
@@ -1229,6 +1348,10 @@ fn write_table(
                 write!(buf, ": ")?;
                 for inline in inlines {
                     write_inline(inline, buf, ctx)?;
+                }
+                if Some(i) == last_emittable_idx && !is_empty_attr(&table.attr) {
+                    write!(buf, " ")?;
+                    write_attr(&table.attr, buf, ctx)?;
                 }
                 writeln!(buf)?;
             }
@@ -1266,9 +1389,28 @@ fn reverse_smart_quotes(text: &str) -> String {
 // This follows Pandoc's escaping strategy: escape characters that have special
 // markdown meaning to ensure proper roundtripping (qmd -> AST -> qmd).
 // We escape characters defensively when they could trigger markdown syntax.
-fn escape_markdown(text: &str) -> String {
+//
+// The ASCII apostrophe `'` is escaped whenever the reader would otherwise
+// misclassify it as a smart-quote open/close. The reader's smart-quote
+// classifier accepts `'` as an apostrophe only when it sits between two
+// alphanumeric characters (e.g. `don't`, `it's`, `ab'9`); in any other
+// position the apostrophe is treated as a quotation mark and produces a
+// Q-2-7 / Q-2-10 parse error on the regenerated qmd.
+//
+// The lookup uses three sources of context:
+//   * the previous char in the `Str` body when one exists, otherwise
+//     `start_prev_is_alnum` (carried in from `QmdWriterContext` so the
+//     rule can see across inline boundaries — e.g. a closing backtick
+//     from a preceding `Code` span); see bd-nsb9 / issue #205.
+//   * the next char in the `Str` body when one exists.
+// When either side is absent or non-alphanumeric, the apostrophe is
+// escaped. The original intra-`Str` fix from bd-8lcm / issue #201 is a
+// special case of this rule.
+fn escape_markdown(text: &str, start_prev_is_alnum: bool) -> String {
     let mut result = String::new();
-    for ch in text.chars() {
+    let mut chars = text.chars().peekable();
+    let mut prev_char: Option<char> = None;
+    while let Some(ch) = chars.next() {
         match ch {
             // Characters that must be escaped to avoid triggering markdown syntax:
             '\\' => result.push_str("\\\\"), // Escape character itself
@@ -1290,13 +1432,27 @@ fn escape_markdown(text: &str) -> String {
             '{' => result.push_str("\\{"), // Attribute span open: bare { in
             '}' => result.push_str("\\}"), // a Str body is always a parse
             // error in qmd. Always escape.
+            '\'' => {
+                let next_in_str = chars.peek().copied();
+                let prev_is_alnum = match prev_char {
+                    Some(c) => c.is_alphanumeric(),
+                    None => start_prev_is_alnum,
+                };
+                let next_is_alnum = next_in_str.is_some_and(|c| c.is_alphanumeric());
+                if prev_is_alnum && next_is_alnum {
+                    result.push('\'');
+                } else {
+                    result.push_str("\\'");
+                }
+            }
 
             // Characters that don't need escaping in most contexts:
-            // . , - + ! ? = : ; / ( ) % & ' "
+            // . , - + ! ? = : ; / ( ) % & "
             // These are only special in very specific contexts and escaping them
             // everywhere would make output unnecessarily verbose.
             _ => result.push(ch),
         }
+        prev_char = Some(ch);
     }
     result
 }
@@ -1304,10 +1460,10 @@ fn escape_markdown(text: &str) -> String {
 fn write_str(
     s: &Str,
     buf: &mut dyn std::io::Write,
-    _ctx: &mut QmdWriterContext,
+    ctx: &mut QmdWriterContext,
 ) -> std::io::Result<()> {
     let text = reverse_smart_quotes(&s.text);
-    let escaped = escape_markdown(&text);
+    let escaped = escape_markdown(&text, ctx.prev_emitted_alnum);
     write!(buf, "{}", escaped)
 }
 
@@ -2051,7 +2207,21 @@ fn write_inline(
     buf: &mut dyn std::io::Write,
     ctx: &mut QmdWriterContext,
 ) -> std::io::Result<()> {
-    match inline {
+    // Before dispatch: most inline kinds open with a non-alphanumeric byte
+    // (delimiter, bracket, backtick, ...), so any inlines nested inside
+    // them begin with a non-alphanumeric byte-stream context. Reset
+    // `prev_emitted_alnum` accordingly. `Str` is excluded because
+    // `write_str` reads `prev_emitted_alnum` as set by the *preceding*
+    // inline, not by an opener. `Custom` is excluded because it emits no
+    // bytes and must preserve the prior state.
+    if !matches!(
+        inline,
+        crate::pandoc::Inline::Str(_) | crate::pandoc::Inline::Custom(_)
+    ) {
+        ctx.prev_emitted_alnum = false;
+    }
+
+    let result = match inline {
         crate::pandoc::Inline::EditComment(node) => write_editcomment(node, buf, ctx),
         crate::pandoc::Inline::Highlight(node) => write_highlight(node, buf, ctx),
         crate::pandoc::Inline::Delete(node) => write_delete(node, buf, ctx),
@@ -2083,7 +2253,23 @@ fn write_inline(
             // Custom inline nodes are not rendered in QMD output
             Ok(())
         }
+    };
+
+    // After dispatch: refresh `prev_emitted_alnum` to reflect the byte
+    // this inline most recently emitted.
+    match inline {
+        crate::pandoc::Inline::Str(s) => {
+            ctx.prev_emitted_alnum = s.text.chars().last().is_some_and(|c| c.is_alphanumeric());
+        }
+        crate::pandoc::Inline::Custom(_) => {
+            // No bytes emitted; preserve prior state.
+        }
+        // Every other inline kind closes with a non-alphanumeric byte
+        // (delimiter, bracket, backtick, newline, space, ...).
+        _ => ctx.prev_emitted_alnum = false,
     }
+
+    result
 }
 
 fn write_block(
@@ -2091,6 +2277,12 @@ fn write_block(
     buf: &mut dyn std::io::Write,
     ctx: &mut QmdWriterContext,
 ) -> std::io::Result<()> {
+    // Every block starts on its own line, so the reader's byte-stream
+    // context resets here too. Clear any alphanumeric carry-over from
+    // the previous block so a `Str`-leading `'` at the head of this
+    // block is escaped correctly.
+    ctx.prev_emitted_alnum = false;
+
     match block {
         Block::Plain(plain) => {
             write_plain(plain, buf, ctx)?;
@@ -2237,6 +2429,35 @@ pub fn write_single_inline<T: std::io::Write>(
                 .problem(format!("Failed to write inline: {}", e))
                 .build(),
         ]);
+    }
+    if !ctx.errors.is_empty() {
+        return Err(ctx.errors);
+    }
+    Ok(())
+}
+
+/// Write a sequence of inlines to the given buffer using a single fresh
+/// context, with no surrounding block markers and no trailing newline.
+///
+/// Like [`write_single_inline`] but for a whole inline run, sharing one
+/// [`QmdWriterContext`] across the sequence so emphasis-delimiter choices stay
+/// consistent. Used to render metadata prose (e.g. a parsed `title`) back to
+/// markdown for `q2 get-config` (bd-xoaic, GH #256). The same
+/// SoftBreak/LineBreak indentation caveat as [`write_single_inline`] applies.
+pub fn write_inlines<T: std::io::Write>(
+    inlines: &[crate::pandoc::Inline],
+    buf: &mut T,
+) -> Result<(), Vec<quarto_error_reporting::DiagnosticMessage>> {
+    let mut ctx = QmdWriterContext::new();
+    for inline in inlines {
+        if let Err(e) = write_inline(inline, buf, &mut ctx) {
+            return Err(vec![
+                quarto_error_reporting::DiagnosticMessageBuilder::error("IO error during write")
+                    .with_code("Q-3-1")
+                    .problem(format!("Failed to write inline: {}", e))
+                    .build(),
+            ]);
+        }
     }
     if !ctx.errors.is_empty() {
         return Err(ctx.errors);

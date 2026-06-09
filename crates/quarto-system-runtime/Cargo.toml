@@ -20,7 +20,7 @@ serde.workspace = true
 # For binary lookup on PATH
 which = "8.0"
 # HTTP client for fetch_url
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "blocking"] }
 # Base64 encoding/decoding for fetch_url WASM response (also used native-side for parity)
 base64.workspace = true
 # Safe temp directory creation (random names, no collisions under parallel execution)
@@ -39,9 +39,21 @@ tokio.workspace = true
 
 # WASM-only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# JavaScript interop for browser JS calls
+# JavaScript interop for browser JS calls.
+# `wasm-bindgen-futures` is exact-pinned to `=0.4.58` to match the
+# vendored `wasm-bindgen-futures-patch` (see
+# `crates/wasm-bindgen-futures-patch/Cargo.toml`), which the
+# wasm-quarto-hub-client crate substitutes via `[patch.crates-io]`.
+# Without `=0.4.58`, cargo's resolver prefers the latest crates.io
+# release (currently 0.4.70) over the patch — silently dropping the
+# patch and pulling in a newer wasm-bindgen that mismatches the
+# project's installed `wasm-bindgen-cli` and our vendored exact pins
+# (`wasm-bindgen = "=0.2.108"`, `js-sys = "=0.3.85"`). The pin makes
+# the patch the only valid resolution, so the upstream lockfile
+# regenerates deterministically. To intentionally upgrade, bump the
+# vendored patch first, then this pin.
 wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
+wasm-bindgen-futures = "=0.4.58"
 js-sys = "0.3"
 # Base64 decoding for fetch_url response (content is base64-encoded by JS shim)
 base64.workspace = true

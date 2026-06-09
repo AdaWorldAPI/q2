@@ -16,7 +16,9 @@
 //! - Supports potential task spawning for parallelization
 //! - Allows stages to clone what they need without lifetime constraints
 
-use std::path::PathBuf;
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use quarto_error_reporting::DiagnosticMessage;
@@ -30,7 +32,9 @@ use crate::artifact::ArtifactStore;
 use crate::crossref::{CrossrefIndex, RefTypeRegistry};
 use crate::extension::Extension;
 use crate::format::Format;
+use crate::project::index::ProjectIndex;
 use crate::project::{DocumentInfo, ProjectContext};
+use crate::resource_resolver::ResourceResolverContext;
 
 /// Owned context passed to all pipeline stages.
 ///
@@ -62,8 +66,16 @@ pub struct StageContext {
     /// Information about the document being rendered
     pub document: DocumentInfo,
 
-    /// Temporary directory for this pipeline run
-    pub temp_dir: PathBuf,
+    /// Temporary directory for this pipeline run, created lazily on
+    /// first [`temp_dir`](Self::temp_dir) access (bd-tky36).
+    ///
+    /// Most documents (pure markdown — no execution engine) never need
+    /// it: the engine-execution stage's "nothing to run" fast path
+    /// returns before touching it. Creating it eagerly in
+    /// [`new`](Self::new) cost a per-document `mkdir` (~3% of a website
+    /// render) and leaked the directory. Holding it in a `OnceLock`
+    /// preserves `StageContext: Send + Sync` (`PathBuf` is both).
+    temp_dir: std::sync::OnceLock<PathBuf>,
 
     /// Extensions discovered for this document
     pub extensions: Vec<Extension>,
@@ -94,12 +106,91 @@ pub struct StageContext {
     /// renderers. Bridged to/from `RenderContext` by `AstTransformsStage`.
     pub crossref_index: Option<CrossrefIndex>,
 
+    /// Per-document resource report (`bd-o8pr`). Engine stages and
+    /// (Phase 3) Lua-filter post-drain push raw paths into this; the
+    /// orchestrator drains it after Pass-2 render and resolves
+    /// against the project root. Static-channel resources go through
+    /// a different path (the profile + project config), so this
+    /// holds only engine + filter contributions.
+    pub resource_report: crate::project_resources::DocumentResourceReport,
+
+    /// User-resource copy intents (`(src_absolute, dest_absolute)`)
+    /// collected by AST transforms — currently
+    /// [`crate::transforms::ResourceCollectorTransform`]. Bridged
+    /// to/from the inner `RenderContext::resource_copies` by
+    /// [`crate::stage::stages::AstTransformsStage`], then drained
+    /// into the per-render [`crate::output_sink::OutputSink`] by
+    /// the outer renderer (`render_document_to_file` /
+    /// `RenderToHtmlRenderer` / `RenderToPreviewAstRenderer`).
+    ///
+    /// See bd-cfl67 for why this lives parallel to `artifacts`
+    /// rather than inside it.
+    pub resource_copies: Vec<(std::path::PathBuf, std::path::PathBuf)>,
+
     // === Observation & Control ===
     /// Observer for tracing, progress reporting, and WASM callbacks
     pub observer: Arc<dyn PipelineObserver>,
 
     /// Cancellation token for graceful shutdown (Ctrl+C)
     pub cancellation: Cancellation,
+
+    /// Project-wide index of Pass-1 [`DocumentProfile`]s.
+    ///
+    /// Populated by
+    /// [`ProjectPipeline::pass_two`](crate::project::orchestrator::ProjectPipeline)
+    /// before each file's Pass-2 run. `None` for standalone renders
+    /// and for Pass-1 runs themselves. Phase-1 does not read this
+    /// anywhere; Phase-2+ stages (sidebar generate, cross-doc link
+    /// rewriting) consume it.
+    ///
+    /// [`DocumentProfile`]: crate::document_profile::DocumentProfile
+    pub project_index: Option<Arc<ProjectIndex>>,
+
+    /// Per-page scope-aware resolver for HTML asset URLs and
+    /// cross-document body links.
+    ///
+    /// Populated by the top-level render entry points
+    /// ([`crate::render_to_file::render_document_to_file`] for the
+    /// CLI; the equivalent setup in `wasm-quarto-hub-client` for
+    /// the browser). Threaded through to the inner
+    /// [`RenderContext`](crate::render::RenderContext) inside
+    /// [`AstTransformsStage`](crate::stage::stages::AstTransformsStage)
+    /// so AST transforms (Phase 6's `LinkRewriteTransform`,
+    /// future body-link / footer-text consumers) can compute
+    /// page-relative URLs without re-deriving the resolver.
+    pub resource_resolver: Option<ResourceResolverContext>,
+
+    /// Optional attribution-data producer, set by the CLI
+    /// `--attribution` flag plumbing or the WASM
+    /// `parse_qmd_to_ast_with_attribution` entry point. Consumed by
+    /// [`crate::stage::stages::AttributionGenerateStage`], which
+    /// runs *before* [`UserFiltersStage::pre`] so user filters can
+    /// query attribution via the `quarto.attribution.*` Lua surface.
+    /// `None` means attribution is off for this render — the
+    /// generate stage short-circuits and `attribution_data` stays
+    /// `None`.
+    pub attribution_provider: Option<Arc<dyn crate::attribution::AttributionSourceProvider>>,
+
+    /// Per-document attribution sidecar, populated by
+    /// [`crate::stage::stages::AttributionGenerateStage`] before
+    /// user filters run, then bridged into the inner `RenderContext`
+    /// by [`crate::stage::stages::AstTransformsStage`] so
+    /// `AttributionRenderTransform` can bake the writer-side lookup
+    /// table. The Lua host binding registered by
+    /// [`crate::stage::stages::UserFiltersStage`] reads this directly
+    /// to back the `quarto.attribution.*` namespace. `None` when no
+    /// provider was installed.
+    pub attribution_data: Option<Arc<crate::attribution::AttributionData>>,
+
+    /// Per-format writer-side options, populated by Render-phase
+    /// transforms inside [`crate::stage::stages::AstTransformsStage`]
+    /// and bridged back here after the inner pipeline runs. Consumed
+    /// by downstream stages that build the writer config (e.g.
+    /// [`crate::stage::stages::RenderHtmlBodyStage`] passes the
+    /// HTML sub-bag to `pampa::writers::html`). Defaults to all
+    /// `None` fields so existing stages and tests see no behaviour
+    /// change.
+    pub format_options: crate::render::FormatOptions,
 
     /// Optional provider of user-defined tree-sitter grammars, consulted
     /// by `CodeHighlightStage` before falling back to the built-in
@@ -112,28 +203,27 @@ pub struct StageContext {
     /// - **Browser (hub-client)**: set to a `JsUserGrammars` handle that
     ///   forwards highlight requests to JS callbacks backed by
     ///   `web-tree-sitter`. See `crates/wasm-quarto-hub-client/src/lib.rs`.
-    pub user_grammar_provider: Option<Box<dyn quarto_highlight::UserGrammarProvider>>,
+    pub user_grammar_provider: Option<Rc<RefCell<dyn quarto_highlight::UserGrammarProvider>>>,
 }
 
 impl StageContext {
     /// Create a new stage context.
     ///
-    /// This creates a temporary directory for the pipeline run.
+    /// The pipeline's temporary directory is **not** created here — it
+    /// is allocated lazily on the first [`temp_dir`](Self::temp_dir)
+    /// call (bd-tky36), so documents that never run an execution engine
+    /// pay no `mkdir` and leak no directory.
     ///
     /// # Errors
     ///
-    /// Returns an error if the temporary directory cannot be created.
+    /// Returns an error if extension discovery fails. (Temp-dir
+    /// creation errors now surface from [`temp_dir`](Self::temp_dir).)
     pub fn new(
         runtime: Arc<dyn SystemRuntime>,
         format: Format,
         project: ProjectContext,
         document: DocumentInfo,
     ) -> Result<Self, PipelineError> {
-        let temp_dir = runtime
-            .temp_dir("quarto-pipeline")
-            .map_err(|e| PipelineError::other(format!("Failed to create temp directory: {}", e)))?
-            .into_path();
-
         let builtin_ext_path = builtin_extensions_path(runtime.as_ref());
         let extensions = crate::extension::discover_extensions(
             &document.input,
@@ -151,15 +241,22 @@ impl StageContext {
             format,
             project,
             document,
-            temp_dir,
+            temp_dir: std::sync::OnceLock::new(),
             extensions,
             artifacts: ArtifactStore::new(),
             includes: PandocIncludes::default(),
             diagnostics: Vec::new(),
             ref_type_registry: None,
             crossref_index: None,
+            resource_report: crate::project_resources::DocumentResourceReport::new(),
+            resource_copies: Vec::new(),
+            project_index: None,
+            resource_resolver: None,
             observer: Arc::new(NoopObserver),
             cancellation: Cancellation::new(),
+            attribution_provider: None,
+            attribution_data: None,
+            format_options: crate::render::FormatOptions::default(),
             user_grammar_provider: None,
         })
     }
@@ -176,9 +273,44 @@ impl StageContext {
         self
     }
 
-    /// Set a custom temporary directory.
-    pub fn with_temp_dir(mut self, temp_dir: PathBuf) -> Self {
-        self.temp_dir = temp_dir;
+    /// The pipeline's temporary directory, created on first access and
+    /// cached for the lifetime of this context (bd-tky36).
+    ///
+    /// Only callers that genuinely need scratch space (execution
+    /// engines) hit this; pure-markdown renders never do, so the
+    /// directory is never created for them.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be created.
+    pub fn temp_dir(&self) -> Result<&Path, PipelineError> {
+        if let Some(path) = self.temp_dir.get() {
+            return Ok(path.as_path());
+        }
+        let path = self
+            .runtime
+            .temp_dir("quarto-pipeline")
+            .map_err(|e| PipelineError::other(format!("Failed to create temp directory: {}", e)))?
+            .into_path();
+        // Each `StageContext` is single-threaded, so the only way the
+        // cell is already set here is a benign race we don't expect;
+        // `set` returning `Err` just means someone else won — use
+        // whatever value ended up stored.
+        let _ = self.temp_dir.set(path);
+        Ok(self
+            .temp_dir
+            .get()
+            .expect("temp_dir was just set")
+            .as_path())
+    }
+
+    /// Set a custom temporary directory, pre-seeding the lazy cell so
+    /// [`temp_dir`](Self::temp_dir) returns it without asking the
+    /// runtime to create one.
+    pub fn with_temp_dir(self, temp_dir: PathBuf) -> Self {
+        // Replace any previously-cached value. `new()` leaves the cell
+        // empty, so in the common builder usage this just seeds it.
+        let _ = self.temp_dir.set(temp_dir);
         self
     }
 
@@ -239,7 +371,7 @@ impl std::fmt::Debug for StageContext {
             .field("format", &self.format.identifier)
             .field("project_dir", &self.project.dir)
             .field("document", &self.document.input)
-            .field("temp_dir", &self.temp_dir)
+            .field("temp_dir", &self.temp_dir.get())
             .field("artifacts_count", &self.artifacts.len())
             .field("diagnostics_count", &self.diagnostics.len())
             .field("is_cancelled", &self.is_cancelled())
@@ -256,13 +388,22 @@ mod tests {
     // Mock runtime for testing
     struct MockRuntime {
         temp_path: PathBuf,
+        /// Number of times `temp_dir` has been called — lets tests
+        /// assert lazy temp-dir creation (bd-tky36).
+        temp_dir_calls: std::sync::atomic::AtomicUsize,
     }
 
     impl MockRuntime {
         fn new() -> Self {
             Self {
                 temp_path: PathBuf::from("/tmp/mock"),
+                temp_dir_calls: std::sync::atomic::AtomicUsize::new(0),
             }
+        }
+
+        fn temp_dir_calls(&self) -> usize {
+            self.temp_dir_calls
+                .load(std::sync::atomic::Ordering::Relaxed)
         }
     }
 
@@ -356,6 +497,8 @@ mod tests {
             &self,
             _template: &str,
         ) -> quarto_system_runtime::RuntimeResult<quarto_system_runtime::TempDir> {
+            self.temp_dir_calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(quarto_system_runtime::TempDir::new(self.temp_path.clone()))
         }
 
@@ -453,6 +596,62 @@ mod tests {
         assert!(!ctx.is_cancelled());
         assert!(ctx.diagnostics.is_empty());
         assert!(ctx.artifacts.is_empty());
+    }
+
+    /// bd-tky36: the per-document temp dir must be created lazily — only
+    /// on first access, not in `new()`. Pure-markdown documents never
+    /// touch it (the engine-execution fast path returns first), so they
+    /// must not pay the per-page `mkdir` (or leak the directory).
+    #[test]
+    fn temp_dir_created_lazily_on_first_access() {
+        let runtime = Arc::new(MockRuntime::new());
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+
+        let ctx = StageContext::new(runtime.clone(), format, project, doc).unwrap();
+        assert_eq!(
+            runtime.temp_dir_calls(),
+            0,
+            "StageContext::new must NOT create a temp dir eagerly",
+        );
+
+        let first = ctx.temp_dir().unwrap().to_path_buf();
+        assert_eq!(
+            runtime.temp_dir_calls(),
+            1,
+            "first temp_dir() access must create the dir exactly once",
+        );
+
+        let second = ctx.temp_dir().unwrap().to_path_buf();
+        assert_eq!(
+            runtime.temp_dir_calls(),
+            1,
+            "subsequent temp_dir() accesses must return the cached dir",
+        );
+        assert_eq!(first, second, "temp_dir() must be stable across calls");
+    }
+
+    /// `with_temp_dir` pre-seeds the cell: the accessor returns the
+    /// explicit path and the runtime is never asked to create one.
+    #[test]
+    fn with_temp_dir_pins_path_without_runtime_call() {
+        let runtime = Arc::new(MockRuntime::new());
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::html();
+
+        let explicit = PathBuf::from("/explicit/temp");
+        let ctx = StageContext::new(runtime.clone(), format, project, doc)
+            .unwrap()
+            .with_temp_dir(explicit.clone());
+
+        assert_eq!(ctx.temp_dir().unwrap(), explicit.as_path());
+        assert_eq!(
+            runtime.temp_dir_calls(),
+            0,
+            "with_temp_dir must not trigger runtime temp-dir creation",
+        );
     }
 
     #[test]

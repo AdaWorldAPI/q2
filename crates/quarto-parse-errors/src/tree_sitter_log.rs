@@ -8,7 +8,13 @@
 //! This module provides utilities to capture and analyze tree-sitter's internal
 //! parse state, enabling high-quality error message generation.
 
-use std::collections::HashMap;
+// `processes` is iterated by `produce_diagnostic_messages` to extract per-GLR-version
+// error states, and a downstream `(row, column)` dedupe means whichever version is
+// visited first wins. A plain `HashMap` with default `RandomState` randomized that
+// order per process — see GitHub issue #222 / bd-hwdlq. `LinkedHashMap` preserves
+// insertion order (tree-sitter inserts version 0 first), which keeps the diagnostic
+// output deterministic across runs.
+use hashlink::LinkedHashMap as HashMap;
 
 /// State of the tree-sitter log observer during parsing.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -84,25 +90,6 @@ impl TreeSitterParseLog {
 pub trait TreeSitterLogObserverTrait {
     fn had_errors(&self) -> bool;
     fn log(&mut self, log_type: tree_sitter::LogType, message: &str);
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-/// Fast log observer that only tracks whether errors occurred (no detailed state).
-#[derive(Default)]
-pub struct TreeSitterLogObserverFast {
-    pub saw_error: bool,
-}
-
-impl TreeSitterLogObserverTrait for TreeSitterLogObserverFast {
-    fn had_errors(&self) -> bool {
-        self.saw_error
-    }
-    fn log(&mut self, _log_type: tree_sitter::LogType, message: &str) {
-        if message.starts_with("detect_error") {
-            self.saw_error = true
-        }
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

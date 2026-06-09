@@ -53,12 +53,21 @@
 //! let result = engine.execute(&qmd_content, &context)?;
 //! ```
 
+pub mod capture_splice;
 mod context;
 mod detection;
 mod error;
 mod markdown;
+pub mod preview_record;
 mod registry;
+mod replay;
 mod traits;
+
+// File-backed test engine for exercising multi-engine sequencing
+// (bd-5yff4). Native-only test utility; never registered in the default
+// registry. See `fixture.rs` module docs.
+#[cfg(not(target_arch = "wasm32"))]
+mod fixture;
 
 // Native-only modules
 #[cfg(not(target_arch = "wasm32"))]
@@ -68,10 +77,16 @@ mod knitr;
 
 // Re-export public types
 pub use context::{ExecuteResult, ExecutionContext};
-pub use detection::{DetectedEngine, KNOWN_ENGINES, detect_engine, is_known_engine};
+pub use detection::{
+    DetectedEngine, EngineSequence, KNOWN_ENGINES, detect_engine, detect_engine_sequence,
+    detect_engines, is_known_engine,
+};
 pub use error::ExecutionError;
+#[cfg(not(target_arch = "wasm32"))]
+pub use fixture::FixtureEngine;
 pub use markdown::MarkdownEngine;
 pub use registry::EngineRegistry;
+pub use replay::ReplayEngine;
 pub use traits::ExecutionEngine;
 
 // Re-export native-only engines
@@ -79,6 +94,26 @@ pub use traits::ExecutionEngine;
 pub use jupyter::JupyterEngine;
 #[cfg(not(target_arch = "wasm32"))]
 pub use knitr::KnitrEngine;
+
+/// Print `perf.engine-discover jupyter=N rscript=N` to stderr when
+/// `QUARTO_PERF_STATS=1`. Call once at the end of a top-level
+/// command (e.g. `q2 render`) so the gauge survives the work it
+/// measures. See `claude-notes/plans/2026-05-22-engine-discovery-cache.md`.
+pub fn print_discovery_stats_if_enabled() {
+    if !std::env::var_os("QUARTO_PERF_STATS").is_some_and(|v| v == "1") {
+        return;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let jupyter = jupyter::find_jupyter_call_count();
+        let rscript = knitr::find_rscript_call_count();
+        eprintln!("perf.engine-discover jupyter={jupyter} rscript={rscript}");
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        eprintln!("perf.engine-discover jupyter=0 rscript=0");
+    }
+}
 
 #[cfg(test)]
 mod tests {

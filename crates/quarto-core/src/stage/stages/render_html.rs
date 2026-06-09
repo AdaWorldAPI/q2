@@ -11,12 +11,28 @@
 //! HTML writer.
 
 use async_trait::async_trait;
+use pampa::writers::html::HtmlConfig;
 
+use crate::attribution::html_attribution_fields;
+use crate::render::HtmlFormatOptions;
 use crate::stage::{
     EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, RenderedOutput,
     StageContext,
 };
 use crate::trace_event;
+
+/// Translate Render-phase attribution data on the format-options bag
+/// into the pampa-facing [`HtmlConfig`]. Off-path (attribution
+/// disabled / no records) the returned config has `attribution_by_node`
+/// `None` — the HTML writer's output is byte-identical to its
+/// existing behaviour.
+fn build_html_config_from_options(opts: &HtmlFormatOptions) -> HtmlConfig {
+    HtmlConfig {
+        include_source_locations: false,
+        attribution_by_node: html_attribution_fields(opts),
+        ..HtmlConfig::default()
+    }
+}
 
 /// Render AST to HTML body.
 ///
@@ -85,9 +101,34 @@ impl PipelineStage for RenderHtmlBodyStage {
             doc.ast.blocks.len()
         );
 
-        // Render AST to HTML body
+        // Render AST to HTML body. Forwards any attribution lookup
+        // baked by `AttributionRenderTransform` into the HTML config
+        // so the writer can emit `data-attr-*` attributes. When
+        // attribution is off, both fields stay `None` and the writer
+        // takes its existing byte-identical path.
+        let mut html_config = build_html_config_from_options(&ctx.format_options.html);
+        // Revealjs: enable Pandoc-style incremental lists (`<li class="fragment">`).
+        // The writer attaches the class because list items have no AST attr.
+        // Gated to revealjs so plain HTML is unaffected. The global
+        // `incremental: true` sets the starting state; `.incremental` /
+        // `.nonincremental` flip it per subtree.
+        if ctx.format.identifier == crate::format::FormatIdentifier::Revealjs {
+            html_config.incremental_lists = true;
+            html_config.incremental_default = doc
+                .ast
+                .meta
+                .get("incremental")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        }
         let mut body_buf = Vec::new();
-        pampa::writers::html::write(&doc.ast, &doc.ast_context, &mut body_buf).map_err(|e| {
+        pampa::writers::html::write_with_options(
+            &doc.ast,
+            &doc.ast_context,
+            &mut body_buf,
+            html_config,
+        )
+        .map_err(|e| {
             PipelineError::stage_error(self.name(), format!("Failed to write HTML body: {}", e))
         })?;
 
@@ -113,6 +154,11 @@ impl PipelineStage for RenderHtmlBodyStage {
             is_intermediate: false, // HTML body is not intermediate for HTML output
             supporting_files: vec![],
             metadata: doc.ast.meta,
+            // bd-xdnk: hand the document's SourceContext forward so
+            // ApplyTemplateStage can register template files in the
+            // same context, and so the renderer's stderr output can
+            // slice source for ariadne carets.
+            source_context: doc.source_context,
         }))
     }
 }
@@ -293,6 +339,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);

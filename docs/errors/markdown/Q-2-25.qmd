@@ -1,0 +1,49 @@
+---
+title: "Unclosed Image"
+description: "An image construct opens with `![` but the closing `](url)` does not appear before the end of the block."
+code: Q-2-25
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-25` — Unclosed Image
+
+> An image construct opens with `![` but the closing `](url)`
+> does not appear before the end of the block.
+
+## What this means
+
+Markdown images take the form `![alt text](url)`. This error
+fires when an `![` opens an image construct but the parser
+reaches the end of the block before finding the closing `]` and
+its associated `(url)`.
+
+## Why this happens
+
+- **A deleted close**: the closing `]` or the `(url)` portion was
+  removed by an edit.
+- **A literal `![`** that was not meant to start an image.
+
+## How to fix
+
+Complete the image with `](url)`, or escape the opening bracket:
+
+```markdown
+\![not an image]
+```
+
+## Example
+
+```markdown
+![
+```
+
+## Related
+
+- [`Q-2-1`](Q-2-1.qmd) — unclosed span: the same shape for
+  bracketed text without the `!` prefix.
+- [`Q-2-33`](Q-2-33.qmd) — spaces in link targets: an image URL
+  that contains spaces is also rejected.

@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import {
   getFileHandle,
   updateFileContent,
-} from '../services/automergeSync';
+} from '@quarto/preview-runtime';
 import {
   createReplaySession,
   type ReplaySession,
@@ -26,12 +26,6 @@ export interface ReplayState {
   timestamp: number | null;
   actor: string | null; // short hash of the actor who made the change
   chunkActors: ChunkActorShare[][]; // per-chunk actor fractions for the waveform
-}
-
-/** Deterministic color from an actor hash string. */
-export function actorColor(actor: string): string {
-  const hue = parseInt(actor.slice(0, 6), 16) % 360;
-  return `hsl(${hue}, 60%, 55%)`;
 }
 
 export interface ReplayControls {

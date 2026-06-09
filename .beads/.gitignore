@@ -13,6 +13,9 @@ last-touched
 # Local history backups
 .br_history/
 
+# Recovery snapshots from br operations
+.br_recovery/
+
 # Sync state
 .sync.lock
 sync_base.jsonl
@@ -39,6 +42,9 @@ redirect
 
 # Migration artifacts
 *.migrated
+
+# br operation backups (e.g. issues.jsonl.orig left behind by older br runs)
+*.orig
 
 # Local version marker
 .local_version

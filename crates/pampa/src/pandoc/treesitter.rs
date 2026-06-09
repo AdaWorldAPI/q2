@@ -57,6 +57,28 @@ use core::panic;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::io::Write;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Number of times the shared whitespace-splitting regex (`\s+`) has been
+/// compiled since process start. It must be **exactly 1** for the life of
+/// the process, no matter how many tree-sitter nodes are visited.
+///
+/// Guards against re-introducing the per-node recompile bug (bd-2ercw),
+/// where this regex was a function-local `Lazy<Regex>` and so was rebuilt
+/// (and `\s+` recompiled) on every `native_visitor` call. A samply profile
+/// of a 565-file website render attributed ~5% of all samples to the
+/// regex NFA compiler under `native_visitor`. See
+/// `claude-notes/plans/2026-06-01-render-perf-profiling.md`.
+pub static WHITESPACE_RE_COMPILE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Shared whitespace-splitting regex (`\s+`), compiled once for the whole
+/// process. Hoisting this out of `native_visitor` (where it was a
+/// function-local `Lazy<Regex>`) is the fix for bd-2ercw — see
+/// [`WHITESPACE_RE_COMPILE_COUNT`].
+static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| {
+    WHITESPACE_RE_COMPILE_COUNT.fetch_add(1, Ordering::Relaxed);
+    Regex::new(r"\s+").unwrap()
+});
 
 use crate::traversals::bottomup_traverse_concrete_tree;
 
@@ -265,55 +287,208 @@ fn process_list_item(
     context: &ASTContext,
 ) -> PandocNativeIntermediate {
     let mut list_attr: Option<ListAttributes> = None;
-    let children = children
-        .into_iter()
-        .filter_map(|(node, child)| {
-            if node == "list_marker_dot"
-                || node == "list_marker_parenthesis"
-                || node == "list_marker_example"
-            {
-                // this is an ordered list, so we need to set the flag
-                let PandocNativeIntermediate::IntermediateOrderedListMarker(marker_number, _) =
-                    child
-                else {
-                    panic!("Expected OrderedListMarker in list_item, got {:?}", child);
-                };
-                list_attr = Some((
-                    marker_number,
-                    match node.as_str() {
-                        "list_marker_example" => ListNumberStyle::Example,
-                        _ => ListNumberStyle::Decimal,
-                    },
-                    match node.as_str() {
-                        "list_marker_parenthesis" => ListNumberDelim::OneParen,
-                        "list_marker_dot" => ListNumberDelim::Period,
-                        "list_marker_example" => ListNumberDelim::TwoParens,
-                        _ => panic!("Unexpected list marker node: {}", node),
-                    },
-                ));
-                return None; // skip the marker node
+    let mut blocks: Vec<Block> = Vec::new();
+    for (node, child) in children {
+        if node == "block_continuation" {
+            continue;
+        }
+        // Bullet-list markers carry no list-attribute payload (they map to
+        // IntermediateUnknown); skip them by node name.
+        if node == "list_marker_minus" || node == "list_marker_star" || node == "list_marker_plus" {
+            continue;
+        }
+        if node == "list_marker_dot"
+            || node == "list_marker_parenthesis"
+            || node == "list_marker_example"
+        {
+            // this is an ordered list, so we need to set the flag
+            let PandocNativeIntermediate::IntermediateOrderedListMarker(marker_number, _) = child
+            else {
+                panic!("Expected OrderedListMarker in list_item, got {:?}", child);
+            };
+            list_attr = Some((
+                marker_number,
+                match node.as_str() {
+                    "list_marker_example" => ListNumberStyle::Example,
+                    _ => ListNumberStyle::Decimal,
+                },
+                match node.as_str() {
+                    "list_marker_parenthesis" => ListNumberDelim::OneParen,
+                    "list_marker_dot" => ListNumberDelim::Period,
+                    "list_marker_example" => ListNumberDelim::TwoParens,
+                    _ => panic!("Unexpected list marker node: {}", node),
+                },
+            ));
+            continue;
+        }
+        match child {
+            PandocNativeIntermediate::IntermediateBlock(block) => blocks.push(block),
+            // A list item may wrap its block content in a `section` node when
+            // the item contains a heading (e.g. `* # Section 1`). Flatten the
+            // section's blocks into the item, mirroring `process_section`.
+            PandocNativeIntermediate::IntermediateSection(section) => blocks.extend(section),
+            PandocNativeIntermediate::IntermediateMetadataString(text, _range) => {
+                // for now we assume it's metadata and emit it as a rawblock
+                blocks.push(Block::RawBlock(RawBlock {
+                    format: "quarto_minus_metadata".to_string(),
+                    text,
+                    source_info: node_source_info_with_context(list_item_node, context),
+                }));
             }
-            match child {
-                PandocNativeIntermediate::IntermediateBlock(block) => Some(block),
-                PandocNativeIntermediate::IntermediateMetadataString(text, _range) => {
-                    // for now we assume it's metadata and emit it as a rawblock
-                    Some(Block::RawBlock(RawBlock {
-                        format: "quarto_minus_metadata".to_string(),
-                        text,
-                        source_info: node_source_info_with_context(list_item_node, context),
-                    }))
-                }
-                _ => None,
-            }
-        })
-        .collect();
+            // Tokens with no AST-level meaning: tree-sitter ERROR nodes from
+            // error recovery, fence delimiters, etc. all dispatch to
+            // IntermediateUnknown (see the catch-all at the bottom of the
+            // intermediate dispatcher). Safe to drop in a block container.
+            PandocNativeIntermediate::IntermediateUnknown(_) => {}
+            _ => panic!(
+                "Unexpected intermediate in list_item child {:?}: {:?}",
+                node, child
+            ),
+        }
+    }
     let has_blank_line = list_item_has_blank_line_between_blocks(list_item_node);
     PandocNativeIntermediate::IntermediateListItem(
-        children,
+        blocks,
         node_location(list_item_node),
         list_attr,
         has_blank_line,
     )
+}
+
+/// Find the column at which interior lines of a `pandoc_display_math` node
+/// "should" start — i.e. the cumulative block-continuation prefix width
+/// imposed by all enclosing block-level containers (blockquotes, list
+/// items, etc.). That width equals the start column of the nearest
+/// enclosing `pandoc_paragraph` ancestor.
+///
+/// Walking the math node's own start column is *not* sufficient: when an
+/// inline construct precedes `$$` on the opening line (e.g. `_$$`,
+/// `[$$` for `quarto-math-with-attribute` Spans, `**$$`), the math
+/// column overshoots the actual continuation prefix width and the strip
+/// either mis-eats real content or fails to strip real prefix. The
+/// paragraph's start column is constant across all interior lines of the
+/// paragraph regardless of what precedes `$$` on the opening line, which
+/// is what we want. This matches Pandoc's markdown reader behaviour.
+///
+/// Falls back to the math node's own column for the (theoretical) case
+/// where no `pandoc_paragraph` ancestor is found. In practice display
+/// math always sits inside a paragraph when it has multi-line body
+/// content; single-line contexts like table cells / captions have no
+/// interior lines to strip.
+fn block_continuation_column(node: &tree_sitter::Node) -> usize {
+    let mut current = *node;
+    while let Some(parent) = current.parent() {
+        if parent.kind() == "pandoc_paragraph" {
+            return parent.start_position().column;
+        }
+        current = parent;
+    }
+    node.start_position().column
+}
+
+/// Strip the block-continuation prefix from each interior line of
+/// display-math content (issue #181 / bd-q6ed; refined for bd-qpa2).
+///
+/// The grammar matches the math body as a single regex token, so any
+/// continuation prefixes that enclosing blocks (blockquotes, list items,
+/// etc.) would normally consume — `> ` per blockquote level, indentation
+/// per list-item level — end up captured verbatim in the math text. The
+/// qmd writer then re-prefixes every line on output, so the prefixes
+/// double on round trip.
+///
+/// `start_col` is the cumulative block-continuation prefix width — i.e.
+/// the column where math content should land on every interior line. It
+/// is sourced from the enclosing `pandoc_paragraph` ancestor (see
+/// `block_continuation_column`), not from the column of the opening `$$`
+/// (which can be shifted by preceding inline constructs).
+///
+/// On every interior line of the math, the bytes at columns `0..start_col`
+/// are the accumulated continuation prefix added by the chain of enclosing
+/// blocks. We strip those bytes — but only if they look like continuation:
+/// the only characters that ever appear in a continuation prefix are `>`,
+/// space, and tab. Anything else means the line was matched via lazy
+/// continuation (no explicit `> `), and we leave it alone rather than
+/// chewing bytes off real content.
+///
+/// The first piece (between the opening `$$` and the first `\n`) is
+/// content right after the delimiter, never a continuation line, and is
+/// always left untouched.
+fn strip_continuation_prefix(content: &str, start_col: usize) -> String {
+    if start_col == 0 {
+        return content.to_string();
+    }
+    let mut result = String::with_capacity(content.len());
+    let mut first = true;
+    for line in content.split('\n') {
+        if first {
+            result.push_str(line);
+            first = false;
+            continue;
+        }
+        result.push('\n');
+        let line_bytes = line.as_bytes();
+        let strip_n = std::cmp::min(start_col, line_bytes.len());
+        let prefix_is_continuation = line_bytes[..strip_n]
+            .iter()
+            .all(|b| matches!(*b, b'>' | b' ' | b'\t'));
+        if prefix_is_continuation {
+            result.push_str(&line[strip_n..]);
+        } else {
+            result.push_str(line);
+        }
+    }
+    result
+}
+
+/// Extract the body of a `pandoc_math` node, stripping delimiters and folding
+/// each `pandoc_soft_break` child range down to a single literal `\n`.
+///
+/// The math node's byte range covers `$ ... $` and, for multi-line math
+/// (bd-ilv8p), one or more `pandoc_soft_break` children whose ranges include
+/// the line ending plus any enclosing block's continuation prefix (`> ` for
+/// blockquotes, the indent for list items). Pandoc preserves the literal `\n`
+/// in `Math InlineMath` text and strips the gutter, so we replace each
+/// soft_break range with `\n` and append the text segments verbatim.
+fn extract_inline_math_text(node: &tree_sitter::Node, input_bytes: &[u8]) -> String {
+    let start = node.start_byte();
+    let end = node.end_byte();
+    // Strip the opening / closing `$` (each is exactly 1 byte).
+    let body_start = start + 1;
+    let body_end = end - 1;
+    debug_assert!(body_start <= body_end);
+
+    let mut text = String::new();
+    let mut cursor = node.walk();
+    if !cursor.goto_first_child() {
+        // No structural children — single-line math.
+        let bytes = &input_bytes[body_start..body_end];
+        return std::str::from_utf8(bytes).unwrap().to_string();
+    }
+    let mut byte_cursor = body_start;
+    loop {
+        let child = cursor.node();
+        if child.kind() == "pandoc_soft_break" {
+            // Append text from byte_cursor to child.start_byte, then `\n`.
+            if child.start_byte() > byte_cursor {
+                let bytes = &input_bytes[byte_cursor..child.start_byte()];
+                text.push_str(std::str::from_utf8(bytes).unwrap());
+            }
+            text.push('\n');
+            byte_cursor = child.end_byte();
+        }
+        // Other kinds — including anonymous `$` delimiter tokens — are
+        // outside the body range we care about. Skip them; trailing text
+        // is recovered after the loop.
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    // Append any trailing text up to the body end.
+    if byte_cursor < body_end {
+        let bytes = &input_bytes[byte_cursor..body_end];
+        text.push_str(std::str::from_utf8(bytes).unwrap());
+    }
+    text
 }
 
 /// Detect whether a list item's tree-sitter node contains a blank line between
@@ -322,14 +497,14 @@ fn process_list_item(
 /// spanning multiple rows. In tree-sitter's QMD grammar, a `block_continuation`
 /// that spans multiple rows indicates it absorbed a blank line.
 fn list_item_has_blank_line_between_blocks(list_item_node: &tree_sitter::Node) -> bool {
-    let child_count = list_item_node.named_child_count();
+    let child_count = u32::try_from(list_item_node.named_child_count()).unwrap();
     for i in 0..child_count {
         let child = list_item_node.named_child(i).unwrap();
         if child.kind() == "pandoc_paragraph" && i + 1 < child_count {
             // This paragraph is followed by another block-level sibling.
             // Check if the paragraph has a block_continuation that spans
             // multiple rows (which means it absorbed a blank line).
-            let para_child_count = child.named_child_count();
+            let para_child_count = u32::try_from(child.named_child_count()).unwrap();
             for j in 0..para_child_count {
                 let para_child = child.named_child(j).unwrap();
                 if para_child.kind() == "block_continuation"
@@ -450,7 +625,6 @@ fn native_visitor<T: Write>(
     let link_buf = Vec::<u8>::new();
     let image_buf = Vec::<u8>::new();
 
-    let whitespace_re: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
     let node_text = || node.utf8_text(input_bytes).unwrap().to_string();
 
     let node_source_info_fn = || node_source_info_with_context(node, context);
@@ -458,7 +632,7 @@ fn native_visitor<T: Write>(
         process_native_inline(
             node_name,
             child,
-            &whitespace_re,
+            &WHITESPACE_RE,
             &mut inline_buf,
             node_text,
             node_source_info_fn,
@@ -487,15 +661,20 @@ fn native_visitor<T: Write>(
             PandocNativeIntermediate::IntermediateUnknown(node_location(node))
         }
         "pandoc_math" => {
-            // Extract math content (text between $ delimiters)
-            // Node structure: '$' content '$'
-            // Get the full text and strip the delimiters
-            let full_text = node.utf8_text(input_bytes).unwrap();
-            let content = &full_text[1..full_text.len() - 1]; // Strip leading and trailing $
+            // Extract math content (text between $ delimiters).
+            //
+            // Node structure: '$' text_segment (pandoc_soft_break text_segment)* '$'
+            // — the multi-line case (bd-ilv8p) puts pandoc_soft_break children
+            // between text segments, with each break's byte range covering the
+            // line ending plus any block-continuation gutter (e.g. `> ` for
+            // blockquotes, the indent for list items). Pandoc preserves the
+            // literal `\n` in the math text and strips the gutter, so we
+            // collapse each pandoc_soft_break range to a single `\n`.
+            let text = extract_inline_math_text(node, input_bytes);
 
             PandocNativeIntermediate::IntermediateInline(Inline::Math(Math {
                 math_type: MathType::InlineMath,
-                text: content.to_string(),
+                text,
                 source_info: node_source_info_with_context(node, context),
             }))
         }
@@ -506,20 +685,102 @@ fn native_visitor<T: Write>(
             let full_text = node.utf8_text(input_bytes).unwrap();
             let content = &full_text[2..full_text.len() - 2]; // Strip leading and trailing $$
 
+            // The grammar matches the math body as a single regex token, so any
+            // block-continuation prefix that enclosing blocks (blockquotes,
+            // list items, etc.) would normally consume is captured verbatim
+            // on interior lines. Strip those prefix bytes column-wise so the
+            // qmd writer doesn't double-prefix on round trip (issue #181 /
+            // bd-q6ed). The strip width comes from the enclosing paragraph,
+            // not the math node, so that inline constructs preceding `$$`
+            // on the opening line (e.g. `_`, `[`, `**`) don't shift the
+            // column away from the true continuation prefix width (bd-qpa2).
+            let start_col = block_continuation_column(node);
+            let text = strip_continuation_prefix(content, start_col);
+
             PandocNativeIntermediate::IntermediateInline(Inline::Math(Math {
                 math_type: MathType::DisplayMath,
-                text: content.to_string(),
+                text,
                 source_info: node_source_info_with_context(node, context),
             }))
         }
         "pandoc_str" => {
-            let text = node.utf8_text(input_bytes).unwrap().to_string();
-            // Process backslash escapes first, then apply smart quotes
-            let text = process_backslash_escapes(text);
-            PandocNativeIntermediate::IntermediateInline(Inline::Str(Str {
-                text: apply_smart_quotes(text),
-                source_info: node_source_info_with_context(node, context),
-            }))
+            // Tree-sitter may include leading ASCII whitespace in the
+            // pandoc_str node when it wraps the external `_pandoc_lt_str`
+            // token (bd-j9cf): the block-level scanner consumes preceding
+            // indentation before dispatching into `parse_open_angle_brace`,
+            // so the chomped whitespace ends up inside the reported token
+            // range. Split it back out into a leading Space inline so
+            // siblings round-trip cleanly. Regular pandoc_str text never
+            // has leading ASCII whitespace (PANDOC_REGEX_STR does not match
+            // space at the start), so this split is a no-op for the common
+            // case.
+            //
+            // Note: we deliberately do NOT trim *trailing* ASCII whitespace
+            // here. Backslash-space escapes (`\<space>`) match the regex
+            // `\\.` and produce a two-character pandoc_str whose trailing
+            // byte is a real space — `process_backslash_escapes` then turns
+            // the escape into a non-breaking space (U+00A0). Stripping the
+            // trailing space would lose the escape's payload. See
+            // crates/pampa/tests/test_treesitter_refactoring.rs
+            // (`test_backslash_space_becomes_nbsp` and friends, bd-1aip).
+            //
+            // ASCII-only by intent: per Pandoc-compat policy in
+            // claude-notes/plans/2026-04-30-unicode-whitespace-handling.md
+            // (bd-rmx3, bd-8oe4), non-ASCII whitespace is content, not
+            // whitespace, so it must not be peeled off into a Space node here.
+            let raw_text = node.utf8_text(input_bytes).unwrap();
+            let leading_ws = raw_text.len()
+                - raw_text
+                    .trim_start_matches(|c: char| c.is_ascii_whitespace())
+                    .len();
+
+            if leading_ws == 0 {
+                let text = process_backslash_escapes(raw_text.to_string());
+                PandocNativeIntermediate::IntermediateInline(Inline::Str(Str {
+                    text: apply_smart_quotes(text),
+                    source_info: node_source_info_with_context(node, context),
+                }))
+            } else {
+                let node_range = node_location(node);
+                let mut result = Vec::new();
+
+                let space_range = quarto_source_map::Range {
+                    start: node_range.start.clone(),
+                    end: quarto_source_map::Location {
+                        offset: node_range.start.offset + leading_ws,
+                        row: node_range.start.row,
+                        column: node_range.start.column + leading_ws,
+                    },
+                };
+                result.push(Inline::Space(Space {
+                    source_info: quarto_source_map::SourceInfo::from_range(
+                        context.current_file_id(),
+                        space_range,
+                    ),
+                }));
+
+                let inner = &raw_text[leading_ws..];
+                if !inner.is_empty() {
+                    let text = process_backslash_escapes(inner.to_string());
+                    let str_range = quarto_source_map::Range {
+                        start: quarto_source_map::Location {
+                            offset: node_range.start.offset + leading_ws,
+                            row: node_range.start.row,
+                            column: node_range.start.column + leading_ws,
+                        },
+                        end: node_range.end.clone(),
+                    };
+                    result.push(Inline::Str(Str {
+                        text: apply_smart_quotes(text),
+                        source_info: quarto_source_map::SourceInfo::from_range(
+                            context.current_file_id(),
+                            str_range,
+                        ),
+                    }));
+                }
+
+                PandocNativeIntermediate::IntermediateInlines(result)
+            }
         }
         "numeric_character_reference" => {
             process_numeric_character_reference(node, input_bytes, context)
@@ -1021,27 +1282,52 @@ fn native_visitor<T: Write>(
         "pandoc_code_block" => {
             let result = process_fenced_code_block(node, children, context);
 
-            // Check for Q-2-8 warning: code block options in header without classes
-            // This warns about syntax like {r eval=FALSE} and suggests YAML block syntax
-            // But does NOT warn if there are additional classes like {python .marimo}
+            // Q-2-36: reject knitr-style chunk headers like {r echo=FALSE}.
+            // The grammar accepts the language token + space-separated kv form
+            // structurally; we catch it here and emit a parse error. The
+            // Pandoc class form {.r echo=FALSE} is intentionally still valid
+            // and is excluded by the literal-braces check on classes[0].
             if let PandocNativeIntermediate::IntermediateBlock(Block::CodeBlock(ref cb)) = result {
                 let (ref _id, ref classes, ref attrs) = cb.attr;
 
-                // Check if: exactly one class matching {language} pattern, and has key-value attrs
                 let has_only_braced_language =
                     classes.len() == 1 && classes[0].starts_with('{') && classes[0].ends_with('}');
                 let has_key_value_attrs = !attrs.is_empty();
 
                 if has_only_braced_language && has_key_value_attrs {
-                    let msg = DiagnosticMessageBuilder::warning("Code block options in header")
-                        .with_code("Q-2-8")
-                        .with_location(cb.source_info.clone())
-                        .problem("This code block has options specified in the header line")
-                        .add_info(
-                            "For executable code blocks, Quarto recommends using YAML block syntax",
-                        )
-                        .add_hint("Use `#| key: value` syntax inside the code block instead")
-                        .build();
+                    // Clip the highlight to just the header line. cb.source_info
+                    // spans the whole fenced block; the offending shape is in
+                    // line 1 (the fence + brace block).
+                    let header_loc = if let quarto_source_map::SourceInfo::Original {
+                        file_id,
+                        start_offset,
+                        ..
+                    } = cb.source_info
+                    {
+                        let pivot = start_offset.min(input_bytes.len());
+                        let line_end = input_bytes[pivot..]
+                            .iter()
+                            .position(|&b| b == b'\n' || b == b'\r')
+                            .map(|p| pivot + p)
+                            .unwrap_or(input_bytes.len());
+                        quarto_source_map::SourceInfo::original(file_id, start_offset, line_end)
+                    } else {
+                        cb.source_info.clone()
+                    };
+
+                    let msg = DiagnosticMessageBuilder::error(
+                        "Old-style knitr chunk options are not supported",
+                    )
+                    .with_code("Q-2-36")
+                    .with_location(header_loc)
+                    .problem("This code block uses knitr-style options in the header")
+                    .add_info(
+                        "Quarto Markdown reads chunk options from the body, not the header",
+                    )
+                    .add_hint(
+                        "Move options into the body using `#| key: value`, or — if you only want a Pandoc class — write `{.r ...}` instead of `{r ...}`",
+                    )
+                    .build();
                     error_collector.add(msg);
                 }
             }
@@ -1057,6 +1343,119 @@ fn native_visitor<T: Write>(
         "pipe_table_cell" => process_pipe_table_cell(node, children, context),
         "caption" => process_caption(node, children, context),
         "pipe_table" => process_pipe_table(node, children, context),
+        "grid_table" => {
+            use crate::pandoc::location::{SourceInfoOptions, node_source_info_with_options};
+
+            let raw_text = node.utf8_text(input_bytes).unwrap();
+            let input_str = std::str::from_utf8(input_bytes).unwrap_or("");
+            let file_id = context.current_file_id();
+
+            // Layered Ariadne rendering:
+            //   1. Multi-line main label spans the whole grid table to
+            //      provide the `╭─▶ … ╰─` corner decoration and red
+            //      highlighting on the table content.
+            //   2. For every line *after* the opening border that has a
+            //      block-quote prefix (`>`/`> >` etc.), a high-priority
+            //      faded label covers just that prefix range. Ariadne
+            //      picks the shortest covering label per column, so the
+            //      faded label wins on prefix columns and overrides the
+            //      multi-line label's red with the dim grey it uses for
+            //      unlabelled text.
+            //   3. For interior body lines (lines that aren't the open or
+            //      close), an empty-message detail label spanning the
+            //      table content forces Ariadne to display the line —
+            //      otherwise the multi-line label's middle would be
+            //      elided to a single `┆` row.
+            let node_start = node.start_byte();
+            let node_end = node.end_byte();
+            let lines: Vec<&str> = raw_text.split('\n').collect();
+            let nonempty_count = lines.iter().filter(|s| !s.is_empty()).count();
+
+            let mut faded_prefixes: Vec<quarto_source_map::SourceInfo> = Vec::new();
+            let mut interior_contents: Vec<quarto_source_map::SourceInfo> = Vec::new();
+
+            let mut offset_in_node = 0usize;
+            let mut nonempty_idx = 0usize;
+            for line in &lines {
+                let line_global_start = node_start + offset_in_node;
+                offset_in_node += line.len() + 1;
+                if line.is_empty() {
+                    continue;
+                }
+                let is_first = nonempty_idx == 0;
+                let is_last = nonempty_idx + 1 == nonempty_count;
+                nonempty_idx += 1;
+
+                let content_offset = line.find(['+', '|']).unwrap_or(line.len());
+
+                // Faded label for the leading `>` prefix, but only when
+                // the multi-line main label actually covers it. On the
+                // opening line the main label starts at the first `+`,
+                // so the prefix is already outside every label.
+                if !is_first && content_offset > 0 {
+                    let prefix_start = line_global_start;
+                    let prefix_end = line_global_start + content_offset;
+                    if prefix_start >= node_start
+                        && prefix_end <= node_end
+                        && let (Some(start_loc), Some(end_loc)) = (
+                            quarto_source_map::utils::offset_to_location(input_str, prefix_start),
+                            quarto_source_map::utils::offset_to_location(input_str, prefix_end),
+                        )
+                    {
+                        faded_prefixes.push(quarto_source_map::SourceInfo::from_range(
+                            file_id,
+                            quarto_source_map::Range {
+                                start: start_loc,
+                                end: end_loc,
+                            },
+                        ));
+                    }
+                }
+
+                // Force interior lines to display by attaching a label.
+                // The opening line has the multi-line label's start margin
+                // and the closing line has its end margin, so neither
+                // needs an extra label.
+                if !is_first && !is_last {
+                    let content_start = line_global_start + content_offset;
+                    let content_end = line_global_start + line.len();
+                    if let (Some(start_loc), Some(end_loc)) = (
+                        quarto_source_map::utils::offset_to_location(input_str, content_start),
+                        quarto_source_map::utils::offset_to_location(input_str, content_end),
+                    ) {
+                        interior_contents.push(quarto_source_map::SourceInfo::from_range(
+                            file_id,
+                            quarto_source_map::Range {
+                                start: start_loc,
+                                end: end_loc,
+                            },
+                        ));
+                    }
+                }
+            }
+
+            let main_loc =
+                node_source_info_with_options(node, context, &SourceInfoOptions::trim_all());
+
+            let mut builder = DiagnosticMessageBuilder::error("Grid tables are not supported")
+                .with_code("Q-2-39")
+                .with_location(main_loc)
+                .problem("Grid tables aren't supported. Use a list table instead.");
+            for prefix_loc in &faded_prefixes {
+                builder = builder.add_faded_at("", prefix_loc.clone());
+            }
+            for content_loc in &interior_contents {
+                builder = builder.add_detail_at("", content_loc.clone());
+            }
+            let msg = builder.build();
+            error_collector.add(msg);
+
+            PandocNativeIntermediate::IntermediateBlock(Block::RawBlock(RawBlock {
+                format: "qmd-grid-table".to_string(),
+                text: raw_text.to_string(),
+                source_info: node_source_info_with_context(node, context),
+            }))
+        }
         "comment" => {
             // HTML comments (<!-- ... -->) are preserved as RawInline(html)
             // so they survive round-tripping through the AST and are not lost
@@ -1172,18 +1571,65 @@ fn native_visitor<T: Write>(
                 let msg =
                     DiagnosticMessageBuilder::warning("HTML element converted to raw HTML")
                         .with_code("Q-2-9")
-                        .with_location(trimmed_source_info)
+                        .with_location(trimmed_source_info.clone())
                         .add_info("HTML elements are automatically converted to RawInline nodes with format 'html'")
                         .add_hint("To be explicit, use: `<element>`{=html}")
                         .build();
                 error_collector.add(msg);
 
-                // Convert to RawInline with format="html"
-                PandocNativeIntermediate::IntermediateInline(Inline::RawInline(RawInline {
+                // Tree-sitter may include leading/trailing whitespace in the
+                // html_element node (the closing delimiter of a preceding
+                // pandoc_code_span, for example, never carries trailing
+                // whitespace — see code_span_helpers.rs — so the gap goes
+                // here). Split that whitespace out as adjacent Space inlines
+                // so Code/RawInline siblings don't collide on round-trip.
+                // Mirrors the anchor-shorthand branch above. See bd-nkx4.
+                let leading_ws = raw_text.len() - raw_text.trim_start().len();
+                let trailing_ws = raw_text.len() - raw_text.trim_end().len();
+                let node_range = node_location(node);
+                let mut result = Vec::new();
+
+                if leading_ws > 0 {
+                    let space_range = quarto_source_map::Range {
+                        start: node_range.start.clone(),
+                        end: quarto_source_map::Location {
+                            offset: node_range.start.offset + leading_ws,
+                            row: node_range.start.row,
+                            column: node_range.start.column + leading_ws,
+                        },
+                    };
+                    result.push(Inline::Space(Space {
+                        source_info: quarto_source_map::SourceInfo::from_range(
+                            context.current_file_id(),
+                            space_range,
+                        ),
+                    }));
+                }
+
+                result.push(Inline::RawInline(RawInline {
                     format: "html".to_string(),
                     text,
-                    source_info: node_source_info_with_context(node, context),
-                }))
+                    source_info: trimmed_source_info,
+                }));
+
+                if trailing_ws > 0 {
+                    let space_range = quarto_source_map::Range {
+                        start: quarto_source_map::Location {
+                            offset: node_range.end.offset - trailing_ws,
+                            row: node_range.end.row,
+                            column: node_range.end.column - trailing_ws,
+                        },
+                        end: node_range.end.clone(),
+                    };
+                    result.push(Inline::Space(Space {
+                        source_info: quarto_source_map::SourceInfo::from_range(
+                            context.current_file_id(),
+                            space_range,
+                        ),
+                    }));
+                }
+
+                PandocNativeIntermediate::IntermediateInlines(result)
             }
         }
         _ => {

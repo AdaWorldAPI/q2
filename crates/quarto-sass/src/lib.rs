@@ -11,6 +11,7 @@
 //! - Bundle assembly for compilation
 //! - Theme configuration extraction from ConfigValue
 
+pub mod brand_layer;
 pub mod bundle;
 pub mod compile;
 pub mod config;
@@ -52,6 +53,7 @@ pub const SCSS_RESOURCES_HASH: &str =
 /// for the incident that motivated this.
 pub const CSS_BUILD_ID: &str = include_str!(concat!(env!("OUT_DIR"), "/css_build_id.txt"));
 
+pub use brand_layer::brand_to_layers;
 pub use bundle::{
     assemble_bootstrap, assemble_scss, assemble_themes, assemble_with_theme,
     assemble_with_user_layers, load_bootstrap_framework, load_quarto_layer, load_theme,
@@ -59,8 +61,9 @@ pub use bundle::{
 };
 pub use compile::{
     assemble_theme_scss, compile_css_from_config, compile_default_css, compile_theme_css,
+    compile_with_doc_vars,
 };
-pub use config::ThemeConfig;
+pub use config::{ResolvedThemeConfig, ThemeConfig};
 pub use error::SassError;
 pub use layer::{merge_layers, parse_layer, parse_layer_from_parts};
 pub use resources::{

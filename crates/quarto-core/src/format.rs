@@ -99,15 +99,149 @@ impl TryFrom<&str> for FormatIdentifier {
     }
 }
 
-/// Builtin pseudo-formats that map to a known base format.
-/// Temporary bridge until the extensions system provides this mapping.
-/// Each entry should become an extension when that system lands.
-fn builtin_pseudo_format(name: &str) -> Option<&'static str> {
+/// Builtin pseudo-formats that map to a known base format and an
+/// optional pipeline-kind selector.
+///
+/// `pipeline_kind` is the structured replacement for string-literal
+/// `target_format` matches in pipeline-dispatching code. Per Plan 1's
+/// §"Multi-plan contract: cleanup owed to Plan 7", `q2-preview` maps
+/// to `Some("preview")` so `AstTransformsStage` (and the JS-side
+/// data-source switch, eventually) can dispatch on a typed selector
+/// instead of grepping on `target_format == "q2-preview"`.
+///
+/// Temporary bridge until the extensions system provides this
+/// mapping. Each entry should become an extension when that system
+/// lands.
+fn builtin_pseudo_format(name: &str) -> Option<(&'static str, Option<&'static str>)> {
     match name {
-        "q2-slides" => Some("html"),
-        "q2-debug" => Some("html"),
+        // `q2-slides` is the preview pseudo-format for `format: revealjs`
+        // (analogous to `q2-preview` for `html`). It uses the same AST/preview
+        // pipeline_kind so `render_page_for_preview` returns AST JSON; the
+        // reveal slide construction fires because `build_transform_pipeline`
+        // treats `target_format == "q2-slides"` as revealjs (see
+        // `is_revealjs_target`). The SPA renders the section AST with a reveal
+        // shell. See claude-notes/plans/2026-06-08-revealjs-presentations.md
+        // Phase 1P.
+        "q2-slides" => Some(("html", Some("preview"))),
+        "q2-debug" => Some(("html", None)),
+        "q2-preview" => Some(("html", Some("preview"))),
+        "q2-raw" => Some(("html", None)),
         _ => None,
     }
+}
+
+/// Whether a `target_format` string should build the reveal.js slide tree
+/// (`RevealSlidesTransform` replacing the generic title-block + sectionize).
+/// True for the native render format (`revealjs`) and its preview
+/// pseudo-format (`q2-slides`).
+pub fn is_revealjs_target(target_format: &str) -> bool {
+    matches!(target_format, "revealjs" | "q2-slides")
+}
+
+/// Extract the chosen output format from a document's leading YAML
+/// front-matter: the `format:` scalar, or the first key when `format:` is a
+/// map (e.g. `format: {revealjs: {...}}`). Returns `None` when there is no
+/// front matter or no `format:` key.
+///
+/// This is the lightweight, pre-pipeline peek used to resolve a per-document
+/// format (e.g. a `format: revealjs` deck inside an otherwise-HTML project)
+/// before the render context — and thus the transform pipeline / output
+/// extension — is chosen. The CLI's single-input detection delegates here so
+/// the two paths agree.
+pub fn format_key_from_frontmatter(content: &str) -> Option<String> {
+    let yaml = extract_yaml_frontmatter(content)?;
+    let value: serde_yaml::Value = serde_yaml::from_str(&yaml).ok()?;
+    match value.get("format")? {
+        serde_yaml::Value::String(s) => Some(s.clone()),
+        serde_yaml::Value::Mapping(m) => m.keys().find_map(|k| k.as_str().map(str::to_string)),
+        _ => None,
+    }
+}
+
+/// Return the text of the leading YAML front-matter block (between the opening
+/// `---` and the closing `---` / `...` line), if present.
+pub fn extract_yaml_frontmatter(content: &str) -> Option<String> {
+    let s = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let after_open = s
+        .strip_prefix("---\n")
+        .or_else(|| s.strip_prefix("---\r\n"))?;
+    for terminator in ["\n---", "\n..."] {
+        if let Some(idx) = after_open.find(terminator) {
+            return Some(after_open[..idx].to_string());
+        }
+    }
+    None
+}
+
+/// Extract the format key from a `format:` [`ConfigValue`]: the scalar string,
+/// or the first key when it is a map (`format: {revealjs: {...}}`).
+pub fn format_key_from_config_value(value: &ConfigValue) -> Option<String> {
+    if let Some(s) = value.as_str() {
+        return Some(s.to_string());
+    }
+    value
+        .as_map_entries()
+        .and_then(|entries| entries.first().map(|e| e.key.clone()))
+}
+
+/// Resolve a document's effective output format key by prefer-merging the
+/// `format:` declarations, lowest precedence to highest:
+///
+/// ```text
+///   project config   →   document front matter   →   `--to` override
+/// ```
+///
+/// The `--to` override is modeled as a synthesized `format: !prefer <to>`
+/// layer merged on top — uniform with a document that had written that
+/// instruction itself — so an explicit `--to` wins over every in-document
+/// declaration, while in its absence a per-file or project-level `format:` is
+/// honored (the per-file one winning over the project default). Returns
+/// `default` when no layer declares a format.
+///
+/// This runs *before* the render pipeline is built because the format key
+/// selects both the transform pipeline (reveal vs. generic) and the output
+/// file extension; the full format-specific config flattening still happens
+/// later in `MetadataMergeStage`.
+pub fn resolve_format_key(
+    project_format: Option<&str>,
+    document_format: Option<&str>,
+    cli_to: Option<&str>,
+    default: &str,
+) -> String {
+    use quarto_config::MergedConfig;
+    use quarto_pandoc_types::{ConfigMapEntry, MergeOp};
+    use quarto_source_map::SourceInfo;
+
+    // One `{format: !prefer <key>}` layer. All layers use `Prefer` (last
+    // wins); ordering project → document → `--to` encodes the precedence.
+    let format_layer = |key: &str| -> ConfigValue {
+        let si = SourceInfo::default();
+        ConfigValue::new_map(
+            vec![ConfigMapEntry {
+                key: "format".to_string(),
+                key_source: si.clone(),
+                value: ConfigValue::new_string(key, si.clone()).with_merge_op(MergeOp::Prefer),
+            }],
+            si,
+        )
+    };
+
+    let owned: Vec<ConfigValue> = [project_format, document_format, cli_to]
+        .into_iter()
+        .flatten()
+        .map(format_layer)
+        .collect();
+    if owned.is_empty() {
+        return default.to_string();
+    }
+    let layers: Vec<&ConfigValue> = owned.iter().collect();
+    MergedConfig::new(layers)
+        .materialize()
+        .ok()
+        .as_ref()
+        .and_then(|merged| merged.get("format"))
+        .and_then(format_key_from_config_value)
+        .unwrap_or_else(|| default.to_string())
 }
 
 /// Map a FormatIdentifier to its output file extension.
@@ -146,6 +280,13 @@ pub struct Format {
 
     /// Whether this format uses the native Rust pipeline
     pub native_pipeline: bool,
+
+    /// Structured pipeline selector. `Some("preview")` for the
+    /// `q2-preview` pseudo-format; `None` for everything else
+    /// today. Pipeline-dispatching stages (e.g.
+    /// `AstTransformsStage::run()`) read this instead of
+    /// string-matching on `target_format`.
+    pub pipeline_kind: Option<&'static str>,
 }
 
 impl Format {
@@ -158,6 +299,7 @@ impl Format {
             display_name: "HTML".to_string(),
             output_extension: "html".to_string(),
             native_pipeline: true,
+            pipeline_kind: None,
         }
     }
 
@@ -170,6 +312,7 @@ impl Format {
             display_name: "PDF".to_string(),
             output_extension: "pdf".to_string(),
             native_pipeline: false,
+            pipeline_kind: None,
         }
     }
 
@@ -182,6 +325,7 @@ impl Format {
             display_name: "DOCX".to_string(),
             output_extension: "docx".to_string(),
             native_pipeline: false,
+            pipeline_kind: None,
         }
     }
 
@@ -190,7 +334,8 @@ impl Format {
     /// Accepts:
     /// - Known base formats: "html", "pdf", "docx", etc.
     /// - Extension-style formats: "acm-html", "my-journal-pdf"
-    /// - Builtin pseudo-formats: "q2-slides", "q2-debug" (temporary, until extensions)
+    /// - Builtin pseudo-formats: "q2-slides", "q2-debug", "q2-preview"
+    ///   (temporary, until extensions)
     ///
     /// Returns Err for unrecognized format strings.
     pub fn from_format_string(format_str: &str) -> Result<Self, String> {
@@ -203,6 +348,7 @@ impl Format {
                 display_name: identifier.as_str().to_uppercase(),
                 output_extension: output_extension_for(identifier),
                 native_pipeline: identifier.is_native(),
+                pipeline_kind: None,
             });
         }
 
@@ -219,11 +365,15 @@ impl Format {
                 display_name: format_str.to_string(),
                 output_extension: output_extension_for(identifier),
                 native_pipeline: identifier.is_native(),
+                pipeline_kind: None,
             });
         }
 
-        // 3. Try as a builtin pseudo-format: "q2-slides" -> base "html"
-        if let Some(base) = builtin_pseudo_format(format_str) {
+        // 3. Try as a builtin pseudo-format: "q2-preview" -> base "html"
+        // with `pipeline_kind = Some("preview")`. The (base, kind)
+        // pair is the single source of truth; pipeline-dispatching
+        // stages read `pipeline_kind` instead of string-matching.
+        if let Some((base, pipeline_kind)) = builtin_pseudo_format(format_str) {
             let identifier = FormatIdentifier::try_from(base).unwrap();
             return Ok(Self {
                 identifier,
@@ -232,6 +382,7 @@ impl Format {
                 display_name: format_str.to_string(),
                 output_extension: output_extension_for(identifier),
                 native_pipeline: identifier.is_native(),
+                pipeline_kind,
             });
         }
 
@@ -280,7 +431,12 @@ pub fn is_minimal_html(meta: &ConfigValue) -> bool {
         return true;
     }
 
-    if let Some(theme) = meta.get("theme").and_then(|v| v.as_str()) {
+    // `as_plain_text` (not `as_str`): a bare `theme: none` / `theme: pandoc`
+    // front-matter string is stored as `ConfigValueKind::PandocInlines`, for
+    // which `as_str` returns `None`, so minimal mode was silently not applied.
+    // A theme *list* or *map* still yields `None` (correct — not "none"/"pandoc").
+    // (bd-y89ihf0i)
+    if let Some(theme) = meta.get("theme").and_then(|v| v.as_plain_text()) {
         if theme == "none" || theme == "pandoc" {
             return true;
         }
@@ -639,6 +795,30 @@ mod tests {
         assert_eq!(f.extension_name, None);
         assert_eq!(f.output_extension, "html");
         assert!(f.native_pipeline);
+        // revealjs epic Phase 1P: q2-slides is now the preview
+        // pseudo-format for `format: revealjs` — it uses the q2-preview
+        // pipeline_kind (AST path) so the SPA renders the reveal-section
+        // AST with a reveal shell. The reveal slide construction fires
+        // because `is_revealjs_target("q2-slides")` is true.
+        assert_eq!(f.pipeline_kind, Some("preview"));
+    }
+
+    #[test]
+    fn test_from_format_string_q2_preview() {
+        let f = Format::from_format_string("q2-preview").unwrap();
+        // q2-preview is HTML-based; the pseudo-format mapping
+        // gives it `identifier: Html` while preserving the original
+        // string in `target_format`.
+        assert_eq!(f.identifier, FormatIdentifier::Html);
+        assert_eq!(f.target_format, "q2-preview");
+        assert_eq!(f.extension_name, None);
+        assert_eq!(f.output_extension, "html");
+        assert!(f.native_pipeline);
+        // The structured selector pipeline-dispatching code reads.
+        // `AstTransformsStage::run()` will branch on this in a
+        // later commit (Plan 7 cleanup retires the temporary
+        // `target_format == "q2-preview"` string match).
+        assert_eq!(f.pipeline_kind, Some("preview"));
     }
 
     #[test]
@@ -753,6 +933,24 @@ mod tests {
     fn test_is_minimal_html_theme_bootstrap() {
         let meta = meta_with(vec![entry("theme", ConfigValue::new_string("cosmo", si()))]);
         assert!(!is_minimal_html(&meta));
+    }
+
+    /// bd-y89ihf0i: a bare `theme: none` front-matter string is stored as
+    /// `PandocInlines`, not `Scalar(String)`. With `as_str()` this resolved to
+    /// `None`, so minimal mode was silently NOT applied; `as_plain_text` fixes
+    /// it. (Surfaced by the `metadata-as-str` lint, not the original seed.)
+    #[test]
+    fn test_is_minimal_html_theme_none_as_inlines() {
+        use quarto_pandoc_types::inline::{Inline, Str};
+        let theme = ConfigValue::new_inlines(
+            vec![Inline::Str(Str {
+                text: "none".to_string(),
+                source_info: si(),
+            })],
+            si(),
+        );
+        let meta = meta_with(vec![entry("theme", theme)]);
+        assert!(is_minimal_html(&meta));
     }
 
     #[test]

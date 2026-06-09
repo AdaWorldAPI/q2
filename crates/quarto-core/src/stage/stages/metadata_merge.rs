@@ -303,7 +303,10 @@ impl PipelineStage for MetadataMergeStage {
 ///
 /// On native targets:
 /// - `trace: true` installs a `JsonTraceObserver` that writes to
-///   `.quarto/trace/<filename>/latest.json` relative to the project directory.
+///   `.quarto/trace/<filename>/latest.json.gz` relative to the project
+///   directory. The on-disk format is gzipped compact JSON (bd-5qnj);
+///   `quarto trace show` and the trace-viewer SPA decompress
+///   transparently.
 /// - `trace: "summary"` installs a `SummaryTraceObserver` that prints
 ///   to stderr.
 ///
@@ -336,7 +339,7 @@ fn activate_trace_from_metadata(
                 .and_then(|s| s.to_str())
                 .unwrap_or("document");
             let trace_dir = ctx.project.dir.join(".quarto").join("trace").join(stem);
-            let trace_path = trace_dir.join("latest.json");
+            let trace_path = trace_dir.join("latest.json.gz");
 
             trace_event!(
                 ctx,
@@ -586,6 +589,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -637,6 +641,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -681,6 +686,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -739,6 +745,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -785,6 +792,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -842,6 +850,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1041,6 +1050,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1088,6 +1098,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1125,6 +1136,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1165,6 +1177,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1220,6 +1233,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1276,6 +1290,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1324,6 +1339,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1368,6 +1384,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1413,6 +1430,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1454,6 +1472,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1497,6 +1516,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1551,6 +1571,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1632,6 +1653,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);
@@ -1681,6 +1703,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);

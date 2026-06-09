@@ -1,15 +1,15 @@
 {
   "metadata": {
-    "version": "0.4.0",
+    "version": "0.0.0",
     "license": "MIT",
     "authors": [
       {
-        "name": "MDeiml"
+        "name": "Posit, PBC"
       }
     ],
-    "description": "Markdown grammar for tree-sitter",
+    "description": "Tree-sitter grammar for Quarto Markdown (.qmd). Originally derived from MDeiml's tree-sitter-markdown; developed independently since.",
     "links": {
-      "repository": "https://github.com/tree-sitter-grammars/tree-sitter-markdown"
+      "repository": "https://github.com/quarto-dev/q2"
     }
   },
   "grammars": [
@@ -17,23 +17,13 @@
       "name": "markdown",
       "scope": "text.markdown",
       "path": "tree-sitter-markdown",
-      "injection-regex": "^(markdown|md)$",
+      "injection-regex": "^(qmd|markdown|md)$",
       "file-types": [
+        "qmd",
         "md"
       ],
       "highlights": "tree-sitter-markdown/queries/highlights.scm",
       "injections": "tree-sitter-markdown/queries/injections.scm",
-      "external-files": [
-        "common/common.js"
-      ]
-    },
-    {
-      "name": "markdown_inline",
-      "camelcase": "MarkdownInline",
-      "scope": "text.markdown_inline",
-      "path": "tree-sitter-markdown-inline",
-      "highlights": "tree-sitter-markdown-inline/queries/highlights.scm",
-      "injections": "tree-sitter-markdown-inline/queries/injections.scm",
       "external-files": [
         "common/common.js"
       ]

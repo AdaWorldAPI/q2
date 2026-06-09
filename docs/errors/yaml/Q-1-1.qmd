@@ -1,0 +1,67 @@
+---
+title: "YAML Syntax Error"
+description: "The YAML document being parsed has a syntax error that prevents parsing."
+code: Q-1-1
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-1` — YAML Syntax Error
+
+> The YAML document being parsed has a syntax error that prevents
+> parsing.
+
+## What this means
+
+Quarto could not parse a YAML document — typically `_quarto.yml`,
+the YAML front-matter at the top of a `.qmd` file, or a YAML block
+inside a `.qmd` file. The text in that YAML region is not valid
+YAML, so Quarto stops before reading any of its contents.
+
+This is a *parser-level* error, raised before schema validation
+runs. Errors like missing required properties (`Q-1-10`) or unknown
+properties (`Q-1-18`) cannot be reported when the parser cannot
+even get a document out of the text.
+
+## Why this happens
+
+The most common causes:
+
+- **Mismatched indentation.** YAML uses indentation to indicate
+  nesting. Mixing tabs and spaces, or jumping back to an outer
+  level mid-block, makes the structure ambiguous.
+- **Unquoted strings that contain reserved characters.** Values
+  with `:`, `#`, `[`, `]`, `{`, `}`, or leading `*`, `&`, `!`
+  typically need quotes.
+- **Unclosed quotes or brackets.** A stray `"` or `[` with no
+  matching close.
+- **A flow-style sequence or mapping that is not well-formed**,
+  e.g. `[a, b,, c]` or `{key: value,}`.
+
+## How to fix
+
+Read the error message: it includes the line and column where the
+underlying YAML parser gave up. The cause is usually within a few
+lines of that point — most often on the line itself, sometimes on
+the preceding line.
+
+If indentation is the suspect, replace tabs with spaces and align
+keys at the same nesting level. YAML accepts any number of leading
+spaces, but the *same* number for every key at the same level.
+
+If a value contains punctuation that YAML reserves, wrap the value
+in double quotes:
+
+```yaml
+title: "A: a study in punctuation"   # quoted because of the colon
+```
+
+## Related
+
+- [`Q-1-10`](Q-1-10.qmd) — missing required property: the YAML parses, but the
+  schema rejects it.
+- [`Q-1-23`](Q-1-23.qmd) — config layer parse failure: a higher-level wrapper
+  that points at which configuration file failed to load.

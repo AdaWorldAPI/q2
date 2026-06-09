@@ -1,0 +1,46 @@
+---
+title: "HTML Element Found in Document"
+description: "Reserved for strict-mode rejection of raw HTML elements in markdown. Quarto today auto-converts instead and reports `Q-2-9`."
+code: Q-2-6
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-6` — HTML Element Found in Document
+
+> Reserved for strict-mode rejection of raw HTML elements in
+> markdown. Quarto today auto-converts instead and reports
+> [`Q-2-9`](Q-2-9.qmd).
+
+## What this means
+
+The catalog reserves this code for a future strict mode in which
+"naked" HTML elements inside markdown — `<div>`, `<span>`,
+`<custom-tag>` and so on — are rejected outright. In current
+Quarto, those elements are silently converted to raw HTML inlines
+and surface as the warning [`Q-2-9`](Q-2-9.qmd) instead.
+
+## Why this happens
+
+You will not see this error in current Quarto: nothing emits it.
+The page exists so that the catalog entry is reachable and so
+that a future strict-mode release has a documentation page ready.
+
+## How to fix
+
+If you see this error in a future Quarto release, the fix is to
+either (a) remove the raw HTML, replacing it with native markdown
+constructs, or (b) explicitly mark the snippet as raw HTML with
+the Pandoc raw-attribute form:
+
+```markdown
+`<custom-tag>content</custom-tag>`{=html}
+```
+
+## Related
+
+- [`Q-2-9`](Q-2-9.qmd) — HTML element auto-converted: the warning
+  that currently fires in place of this error.

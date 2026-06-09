@@ -6,6 +6,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use quarto_core::attribution::AttributionMode;
+
 mod commands;
 
 #[derive(Parser)]
@@ -13,6 +15,13 @@ mod commands;
 #[command(version = quarto_util::cli_version())]
 #[command(about = "Quarto CLI", long_about = None)]
 struct Cli {
+    /// Increase log verbosity. Repeat for more detail:
+    /// `-v` adds info, `-vv` adds debug + samod=info,
+    /// `-vvv` adds trace + samod=debug + tower_http=debug.
+    /// `RUST_LOG` overrides this flag entirely when set.
+    #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
+    verbose: u8,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -21,8 +30,11 @@ struct Cli {
 enum Commands {
     /// Render files or projects to various document types
     Render {
-        /// Input file or project
-        input: Option<String>,
+        /// Input files, directories, or project root. Zero arguments
+        /// means "render the project rooted at the current working
+        /// directory." Multiple arguments are required to share a
+        /// single project (one project per render).
+        inputs: Vec<String>,
 
         /// Specify output format(s)
         #[arg(short = 't', long)]
@@ -88,6 +100,11 @@ enum Commands {
         #[arg(long)]
         no_clean: bool,
 
+        /// Wipe caches before rendering. These include the Pass-1 profile cache
+        /// and `nav-config-hash` caches. Preserves the SCSS `sass/` cache.
+        #[arg(long)]
+        clean_cache: bool,
+
         /// Leave intermediate files in place after render
         #[arg(long)]
         debug: bool,
@@ -108,75 +125,99 @@ enum Commands {
         #[arg(long)]
         quiet: bool,
 
+        /// Replay engine output from a recorded trace file
+        /// (`<trace>.json`) instead of running the real engine
+        /// Fails if the document's content does not match the
+        /// recorded input.
+        ///
+        /// Also activated by `QUARTO_REPLAY=<trace>` if the flag is
+        /// not set.
+        #[arg(long, value_name = "TRACE")]
+        replay: Option<String>,
+
         /// Active project profile(s)
         #[arg(long)]
         profile: Vec<String>,
 
-        /// Additional pandoc command line arguments
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        /// Additional pandoc command line arguments. Pass after `--`
+        /// so they don't collide with `inputs`. Example:
+        /// `quarto render index.qmd -- --metadata foo=bar`.
+        #[arg(last = true, allow_hyphen_values = true)]
         pandoc_args: Vec<String>,
+
+        /// Annotate output with per-author attribution.
+        /// `--attribution=git` shells out to `git blame`; `--attribution=off`
+        /// disables attribution even when the YAML opts in.
+        #[arg(long, value_enum)]
+        attribution: Option<AttributionMode>,
+
+        /// Emit diagnostics as one JSON object per line on stderr
+        /// instead of human-readable text.
+        #[arg(long = "json-errors")]
+        json_errors: bool,
+
+        /// Stop rendering as soon as the first error occurs.
+        /// When executed with many threads, many errors might still be reported.
+        #[arg(long = "fail-fast")]
+        fail_fast: bool,
     },
 
-    /// Render and preview a document or website project
+    /// Start a live preview of a Quarto document or project.
+    ///
+    /// Watches the project for changes and re-renders the active
+    /// page incrementally. The preview keeps its JavaScript state
+    /// (open menus, scroll position, math rendering, listings
+    /// filters) across edits — only the parts of the page that
+    /// actually changed are updated.
+    ///
+    /// Engine execution (Jupyter, knitr) is controlled by the
+    /// `preview.engine` key in `_quarto.yml`. Setting it to `manual`
+    /// (the default) makes the server detect when code has changed
+    /// and show a "Re-execute" button; `auto` re-executes on every
+    /// settled code edit; `off` skips engine execution entirely, so
+    /// code cells render as inert source.
+    ///
+    /// Press Ctrl-C to stop the server.
     Preview {
-        /// File or project to preview
-        file: Option<String>,
+        /// File or project root to preview.
+        ///
+        /// If you pass a file path inside a project (one with
+        /// `_quarto.yml` somewhere up the tree), the whole project
+        /// is loaded and the preview opens to that page. If you
+        /// pass a directory, the preview opens to `index.qmd` when
+        /// present, otherwise the first `.qmd` it finds. Defaults
+        /// to the current directory.
+        path: Option<std::path::PathBuf>,
 
-        /// Suggested port to listen on (defaults to random value between 3000 and 8000)
+        /// Port to listen on. Defaults to a random free port. Pass
+        /// `--port 0` to explicitly request an OS-assigned port.
         #[arg(long)]
         port: Option<u16>,
 
-        /// Hostname to bind to (defaults to 127.0.0.1)
+        /// Network interface to bind to. Defaults to `127.0.0.1`
         #[arg(long)]
         host: Option<String>,
 
-        /// Render to the specified format(s) before previewing
-        #[arg(long, default_value = "none")]
-        render: String,
-
-        /// Don't run a local preview web server (just monitor and re-render input files)
-        #[arg(long)]
-        no_serve: bool,
-
-        /// Don't navigate the browser automatically when outputs are updated
-        #[arg(long)]
-        no_navigate: bool,
-
-        /// Don't open a browser to preview the site
+        /// Don't open a browser tab on startup. The URL is still
+        /// printed on stdout for copy-paste.
         #[arg(long)]
         no_browser: bool,
 
-        /// Do not re-render input files when they change
+        /// Override the directory the preview uses for ephemeral
+        /// per-session state. Default: a fresh tempdir that is
+        /// deleted when `q2 preview` exits.
         #[arg(long)]
-        no_watch_inputs: bool,
+        data_dir: Option<std::path::PathBuf>,
 
-        /// Time (in seconds) after which to exit if there are no active clients
+        /// Override the embedded preview UI with a copy on disk —
+        /// useful when you're iterating on the preview UI itself.
+        /// Most users never need this.
         #[arg(long)]
-        timeout: Option<u32>,
+        preview_dir: Option<std::path::PathBuf>,
 
-        /// Path to log file
+        /// Run as a bare sync server with no local project.
         #[arg(long)]
-        log: Option<String>,
-
-        /// Log level (debug, info, warning, error, critical)
-        #[arg(long)]
-        log_level: Option<String>,
-
-        /// Log format (plain, json-stream)
-        #[arg(long)]
-        log_format: Option<String>,
-
-        /// Suppress console output
-        #[arg(long)]
-        quiet: bool,
-
-        /// Active project profile(s)
-        #[arg(long)]
-        profile: Vec<String>,
-
-        /// Additional arguments to forward to quarto render
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        render_args: Vec<String>,
+        no_project: bool,
     },
 
     /// Serve a Shiny interactive document
@@ -293,11 +334,37 @@ enum Commands {
 
     /// Publish a document or project to a provider
     Publish {
-        /// Provider to publish to
+        /// Provider to publish to (e.g. `gh-pages`)
         provider: Option<String>,
 
-        /// Path to publish
+        /// Path to publish (defaults to current directory)
         path: Option<String>,
+
+        /// Do not render before publishing
+        #[arg(long = "no-render", action = clap::ArgAction::SetTrue)]
+        no_render: bool,
+
+        /// Do not prompt for input (errors if input is required)
+        #[arg(long = "no-prompt", action = clap::ArgAction::SetTrue)]
+        no_prompt: bool,
+
+        /// Do not open the browser to the published URL
+        #[arg(long = "no-browser", action = clap::ArgAction::SetTrue)]
+        no_browser: bool,
+
+        /// Do not wait for the deployment to be live (incompatible
+        /// with --browser; pass --no-browser too)
+        #[arg(long = "no-wait", action = clap::ArgAction::SetTrue)]
+        no_wait: bool,
+
+        /// Run prepare + render but do not push or upload anything
+        #[arg(long = "dry-run", action = clap::ArgAction::SetTrue)]
+        dry_run: bool,
+
+        /// Emit machine-readable output (implies --no-prompt;
+        /// final PublishOutcome on stdout, NDJSON events on stderr)
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        json: bool,
     },
 
     /// Verify correct functioning of Quarto installation
@@ -318,6 +385,41 @@ enum Commands {
 
     /// Start the Quarto Language Server Protocol server
     Lsp,
+
+    /// Print a document's merged configuration as JSON.
+    ///
+    /// Resolves the effective configuration that applies to a document after
+    /// Quarto 2's full metadata-merge semantics (`_quarto.yml`, directory
+    /// `_metadata.yml` layers, frontmatter, and `format.<fmt>.*` flattening),
+    /// so external tools don't have to reimplement them.
+    ///
+    /// With no path, prints the entire merged metadata. A dot-separated path
+    /// (e.g. `format.html.toc` or `authors.0.name`) selects a value; a numeric
+    /// segment indexes into an array.
+    #[command(name = "get-config")]
+    GetConfig {
+        /// Document to inspect (.qmd/.md).
+        file: PathBuf,
+
+        /// Dot-separated key path. Omit for the entire merged metadata.
+        path: Option<String>,
+
+        /// Target format whose `format.<fmt>.*` overrides are flattened in.
+        #[arg(long, default_value = "html")]
+        to: String,
+
+        /// Prose representation: `value` (markdown string) or `pandoc` (AST).
+        #[arg(long, value_enum, default_value_t = commands::get_config::OutputMode::Value)]
+        output: commands::get_config::OutputMode,
+
+        /// Exit non-zero if the path does not exist (instead of printing null).
+        #[arg(long)]
+        strict: bool,
+
+        /// Emit compact single-line JSON instead of pretty-printed.
+        #[arg(long)]
+        compact: bool,
+    },
 
     /// Inspect pipeline execution traces under `.quarto/trace/`.
     ///
@@ -417,6 +519,14 @@ enum Commands {
         /// Ensure your provider verifies email ownership before trusting domain-based access.
         #[arg(long, env = "QUARTO_HUB_ALLOWED_DOMAINS", value_delimiter = ',')]
         allowed_domains: Option<Vec<String>>,
+
+        /// Additional OAuth client IDs accepted as JWT audiences alongside
+        /// `--oidc-client-id`. Used to share a hub between the SPA and
+        /// quarto-hub-mcp (whose Google device-flow tokens carry a
+        /// different `aud`). Exact matches only; no wildcards.
+        /// Plan §Phase 2 — claude-notes/plans/2026-05-05-hub-mcp-device-flow-implementation.md.
+        #[arg(long, env = "QUARTO_HUB_ADDITIONAL_AUDIENCES", value_delimiter = ',')]
+        additional_audiences: Vec<String>,
     },
 }
 
@@ -470,35 +580,65 @@ enum TraceCommand {
 }
 
 fn main() -> Result<()> {
-    // Initialize logging
+    let cli = Cli::parse();
+
+    // Initialize logging. The `-v` flag chooses a default filter
+    // directive (see `quarto_util::verbose_to_filter`); `RUST_LOG`,
+    // when set, takes precedence and is parsed directly by
+    // `try_from_default_env`. This matches the long-standing
+    // convention in the workspace.
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "quarto=info".into()),
+                .unwrap_or_else(|_| quarto_util::verbose_to_filter(cli.verbose).into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let cli = Cli::parse();
-
     match cli.command {
         Commands::Render {
-            input,
+            inputs,
             to,
             output,
             output_dir,
+            clean_cache,
             quiet,
+            replay,
             debug,
+            attribution,
+            json_errors,
+            fail_fast,
             ..
         } => commands::render::execute(commands::render::RenderArgs {
-            input,
+            inputs,
             to,
             output,
             output_dir,
+            clean_cache,
             quiet,
+            replay,
             debug,
+            attribution,
+            json_errors,
+            fail_fast,
         }),
-        Commands::Preview { .. } => commands::preview::execute(),
+        Commands::Preview {
+            path,
+            port,
+            host,
+            no_browser,
+            data_dir,
+            preview_dir,
+            no_project,
+        } => commands::preview::execute(commands::preview::PreviewArgs {
+            path,
+            port,
+            host,
+            no_browser,
+            data_dir,
+            preview_dir,
+            no_project,
+        }),
         Commands::Serve { .. } => commands::serve::execute(),
         Commands::Create { .. } => commands::create::execute(),
         Commands::Use { .. } => commands::use_cmd::execute(),
@@ -513,10 +653,43 @@ fn main() -> Result<()> {
         Commands::Install { .. } => commands::install::execute(),
         Commands::Uninstall { .. } => commands::uninstall::execute(),
         Commands::Tools => commands::tools::execute(),
-        Commands::Publish { .. } => commands::publish::execute(),
+        Commands::Publish {
+            provider,
+            path,
+            no_render,
+            no_prompt,
+            no_browser,
+            no_wait,
+            dry_run,
+            json,
+        } => commands::publish::execute(commands::publish::PublishArgs {
+            provider,
+            path,
+            no_render,
+            no_prompt,
+            no_browser,
+            no_wait,
+            dry_run,
+            json,
+        }),
         Commands::Check { .. } => commands::check::execute(),
         Commands::Call { function, args } => commands::call::execute(function, args),
         Commands::Lsp => commands::lsp::execute(),
+        Commands::GetConfig {
+            file,
+            path,
+            to,
+            output,
+            strict,
+            compact,
+        } => commands::get_config::execute(commands::get_config::GetConfigArgs {
+            file,
+            path,
+            to,
+            output,
+            strict,
+            compact,
+        }),
         Commands::Hub {
             project,
             no_project,
@@ -534,6 +707,7 @@ fn main() -> Result<()> {
             allow_insecure_auth,
             allowed_emails,
             allowed_domains,
+            additional_audiences,
         } => commands::hub::execute(commands::hub::HubArgs {
             project,
             no_project,
@@ -551,6 +725,7 @@ fn main() -> Result<()> {
             allow_insecure_auth,
             allowed_emails,
             allowed_domains,
+            additional_audiences,
         }),
         Commands::Trace { command } => match command {
             TraceCommand::List { trace_dir } => {

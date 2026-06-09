@@ -135,4 +135,106 @@ mod tests {
         assert!(get_error_info("Q-999-999").is_none()); // quarto-error-code-audit-ignore
         assert!(get_docs_url("Q-999-999").is_none()); // quarto-error-code-audit-ignore
     }
+
+    // L8 / bd-rqgx test #1: Q-12-14 catalog presence.
+    #[test]
+    fn error_catalog_has_q_12_14() {
+        let info = get_error_info("Q-12-14").expect("Q-12-14 must be in the catalog");
+        assert_eq!(info.subsystem, "listing");
+        assert_eq!(info.title, "Listing Type custom Without template Path");
+        assert!(
+            info.message_template.contains("type: custom"),
+            "Q-12-14 message must mention `type: custom`; got: {}",
+            info.message_template
+        );
+        assert!(
+            info.message_template.contains("default"),
+            "Q-12-14 message must mention the default fallback; got: {}",
+            info.message_template
+        );
+    }
+
+    // bd-8d6rk: Q-13-1..6 navigation subsystem catalog presence.
+    //
+    // These six codes back the structured-diagnostic migration of the
+    // sidebar / navbar / page-footer / body-link / sidebar `auto:`
+    // warnings (previously plain `DiagnosticMessage::warning(format!())`
+    // strings without codes). See
+    // `claude-notes/plans/2026-05-20-bd-8d6rk-navigation-diagnostics.md`
+    // for the per-code title/problem/hint table.
+    #[test]
+    fn error_catalog_has_q_13_navigation_codes() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("Q-13-1", "Sidebar", "missing document"),
+            ("Q-13-2", "Navbar", "missing document"),
+            ("Q-13-3", "Page footer", "missing document"),
+            ("Q-13-4", "Body link", "missing document"),
+            ("Q-13-5", "auto:", "project index"),
+            ("Q-13-6", "auto:", "no documents"),
+            ("Q-13-7", "Page navigation", "missing document"),
+        ];
+        for (code, title_substr, message_substr) in cases {
+            let info =
+                get_error_info(code).unwrap_or_else(|| panic!("{} must be in the catalog", code));
+            assert_eq!(
+                info.subsystem, "navigation",
+                "{} should be in the navigation subsystem; got: {}",
+                code, info.subsystem
+            );
+            assert!(
+                info.title.contains(title_substr),
+                "{} title must mention `{}`; got: {}",
+                code,
+                title_substr,
+                info.title
+            );
+            assert!(
+                info.message_template.contains(message_substr),
+                "{} message must mention `{}`; got: {}",
+                code,
+                message_substr,
+                info.message_template
+            );
+            assert!(
+                info.docs_url
+                    .as_deref()
+                    .map(|u| u.ends_with(code))
+                    .unwrap_or(false),
+                "{} docs_url must end with {}; got: {:?}",
+                code,
+                code,
+                info.docs_url
+            );
+        }
+    }
+
+    // L9 / bd-o90m test #1: Q-12-15 + Q-12-16 catalog presence.
+    #[test]
+    fn error_catalog_has_q_12_15_and_q_12_16() {
+        let q15 = get_error_info("Q-12-15").expect("Q-12-15 must be in the catalog");
+        assert_eq!(q15.subsystem, "listing");
+        assert!(
+            q15.title.to_lowercase().contains("feed"),
+            "Q-12-15 title must mention feed; got: {}",
+            q15.title
+        );
+        assert!(
+            q15.message_template.contains("site-url"),
+            "Q-12-15 message must mention `site-url`; got: {}",
+            q15.message_template
+        );
+
+        let q16 = get_error_info("Q-12-16").expect("Q-12-16 must be in the catalog");
+        assert_eq!(q16.subsystem, "listing");
+        assert!(
+            q16.title.to_lowercase().contains("feed"),
+            "Q-12-16 title must mention feed; got: {}",
+            q16.title
+        );
+        assert!(
+            q16.message_template.contains("description"),
+            "Q-12-16 message must mention the empty description fallback; got: {}",
+            q16.message_template
+        );
+    }
 }

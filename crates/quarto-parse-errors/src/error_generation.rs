@@ -13,7 +13,6 @@ use std::collections::HashSet;
 use crate::error_table::{ErrorCapture, ErrorTableEntry, lookup_error_entry};
 use crate::tree_sitter_log::{ConsumedToken, TreeSitterLogObserver};
 use quarto_error_reporting::DiagnosticMessage;
-use quarto_source_map::Location;
 
 /// Produce structured DiagnosticMessage objects from parse errors.
 ///
@@ -108,38 +107,25 @@ fn error_diagnostic_from_parse_state(
     // Look up the error entry from the table
     let error_entry = lookup_error_entry(error_table, parse_state);
 
-    // Convert input to string for offset calculation
-    let input_str = String::from_utf8_lossy(input_bytes);
+    // All offset arithmetic operates on `input_bytes` directly.
+    // Tree-sitter reports `parse_state.row` / `parse_state.column` as
+    // byte counts in the source it was given, which agrees with
+    // `input_bytes`. Mixing in a `String::from_utf8_lossy(input_bytes)`
+    // shifts offsets whenever the input has invalid UTF-8 (each bad
+    // byte expands to a 3-byte `U+FFFD`), and slicing at a tree-sitter
+    // offset then panics on a non-char-boundary (bd-6qbto).
 
-    // Calculate byte offset and create proper locations using quarto-source-map utilities
-    let byte_offset = calculate_byte_offset(&input_str, parse_state.row, parse_state.column);
+    let byte_offset = calculate_byte_offset(input_bytes, parse_state.row, parse_state.column);
+    let span_end = advance_chars(input_bytes, byte_offset, parse_state.size.max(1));
 
-    // Calculate span_end by advancing parse_state.size characters (not bytes!) from byte_offset
-    // This is critical for handling multi-byte UTF-8 characters correctly
-    let span_end = {
-        let size = parse_state.size.max(1);
-        let substring = &input_str[byte_offset..];
-        let mut byte_count = 0;
-
-        for (char_count, ch) in substring.chars().enumerate() {
-            if char_count >= size {
-                break;
-            }
-            byte_count += ch.len_utf8();
-        }
-
-        (byte_offset + byte_count).min(input_str.len())
-    };
-
-    // Use quarto_source_map::utils::offset_to_location to properly calculate locations
-    let start_location = quarto_source_map::utils::offset_to_location(&input_str, byte_offset)
-        .unwrap_or(quarto_source_map::Location {
+    let start_location =
+        offset_to_location_bytes(input_bytes, byte_offset).unwrap_or(quarto_source_map::Location {
             offset: byte_offset,
             row: parse_state.row,
             column: parse_state.column,
         });
-    let end_location = quarto_source_map::utils::offset_to_location(&input_str, span_end)
-        .unwrap_or(quarto_source_map::Location {
+    let end_location =
+        offset_to_location_bytes(input_bytes, span_end).unwrap_or(quarto_source_map::Location {
             offset: span_end,
             row: parse_state.row,
             column: parse_state.column + parse_state.size.max(1),
@@ -185,105 +171,48 @@ fn error_diagnostic_from_parse_state(
                                 find_matching_token(consumed_tokens, capture, parse_state)
                                     .or(find_matching_token(all_tokens, capture, parse_state))
                             {
-                                // Calculate the byte offset for this token
+                                // All offset math is in the input_bytes domain.
+                                // See the note at the top of this function.
                                 let mut token_byte_offset =
-                                    calculate_byte_offset(&input_str, token.row, token.column);
+                                    calculate_byte_offset(input_bytes, token.row, token.column);
+                                let mut token_span_end = advance_chars(
+                                    input_bytes,
+                                    token_byte_offset,
+                                    token.size.max(1),
+                                );
 
-                                // Calculate token_span_end by advancing token.size characters (not bytes!)
-                                // This is critical for handling multi-byte UTF-8 characters correctly
-                                let mut token_span_end = {
-                                    let size = token.size.max(1);
-                                    let substring = &input_str[token_byte_offset..];
-                                    let mut byte_count = 0;
-
-                                    for (char_count, ch) in substring.chars().enumerate() {
-                                        if char_count >= size {
-                                            break;
-                                        }
-                                        byte_count += ch.len_utf8();
-                                    }
-
-                                    (token_byte_offset + byte_count).min(input_str.len())
-                                };
-
-                                // Create SourceInfo for this token location
-                                // Use from_range to create an Original SourceInfo since the token
-                                // is in the same file as the main error, not a substring of it
-                                let mut token_location_start =
-                                    quarto_source_map::utils::offset_to_location(
-                                        &input_str,
-                                        token_byte_offset,
-                                    )
-                                    .unwrap_or(
-                                        quarto_source_map::Location {
-                                            offset: token_byte_offset,
-                                            row: token.row,
-                                            column: token.column,
-                                        },
-                                    );
-                                let mut token_location_end =
-                                    quarto_source_map::utils::offset_to_location(
-                                        &input_str,
-                                        token_span_end,
-                                    )
-                                    .unwrap_or(
-                                        quarto_source_map::Location {
-                                            offset: token_span_end,
-                                            row: token.row,
-                                            column: token.column + token.size.max(1),
-                                        },
-                                    );
+                                // Trim ASCII spaces at the edges. b' ' is one byte
+                                // and never appears inside a multi-byte sequence, so
+                                // a byte-level walk is correct.
                                 if note.trim_leading_space.unwrap_or_default() {
-                                    // Advance token_byte_offset while trimming leading spaces
-                                    loop {
-                                        let current_character = input_str
-                                            .get(token_byte_offset..)
-                                            .and_then(|s| s.chars().next())
-                                            .unwrap_or('\0');
-                                        if current_character != ' ' {
-                                            break;
-                                        }
-                                        let this_offset = current_character.len_utf8();
-                                        token_location_start = Location {
-                                            offset: token_location_start.offset + this_offset,
-                                            row: token_location_start.row,
-                                            column: token_location_start.row + this_offset,
-                                        };
-                                        token_byte_offset += this_offset;
-                                        if input_str.get(token_byte_offset..).is_none() {
-                                            break;
-                                        }
+                                    while token_byte_offset < token_span_end
+                                        && input_bytes[token_byte_offset] == b' '
+                                    {
+                                        token_byte_offset += 1;
                                     }
                                 }
                                 if note.trim_trailing_space.unwrap_or_default() {
-                                    // Move token_span_end backward while trimming trailing spaces
-                                    loop {
-                                        if token_span_end == 0
-                                            || token_span_end <= token_byte_offset
-                                        {
-                                            break;
-                                        }
-                                        // Get the character just before token_span_end
-                                        let slice_before_end =
-                                            input_str.get(..token_span_end).unwrap_or("");
-                                        let last_character =
-                                            slice_before_end.chars().last().unwrap_or('\0');
-                                        if last_character != ' ' {
-                                            break;
-                                        }
-                                        let this_offset = last_character.len_utf8();
-                                        token_location_end = Location {
-                                            offset: token_location_end
-                                                .offset
-                                                .saturating_sub(this_offset),
-                                            row: token_location_end.row,
-                                            column: token_location_end
-                                                .column
-                                                .saturating_sub(this_offset),
-                                        };
-                                        token_span_end = token_span_end.saturating_sub(this_offset);
+                                    while token_span_end > token_byte_offset
+                                        && input_bytes[token_span_end - 1] == b' '
+                                    {
+                                        token_span_end -= 1;
                                     }
                                 }
+
+                                let token_location_start =
+                                    offset_to_location_bytes(input_bytes, token_byte_offset)
+                                        .unwrap_or(quarto_source_map::Location {
+                                            offset: token_byte_offset,
+                                            row: token.row,
+                                            column: token.column,
+                                        });
+                                let token_location_end =
+                                    offset_to_location_bytes(input_bytes, token_span_end)
+                                        .unwrap_or(quarto_source_map::Location {
+                                            offset: token_span_end,
+                                            row: token.row,
+                                            column: token.column + token.size.max(1),
+                                        });
 
                                 let token_source_info = quarto_source_map::SourceInfo::from_range(
                                     quarto_source_map::FileId(0),
@@ -320,56 +249,104 @@ fn error_diagnostic_from_parse_state(
         )
 }
 
-fn calculate_byte_offset(input: &str, row: usize, column: usize) -> usize {
-    // Tree-sitter reports column as a BYTE offset within the line, not a character offset
-    let mut current_row = 0;
-    let mut byte_offset = 0;
+/// Compute a byte offset into `input` given tree-sitter's (row,
+/// column) coordinates. Tree-sitter reports `column` as a *byte*
+/// offset from the start of the line, not a character offset, so a
+/// byte-level walk is the natural fit. Walking bytes also avoids the
+/// `from_utf8_lossy` offset drift that crashed the previous
+/// implementation on invalid UTF-8 input (bd-6qbto).
+fn calculate_byte_offset(input: &[u8], row: usize, column: usize) -> usize {
+    let mut current_row = 0_usize;
+    let mut line_start = 0_usize;
+    for (i, &b) in input.iter().enumerate() {
+        if b == b'\n' {
+            if current_row == row {
+                return (line_start + column).min(i);
+            }
+            current_row += 1;
+            line_start = i + 1;
+        }
+    }
+    // Last line (no trailing newline) or empty input.
+    if current_row == row {
+        return (line_start + column).min(input.len());
+    }
+    // Row not reachable — clamp to EOF.
+    input.len()
+}
 
-    for ch in input.chars() {
-        // Check if we've reached the target position
-        if current_row == row && byte_offset >= column {
-            // column is a byte offset within the current line
-            // We need to find the exact byte position
+/// Advance `size` characters from `start` within `input`, returning
+/// the resulting byte offset. Decodes UTF-8 a codepoint at a time;
+/// each byte that fails to start a valid sequence counts as one
+/// "character" and advances by one byte. That matches what
+/// `from_utf8_lossy` would emit (each maximal ill-formed subpart
+/// becomes one `U+FFFD`) while keeping all offsets in the original
+/// byte domain.
+fn advance_chars(input: &[u8], start: usize, size: usize) -> usize {
+    let mut pos = start.min(input.len());
+    let mut count = 0_usize;
+    while count < size && pos < input.len() {
+        let step = next_codepoint_size(&input[pos..]);
+        if step == 0 {
             break;
         }
+        pos += step;
+        count += 1;
+    }
+    pos.min(input.len())
+}
 
-        if ch == '\n' {
-            byte_offset += ch.len_utf8();
-            // Check if target is at newline
-            if current_row == row && byte_offset >= column {
-                break;
-            }
-            current_row += 1;
-            // Reset byte offset to 0 for the new line... but wait, tree-sitter
-            // columns are within-line offsets, so we need to track line starts
-        } else {
-            byte_offset += ch.len_utf8();
+/// Return the byte length of the next codepoint at the start of
+/// `bytes`. Returns 1 for any invalid lead, truncated continuation,
+/// or otherwise ill-formed sequence — so the caller can treat each
+/// invalid byte as a single "character". Returns 0 only when `bytes`
+/// is empty.
+fn next_codepoint_size(bytes: &[u8]) -> usize {
+    let Some(&b) = bytes.first() else {
+        return 0;
+    };
+    let expected_len = match b {
+        0x00..=0x7F => 1,
+        0xC2..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF4 => 4,
+        _ => return 1, // invalid lead → consume the lone byte
+    };
+    if bytes.len() < expected_len {
+        return 1; // truncated → consume the lone byte
+    }
+    match std::str::from_utf8(&bytes[..expected_len]) {
+        Ok(_) => expected_len,
+        Err(_) => 1, // invalid continuation → consume the lone byte
+    }
+}
+
+/// Bytes-aware sibling of `quarto_source_map::utils::offset_to_location`.
+/// Returns `None` if the offset is out of bounds. Column is reported
+/// as the number of characters on the current line as a
+/// `from_utf8_lossy` reader would count them — for valid UTF-8 this
+/// matches the source-map utility exactly; for invalid UTF-8 it
+/// counts each ill-formed byte as a single replacement character.
+fn offset_to_location_bytes(input: &[u8], offset: usize) -> Option<quarto_source_map::Location> {
+    if offset > input.len() {
+        return None;
+    }
+    let mut row = 0_usize;
+    let mut line_start = 0_usize;
+    for (i, &b) in input[..offset].iter().enumerate() {
+        if b == b'\n' {
+            row += 1;
+            line_start = i + 1;
         }
     }
-
-    // Actually, let's reconsider: tree-sitter column is byte offset WITHIN THE LINE
-    // So we need to find the start of the target row, then add column bytes
-    let mut current_row = 0;
-    let mut line_start_offset = 0;
-
-    for (i, ch) in input.char_indices() {
-        if ch == '\n' {
-            if current_row == row {
-                // Found the target row, column is byte offset from line_start_offset
-                return (line_start_offset + column).min(i);
-            }
-            current_row += 1;
-            line_start_offset = i + ch.len_utf8();
-        }
-    }
-
-    // If we're on the last line (no trailing newline) or at EOF
-    if current_row == row {
-        return (line_start_offset + column).min(input.len());
-    }
-
-    // Couldn't find the position, clamp to EOF
-    input.len()
+    let column = String::from_utf8_lossy(&input[line_start..offset])
+        .chars()
+        .count();
+    Some(quarto_source_map::Location {
+        offset,
+        row,
+        column,
+    })
 }
 
 // we call this in the stage where we're building the matching between
@@ -678,4 +655,112 @@ pub fn prune_diagnostics_by_error_nodes(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tree_sitter_log::{
+        ProcessMessage, TreeSitterLogObserver, TreeSitterParseLog, TreeSitterProcessLog,
+    };
+    use hashlink::LinkedHashMap as HashMap;
+
+    /// Build a minimal observer whose parse log carries one error
+    /// state at the given (row, column). The state-machine numbers
+    /// don't need to match a real tree-sitter run — the path under
+    /// test only reads `(row, column, size, sym, state)` from the
+    /// ProcessMessage and looks up the error table by `(state, sym)`,
+    /// which falls through to the generic "Parse error" diagnostic
+    /// when the table is empty.
+    fn observer_with_one_error(row: usize, column: usize, size: usize) -> TreeSitterLogObserver {
+        let process_log = TreeSitterProcessLog {
+            found_accept: false,
+            found_bad_message: false,
+            error_states: vec![ProcessMessage {
+                version: 0,
+                state: 0,
+                row,
+                column,
+                sym: "ERROR".to_string(),
+                size,
+            }],
+            current_message: None,
+        };
+        let mut processes = HashMap::new();
+        processes.insert(0_usize, process_log);
+        let parse = TreeSitterParseLog {
+            messages: vec![],
+            current_process: None,
+            current_lookahead: None,
+            processes,
+            all_tokens: vec![],
+            consumed_tokens: vec![],
+        };
+        let mut observer = TreeSitterLogObserver::default();
+        observer.parses.push(parse);
+        observer
+    }
+
+    /// Regression test for bd-6qbto: diagnostic generation must not
+    /// panic on invalid UTF-8 input. Pre-fix, `&input_str[byte_offset..]`
+    /// at line 121 panics with "byte index N is not a char boundary;
+    /// it is inside '�'" whenever the tree-sitter offset lands inside
+    /// the 3-byte expansion `from_utf8_lossy` produces for an invalid
+    /// byte.
+    #[test]
+    fn produce_diagnostic_messages_does_not_panic_on_invalid_utf8() {
+        // 100 'a's then three invalid bytes then a newline, then "bc\n".
+        // Tree-sitter would report row=0, column=N with N somewhere
+        // inside the invalid run; we hand it column=102, which is in
+        // the middle of the 0xFE byte.
+        let mut input_bytes = vec![b'a'; 100];
+        input_bytes.extend_from_slice(&[0xFF, 0xFE, 0xFD, b'\n', b'b', b'c', b'\n']);
+
+        let observer = observer_with_one_error(0, 102, 1);
+        let table: Vec<ErrorTableEntry> = Vec::new();
+        let source_context = quarto_source_map::SourceContext::new();
+
+        // The call must return a Vec without panicking. We do not
+        // assert anything about the produced location — on invalid
+        // input it is necessarily a degraded best-effort value.
+        let diagnostics =
+            produce_diagnostic_messages(&input_bytes, &observer, &table, "x.qmd", &source_context);
+        assert!(
+            !diagnostics.is_empty(),
+            "fallback diagnostic should be produced for unrecognized parse state",
+        );
+    }
+
+    /// Regression guard for the common case: on valid UTF-8, the
+    /// diagnostic's location should match the parse state's row.
+    /// This is the no-drift test that protects against the rewrite
+    /// of `calculate_byte_offset` accidentally shifting locations
+    /// on well-formed input.
+    #[test]
+    fn produce_diagnostic_messages_location_correct_on_valid_utf8() {
+        // Two lines, ASCII. Error reported at row=1, column=2 (the
+        // 'l' in "Hello" if we're 0-indexed-on-bytes within the line).
+        let input_bytes = b"first line\nHello world\n";
+
+        let observer = observer_with_one_error(1, 2, 1);
+        let table: Vec<ErrorTableEntry> = Vec::new();
+        let source_context = quarto_source_map::SourceContext::new();
+
+        let diagnostics = produce_diagnostic_messages(
+            &input_bytes[..],
+            &observer,
+            &table,
+            "x.qmd",
+            &source_context,
+        );
+        let diag = diagnostics
+            .first()
+            .expect("expected at least one diagnostic");
+        let location = diag.location.as_ref().expect("expected a location");
+
+        // Row should be 1 (the second line). Column is whatever
+        // offset_to_location decided based on chars-from-line-start;
+        // for ASCII that's identical to bytes-from-line-start, so 2.
+        assert_eq!(location.start_offset(), b"first line\n".len() + 2);
+    }
 }

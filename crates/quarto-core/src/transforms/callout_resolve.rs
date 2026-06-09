@@ -22,17 +22,38 @@
 //!
 //! ## Output Structure
 //!
-//! The transform produces this Div structure (which renders to the expected HTML):
+//! The transform produces Div structures matching what TS Quarto's
+//! `src/resources/filters/modules/callouts.lua` (`render_to_bootstrap_div`)
+//! emits, so the bundled Bootstrap SCSS in
+//! `resources/scss/bootstrap/_bootstrap-rules.scss` applies cleanly.
+//!
+//! **Titled callout** (user title OR appearance=default + injected display name):
 //!
 //! ```text
-//! Div.callout.callout-{type}
-//!   Div.callout-header
-//!     Div.callout-icon-container
-//!       Plain[RawInline(html, "<i class=\"callout-icon\"></i>")]
+//! Div.callout.callout-style-{appearance}.callout-{type}.callout-titled[.no-icon][.callout-empty-content]
+//!   Div.callout-header.d-flex.align-content-center[.collapsed]
+//!     Div.callout-icon-container      (always; inner <i> gets `no-icon` co-class when icon=false)
+//!       Plain[RawInline(html, "<i class=\"callout-icon[ no-icon]\"></i>")]
 //!     Div.callout-title-container.flex-fill
 //!       Plain[title inlines...]
-//!   Div.callout-body-container.callout-body
+//!     Plain[<div class="callout-btn-toggle ...">...]   (when collapse=true|false)
+//!   Div.callout-body-container.callout-body            (when no collapse)
 //!     [content blocks...]
+//!   OR
+//!   Div.callout-collapse.collapse[.show]               (when collapse=true|false)
+//!     Div.callout-body-container.callout-body
+//!       [content blocks...]
+//! ```
+//!
+//! **Untitled callout** (appearance!=default + no user title):
+//!
+//! ```text
+//! Div.callout.callout-style-{appearance}.callout-{type}[.no-icon][.callout-empty-content]
+//!   Div.callout-body.d-flex
+//!     Div.callout-icon-container      (always; inner <i> gets `no-icon` co-class when icon=false)
+//!       Plain[RawInline(html, "<i class=\"callout-icon[ no-icon]\"></i>")]
+//!     Div.callout-body-container
+//!       [content blocks...]
 //! ```
 
 use hashlink::LinkedHashMap;
@@ -74,64 +95,68 @@ impl AstTransform for CalloutResolveTransform {
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {
-        resolve_blocks(&mut ast.blocks);
+        // Document-scoped counter for generating unique `callout-N-contents`
+        // ids on collapsible callouts. Starts at 1 to match TS Quarto's
+        // `calloutidx` (`src/resources/filters/modules/callouts.lua`).
+        let mut counter = 1u32;
+        resolve_blocks(&mut ast.blocks, &mut counter);
         Ok(())
     }
 }
 
 /// Resolve CustomNodes in a vector of blocks.
-fn resolve_blocks(blocks: &mut Vec<Block>) {
+fn resolve_blocks(blocks: &mut Vec<Block>, counter: &mut u32) {
     for block in blocks.iter_mut() {
-        resolve_block(block);
+        resolve_block(block, counter);
     }
 }
 
 /// Resolve a single block, potentially converting CustomNode to Div.
-fn resolve_block(block: &mut Block) {
+fn resolve_block(block: &mut Block, counter: &mut u32) {
     // First, recursively resolve any nested blocks
     match block {
         Block::BlockQuote(bq) => {
-            resolve_blocks(&mut bq.content);
+            resolve_blocks(&mut bq.content, counter);
         }
         Block::OrderedList(ol) => {
             for item in &mut ol.content {
-                resolve_blocks(item);
+                resolve_blocks(item, counter);
             }
         }
         Block::BulletList(bl) => {
             for item in &mut bl.content {
-                resolve_blocks(item);
+                resolve_blocks(item, counter);
             }
         }
         Block::DefinitionList(dl) => {
             for (_term, defs) in &mut dl.content {
                 for def in defs {
-                    resolve_blocks(def);
+                    resolve_blocks(def, counter);
                 }
             }
         }
         Block::Figure(fig) => {
-            resolve_blocks(&mut fig.content);
+            resolve_blocks(&mut fig.content, counter);
         }
         Block::Div(div) => {
-            resolve_blocks(&mut div.content);
+            resolve_blocks(&mut div.content, counter);
         }
         Block::Table(table) => {
             for body in &mut table.bodies {
                 for row in &mut body.body {
                     for cell in &mut row.cells {
-                        resolve_blocks(&mut cell.content);
+                        resolve_blocks(&mut cell.content, counter);
                     }
                 }
             }
             for row in &mut table.head.rows {
                 for cell in &mut row.cells {
-                    resolve_blocks(&mut cell.content);
+                    resolve_blocks(&mut cell.content, counter);
                 }
             }
             for row in &mut table.foot.rows {
                 for cell in &mut row.cells {
-                    resolve_blocks(&mut cell.content);
+                    resolve_blocks(&mut cell.content, counter);
                 }
             }
         }
@@ -139,15 +164,15 @@ fn resolve_block(block: &mut Block) {
             // First resolve any nested blocks in slots
             for (_name, slot) in &mut custom.slots {
                 match slot {
-                    Slot::Block(b) => resolve_block(b),
-                    Slot::Blocks(bs) => resolve_blocks(bs),
+                    Slot::Block(b) => resolve_block(b, counter),
+                    Slot::Blocks(bs) => resolve_blocks(bs, counter),
                     _ => {}
                 }
             }
 
             // Then check if this is a Callout that should be resolved
             if custom.type_name == "Callout" {
-                let resolved_div = resolve_callout(custom);
+                let resolved_div = resolve_callout(custom, counter);
                 *block = Block::Div(resolved_div);
             }
         }
@@ -156,61 +181,200 @@ fn resolve_block(block: &mut Block) {
     }
 }
 
-/// Resolve a Callout CustomNode to a Div with the expected HTML structure.
-fn resolve_callout(custom: &mut CustomNode) -> Div {
-    // Extract callout properties from plain_data
-    let callout_type = extract_string(&custom.plain_data, "type").unwrap_or("note");
-    let appearance = extract_string(&custom.plain_data, "appearance").unwrap_or("default");
+/// Resolve a Callout CustomNode to a Div matching the TS Quarto /
+/// Bootstrap HTML structure (see module doc-comment).
+///
+/// `counter` is bumped by 1 whenever a collapsible callout consumes
+/// it for the `callout-N-contents` id.
+fn resolve_callout(custom: &mut CustomNode, counter: &mut u32) -> Div {
+    // Extract callout properties from plain_data. Appearance is
+    // already normalized at CalloutTransform time (minimal → simple +
+    // icon=false), so the resolver only sees `default` or `simple`.
+    // Owned copies up-front so the `&custom.plain_data` borrow is
+    // released before `extract_content_blocks` takes `&mut custom`
+    // below (NLL would handle this for a single short-lived borrow,
+    // but `callout_type` / `appearance` are used after the mutating
+    // call, so we clone now).
+    let callout_type = extract_string(&custom.plain_data, "type")
+        .unwrap_or("note")
+        .to_string();
+    let raw_appearance = extract_string(&custom.plain_data, "appearance")
+        .unwrap_or("default")
+        .to_string();
     let collapse = extract_bool(&custom.plain_data, "collapse").unwrap_or(false);
-    let icon = extract_bool(&custom.plain_data, "icon").unwrap_or(true);
+    let collapse_starts_collapsed =
+        extract_bool(&custom.plain_data, "collapse_starts_collapsed").unwrap_or(false);
+    let raw_icon = extract_bool(&custom.plain_data, "icon").unwrap_or(true);
+
+    // Defense-in-depth normalization (`appearance="minimal"` →
+    // `simple` + `icon=false`). CalloutTransform already does this
+    // upstream, but the resolver also accepts CustomNodes synthesized
+    // by other code (tests, eventual filter authors), so we
+    // re-apply it here. Matches TS Quarto's `nameForCalloutStyle`.
+    let (appearance, icon) = if raw_appearance == "minimal" {
+        ("simple".to_string(), false)
+    } else {
+        (raw_appearance, raw_icon)
+    };
 
     let source_info = custom.source_info.clone();
 
-    // Build class list for outer div
-    let mut classes = vec!["callout".to_string(), format!("callout-{}", callout_type)];
-    if appearance != "default" {
-        classes.push(format!("callout-appearance-{}", appearance));
+    // Pull title and content out of the custom node.
+    let user_title = extract_user_title(custom);
+    let content_blocks = extract_content_blocks(custom);
+    let has_content = !content_blocks.is_empty();
+
+    // Whether the callout already carries a crossref-rendered prefix
+    // in its title (set by `CalloutTransform` when `classify_cite_id`
+    // matched — see `callout.rs:236-241`). The prefix announces the
+    // type to screen readers on its own, so we skip the
+    // screen-reader-only span in that case to avoid duplication.
+    // Mirror of `callouts.lua:194-197`'s `needs_screen_reader_callout_type`.
+    let is_crossref = custom.plain_data.get("ref_type").is_some();
+
+    // Default-title injection (per `callouts.lua:224-227`):
+    // `appearance="default"` + empty title → inject the type's display name.
+    // `appearance="simple"` keeps the empty title, taking the untitled path.
+    //
+    // Tracks whether the title came from the user (vs. our
+    // default-injection) so we can decide later whether to prepend
+    // the screen-reader-only type span.
+    let (title_inlines, title_is_user_supplied): (Option<Vec<Inline>>, bool) = match user_title {
+        Some(t) if !t.is_empty() => (Some(t), true),
+        _ if appearance == "default" => (
+            Some(vec![Inline::Str(Str {
+                text: capitalize(&callout_type),
+                source_info: SourceInfo::default(),
+            })]),
+            false,
+        ),
+        _ => (None, false),
+    };
+    let is_titled = title_inlines.is_some();
+
+    // Screen-reader-only type announcement (per `callouts.lua:271-275`):
+    // titled callouts whose title is user-supplied AND that aren't
+    // crossref-eligible get a leading `<span class="screen-reader-only">
+    // {DisplayName}</span>` so screen readers hear "Note: <title>" or
+    // similar. Default-injected titles already ARE the display name;
+    // crossref prefixes already announce the type. Both cases skip.
+    let title_inlines = match title_inlines {
+        Some(mut inlines) if title_is_user_supplied && !is_crossref => {
+            inlines.insert(
+                0,
+                Inline::Span(quarto_pandoc_types::inline::Span {
+                    attr: make_attr(&["screen-reader-only"]),
+                    content: vec![Inline::Str(Str {
+                        text: capitalize(&callout_type),
+                        source_info: SourceInfo::default(),
+                    })],
+                    source_info: SourceInfo::default(),
+                    attr_source: AttrSourceInfo::empty(),
+                }),
+            );
+            Some(inlines)
+        }
+        other => other,
+    };
+
+    // Outer div classes.
+    let mut classes = vec![
+        "callout".to_string(),
+        format!("callout-style-{}", appearance),
+        format!("callout-{}", callout_type),
+    ];
+    if !icon {
+        classes.push("no-icon".to_string());
     }
-    if collapse {
-        classes.push("callout-collapse".to_string());
+    if is_titled {
+        classes.push("callout-titled".to_string());
+    }
+    if !has_content {
+        classes.push("callout-empty-content".to_string());
     }
 
-    // Include original non-callout classes from attr
+    // Preserve original non-callout classes from the source attr.
     let (orig_id, orig_classes, orig_attrs) = &custom.attr;
     for cls in orig_classes {
         if !cls.starts_with("callout") {
             classes.push(cls.clone());
         }
     }
-
-    // Build outer div attr
     let outer_attr: Attr = (orig_id.clone(), classes, orig_attrs.clone());
 
-    // Extract title and content from slots
-    let title_inlines = extract_title_inlines(custom, callout_type);
-    let content_blocks = extract_content_blocks(custom);
+    // Reserve unique ids for the collapse wrapper. Q1-parity
+    // naming (callouts.lua:281, 307, 310, 316-317):
+    //   - `callout-N` is the wrapper's `id=` attribute AND what
+    //     `aria-controls` points at.
+    //   - `callout-N-contents` is a class on the same wrapper AND
+    //     what the header's `bs-target=".callout-N-contents"` selects.
+    // Only consumed when collapse is enabled.
+    let collapse_ids = if collapse {
+        let n = *counter;
+        *counter += 1;
+        Some(CollapseIds {
+            wrapper_id: format!("callout-{}", n),
+            contents_class: format!("callout-{}-contents", n),
+        })
+    } else {
+        None
+    };
 
-    // Build the inner structure
+    let body_inner_div = Div {
+        attr: make_attr(&["callout-body-container"]),
+        content: content_blocks,
+        source_info: source_info.clone(),
+        attr_source: AttrSourceInfo::empty(),
+    };
+
+    let outer_content = if is_titled {
+        build_titled_content(
+            &source_info,
+            title_inlines.expect("is_titled => title_inlines is Some"),
+            icon,
+            collapse,
+            collapse_starts_collapsed,
+            collapse_ids.as_ref(),
+            body_inner_div,
+        )
+    } else {
+        build_untitled_content(&source_info, icon, body_inner_div)
+    };
+
+    Div {
+        attr: outer_attr,
+        content: outer_content,
+        source_info,
+        attr_source: AttrSourceInfo::empty(),
+    }
+}
+
+struct CollapseIds {
+    /// Wrapper's `id` attribute; also what header `aria-controls`
+    /// points at. Shape: `callout-N`.
+    wrapper_id: String,
+    /// CSS class on the same wrapper; also the bs-target class
+    /// selector. Shape: `callout-N-contents`.
+    contents_class: String,
+}
+
+/// Construct the children of the outer Div for the titled-callout path.
+fn build_titled_content(
+    source_info: &SourceInfo,
+    title_inlines: Vec<Inline>,
+    icon: bool,
+    collapse: bool,
+    collapse_starts_collapsed: bool,
+    collapse_ids: Option<&CollapseIds>,
+    body_inner_div: Div,
+) -> Vec<Block> {
     let mut header_content = Vec::new();
 
-    // Icon container (if enabled)
-    if icon {
-        header_content.push(Block::Div(Div {
-            attr: make_attr(&["callout-icon-container"]),
-            content: vec![Block::Plain(Plain {
-                content: vec![Inline::RawInline(RawInline {
-                    format: "html".to_string(),
-                    text: "<i class=\"callout-icon\"></i>".to_string(),
-                    source_info: source_info.clone(),
-                })],
-                source_info: source_info.clone(),
-            })],
-            source_info: source_info.clone(),
-            attr_source: AttrSourceInfo::empty(),
-        }));
-    }
+    // Always emit the icon container (Q1-parity, callouts.lua:254-262);
+    // when icon=false the inner `<i>` carries `no-icon` so CSS can hide it.
+    header_content.push(Block::Div(icon_container_div(source_info, icon)));
 
-    // Title container
+    // Title container.
     header_content.push(Block::Div(Div {
         attr: make_attr(&["callout-title-container", "flex-fill"]),
         content: vec![Block::Plain(Plain {
@@ -221,51 +385,151 @@ fn resolve_callout(custom: &mut CustomNode) -> Div {
         attr_source: AttrSourceInfo::empty(),
     }));
 
-    // Header div
+    // Header: classes + (when collapsible) Bootstrap toggle attrs.
+    let mut header_classes: Vec<String> = vec![
+        "callout-header".to_string(),
+        "d-flex".to_string(),
+        "align-content-center".to_string(),
+    ];
+    let mut header_attrs = LinkedHashMap::new();
+    if collapse {
+        let ids = collapse_ids.expect("collapse=true => collapse_ids is Some");
+        if collapse_starts_collapsed {
+            header_classes.push("collapsed".to_string());
+        }
+        header_attrs.insert("bs-toggle".to_string(), "collapse".to_string());
+        // bs-target uses the `.callout-N-contents` class selector;
+        // aria-controls points at the wrapper's `id="callout-N"`.
+        header_attrs.insert("bs-target".to_string(), format!(".{}", ids.contents_class));
+        header_attrs.insert("aria-controls".to_string(), ids.wrapper_id.clone());
+        header_attrs.insert(
+            "aria-expanded".to_string(),
+            if collapse_starts_collapsed {
+                "false"
+            } else {
+                "true"
+            }
+            .to_string(),
+        );
+        header_attrs.insert("aria-label".to_string(), "Toggle callout".to_string());
+
+        // Trailing toggle button.
+        header_content.push(Block::Plain(Plain {
+            content: vec![Inline::RawInline(RawInline {
+                format: "html".to_string(),
+                text: "<div class=\"callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 \
+                       float-end\"><i class=\"callout-toggle\"></i></div>"
+                    .to_string(),
+                source_info: source_info.clone(),
+            })],
+            source_info: source_info.clone(),
+        }));
+    }
     let header_div = Block::Div(Div {
-        attr: make_attr(&["callout-header"]),
+        attr: (String::new(), header_classes, header_attrs),
         content: header_content,
         source_info: source_info.clone(),
         attr_source: AttrSourceInfo::empty(),
     });
 
-    // Body div
-    let body_div = Block::Div(Div {
-        attr: make_attr(&["callout-body-container", "callout-body"]),
-        content: content_blocks,
+    // Body. With collapse, wrap the body-container in a
+    // `.callout-collapse.collapse[.show]` div; without collapse, the
+    // body-container itself takes the `callout-body` class.
+    let body_block = if collapse {
+        let ids = collapse_ids.expect("collapse=true => collapse_ids is Some");
+        let mut collapse_classes = vec![
+            // bs-target selector class, e.g. `callout-1-contents`.
+            ids.contents_class.clone(),
+            "callout-collapse".to_string(),
+            "collapse".to_string(),
+        ];
+        if !collapse_starts_collapsed {
+            collapse_classes.push("show".to_string());
+        }
+        // Body-container inside the collapse wrapper carries
+        // `callout-body-container callout-body` (matches TS Quarto's
+        // titled+collapse output).
+        let mut body_with_class = body_inner_div;
+        body_with_class.attr.1.push("callout-body".to_string());
+        Block::Div(Div {
+            // Wrapper id is the clean `callout-N` (no -contents
+            // suffix); aria-controls on the header points at this id.
+            attr: (
+                ids.wrapper_id.clone(),
+                collapse_classes,
+                LinkedHashMap::new(),
+            ),
+            content: vec![Block::Div(body_with_class)],
+            source_info: source_info.clone(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    } else {
+        let mut body_with_class = body_inner_div;
+        body_with_class.attr.1.push("callout-body".to_string());
+        Block::Div(body_with_class)
+    };
+
+    vec![header_div, body_block]
+}
+
+/// Construct the children of the outer Div for the untitled-callout path.
+///
+/// Untitled callouts are flat: a single `<div class="callout-body d-flex">`
+/// wrapping the icon container and the body-container.
+fn build_untitled_content(source_info: &SourceInfo, icon: bool, body_inner_div: Div) -> Vec<Block> {
+    let mut body_content = Vec::new();
+    // Always emit the icon container (Q1-parity); icon=false adds
+    // the `no-icon` co-class to the inner `<i>`.
+    body_content.push(Block::Div(icon_container_div(source_info, icon)));
+    body_content.push(Block::Div(body_inner_div));
+
+    let body_outer = Div {
+        attr: make_attr(&["callout-body", "d-flex"]),
+        content: body_content,
         source_info: source_info.clone(),
         attr_source: AttrSourceInfo::empty(),
-    });
+    };
+    vec![Block::Div(body_outer)]
+}
 
-    // Outer callout div
+/// Build the icon container div. The container is ALWAYS emitted
+/// (Q1-parity, `callouts.lua:254-262`); when `icon=false` the inner
+/// `<i>` carries an additional `no-icon` co-class which CSS uses to
+/// hide it visually. This keeps the DOM count of
+/// `.callout-icon-container` stable across icon/no-icon callouts —
+/// downstream tooling that walks the container can count callouts
+/// reliably.
+fn icon_container_div(source_info: &SourceInfo, icon: bool) -> Div {
+    let i_class = if icon {
+        "callout-icon"
+    } else {
+        "callout-icon no-icon"
+    };
     Div {
-        attr: outer_attr,
-        content: vec![header_div, body_div],
-        source_info,
+        attr: make_attr(&["callout-icon-container"]),
+        content: vec![Block::Plain(Plain {
+            content: vec![Inline::RawInline(RawInline {
+                format: "html".to_string(),
+                text: format!("<i class=\"{}\"></i>", i_class),
+                source_info: source_info.clone(),
+            })],
+            source_info: source_info.clone(),
+        })],
+        source_info: source_info.clone(),
         attr_source: AttrSourceInfo::empty(),
     }
 }
 
-/// Extract title inlines from the CustomNode, with fallback to default.
-fn extract_title_inlines(custom: &CustomNode, callout_type: &str) -> Vec<Inline> {
-    if let Some(title_slot) = custom.get_slot("title") {
-        match title_slot {
-            Slot::Inlines(inlines) if !inlines.is_empty() => {
-                return inlines.clone();
-            }
-            Slot::Inline(inline) => {
-                return vec![inline.as_ref().clone()];
-            }
-            _ => {}
-        }
+/// Pull the user-supplied title inlines out of the CustomNode, if any.
+/// Returns None when the title slot is absent or empty — that's the
+/// signal for the resolver to decide between default-title injection
+/// (appearance=default) and the untitled path (appearance=simple).
+fn extract_user_title(custom: &CustomNode) -> Option<Vec<Inline>> {
+    match custom.get_slot("title")? {
+        Slot::Inlines(inlines) if !inlines.is_empty() => Some(inlines.clone()),
+        Slot::Inline(inline) => Some(vec![inline.as_ref().clone()]),
+        _ => None,
     }
-
-    // Default title based on callout type
-    let default_title = capitalize(callout_type);
-    vec![Inline::Str(Str {
-        text: default_title,
-        source_info: SourceInfo::default(),
-    })]
 }
 
 /// Extract content blocks from the CustomNode.
@@ -470,7 +734,7 @@ mod tests {
         custom.plain_data = json!({"type": "note"});
         // No title slot - should use default
 
-        let resolved = resolve_callout(&mut custom);
+        let resolved = resolve_callout(&mut custom, &mut 1);
 
         // Find the title container and check it has "Note"
         let header = &resolved.content[0];
@@ -497,17 +761,43 @@ mod tests {
         let mut custom = CustomNode::new("Callout", empty_attr(), dummy_source_info());
         custom.plain_data = json!({"type": "warning", "icon": false});
 
-        let resolved = resolve_callout(&mut custom);
+        let resolved = resolve_callout(&mut custom, &mut 1);
 
-        // Header should only have title container, no icon
-        if let Block::Div(header_div) = &resolved.content[0] {
-            // With icon=false, header should have only 1 child (title container)
-            assert_eq!(header_div.content.len(), 1);
-            if let Block::Div(title_div) = &header_div.content[0] {
-                let (_, classes, _) = &title_div.attr;
-                assert!(classes.contains(&"callout-title-container".to_string()));
-            }
-        }
+        // Q1-parity: header always contains an icon container; the
+        // `no-icon` marker lives on the outer div + the inner `<i>`.
+        // See `test_canonical_icon_false_*` for the canonical-scheme
+        // assertions; this test stays as a structural regression
+        // guard for the titled-path layout (header = icon + title).
+        let header_div = match &resolved.content[0] {
+            Block::Div(d) => d,
+            other => panic!("expected header Div, got {:?}", other),
+        };
+        assert_eq!(
+            header_div.content.len(),
+            2,
+            "titled header has [icon container, title container]"
+        );
+        let icon_div = match &header_div.content[0] {
+            Block::Div(d) => d,
+            _ => panic!("expected icon container"),
+        };
+        assert!(
+            icon_div
+                .attr
+                .1
+                .contains(&"callout-icon-container".to_string()),
+            "first child of header is the icon container"
+        );
+        let title_div = match &header_div.content[1] {
+            Block::Div(d) => d,
+            _ => panic!("expected title container"),
+        };
+        assert!(
+            title_div
+                .attr
+                .1
+                .contains(&"callout-title-container".to_string())
+        );
     }
 
     #[tokio::test]
@@ -552,5 +842,693 @@ mod tests {
         assert_eq!(capitalize("warning"), "Warning");
         assert_eq!(capitalize(""), "");
         assert_eq!(capitalize("TIP"), "TIP");
+    }
+
+    // ====================================================================
+    // Canonical-class tests (TS Quarto / Bootstrap scheme).
+    //
+    // These tests assert the class vocabulary that the bundled Bootstrap
+    // SCSS (`resources/scss/bootstrap/_bootstrap-rules.scss`) keys off
+    // of, matching what `src/resources/filters/modules/callouts.lua` in
+    // TS Quarto emits (`render_to_bootstrap_div`). They are EXPECTED TO
+    // FAIL against the pre-Phase-2 resolver — they encode the target
+    // behaviour for the rewrite. See
+    // `claude-notes/plans/2026-05-22-callout-class-vocabulary-fix.md`.
+    // ====================================================================
+
+    fn str_inline(text: &str) -> Inline {
+        Inline::Str(Str {
+            text: text.to_string(),
+            source_info: dummy_source_info(),
+        })
+    }
+
+    fn para(text: &str) -> Block {
+        Block::Paragraph(Paragraph {
+            content: vec![str_inline(text)],
+            source_info: dummy_source_info(),
+        })
+    }
+
+    /// Construct a Callout CustomNode. Passing `None` for `title` leaves
+    /// the title slot unset (= user supplied no `## Title` header).
+    ///
+    /// `collapse=Some(true)` models the user writing `collapse="true"`
+    /// (starts collapsed); `Some(false)` models `collapse="false"`
+    /// (collapsible but starts expanded); `None` means no `collapse`
+    /// attribute at all (not collapsible). This mirrors what
+    /// `CalloutTransform` writes into `plain_data` for a real qmd
+    /// callout.
+    fn callout_node(
+        callout_type: &str,
+        appearance: Option<&str>,
+        icon: Option<bool>,
+        collapse: Option<bool>,
+        title: Option<Vec<Inline>>,
+        content: Vec<Block>,
+    ) -> CustomNode {
+        let mut data = serde_json::Map::new();
+        data.insert("type".into(), json!(callout_type));
+        if let Some(a) = appearance {
+            data.insert("appearance".into(), json!(a));
+        }
+        if let Some(i) = icon {
+            data.insert("icon".into(), json!(i));
+        }
+        if let Some(starts_collapsed) = collapse {
+            data.insert("collapse".into(), json!(true));
+            data.insert("collapse_starts_collapsed".into(), json!(starts_collapsed));
+        }
+        let mut custom = CustomNode::new("Callout", empty_attr(), dummy_source_info());
+        custom.plain_data = Value::Object(data);
+        if let Some(t) = title {
+            custom.set_slot("title", Slot::Inlines(t));
+        }
+        custom.set_slot("content", Slot::Blocks(content));
+        custom
+    }
+
+    fn outer_classes(div: &Div) -> Vec<String> {
+        div.attr.1.clone()
+    }
+
+    fn assert_has_class(classes: &[String], expected: &str) {
+        assert!(
+            classes.iter().any(|c| c == expected),
+            "expected class `{}` to be present; got {:?}",
+            expected,
+            classes
+        );
+    }
+
+    fn assert_no_class(classes: &[String], unexpected: &str) {
+        assert!(
+            classes.iter().all(|c| c != unexpected),
+            "expected class `{}` to be absent; got {:?}",
+            unexpected,
+            classes
+        );
+    }
+
+    /// Walk the resolved Div tree and return true if any descendant Div
+    /// (including the root) carries `class`.
+    fn contains_class_anywhere(div: &Div, class: &str) -> bool {
+        if div.attr.1.iter().any(|c| c == class) {
+            return true;
+        }
+        for block in &div.content {
+            if let Block::Div(d) = block
+                && contains_class_anywhere(d, class)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Pull the user-visible title text out of a titled-path resolved
+    /// Div. Returns None for untitled callouts.
+    fn extract_title_text(resolved: &Div) -> Option<String> {
+        let header = match resolved.content.first()? {
+            Block::Div(d) if d.attr.1.iter().any(|c| c == "callout-header") => d,
+            _ => return None,
+        };
+        for block in &header.content {
+            if let Block::Div(d) = block
+                && d.attr.1.iter().any(|c| c == "callout-title-container")
+                && let Some(Block::Plain(p)) = d.content.first()
+            {
+                let mut text = String::new();
+                for inline in &p.content {
+                    if let Inline::Str(s) = inline {
+                        text.push_str(&s.text);
+                    }
+                }
+                return Some(text);
+            }
+        }
+        None
+    }
+
+    #[tokio::test]
+    async fn test_canonical_default_with_user_title() {
+        let mut node = callout_node(
+            "warning",
+            Some("default"),
+            None,
+            None,
+            Some(vec![str_inline("Watch Out")]),
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let classes = outer_classes(&resolved);
+        assert_has_class(&classes, "callout");
+        assert_has_class(&classes, "callout-style-default");
+        assert_has_class(&classes, "callout-warning");
+        assert_has_class(&classes, "callout-titled");
+        assert_no_class(&classes, "no-icon");
+        assert_no_class(&classes, "callout-empty-content");
+        assert_no_class(&classes, "callout-appearance-default");
+        assert_no_class(&classes, "callout-appearance-simple");
+    }
+
+    #[tokio::test]
+    async fn test_canonical_default_no_title_injects_default() {
+        let mut node = callout_node("tip", Some("default"), None, None, None, vec![para("Body")]);
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let classes = outer_classes(&resolved);
+        assert_has_class(&classes, "callout-style-default");
+        assert_has_class(&classes, "callout-titled");
+        assert_eq!(
+            extract_title_text(&resolved).as_deref(),
+            Some("Tip"),
+            "appearance=default with no user title should inject the type's display name"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_canonical_simple_no_title_stays_untitled() {
+        let mut node = callout_node("note", Some("simple"), None, None, None, vec![para("Body")]);
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let classes = outer_classes(&resolved);
+        assert_has_class(&classes, "callout-style-simple");
+        assert_no_class(&classes, "callout-titled");
+
+        // Untitled path: outer has a single child, the body Div with
+        // classes `callout-body d-flex` containing the icon container
+        // and then the body-container.
+        assert_eq!(
+            resolved.content.len(),
+            1,
+            "untitled callout should have a single body child, no header div"
+        );
+        let body = match &resolved.content[0] {
+            Block::Div(d) => d,
+            other => panic!("expected body Div, got {:?}", other),
+        };
+        let body_classes = outer_classes(body);
+        assert_has_class(&body_classes, "callout-body");
+        assert_has_class(&body_classes, "d-flex");
+        assert_no_class(&body_classes, "callout-header");
+
+        // First child = icon container.
+        let icon = match &body.content[0] {
+            Block::Div(d) => d,
+            other => panic!("expected icon container Div, got {:?}", other),
+        };
+        assert_has_class(&outer_classes(icon), "callout-icon-container");
+
+        // Second child = body-container (NOT also `callout-body`).
+        let container = match &body.content[1] {
+            Block::Div(d) => d,
+            other => panic!("expected body-container Div, got {:?}", other),
+        };
+        let container_classes = outer_classes(container);
+        assert_has_class(&container_classes, "callout-body-container");
+        assert_no_class(&container_classes, "callout-body");
+    }
+
+    #[tokio::test]
+    async fn test_canonical_simple_with_user_title() {
+        let mut node = callout_node(
+            "important",
+            Some("simple"),
+            None,
+            None,
+            Some(vec![str_inline("Please Read")]),
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let classes = outer_classes(&resolved);
+        assert_has_class(&classes, "callout-style-simple");
+        assert_has_class(&classes, "callout-titled");
+        let header = match &resolved.content[0] {
+            Block::Div(d) => d,
+            other => panic!("expected header Div, got {:?}", other),
+        };
+        assert_has_class(&outer_classes(header), "callout-header");
+    }
+
+    #[tokio::test]
+    async fn test_canonical_minimal_normalizes_to_simple_no_icon() {
+        let mut node = callout_node(
+            "caution",
+            Some("minimal"),
+            None,
+            None,
+            None,
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let classes = outer_classes(&resolved);
+        assert_has_class(&classes, "callout-style-simple");
+        assert_no_class(&classes, "callout-style-minimal");
+        assert_has_class(&classes, "no-icon");
+        // Q1-parity: minimal normalizes to no-icon, which still
+        // emits the icon container but adds `no-icon` to the inner
+        // `<i>` element (CSS hides it). See
+        // `test_canonical_icon_false_marks_i_element_no_icon`.
+        assert!(
+            contains_class_anywhere(&resolved, "callout-icon-container"),
+            "minimal appearance (= simple + no-icon) still emits the icon \
+             container; CSS hides it via .callout.no-icon"
+        );
+    }
+
+    /// TS Quarto parity (`callouts.lua:254-262`): even with
+    /// `icon=false`, the `.callout-icon-container` div is STILL
+    /// emitted; the inner `<i>` carries the additional `no-icon`
+    /// class. CSS hides the icon visually via `.callout.no-icon`.
+    /// Q1-parity matters because downstream tooling that walks
+    /// `.callout-icon-container` would see different counts under
+    /// the two schemes.
+    #[tokio::test]
+    async fn test_canonical_icon_false_emits_no_icon() {
+        let mut node = callout_node(
+            "warning",
+            Some("default"),
+            Some(false),
+            None,
+            Some(vec![str_inline("Heads Up")]),
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        assert_has_class(&outer_classes(&resolved), "no-icon");
+        assert!(
+            contains_class_anywhere(&resolved, "callout-icon-container"),
+            "icon=false must still emit the icon container (Q1-parity); \
+             CSS hides it via .callout.no-icon. got: outer classes {:?}",
+            outer_classes(&resolved)
+        );
+    }
+
+    /// When `icon=false`, the inner `<i>` element gets `no-icon`
+    /// as a co-class alongside `callout-icon`. Mirrors
+    /// `callouts.lua:261` where `noicon = " no-icon"` is appended
+    /// to the icon's class attribute.
+    #[tokio::test]
+    async fn test_canonical_icon_false_marks_i_element_no_icon() {
+        let mut node = callout_node(
+            "warning",
+            Some("default"),
+            Some(false),
+            None,
+            Some(vec![str_inline("Heads Up")]),
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let raw_icon_html = collect_raw_html(&resolved);
+        assert!(
+            raw_icon_html.contains("callout-icon no-icon"),
+            "icon=false must emit <i class=\"callout-icon no-icon\">; \
+             got raw inline HTML: {:?}",
+            raw_icon_html
+        );
+    }
+
+    /// When `icon=true`, the inner `<i>` should NOT carry `no-icon`.
+    #[tokio::test]
+    async fn test_canonical_icon_true_emits_i_without_no_icon() {
+        let mut node = callout_node(
+            "warning",
+            Some("default"),
+            Some(true),
+            None,
+            Some(vec![str_inline("Heads Up")]),
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let raw_icon_html = collect_raw_html(&resolved);
+        assert!(
+            raw_icon_html.contains("callout-icon"),
+            "icon=true must still emit the <i class=\"callout-icon\"> element"
+        );
+        assert!(
+            !raw_icon_html.contains("no-icon"),
+            "icon=true must NOT add the no-icon class to <i>; got: {:?}",
+            raw_icon_html
+        );
+    }
+
+    /// Helper for the icon tests: walk all `RawInline` blocks in
+    /// the resolved Div and concatenate their text. The `<i>` for
+    /// the icon is emitted as a `RawInline` so this captures it.
+    fn collect_raw_html(div: &Div) -> String {
+        let mut out = String::new();
+        collect_raw_html_into(div, &mut out);
+        out
+    }
+    fn collect_raw_html_into(div: &Div, out: &mut String) {
+        for block in &div.content {
+            match block {
+                Block::Div(d) => collect_raw_html_into(d, out),
+                Block::Plain(p) => {
+                    for inline in &p.content {
+                        if let Inline::RawInline(r) = inline {
+                            out.push_str(&r.text);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_canonical_empty_content_class() {
+        let mut node = callout_node(
+            "note",
+            Some("default"),
+            None,
+            None,
+            Some(vec![str_inline("Heads Up")]),
+            vec![],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        assert_has_class(&outer_classes(&resolved), "callout-empty-content");
+    }
+
+    #[tokio::test]
+    async fn test_canonical_titled_header_has_utility_classes() {
+        let mut node = callout_node(
+            "tip",
+            Some("default"),
+            None,
+            None,
+            Some(vec![str_inline("Title")]),
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let header = match &resolved.content[0] {
+            Block::Div(d) => d,
+            other => panic!("expected header Div, got {:?}", other),
+        };
+        let header_classes = outer_classes(header);
+        assert_has_class(&header_classes, "callout-header");
+        assert_has_class(&header_classes, "d-flex");
+        assert_has_class(&header_classes, "align-content-center");
+    }
+
+    #[tokio::test]
+    async fn test_canonical_collapse_true_emits_wrapper() {
+        let mut node = callout_node(
+            "note",
+            Some("default"),
+            None,
+            Some(true),
+            Some(vec![str_inline("T")]),
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        // Expected structure: outer > [header, collapse-wrapper];
+        // collapse-wrapper > body.
+        assert_eq!(
+            resolved.content.len(),
+            2,
+            "outer should have header + collapse wrapper as siblings"
+        );
+        let header = match &resolved.content[0] {
+            Block::Div(d) => d,
+            other => panic!("expected header Div, got {:?}", other),
+        };
+        let header_classes = outer_classes(header);
+        assert_has_class(&header_classes, "callout-header");
+        assert_has_class(&header_classes, "collapsed");
+        let header_attrs = &header.attr.2;
+        assert_eq!(
+            header_attrs.get("aria-expanded").map(String::as_str),
+            Some("false"),
+            "collapsed callout header must have aria-expanded=\"false\""
+        );
+        let collapse = match &resolved.content[1] {
+            Block::Div(d) => d,
+            other => panic!("expected collapse wrapper Div, got {:?}", other),
+        };
+        let collapse_classes = outer_classes(collapse);
+        assert_has_class(&collapse_classes, "callout-collapse");
+        assert_has_class(&collapse_classes, "collapse");
+        assert_no_class(&collapse_classes, "show");
+        // Q1-parity id naming (callouts.lua:281-317): wrapper's id
+        // is `callout-N` (the bare counter); its `callout-N-contents`
+        // class is what `bs-target` references via the class
+        // selector. aria-controls points at the id.
+        assert_eq!(
+            collapse.attr.0, "callout-1",
+            "collapse wrapper id must be the clean `callout-N` (no -contents suffix)"
+        );
+        assert_has_class(&collapse_classes, "callout-1-contents");
+        assert_eq!(
+            header_attrs.get("aria-controls").map(String::as_str),
+            Some("callout-1"),
+            "aria-controls must point at the wrapper's id (callout-N), not the bs-target class"
+        );
+        assert_eq!(
+            header_attrs.get("bs-target").map(String::as_str),
+            Some(".callout-1-contents"),
+            "bs-target uses the `.callout-N-contents` class selector"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_canonical_collapse_false_emits_show_class() {
+        let mut node = callout_node(
+            "note",
+            Some("default"),
+            None,
+            Some(false),
+            Some(vec![str_inline("T")]),
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let header = match &resolved.content[0] {
+            Block::Div(d) => d,
+            other => panic!("expected header Div, got {:?}", other),
+        };
+        let header_attrs = &header.attr.2;
+        assert_eq!(
+            header_attrs.get("aria-expanded").map(String::as_str),
+            Some("true"),
+            "open collapse callout must have aria-expanded=\"true\""
+        );
+        assert_no_class(&outer_classes(header), "collapsed");
+        let collapse = match &resolved.content[1] {
+            Block::Div(d) => d,
+            other => panic!("expected collapse wrapper Div, got {:?}", other),
+        };
+        let collapse_classes = outer_classes(collapse);
+        assert_has_class(&collapse_classes, "callout-collapse");
+        assert_has_class(&collapse_classes, "collapse");
+        assert_has_class(&collapse_classes, "show");
+    }
+
+    #[tokio::test]
+    async fn test_canonical_no_legacy_appearance_class() {
+        for appearance in &["default", "simple"] {
+            let mut node = callout_node(
+                "note",
+                Some(appearance),
+                None,
+                None,
+                Some(vec![str_inline("T")]),
+                vec![para("Body")],
+            );
+            let resolved = resolve_callout(&mut node, &mut 1);
+            let classes = outer_classes(&resolved);
+            assert_no_class(&classes, "callout-appearance-default");
+            assert_no_class(&classes, "callout-appearance-simple");
+            assert_no_class(&classes, "callout-appearance-minimal");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_canonical_user_id_preserved() {
+        let mut node = callout_node(
+            "tip",
+            Some("default"),
+            None,
+            None,
+            Some(vec![str_inline("T")]),
+            vec![para("Body")],
+        );
+        node.attr.0 = "mywarn".to_string();
+        let resolved = resolve_callout(&mut node, &mut 1);
+        assert_eq!(
+            resolved.attr.0, "mywarn",
+            "user-supplied id must survive resolution"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_canonical_all_types_emit_type_class() {
+        for t in &["note", "warning", "tip", "important", "caution"] {
+            let mut node = callout_node(
+                t,
+                Some("default"),
+                None,
+                None,
+                Some(vec![str_inline("T")]),
+                vec![para("Body")],
+            );
+            let resolved = resolve_callout(&mut node, &mut 1);
+            assert_has_class(&outer_classes(&resolved), &format!("callout-{}", t));
+        }
+    }
+
+    /// TS Quarto (`callouts.lua:271-275`) prepends a `<span
+    /// class="screen-reader-only">{DisplayName}</span>` to the title
+    /// inlines of titled callouts that aren't crossref-eligible.
+    /// Without it, screen readers only hear the visible title and
+    /// miss the callout type ("Note", "Warning", …). Q1 parity →
+    /// accessibility.
+    #[tokio::test]
+    async fn test_canonical_titled_user_title_gets_screen_reader_span() {
+        let mut node = callout_node(
+            "warning",
+            Some("default"),
+            None,
+            None,
+            Some(vec![str_inline("Watch Out")]),
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let header = match &resolved.content[0] {
+            Block::Div(d) => d,
+            other => panic!("expected header Div, got {:?}", other),
+        };
+        let title_container = header
+            .content
+            .iter()
+            .filter_map(|b| match b {
+                Block::Div(d) if d.attr.1.iter().any(|c| c == "callout-title-container") => Some(d),
+                _ => None,
+            })
+            .next()
+            .expect("title-container Div");
+        let title_inlines = match &title_container.content[0] {
+            Block::Plain(p) => &p.content,
+            other => panic!("expected Plain inside title-container, got {:?}", other),
+        };
+        // First inline must be a Span with class `screen-reader-only`
+        // containing the type's display name ("Warning"). The user's
+        // "Watch Out" text follows it.
+        let sr_span = match title_inlines.first() {
+            Some(Inline::Span(s)) => s,
+            other => panic!(
+                "expected leading screen-reader Span; got {:?}; full inlines: {:?}",
+                other, title_inlines
+            ),
+        };
+        assert!(
+            sr_span.attr.1.iter().any(|c| c == "screen-reader-only"),
+            "Span at start of title must carry `screen-reader-only` class; got {:?}",
+            sr_span.attr.1
+        );
+        let sr_text: String = sr_span
+            .content
+            .iter()
+            .filter_map(|i| match i {
+                Inline::Str(s) => Some(s.text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            sr_text, "Warning",
+            "screen-reader span must contain the type's display name"
+        );
+    }
+
+    /// Default-injected titles ARE the display name, so the
+    /// screen-reader span would duplicate it. TS Quarto suppresses
+    /// the span in this case (`callouts.lua:226`).
+    #[tokio::test]
+    async fn test_canonical_default_injected_title_skips_screen_reader_span() {
+        let mut node = callout_node(
+            "tip",
+            Some("default"),
+            None,
+            None,
+            None, // no user title → default-inject "Tip"
+            vec![para("Body")],
+        );
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let header = match &resolved.content[0] {
+            Block::Div(d) => d,
+            _ => panic!("expected header Div"),
+        };
+        let title_container = header
+            .content
+            .iter()
+            .filter_map(|b| match b {
+                Block::Div(d) if d.attr.1.iter().any(|c| c == "callout-title-container") => Some(d),
+                _ => None,
+            })
+            .next()
+            .unwrap();
+        let title_inlines = match &title_container.content[0] {
+            Block::Plain(p) => &p.content,
+            _ => panic!(),
+        };
+        for inline in title_inlines {
+            if let Inline::Span(s) = inline
+                && s.attr.1.iter().any(|c| c == "screen-reader-only")
+            {
+                panic!(
+                    "default-injected title must not carry a screen-reader span; got {:?}",
+                    title_inlines
+                );
+            }
+        }
+    }
+
+    /// Crossref-eligible callouts already carry a crossref-rendered
+    /// prefix in their title (e.g. "Tip 1: ..."), which announces
+    /// the type to screen readers. TS Quarto suppresses the
+    /// screen-reader span in that case (`callouts.lua:194-197`).
+    /// Detected by the presence of `ref_type` in `plain_data`
+    /// (written by `CalloutTransform` at `callout.rs:236-241`).
+    #[tokio::test]
+    async fn test_canonical_crossref_callout_skips_screen_reader_span() {
+        let mut node = callout_node(
+            "tip",
+            Some("default"),
+            None,
+            None,
+            Some(vec![str_inline("Custom Title")]),
+            vec![para("Body")],
+        );
+        if let Value::Object(ref mut obj) = node.plain_data {
+            obj.insert("ref_type".into(), json!("tip"));
+            obj.insert("kind".into(), json!("Tip"));
+            obj.insert("identifier".into(), json!("tip-foo"));
+        }
+        let resolved = resolve_callout(&mut node, &mut 1);
+        let header = match &resolved.content[0] {
+            Block::Div(d) => d,
+            _ => panic!("expected header Div"),
+        };
+        let title_container = header
+            .content
+            .iter()
+            .filter_map(|b| match b {
+                Block::Div(d) if d.attr.1.iter().any(|c| c == "callout-title-container") => Some(d),
+                _ => None,
+            })
+            .next()
+            .unwrap();
+        let title_inlines = match &title_container.content[0] {
+            Block::Plain(p) => &p.content,
+            _ => panic!(),
+        };
+        for inline in title_inlines {
+            if let Inline::Span(s) = inline
+                && s.attr.1.iter().any(|c| c == "screen-reader-only")
+            {
+                panic!(
+                    "crossref-eligible callouts must not carry a screen-reader span (the \
+                     crossref prefix announces the type); got {:?}",
+                    title_inlines
+                );
+            }
+        }
     }
 }

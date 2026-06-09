@@ -96,3 +96,150 @@ A `code span with an id`{#id .class key=value}
           (pandoc_str)
           (pandoc_space)
           (pandoc_str))))
+================================================================================
+6 multi-line code span in a plain paragraph
+================================================================================
+A `code
+span` test.
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_paragraph
+      (pandoc_str)
+      (pandoc_code_span
+        (code_span_delimiter)
+        (content
+          (pandoc_soft_break))
+        (code_span_delimiter))
+      (pandoc_space)
+      (pandoc_str))))
+================================================================================
+7 three-line code span
+================================================================================
+A `code
+spanning
+three lines` here.
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_paragraph
+      (pandoc_str)
+      (pandoc_code_span
+        (code_span_delimiter)
+        (content
+          (pandoc_soft_break)
+          (pandoc_soft_break))
+        (code_span_delimiter))
+      (pandoc_space)
+      (pandoc_str))))
+================================================================================
+8 multi-line code span inside block quote (with `> ` gutter)
+================================================================================
+> A `code
+> span` in bq.
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_block_quote
+      (block_quote_marker)
+      (pandoc_paragraph
+        (pandoc_str)
+        (pandoc_code_span
+          (code_span_delimiter)
+          (content
+            (pandoc_soft_break))
+          (code_span_delimiter))
+        (pandoc_space)
+        (pandoc_str)
+        (pandoc_space)
+        (pandoc_str)))))
+================================================================================
+9 multi-line code span with lazy continuation (no `> ` on line 2)
+================================================================================
+> A `code
+span` lazy.
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_block_quote
+      (block_quote_marker)
+      (pandoc_paragraph
+        (pandoc_str)
+        (pandoc_code_span
+          (code_span_delimiter)
+          (content
+            (pandoc_soft_break))
+          (code_span_delimiter))
+        (pandoc_space)
+        (pandoc_str)))))
+================================================================================
+10 multi-line code span inside a bullet-list item
+================================================================================
+- item with `inline
+  code` here
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_list
+      (list_item
+        (list_marker_minus)
+        (pandoc_paragraph
+          (pandoc_str)
+          (pandoc_space)
+          (pandoc_str)
+          (pandoc_code_span
+            (code_span_delimiter)
+            (content
+              (pandoc_soft_break
+                (block_continuation)))
+            (code_span_delimiter))
+          (pandoc_space)
+          (pandoc_str))))))
+
+================================================================================
+11 inline code span containing literal triple asterisk (bd-qhb2o)
+================================================================================
+a `***` z
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_paragraph
+      (pandoc_str)
+      (pandoc_code_span
+        (code_span_delimiter)
+        (content)
+        (code_span_delimiter))
+      (pandoc_space)
+      (pandoc_str))))
+
+================================================================================
+12 inline code span containing triple asterisk prefix (bd-qhb2o)
+================================================================================
+a `***hello` z
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_paragraph
+      (pandoc_str)
+      (pandoc_code_span
+        (code_span_delimiter)
+        (content)
+        (code_span_delimiter))
+      (pandoc_space)
+      (pandoc_str))))
+
+================================================================================
+13 inline code span containing quadruple asterisk (regression guard, bd-qhb2o)
+================================================================================
+a `****` z
+--------------------------------------------------------------------------------
+(document
+  (section
+    (pandoc_paragraph
+      (pandoc_str)
+      (pandoc_code_span
+        (code_span_delimiter)
+        (content)
+        (code_span_delimiter))
+      (pandoc_space)
+      (pandoc_str))))

@@ -1,0 +1,55 @@
+---
+title: "Unrecognized Tag"
+description: "A YAML tag is not one of the tags Quarto knows how to interpret."
+code: Q-1-22
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-22` — Unrecognized Tag
+
+> A YAML tag is not one of the tags Quarto knows how to interpret.
+
+## What this means
+
+Quarto reserves a small family of YAML tags for controlling merge
+behavior and value interpretation. This error fires when a value
+carries a tag Quarto does not recognize as one of those — usually
+a custom tag from another tool or a tag that does not match the
+shape Quarto's tag parser expects.
+
+Recognized tags combine merge operations and interpretation hints:
+`!prefer`, `!concat`, `!md`, `!str`, `!path`, `!glob`, `!expr`,
+and underscore-joined combinations such as `!prefer_md`.
+
+## Why this happens
+
+The two typical situations:
+
+- **A tag from a different tool** has appeared in Quarto's
+  configuration. Custom tags from a data-processing pipeline, for
+  instance, may carry through into a configuration file by accident.
+- **A tag that looks like a Quarto tag but is not.** A misspelled
+  recognized tag — different from `Q-1-21`, which warns about an
+  unknown *component* inside an otherwise well-formed tag — may
+  surface here when the parser cannot fit it into the expected
+  shape at all.
+
+## How to fix
+
+Remove the tag if the value does not need it. The value will be
+treated as an ordinary YAML scalar.
+
+If you intended a Quarto tag, check that you used one of the
+recognized names listed above. Quarto's tag parser is strict about
+the components it accepts.
+
+## Related
+
+- [`Q-1-21`](Q-1-21.qmd) — unknown tag component: an *otherwise valid* tag
+  contains a component name Quarto does not recognize.
+- [`Q-1-26`](Q-1-26.qmd) — invalid tag character: the tag contains characters
+  outside the allowed set.

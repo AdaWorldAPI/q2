@@ -1,0 +1,54 @@
+---
+title: "String Length Constraint Violation"
+description: "A string value is shorter or longer than the schema's length constraint allows."
+code: Q-1-29
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-29` — String Length Constraint Violation
+
+> A string value is shorter or longer than the schema's length
+> constraint allows.
+
+## What this means
+
+A schema can require that a string property be at least *N*
+characters long, at most *M* characters long, or both. This error
+fires when your string falls outside that range.
+
+The terminal message names the actual length and the bound that
+was violated — either "less than minimum N" or "greater than
+maximum N".
+
+## Why this happens
+
+The pattern usually appears on properties where the schema models
+an identifier, abbreviation, or other field with a known shape:
+
+- An empty string in a slot that requires a non-empty value (for
+  example, an identifier or short name).
+- A field shortened past a minimum because of an editor's
+  auto-trim or an upstream pipeline truncating values.
+- A field padded past a maximum because of accidental concatenation
+  or a value imported from a longer-form source.
+
+## How to fix
+
+Adjust the value to fit the bound named in the error. If the
+constraint feels wrong for your case — for example, the schema
+demands a length your input legitimately cannot meet — the
+property may not be the right slot for the value, or the schema
+may need to be relaxed.
+
+## Related
+
+- [`Q-1-11`](Q-1-11.qmd) — type mismatch: the value is not a
+  string at all.
+- [`Q-1-14`](Q-1-14.qmd) — string pattern mismatch: a stricter
+  shape constraint enforced by a regular expression.
+- [`Q-1-13`](Q-1-13.qmd) — array length constraint: the same
+  idea, but for array items rather than string characters.

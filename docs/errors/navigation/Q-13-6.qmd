@@ -1,0 +1,49 @@
+---
+title: "Sidebar `auto:` matched no documents"
+description: "A sidebar `auto:` entry expanded against the project index but matched no documents."
+code: Q-13-6
+subsystem: navigation
+status: stub
+since: "99.9.9"
+categories:
+  - navigation
+---
+
+# `Q-13-6` — Sidebar `auto:` Matched No Documents
+
+> A sidebar `auto:` entry expanded against the project index
+> but matched no documents.
+
+## What this means
+
+A sidebar `auto:` entry asks Quarto to fill the sidebar with
+every document matching a path or glob — `auto: posts/` for
+everything under `posts/`, `auto: "**/*.qmd"` for every `.qmd`
+in the project, and so on. This warning fires when the
+expansion runs against a real project index but finds nothing.
+The sidebar still renders; the `auto:` entry contributes no
+items.
+
+## Why this happens
+
+Common causes:
+
+- **The path or glob does not match any project file.** A
+  typo, an off-by-one in a glob, or a directory that exists
+  but is empty.
+- **The directory holds only excluded files** — underscore-
+  prefixed names, hidden directories, or files filtered out
+  by `project.render`.
+
+## How to fix
+
+Confirm the path or glob points where you expect. From the
+shell, expanding the same pattern (`ls posts/*.qmd`) shows what
+Quarto sees — if the listing is empty there, fix the glob; if
+files appear but Quarto still reports none, check the project's
+exclusion rules.
+
+## Related
+
+- `Q-13-5` — `auto:` ignored because no project index was
+  available.

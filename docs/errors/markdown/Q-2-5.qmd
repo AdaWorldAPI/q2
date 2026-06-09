@@ -1,0 +1,48 @@
+---
+title: "Unclosed Emphasis"
+description: "An emphasis run (typically underscore-delimited) opens without a matching close before the end of the block."
+code: Q-2-5
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-5` — Unclosed Emphasis
+
+> A `_emphasized_` run opens with `_` but no closing `_` appears
+> before the end of the block.
+
+## What this means
+
+Underscore-delimited emphasis (`_text_`) must be balanced inside
+the same block. This error fires when an opening `_` appears
+without a matching close before the block ends.
+
+## Why this happens
+
+Most often a typo: a closing underscore was forgotten, or a
+literal underscore in identifier-style text (`some_value`) was
+read as an emphasis opener.
+
+## How to fix
+
+Add the closing `_` at the intended end, or — if the underscore
+is part of an identifier — escape it as `\_` so the parser
+treats it as a literal character:
+
+```markdown
+The variable `some_value` (no emphasis intended) or some\_value.
+```
+
+## Example
+
+```markdown
+Unfinished _emph.
+```
+
+## Related
+
+- [`Q-2-12`](Q-2-12.qmd) — same problem with `*` emphasis.
+- [`Q-2-15`](Q-2-15.qmd) — unclosed `__` strong emphasis.

@@ -35,8 +35,9 @@ use super::knitr::KnitrEngine;
 ///
 /// # Thread Safety
 ///
-/// The registry uses `Arc<dyn ExecutionEngine>` for thread-safe sharing.
-#[derive(Debug)]
+/// The registry uses `Arc<dyn ExecutionEngine>` for thread-safe sharing,
+/// which makes [`Clone`] cheap — engines are reference-counted.
+#[derive(Debug, Clone)]
 pub struct EngineRegistry {
     engines: HashMap<String, Arc<dyn ExecutionEngine>>,
 }
@@ -138,6 +139,45 @@ impl EngineRegistry {
             ));
             self.default_engine()
         }
+    }
+
+    /// Build a registry that substitutes a [`super::ReplayEngine`] for
+    /// the engine of the same name (bd-45yw).
+    ///
+    /// Starts from a default registry, then registers a replay engine
+    /// constructed from `capture`. Because [`Self::register`] is
+    /// last-write-wins, the replay engine replaces the real engine
+    /// with the matching `name()`. Engines whose names don't match the
+    /// recorded engine are left untouched, so a single replay run can
+    /// still mix replayed and real engines if a future use case wants
+    /// it.
+    ///
+    /// Activation lives at the orchestrator/CLI layer (`q2 render
+    /// --replay <trace>`); this constructor is the seam.
+    pub fn with_replay(capture: quarto_trace::EngineCapture) -> Self {
+        Self::with_replay_many(vec![capture])
+    }
+
+    /// Build a registry that substitutes a [`super::ReplayEngine`] for
+    /// each recorded engine in a sequence (bd-5yff4).
+    ///
+    /// Starts from a default registry, then registers one replay engine
+    /// per capture, each keyed by its recorded `engine_name`. Because the
+    /// engines in a sequence are distinct (the trace records one capture
+    /// per engine, in order), the name-keyed registry holds them all
+    /// without collision, and `EngineExecutionStage` drives them in the
+    /// order the document's `engine:` sequence declares — which must match
+    /// the recording. Each replay engine validates its own `input_qmd`.
+    ///
+    /// Captures whose `engine_name` is not also in the document's engine
+    /// sequence simply never run; extra real engines (those without a
+    /// matching capture) keep their default implementations.
+    pub fn with_replay_many(captures: Vec<quarto_trace::EngineCapture>) -> Self {
+        let mut registry = Self::new();
+        for capture in captures {
+            registry.register(Arc::new(super::ReplayEngine::new(capture)));
+        }
+        registry
     }
 }
 

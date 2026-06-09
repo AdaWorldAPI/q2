@@ -1,0 +1,46 @@
+---
+title: "Unclosed Strong Underscore Emphasis"
+description: "A `__strong__` run opens with `__` but no closing `__` appears before the end of the block."
+code: Q-2-15
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-15` — Unclosed Strong Underscore Emphasis
+
+> A `__strong__` run opens with `__` but no closing `__` appears
+> before the end of the block.
+
+## What this means
+
+Double-underscore strong emphasis (`__text__`) must be balanced
+inside the same block. This error fires when an opening `__`
+appears without a matching close before the block ends.
+
+## Why this happens
+
+Most often a typo, or a literal `__` pair (e.g. `__init__`) read
+as an emphasis opener.
+
+## How to fix
+
+Add the closing `__`, or escape the underscores when they belong
+to a literal token:
+
+```markdown
+The `\_\_init\_\_` method.
+```
+
+## Example
+
+```markdown
+__
+```
+
+## Related
+
+- [`Q-2-13`](Q-2-13.qmd) — unclosed `**` strong emphasis.
+- [`Q-2-14`](Q-2-14.qmd) — unclosed single-underscore emphasis.

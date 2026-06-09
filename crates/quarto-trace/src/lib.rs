@@ -10,7 +10,7 @@
 //!
 //! ```json
 //! {
-//!   "schema_version": 1,
+//!   "schema_version": 2,
 //!   "render": {
 //!     "input_path": "doc.qmd",
 //!     "output_path": "doc.html",
@@ -19,8 +19,12 @@
 //!     "git_hash": "abc1234",
 //!     "total_duration_ms": 123.4
 //!   },
+//!   "asts": {
+//!     "<hash>": { ...AST JSON... }
+//!   },
 //!   "pipeline": [
-//!     { "stage": "parse", "index": 0, "data_kind": "DocumentAst", "data": {...},
+//!     { "stage": "parse", "index": 0, "data_kind": "DocumentAst",
+//!       "data": { "path": "doc.qmd", "ast": { "$ref": "<hash>" }, "warnings_count": 0 },
 //!       "duration_ms": 1.2, "status": "ok" },
 //!     { "stage": "engine-execution", "index": 1, "status": "error",
 //!       "error": {"message": "..."} },
@@ -29,8 +33,28 @@
 //! }
 //! ```
 //!
-//! Unknown `status` values and unknown fields are tolerated by readers for
-//! forward compatibility.
+//! ## v2: AST dedup (bd-5qnj)
+//!
+//! Real traces carry the same AST in many entries — most pipeline
+//! transforms are no-ops on any given document, so 36 of 42 DocumentAst
+//! entries on a representative trace are byte-identical to the previous
+//! one (see
+//! `claude-notes/plans/5qnj-trace-size-investigation/measurements.md`).
+//! v2 collapses these to one stored copy.
+//!
+//! - The on-disk JSON has a top-level `asts` map keyed by content hash.
+//! - Inside any pipeline entry's `data`, an inline AST is replaced by
+//!   `{ "$ref": "<hash>" }`.
+//! - The reader rehydrates `$ref` sentinels into inline AST values, so
+//!   downstream consumers see a v1-equivalent in-memory
+//!   [`TraceDocument`].
+//! - Writers always emit v2; readers handle v1 (legacy traces with no
+//!   `asts` map and inline ASTs) and v2 transparently.
+//!
+//! Unknown `status` values and unknown fields are tolerated by readers
+//! for forward compatibility.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -45,17 +69,95 @@ pub const BUILD_GIT_HASH: &str = env!("QUARTO_GIT_HASH");
 
 /// Current trace schema version.
 ///
-/// Bumped only when entry-shape changes are introduced (e.g. delta-encoded
-/// `DocumentAst` entries in Phase 4.6). Additive changes (new optional
-/// fields) don't bump the version.
-pub const SCHEMA_VERSION: u32 = 1;
+/// - `1`: original wire format (inline ASTs, no `asts` map).
+/// - `2` (current): on-disk dedup of AST values via top-level `asts` map
+///   and `{ "$ref": "<hash>" }` sentinels inside entries' `data`.
+///   Reader-rehydrated [`TraceDocument`]s are v1-equivalent in shape;
+///   the dedup is a wire-format detail.
+///
+/// Bumped only when entry-shape changes are introduced. Additive
+/// changes (new optional fields) don't bump the version.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Top-level trace document.
+///
+/// In memory, the `asts` map is always empty: the writer populates it
+/// transiently during serialization and the reader folds it back into
+/// the entries during deserialization. Direct serialization of an
+/// in-memory `TraceDocument` (without going through `write::write_trace`
+/// / `read::read_trace`) bypasses the dedup pass; that's fine for tests
+/// and ad-hoc serialization, but the on-disk artifact will not have
+/// the v2 size benefits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "TraceDocumentDe")]
 pub struct TraceDocument {
     pub schema_version: u32,
     pub render: RenderInfo,
+    /// Content-addressed AST values, used as the deduplication target
+    /// for `{ "$ref": "<hash>" }` references inside entries' `data`.
+    /// Empty in-memory after `read_trace`; populated transiently by
+    /// `write_trace`. See module-level docs for the wire format.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub asts: BTreeMap<String, serde_json::Value>,
     pub pipeline: Vec<TraceEntry>,
+    /// Ordered engine execution captures for replay (bd-45yw, extended to
+    /// a sequence by bd-5yff4).
+    ///
+    /// When `trace: true` is set, the pipeline records each
+    /// `ExecutionEngine`'s output here — **one capture per engine that
+    /// ran, in execution order** — so the trace can later drive the
+    /// in-Rust replay engine(s) for deterministic regression tests
+    /// without R/Python/Jupyter installs. Empty for traces produced
+    /// before bd-45yw landed and for renders where only the markdown
+    /// engine ran (no execution to record).
+    ///
+    /// On-disk back-compat: a legacy single `engine_capture` object
+    /// (schema written before bd-5yff4) is folded into a one-element
+    /// vector on read (see `TraceDocumentDe`). Writers always emit the
+    /// `engine_captures` array.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub engine_captures: Vec<EngineCapture>,
+}
+
+/// Deserialization mirror for [`TraceDocument`].
+///
+/// Exists solely to accept the **legacy** single `engine_capture` field
+/// (written before bd-5yff4) and fold it into the `engine_captures`
+/// vector, so old on-disk traces keep loading. `TraceDocument` itself
+/// deserializes through this via `#[serde(from = "TraceDocumentDe")]`;
+/// serialization is unaffected (the writer emits only `engine_captures`).
+#[derive(Deserialize)]
+struct TraceDocumentDe {
+    schema_version: u32,
+    render: RenderInfo,
+    #[serde(default)]
+    asts: BTreeMap<String, serde_json::Value>,
+    pipeline: Vec<TraceEntry>,
+    #[serde(default)]
+    engine_captures: Vec<EngineCapture>,
+    /// Legacy single-capture field (pre-bd-5yff4). Read-only.
+    #[serde(default)]
+    engine_capture: Option<EngineCapture>,
+}
+
+impl From<TraceDocumentDe> for TraceDocument {
+    fn from(de: TraceDocumentDe) -> Self {
+        let mut engine_captures = de.engine_captures;
+        // Fold the legacy single capture in when the new field is absent.
+        // (If both are somehow present, the new field wins.)
+        if engine_captures.is_empty() {
+            if let Some(capture) = de.engine_capture {
+                engine_captures.push(capture);
+            }
+        }
+        TraceDocument {
+            schema_version: de.schema_version,
+            render: de.render,
+            asts: de.asts,
+            pipeline: de.pipeline,
+            engine_captures,
+        }
+    }
 }
 
 impl TraceDocument {
@@ -65,9 +167,40 @@ impl TraceDocument {
         Self {
             schema_version: SCHEMA_VERSION,
             render,
+            asts: BTreeMap::new(),
             pipeline: Vec::new(),
+            engine_captures: Vec::new(),
         }
     }
+}
+
+/// Captured `ExecuteResult` from an engine run, attached to a
+/// [`TraceDocument`] for later replay (bd-45yw).
+///
+/// Stores the engine name (matching what `ExecutionEngine::name()`
+/// returned), the QMD input that was handed to `execute()`, and the
+/// full `ExecuteResult` as opaque JSON. The exact `ExecuteResult`
+/// shape lives in `quarto-core`; we keep it as a `serde_json::Value`
+/// here so this crate stays leaf-level and doesn't need to depend on
+/// `quarto-core`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EngineCapture {
+    /// Name of the engine that produced this result (e.g. `"knitr"`,
+    /// `"jupyter"`). The replay engine registers under this name so
+    /// it can stand in for the original engine without document
+    /// metadata changes.
+    pub engine_name: String,
+
+    /// Verbatim QMD text handed to `ExecutionEngine::execute()`.
+    /// Replay validates the document under investigation matches this
+    /// (string equality) and hard-fails on mismatch.
+    pub input_qmd: String,
+
+    /// Serialized `ExecuteResult` (markdown, supporting_files,
+    /// filters, includes, needs_postprocess). Treated as opaque here;
+    /// `quarto-core::engine::replay` deserializes via
+    /// `serde_json::from_value`.
+    pub result: serde_json::Value,
 }
 
 /// Top-level metadata about a render invocation.

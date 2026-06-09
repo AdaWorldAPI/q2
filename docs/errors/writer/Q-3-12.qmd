@@ -1,0 +1,50 @@
+---
+title: "Unresolved Note Reference"
+description: "A note reference was not converted to a Span during postprocessing. This is a bug in the postprocessor."
+code: Q-3-12
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-12` — Unresolved Note Reference
+
+> A note reference was not converted to a Span during
+> postprocessing. This is a bug in the postprocessor.
+
+## What this means
+
+Quarto's render pipeline runs a postprocessing pass before the
+writer that, among other things, resolves footnote references to
+their final form. If the writer encounters a raw note-reference
+node, the postprocessor missed it — the reference reached the
+writer in a shape the writer is not prepared to handle.
+
+This is an internal-consistency error, not something the document
+author wrote incorrectly. The page exists so the catalog stays
+self-contained, but a user reading this is almost certainly
+looking at a bug, not at a fixable document mistake.
+
+## Why this happens
+
+Two known triggers:
+
+- **A bug in the postprocessing pass** that misses a particular
+  shape of note reference.
+- **A Lua filter that bypassed postprocessing**, or that
+  re-introduced a `NoteReference` node after postprocessing ran.
+
+## How to fix
+
+Report the document and the exact command that triggered the
+error at the Quarto issue tracker. If a Lua filter is involved,
+verify it does not produce `NoteReference` AST nodes after
+postprocessing.
+
+## Related
+
+- `Q-3-31` — the same condition observed by a different writer
+  branch (treated as a defensive guard rather than a hard bug
+  report).

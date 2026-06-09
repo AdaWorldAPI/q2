@@ -2,7 +2,7 @@
  * WASM Smoke-All Test Runner
  *
  * Exercises the WASM rendering module against the same smoke-all test fixtures
- * used by the native Rust test runner (crates/quarto/tests/smoke_all.rs).
+ * used by the native Rust test runner (crates/quarto/tests/integration/smoke_all.rs).
  *
  * Run with: npm run test:wasm
  */
@@ -14,8 +14,8 @@ import { fileURLToPath } from 'url';
 import { parse as parseYaml } from 'yaml';
 import { JSDOM } from 'jsdom';
 
-import { discoverUserGrammars } from './userGrammarDiscovery';
-import { loadUserGrammar } from './userGrammarHighlight';
+import { discoverUserGrammars } from '@quarto/preview-runtime/userGrammar/Discovery';
+import { loadUserGrammar } from '@quarto/preview-runtime/userGrammar/Highlight';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +61,14 @@ interface RunConfig {
   ci?: boolean;
   os?: string[];
   not_os?: string[];
+  /**
+   * Set on fixtures whose format requires a JS runtime to render. Parsed
+   * for consistency with the Rust runner, which uses it to skip CLI runs.
+   * Not enforced here — the WASM unit test already filters by
+   * `format !== 'html'`, so q2-debug fixtures are skipped at the format
+   * gate before this matters.
+   */
+  requires_js?: boolean;
 }
 
 interface FormatSpec {
@@ -102,7 +110,7 @@ beforeAll(async () => {
 
   // Set up VFS callbacks for the SASS importer so that dart-sass can resolve
   // @use/@import directives against the VFS (Bootstrap SCSS files, etc.)
-  const sassModule = await import('../wasm-js-bridge/sass.js');
+  const sassModule = await import('/src/wasm-js-bridge/sass.js');
   sassModule.setVfsCallbacks(
     (path: string): string | null => {
       try {

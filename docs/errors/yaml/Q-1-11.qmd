@@ -1,0 +1,73 @@
+---
+title: "Type Mismatch"
+description: "A value in the YAML document has the wrong type for the property the schema expects."
+code: Q-1-11
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-11` — Type Mismatch
+
+> A value in the YAML document has the wrong type for the property
+> the schema expects.
+
+## What this means
+
+Each schema-validated property in Quarto's configuration has an
+expected type: a string, a number, a boolean, an object, an array,
+or `null`. This error fires when the value at that property is a
+different YAML type from the one the schema expects.
+
+The terminal message names both types: the type the schema asked
+for (`expected`) and the type your YAML actually contains (`got`).
+
+## Why this happens
+
+Three frequent patterns:
+
+- **Forgotten quotes around a string that looks like a number or
+  boolean.** YAML reads `2024` as a number and `yes` as a boolean
+  by default. If the schema expects a string, that's a type
+  mismatch.
+- **A scalar where the schema expects a list.** Writing
+  `categories: news` instead of `categories: [news]` gives the
+  property a string value, but the schema may require an array.
+- **An object where the schema expects a scalar (or vice versa).**
+  Indenting properties under a key that the schema treats as a
+  simple value will turn it into an object.
+
+## How to fix
+
+Re-read the value at the path the error reports, and compare its
+shape to the schema's expected type.
+
+If the schema wants a string and YAML inferred a number or boolean,
+quote the value:
+
+```yaml
+version: "2024"      # string, not number
+draft: "false"       # string, not boolean
+```
+
+If the schema wants an array, write the value as a list:
+
+```yaml
+categories:
+  - news
+  - research
+```
+
+If the schema wants a scalar, remove the nested keys and put the
+value directly after the colon.
+
+## Related
+
+- [`Q-1-10`](Q-1-10.qmd) — missing required property: the property is absent
+  entirely rather than wrong-typed.
+- [`Q-1-12`](Q-1-12.qmd) — invalid enum value: type is correct, but the value
+  is not one of the allowed choices.
+- [`Q-1-14`](Q-1-14.qmd) — string pattern mismatch: type is correct (string),
+  but the value does not match the required pattern.

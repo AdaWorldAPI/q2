@@ -1,0 +1,60 @@
+---
+title: "Invalid List-Table Structure"
+description: "A `::: {.list-table}` div does not contain a well-formed list-table source, so Quarto cannot convert it into a table."
+code: Q-2-35
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-35` — Invalid List-Table Structure
+
+> A `::: {.list-table}` div does not contain a well-formed
+> list-table source, so Quarto cannot convert it into a table.
+
+## What this means
+
+Quarto's recommended way to write tables is a *list-table*: a
+fenced div with class `list-table` whose body is a nested
+markdown list, where each top-level list item is a row and each
+nested list item is a cell.
+
+This error fires when the parser finds a `list-table` div but
+its body is not a list at all, or its list does not have the
+structure a list-table requires (rows with consistent cell
+counts).
+
+## Why this happens
+
+Common shapes that trigger the error:
+
+- The body is plain text, not a list.
+- The body is a list, but rows have different numbers of cells.
+- Nesting is wrong — the cells are listed at the same level as
+  the rows.
+
+## How to fix
+
+Restructure the body so that each top-level list item is a row
+and each nested list item is one cell:
+
+```markdown
+::: {.list-table}
+- - Header 1
+  - Header 2
+- - Cell A
+  - Cell B
+- - Cell C
+  - Cell D
+:::
+```
+
+Use exactly the same number of cells in every row.
+
+## Related
+
+- [`Q-2-39`](Q-2-39.qmd) — grid tables are not supported: the
+  Pandoc grid-table form is also rejected, with list-table as
+  the recommended alternative.

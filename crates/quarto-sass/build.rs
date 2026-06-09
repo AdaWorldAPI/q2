@@ -49,6 +49,20 @@ fn write_hash(out_dir: &str, filename: &str, hash: &str) {
     write!(file, "{}", hash).expect("Failed to write hash");
 }
 
+/// Format the first `n` bytes of `bytes` as a lowercase hex string.
+///
+/// Replaces the digest 0.10 idiom `format!("{:x}", hash)[..n*2]`, which
+/// stopped working in digest 0.11 because the finalize output type
+/// (`hybrid-array::Array<u8, _>`) does not implement `LowerHex`.
+fn hex_prefix(bytes: &[u8], n: usize) -> String {
+    use std::fmt::Write as _;
+    let mut s = String::with_capacity(n * 2);
+    for b in &bytes[..n] {
+        write!(&mut s, "{:02x}", b).expect("write to String never fails");
+    }
+    s
+}
+
 /// Compute a SHA-256 hash of all SCSS files in resources/scss/.
 ///
 /// Files are sorted by path to ensure deterministic hashing.
@@ -73,7 +87,7 @@ fn compute_scss_resources_hash() -> String {
     }
 
     let hash = hasher.finalize();
-    format!("{:x}", hash)[..16].to_string()
+    hex_prefix(&hash, 8)
 }
 
 /// Compute a SHA-256 hash of all `.rs` files under `crates/quarto-sass/src/`.
@@ -104,7 +118,7 @@ fn compute_src_code_hash() -> String {
     }
 
     let hash = hasher.finalize();
-    format!("{:x}", hash)[..16].to_string()
+    hex_prefix(&hash, 8)
 }
 
 /// Combine SCSS + code hashes into a single build-id string.
@@ -114,7 +128,7 @@ fn compose_build_id(scss_hash: &str, code_hash: &str) -> String {
     hasher.update(b"|");
     hasher.update(code_hash.as_bytes());
     let hash = hasher.finalize();
-    format!("{:x}", hash)[..16].to_string()
+    hex_prefix(&hash, 8)
 }
 
 /// Recursively collect all files with a given extension under `dir`.

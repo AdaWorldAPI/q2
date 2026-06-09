@@ -23,12 +23,12 @@
 use std::path::Path;
 
 use quarto_doctemplate::{PartialResolver, Template, TemplateContext, TemplateValue};
+use quarto_error_reporting::DiagnosticMessage;
 use quarto_pandoc_types::{ConfigValue, ConfigValueKind};
 use quarto_system_runtime::SystemRuntime;
 
 use crate::Result;
 use crate::format::{Format, is_minimal_html};
-use crate::stage::PandocIncludes;
 
 // =============================================================================
 // Runtime Resolver
@@ -72,6 +72,11 @@ impl PartialResolver for RuntimeResolver<'_> {
 /// - `$css$` - CSS stylesheets (external files)
 /// - `$lang$` - document language
 /// - `$header-includes$` - additional header content
+/// - `$math$` - math-engine init markup (config block + loader script).
+///   Populated by [`crate::stage::stages::MathJsStage`] when the
+///   document contains math; rendered immediately before
+///   `$for(scripts)$` so the inline config block lands BEFORE the
+///   loader (what MathJax expects).
 const MINIMAL_HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 <html$if(lang)$ lang="$lang$"$endif$>
 <head>
@@ -83,6 +88,9 @@ $endif$
 $for(css)$
 <link rel="stylesheet" href="$css$">
 $endfor$
+$if(math)$
+$math$
+$endif$
 $for(scripts)$
 <script src="$scripts$"></script>
 $endfor$
@@ -116,12 +124,23 @@ $endfor$
 /// - `$author$` - document author(s)
 /// - `$date$` - publication date
 /// - `$abstract$` - document abstract
-/// - `$body-classes$` - CSS classes for body element
+/// - `$body-classes$` - CSS classes for body element. When set, replaces
+///   the `fullcontent` default entirely. Typically computed by
+///   `SidebarRenderTransform` (which writes `rendered.navigation.body-classes`)
+///   and copied into `body-classes` by `render_with_compiled_template`,
+///   but a user filter or template variable can override it. When unset
+///   and `rendered.navigation.toc` is present, `render_with_compiled_template`
+///   sets it to the empty string so the body falls through to the default
+///   (no-class) wide layout — needed because `fullcontent` allocates only
+///   `0.14*margin-width` for the right margin and squashes a TOC to ~70px.
+///   Mirrors TS Quarto's `format-html-bootstrap.ts` body-class logic.
 /// - `$page-layout$` - page layout type (article, full, etc.)
 /// - `$version$` - Quarto version for generator meta tag
 /// - `$rendered.navigation.toc$` - Rendered TOC HTML (if toc: true)
 /// - `$navigation.toc.title$` - TOC title (if set)
 /// - `$rendered.navigation.navbar$` - Rendered navbar HTML (if navbar: set)
+/// - `$rendered.navigation.sidebar$` - Rendered sidebar HTML (if website.sidebar: set)
+/// - `$rendered.navigation.page_navigation$` - Rendered prev/next page-nav strip
 /// - `$rendered.navigation.footer$` - Rendered page-footer HTML (if page-footer: set)
 const FULL_HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 <html$if(lang)$ lang="$lang$"$endif$>
@@ -150,6 +169,9 @@ $endif$
 $for(css)$
 <link rel="stylesheet" href="$css$">
 $endfor$
+$if(math)$
+$math$
+$endif$
 $for(scripts)$
 <script src="$scripts$"></script>
 $endfor$
@@ -157,7 +179,7 @@ $for(header-includes)$
 $header-includes$
 $endfor$
 </head>
-<body class="fullcontent$if(body-classes)$ $body-classes$$endif$">
+<body class="$body-classes$">
 $if(rendered.navigation.navbar)$
 $rendered.navigation.navbar$
 $endif$
@@ -165,7 +187,10 @@ $for(include-before)$
 $include-before$
 $endfor$
 
-<div id="quarto-content" class="page-columns page-rows-contents page-layout-$page-layout$">
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-$page-layout$">
+$if(rendered.navigation.sidebar)$
+$rendered.navigation.sidebar$
+$endif$
 $if(rendered.navigation.toc)$
 <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
 <nav id="TOC" role="doc-toc" class="toc-active">
@@ -174,7 +199,16 @@ $if(navigation.toc.title)$
 $endif$
 $rendered.navigation.toc$
 </nav>
+$if(rendered.navigation.margin_categories)$
+$rendered.navigation.margin_categories$
+$endif$
 </div>
+$else$
+$if(rendered.navigation.margin_categories)$
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+$rendered.navigation.margin_categories$
+</div>
+$endif$
 $endif$
 
 <main class="content" id="quarto-document-content">
@@ -211,6 +245,10 @@ $endif$
 $endif$
 
 $body$
+
+$if(rendered.navigation.page_navigation)$
+$rendered.navigation.page_navigation$
+$endif$
 </main>
 </div>
 $for(include-after)$
@@ -263,8 +301,13 @@ pub fn select_template(minimal: bool) -> Result<Template> {
 /// * `meta` - Document metadata from the Pandoc AST (as ConfigValue)
 ///
 /// # Returns
-/// The complete HTML document as a string.
-pub fn render_with_template(body: &str, meta: &ConfigValue) -> Result<String> {
+/// The complete HTML document as a string, plus any diagnostics
+/// (e.g. `Q-10-2 Undefined variable`) emitted by the doctemplate
+/// evaluator.
+pub fn render_with_template(
+    body: &str,
+    meta: &ConfigValue,
+) -> Result<(String, Vec<DiagnosticMessage>)> {
     let template = default_html_template()?;
 
     // Build template context from metadata
@@ -276,10 +319,14 @@ pub fn render_with_template(body: &str, meta: &ConfigValue) -> Result<String> {
     // Convert and add metadata
     add_metadata_to_context(meta, &mut ctx);
 
-    // Render the template
-    template
-        .render(&ctx)
-        .map_err(|e| crate::error::QuartoError::other(e.to_string()))
+    // Render the template, collecting diagnostics from the evaluator.
+    let (html, diagnostics) = template.render_with_diagnostics(&ctx);
+    let html = html.map_err(|()| {
+        crate::error::QuartoError::other(
+            "Template evaluation failed (see diagnostics for details)".to_string(),
+        )
+    })?;
+    Ok((html, diagnostics))
 }
 
 /// Render a document with a pre-compiled template.
@@ -293,10 +340,15 @@ pub fn render_with_template(body: &str, meta: &ConfigValue) -> Result<String> {
 /// # Arguments
 /// * `template` - A compiled template
 /// * `body` - The rendered body content (HTML)
-/// * `meta` - Document metadata from the Pandoc AST (as ConfigValue)
+/// * `meta` - Document metadata from the Pandoc AST (as ConfigValue).
+///   Include slots are read from `meta.rendered.includes.{header,
+///   before-body, after-body}` — populated upstream by
+///   [`IncludeResolveStage`](crate::stage::IncludeResolveStage). Authored
+///   `header-includes` / `include-before` / `include-after` literals at the
+///   top level are NOT read here; they are folded into `rendered.includes.*`
+///   by the resolve stage.
 /// * `css_paths` - Paths to CSS files (relative to output HTML)
 /// * `script_paths` - Paths to JS files (relative to output HTML)
-/// * `includes` - Text includes for header/before-body/after-body injection
 ///
 /// # Returns
 /// The complete HTML document as a string.
@@ -306,14 +358,16 @@ pub fn render_with_compiled_template(
     meta: &ConfigValue,
     css_paths: &[String],
     script_paths: &[String],
-    includes: &PandocIncludes,
-) -> Result<String> {
+) -> Result<(String, Vec<DiagnosticMessage>)> {
     let mut ctx = TemplateContext::new();
     ctx.insert("body", TemplateValue::String(body.to_string()));
 
     // Add metadata, excluding keys that are handled specially or shouldn't
-    // leak into the template context as variables.
-    // Also exclude include variables — we merge metadata and programmatic values below.
+    // leak into the template context as variables. The authored
+    // `header-includes` / `include-before` / `include-after` keys (Pandoc
+    // inline-content form) are also excluded here so they don't shadow the
+    // resolved values. The resolve stage already folded them into
+    // `rendered.includes.*`; reading them again here would double-count.
     add_metadata_to_context_except(
         meta,
         &mut ctx,
@@ -349,11 +403,13 @@ pub fn render_with_compiled_template(
         ctx.insert("scripts", TemplateValue::List(scripts_list));
     }
 
-    // Build include lists (metadata values first, then programmatic values).
-    // All three use $for()$ loops matching Quarto 1 behavior.
-    set_includes_list(&mut ctx, "header-includes", meta, &includes.header_includes);
-    set_includes_list(&mut ctx, "include-before", meta, &includes.include_before);
-    set_includes_list(&mut ctx, "include-after", meta, &includes.include_after);
+    // Wire `rendered.includes.{header, before-body, after-body}` into the
+    // Pandoc-native template variable names (kept stable per
+    // claude-notes/plans/2026-05-04-includes-feature.md §Resolved questions
+    // #2 — preserves portability of custom Pandoc templates).
+    set_includes_list(&mut ctx, "header-includes", meta, "header");
+    set_includes_list(&mut ctx, "include-before", meta, "before-body");
+    set_includes_list(&mut ctx, "include-after", meta, "after-body");
 
     // Always inject full-template extras — custom templates may reference them,
     // and unused variables are harmlessly ignored.
@@ -365,55 +421,113 @@ pub fn render_with_compiled_template(
         ctx.insert("page-layout", TemplateValue::String("article".to_string()));
     }
 
-    template
-        .render(&ctx)
-        .map_err(|e| crate::error::QuartoError::other(e.to_string()))
+    // Compute the body class. Order of precedence:
+    //
+    //   1. user-supplied `body-classes` (e.g. set in metadata) — kept as-is.
+    //   2. `rendered.navigation.body-classes` (written by
+    //      `SidebarRenderTransform`, e.g. `"nav-sidebar floating"`) —
+    //      promoted to the top-level template variable. See bd-mgoh.
+    //   3. TOC present but no sidebar → empty class. The body falls
+    //      through to the default (no-class) wide grid, whose right
+    //      margin column is `minmax(0.3*mw, 0.58*mw)` and has room for
+    //      the TOC.
+    //   4. Otherwise → `"fullcontent"`. That mixin's margin-seg{1,2}
+    //      sum to only `0.28 * margin-width` (~70px at the default
+    //      250px), which is intentional for content-heavy pages with
+    //      no TOC — but would squash a TOC if one were present, which
+    //      is why case (3) exists.
+    //
+    // Mirrors TS Quarto's body-class logic in
+    // `src/format/html/format-html-bootstrap.ts`.
+    if ctx.get("body-classes").is_none() {
+        let from_meta = meta
+            .get_path(&["rendered", "navigation", "body-classes"])
+            .and_then(|v| v.as_plain_text());
+        let has_toc = meta
+            .get_path(&["rendered", "navigation", "toc"])
+            .and_then(|v| v.as_plain_text())
+            .is_some_and(|s| !s.is_empty());
+        let structural = match (from_meta, has_toc) {
+            (Some(s), _) => s,
+            (None, true) => String::new(),
+            (None, false) => "fullcontent".to_string(),
+        };
+        // bd-mtzry: append the color-mode class so theme-conditional CSS
+        // can key off `body.quarto-light` (matches Q1 default). Dark-mode
+        // theme support lands separately; for now we always emit `quarto-light`.
+        let body_classes = append_color_mode_class(&structural);
+        ctx.insert("body-classes", TemplateValue::String(body_classes));
+    }
+
+    // Render with diagnostics so undefined-variable warnings (etc.)
+    // surface to callers instead of being silently dropped (bd-xdnk).
+    let (html, diagnostics) = template.render_with_diagnostics(&ctx);
+    let html = html.map_err(|()| {
+        crate::error::QuartoError::other(
+            "Template evaluation failed (see diagnostics for details)".to_string(),
+        )
+    })?;
+    Ok((html, diagnostics))
 }
 
-/// Set a template includes list variable, merging metadata and programmatic values.
+/// Set a template `$for(...)$`-style includes variable from the canonical
+/// `meta.rendered.includes.<slot>` location.
 ///
-/// Metadata entries come first (for backwards compatibility), then programmatic
-/// entries from the pipeline. If neither source has values, the variable is not set
-/// (so `$for(...)$` produces no output).
+/// `template_var` is the Pandoc-native template variable name (e.g.
+/// `header-includes`). `slot` is the corresponding key under
+/// `rendered.includes.*` (one of `"header"`, `"before-body"`,
+/// `"after-body"`).
+///
+/// `IncludeResolveStage` writes flat string arrays at this location,
+/// folding authored YAML keys, smart-include `{file:..}` / `{text:..}`
+/// objects, and engine-contributed `PandocIncludes`. If the array is empty
+/// or absent (resolve stage didn't run), the template variable is not set
+/// — `$for(template_var)$` then produces no output.
+/// Append the active color-mode class (today always `quarto-light`)
+/// to a structural body-class string. Empty input → `"quarto-light"`;
+/// non-empty input → `"<structural> quarto-light"`. Idempotent: a
+/// structural that already contains `quarto-light` is returned as-is.
+///
+/// bd-mtzry. Light/dark theme detection is not yet wired into the
+/// pipeline (the `theme:` key today is a single Bootswatch name); when
+/// it lands, this helper grows a `mode` argument and the call site
+/// decides which class to emit. Until then `quarto-light` matches
+/// Quarto 1's default body class for documents with no dark theme set.
+fn append_color_mode_class(structural: &str) -> String {
+    const LIGHT: &str = "quarto-light";
+    let already = structural
+        .split_whitespace()
+        .any(|tok| tok == LIGHT || tok == "quarto-dark");
+    if already {
+        structural.to_string()
+    } else if structural.is_empty() {
+        LIGHT.to_string()
+    } else {
+        format!("{structural} {LIGHT}")
+    }
+}
+
 fn set_includes_list(
     ctx: &mut TemplateContext,
-    key: &str,
+    template_var: &str,
     meta: &ConfigValue,
-    programmatic: &[String],
+    slot: &str,
 ) {
-    let mut list: Vec<TemplateValue> = Vec::new();
-
-    // Extract from metadata first
-    if let ConfigValueKind::Map(entries) = &meta.value {
-        for entry in entries {
-            if entry.key == key {
-                match &entry.value.value {
-                    ConfigValueKind::PandocInlines(inlines) => {
-                        list.push(TemplateValue::String(inlines_to_text(inlines)));
-                    }
-                    ConfigValueKind::Array(items) => {
-                        for item in items {
-                            list.push(config_value_to_template_value(item));
-                        }
-                    }
-                    _ => {
-                        // Scalar, Path, etc. — try as_str
-                        if let Some(s) = entry.value.as_str() {
-                            list.push(TemplateValue::String(s.to_string()));
-                        }
-                    }
-                }
-            }
-        }
+    let Some(arr) = meta
+        .get_path(&["rendered", "includes", slot])
+        .and_then(|v| v.as_array())
+    else {
+        return;
+    };
+    if arr.is_empty() {
+        return;
     }
-
-    // Add programmatic entries
-    for entry in programmatic {
-        list.push(TemplateValue::String(entry.clone()));
-    }
-
+    let list: Vec<TemplateValue> = arr
+        .iter()
+        .filter_map(|v| v.as_plain_text().map(TemplateValue::String))
+        .collect();
     if !list.is_empty() {
-        ctx.insert(key, TemplateValue::List(list));
+        ctx.insert(template_var, TemplateValue::List(list));
     }
 }
 
@@ -424,16 +538,9 @@ pub fn render_with_resources(
     body: &str,
     meta: &ConfigValue,
     css_paths: &[String],
-) -> Result<String> {
+) -> Result<(String, Vec<DiagnosticMessage>)> {
     let template = default_html_template()?;
-    render_with_compiled_template(
-        &template,
-        body,
-        meta,
-        css_paths,
-        &[],
-        &PandocIncludes::default(),
-    )
+    render_with_compiled_template(&template, body, meta, css_paths, &[])
 }
 
 /// Render a document with format-based template selection.
@@ -445,25 +552,23 @@ pub fn render_with_format(
     meta: &ConfigValue,
     _format: &Format,
     css_paths: &[String],
-) -> Result<String> {
+) -> Result<(String, Vec<DiagnosticMessage>)> {
     let minimal = is_minimal_html(meta);
     let template = select_template(minimal)?;
-    render_with_compiled_template(
-        &template,
-        body,
-        meta,
-        css_paths,
-        &[],
-        &PandocIncludes::default(),
-    )
+    render_with_compiled_template(&template, body, meta, css_paths, &[])
 }
 
 /// Compile the appropriate built-in template (minimal or full) with a custom
 /// partial resolver. Used when extension metadata provides `template-partials`
 /// without a custom `template`.
+///
+/// The `source_context` is the document's `SourceContext`; partial files
+/// loaded by the resolver are registered here so their FileIds resolve
+/// back to source slices when diagnostics reference them (bd-xdnk).
 pub fn compile_builtin_template_with_partials(
     meta: &ConfigValue,
     resolver: &impl PartialResolver,
+    source_context: &mut quarto_source_map::SourceContext,
 ) -> Result<Template> {
     let minimal = is_minimal_html(meta);
     let source = if minimal {
@@ -471,8 +576,14 @@ pub fn compile_builtin_template_with_partials(
     } else {
         FULL_HTML_TEMPLATE
     };
-    Template::compile_with_resolver(source, std::path::Path::new("<builtin>"), resolver, 0)
-        .map_err(|e| crate::error::QuartoError::other(e.to_string()))
+    Template::compile_with_resolver_and_context(
+        source,
+        std::path::Path::new("<builtin>"),
+        resolver,
+        0,
+        source_context,
+    )
+    .map_err(|e| crate::error::QuartoError::other(e.to_string()))
 }
 
 /// Add metadata from the Pandoc AST to the template context, excluding specific keys.
@@ -699,7 +810,7 @@ mod tests {
         let result = render_with_template(body, &meta);
 
         assert!(result.is_ok());
-        let html = result.unwrap();
+        let (html, _diags) = result.unwrap();
         assert!(html.contains("<title>Test Document</title>"));
         assert!(html.contains("<p>Hello, World!</p>"));
         assert!(html.contains("<!DOCTYPE html>"));
@@ -733,7 +844,7 @@ mod tests {
         let result = render_with_template(body, &meta);
 
         assert!(result.is_ok());
-        let html = result.unwrap();
+        let (html, _diags) = result.unwrap();
         assert!(html.contains(r#"<link rel="stylesheet" href="style1.css">"#));
         assert!(html.contains(r#"<link rel="stylesheet" href="style2.css">"#));
     }
@@ -753,7 +864,7 @@ mod tests {
         let result = render_with_resources("<p>Body</p>", &meta, &css_paths);
 
         assert!(result.is_ok());
-        let html = result.unwrap();
+        let (html, _diags) = result.unwrap();
         assert!(html.contains(r#"href="lib/styles.css"#));
         assert!(html.contains(r#"href="lib/theme.css"#));
     }
@@ -780,7 +891,7 @@ mod tests {
         let result = render_with_resources("<p>Body</p>", &meta, &css_paths);
 
         assert!(result.is_ok());
-        let html = result.unwrap();
+        let (html, _diags) = result.unwrap();
         // Both default and user CSS should be present
         assert!(html.contains("default.css"));
         assert!(html.contains("user.css"));
@@ -1581,7 +1692,180 @@ mod tests {
 
         let html = template.render(&ctx).unwrap();
 
-        assert!(html.contains("<body class=\"fullcontent my-class another-class\">"));
+        // body-classes is the full class list — no hardcoded `fullcontent` prefix.
+        assert!(html.contains("<body class=\"my-class another-class\">"));
+    }
+
+    #[test]
+    fn test_full_template_default_body_class_is_fullcontent() {
+        // No sidebar, no TOC → `render_with_compiled_template` falls back to
+        // `fullcontent`. That mixin lets the body content span more of the
+        // page since there's nothing in the right margin to make room for.
+        //
+        // bd-mtzry: the color-mode class `quarto-light` is appended so
+        // theme-conditional CSS can key off `body.quarto-light` (matches
+        // Quarto 1's default body class).
+        let template = full_html_template().unwrap();
+        let meta = ConfigValue::null(dummy_source_info());
+
+        let (html, _diags) =
+            render_with_compiled_template(&template, "<p>Content</p>", &meta, &[], &[]).unwrap();
+
+        assert!(
+            html.contains("<body class=\"fullcontent quarto-light\">"),
+            "expected default body class `fullcontent quarto-light`; got: {}",
+            &html[..html.len().min(800)]
+        );
+    }
+
+    /// When a page has a TOC but no sidebar, the body must NOT get the
+    /// `fullcontent` class — that mixin's margin segments are sized at
+    /// `0.14 * margin-width` each, giving a ~70px TOC column that
+    /// overflows horizontally. The default (no-class) layout
+    /// (`page-columns-default-wide`) has a `minmax(0.3*mw, 0.58*mw)`
+    /// margin-seg2 that leaves room for the TOC. Mirrors TS Quarto's
+    /// `format-html-bootstrap.ts` body-class logic.
+    #[test]
+    fn test_full_template_toc_present_yields_empty_body_class() {
+        let template = full_html_template().unwrap();
+
+        let mut meta = ConfigValue::null(dummy_source_info());
+        meta.insert_path(
+            &["rendered", "navigation", "toc"],
+            ConfigValue::new_string("<nav id=\"TOC\"></nav>", dummy_source_info()),
+        );
+
+        let (html, _diags) =
+            render_with_compiled_template(&template, "<p>Content</p>", &meta, &[], &[]).unwrap();
+
+        // bd-mtzry: even when the structural classes drop to empty,
+        // `quarto-light` still appears so theme-conditional CSS keys
+        // off `body.quarto-light` (matches Q1's default body class).
+        assert!(
+            html.contains("<body class=\"quarto-light\">"),
+            "expected body class `quarto-light` when TOC present and no body-classes; got: {}",
+            &html[..html.len().min(800)]
+        );
+        assert!(
+            !html.contains("<body class=\"fullcontent"),
+            "must NOT use `fullcontent` class when a TOC is rendered (margins too narrow); got: {}",
+            &html[..html.len().min(800)]
+        );
+    }
+
+    /// bd-mtzry: even when the caller supplies an explicit `body-classes`
+    /// (e.g. via metadata or `SidebarRenderTransform`), the color-mode
+    /// class is still appended. Quarto 1 always emits a `quarto-light` /
+    /// `quarto-dark` class so theme-conditional CSS works regardless of
+    /// the structural class. Today only `quarto-light` is emitted
+    /// (light/dark theme support is tracked elsewhere).
+    #[test]
+    fn test_full_template_color_mode_class_appended_to_user_body_classes() {
+        let template = full_html_template().unwrap();
+        let mut meta = ConfigValue::null(dummy_source_info());
+        meta.insert_path(
+            &["rendered", "navigation", "body-classes"],
+            ConfigValue::new_string("docked", dummy_source_info()),
+        );
+
+        let (html, _diags) =
+            render_with_compiled_template(&template, "<p>Content</p>", &meta, &[], &[]).unwrap();
+
+        assert!(
+            html.contains("<body class=\"docked quarto-light\">"),
+            "expected user body-classes + quarto-light; got: {}",
+            &html[..html.len().min(800)]
+        );
+    }
+
+    #[test]
+    fn test_full_template_no_sidebar_wrapper() {
+        // Sidebar HTML must appear as a direct child of #quarto-content,
+        // not inside a `<div id="quarto-sidebar-container">` wrapper.
+        // The SCSS rules in resources/scss target `#quarto-sidebar`
+        // directly as a grid child; a wrapper would intercept the
+        // grid placement.
+        use std::collections::HashMap;
+
+        let template = full_html_template().unwrap();
+
+        let mut nav_map = HashMap::new();
+        nav_map.insert(
+            "sidebar".to_string(),
+            TemplateValue::String(
+                "<nav id=\"quarto-sidebar\" class=\"sidebar sidebar-navigation sidebar-floating\"><span>SIDEBAR_BODY</span></nav>"
+                    .to_string(),
+            ),
+        );
+        let mut rendered_map = HashMap::new();
+        rendered_map.insert("navigation".to_string(), TemplateValue::Map(nav_map));
+
+        let mut ctx = TemplateContext::new();
+        ctx.insert("body", TemplateValue::String("<p>Content</p>".to_string()));
+        ctx.insert("page-layout", TemplateValue::String("article".to_string()));
+        ctx.insert("version", TemplateValue::String("0.1.0".to_string()));
+        ctx.insert("rendered", TemplateValue::Map(rendered_map));
+
+        let html = template.render(&ctx).unwrap();
+
+        // Sidebar HTML rendered.
+        assert!(
+            html.contains("<nav id=\"quarto-sidebar\""),
+            "expected sidebar HTML in output; got: {}",
+            html
+        );
+        // No wrapper div.
+        assert!(
+            !html.contains("quarto-sidebar-container"),
+            "wrapper div should be gone; got: {}",
+            html
+        );
+        assert!(
+            !html.contains("class=\"sidebar-column\""),
+            "sidebar-column class should be gone; got: {}",
+            html
+        );
+
+        // The sidebar must appear *between* `<div id="quarto-content"` and
+        // `<main`. That confirms it's a direct grid child of #quarto-content,
+        // not nested inside <main> or anywhere else.
+        let content_idx = html
+            .find("id=\"quarto-content\"")
+            .expect("quarto-content div present");
+        let sidebar_idx = html
+            .find("<nav id=\"quarto-sidebar\"")
+            .expect("sidebar nav present");
+        let main_idx = html.find("<main").expect("main element present");
+        assert!(
+            content_idx < sidebar_idx && sidebar_idx < main_idx,
+            "sidebar must sit between #quarto-content opening and <main>; \
+             content_idx={}, sidebar_idx={}, main_idx={}",
+            content_idx,
+            sidebar_idx,
+            main_idx
+        );
+    }
+
+    #[test]
+    fn test_full_template_quarto_container_class() {
+        // For parity with Q1, #quarto-content carries `quarto-container`
+        // alongside the page-columns / page-layout classes.
+        let template = full_html_template().unwrap();
+
+        let mut ctx = TemplateContext::new();
+        ctx.insert("body", TemplateValue::String("<p>Content</p>".to_string()));
+        ctx.insert("page-layout", TemplateValue::String("article".to_string()));
+        ctx.insert("version", TemplateValue::String("0.1.0".to_string()));
+
+        let html = template.render(&ctx).unwrap();
+
+        // Match either order; grep for the substring as a class token.
+        assert!(
+            html.contains("id=\"quarto-content\" class=\"quarto-container ")
+                || html.contains("class=\"quarto-container ") && html.contains("quarto-content"),
+            "expected quarto-container class on #quarto-content; got: {}",
+            &html[..html.len().min(800)]
+        );
     }
 
     // === render_with_format tests ===
@@ -1602,7 +1886,8 @@ mod tests {
         );
         let css_paths = vec!["styles.css".to_string()];
 
-        let html = render_with_format("<p>Hello</p>", &meta, &format, &css_paths).unwrap();
+        let (html, _diags) =
+            render_with_format("<p>Hello</p>", &meta, &format, &css_paths).unwrap();
 
         // Should be minimal template
         assert!(!html.contains("quarto-content"));
@@ -1618,7 +1903,8 @@ mod tests {
         let meta = ConfigValue::null(dummy_source_info());
         let css_paths = vec!["styles.css".to_string()];
 
-        let html = render_with_format("<p>Hello</p>", &meta, &format, &css_paths).unwrap();
+        let (html, _diags) =
+            render_with_format("<p>Hello</p>", &meta, &format, &css_paths).unwrap();
 
         // Should be full template
         assert!(html.contains("quarto-content"));
@@ -1652,7 +1938,8 @@ mod tests {
         );
         let css_paths = vec![];
 
-        let html = render_with_format("<p>Content</p>", &meta, &format, &css_paths).unwrap();
+        let (html, _diags) =
+            render_with_format("<p>Content</p>", &meta, &format, &css_paths).unwrap();
 
         // Should have title block
         assert!(html.contains("<header id=\"title-block-header\""));
@@ -1723,19 +2010,62 @@ mod tests {
     // Tests for scripts, header-includes, include-before, include-after
     // =================================================================
 
+    /// Build a `meta` value with `rendered.includes.{header, before-body,
+    /// after-body}` populated to the given lists. Used by the include-slot
+    /// tests below to exercise the post-resolve template wiring.
+    fn meta_with_rendered_includes(
+        header: &[&str],
+        before_body: &[&str],
+        after_body: &[&str],
+    ) -> ConfigValue {
+        use quarto_pandoc_types::config_value::ConfigMapEntry;
+        use quarto_source_map::SourceInfo;
+        let si = SourceInfo::default;
+        let to_array = |items: &[&str]| {
+            ConfigValue::new_array(
+                items
+                    .iter()
+                    .map(|s| ConfigValue::new_string(s.to_string(), si()))
+                    .collect(),
+                si(),
+            )
+        };
+        let includes = ConfigValue::new_map(
+            vec![
+                ConfigMapEntry {
+                    key: "header".to_string(),
+                    key_source: si(),
+                    value: to_array(header),
+                },
+                ConfigMapEntry {
+                    key: "before-body".to_string(),
+                    key_source: si(),
+                    value: to_array(before_body),
+                },
+                ConfigMapEntry {
+                    key: "after-body".to_string(),
+                    key_source: si(),
+                    value: to_array(after_body),
+                },
+            ],
+            si(),
+        );
+        let mut meta = ConfigValue::null(si());
+        meta.insert_path(&["rendered", "includes"], includes);
+        meta
+    }
+
     #[test]
     fn test_template_renders_scripts() {
         let template = minimal_html_template().unwrap();
         let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
-        let includes = PandocIncludes::default();
 
-        let html = render_with_compiled_template(
+        let (html, _diags) = render_with_compiled_template(
             &template,
             "<p>body</p>",
             &meta,
             &[],
             &["libs/kbd/kbd.js".to_string()],
-            &includes,
         )
         .unwrap();
 
@@ -1749,15 +2079,11 @@ mod tests {
     #[test]
     fn test_template_renders_header_includes() {
         let template = minimal_html_template().unwrap();
-        let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
-        let includes = PandocIncludes {
-            header_includes: vec!["<meta name=\"test\" content=\"value\">".to_string()],
-            ..Default::default()
-        };
+        let meta =
+            meta_with_rendered_includes(&["<meta name=\"test\" content=\"value\">"], &[], &[]);
 
-        let html =
-            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[], &includes)
-                .unwrap();
+        let (html, _diags) =
+            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
 
         assert!(
             html.contains("<meta name=\"test\" content=\"value\">"),
@@ -1773,16 +2099,14 @@ mod tests {
     #[test]
     fn test_template_renders_include_before_and_after() {
         let template = minimal_html_template().unwrap();
-        let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
-        let includes = PandocIncludes {
-            include_before: vec!["<div class=\"before\">BEFORE</div>".to_string()],
-            include_after: vec!["<div class=\"after\">AFTER</div>".to_string()],
-            ..Default::default()
-        };
+        let meta = meta_with_rendered_includes(
+            &[],
+            &["<div class=\"before\">BEFORE</div>"],
+            &["<div class=\"after\">AFTER</div>"],
+        );
 
-        let html =
-            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[], &includes)
-                .unwrap();
+        let (html, _diags) =
+            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
 
         let before_pos = html.find("BEFORE").unwrap();
         let body_pos = html.find("<p>body</p>").unwrap();
@@ -1871,11 +2195,9 @@ mod tests {
     fn test_template_empty_includes_produce_no_tags() {
         let template = minimal_html_template().unwrap();
         let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
-        let includes = PandocIncludes::default();
 
-        let html =
-            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[], &includes)
-                .unwrap();
+        let (html, _diags) =
+            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
 
         assert!(
             !html.contains("<script"),
@@ -1891,6 +2213,174 @@ mod tests {
             !html.contains("AFTER"),
             "no include-after expected, got: {}",
             html
+        );
+    }
+
+    /// bd-xdnk: undefined-variable warnings from the doctemplate evaluator
+    /// must surface in the returned diagnostics vec, not be silently dropped.
+    #[test]
+    fn test_undefined_variable_emits_diagnostic() {
+        // Custom template with a reference to a variable the document
+        // does not provide.
+        let template_src = "<header>by $author-greeting$</header>$body$";
+        let template =
+            quarto_doctemplate::Template::compile(template_src).expect("template should compile");
+        let meta = ConfigValue::null(quarto_source_map::SourceInfo::default());
+
+        let (html, diagnostics) =
+            render_with_compiled_template(&template, "<p>body</p>", &meta, &[], &[]).unwrap();
+
+        assert!(
+            html.contains("<p>body</p>"),
+            "body should still render, got: {}",
+            html
+        );
+
+        let undef = diagnostics.iter().find(|d| {
+            d.code.as_deref() == Some("Q-10-2")
+                && d.kind == quarto_error_reporting::DiagnosticKind::Warning
+        });
+        assert!(
+            undef.is_some(),
+            "expected Q-10-2 warning for undefined variable, got: {:?}",
+            diagnostics
+        );
+    }
+
+    // ─────────── L5 phase 7: margin sidebar with categories ───────────
+
+    /// Render through the full HTML template (not the minimal one
+    /// that `render_with_template` uses by default). The L5 phase 7
+    /// tests need to exercise the `#quarto-margin-sidebar` region,
+    /// which only lives in `FULL_HTML_TEMPLATE`.
+    fn render_full(body: &str, meta: &ConfigValue) -> String {
+        let template = full_html_template().expect("full template compiles");
+        let mut ctx = TemplateContext::new();
+        ctx.insert("body", TemplateValue::String(body.to_string()));
+        add_metadata_to_context(meta, &mut ctx);
+        let (html, _diags) = template.render_with_diagnostics(&ctx);
+        html.expect("template renders")
+    }
+
+    /// Build a meta with the requested combination of nested
+    /// `rendered.navigation.toc` and `rendered.navigation.margin_categories`
+    /// strings.
+    fn meta_with_navigation(toc: Option<&str>, margin_categories: Option<&str>) -> ConfigValue {
+        let mut nav_entries: Vec<ConfigMapEntry> = Vec::new();
+        if let Some(toc_html) = toc {
+            nav_entries.push(ConfigMapEntry {
+                key: "toc".to_string(),
+                key_source: dummy_source_info(),
+                value: ConfigValue::new_string(toc_html, dummy_source_info()),
+            });
+        }
+        if let Some(cats_html) = margin_categories {
+            nav_entries.push(ConfigMapEntry {
+                key: "margin_categories".to_string(),
+                key_source: dummy_source_info(),
+                value: ConfigValue::new_string(cats_html, dummy_source_info()),
+            });
+        }
+        let nav = ConfigValue::new_map(nav_entries, dummy_source_info());
+        let rendered = ConfigValue::new_map(
+            vec![ConfigMapEntry {
+                key: "navigation".to_string(),
+                key_source: dummy_source_info(),
+                value: nav,
+            }],
+            dummy_source_info(),
+        );
+        ConfigValue::new_map(
+            vec![
+                ConfigMapEntry {
+                    key: "pagetitle".to_string(),
+                    key_source: dummy_source_info(),
+                    value: ConfigValue::new_string("Test", dummy_source_info()),
+                },
+                ConfigMapEntry {
+                    key: "rendered".to_string(),
+                    key_source: dummy_source_info(),
+                    value: rendered,
+                },
+            ],
+            dummy_source_info(),
+        )
+    }
+
+    // L5 plan §"Tests" #34
+    #[test]
+    fn full_template_emits_margin_sidebar_with_only_toc() {
+        let meta = meta_with_navigation(Some("<ul><li>toc-entry</li></ul>"), None);
+        let html = render_full("<p>body</p>", &meta);
+        assert!(
+            html.contains(r#"<div id="quarto-margin-sidebar""#),
+            "expected sidebar wrapper; got: {html}"
+        );
+        assert!(html.contains("<nav id=\"TOC\""));
+        assert!(html.contains("toc-entry"));
+        // No category container.
+        assert!(!html.contains("quarto-listing-category"));
+    }
+
+    // L5 plan §"Tests" #35
+    #[test]
+    fn full_template_emits_margin_sidebar_with_only_categories() {
+        let cat_html = r#"<h5 class="quarto-listing-category-title">Categories</h5>
+<div class="quarto-listing-category category-default">
+<div class="category" data-category="">All</div>
+</div>"#;
+        let meta = meta_with_navigation(None, Some(cat_html));
+        let html = render_full("<p>body</p>", &meta);
+        assert!(
+            html.contains(r#"<div id="quarto-margin-sidebar""#),
+            "sidebar wrapper expected; got: {html}"
+        );
+        // No TOC nav.
+        assert!(!html.contains("<nav id=\"TOC\""));
+        assert!(html.contains(r#"class="quarto-listing-category-title""#));
+    }
+
+    // L5 plan §"Tests" #36
+    #[test]
+    fn full_template_emits_margin_sidebar_with_both() {
+        let cat_html = r#"<h5 class="quarto-listing-category-title">Categories</h5>"#;
+        let meta = meta_with_navigation(Some("<ul><li>toc-entry</li></ul>"), Some(cat_html));
+        let html = render_full("<p>body</p>", &meta);
+        assert!(html.contains(r#"<div id="quarto-margin-sidebar""#));
+        // Both inside the same sidebar container.
+        let sidebar_open = html.find(r#"<div id="quarto-margin-sidebar""#).unwrap();
+        let sidebar_close = html[sidebar_open..]
+            .find("</div>\n\n<main")
+            .map(|i| sidebar_open + i)
+            .or_else(|| {
+                html[sidebar_open..]
+                    .find("</main>")
+                    .map(|i| sidebar_open + i)
+            })
+            .unwrap_or(html.len());
+        let sidebar_html = &html[sidebar_open..sidebar_close];
+        assert!(
+            sidebar_html.contains("<nav id=\"TOC\"") && sidebar_html.contains("Categories"),
+            "expected both TOC and categories inside the same sidebar; got: {sidebar_html}"
+        );
+        // TOC must come before categories (TOC first per the
+        // L5 sub-plan's template change).
+        let toc_pos = sidebar_html.find("<nav id=\"TOC\"").unwrap();
+        let cats_pos = sidebar_html.find("Categories").unwrap();
+        assert!(
+            toc_pos < cats_pos,
+            "TOC must precede categories; got order: {sidebar_html}"
+        );
+    }
+
+    // L5 plan §"Tests" #37
+    #[test]
+    fn full_template_omits_margin_sidebar_when_neither_set() {
+        let meta = meta_with_navigation(None, None);
+        let html = render_full("<p>body</p>", &meta);
+        assert!(
+            !html.contains(r#"<div id="quarto-margin-sidebar""#),
+            "sidebar must be absent when neither toc nor categories are set; got: {html}"
         );
     }
 }

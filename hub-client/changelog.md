@@ -2,6 +2,8 @@
 
 ## Quarto-Hub Changelog
 
+Do not include refactors in this list. It's meant as a summary of user-facing changes.
+
 Changelog entry format:
 
 ### YYYY-MM-DD
@@ -13,6 +15,66 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-09
+
+- [`749064d1`](https://github.com/quarto-dev/q2/commits/749064d1): Fix identity name defaulting to a random "Adjective Animal" instead of the authenticated user's name when a new project set is created.
+
+### 2026-06-02
+
+- [`301ca456`](https://github.com/quarto-dev/q2/commits/301ca456): Add "Import from ZIP" to the project selector — create a new project from an uploaded .zip archive (the inverse of "Export to ZIP").
+
+### 2026-05-27
+
+- [`9aa29ee1`](https://github.com/quarto-dev/q2/commits/9aa29ee1): View toggle buttons now order markup-left / preview-right (matching the editor-left / preview-right layout) instead of preview-left / markup-right.
+
+### 2026-05-26
+
+- [`1bc3d2cd`](https://github.com/quarto-dev/q2/commits/1bc3d2cd): Fix Monaco editor in light mode falling back to its default theme because the configured name (`light`) was not a registered Monaco theme; use `vs` instead.
+
+### 2026-05-21
+
+- [`6c84696d`](https://github.com/quarto-dev/q2/commits/6c84696d): Login screen and post-logout view now respect the saved `colorScheme` preference (and system `prefers-color-scheme`) instead of always rendering light on first visit and inheriting the previous session's class after logout.
+
+### 2026-05-15
+
+- [`e9399093`](https://github.com/quarto-dev/q2/commits/e9399093): Authorship pill in the replay bar now animates with a rotating rainbow border while attribution data is being generated, so large documents give visible feedback that work is happening before the colours appear in the preview.
+- [`52281655`](https://github.com/quarto-dev/q2/commits/52281655): Authorship toggle moved from Settings → Preview to a pill in the replay bar (flush-right, visible in both collapsed and expanded states), and is no longer persisted — it resets on reload. Activation drops from three clicks to one; semantic grouping matches the rest of the per-actor UI in the replay drawer.
+- [`70016298`](https://github.com/quarto-dev/q2/commits/70016298): `--attribution=git` HTML renders now derive author colours from Paul Tol's "Muted" 10-colour qualitative palette (colour-blind safe across red-green and blue-yellow deficiencies, perceptually uniform brightness on white) instead of an unconstrained HSL hue. CLI HTML output only — hub-client previews continue to colour authors from Automerge profile metadata.
+
+### 2026-05-14
+
+- [`8b8349c8`](https://github.com/quarto-dev/q2/commits/8b8349c8): `--attribution=git` renders now auto-inject a viewer CSS/JS pair (dotted underline, body text painted in the author's colour, hover badge) so static HTML matches the hub-client preview. The shared stylesheet lives at `resources/attribution/viewer.css` (single source of truth with the CLI), loaded into the hub-client via a virtual-module Vite plugin.
+
+### 2026-05-13
+
+- [`38273485`](https://github.com/quarto-dev/q2/commits/38273485): Authorship colouring and the hover badge now appear on q2-preview documents, matching q2-debug. The shared badge/stylesheet moved to `framework/`; q2-preview's dispatchers wrap nodes on hit and `PreviewDocument` mounts the hover handlers.
+- [`5194cc59`](https://github.com/quarto-dev/q2/commits/5194cc59): Thread the Authorship payload through the q2-preview WASM entry point so attribution data reaches the AST iframe. Off-path the call is byte-identical to before via the new `render_page_in_project_with_attribution` wrapper.
+
+### 2026-05-12
+
+- [`7ceb42c0`](https://github.com/quarto-dev/q2/commits/7ceb42c0): Fix a race where Authorship colouring failed to appear on first render in q2-debug for files using `render-components`. The iframe now serializes AST updates through the in-flight component-load promise, so two updates queued during load run in arrival order.
+- [`8cf443c1`](https://github.com/quarto-dev/q2/commits/8cf443c1): Add a Settings → Preview → Authorship toggle. When on, the q2-debug renderer colours each node by its last-touch Automerge actor (or git author for `--attribution=git` renders) and shows a hover badge with the author's name and a relative timestamp. Off by default; the wire path stays cold.
+- [`10dd3cfc`](https://github.com/quarto-dev/q2/commits/10dd3cfc): Port the Authorship renderer-side colouring to the new framework/ + q2-debug/ split (Plan 2pre). Attribution data flows through the framework's `AttributionLookupContext`; q2-debug's Block/Inline dispatchers do the wrap and the format's `AstRenderer` handles the hover badge.
+- [`91cfe944`](https://github.com/quarto-dev/q2/commits/91cfe944): `usePreference` is now cross-instance reactive — toggling a preference in Settings updates sibling consumers like the preview without a manual page refresh.
+
+### 2026-05-10
+
+- [`68e5ec24`](https://github.com/quarto-dev/q2/commits/68e5ec24): Custom syntax highlighting now works in Quarto Hub projects (bd-izfv) — user-supplied tree-sitter grammars under `_quarto/grammars/<lang>/` now apply to code blocks even when the qmd file lives under a `_quarto.yml` ancestor, matching the single-file render path.
+- [`915f1a3a`](https://github.com/quarto-dev/q2/commits/915f1a3a): New `format: q2-preview` drives the live preview through the q2-preview pipeline — shortcodes, Lua filters, sectionize, crossref, sidebar/navbar metadata, embedded image artifacts, footnote numbering, and appendix structure. Renders through the iframe alongside q2-debug. Read-only in v1: component-driven edits (kanban drag, future comment buttons) silently no-op with a console warning.
+- [`eb07797b`](https://github.com/quarto-dev/q2/commits/eb07797b): Fix iframe-host crash when typing `render-components:\n  -` (empty list bullet) into a document's YAML frontmatter; empty entries are now skipped silently.
+
+### 2026-05-05
+
+- [`5ecdfe48`](https://github.com/quarto-dev/q2/commits/5ecdfe48): Surface doctemplate diagnostics (e.g. `Q-10-2 Undefined variable`) through `quarto render` and the hub-client preview (bd-xdnk). Custom templates referencing undefined variables now produce ariadne-rendered warnings with accurate source locations instead of being silently dropped. Also fixes a separate pre-existing bug where the `template:` YAML key was ignored under `quarto render` because the lookup didn't handle `PandocInlines`-shaped scalars.
+
+### 2026-05-01
+
+- [`2441ad8d`](https://github.com/quarto-dev/q2/commits/2441ad8d): Fix bd-lnd3 — cross-document link clicks now switch the editor in website projects. The website pipeline rewrites `[About](about.qmd)` to `/.quarto/project-artifacts/about.html`; the iframe click handler reverse-maps that back to the source file for in-editor navigation.
+- [`c8dcbcf6`](https://github.com/quarto-dev/q2/commits/c8dcbcf6): Hide the floating sidebar below the `lg` (992px) breakpoint instead of letting it collapse to a 26px-wide ghost column at half-pane previews and 768–991px viewports
+- [`f8234d00`](https://github.com/quarto-dev/q2/commits/f8234d00): Fix bd-f5yi — narrow the iframe `nav[role="doc-toc"]` hide override to `:not(.sidebar-navigation)` so the website sidebar isn't collateral-killed by the TOC-hiding rule
+- [`d656559a`](https://github.com/quarto-dev/q2/commits/d656559a): Surface sibling-page Pass-1 failures in the preview overlay with source-file attribution (bd-rqba), plus rename the misleading "references unknown document" warning to "references missing document information for"
+- [`0f103490`](https://github.com/quarto-dev/q2/commits/0f103490): Surface active-page parse errors in the preview overlay (bd-mwtf) and add a dev-only `window.quartoDebug` console API for scripting projects from DevTools (bd-2rv8)
+
 ### 2026-04-30
 
 - [`2859733b`](https://github.com/quarto-dev/q2/commits/2859733b): Harden silent auth refresh — buffer extended from 5 to 15 minutes to absorb background-tab timer throttling, and a coalesced `triggerRefresh()` lets callers recover from mid-session 401s without logout
@@ -20,6 +82,10 @@ be in reverse chronological order (latest first).
 ### 2026-04-29
 
 - [`dcac202d`](https://github.com/quarto-dev/q2/commits/dcac202d): Fix replay drawer toggle so clicking the chevron or title closes the drawer
+
+### 2026-04-28
+
+- [`a3ef5e8f`](https://github.com/quarto-dev/q2/commits/a3ef5e8f): Phase 9 sub-phases 9.3–9.4 — `renderToHtml` now drives the new `render_page_in_project` WASM entry point so the live preview renders the active page in the context of its surrounding project (sidebar, navbar, prev/next, cross-doc link rewriting, deduplicated theme CSS); single-file projects fall through to the same path `renderQmd` used to take, so behavior is byte-identical there. `Preview` now re-renders on any sibling-file edit (Decision 6) by depending on the `fileContents` Map identity threaded through `PreviewRouter`.
 
 ### 2026-04-24
 

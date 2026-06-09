@@ -12,18 +12,110 @@
 //! - Transforms can access project configuration and format settings
 //! - Writers use the context to determine output paths
 
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use quarto_analysis::AnalysisContext;
 use quarto_error_reporting::DiagnosticMessage;
+use quarto_source_map::SourceContext;
 use quarto_system_runtime::SystemRuntime;
 
 use crate::artifact::ArtifactStore;
+use std::collections::HashMap;
+
+use crate::attribution::{
+    AttributionData, AttributionRecord, AttributionSourceProvider, IdentityMap,
+};
 use crate::crossref::{CrossrefIndex, RefTypeRegistry};
 use crate::format::Format;
+use crate::project::index::ProjectIndex;
 use crate::project::{DocumentInfo, ProjectContext};
+use crate::resource_resolver::ResourceResolverContext;
 use crate::stage::{NoopObserver, PandocIncludes, PipelineObserver};
+
+/// Writer-side options populated by the Render-phase transforms and
+/// read when constructing each writer's `*Config`. Per-format
+/// sub-structs let HTML and JSON keep distinct lookup shapes without
+/// either having to know about the other.
+///
+/// Defaults are `None` for every field so existing callers and tests
+/// see no behaviour change.
+#[derive(Debug, Clone, Default)]
+pub struct FormatOptions {
+    pub html: HtmlFormatOptions,
+    pub json: JsonFormatOptions,
+}
+
+/// HTML writer-side options.
+#[derive(Debug, Clone)]
+pub struct HtmlFormatOptions {
+    /// Walk-order slice of per-node `Option<AttributionRecord>`.
+    /// `None` (outer) means "no attribution in scope" (off-path).
+    /// `AttributionRecord.actor` is `Arc<str>` pointer-equal to the
+    /// corresponding key in `attribution_identities`, preserving the
+    /// Phase 1 interning invariant. Written by
+    /// `AttributionRenderTransform`. Used as a regression invariant
+    /// for the "lookup non-empty when attribution is on" contract;
+    /// the writer queries `attribution_by_node` for per-node O(1)
+    /// access.
+    pub attribution_lookup: Option<Arc<[Option<AttributionRecord>]>>,
+
+    /// Pointer-keyed map from AST node identity (`&Block` /
+    /// `&Inline` cast through `*const ()` to `usize`) to the resolved
+    /// `AttributionRecord`. The HTML writer's
+    /// `write_block_source_attrs` / `write_inline_source_attrs` do a
+    /// single `HashMap::get` to decide whether to emit
+    /// `data-attr-*`. Pointer keys are stable because the transform
+    /// is registered as the **last** Finalization-Phase entry — no
+    /// later code mutates the AST.
+    pub attribution_by_node: Option<Arc<HashMap<usize, AttributionRecord>>>,
+
+    /// Identity table covering every distinct actor that appears in
+    /// `runs`. Consumed by `AttributionViewerTransform` to emit one
+    /// `[data-attr-actor="<id>"] { --attr-color: …; --attr-name: …; }`
+    /// CSS rule per actor into `rendered.includes.header`. The HTML
+    /// writer is identity-free; the browser paints colour via the
+    /// cascade and `viewer.js` reads `--attr-name` from computed style
+    /// for the hover badge.
+    pub attribution_identities: Option<Arc<IdentityMap>>,
+
+    /// Whether `AttributionViewerTransform` should auto-inject the
+    /// default viewer CSS + JS pair (dotted underline + hover badge)
+    /// into `rendered.includes.{header,after-body}`. Defaults to
+    /// `true`; flipped to `false` only by the YAML opt-out
+    /// `attribution: { source: git, viewer: false }`. The viewer
+    /// transform additionally gates on `attribution_by_node.is_some()`,
+    /// so the bool only matters when attribution is otherwise active.
+    pub attribution_viewer_enabled: bool,
+}
+
+impl Default for HtmlFormatOptions {
+    fn default() -> Self {
+        Self {
+            attribution_lookup: None,
+            attribution_by_node: None,
+            attribution_identities: None,
+            attribution_viewer_enabled: true,
+        }
+    }
+}
+
+/// q2-debug JSON writer-side options.
+#[derive(Debug, Clone, Default)]
+pub struct JsonFormatOptions {
+    /// Walk-order slice mirroring [`HtmlFormatOptions::attribution_lookup`].
+    pub attribution_lookup: Option<Arc<[Option<AttributionRecord>]>>,
+
+    /// Pointer-keyed map mirroring [`HtmlFormatOptions::attribution_by_node`].
+    pub attribution_by_node: Option<Arc<HashMap<usize, AttributionRecord>>>,
+
+    /// Actor → `(name, color)` table. Unlike the HTML path, the JSON
+    /// wire dedupes — per-record entries carry only `{ s, actor, time }`
+    /// and consumers join into this table for identity.
+    pub attribution_actors: Option<Arc<IdentityMap>>,
+}
 
 /// Binary dependencies available for rendering
 #[derive(Debug, Clone, Default)]
@@ -39,6 +131,13 @@ pub struct BinaryDependencies {
 
     /// Typst binary path
     pub typst: Option<PathBuf>,
+
+    /// `git` binary path. Used by
+    /// [`crate::attribution::GitBlameProvider`] to spawn
+    /// `git blame --porcelain`. `None` when git isn't on PATH and
+    /// `QUARTO_GIT` is unset; the provider degrades gracefully with
+    /// a diagnostic warning in that case.
+    pub git: Option<PathBuf>,
 }
 
 impl BinaryDependencies {
@@ -54,6 +153,7 @@ impl BinaryDependencies {
             esbuild: runtime.find_binary("esbuild", "QUARTO_ESBUILD"),
             pandoc: runtime.find_binary("pandoc", "QUARTO_PANDOC"),
             typst: runtime.find_binary("typst", "QUARTO_TYPST"),
+            git: runtime.find_binary("git", "QUARTO_GIT"),
         }
     }
 
@@ -122,6 +222,44 @@ pub struct RenderContext<'a> {
     /// Bridged to/from `StageContext` by `AstTransformsStage`.
     pub crossref_index: Option<CrossrefIndex>,
 
+    /// Project-wide index of Pass-1 profiles.
+    ///
+    /// Populated by
+    /// [`ProjectPipeline`](crate::project::orchestrator::ProjectPipeline)
+    /// before each file's Pass-2 render, transferred into
+    /// [`StageContext::project_index`](crate::stage::StageContext) by
+    /// [`run_pipeline`](crate::pipeline::run_pipeline). `None` for
+    /// standalone renders.
+    pub project_index: Option<Arc<ProjectIndex>>,
+
+    /// Per-page scope-aware resolver for HTML asset URLs and
+    /// cross-document body links.
+    ///
+    /// Populated alongside `project_index` in
+    /// [`crate::render_to_file::render_document_to_file`] (Phase 5
+    /// constructs the resolver for `HtmlRenderConfig`; Phase 6
+    /// makes the same resolver available to AST transforms via this
+    /// field). `None` when no per-page resolver has been built —
+    /// e.g. unit tests that construct a `RenderContext` directly,
+    /// or pipeline drivers that don't go through
+    /// `render_document_to_file`.
+    pub resource_resolver: Option<ResourceResolverContext>,
+
+    /// The document's `SourceContext` — the lookup table that maps
+    /// `FileId` values (carried by every `SourceInfo`) to file paths.
+    ///
+    /// Bridged from `doc.ast_context.source_context` by
+    /// `AstTransformsStage`. Transforms that need to resolve a
+    /// `SourceInfo`'s `FileId` back to a path (e.g. to figure out
+    /// which YAML file an href was authored in) read from here.
+    ///
+    /// `None` when callers construct a `RenderContext` directly
+    /// without bridging from an `AstTransformsStage` (unit tests,
+    /// out-of-band drivers). Consumers must tolerate the `None` case
+    /// — typically by falling back to today's project-root-relative
+    /// interpretation.
+    pub source_context: Option<&'a SourceContext>,
+
     /// Observer for pipeline tracing.
     ///
     /// Bridged from `StageContext` by `AstTransformsStage` so that
@@ -136,7 +274,101 @@ pub struct RenderContext<'a> {
     /// browser hub-client sets this to a `JsUserGrammars` (Phase 4.3 of
     /// the syntax-highlighting plan) so JS-backed user grammars flow
     /// through the same `CodeHighlightStage` code path.
-    pub user_grammar_provider: Option<Box<dyn quarto_highlight::UserGrammarProvider>>,
+    pub user_grammar_provider: Option<Rc<RefCell<dyn quarto_highlight::UserGrammarProvider>>>,
+
+    /// Per-document resource report (`bd-o8pr`). Mirrors
+    /// [`crate::stage::StageContext::resource_report`]; `run_pipeline`
+    /// transfers entries from the inner stage context back here so
+    /// the caller (`render_document_to_file`) can stuff them into
+    /// the per-doc render result for the orchestrator to drain.
+    pub resource_report: crate::project_resources::DocumentResourceReport,
+
+    /// User-authored resource files (images, etc.) discovered in the
+    /// AST that must be copied from the source tree to the output
+    /// tree before the render is committed.
+    ///
+    /// Each entry is `(src_absolute, dest_absolute)`. The destination
+    /// is computed by the producing transform from
+    /// [`ResourceResolverContext::page_dir`] joined with the URL the
+    /// document references — so the copied file lands at the same
+    /// relative location the rendered HTML expects.
+    ///
+    /// Drained into the per-render [`crate::output_sink::OutputSink`]
+    /// by `render_document_to_file` after the pipeline finishes.
+    /// Producers (e.g.
+    /// [`crate::transforms::ResourceCollectorTransform`]) push into
+    /// this field rather than calling `runtime.file_copy` directly,
+    /// so every destructive disk write in the render flows through
+    /// the one validated sink — see bd-cfl67.
+    pub resource_copies: Vec<(PathBuf, PathBuf)>,
+
+    /// Resolved listings produced by `ListingGenerateTransform` and
+    /// consumed by `ListingRenderTransform`. Populated only when the
+    /// host page declares a `listing:` key. Both transforms run
+    /// inside `AstTransformsStage` and share this context directly,
+    /// so no `StageContext` bridge is needed.
+    ///
+    /// This is the impl-time revision of the L3 sub-plan's D2: the
+    /// original design called for round-tripping through
+    /// `meta.listings.<id>` for Lua-mutation forward-compat, but
+    /// per D13 there is no Lua filter slot between generate and
+    /// render today. When `bd-0fd0` (Lua injection slot) lands, the
+    /// natural integration point is a meta serialize/deserialize
+    /// bridge at the injection boundary; this typed in-memory shape
+    /// stays unchanged.
+    pub resolved_listings: Vec<crate::project::listing::ResolvedListing>,
+
+    /// Code-block decorations produced by
+    /// [`CodeBlockGenerateTransform`](crate::transforms::CodeBlockGenerateTransform)
+    /// and consumed by
+    /// [`CodeBlockRenderTransform`](crate::transforms::CodeBlockRenderTransform).
+    /// Populated only for `CodeBlock`s that carry at least one
+    /// decoration-triggering attribute (filename, code-copy, code-fold,
+    /// …) or that are affected by a document-level default. Both
+    /// transforms run inside `AstTransformsStage` and share this
+    /// context directly, so no `StageContext` bridge is needed.
+    ///
+    /// Keyed by [`CodeBlockDecorationKey`](crate::transforms::CodeBlockDecorationKey)
+    /// — a `(file_id, start_offset, end_offset)` triple derived from
+    /// the block's `SourceInfo::Original`. See the key type's docs
+    /// for the non-`Original` skip rule and the user-filter timing
+    /// argument that makes the key stable in practice.
+    ///
+    /// Decision pinned in
+    /// `claude-notes/plans/2026-05-19-code-block-features.md`
+    /// (sideband map preferred over a `DecoratedCodeBlock` CustomNode
+    /// to avoid the nested-CustomNode complexity Q1 ran into).
+    pub code_block_decorations: std::collections::HashMap<
+        crate::transforms::CodeBlockDecorationKey,
+        crate::transforms::CodeBlockDecoration,
+    >,
+
+    /// Opt-in signal: when `Some`, the
+    /// [`AttributionGenerateTransform`](crate::transforms::AttributionGenerateTransform)
+    /// will call the provider's `build()` and merge the result with
+    /// any user-authored `meta.attribution.identities`.
+    ///
+    /// Set by the CLI flag plumbing (Phase 3c) or the WASM entry
+    /// point (Phase 3b). **Read by `AttributionGenerateTransform`
+    /// only.** No other transform should consult this field.
+    pub attribution_provider: Option<Arc<dyn AttributionSourceProvider>>,
+
+    /// Sidecar carrying the canonical merged attribution form
+    /// between the Generate and Render stages.
+    ///
+    /// Written by `AttributionGenerateTransform`; read by
+    /// `AttributionRenderTransform`. **No other transform reads or
+    /// writes this field.** The entire Finalization Phase runs
+    /// between Generate and Render with this slot populated; future
+    /// Finalization transforms must treat it as opaque.
+    ///
+    /// `Arc` so the value travels between transforms (and into the
+    /// writer config via `format_options`) without re-copying.
+    pub attribution_data: Option<Arc<AttributionData>>,
+
+    /// Per-format writer-side options bag. Populated by Render-phase
+    /// transforms and read when constructing each writer's `*Config`.
+    pub format_options: FormatOptions,
 }
 
 /// Options for rendering
@@ -174,9 +406,42 @@ impl<'a> RenderContext<'a> {
             diagnostics: Vec::new(),
             ref_type_registry: None,
             crossref_index: None,
+            project_index: None,
+            resource_resolver: None,
+            source_context: None,
             observer: Arc::new(NoopObserver),
             user_grammar_provider: None,
+            resource_report: crate::project_resources::DocumentResourceReport::new(),
+            resource_copies: Vec::new(),
+            resolved_listings: Vec::new(),
+            code_block_decorations: std::collections::HashMap::new(),
+            attribution_provider: None,
+            attribution_data: None,
+            format_options: FormatOptions::default(),
         }
+    }
+
+    /// Attach a project-wide [`ProjectIndex`] to this context.
+    ///
+    /// Called by
+    /// [`ProjectPipeline`](crate::project::orchestrator::ProjectPipeline)
+    /// before each file's Pass-2 render.
+    pub fn with_project_index(mut self, index: Arc<ProjectIndex>) -> Self {
+        self.project_index = Some(index);
+        self
+    }
+
+    /// Attach a [`ResourceResolverContext`] to this context.
+    ///
+    /// Production callers receive their resolver through the
+    /// `StageContext` ↔ `RenderContext` bridge inside the
+    /// pipeline; this builder is primarily for test scaffolding
+    /// and out-of-band callers (e.g. unit tests that drive a
+    /// single Render transform directly without standing up a
+    /// full pipeline).
+    pub fn with_resource_resolver(mut self, resolver: ResourceResolverContext) -> Self {
+        self.resource_resolver = Some(resolver);
+        self
     }
 
     /// Create with custom options

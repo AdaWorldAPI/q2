@@ -55,10 +55,32 @@ pub use session::{KernelInfo, KernelSession, SessionKey};
 pub use transform::JupyterTransform;
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::context::{ExecuteResult as EngineExecuteResult, ExecutionContext};
 use super::error::ExecutionError;
 use super::traits::ExecutionEngine;
+
+/// Number of times the underlying PATH lookup for the jupyter
+/// executable has run during this process. With the
+/// `OnceLock`-backed cache in [`JupyterEngine::find_jupyter`] this
+/// counter is capped at 1 for the lifetime of the process; it
+/// serves as a regression tripwire (see `perf.engine-discover` in
+/// `claude-notes/plans/2026-05-22-engine-discovery-cache.md`,
+/// bd-c5u2g). The number of `JupyterEngine::new()` calls is *not*
+/// what this counts — for that, instrument the caller.
+static FIND_JUPYTER_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Process-wide cache for the resolved jupyter executable path.
+/// Initialized lazily on the first call to
+/// [`JupyterEngine::find_jupyter`].
+static JUPYTER_PATH_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Read the current value of [`FIND_JUPYTER_CALL_COUNT`].
+pub fn find_jupyter_call_count() -> usize {
+    FIND_JUPYTER_CALL_COUNT.load(Ordering::Relaxed)
+}
 
 /// Jupyter engine for Python/Julia code execution.
 ///
@@ -87,48 +109,24 @@ impl JupyterEngine {
         }
     }
 
-    /// Try to find jupyter executable on the system.
+    /// Try to find jupyter executable on the system. Memoized for
+    /// the lifetime of the process — see [`JUPYTER_PATH_CACHE`].
     fn find_jupyter() -> Option<PathBuf> {
-        Self::find_executable("jupyter")
-    }
-
-    /// Find an executable in PATH.
-    fn find_executable(name: &str) -> Option<PathBuf> {
-        #[cfg(unix)]
-        {
-            use std::process::Command;
-            let output = Command::new("sh")
-                .args(["-c", &format!("command -v {}", name)])
-                .output()
-                .ok()?;
-
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout);
-                let path = path.trim();
-                if !path.is_empty() {
-                    return Some(PathBuf::from(path));
-                }
-            }
-        }
-
-        #[cfg(windows)]
-        {
-            use std::process::Command;
-            let output = Command::new("where").arg(name).output().ok()?;
-
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout);
-                // `where` returns multiple lines; take the first
-                if let Some(first_line) = path.lines().next() {
-                    let path = first_line.trim();
-                    if !path.is_empty() {
-                        return Some(PathBuf::from(path));
-                    }
-                }
-            }
-        }
-
-        None
+        JUPYTER_PATH_CACHE
+            .get_or_init(|| {
+                // Counter is incremented only on cache miss so the
+                // `perf.engine-discover` gauge tracks the
+                // *expensive* work, not the cheap cached lookups.
+                FIND_JUPYTER_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
+                // `which::which` walks PATH in-process — no
+                // subprocess spawn. Brings us in line with
+                // `find_rscript` (`engine/knitr/subprocess.rs`).
+                // The previous `sh -c "command -v jupyter"` form
+                // dominated profile time on multi-document renders
+                // (bd-9eltv).
+                which::which("jupyter").ok()
+            })
+            .clone()
     }
 
     /// Get the path to jupyter, if found.
@@ -251,5 +249,30 @@ mod tests {
     fn test_jupyter_engine_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<JupyterEngine>();
+    }
+
+    // bd-c5u2g: per-process memoization of `find_jupyter`. Pre-fix
+    // the underlying executable lookup runs once per
+    // `JupyterEngine::new()` (= once per document rendered), which
+    // is the dominant cost on multi-document projects (see the
+    // 2026-05-21 quarto-web profile). Post-fix the lookup runs at
+    // most once for the lifetime of the process.
+    //
+    // The assertion is `delta <= 1` rather than `== 1` so the test
+    // is stable regardless of test execution order: another test
+    // in the same process may have already warmed the cache, in
+    // which case this test's calls add zero new invocations.
+    #[test]
+    fn find_jupyter_is_memoized_across_engine_construction() {
+        let before = find_jupyter_call_count();
+        for _ in 0..10 {
+            let _ = JupyterEngine::new();
+        }
+        let delta = find_jupyter_call_count() - before;
+        assert!(
+            delta <= 1,
+            "expected find_jupyter to run at most once across 10 JupyterEngine::new() \
+             calls (delta = {delta})"
+        );
     }
 }

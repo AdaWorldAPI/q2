@@ -130,7 +130,7 @@ Quarto supports TypeScript-style error codes for better searchability and docume
 **Benefits**:
 - Users can Google "Q-2-301" instead of error message text
 - Error codes are stable across versions
-- Each code maps to documentation at `https://quarto.org/docs/errors/Q-X-Y`
+- Each code maps to documentation at `https://quarto.org/docs/errors/<subsystem>/Q-X-Y`
 - Optional but encouraged
 
 **Catalog**: See `error_catalog.json` for the complete catalog of 70+ error codes.
@@ -285,7 +285,7 @@ if !ctx.errors.is_empty() {
        "subsystem": "markdown",
        "title": "Your Error Title",
        "message_template": "Your error message",
-       "docs_url": "https://quarto.org/docs/errors/Q-2-42",
+       "docs_url": "https://quarto.org/docs/errors/markdown/Q-2-42",
        "since_version": "99.9.9"
      }
    }

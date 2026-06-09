@@ -1,0 +1,45 @@
+---
+title: "Invalid Glob Pattern in `resources:`"
+description: "A pattern in `resources:` is not a valid glob and could not be parsed."
+code: Q-5-2
+subsystem: project
+status: stub
+since: "99.9.9"
+categories:
+  - project
+---
+
+# `Q-5-2` — Invalid Glob Pattern in `resources:`
+
+> A pattern in `resources:` is not a valid glob and could not
+> be parsed.
+
+## What this means
+
+The `resources:` key accepts paths and glob patterns. Quarto
+parses each entry as a glob; this error fires when the parse
+fails — the pattern is malformed at the glob-syntax level.
+The message includes the offending pattern and the underlying
+parser's reason.
+
+## Why this happens
+
+Common causes:
+
+- **An unclosed character class** (`[abc` with no `]`).
+- **A misplaced quantifier** or other shell-glob convention
+  that is not part of the supported glob syntax.
+- **A literal pattern containing characters that the glob
+  parser treats as metacharacters** without escaping.
+
+## How to fix
+
+Read the parser's reason and adjust the pattern. For literal
+paths that happen to contain glob metacharacters, escape them
+with `\` or restructure the pattern to avoid the literal use of
+`[`, `]`, `?`, `*`.
+
+## Related
+
+- `Q-5-1` — pattern resolves outside the project root.
+- `Q-5-3` — pattern parsed successfully but the walk failed.

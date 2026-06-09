@@ -1,3 +1,4 @@
+- **Engine-channel tests** that need to exercise jupyter / knitr / a custom Jupyter kernel without requiring those runtimes: use the **replay engine** (bd-45yw). Record a trace once with `trace: true` on a development machine, check it in, and replay it via `RenderToFileOptions.replay_capture`. See `claude-notes/instructions/replay-engine.md`.
 - **CRITICAL - TEST FIRST**: When fixing bugs using tests, you MUST run the failing test BEFORE implementing any fix. This is non-negotiable. Verify the test fails in the expected way, then implement the fix, then verify the test passes.
 - Always strive for minimal test documents as small as possible. Create many small test documents instead of a few large test documents.
 - You are encouraged to spend time and tokens on thinking about good tests.
@@ -171,3 +172,79 @@ To render a fixture directly and inspect its output:
 ```bash
 cargo run --bin q2 -- render crates/quarto/tests/smoke-all/path/to/doc.qmd -v
 ```
+
+## Pipeline traces (`quarto-trace`)
+
+Setting `trace: true` in a document's metadata enables the
+`JsonTraceObserver`, which writes a typed snapshot of every pipeline
+stage to `.quarto/trace/<stem>/latest.json.gz`. Traces are useful as
+regression-test fixtures (small enough to check in and load offline)
+and as user-attached bug-report artifacts. See
+`claude-notes/plans/2026-05-03-trace-size-for-replay.md` (bd-5qnj) for
+the design and budget rationale.
+
+### On-disk format
+
+- **Compressed compact JSON** at `.quarto/trace/<stem>/latest.json.gz`.
+  Pretty-print accounted for ~80% of bytes on real traces; gzip on top
+  collapses what's left.
+- **Schema version 2** with content-addressed AST dedup: every unique
+  AST is stored once in a top-level `asts` map, and pipeline entries
+  refer to it via `{ "$ref": "<hash>" }` sentinels. The reader
+  rehydrates these into inline AST values, so consumers see a v1-shaped
+  in-memory `TraceDocument`. Hand-written v1 traces (no `asts`, no
+  `$ref`) still parse via the rehydration no-op path.
+- See `crates/quarto-trace/src/lib.rs` for the schema struct and
+  `claude-notes/plans/5qnj-trace-size-investigation/measurements.md`
+  for size measurements on real fixtures.
+
+### Inspecting a trace
+
+```bash
+# List traces under ./.quarto/trace/
+q2 trace list
+
+# Show the full trace for a doc, pretty-printed (rehydrated AST refs)
+q2 trace show --doc <stem>
+
+# Show one stage's entry only
+q2 trace show --doc <stem> --stage parse
+
+# Open the trace-viewer SPA (auto-binds a free port, prints URL)
+q2 trace view
+
+# Raw on-disk bytes (compact gzipped JSON; use jq after gunzip)
+gunzip -c .quarto/trace/<stem>/latest.json.gz | jq '.schema_version, (.asts | length)'
+```
+
+### Writing tests against a trace fixture
+
+When writing a regression test that consumes a trace, prefer
+`quarto_trace::read::read_trace` over hand-parsing JSON — it handles
+both v1 and v2 inputs uniformly, and rehydrates `$ref` sentinels. For
+hand-authored fixtures, write valid v1 JSON (no `asts` map, inline
+ASTs); the reader accepts them.
+
+```rust
+use quarto_trace::read::read_trace;
+
+let doc = read_trace(&fixture_path).expect("parse trace");
+assert_eq!(doc.pipeline.len(), expected);
+// `data.ast` (or bare `data` for transform: entries) is fully inlined
+// regardless of on-disk format.
+```
+
+### Size budgets
+
+Provisional ceilings, not hard targets:
+
+- **Checked-in CI fixture**: ≤ 100 KB (compressed). Keeps `.git/`
+  manageable as fixtures accumulate.
+- **User-attached bug-report artifact**: ≤ 1 MB (compressed). Fits a
+  GitHub issue attachment without effort.
+
+A 6.1 KB qmd fixture currently produces a 62 KB compressed trace —
+well within both budgets. If you find a fixture exceeding the CI
+budget, capture the measurement and file an issue rather than checking
+in the oversize artifact; the dedup pass may need extension (e.g. for
+new stage types that emit large non-AST payloads).

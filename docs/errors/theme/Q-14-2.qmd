@@ -1,0 +1,53 @@
+---
+title: "Unknown theme name"
+description: "A theme name is not a built-in Bootswatch theme and is not a path to a `.scss` or `.css` file."
+code: Q-14-2
+subsystem: theme
+status: stub
+since: "99.9.9"
+categories:
+  - theme
+---
+
+# `Q-14-2` — Unknown Theme Name
+
+> A theme name is not a built-in Bootswatch theme and is not a
+> path to a `.scss` or `.css` file.
+
+## What this means
+
+The `theme:` key (under `format.html` or a similar HTML-like
+format) accepts three shapes of value: the name of a built-in
+Bootswatch theme (`cosmo`, `darkly`, `flatly`, ...), a path to
+a `.scss` or `.css` file in the project, or `none` to suppress
+the Bootstrap-derived default. This error fires when the value
+matches none of those — it is not a built-in name, and Quarto
+cannot find a file at the path.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in a Bootswatch theme name** (`darkly` is correct;
+  `darly` is not).
+- **A custom SCSS file referenced by relative path** but the
+  path is wrong, or the file lives outside the project root.
+- **A theme name from a different framework** (a TypeScript
+  Quarto extension, a third-party theme pack) that has not
+  been installed in this project.
+
+## How to fix
+
+Pick a value Quarto can resolve:
+
+- A built-in Bootswatch name — the full list is in the
+  Bootswatch documentation.
+- A path to a `.scss` or `.css` file inside the project.
+- `theme: none` to suppress Bootstrap entirely.
+
+The error message includes a hint with the same options.
+
+## Related
+
+- `Q-14-1` — invalid theme configuration: the name resolved
+  but the configuration around it was malformed.

@@ -34,7 +34,7 @@ edition = "2024"
 
 [workspace.dependencies]
 anyhow = "1.0.101"
-quick-xml = "0.37"
+quick-xml = "0.39"
 ariadne = "0.6"
 clap = { version = "4.5", features = ["derive", "cargo", "env"] }
 insta = "1.46.3"
@@ -53,9 +53,10 @@ async-trait = "0.1"
 tokio-util = "0.7"
 pollster = "0.4"
 regex = "1.12"
-scraper = "0.22"
+scraper = "0.26"
 grass = "0.13.4"
 include_dir = "0.7"
+flate2 = "1.1"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 walkdir = "2"
@@ -86,10 +87,10 @@ features = ["std"]
 default-features = false
 
 [workspace.dependencies.tree-sitter]
-version = "0.25.10"
+version = "0.26"
 
 [workspace.dependencies.tree-sitter-highlight]
-version = "0.25.10"
+version = "0.26"
 
 [workspace.dependencies.tree-sitter-qmd]
 path = "./crates/tree-sitter-qmd"
@@ -155,6 +156,9 @@ path = "./crates/quarto-lsp-core"
 [workspace.dependencies.quarto-lsp]
 path = "./crates/quarto-lsp"
 
+[workspace.dependencies.quarto-brand]
+path = "./crates/quarto-brand"
+
 [workspace.dependencies.quarto-sass]
 path = "./crates/quarto-sass"
 
@@ -169,6 +173,9 @@ path = "./crates/quarto-hub"
 
 [workspace.dependencies.quarto-navigation]
 path = "./crates/quarto-navigation"
+
+[workspace.dependencies.quarto-publish]
+path = "./crates/quarto-publish"
 
 [workspace.dependencies.quarto-test]
 path = "./crates/quarto-test"
@@ -269,6 +276,16 @@ verbose_file_reads = "warn"
 
 [patch.crates-io]
 lua-src = { path = "crates/lua-src-wasm" }
+# Fork of runtimelib that adds venv-aware kernelspec discovery
+# (`data_dirs_with_jupyter_paths`, `find_kernelspec_with_jupyter_paths`)
+# and threads `searched_paths` through `RuntimeError::KernelNotFound`.
+# Pinned to a SHA on cscheid/runtimed; will be removed once the
+# upstream PR (bd-875x) lands and a release ships.
+runtimelib = { git = "https://github.com/cscheid/runtimed", rev = "fc58eb48139a30cc559ac5973cb6debb00375b88" }
+# `runtimelib` depends on `jupyter-protocol` via the runtimed workspace,
+# so we must patch jupyter-protocol from the same SHA to avoid pulling
+# in two distinct `jupyter_protocol::JupyterMessage` types.
+jupyter-protocol = { git = "https://github.com/cscheid/runtimed", rev = "fc58eb48139a30cc559ac5973cb6debb00375b88" }
 
 # Profiles must be set at the workspace level
 [profile.dev]
@@ -276,6 +293,17 @@ lua-src = { path = "crates/lua-src-wasm" }
 # work around "too many locals" error from wasm-pack
 # https://github.com/wasm-bindgen/wasm-bindgen/issues/3451#issuecomment-1562982835
 opt-level = "s"
+
+# CI-only profile (used by `.github/workflows/test-suite.yml`). Strips
+# debuginfo to fit GHA disk. Locally, omit `--cargo-profile ci` to get
+# full debuginfo via the default `dev` profile.
+# See claude-notes/2026-04-28-ci-disk-space-and-profile-ci.md.
+[profile.ci]
+inherits = "dev"
+debug = "line-tables-only"
+
+[profile.ci.package."*"]
+debug = false
 
 # Release-like profile with debug info preserved for profilers (samply, etc.).
 # Used by perf-harness drivers; see claude-notes/instructions/performance-profiling.md.

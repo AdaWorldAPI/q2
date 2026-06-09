@@ -89,6 +89,27 @@ pub fn parse_with_parent(content: &str, parent: SourceInfo) -> Result<YamlWithSo
     parse_impl(content, None, Some(parent))
 }
 
+/// Derive the [`quarto_source_map::FileId`] used by [`parse_file`]
+/// from a filename string.
+///
+/// This is the same hash that `parse_file` (and `parse_impl` below)
+/// computes when no explicit parent SourceInfo is supplied. Exposed
+/// so callers building a [`quarto_source_map::SourceContext`] for
+/// ariadne rendering can look up the right `FileId` for a given
+/// on-disk file without re-hashing inline.
+///
+/// Stability: this is part of the public API and is relied upon by
+/// the diagnostic layer to bind file content to FileIds at render
+/// time. Don't change the hash recipe without bumping consumers.
+pub fn file_id_for_filename(filename: &str) -> quarto_source_map::FileId {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    filename.hash(&mut hasher);
+    quarto_source_map::FileId(hasher.finish() as usize)
+}
+
 fn parse_impl(
     content: &str,
     filename: Option<&str>,
@@ -97,13 +118,7 @@ fn parse_impl(
     // If parent is not provided but filename is, create a parent SourceInfo for the file
     let parent = parent.or_else(|| {
         filename.map(|name| {
-            // Create a FileId from filename hash
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-
-            let mut hasher = DefaultHasher::new();
-            name.hash(&mut hasher);
-            let file_id = quarto_source_map::FileId(hasher.finish() as usize);
+            let file_id = file_id_for_filename(name);
 
             // Create SourceInfo for the entire file content
             use quarto_source_map::{Location, Range};

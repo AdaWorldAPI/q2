@@ -3,7 +3,10 @@
  */
 
 import type { Patch } from '@automerge/automerge-repo';
-import type { FileEntry, ActorIdentity } from '@quarto/quarto-automerge-schema';
+import type { FileEntry, ActorIdentity, CaptureRef } from '@quarto/quarto-automerge-schema';
+
+// Re-export so consumers don't need a second import for the capture sidecar shape
+export type { CaptureRef };
 
 // Re-export Patch for consumers
 export type { Patch };
@@ -99,6 +102,17 @@ export interface SyncClientCallbacks {
   onIdentitiesChange?: (identities: Record<string, ActorIdentity>) => void;
 
   /**
+   * Called when the capture sidecar map changes (optional).
+   * Provides the full path -> CaptureRef mapping from the IndexDocument.
+   * Fires on initial sync and on every index doc change where the
+   * sidecar differs (by JSON-equality) from the last-fired snapshot.
+   *
+   * Wired in Phase C.3; consumed by Phase C.4 (browser-side replay) to
+   * pick up captures the server has eagerly recorded.
+   */
+  onCapturesChange?: (captures: Record<string, CaptureRef>) => void;
+
+  /**
    * Called when connection state changes (optional).
    */
   onConnectionChange?: (connected: boolean) => void;
@@ -162,6 +176,22 @@ export interface ASTOptions {
 }
 
 // ============================================================================
+// Auth Options
+// ============================================================================
+
+/**
+ * Bearer-auth options for the sync client's WebSocket upgrade.
+ *
+ * `getBearer` is a getter (not a static string) so the retry loop sees
+ * a freshly-refreshed token after the connection-manager's refresh-on-
+ * 401 path runs. Presence of this field selects the Node WebSocket
+ * adapter; absence selects the browser adapter unchanged.
+ */
+export interface SyncClientAuthOptions {
+  getBearer: () => Promise<string>;
+}
+
+// ============================================================================
 // Result Types
 // ============================================================================
 
@@ -190,6 +220,12 @@ export interface CreateProjectOptions {
     contentType: 'text' | 'binary';
     mimeType?: string;
   }>;
+  /**
+   * Bearer-auth options. When set, the Node WebSocket adapter is used
+   * and the upgrade request carries `Authorization: Bearer <token>`.
+   * When unset, the browser adapter is used unchanged.
+   */
+  auth?: SyncClientAuthOptions;
 }
 
 /**

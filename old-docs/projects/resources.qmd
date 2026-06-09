@@ -1,0 +1,124 @@
+---
+title: "Project resources"
+subtitle: "Declaring additional files for the rendered output"
+---
+
+A Quarto project's published output usually contains more than just
+the rendered `.html` files. Datasets, downloadable extras, images
+referenced from JavaScript, copies of canonical sources, redirect
+pages — none of these go through the document pipeline, but they
+all need to land in `_site/` (or wherever the project's `output-dir`
+points) and be included when you run `quarto publish`.
+
+The **`resources:`** field tells Quarto to copy specific files into
+the output directory verbatim. Three independent ways to declare a
+resource — author YAML, engines, and Lua filters — all converge
+into a single per-project list before files are copied.
+
+## Declaring resources in YAML
+
+### Project-level: `_quarto.yml`
+
+```yaml
+project:
+  type: website
+  resources:
+    - data/*.csv         # globs are supported
+    - extras/notes.txt
+    - downloads/handbook.pdf
+```
+
+Project-level resources are resolved relative to the project root,
+and each matched file is copied to the same relative path under
+`output-dir`. So `data/q1.csv` lands at `_site/data/q1.csv`.
+
+A single string is accepted as shorthand for a one-element list:
+
+```yaml
+project:
+  resources: extras/notes.txt
+```
+
+### Document-level: YAML frontmatter
+
+A document can declare resources in its own frontmatter:
+
+```yaml
+---
+title: "Quarterly Report"
+resources:
+  - data/q1-2026.csv
+  - figures/raw/baseline.png
+---
+```
+
+Document-level resources resolve relative to the **document's
+parent directory**, so a doc at `posts/foo.qmd` declaring
+`data/q1.csv` reads from `posts/data/q1.csv` and writes to
+`_site/posts/data/q1.csv`.
+
+## Engine-emitted resources
+
+Render engines (knitr, jupyter, future engines) often produce
+supporting files — figure images, generated CSVs, intermediate
+data. Quarto picks these up automatically through
+`ExecuteResult.supporting_files` and routes them through the same
+publishing pipeline as author-declared resources. No extra
+configuration is needed; if your knitr chunk produces
+`doc_files/figure-html/cell-1.png`, that file lands in
+`_site/doc_files/figure-html/cell-1.png` and is included in
+`quarto publish`.
+
+## Adding resources from a Lua filter
+
+User Lua filters can register a file as a published resource by
+calling `quarto.doc.add_resource(path)`:
+
+```lua
+function Image(img)
+  -- After rewriting an Image's src to point at a generated thumbnail,
+  -- make sure the thumbnail itself ships with the site.
+  quarto.doc.add_resource("thumbs/" .. img.src)
+  return img
+end
+```
+
+The path is interpreted relative to the document being processed.
+A `camelCase` alias `quarto.doc.addResource(path)` is provided for
+parity with Pandoc filter conventions.
+
+## Rules and constraints
+
+- **Globs are author-only.** Engine and Lua-filter contributions
+  must be exact paths. (Engines and filters know what they
+  produced; we'd rather not have them re-discover it via globs.)
+- **Out-of-project paths are an error.** A resource that resolves
+  outside the project root produces a clear render-time error
+  rather than silent surprising behavior. If you genuinely need to
+  publish content from outside the project, copy it in (a build
+  script, a `before-render` hook, or simply a symlink) and
+  declare it from inside.
+- **Author declarations are irrevocable.** Engines and Lua filters
+  can *add* to the resource list but cannot remove what the YAML
+  declared. Even if a filter mutates the post-filter
+  `meta.resources` to drop an entry, the author's declaration
+  still ships. (See the design notes for why: static analysis of a
+  project's resource set must be tractable without running the
+  pipeline.)
+- **Negative globs (`!internal/*`) are not supported in v1.** If
+  you need them, file an issue describing the use case and
+  expected semantics.
+
+## How `quarto publish` picks up resources
+
+After every project render, Quarto writes
+`<project>/.quarto/render-manifest.json` listing every rendered
+file plus every resolved resource (with `origin` metadata for
+diagnostics). `quarto publish` reads this manifest and ships
+everything in it. If the manifest is missing — for example when
+publishing the output of an older Quarto version — `publish`
+falls back to walking the output directory.
+
+You normally never look at the manifest directly, but its presence
+means publishing is reproducible: the file set is the one your
+render computed, not whatever happened to be on disk afterwards.

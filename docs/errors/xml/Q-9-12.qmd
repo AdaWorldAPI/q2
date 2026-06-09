@@ -1,0 +1,51 @@
+---
+title: "Undefined Macro"
+description: "A `<cs:text>` element references a macro by name, but no `<cs:macro>` with that name is defined."
+code: Q-9-12
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-12` — Undefined Macro
+
+> A `<cs:text>` element references a macro by name, but no
+> `<cs:macro>` with that name is defined.
+
+## What this means
+
+CSL macros are reusable rendering rules: a
+`<cs:macro name="author">` defines how authors are formatted,
+and a `<cs:text macro="author">` later in the style invokes
+that definition. This error fires when the referenced name
+does not match any defined macro. The parser names the missing
+macro and, when there is a close-spelled alternative, suggests
+it as a hint.
+
+## Why this happens
+
+Common causes:
+
+- **A typo** — `<cs:text macro="auther">` referring to a
+  macro named `author`. The parser's "did you mean" hint
+  surfaces these when they are close enough.
+- **A macro that was deleted** but whose references were not
+  cleaned up.
+- **A macro that lives in a different style** the author
+  meant to copy from but did not.
+
+## How to fix
+
+If there is a "did you mean" hint, the spelling correction is
+almost always the fix. Otherwise, define the missing macro at
+the top level of the style, or change the reference to point
+at a macro that does exist.
+
+## Related
+
+- `Q-9-13` — circular macro dependency: a related macro problem
+  where macros reference each other in a loop.
+- `Q-9-14` — duplicate macro definition: the reverse — the
+  same name was defined more than once.

@@ -12,7 +12,7 @@
 
 use async_trait::async_trait;
 
-use crate::pipeline::build_transform_pipeline;
+use crate::pipeline::{build_q2_preview_transform_pipeline, build_transform_pipeline};
 use crate::render::{BinaryDependencies, RenderContext};
 use crate::stage::{
     EventLevel, PipelineData, PipelineDataKind, PipelineError, PipelineStage, StageContext,
@@ -114,7 +114,15 @@ impl PipelineStage for AstTransformsStage {
             ));
         };
 
-        // Build the JIT pipeline if no custom pipeline was provided
+        // Build the JIT pipeline if no custom pipeline was provided.
+        //
+        // Dispatch on `ctx.format.pipeline_kind` (added in Plan 1
+        // commit 3): `Some("preview")` builds the q2-preview transform
+        // list, everything else builds the standard HTML one. The
+        // `target_format` argument carries the original string
+        // (e.g. `"q2-preview"`, not the base `"html"`) so shortcode
+        // resolution and downstream transforms see the user-facing
+        // format identity, not the pseudo-format's base.
         let jit_pipeline;
         let pipeline = if let Some(ref p) = self.custom_pipeline {
             p
@@ -127,12 +135,20 @@ impl PipelineStage for AstTransformsStage {
                 .unwrap_or(std::path::Path::new("."));
             let shortcode_paths =
                 crate::transforms::extract_shortcode_paths(&doc.ast.meta, document_dir);
-            jit_pipeline = build_transform_pipeline(
-                shortcode_paths,
-                ctx.extensions.clone(),
-                ctx.runtime.clone(),
-                ctx.format.identifier.as_str().to_string(),
-            );
+            jit_pipeline = match ctx.format.pipeline_kind {
+                Some("preview") => build_q2_preview_transform_pipeline(
+                    shortcode_paths,
+                    ctx.extensions.clone(),
+                    ctx.runtime.clone(),
+                    ctx.format.target_format.clone(),
+                ),
+                _ => build_transform_pipeline(
+                    shortcode_paths,
+                    ctx.extensions.clone(),
+                    ctx.runtime.clone(),
+                    ctx.format.target_format.clone(),
+                ),
+            };
             &jit_pipeline
         };
 
@@ -158,6 +174,39 @@ impl PipelineStage for AstTransformsStage {
         render_ctx.ref_type_registry = ctx.ref_type_registry.take();
         render_ctx.crossref_index = ctx.crossref_index.take();
         render_ctx.observer = ctx.observer.clone();
+        // `project_index` is read-only to transforms, so we clone the
+        // `Arc` instead of moving it. Leaving `ctx.project_index`
+        // untouched means later stages in the pipeline still see it.
+        render_ctx.project_index = ctx.project_index.clone();
+        // Phase 6: bridge the resource resolver in the same way —
+        // read-only to transforms, the AST-side body-link rewriter
+        // (`LinkRewriteTransform`) consumes it to compute
+        // page-relative URLs.
+        render_ctx.resource_resolver = ctx.resource_resolver.clone();
+        // bd-qor9a: bridge the document's `SourceContext` so transforms
+        // can resolve a `SourceInfo.FileId` back to the originating
+        // file path. Used by sidebar/navbar/footer/page-nav Generate
+        // transforms to determine which YAML file a given href was
+        // authored in (so frontmatter-rooted paths resolve relative
+        // to the frontmatter's directory, not the project root).
+        render_ctx.source_context = Some(&doc.ast_context.source_context);
+        // Attribution: bridge both the opt-in provider AND the
+        // sidecar already populated by the upstream
+        // `AttributionGenerateStage` into the inner `RenderContext`.
+        //
+        // `attribution_data` is the load-bearing field —
+        // `AttributionRenderTransform` reads it to bake the
+        // writer-side lookup. The provider is forwarded only for
+        // historical-compat callers that build a fresh inner
+        // pipeline outside the normal stage flow; no transform here
+        // calls `build()` itself anymore.
+        render_ctx.attribution_provider = ctx.attribution_provider.clone();
+        render_ctx.attribution_data = ctx.attribution_data.clone();
+        // bd-cfl67: resource-copy intents collected by transforms
+        // (notably `ResourceCollectorTransform`) need to surface to
+        // the outer renderer for the final sink flush. Move ownership
+        // across the bridge in both directions, same as `artifacts`.
+        render_ctx.resource_copies = std::mem::take(&mut ctx.resource_copies);
 
         // Execute the transform pipeline
         let result = pipeline
@@ -166,9 +215,16 @@ impl PipelineStage for AstTransformsStage {
 
         // Transfer mutable state back to StageContext
         ctx.artifacts = render_ctx.artifacts;
+        ctx.resource_copies = render_ctx.resource_copies;
         ctx.includes = render_ctx.includes;
         ctx.ref_type_registry = render_ctx.ref_type_registry;
         ctx.crossref_index = render_ctx.crossref_index;
+        // Bridge `format_options` back so downstream stages
+        // (`RenderHtmlBodyStage`, future JSON writer entry) see the
+        // attribution lookup + identities populated by
+        // `AttributionRenderTransform`. No-op when attribution is off
+        // (default `FormatOptions` has all `None` fields).
+        ctx.format_options = render_ctx.format_options;
 
         // Transfer any diagnostics collected during transforms
         ctx.diagnostics.extend(render_ctx.diagnostics);
@@ -359,6 +415,7 @@ mod tests {
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],
+            recorded_includes: Vec::new(),
         };
 
         let input = PipelineData::DocumentAst(doc_ast);

@@ -142,7 +142,7 @@ Error code in format `Q-1-XX`:
 - `Q-1-17`: Number not multiple of
 - `Q-1-18`: Unknown property
 - `Q-1-19`: Array too short
-- `Q-1-20`: Array too long
+- `Q-1-29`: String length out of range
 - `Q-1-21`: Array items not unique
 - `Q-1-22`: Invalid property name
 - `Q-1-23`: Additional properties not allowed

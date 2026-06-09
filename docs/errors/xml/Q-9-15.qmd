@@ -1,0 +1,48 @@
+---
+title: "Invalid CSL Version"
+description: "The `version` attribute on `<cs:style>` is not a recognized CSL version."
+code: Q-9-15
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-15` — Invalid CSL Version
+
+> The `version` attribute on `<cs:style>` is not a recognized
+> CSL version.
+
+## What this means
+
+Every CSL style declares the CSL specification version it
+targets: `<cs:style version="1.0" ...>`. The version is used to
+pick the right validation rules and the right rendering
+semantics. This error fires when the version attribute is
+present but does not parse as a valid CSL version — usually
+because it is not in the `major.minor` format the parser
+expects.
+
+## Why this happens
+
+Common causes:
+
+- **A typo** — `version="0.1"` instead of `version="1.0"`.
+- **A missing or extra character** that breaks the
+  `major.minor` shape.
+- **A vendor-specific version string** added by another tool
+  that the parser does not recognize.
+
+## How to fix
+
+Set `version` to a valid CSL version string in `major.minor`
+form — `"1.0"` for the current CSL 1.0 specification, or
+`"1.1"` for the in-progress 1.1 work. Match the version that
+the rest of the style was authored against.
+
+## Related
+
+- `Q-9-16` — invalid root element: a related top-level CSL
+  shape error, where `<cs:style>` itself is missing.
+- `Q-9-7` — the `version` attribute is missing entirely.

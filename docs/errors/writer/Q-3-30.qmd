@@ -1,0 +1,48 @@
+---
+title: "Shortcode Not Supported"
+description: "Quarto shortcodes are not representable in this output format."
+code: Q-3-30
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-30` — Shortcode Not Supported
+
+> Quarto shortcodes are not representable in this output format.
+
+## What this means
+
+A shortcode is a `{{< name arg >}}` construct that Quarto
+expands during rendering — `{{< meta title >}}` inserts the
+document title, `{{< var key >}}` inserts a value from
+`_variables.yml`, and so on. Expansion normally happens before
+the writer sees the AST.
+
+This error fires when an unexpanded shortcode reaches the
+writer. The writer cannot pass it through (the syntax is
+Quarto-specific, not part of the output format), so it has no
+choice but to refuse.
+
+## Why this happens
+
+Two known triggers:
+
+- **The shortcode name is unknown.** Quarto's expander leaves
+  unrecognized shortcodes in place rather than erasing them; the
+  writer then sees the surviving node.
+- **A Lua filter introduced a shortcode** after the expansion
+  pass. Shortcodes added after expansion will never run.
+
+## How to fix
+
+Check the spelling of the shortcode name. If it is correct,
+confirm that the shortcode is one Quarto provides (`meta`,
+`var`, `embed`, `include`, ...) or that the relevant extension
+is loaded.
+
+For filter-introduced shortcodes, expand them inside the filter
+rather than emitting the shortcode node, or move the filter
+earlier in the pipeline so the expander runs again.

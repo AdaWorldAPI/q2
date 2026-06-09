@@ -51,10 +51,27 @@ When a commit includes updated or new snapshot files (`.snap` files under `snaps
 
 ## **WORK TRACKING**
 
-We use br (beads_rust) for issue tracking instead of Markdown TODOs or external tools.
+We use **braid** for issue tracking instead of Markdown TODOs or external tools.
+braid stores all issues for the project in a **skein** (a single
+[automerge](https://automerge.org) CRDT document); a single issue is a
+**strand**. The skein — synced through a sync server — is the **source of
+truth**. There is no git involvement and no `.beads/`-style JSONL to commit:
+edits converge through the CRDT, not through merge tooling. (We migrated off
+beads_rust on 2026-06-08; see `claude-notes/plans/2026-06-08-braid-migration.md`.)
 
-**Note:** `br` is non-invasive and never executes git commands. After `br sync --flush-only`, you must manually run `git add .beads/ && git commit`.
-We use plans for additional context and bookkeeping. Write plans to `claude-notes/plans/YYYY-MM-DD-<description>.md`, and reference the plan file in the issues.
+**`braid` is non-invasive and never executes git commands.** Unlike the old
+`br sync --flush-only; git add .beads/` dance, there is **nothing to commit**
+after issue work — the skein syncs itself. (A `.braid/snapshot.jsonl` backup
+*is* committed periodically, but it is **backup-only and one-directional** —
+see the snapshot policy below. Never `braid import` it back.)
+
+For the authoritative, version-matched command guide, run `braid agents-info`
+(or invoke the `/braid` skill). The quick reference below is a convenience
+summary, not the contract.
+
+We use plans for additional context and bookkeeping. Write plans to
+`claude-notes/plans/YYYY-MM-DD-<description>.md`, and reference the plan file
+in the strands.
 
 ### File Structure
 Plan files should include:
@@ -96,70 +113,70 @@ Complex plans can have phases, and work items are then split into multiple lists
 
 For simple tasks (single file changes, bug fixes), the TodoWrite tool is sufficient.
 
-### Beads Quick Reference
+### Braid Quick Reference
 
 ```bash
-# Find ready work (no blockers)
-br ready --json
+# Find ready work (active + unblocked)
+braid ready --json
 
-# Create new issue
-br create "Issue title" -t bug|feature|task -p 0-4 -d "Description" --json
-
-# Create with explicit ID (for parallel workers)
-br create "Issue title" --id worker1-100 -p 1 --json
+# Create new strand (prints its id; braid assigns a bd-<random> id)
+braid create "Strand title" -t bug|feature|task -p 0-4 -d "Description" --json
 
 # Create with labels
-br create "Issue title" -t bug -p 1 -l bug,critical --json
+braid create "Strand title" -t bug -p 1 -l bug -l critical --json
 
-# Create multiple issues from markdown file
-br create -f feature-plan.md --json
+# Create and link discovered work in one shot
+braid create "Found bug in auth" -t bug -p 1 --deps discovered-from:<current-id> --json
 
-# Update issue status
-br update <id> --status in_progress --json
+# Update status
+braid update <id> --status in_progress --json
 
-# Link discovered work (old way)
-br dep add <discovered-id> <parent-id> --type discovered-from
-
-# Create and link in one command (new way)
-br create "Issue title" -t bug -p 1 --deps discovered-from:<parent-id> --json
+# Link existing strands (id depends on target)
+braid dep add <discovered-id> <parent-id> --type discovered-from
 
 # Complete work
-br close <id> --reason "Done" --json
+braid close <id> --reason "Done"
 
-# Show dependency tree
-br dep tree <id>
+# Show an epic's descendant tree / one strand's details
+braid dep tree <id>
+braid show <id> --json
 
-# Get issue details
-br show <id> --json
-
-# Import with collision detection
-br import -i .beads/issues.jsonl --dry-run             # Preview only
-br import -i .beads/issues.jsonl --resolve-collisions  # Auto-resolve
+# Backup snapshot (one-directional — see snapshot policy; NEVER import it back)
+braid export > .braid/snapshot.jsonl
 ```
+
+Notes on the move from beads:
+- **No explicit `--id`.** braid assigns collision-free ids; with a CRDT,
+  parallel workers never need to pre-agree on ids. (The migration *preserved*
+  every existing `bd-XXXX` id via `braid import`, so source references stay
+  valid.)
+- **No `br create -f <file>` bulk create.** Use `braid import <jsonl>` for bulk.
+- **No `br sync --flush-only` / `git add .beads/`.** The skein is the source of
+  truth; there is nothing to commit after issue work.
 
 ### Workflow
 
-1. **Check for ready work**: Run `br ready` to see what's unblocked
-2. **Claim your task**: `br update <id> --status in_progress`
-3. **Work on it**: Implement, test, document
-4. **Discover new work**: If you find bugs or TODOs, create issues:
-   - Old way (two commands): `br create "Found bug in auth" -t bug -p 1 --json` then `br dep add <new-id> <current-id> --type discovered-from`
-   - New way (one command): `br create "Found bug in auth" -t bug -p 1 --deps discovered-from:<current-id> --json`
-5. **Complete**: `br close <id> --reason "Implemented"`
-6. **Sync and commit**:
-   ```bash
-   br sync --flush-only
-   git add .beads/
-   git commit -m "sync beads"
-   ```
+1. **Check for ready work**: `braid ready` to see what's unblocked
+2. **Claim your task**: `braid update <id> --status in_progress`
+3. **Work on it**: implement, test, document; leave a trail with
+   `braid comment <id> "..."`
+4. **Discover new work**: file it and link it in one shot:
+   `braid create "Found bug in auth" -t bug -p 1 --deps discovered-from:<current-id> --json`
+5. **Complete**: `braid close <id> --reason "Implemented"`
+
+That's the whole loop — **no sync-and-commit step.** braid syncs the skein to
+the server on every command. (`braid sync` forces a round trip if you want to
+confirm convergence.)
 
 ### Issue Types
 
 - `bug` - Something broken that needs fixing
 - `feature` - New functionality
 - `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature composed of multiple issues
+- `epic` - Large feature composed of multiple strands
 - `chore` - Maintenance work (dependencies, tooling)
+- `docs` - Documentation work (braid adds this type)
+- `question` - Open question to resolve (braid adds this type)
 
 ### Priorities
 
@@ -171,12 +188,41 @@ br import -i .beads/issues.jsonl --resolve-collisions  # Auto-resolve
 
 ### Dependency Types
 
-- `blocks` - Hard dependency (issue X blocks issue Y)
-- `related` - Soft relationship (issues are connected)
+- `blocks` - Hard dependency (X depends on / is blocked by Y)
 - `parent-child` - Epic/subtask relationship
-- `discovered-from` - Track issues discovered during work
+- `related` - Soft relationship (strands are connected)
+- `discovered-from` - Track strands discovered during work
+- braid also accepts `conditional-blocks`, `waits-for`, `replies-to`,
+  `duplicates`, `supersedes`, `caused-by`.
 
-Only `blocks` dependencies affect the ready work queue.
+**What gates `ready`:** `blocks`, `conditional-blocks`, and `waits-for` make a
+strand unready while their target is active. `parent-child` does **not** block
+the child (children stay workable); instead an open child blocks the *parent's*
+close. `related`/`discovered-from` and the rest are informational.
+
+> Note: this differs subtly from beads, where `parent-child` could make a child
+> read as blocked. In braid the child is always workable and the parent refuses
+> to close while children are open — the intended epic semantics.
+
+### Snapshot backup policy (READ THIS)
+
+The skein (automerge CRDT) is the **single source of truth**. We additionally
+commit a `.braid/snapshot.jsonl` (`braid export`) to the repo so issues stay
+greppable in PRs, diffable in git history, and recoverable. This snapshot is
+**backup-only and strictly one-directional**:
+
+- It flows **automerge → file only** (`cargo xtask braid-snapshot`, or
+  `braid export > .braid/snapshot.jsonl`). It is **never** an import or sync
+  source back into the skein. **Never run `braid import .braid/snapshot.jsonl`.**
+- On any git **conflict** in `.braid/snapshot.jsonl`, do **not** hand-merge:
+  resolve by regenerating from the live skein (`braid export`). The CRDT is
+  authoritative; the file is a photograph. (Yes, this means the snapshot on one
+  branch may show strand state created on another — "cross-branch
+  contamination" is expected and fine, because the snapshot is not the truth.)
+- The snapshot lives on whatever work branch you're on; it is not special.
+
+The only time JSONL is ever imported is the **one-time migration** (beads'
+`.beads/issues.jsonl` → braid), which is already done.
 
 ## Where information lives (memory vs. repo)
 
@@ -198,7 +244,7 @@ Where project-wide information should live instead:
 - **`claude-notes/plans/`** — decisions, rationale, in-progress work.
 - **`claude-notes/research/`** — findings, audits, reference material.
 - **Code comments** — invariants local to specific code.
-- **Commit messages + `br`** — temporal context, who did what when.
+- **Commit messages + `braid`** — temporal context, who did what when.
 
 What memory is *actually* appropriate for:
 
@@ -234,7 +280,7 @@ When fixing ANY bug:
 
 **This is non-negotiable. Never implement a fix before verifying the test fails. Stop and ask the user if you cannot think of a way to mechanically test the bad behavior. Only deviate if writing new features.**
 
-**Do NOT close a beads test suite item unless all tests pass. If you feel you're low on tokens, report that and open subtasks to work on new sessions.**
+**Do NOT close a braid test-suite strand unless all tests pass. If you feel you're low on tokens, report that and open subtasks to work on new sessions.**
 
 ## Workspace structure
 
@@ -266,7 +312,7 @@ When fixing ANY bug:
 - `quarto-citeproc`: citation processing engine using CSL styles
 
 **Tree-sitter grammars:**
-- `tree-sitter-qmd`: tree-sitter grammars for block and inline parsers
+- `tree-sitter-qmd`: tree-sitter grammar for qmd (a single unified grammar parsing both block structure and inline content)
 - `tree-sitter-doctemplate`: tree-sitter grammar for document templates
 - `quarto-treesitter-ast`: generic tree-sitter AST traversal utilities
 
@@ -311,6 +357,10 @@ All VFS file paths use the `/project/` prefix. When resolving file paths in WASM
 - `quarto-core` handles higher-level orchestration
 - `wasm-quarto-hub-client` is the WASM client (NOT wasm-qmd-parser)
 - Always check `git diff` for uncommitted changes before starting work on a continuation session
+
+### Document profile checkpoint
+
+The render pipeline has a **profile checkpoint** between `MetadataMergeStage` and `PreEngineSugaringStage`: `DocumentProfileStage` extracts a typed, serializable `DocumentProfile` (title, outline, authors, etc.) into a `PipelineData::AtProfile` variant, and `UnwrapProfileStage` immediately hands the AST back to downstream stages. Project-scoped features (sidebars, cross-document links, incremental rebuilds, eventual `freeze`) are meant to consume this profile without re-running engines or user filters. Profiles are **read-only** — any feature that needs state not yet in the profile should move its producer earlier in the pipeline and add a field (with a `profile_version` bump), not back-patch. See `claude-notes/designs/document-profile-contract.md` for the full contract and `claude-notes/plans/2026-04-23-website-project-epic.md` for the epic.
 
 ## hub-client Commit Instructions
 
@@ -363,6 +413,35 @@ If you cannot test a feature end-to-end (e.g. no access to a browser for a hub-c
 
 Past incidents where they diverged:
 - **2026-04-20**: `CodeHighlightStage` never ran under `quarto render` because the CLI path used a different branch of `render_qmd_to_html` than the tests. Every test passed; no rendered document had highlighting. See `claude-notes/plans/2026-04-19-syntax-highlighting-design.md` ("Phase 2 post-mortem") and the process-improvement plan at `claude-notes/plans/2026-04-20-end-to-end-verification-process.md`.
+- **2026-05-20**: `q2 preview` silently served a stale render after Rust changes to `quarto-core`. `cargo build --bin q2` succeeded and the preview *ran*, but the iframe loaded a WASM image built before the changes — the embedded SPA's `wasm-quarto-hub-client_bg.wasm` is only refreshed when the WASM is rebuilt explicitly. See **Verifying Rust changes in `q2 preview`** below.
+
+## Verifying Rust changes in `q2 preview`
+
+`q2 preview` embeds the SPA bundle at `q2-preview-spa/dist/` into the
+binary via `include_dir!`. The SPA loads the WASM at
+`hub-client/wasm-quarto-hub-client/wasm_quarto_hub_client_bg.wasm`,
+which is a build artifact of the `wasm-quarto-hub-client` crate (which
+in turn depends on `quarto-core`, `pampa`, etc.).
+
+A plain `cargo build --bin q2` does NOT rebuild the WASM, and the
+preview will silently run pre-change code. Tests will all pass; the
+render path will look correct; the preview iframe will not.
+
+To pick up Rust changes in `q2 preview`, run the full chain:
+
+```bash
+cd hub-client && npm run build:wasm   # rebuild WASM from current Rust
+cargo xtask build-q2-preview-spa      # bundle WASM into q2-preview-spa/dist/
+cargo build --bin q2                  # re-embed dist/ via include_dir!
+```
+
+`cargo xtask verify` (without `--skip-hub-build`) runs steps 1 and 2
+as part of the hub-build leg; after it finishes you still need step 3
+manually if you want the next `q2 preview` invocation to be fresh.
+
+For the deeper context (which crate produces which artifact, why the
+chain doesn't auto-fire, how to diagnose stale-WASM symptoms) see
+`claude-notes/instructions/preview-spa-rebuild.md`.
 
 ## Build Commands
 
@@ -407,6 +486,7 @@ cargo xtask lint --quiet   # Only show errors
 ### Current Lint Rules
 
 - **external-sources-in-macro**: Detects references to `external-sources/` in compile-time macros like `include_dir!`, `include_str!`, `include_bytes!`. These break builds because `external-sources/` is not version-controlled.
+- **metadata-as-str**: Detects `meta.get("key")…as_str()` reads of document metadata. A bare YAML string in front-matter context is stored as `ConfigValueKind::PandocInlines`, for which `ConfigValue::as_str()` returns `None` — silently dropping the option. Use `as_plain_text()` instead (handles both `Scalar(String)` and `PandocInlines`). Only flags chains whose `.get(<string literal>)` receiver is a metadata expression (final identifier `meta`/`metadata`); internal map reads and test code are skipped. Suppress a deliberate scalar-only read with a `// lint:allow(metadata-as-str)` comment on the line or the line above. Introduced with bd-y89ihf0i.
 
 ### Adding New Lint Rules
 
@@ -450,12 +530,13 @@ This repository has Claude Code hooks configured in `.claude/settings.json`.
 - When a cd command fails for you, that means you're confused about the current directory. In this situations, ALWAYS run `pwd` before doing anything else.
 - use `jq` instead of `python3 -m json.tool` for pretty-printing. When processing JSON in a shell pipeline, prefer `jq` when possible.
 - Always create a plan. Always work on the plan one item at a time.
-- In the tree-sitter-markdown and tree-sitter-markdown-inline directories, you rebuild the parsers using "tree-sitter generate; tree-sitter build". Make sure the shell is in the correct directory before running those. Every time you change the tree-sitter parsers, rebuild them and run "tree-sitter test". If the tests fail, fix the code. Only change tree-sitter tests you've just added; do not touch any other tests. If you end up getting stuck there, stop and ask for my help.
+- The qmd grammar is unified: there is a single grammar directory, `crates/tree-sitter-qmd/tree-sitter-markdown` (there is no longer a separate `tree-sitter-markdown-inline` directory). In that directory you rebuild the parser using "tree-sitter generate; tree-sitter build". Make sure the shell is in the correct directory before running those. Every time you change the tree-sitter parser, rebuild it and run "tree-sitter test". If the tests fail, fix the code. Only change tree-sitter tests you've just added; do not touch any other tests. If you end up getting stuck there, stop and ask for my help.
 - When attempting to find binary differences between files, always use `xxd` instead of other tools.
 - .c only works in JSON formats. Inside Lua filters, you need to use Pandoc's Lua API. Study https://raw.githubusercontent.com/jgm/pandoc/refs/heads/main/doc/lua-filters.md and make notes to yourself as necessary (use claude-notes in this directory)
 - Sometimes you get confused by macOS's using many different /private/tmp directories linked to /tmp. Prefer to use temporary directories local to the project you're working on (which you can later clean)
 - When using `echo` on Bash, be careful about escaping. `!` requires you to use single quotes. BAD, DO NOT USE: echo "![](hello)". GOOD, DO USE: '![](hello)'.
 - The documentation in docs/ is a user-facing Quarto website. There, you should document usage and not technical details.
+- **The docs/ website is rendered with Quarto 2, NOT Quarto 1.** Always use `cargo run --bin q2 -- render docs/` (or `cargo run --bin q2 -- preview docs/`), never `quarto render` / `quarto preview`. The user's system `quarto` binary may be symlinked to a quarto-cli dev checkout and is *not* what builds this site. Verifying changes with Q1 produces misleading results: Q1 may reject Q2-specific YAML schema entries that Q2 accepts, and vice versa.
 - **CRITICALLY IMPORTANT**. IF YOU EVER FIND YOURSELF WANTING TO WRITE A HACKY SOLUTION (OR A "TODO" THAT UNDOES EXISTING WORK), STOP AND ASK THE USER. THAT MEANS YOUR PLAN IS NOT GOOD ENOUGH
 
 ## External Sources Policy

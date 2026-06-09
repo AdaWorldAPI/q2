@@ -1,0 +1,47 @@
+---
+title: "Missing Required Element"
+description: "A CSL element is missing a child element that its schema requires."
+code: Q-9-9
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-9` — Missing Required Element
+
+> A CSL element is missing a child element that its schema
+> requires.
+
+## What this means
+
+Several CSL elements require specific children. `<cs:style>`
+requires `<cs:citation>` and `<cs:info>`; `<cs:citation>`
+requires `<cs:layout>`. This error fires when one of those
+required children is missing from the parent. The message names
+both the parent and the missing child.
+
+## Why this happens
+
+Common causes:
+
+- **A hand-edited style** where the child was deleted by
+  mistake.
+- **A style copied from a partial snippet** that did not
+  include all the required pieces.
+- **A misunderstanding of which children are required vs
+  optional** — many CSL elements look complete on inspection
+  while still missing a required piece.
+
+## How to fix
+
+Add the missing child element inside the parent named in the
+message. The CSL specification documents the required children
+for every element.
+
+## Related
+
+- `Q-9-7` — required *attribute* missing on an element: the
+  same family of error, for the other kind of schema
+  requirement.

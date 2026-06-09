@@ -1,0 +1,50 @@
+---
+title: "Unclosed Code Span"
+description: "A code span opens with a backtick run but no matching backtick run appears before the end of the block."
+code: Q-2-24
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-24` — Unclosed Code Span
+
+> A code span opens with a backtick run but no matching backtick
+> run appears before the end of the block.
+
+## What this means
+
+Inline code spans (`` `code` ``) must be balanced inside the same
+block. The opening and closing runs must have the same number of
+backticks. This error fires when no matching close appears.
+
+## Why this happens
+
+- **A typo**: a missing closing backtick, or one fewer backtick
+  in the close than in the open.
+- **A literal backtick in prose** that opened a span where none
+  was intended.
+
+## How to fix
+
+Add a matching backtick run at the intended end. If your code
+content itself contains backticks, use a longer run for the
+delimiter:
+
+```markdown
+`` code with ` inside ``
+```
+
+## Example
+
+```markdown
+`
+```
+
+## Related
+
+- Quarto's `` `{lang} ...` `` inline-execution form opens a code
+  span and adds a language attribute; an unclosed form raises
+  this error too.

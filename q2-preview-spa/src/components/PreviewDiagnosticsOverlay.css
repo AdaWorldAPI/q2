@@ -1,0 +1,229 @@
+/*
+ * Styles for PreviewDiagnosticsOverlay (bd-b9kzg).
+ *
+ * Forked from hub-client/src/components/Editor.css's
+ * .preview-error-* block so the q2-preview-spa overlay isn't
+ * unstyled (the upstream CSS lives next to hub-client's Editor
+ * and isn't a shared package). CSS-variable references in the
+ * source were replaced with literal colors so the overlay
+ * renders cleanly without a theme dependency.
+ *
+ * The fork-specific additions are:
+ *   - .preview-error-overlay--warning / --error modifiers, which
+ *     swap the accent color so a warnings-only render shows in
+ *     amber rather than red.
+ *   - .preview-error-server-diagnostics, the visual lane for
+ *     diagnostics that came from /api/preview/diagnostics
+ *     (server-side sink) rather than the WASM render's own
+ *     warnings array.
+ */
+
+/* Base overlay (toast notification, anchored bottom-right of the
+   iframe wrapper in PreviewApp). */
+.preview-error-overlay {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 1000;
+  background: #fff;
+  border: 1px solid #cc3340;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: #1f2328;
+}
+
+.preview-error-overlay--warning {
+  border-color: #b88500;
+}
+
+.preview-error-overlay--collapsed {
+  padding: 8px 12px;
+}
+
+.preview-error-overlay--expanded {
+  max-width: 480px;
+  min-width: 320px;
+}
+
+.preview-error-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(204, 51, 64, 0.05);
+  border-radius: 8px 8px 0 0;
+}
+
+.preview-error-overlay--warning .preview-error-header {
+  background: rgba(184, 133, 0, 0.08);
+}
+
+.preview-error-title {
+  color: #cc3340;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-error-overlay--warning .preview-error-title {
+  color: #b88500;
+}
+
+.preview-error-icon {
+  font-size: 16px;
+}
+
+.preview-error-collapse-btn,
+.preview-error-expand-btn {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-error-expand-btn {
+  color: #cc3340;
+  font-weight: 600;
+}
+
+.preview-error-overlay--warning .preview-error-expand-btn {
+  color: #b88500;
+}
+
+.preview-error-collapse-btn:hover,
+.preview-error-expand-btn:hover {
+  color: #1f2328;
+}
+
+.preview-error-content {
+  padding: 12px;
+  max-height: calc(20 * 1.4em); /* ~20 lines */
+  overflow-y: auto;
+}
+
+.preview-error-message {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #1f2328;
+}
+
+.preview-error-diagnostics {
+  margin: 8px 0 0 0;
+}
+
+/* bd-352bh: rich ariadne source-context snippet (shown when the
+   diagnostic has a `rendered` field). Monospace + preserve
+   whitespace so the box-drawing characters line up. Vertical
+   margin between entries; horizontal padding lets the borders
+   from sibling entries (if any) breathe. */
+.preview-error-diagnostic-rendered {
+  margin: 6px 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.04);
+  border-left: 2px solid rgba(0, 0, 0, 0.1);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #1f2328;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.preview-error-overlay--warning .preview-error-diagnostic-rendered {
+  border-left-color: #b88500;
+}
+
+.preview-error-overlay--error .preview-error-diagnostic-rendered {
+  border-left-color: #cc3340;
+}
+
+/* Compact-list fallback for diagnostics without a `rendered`
+   snippet (no location → ariadne can't draw a box). Mirrors the
+   pre-bd-352bh shape but as a flow-block rather than <li>. */
+.preview-error-diagnostic-compact {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.preview-error-diagnostic-compact .diagnostic-line {
+  color: #b88500;
+  font-weight: 500;
+}
+
+.preview-error-diagnostic-compact .diagnostic-code {
+  color: #555;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+.preview-error-diagnostic-compact .diagnostic-title {
+  color: #cc3340;
+}
+
+.preview-error-overlay--warning .preview-error-diagnostic-compact .diagnostic-title {
+  color: #b88500;
+}
+
+.preview-error-diagnostic-compact .diagnostic-problem {
+  color: #555;
+}
+
+/* bd-rqba: sibling Pass-1 failures, attributed to their source file. */
+.preview-error-pass1-failures {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.preview-error-pass1-failure {
+  margin-bottom: 8px;
+}
+
+.preview-error-pass1-failure:last-child {
+  margin-bottom: 0;
+}
+
+.preview-error-pass1-failure .diagnostic-source-file {
+  font-size: 12px;
+  font-weight: 600;
+  color: #b88500;
+  margin-bottom: 4px;
+}
+
+.preview-error-pass1-failure .diagnostic-source-file code {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+/* bd-b9kzg: server-side diagnostics lane. Visually distinct so
+   the user can tell the diagnostic was raised by the preview
+   server (capture_driver / deps / re_execute) rather than the
+   WASM render. */
+.preview-error-server-diagnostics {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.preview-error-server-diagnostics-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #555;
+  margin-bottom: 4px;
+}

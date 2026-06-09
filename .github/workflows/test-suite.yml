@@ -59,6 +59,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          # cache-bin: false avoids clobbering the freshly-installed
+          # ~/.cargo/bin/{cargo,rustup,...} with stale proxies from a
+          # previous run. Intermittently broke macOS CI on 2026-05-14
+          # with `cargo xtask … → rustup-init: unexpected argument`.
+          # cargo-nextest / cargo-insta re-install via taiki-e/install-
+          # action's prebuilts each run, which is cheap (~1-2s).
+          cache-bin: false
           shared-key: "rust-test-suite"
 
       # Cache cargo-nextest and insta separately to avoid reinstalling
@@ -100,7 +107,9 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install tree-sitter-cli
 
-      # Free disk space on Linux runners (14 GB SSD is tight for Rust monorepo)
+      # Free disk space on Linux runners (14 GB SSD is tight for Rust monorepo).
+      # `remove_tool_cache: true` is safe — no step in this job uses /opt/hostedtoolcache/
+      # (no setup-node, setup-python, etc.). See claude-notes/2026-04-28-ci-disk-space-and-profile-ci.md.
       - name: Free disk space
         if: runner.os == 'Linux'
         uses: endersonmenezes/free-disk-space@7901478139cff6e9d44df5972fd8ab8fcade4db1 # v3
@@ -108,19 +117,19 @@ jobs:
           remove_android: true
           remove_dotnet: true
           remove_haskell: true
+          remove_tool_cache: true
+
+      - name: Prune Docker images
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo docker image prune --all --force
+          sudo docker builder prune -a --force
 
       # Custom lint checks (before build to fail fast)
       - name: Run custom lints
         shell: bash
         run: cargo xtask lint
-
-      # Build and test
-      # Deny warnings in CI so they don't accumulate silently
-      - name: Build
-        shell: bash
-        run: cargo build
-        env:
-          RUSTFLAGS: "-D warnings"
 
       - name: Test block tree-sitter grammar
         shell: bash
@@ -128,8 +137,12 @@ jobs:
           cd crates/tree-sitter-qmd/tree-sitter-markdown
           tree-sitter test
 
+      # `ci` profile + `--tests` makes a separate `cargo build` redundant.
+      # `--tests` (not `--all-targets`) excludes benches — `quarto-yaml` declares
+      # `harness = false` benches that nextest can't enumerate as tests.
+      # See claude-notes/2026-04-28-ci-disk-space-and-profile-ci.md.
       - name: Test Rust code
         shell: bash
-        run: cargo nextest run
+        run: cargo nextest run --tests --cargo-profile ci
         env:
           RUSTFLAGS: "-D warnings"

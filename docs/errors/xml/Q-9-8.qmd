@@ -1,0 +1,46 @@
+---
+title: "Invalid Attribute Value"
+description: "A CSL attribute's value is not one of the allowed options."
+code: Q-9-8
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-8` — Invalid Attribute Value
+
+> A CSL attribute's value is not one of the allowed options.
+
+## What this means
+
+Many CSL attributes accept only a small fixed set of values.
+`form` on `<cs:date>` accepts `numeric` or `text`; `font-style`
+on a styling element accepts `normal`, `italic`, or `oblique`;
+and so on. This error fires when the attribute value does not
+match any of the allowed options. The message names the element,
+the attribute, the value found, and the values that were
+expected.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in the value** (`itlaic` for `italic`).
+- **A value from a different CSL version** that has been
+  renamed or removed.
+- **An English word that resembles a CSL option** but is not
+  the exact accepted spelling.
+
+## How to fix
+
+Replace the value with one of the allowed options shown in the
+message. If you are not sure which option to pick, the CSL
+specification documents the meaning of each accepted value for
+every attribute.
+
+## Related
+
+- `Q-9-7` — the attribute is missing entirely.
+- `Q-9-10` — an unexpected element in this position.

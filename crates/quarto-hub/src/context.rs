@@ -3,7 +3,7 @@
 //! Contains the automerge repo and storage manager.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
 use automerge::{Automerge, ObjType, ROOT, transaction::Transactable};
@@ -24,6 +24,7 @@ use crate::resource::{create_binary_document, detect_mime_type};
 use crate::storage::StorageManager;
 use crate::sync::{SyncAllResult, SyncResult, sync_all_documents, sync_file_by_path};
 use crate::sync_state::SyncState;
+use crate::watch::WatchFilter;
 
 /// Configuration for the hub.
 #[derive(Debug)]
@@ -51,12 +52,39 @@ pub struct HubConfig {
     /// Default: 500ms.
     pub watch_debounce_ms: u64,
 
+    /// Which files surface as watch events. See [`WatchFilter`].
+    /// Default: `WatchFilter::QmdOnly` (legacy hub behaviour).
+    /// `quarto-preview` overrides this to `WatchFilter::PreviewBroad`
+    /// so config + asset edits trigger re-render.
+    pub watch_filter: WatchFilter,
+
+    /// Single-file mode for `q2 preview` (bd-tnm3k): when `Some`,
+    /// discovery skips the project walk and indexes only this one
+    /// file (relative to `project_root`), and the watcher subscribes
+    /// to just that file instead of the project root.
+    ///
+    /// The absolute target path used by the watcher is reconstructed
+    /// inside `run_server_with` as `project_root.join(single_file)`,
+    /// so the caller must supply a non-empty relative path that
+    /// resolves to an existing `.qmd` file under `project_root`.
+    pub single_file: Option<PathBuf>,
+
     /// OAuth2 auth configuration. None = auth disabled.
     pub auth_config: Option<AuthConfig>,
 
     /// Allow auth without TLS (local dev). When true, the `Secure` flag is
     /// omitted from auth cookies so browsers send them over plain HTTP.
     pub allow_insecure_auth: bool,
+
+    /// Register `GET /` as the samod ws upgrade endpoint.
+    ///
+    /// Default: `true`. The `quarto hub` CLI keeps it true for
+    /// sync.automerge.org compatibility (the convention is that
+    /// `/` is the upgrade path). `quarto preview` sets it false so
+    /// its embedded SPA can own `/` for `index.html`; samod still
+    /// works at `/ws`, which hub-client and the q2-preview SPA both
+    /// already use as their canonical connect path.
+    pub register_root_ws: bool,
 }
 
 impl Default for HubConfig {
@@ -68,8 +96,11 @@ impl Default for HubConfig {
             sync_interval_secs: Some(30),
             watch_enabled: true,
             watch_debounce_ms: 500,
+            watch_filter: WatchFilter::default(),
+            single_file: None,
             auth_config: None,
             allow_insecure_auth: false,
+            register_root_ws: true,
         }
     }
 }
@@ -116,6 +147,11 @@ pub struct HubContext {
     /// is omitted from auth cookies.
     allow_insecure_auth: bool,
 
+    /// See [`HubConfig::register_root_ws`]. Stashed on the context so
+    /// `build_router` can consult it after `HubContext::new` consumes
+    /// the originating `HubConfig`.
+    register_root_ws: bool,
+
     /// Maps peer IDs to authenticated user emails.
     /// Populated by handle_websocket when auth is enabled; read by the
     /// AuditAccessPolicy for audit logging.
@@ -139,14 +175,21 @@ impl HubContext {
     pub async fn new(mut storage: StorageManager, mut config: HubConfig) -> Result<Self> {
         let project_root = storage.project_root().map(|p| p.to_path_buf());
 
-        // Discover project files (only in project mode)
+        // Discover project files (only in project mode). bd-tnm3k:
+        // single-file mode skips the WalkDir entirely — the relative
+        // path is already known, and walking the parent directory
+        // would index sibling files the user didn't ask for.
         let project_files = if let Some(ref project_root) = project_root {
-            let files = ProjectFiles::discover(project_root);
+            let files = match config.single_file.as_ref() {
+                Some(rel) => ProjectFiles::single_file(rel.clone()),
+                None => ProjectFiles::discover(project_root),
+            };
             info!(
                 qmd_count = files.qmd_files.len(),
                 config_count = files.config_files.len(),
                 binary_count = files.binary_files.len(),
                 extension_count = files.extension_files.len(),
+                source_count = files.source_files.len(),
                 "Discovered project files"
             );
             Some(files)
@@ -227,6 +270,7 @@ impl HubContext {
 
         let auth_config = config.auth_config.take();
         let allow_insecure_auth = config.allow_insecure_auth;
+        let register_root_ws = config.register_root_ws;
 
         Ok(Self {
             storage,
@@ -238,6 +282,7 @@ impl HubContext {
             auth_config,
             auth_state: OnceLock::new(),
             allow_insecure_auth,
+            register_root_ws,
             peer_emails,
         })
     }
@@ -335,9 +380,23 @@ impl HubContext {
             .map_err(|_| "auth_state already initialized")
     }
 
+    /// Whether [`set_auth_state`](Self::set_auth_state) has already
+    /// installed an [`AuthState`]. Used by [`crate::server::build_router_with_state`]
+    /// to skip the OIDC-discovery initialization path when a caller
+    /// (notably integration tests built against a mock OIDC provider
+    /// on `http://`) has supplied the decoder out-of-band.
+    pub fn auth_state_initialized(&self) -> bool {
+        self.auth_state.get().is_some()
+    }
+
     /// Whether auth cookies should omit the `Secure` flag (HTTP dev mode).
     pub fn allow_insecure_auth(&self) -> bool {
         self.allow_insecure_auth
+    }
+
+    /// See [`HubConfig::register_root_ws`].
+    pub fn register_root_ws(&self) -> bool {
+        self.register_root_ws
     }
 
     /// Peer→email map for document access audit logging.
@@ -358,13 +417,51 @@ impl HubContext {
     /// Authenticate a request and return the decoded claims.
     /// Unlike `authenticate()`, this returns `Err` when auth is disabled
     /// (because there are no claims to return). Used by `/auth/me`.
+    ///
+    /// The audit-log fields plumbed through `tracing::event!` are
+    /// shared between the cookie and Bearer paths — both invoke this
+    /// method. `credential_kind` distinguishes the two and is required
+    /// by Phase 2 of the device-flow plan.
     pub async fn authenticate_claims(
         &self,
         token: Option<&str>,
     ) -> std::result::Result<OidcClaims, StatusCode> {
-        let auth_config = self.auth_config().ok_or(StatusCode::UNAUTHORIZED)?;
+        self.authenticate_claims_for_kind(token, "unknown").await
+    }
 
-        let token = token.ok_or(StatusCode::UNAUTHORIZED)?;
+    /// Internal variant of [`authenticate_claims`] that records the
+    /// `credential_kind` (`"cookie"` / `"bearer"`) on every audit event.
+    /// The public [`authenticate_claims`] tags events with `"unknown"`
+    /// so callers that have not yet been migrated still emit audit
+    /// entries, just without distinguishing the credential source.
+    pub async fn authenticate_claims_for_kind(
+        &self,
+        token: Option<&str>,
+        credential_kind: &'static str,
+    ) -> std::result::Result<OidcClaims, StatusCode> {
+        let auth_config = self.auth_config().ok_or_else(|| {
+            tracing::event!(
+                target: "quarto_hub::audit",
+                tracing::Level::WARN,
+                action = "auth_fail",
+                outcome = "deny",
+                credential_kind = credential_kind,
+                detail = "auth_disabled",
+            );
+            StatusCode::UNAUTHORIZED
+        })?;
+
+        let token = token.ok_or_else(|| {
+            tracing::event!(
+                target: "quarto_hub::audit",
+                tracing::Level::INFO,
+                action = "auth_fail",
+                outcome = "deny",
+                credential_kind = credential_kind,
+                detail = "missing_credential",
+            );
+            StatusCode::UNAUTHORIZED
+        })?;
         let auth_state = self
             .auth_state
             .get()
@@ -375,12 +472,74 @@ impl HubContext {
         // to select OidcClaims.
         let token_data: jsonwebtoken::TokenData<OidcClaims> =
             auth_state.decoder.decode(token).await.map_err(|err| {
-                tracing::warn!(%err, "Auth failed");
+                // Bearer/JWT failures never reach OidcClaims, so we
+                // identify the event by `detail` rather than `sub`.
+                let detail = format!("jwt_decode:{err}");
+                tracing::event!(
+                    target: "quarto_hub::audit",
+                    tracing::Level::INFO,
+                    action = "auth_fail",
+                    outcome = "deny",
+                    credential_kind = credential_kind,
+                    detail = %detail,
+                );
                 StatusCode::UNAUTHORIZED
             })?;
 
-        auth::check_allowlists(&token_data.claims, auth_config)?;
-        tracing::debug!(email = %token_data.claims.email, "Authenticated");
+        // OIDC §3.1.3.7 azp rule + future-iat rejection — gaps the
+        // jsonwebtoken validator does not cover. The audience list
+        // matches the one used when building the validator, so any
+        // azp ∈ allowed_audiences is by construction one we already
+        // accept.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if let Err(status) =
+            auth::validate_azp_and_iat(&token_data.claims, auth_state.audiences().iter(), now, 60)
+        {
+            tracing::event!(
+                target: "quarto_hub::audit",
+                tracing::Level::INFO,
+                action = "auth_fail",
+                outcome = "deny",
+                credential_kind = credential_kind,
+                sub = %token_data.claims.sub,
+                detail = "azp_or_iat_rejected",
+            );
+            return Err(status);
+        }
+
+        if let Err(status) = auth::check_allowlists(&token_data.claims, auth_config) {
+            // 401 = unverified email; 403 = good creds, not in allowlist.
+            // The plan's audit test expects detail=user_not_allowlisted
+            // for the 403 case so a downstream log-aggregator can
+            // distinguish identity policy from credential policy.
+            let detail = if status == StatusCode::FORBIDDEN {
+                "user_not_allowlisted"
+            } else {
+                "email_not_verified"
+            };
+            tracing::event!(
+                target: "quarto_hub::audit",
+                tracing::Level::INFO,
+                action = "auth_fail",
+                outcome = "deny",
+                credential_kind = credential_kind,
+                sub = %token_data.claims.sub,
+                detail = detail,
+            );
+            return Err(status);
+        }
+
+        tracing::event!(
+            target: "quarto_hub::audit",
+            tracing::Level::INFO,
+            action = "auth_ok",
+            outcome = "allow",
+            credential_kind = credential_kind,
+            sub = %token_data.claims.sub,
+        );
         Ok(token_data.claims)
     }
 }
@@ -447,7 +606,7 @@ async fn reconcile_files_with_index(
         // Add to index
         index.add_file(&path_str, &doc_id)?;
 
-        info!(path = %path_str, doc_id = %doc_id, content_len = file_content.len(), "Added new text file to index");
+        debug!(path = %path_str, doc_id = %doc_id, content_len = file_content.len(), "Added new text file to index");
         added += 1;
     }
 
@@ -493,7 +652,7 @@ async fn reconcile_files_with_index(
         // Add to index
         index.add_file(&path_str, &doc_id)?;
 
-        info!(
+        debug!(
             path = %path_str,
             doc_id = %doc_id,
             content_len = file_content.len(),
@@ -556,5 +715,95 @@ mod tests {
         // File should be in the index
         let files = ctx.index().get_all_files();
         assert_eq!(files.len(), 1);
+    }
+
+    /// Build an automerge text document with the given content.
+    fn text_doc(content: &str) -> Automerge {
+        let mut doc = Automerge::new();
+        doc.transact::<_, _, automerge::AutomergeError>(|tx| {
+            let text_obj = tx.put_object(ROOT, "text", ObjType::Text)?;
+            tx.update_text(&text_obj, content)?;
+            Ok(())
+        })
+        .unwrap();
+        doc
+    }
+
+    /// A poisoned index key with `..` must not let an attacker overwrite a file
+    /// outside the project root. Routes through the real `sync_all()` path.
+    #[tokio::test]
+    async fn sync_all_rejects_parent_traversal_write() {
+        let temp = TempDir::new().unwrap();
+        let project_root = temp.path().join("project");
+        std::fs::create_dir(&project_root).unwrap();
+        std::fs::write(project_root.join("index.qmd"), "# Hello").unwrap();
+
+        // Victim file *outside* the root (so `.exists()` would pass).
+        let victim = temp.path().join("victim.txt");
+        std::fs::write(&victim, "original").unwrap();
+
+        let storage = StorageManager::new(&project_root).unwrap();
+        let ctx = HubContext::new(storage, HubConfig::default())
+            .await
+            .unwrap();
+
+        // Poison the index exactly as a malicious wire client would: `add_file`
+        // performs no containment by design, so this is a faithful attack model.
+        let doc = ctx.repo().create(text_doc("PWNED")).await.unwrap();
+        ctx.index()
+            .add_file("../victim.txt", &doc.document_id().to_string())
+            .unwrap();
+
+        let result = ctx.sync_all().await;
+
+        assert_eq!(result.rejected, 1, "poisoned entry must be rejected");
+        assert_eq!(
+            std::fs::read_to_string(&victim).unwrap(),
+            "original",
+            "victim file outside root must be untouched"
+        );
+        // Legitimate file still syncs.
+        assert!(result.total_synced() >= 1);
+    }
+
+    /// A symlink *inside* the root pointing outward must not let a poisoned key
+    /// with no `..` (passes the lexical check) write through it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn sync_all_rejects_symlink_escape_write() {
+        let temp = TempDir::new().unwrap();
+        let project_root = temp.path().join("project");
+        std::fs::create_dir(&project_root).unwrap();
+        std::fs::write(project_root.join("index.qmd"), "# Hello").unwrap();
+
+        // Victim dir + file outside the root.
+        let outside = temp.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        let victim = outside.join("victim.txt");
+        std::fs::write(&victim, "original").unwrap();
+
+        // `project/assets` is a symlink to the outside dir.
+        std::os::unix::fs::symlink(&outside, project_root.join("assets")).unwrap();
+
+        let storage = StorageManager::new(&project_root).unwrap();
+        let ctx = HubContext::new(storage, HubConfig::default())
+            .await
+            .unwrap();
+
+        // Key `assets/victim.txt` has no `..` — lexical check passes; only the
+        // canonicalize + starts_with check catches the symlink escape.
+        let doc = ctx.repo().create(text_doc("PWNED")).await.unwrap();
+        ctx.index()
+            .add_file("assets/victim.txt", &doc.document_id().to_string())
+            .unwrap();
+
+        let result = ctx.sync_all().await;
+
+        assert_eq!(result.rejected, 1, "symlink-escape entry must be rejected");
+        assert_eq!(
+            std::fs::read_to_string(&victim).unwrap(),
+            "original",
+            "victim file reachable via symlink must be untouched"
+        );
     }
 }

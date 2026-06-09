@@ -1,0 +1,59 @@
+---
+title: "Generic Validation Error"
+description: "A YAML validation error that does not fit any of the more specific Q-1-XX categories."
+code: Q-1-99
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-99` — Generic Validation Error
+
+> A YAML validation error that does not fit any of the more
+> specific Q-1-XX categories.
+
+## What this means
+
+Quarto's YAML validator has structured error variants for the
+common failure modes — missing required property (`Q-1-10`), type
+mismatch (`Q-1-11`), invalid enum value (`Q-1-12`), and so on.
+This code is the fallback for validation errors that fall outside
+those variants. The terminal message includes a free-text
+description from the validator that explains the specific failure.
+
+If you see this code, the validation system has a problem it could
+not classify into one of the structured codes. The structured
+codes are preferable because they enable better hints and tooling;
+seeing `Q-1-99` in real configuration is a hint that a specific
+code may need to be added.
+
+## Why this happens
+
+This code fires in two situations:
+
+- **An edge case the validator did not anticipate.** Some
+  combination of schema and input produced an error the validator
+  could not assign to a known variant.
+- **An infrastructural problem inside a schema** — for example a
+  schema construct the validator has not yet implemented support
+  for. Future Quarto releases will gradually narrow this code's
+  use as such gaps are filled.
+
+## How to fix
+
+Read the free-text message in the error. It typically names the
+specific problem with enough detail to identify what to change in
+the YAML.
+
+If the message does not point at a clear fix, treat the
+`Q-1-99` appearance itself as a Quarto bug: the validator should
+have produced one of the structured codes. Reporting the YAML
+that triggered the error helps Quarto's maintainers add a
+structured variant for the case.
+
+## Related
+
+- [`Q-1-10`](Q-1-10.qmd) through [`Q-1-19`](Q-1-19.qmd) — the structured validation codes
+  that should cover most cases.

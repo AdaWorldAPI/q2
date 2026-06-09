@@ -1,0 +1,56 @@
+---
+title: "Unclosed Single Quote"
+description: "A single-quoted construct opens with `'` but no closing `'` appears before the end of the block."
+code: Q-2-7
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-7` — Unclosed Single Quote
+
+> A single-quoted construct opens with `'` but no closing `'`
+> appears before the end of the block.
+
+## What this means
+
+Quarto markdown recognizes `'…'` as a typographic single-quote
+pair (curly quotes in the output) when the quotes are balanced
+within a block. This error fires when an opening `'` has no
+matching close.
+
+## Why this happens
+
+The most common cause is an apostrophe being read as an opening
+quote. The parser distinguishes apostrophes from quotes by
+context, but in some constructions (a `'` adjacent to whitespace
+or at the start of a token) the parser sees a quote opener.
+
+## How to fix
+
+Add the closing `'`, or escape the literal apostrophe with a
+backslash:
+
+```markdown
+He said it was \'just a draft\'.
+```
+
+If the construct really is a quote, supply the missing closing
+mark.
+
+## Example
+
+A bare `'` with nothing after it triggers the error:
+
+```markdown
+'
+```
+
+## Related
+
+- [`Q-2-10`](Q-2-10.qmd) — closing quote without matching open
+  quote: the opposite asymmetry.
+- [`Q-2-11`](Q-2-11.qmd) — unclosed double quote: same problem
+  for `"`.

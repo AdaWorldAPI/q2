@@ -1,0 +1,128 @@
+# Phase 5 single-doc byte-identity baseline.
+#
+# Captured 2026-04-24 against commit 7881178e (pre-Phase-5 refactor).
+# Each line: "<relative-path-from-doc-dir> <sha256>"
+#
+# After Phase 5's scoped-artifact refactor, these hashes MUST remain
+# unchanged. See `claude-notes/plans/2026-04-24-websites-phase-5.md`
+# Decision 10.
+#
+# To re-capture (if intentional changes to default theme / template
+# land), render `doc.qmd` and run:
+#   shasum -a 256 doc.html doc_files/styles.css
+#
+# Re-captured 2026-04-29 (bd-mgoh): doc.html hash updated because
+# `#quarto-content` now carries the `quarto-container` class for parity
+# with Q1 (no SCSS rule selects on it; it's a defensive addition that
+# anchors the website-sidebar layout fix in template.rs).
+#
+# Re-captured 2026-04-30 (bd-bsut): doc_files/styles.css hash updated
+# because the page-nav layout SCSS (`.page-navigation { display: flex; …
+# }`, `.nav-page` family, `@media print { .nav-page { display: none } }`)
+# was ported from Q1 into `_bootstrap-rules.scss`. doc.html hash is
+# unchanged: the new selectors don't match anything in a single-doc
+# render's body, and `<head>` is unaffected (no <link> changes for
+# single-doc).
+#
+# Re-captured 2026-04-30 (bd-bsut, sidebar-link parity follow-up):
+# doc_files/styles.css hash updated again because the sidebar-link
+# styling SCSS (`.sidebar-navigation a { color: inherit }`,
+# `.sidebar-title > a`, `.sidebar-item`, `.sidebar-section`,
+# `div.sidebar-item-container { color/hover/active/disabled }`, …) was
+# ported from Q1 into `_bootstrap-rules.scss` next to the page-nav
+# block. doc.html hash unchanged for the same reason as before — none
+# of the `.sidebar-*` selectors match anything in a single-doc body.
+#
+# Re-captured 2026-04-30 (bd-bsut, .sidebar-title font-sizing): added
+# the missing `.sidebar-title { font-size: 1.3rem; line-height: 1.6rem;
+# … }` rule from Q1's `quarto-nav.scss:281` so the website's site-title
+# at the top of the sidebar reads as a heading instead of inheriting
+# the small sidebar-link font-size.
+#
+# Re-captured 2026-04-30 (bd-k8y0, sidebar appearance polish): added
+# `.quarto-container { min-height: calc(100vh - 132px) }` (so a docked
+# sidebar's vertical separator extends to the bottom of the viewport
+# on short pages) and `#quarto-sidebar > * { padding-right: 1em }` (so
+# toggle dongles aren't flush against the sidebar's right border).
+# Both ported from Q1's `quarto-nav.scss` (lines 53-55 and 623-628).
+# doc.html hash unchanged: neither selector matches anything in a
+# single-doc body (no `.quarto-container` and no `#quarto-sidebar`),
+# but they appear in the compiled CSS so the `styles.css` hash shifts.
+#
+# Re-captured 2026-05-01 (bd-f5yi follow-up, c8dcbcf6): added
+# `body.floating .sidebar.sidebar-navigation { display: none }` under
+# `media-breakpoint-down(lg)` so a floating sidebar disappears in the
+# 768–991 px range instead of collapsing to a 26-px ghost column.
+# doc.html hash unchanged: the new selector doesn't match anything in
+# a single-doc body (no `body.floating`), but it appears in the
+# compiled CSS so the `styles.css` hash shifts.
+#
+# Re-captured 2026-05-04 (bd-4eyf): doc.html hash updated because
+# Bootstrap-themed renders now ship a `<script
+# src="doc_files/bootstrap.bundle.min.js"></script>` in `<head>`
+# (vendored Bootstrap 5.3.1 bundle, with Popper). doc_files/styles.css
+# hash is unchanged: the new feature is JS-only and does not touch
+# the SCSS pipeline. A new file `doc_files/bootstrap.bundle.min.js`
+# is also written; we deliberately do not list it here because the
+# baseline only tracks files that previously existed.
+#
+# Re-captured 2026-05-19 (bd-j73yw): doc_files/styles.css hash updated
+# because Phase 1 of bd-1tl09 (code-block decorations) ported the
+# filename-header SCSS from Q1's `_quarto-rules-code-filename.scss`
+# into `_bootstrap-rules.scss` (`.code-with-filename`,
+# `.code-with-filename-file`, `.quarto-dark` overrides). doc.html hash
+# unchanged: the new selectors don't match anything in the
+# single-doc fixture's body (no code block with a `filename`
+# attribute), but they appear in the compiled CSS so the
+# `styles.css` hash shifts.
+#
+# Re-captured 2026-05-19 (bd-j1trh): doc.html hash updated because
+# Phase 2 of bd-1tl09 added ClipboardJsStage, which ships
+# `js:clipboard` (the vendored clipboard.js library) as a
+# Project-scoped artifact whenever `code-copy` isn't explicitly false.
+# The new `<script src="doc_files/clipboard.min.js"></script>` lands
+# in `<head>` next to the existing Bootstrap-bundle script tag. The
+# fixture has no code blocks so the body is unchanged; only the
+# `<head>` script list shifts. doc_files/styles.css hash is
+# unchanged (Commit 2 doesn't touch SCSS — that's Commit 3). A new
+# file `doc_files/clipboard.min.js` is also written; we deliberately
+# do not list it here because the baseline only tracks files that
+# previously existed (same convention as bootstrap.bundle.min.js).
+#
+# Re-captured 2026-05-19 (bd-j1trh, Commit 3): both hashes updated.
+# doc.html shifts because ClipboardJsStage now also ships
+# `js:code-copy-init` (a small init handler), adding a third
+# `<script src="doc_files/code-copy-init.js"></script>` tag in
+# `<head>` after the alphabetic-sort step.
+# doc_files/styles.css shifts because the copy-button SCSS rules
+# were ported from Q1's `_quarto-rules-copy-code.scss` +
+# `_quarto-variables-copy-code.scss` into `_bootstrap-rules.scss`
+# (`$code-copy-selector`, `$btn-code-copy-color`, `.code-copy-button`,
+# the SVG-icon background-image rules, hover and checked states),
+# plus the `div.code-copy-outer-scaffold { position: relative }`
+# rule from Q1's `_quarto-rules.scss:285` that makes the absolutely-
+# positioned button anchor to the scaffold instead of the viewport
+# (caught during browser e2e). The new selectors don't match
+# anything in the single-doc fixture's body (no code blocks), but
+# they appear in the compiled CSS so the hash shifts. A new file
+# `doc_files/code-copy-init.js` is also written; not listed here
+# per the same convention as `bootstrap.bundle.min.js` /
+# `clipboard.min.js`.
+#
+# Re-captured 2026-05-20 (bd-mtzry): doc.html hash updated because the
+# default body class now appends `quarto-light` so theme-conditional
+# CSS keys off `body.quarto-light` (matches Q1's default body class).
+# `<body class="fullcontent">` → `<body class="fullcontent quarto-light">`.
+# doc_files/styles.css hash unchanged: this is a template-only change.
+#
+# Re-captured 2026-06-03 (bd-jby1i): doc_files/styles.css hash updated
+# because `highlight.scss` gained the two margin rules Q1 inherits
+# from Pandoc's baseline highlighting CSS:
+# `div.sourceCode { margin: 1em 0 }` and `pre.sourceCode { margin: 0 }`.
+# Without them, Bootstrap reboot's `pre { margin-bottom: 1rem }` was
+# trapped inside the BFC created by `div.sourceCode { overflow-y:
+# hidden }` and rendered as a stray empty line at the bottom of every
+# highlighted code block. doc.html hash unchanged: the fixture has no
+# code blocks, and the change is CSS-only.
+doc.html f81f6b0c1ceac71d249f208dac84875e53b251b85d2ead6129169320c86ac7f6
+doc_files/styles.css 7ffc66830849fc1107cc663797366e94942cf60634c639ec73a99ccd36eaafea

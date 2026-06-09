@@ -1,14 +1,15 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type * as Monaco from 'monaco-editor';
-import type { FileEntry } from '../../types/project';
-import type { Diagnostic } from '../../types/diagnostic';
-import { renderToHtml, isWasmReady, setScrollSyncEnabled } from '../../services/wasmRenderer';
-import { getFileContent, getBinaryFileContent } from '../../services/automergeSync';
+import type { FileEntry } from '@quarto/preview-renderer/types/project';
+import type { Diagnostic } from '@quarto/preview-renderer/types/diagnostic';
+import { renderToHtml, isWasmReady, setScrollSyncEnabled, type Pass1Failure } from '@quarto/preview-runtime';
+import { getFileContent, getBinaryFileContent } from '@quarto/preview-runtime';
 import { useScrollSync } from '../../hooks/useScrollSync';
 import { useSelectionSync } from '../../hooks/useSelectionSync';
-import { PreviewErrorOverlay } from './PreviewErrorOverlay';
-import MorphIframe, { type MorphIframeHandle } from './MorphIframe';
-import { ErrorView } from './PreviewStaticInfoViews';
+import { PreviewErrorOverlay } from '@quarto/preview-renderer/overlays/PreviewErrorOverlay';
+import { usePreference } from '../../hooks/usePreference';
+import MorphIframe, { type MorphIframeHandle } from '@quarto/preview-renderer/iframe/MorphIframe';
+import { ErrorView } from '@quarto/preview-renderer/overlays/PreviewStaticInfoViews';
 
 // Preview pane state machine:
 // START: Initial blank page
@@ -21,12 +22,30 @@ type PreviewState = 'START' | 'ERROR_AT_START' | 'GOOD' | 'ERROR_FROM_GOOD';
 interface CurrentError {
   message: string;
   diagnostics?: Diagnostic[];
+  /**
+   * Sibling-page Pass-1 failures (bd-rqba). Surfaced even on
+   * *successful* active-page renders so the user can see that a
+   * sidebar-referenced page failed to parse, with line/column,
+   * instead of just the misleading
+   * "missing document information for 'about.qmd'" warning that
+   * the navigation transform emits when its profile lookup fails.
+   */
+  pass1Failures?: Pass1Failure[];
 }
 
 interface PreviewProps {
   content: string;
   currentFile: FileEntry | null;
   files: FileEntry[];
+  /**
+   * Phase 9 (Decision 6): a fresh `Map` identity is produced on
+   * every Automerge edit (`App.tsx::setFileContents`). Passing it
+   * as a `useEffect` dep is what makes the project-aware preview
+   * re-render when *any* sibling file changes — a sibling's title
+   * edit can shift the active page's sidebar HTML, and the user
+   * expects to see that live.
+   */
+  fileContents: Map<string, string>;
   scrollSyncEnabled: boolean;
   editorRef: React.RefObject<Monaco.editor.IStandaloneCodeEditor | null>;
   editorReady: boolean;
@@ -45,10 +64,25 @@ type RenderResult = {
   success: true;
   html: string;
   diagnostics: Diagnostic[];
+  pass1Failures: Pass1Failure[];
 } | {
   success: false;
   error: string;
   diagnostics: Diagnostic[];
+  pass1Failures: Pass1Failure[];
+}
+
+/**
+ * Build a one-line summary for the pass-1-failure-only banner
+ * shown alongside a successful active-page render (bd-rqba).
+ * Single failure: "Sibling page 'about.qmd' failed to parse".
+ * Multiple: "N sibling pages failed to parse".
+ */
+function pass1FailuresBannerMessage(failures: Pass1Failure[]): string {
+  if (failures.length === 1) {
+    return `Sibling page '${failures[0].source_file}' failed to parse`;
+  }
+  return `${failures.length} sibling pages failed to parse`;
 }
 
 // Render a VFS document to HTML using WASM
@@ -64,6 +98,7 @@ async function doRender(
       success: false,
       error: 'WASM not ready',
       diagnostics: [],
+      pass1Failures: [],
     };
   }
 
@@ -83,12 +118,14 @@ async function doRender(
       ...(result.diagnostics ?? []),
       ...(result.warnings ?? []),
     ];
+    const pass1Failures = result.pass1_failures ?? [];
 
     if (result.success) {
       return {
         success: true,
         html: result.html,
         diagnostics: allDiagnostics,
+        pass1Failures,
       };
     } else {
       const errorMsg =
@@ -100,6 +137,7 @@ async function doRender(
         success: false,
         diagnostics: allDiagnostics,
         error: errorMsg,
+        pass1Failures,
       };
     }
   } catch (err) {
@@ -110,6 +148,7 @@ async function doRender(
       success: false,
       diagnostics: [],
       error: errorMsg,
+      pass1Failures: [],
     };
   }
 }
@@ -118,6 +157,7 @@ export default function Preview({
   content,
   currentFile,
   files,
+  fileContents,
   scrollSyncEnabled,
   editorRef,
   editorReady,
@@ -131,6 +171,10 @@ export default function Preview({
   // Preview state machine for error handling
   const [previewState, setPreviewState] = useState<PreviewState>('START');
   const [currentError, setCurrentError] = useState<CurrentError | null>(null);
+  // Persist the error-overlay collapsed state in localStorage. The
+  // overlay itself is package-internal in @quarto/preview-renderer and
+  // takes the value via props (controlled component).
+  const [errorOverlayCollapsed, setErrorOverlayCollapsed] = usePreference('errorOverlayCollapsed');
   // Track previewState in a ref for use in callbacks
   const previewStateRef = useRef<PreviewState>('START');
   useEffect(() => {
@@ -152,6 +196,15 @@ export default function Preview({
 
   // Rendered HTML to display in iframe
   const [renderedHtml, setRenderedHtml] = useState<string>('');
+
+  // Project file paths in a stable, memoized form. Used by the
+  // iframe post-processor to reverse-map artifact-rooted .html
+  // links back to source .qmd files for cross-doc click
+  // navigation (bd-lnd3).
+  const projectFilePaths = useMemo(
+    () => files.map((f) => f.path),
+    [files],
+  );
 
   // Debounce rendering
   const renderTimeoutRef = useRef<number | null>(null);
@@ -222,7 +275,6 @@ export default function Preview({
     // any user-defined tree-sitter grammars under `_quarto/grammars/*`.
     // The discovery step is pure + cache-backed so this is ~free when
     // grammars haven't changed since the last render.
-    const projectFilePaths = files.map((f) => f.path);
     const result = await doRender(documentPath, projectFilePaths);
     if (qmdContent !== lastContentRef.current) return;
 
@@ -232,7 +284,19 @@ export default function Preview({
     if (result.success) {
       // Normal success: transition to GOOD state from any state
       setPreviewState('GOOD');
-      setCurrentError(null);
+      // Sibling-page Pass-1 failures (bd-rqba) ride alongside a
+      // successful active-page render — surface them as a banner
+      // so the user can see the actual parse error in the failing
+      // sibling instead of just the misleading
+      // "missing document information for 'about.qmd'" warning.
+      if (result.pass1Failures.length > 0) {
+        setCurrentError({
+          message: pass1FailuresBannerMessage(result.pass1Failures),
+          pass1Failures: result.pass1Failures,
+        });
+      } else {
+        setCurrentError(null);
+      }
       // Update rendered HTML
       setRenderedHtml(result.html);
     } else {
@@ -240,6 +304,7 @@ export default function Preview({
       setCurrentError({
         message: result.error,
         diagnostics: result.diagnostics,
+        pass1Failures: result.pass1Failures.length > 0 ? result.pass1Failures : undefined,
       });
 
       const currentState = previewStateRef.current;
@@ -252,7 +317,7 @@ export default function Preview({
         setPreviewState('ERROR_FROM_GOOD');
       }
     }
-  }, [onDiagnosticsChange, files]);
+  }, [onDiagnosticsChange, projectFilePaths]);
 
   // Debounced render update
   const updatePreview = useCallback((newContent: string, documentPath: string) => {
@@ -264,7 +329,17 @@ export default function Preview({
     }, 20);
   }, [doRenderWithStateManagement]);
 
-  // Re-render when content changes
+  // Re-render when the active page's content changes OR when any
+  // sibling file's content changes (Phase 9 Decision 6). For
+  // single-file projects this is identical to "active content
+  // changed" — the map only contains the active file. For website
+  // projects, a sibling title edit shifts the rendered sidebar
+  // HTML, so the active page must re-render.
+  //
+  // The `fileContents` Map gets a fresh identity on every Automerge
+  // edit (App.tsx:370-377), so depending on it lets React fire this
+  // effect without us doing any change detection ourselves. The
+  // 20ms debounce inside `updatePreview` absorbs burst edits.
   useEffect(() => {
     const filePath = currentFile?.path;
 
@@ -276,7 +351,7 @@ export default function Preview({
     // Pass document path as-is from Automerge (e.g., "index.qmd" or "docs/index.qmd").
     // The WASM layer will use VFS path normalization to resolve relative paths correctly.
     updatePreview(content, filePath);
-  }, [content, updatePreview, currentFile?.path]);
+  }, [content, fileContents, updatePreview, currentFile?.path]);
 
   // Reset preview state when file changes
   useEffect(() => {
@@ -297,16 +372,28 @@ export default function Preview({
             qmdContent={content}
             html={renderedHtml}
             currentFilePath={currentFile?.path ?? ''}
+            projectFilePaths={projectFilePaths}
             onNavigateToDocument={handleNavigateToDocument}
             onScroll={handlePreviewScroll}
             onClick={handlePreviewClick}
             onSelectionChange={handlePreviewSelection}
           />
-          {/* Error overlay shown when error occurs after successful render */}
+          {/* Overlay: shown when an error occurs after a successful
+              render OR when sibling pages failed Pass-1 even though
+              the active page rendered fine (bd-rqba). */}
           <PreviewErrorOverlay
             error={currentError}
-            visible={previewState === 'ERROR_FROM_GOOD'}
+            visible={
+              previewState === 'ERROR_FROM_GOOD' ||
+              (previewState === 'GOOD' && currentError !== null)
+            }
+            collapsed={errorOverlayCollapsed}
+            onToggleCollapsed={setErrorOverlayCollapsed}
           />
+          {/* Hard-failure overlay isn't reachable in this branch —
+              ERROR_AT_START gets the full ErrorView above — but if
+              we ever decide to show a non-blocking pass-1 banner on
+              the error page too, this is where it'd hook in. */}
         </>
       )}
     </div>

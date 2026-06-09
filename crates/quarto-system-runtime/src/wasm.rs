@@ -183,6 +183,22 @@ extern "C" {
     fn js_fetch_url_impl(url: &str) -> Result<JsValue, JsValue>;
 }
 
+// =============================================================================
+// Monotonic clock: performance.now()
+// =============================================================================
+//
+// `std::time::Instant::now()` panics on `wasm32-unknown-unknown` with
+// "time not implemented on this platform". Browsers and Node.js (>=16)
+// expose `performance.now()` as a high-resolution monotonic clock
+// (milliseconds since context creation, with sub-millisecond precision).
+// This is the cross-environment timer used by `monotonic_now_nanos`.
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = performance, js_name = now)]
+    fn performance_now() -> f64;
+}
+
 /// Counter for generating unique temp directory names in WASM.
 /// SystemTime::now() is not available in WASM, so we use a simple counter.
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -751,6 +767,10 @@ impl SystemRuntime for WasmRuntime {
 
     fn unix_timestamp(&self) -> RuntimeResult<u64> {
         Ok((js_sys::Date::now() / 1000.0) as u64)
+    }
+
+    fn monotonic_now_nanos(&self) -> u64 {
+        (performance_now() * 1_000_000.0) as u64
     }
 
     fn xdg_dir(&self, _kind: XdgDirKind, _subpath: Option<&Path>) -> RuntimeResult<PathBuf> {

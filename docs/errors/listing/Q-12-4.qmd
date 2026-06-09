@@ -1,0 +1,40 @@
+---
+title: "Listing Id Collision"
+description: "Two or more listings on the same page declare the same `id`; later occurrences are dropped."
+code: Q-12-4
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-4` — Listing Id Collision
+
+> Two or more listings on the same page declare the same `id`;
+> later occurrences are dropped.
+
+## What this means
+
+Every listing on a page gets an `id`: either one the author set
+explicitly, or one Quarto assigned (`listing-1`, `listing-2`,
+...). The id is used to attach inserts in the rendered HTML
+(`{{< include >}}`-style references, CSS targeting, anchor
+links). The parser requires the ids on a page to be unique.
+
+When two listings on the same page share an id, the first one
+keeps it and any later listings with the same id are dropped
+entirely.
+
+## Why this happens
+
+Almost always: a `listings:` array in front matter has two
+entries that explicitly set `id:` to the same string, or the
+author manually used `listing-1` (the default first-listing id)
+for one entry and a second one is auto-assigned the same name.
+
+## How to fix
+
+Pick distinct ids. If you do not need a specific id for either
+listing, remove the `id:` field from both and let Quarto assign
+unique defaults.

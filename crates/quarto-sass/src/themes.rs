@@ -173,7 +173,10 @@ impl FromStr for BuiltInTheme {
             "vapor" => Ok(BuiltInTheme::Vapor),
             "yeti" => Ok(BuiltInTheme::Yeti),
             "zephyr" => Ok(BuiltInTheme::Zephyr),
-            _ => Err(SassError::UnknownTheme(s.to_string())),
+            _ => Err(SassError::UnknownTheme {
+                name: s.to_string(),
+                location: None,
+            }),
         }
     }
 }
@@ -217,6 +220,12 @@ pub enum ThemeSpec {
     BuiltIn(BuiltInTheme),
     /// A custom SCSS file path (absolute or relative to document directory).
     Custom(PathBuf),
+    /// Position marker for the `_brand.yml`-derived layers. Expanded
+    /// by [`process_theme_specs`] using the `Brand` carried by the
+    /// active [`ThemeContext`]. Parsed from the literal token `brand`
+    /// in the `theme:` array. See
+    /// `claude-notes/plans/2026-05-20-brand-yml-support.md`.
+    Brand,
 }
 
 impl ThemeSpec {
@@ -250,44 +259,53 @@ impl ThemeSpec {
     pub fn parse(s: &str) -> Result<Self, SassError> {
         let s_lower = s.to_lowercase();
 
-        // Check for file extensions - matching TS Quarto behavior
+        // Check for file extensions - matching TS Quarto behavior.
+        // This takes precedence so a file named `brand.scss` still
+        // resolves to `Custom`, not `Brand`.
         if s_lower.ends_with(".scss") || s_lower.ends_with(".css") {
-            // Custom file path - use original case for the path
-            Ok(ThemeSpec::Custom(PathBuf::from(s)))
-        } else {
-            // Try to parse as built-in theme name
-            let theme: BuiltInTheme = s.parse()?;
-            Ok(ThemeSpec::BuiltIn(theme))
+            return Ok(ThemeSpec::Custom(PathBuf::from(s)));
         }
+
+        // The literal token `brand` is a position marker for
+        // `_brand.yml`-derived layers. Matches Q1's
+        // `format-html-scss.ts:216`.
+        if s_lower == "brand" {
+            return Ok(ThemeSpec::Brand);
+        }
+
+        // Try to parse as built-in theme name
+        let theme: BuiltInTheme = s.parse()?;
+        Ok(ThemeSpec::BuiltIn(theme))
     }
 
     /// Check if this is a built-in theme.
-    ///
-    /// Returns `true` for [`ThemeSpec::BuiltIn`], `false` for [`ThemeSpec::Custom`].
     pub fn is_builtin(&self) -> bool {
         matches!(self, ThemeSpec::BuiltIn(_))
     }
 
     /// Check if this is a custom file path.
-    ///
-    /// Returns `true` for [`ThemeSpec::Custom`], `false` for [`ThemeSpec::BuiltIn`].
     pub fn is_custom(&self) -> bool {
         matches!(self, ThemeSpec::Custom(_))
+    }
+
+    /// Check if this is the `brand` position marker.
+    pub fn is_brand(&self) -> bool {
+        matches!(self, ThemeSpec::Brand)
     }
 
     /// Get the built-in theme if this is a built-in spec.
     pub fn as_builtin(&self) -> Option<BuiltInTheme> {
         match self {
             ThemeSpec::BuiltIn(theme) => Some(*theme),
-            ThemeSpec::Custom(_) => None,
+            _ => None,
         }
     }
 
     /// Get the file path if this is a custom spec.
     pub fn as_custom(&self) -> Option<&Path> {
         match self {
-            ThemeSpec::BuiltIn(_) => None,
             ThemeSpec::Custom(path) => Some(path),
+            _ => None,
         }
     }
 }
@@ -297,6 +315,7 @@ impl std::fmt::Display for ThemeSpec {
         match self {
             ThemeSpec::BuiltIn(theme) => write!(f, "{}", theme),
             ThemeSpec::Custom(path) => write!(f, "{}", path.display()),
+            ThemeSpec::Brand => f.write_str("brand"),
         }
     }
 }
@@ -335,6 +354,17 @@ pub struct ThemeContext<'a> {
     /// This enables cross-platform file access - native `std::fs` on CLI,
     /// VirtualFileSystem on WASM (hub-client).
     runtime: &'a dyn SystemRuntime,
+
+    /// Optional resolved brand for [`ThemeSpec::Brand`] expansion.
+    ///
+    /// Populated by the pipeline stage that calls
+    /// [`ThemeConfig::resolve`]. When `None` and a `ThemeSpec::Brand`
+    /// is encountered, [`process_theme_specs`] returns an error.
+    brand: Option<&'a quarto_brand::Brand>,
+
+    /// Directory containing the brand file (for resolving font URLs
+    /// in `@font-face` blocks).
+    brand_dir: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for ThemeContext<'_> {
@@ -343,6 +373,8 @@ impl std::fmt::Debug for ThemeContext<'_> {
             .field("document_dir", &self.document_dir)
             .field("load_paths", &self.load_paths)
             .field("runtime", &"<SystemRuntime>")
+            .field("brand", &self.brand.is_some())
+            .field("brand_dir", &self.brand_dir)
             .finish()
     }
 }
@@ -362,6 +394,8 @@ impl<'a> ThemeContext<'a> {
             document_dir,
             load_paths: Vec::new(),
             runtime,
+            brand: None,
+            brand_dir: None,
         }
     }
 
@@ -381,7 +415,31 @@ impl<'a> ThemeContext<'a> {
             document_dir,
             load_paths,
             runtime,
+            brand: None,
+            brand_dir: None,
         }
+    }
+
+    /// Builder-style: attach a resolved brand and its directory.
+    ///
+    /// `brand_dir` is the directory containing the source `_brand.yml`
+    /// (used to resolve relative font-file paths in `@font-face`
+    /// blocks). For inline brand blocks with no source file, pass the
+    /// document directory.
+    pub fn with_brand(mut self, brand: &'a quarto_brand::Brand, brand_dir: PathBuf) -> Self {
+        self.brand = Some(brand);
+        self.brand_dir = Some(brand_dir);
+        self
+    }
+
+    /// The resolved brand, if any.
+    pub fn brand(&self) -> Option<&'a quarto_brand::Brand> {
+        self.brand
+    }
+
+    /// The brand-file directory, if a brand is attached.
+    pub fn brand_dir(&self) -> Option<&Path> {
+        self.brand_dir.as_deref()
     }
 
     /// Get the document directory.
@@ -603,6 +661,12 @@ pub fn resolve_theme_spec(
                 source_path: Some(resolved_path),
             })
         }
+        ThemeSpec::Brand => Err(SassError::InvalidThemeConfig {
+            message: "ThemeSpec::Brand cannot be resolved as a single ResolvedTheme — \
+                      use process_theme_specs instead, which expands it into multiple layers"
+                .to_string(),
+            location: None,
+        }),
     }
 }
 
@@ -712,6 +776,24 @@ pub fn process_theme_specs(
                 // Add the theme directory to load paths for @import resolution
                 load_paths.push(theme_dir);
             }
+            ThemeSpec::Brand => {
+                let brand = context
+                    .brand()
+                    .ok_or_else(|| SassError::InvalidThemeConfig {
+                        message: "`brand` appears in `theme:` but no `_brand.yml` was provided"
+                            .to_string(),
+                        location: None,
+                    })?;
+                // Path prefix for @font-face URLs: brand_dir relative
+                // to the document_dir (matches Q1's
+                // `relative(projectDir, brandDir)`).
+                let prefix = match context.brand_dir() {
+                    Some(bd) => pathdiff_from_to(context.document_dir(), bd),
+                    None => PathBuf::new(),
+                };
+                let brand_layers = crate::brand_layer::brand_to_layers(brand, &prefix)?;
+                layers.extend(brand_layers);
+            }
         }
     }
 
@@ -764,6 +846,47 @@ pub fn resolve_theme(name: &str) -> Result<(BuiltInTheme, SassLayer), SassError>
     let theme: BuiltInTheme = name.parse()?;
     let layer = load_theme_layer(theme)?;
     Ok((theme, layer))
+}
+
+/// Compute `to` expressed relative to `from`, used for `@font-face`
+/// URLs in brand-derived SCSS. If the paths share no common prefix
+/// (different roots), we fall back to `to` as-is — the browser will
+/// resolve it from the served HTML's location.
+///
+/// This is a deliberately simple implementation that handles the
+/// common case where both paths are relative to the same project
+/// root or both absolute and share a common ancestor.
+fn pathdiff_from_to(from: &Path, to: &Path) -> PathBuf {
+    use std::path::Component;
+
+    let from_components: Vec<_> = from.components().collect();
+    let to_components: Vec<_> = to.components().collect();
+
+    // Find common prefix length.
+    let common = from_components
+        .iter()
+        .zip(to_components.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    // Skip components that are equivalent to current-dir.
+    let from_remaining = &from_components[common..];
+    let to_remaining = &to_components[common..];
+
+    let mut result = PathBuf::new();
+    for _ in from_remaining
+        .iter()
+        .filter(|c| !matches!(c, Component::CurDir))
+    {
+        result.push("..");
+    }
+    for c in to_remaining {
+        result.push(c.as_os_str());
+    }
+    if result.as_os_str().is_empty() {
+        return PathBuf::new();
+    }
+    result
 }
 
 #[cfg(test)]
@@ -916,7 +1039,7 @@ mod tests {
         assert!(result.is_err());
         // Verify it's the right error type
         match result {
-            Err(SassError::UnknownTheme(name)) => assert_eq!(name, "nonexistent"),
+            Err(SassError::UnknownTheme { name, .. }) => assert_eq!(name, "nonexistent"),
             _ => panic!("Expected UnknownTheme error"),
         }
     }

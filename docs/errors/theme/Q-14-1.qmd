@@ -1,0 +1,52 @@
+---
+title: "Invalid theme configuration"
+description: "A theme configuration value (`theme:`, a brand file, or a related setting) is malformed."
+code: Q-14-1
+subsystem: theme
+status: stub
+since: "99.9.9"
+categories:
+  - theme
+---
+
+# `Q-14-1` — Invalid Theme Configuration
+
+> A theme configuration value (`theme:`, a brand file, or a
+> related setting) is malformed.
+
+## What this means
+
+Quarto's theme system reads several configuration knobs:
+`theme:` under a format (`format.html.theme`), brand files
+(`_brand.yml`), and the SCSS variables and rules they
+ultimately drive. This error fires when the configuration is
+syntactically valid YAML but cannot be turned into a coherent
+theme — a brand value of the wrong type, a SCSS partial that
+does not parse, a key that mixes incompatible options.
+
+The accompanying message names the specific reason.
+
+## Why this happens
+
+Common causes:
+
+- **A `_brand.yml` field of the wrong shape** — typically a
+  string where the schema expects a map or a list.
+- **A SCSS partial that fails to compile** because of a syntax
+  error or an unresolved import.
+- **A combination of options** that contradict each other
+  (e.g. setting a dark-mode-only key while declaring a
+  light-only theme).
+
+## How to fix
+
+Read the message — it identifies the offending field or file.
+For brand files, the brand schema documentation shows the
+required shapes. For SCSS issues, the error includes the
+sass compiler's reason; that is the authoritative description
+of what to fix.
+
+## Related
+
+- `Q-14-2` — unknown theme name: the name itself was not
+  recognized.

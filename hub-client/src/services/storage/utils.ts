@@ -48,8 +48,8 @@ export function generateColorFromId(userId: string): string {
 }
 
 /**
- * Generate a random anonymous display name.
- * Format: "Anonymous [Adjective] [Animal]"
+ * Generate a random display name.
+ * Format: "[Adjective] [Animal]"
  *
  * This provides friendly, memorable names for users who haven't set a custom name.
  */

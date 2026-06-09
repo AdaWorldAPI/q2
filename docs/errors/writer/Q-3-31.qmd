@@ -1,0 +1,51 @@
+---
+title: "Unprocessed Note Reference"
+description: "Note reference was not converted to Span during postprocessing. This may indicate a bug or a filter that bypassed postprocessing."
+code: Q-3-31
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-31` — Unprocessed Note Reference
+
+> Note reference was not converted to Span during
+> postprocessing. This may indicate a bug or a filter that
+> bypassed postprocessing.
+
+## What this means
+
+Footnote references are written `[^id]` in the source but they
+do not stay in that form for output formats that cannot render
+them natively. The postprocessor converts each `NoteReference`
+AST node into a `Span` that contains the rendered marker (a
+linked superscript, for instance). This error fires when a raw
+`NoteReference` survives that pass.
+
+This is a defensive guard. A document author cannot fix it from
+the source — the failure is in the pipeline, not in the input.
+
+## Why this happens
+
+Two known triggers:
+
+- **A Lua filter bypassed postprocessing**, for example by
+  running after the conversion pass and re-introducing
+  `NoteReference` nodes.
+- **A bug in the postprocessor** that misses a particular
+  reference shape.
+
+## How to fix
+
+If a custom filter is in use, ensure it does not produce
+`NoteReference` AST nodes after postprocessing. If no filter is
+in use, report the document at the Quarto issue tracker — a
+minimal reproducer is the most helpful form.
+
+## Related
+
+- `Q-3-12` — the same condition surfaced as a postprocessor-bug
+  diagnostic, where the writer is more confident it is the
+  pipeline at fault.

@@ -12,12 +12,12 @@
 //!
 //! Binary files use simpler semantics: last-writer-wins based on content hash.
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
 use automerge::{ROOT, ReadDoc, transaction::Transactable};
 use samod::{DocHandle, DocumentId, Repo};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::error::{Error, Result};
 use crate::index::IndexDocument;
@@ -174,7 +174,7 @@ pub fn sync_document(
             debug!(doc_id = %doc_id, path = %file_path.display(), "Sync complete: no changes");
         }
         Ok(SyncResult::AutomergeChanged { new_len }) => {
-            info!(
+            debug!(
                 doc_id = %doc_id,
                 path = %file_path.display(),
                 new_len = new_len,
@@ -182,7 +182,7 @@ pub fn sync_document(
             );
         }
         Ok(SyncResult::FilesystemChanged { new_len }) => {
-            info!(
+            debug!(
                 doc_id = %doc_id,
                 path = %file_path.display(),
                 new_len = new_len,
@@ -190,7 +190,7 @@ pub fn sync_document(
             );
         }
         Ok(SyncResult::BothChanged { merged_len }) => {
-            info!(
+            debug!(
                 doc_id = %doc_id,
                 path = %file_path.display(),
                 merged_len = merged_len,
@@ -330,7 +330,7 @@ pub fn sync_binary_document(
             debug!(doc_id = %doc_id, path = %file_path.display(), "Binary sync: no changes");
         }
         Ok(SyncResult::AutomergeChanged { new_len }) => {
-            info!(
+            debug!(
                 doc_id = %doc_id,
                 path = %file_path.display(),
                 new_len = new_len,
@@ -338,7 +338,7 @@ pub fn sync_binary_document(
             );
         }
         Ok(SyncResult::FilesystemChanged { new_len }) => {
-            info!(
+            debug!(
                 doc_id = %doc_id,
                 path = %file_path.display(),
                 new_len = new_len,
@@ -346,7 +346,7 @@ pub fn sync_binary_document(
             );
         }
         Ok(SyncResult::BothChanged { merged_len }) => {
-            info!(
+            debug!(
                 doc_id = %doc_id,
                 path = %file_path.display(),
                 merged_len = merged_len,
@@ -474,6 +474,42 @@ pub async fn sync_file_by_path(
     Ok(Some(result))
 }
 
+/// Join an index-relative path onto `project_root`, rejecting anything that
+/// could escape the root. Returns the joined absolute path, or `None` if the
+/// relative path is unsafe.
+///
+/// Rejects absolute paths, Windows path prefixes (drive/UNC), `RootDir`, and
+/// any `..` that pops above the root. Allows ordinary nested paths and `.`.
+/// Pure lexical check — no filesystem access.
+fn contained_join(project_root: &Path, rel: &str) -> Option<PathBuf> {
+    let mut folded = Vec::new();
+    for component in Path::new(rel).components() {
+        match component {
+            // Absolute or rooted (incl. Windows drive/UNC) → escape.
+            Component::Prefix(_) | Component::RootDir => return None,
+            // `..` pops a segment; popping above the root is an escape.
+            Component::ParentDir => {
+                folded.pop()?;
+            }
+            Component::CurDir => {}
+            Component::Normal(seg) => folded.push(seg),
+        }
+    }
+    // Empty fold resolves to project_root itself (a directory); we only ever
+    // want a file strictly under the root.
+    if folded.is_empty() {
+        return None;
+    }
+    Some(
+        folded
+            .iter()
+            .fold(project_root.to_path_buf(), |mut p, seg| {
+                p.push(seg);
+                p
+            }),
+    )
+}
+
 /// Synchronize all documents in the index with their corresponding filesystem files.
 ///
 /// This iterates over all files in the index, finds the corresponding automerge
@@ -499,10 +535,27 @@ pub async fn sync_all_documents(
     // Get all file mappings from the index
     let files = index.get_all_files();
 
-    info!(count = files.len(), "Starting sync of all documents");
+    debug!(count = files.len(), "Starting sync of all documents");
+
+    // Canonicalize the root once (loop-invariant) for the symlink-escape check.
+    // Fail closed: if it fails, reject every write this cycle with one log line
+    // rather than flooding per-entry attack-signal warns.
+    let Ok(real_root) = std::fs::canonicalize(project_root) else {
+        tracing::error!(
+            root = %project_root.display(),
+            "project root not canonicalizable, rejecting all index writes this cycle"
+        );
+        result.rejected = files.len();
+        return result;
+    };
 
     for (file_path_str, doc_id_str) in &files {
-        let file_path = project_root.join(file_path_str);
+        // Reject index keys that escape the root (traversal / absolute / rooted).
+        let Some(file_path) = contained_join(project_root, file_path_str) else {
+            warn!(path = %file_path_str, "Index path escapes project root, rejecting");
+            result.rejected += 1;
+            continue;
+        };
 
         // Check if file exists
         if !file_path.exists() {
@@ -560,6 +613,20 @@ pub async fn sync_all_documents(
             }
         };
 
+        // Symlink-escape check, placed immediately before the synchronous
+        // write (no `.await` between here and it) to minimize the TOCTOU
+        // window. `.exists()` above guarantees the target exists, so plain
+        // canonicalize suffices. Rejects keys traversing a symlink that
+        // points outside the root.
+        match std::fs::canonicalize(&file_path) {
+            Ok(real) if real.starts_with(&real_root) => {}
+            _ => {
+                warn!(path = %file_path_str, "Index path resolves outside project root, rejecting");
+                result.rejected += 1;
+                continue;
+            }
+        }
+
         // Sync the document (auto-detects text vs binary)
         match sync_document_auto(&doc_handle, &file_path, sync_state) {
             Ok(sync_result) => match sync_result {
@@ -583,13 +650,14 @@ pub async fn sync_all_documents(
         warn!(error = %e, "Failed to save sync state");
     }
 
-    info!(
+    debug!(
         no_changes = result.no_changes,
         automerge_changed = result.automerge_changed,
         filesystem_changed = result.filesystem_changed,
         both_changed = result.both_changed,
         errors = result.errors.len(),
         skipped = result.skipped,
+        rejected = result.rejected,
         "Sync complete"
     );
 
@@ -614,6 +682,10 @@ pub struct SyncAllResult {
     /// Number of documents skipped (e.g., file not found)
     pub skipped: usize,
 
+    /// Number of index entries rejected for path containment (traversal /
+    /// absolute / symlink-escape). Neither synced nor counted as changes.
+    pub rejected: usize,
+
     /// Errors encountered during sync
     pub errors: Vec<SyncError>,
 }
@@ -622,6 +694,16 @@ impl SyncAllResult {
     /// Total number of documents successfully synced
     pub fn total_synced(&self) -> usize {
         self.no_changes + self.automerge_changed + self.filesystem_changed + self.both_changed
+    }
+
+    /// Whether any documents actually changed during this sync — i.e.
+    /// automerge → filesystem, filesystem → automerge, or both. Excludes
+    /// `no_changes` (idempotent checks) and `skipped` (files missing on
+    /// disk, which the per-file loop already `warn!`s about). Useful as
+    /// the gate on summary log lines that should fire only when work
+    /// actually happened.
+    pub fn has_changes(&self) -> bool {
+        self.automerge_changed + self.filesystem_changed + self.both_changed > 0
     }
 
     /// Whether any errors occurred
@@ -669,6 +751,111 @@ mod tests {
     use samod::Repo;
     use samod::storage::InMemoryStorage;
     use tempfile::TempDir;
+
+    #[test]
+    fn has_changes_only_counts_real_changes() {
+        // no_changes is bookkeeping — files that were checked but didn't
+        // need syncing. It must NOT make has_changes() true; otherwise the
+        // periodic-sync gate fires on every tick.
+        let r = SyncAllResult {
+            no_changes: 5,
+            ..Default::default()
+        };
+        assert!(!r.has_changes());
+        assert_eq!(r.total_synced(), 5);
+
+        // automerge_changed, filesystem_changed, both_changed each
+        // independently flip has_changes().
+        let r = SyncAllResult {
+            automerge_changed: 1,
+            ..Default::default()
+        };
+        assert!(r.has_changes());
+
+        let r = SyncAllResult {
+            filesystem_changed: 1,
+            ..Default::default()
+        };
+        assert!(r.has_changes());
+
+        let r = SyncAllResult {
+            both_changed: 1,
+            ..Default::default()
+        };
+        assert!(r.has_changes());
+
+        // Skipped + errors are reported elsewhere; has_changes() is
+        // strictly about "did syncing produce a state change?".
+        let r = SyncAllResult {
+            skipped: 3,
+            ..Default::default()
+        };
+        assert!(!r.has_changes());
+    }
+
+    // ===== contained_join lexical containment =====
+
+    #[test]
+    fn contained_join_accepts_ordinary_nested_paths() {
+        let root = Path::new("/project");
+        assert_eq!(
+            contained_join(root, "index.qmd"),
+            Some(root.join("index.qmd"))
+        );
+        assert_eq!(
+            contained_join(root, "chapters/intro.qmd"),
+            Some(root.join("chapters/intro.qmd"))
+        );
+        // `.` components are ignored.
+        assert_eq!(
+            contained_join(root, "a/./b.qmd"),
+            Some(root.join("a/b.qmd"))
+        );
+    }
+
+    #[test]
+    fn contained_join_accepts_internal_parent_that_stays_in_root() {
+        let root = Path::new("/project");
+        assert_eq!(contained_join(root, "a/../b.qmd"), Some(root.join("b.qmd")));
+    }
+
+    #[test]
+    fn contained_join_rejects_parent_escape() {
+        let root = Path::new("/project");
+        assert_eq!(contained_join(root, "../escape.txt"), None);
+        assert_eq!(contained_join(root, "a/../../escape.txt"), None);
+    }
+
+    #[test]
+    fn contained_join_rejects_absolute_unix() {
+        let root = Path::new("/project");
+        assert_eq!(contained_join(root, "/etc/passwd"), None);
+    }
+
+    #[test]
+    fn contained_join_rejects_rooted_and_windows_prefixed() {
+        let root = Path::new("/project");
+        // Leading slash → RootDir component on every platform.
+        assert_eq!(contained_join(root, "/x"), None);
+        // Windows drive / UNC prefixes parse as Component::Prefix on Windows;
+        // on Unix the backslash forms are a single Normal segment (no escape),
+        // so only assert the reject where the prefix is actually recognized.
+        #[cfg(windows)]
+        {
+            assert_eq!(contained_join(root, r"C:\x"), None);
+            assert_eq!(contained_join(root, r"\\?\C:\x"), None);
+        }
+    }
+
+    #[test]
+    fn contained_join_rejects_paths_folding_to_root() {
+        let root = Path::new("/project");
+        // All resolve to project_root itself (a directory), never a file under it.
+        assert_eq!(contained_join(root, ""), None);
+        assert_eq!(contained_join(root, "."), None);
+        assert_eq!(contained_join(root, "a/.."), None);
+        assert_eq!(contained_join(root, "a/b/../.."), None);
+    }
 
     /// Helper to create a test repo
     async fn create_test_repo() -> Repo {

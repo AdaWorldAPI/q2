@@ -1,0 +1,56 @@
+---
+title: "Custom Listing Template Not Yet Supported"
+description: "A listing configuration value is unrecognized or in a shape the parser does not yet handle."
+code: Q-12-1
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-1` — Custom Listing Template Not Yet Supported
+
+> A listing configuration value is unrecognized or in a shape the
+> parser does not yet handle.
+
+## What this means
+
+The `listing:` key in a document's front matter (or under
+`website.listing:` in `_quarto.yml`) accepts several shapes: a
+boolean, a type-name string (`default`, `grid`, `table`,
+`custom`), an object with a richer set of fields, or an array of
+such objects. This error fires when the value does not match any
+of those shapes, or when an inner field (such as `field-types`)
+uses a name the parser does not recognize.
+
+The listing falls back to the `default` type so the rest of the
+document still renders, but the unrecognized configuration is
+ignored.
+
+## Why this happens
+
+Common causes:
+
+- **Misspelled type name.** Writing `type: gird` instead of
+  `type: grid`.
+- **A field whose value is the wrong shape.** For example,
+  `field-types:` whose entries are not one of `date`, `string`,
+  `number`, `minutes`.
+- **A configuration form Quarto does not yet support.** Some
+  Quarto 1 listing options are not yet implemented in Quarto 2.
+
+## How to fix
+
+Check the type name and the inner field values against the
+[listing reference](https://quarto.org/docs/websites/website-listings.html).
+If you are migrating from Quarto 1, expect a small number of
+options to land later in Quarto 2 — confirm the option is
+supported before using it.
+
+## Related
+
+- `Q-12-7` — a related shape error: `template:` set without
+  `type: custom`.
+- `Q-12-6` — `listing: false` is not allowed; remove the key
+  instead.

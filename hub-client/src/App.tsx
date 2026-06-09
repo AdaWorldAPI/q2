@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
-import type { ProjectEntry, FileEntry } from './types/project';
+import type { ProjectEntry, FileEntry } from '@quarto/preview-renderer/types/project';
 import ProjectSelector from './components/ProjectSelector';
 import ProjectSetSetup from './components/ProjectSetSetup';
 
@@ -16,7 +16,6 @@ function DevHarnessLazy({ page }: { page: string }) {
 import Editor from './components/Editor';
 import Toast from './components/Toast';
 import { ViewModeProvider } from './components/ViewModeContext';
-import { ThemeProvider } from './components/ThemeContext';
 import { LoginScreen } from './components/auth/LoginScreen';
 import {
   connect,
@@ -27,9 +26,10 @@ import {
   createNewProject,
   type ActorIdentity,
   type EditorContentChange,
-} from './services/automergeSync';
-import type { ProjectFile } from './services/wasmRenderer';
+} from '@quarto/preview-runtime';
+import type { ProjectFile } from '@quarto/preview-runtime';
 import * as projectStorage from './services/projectStorage';
+import { installDebugApi } from './services/debugApi';
 import { getUserIdentity, updateUserName } from './services/userSettings';
 import { useRouting } from './hooks/useRouting';
 import { useProjectSet } from './hooks/useProjectSet';
@@ -111,7 +111,7 @@ function App() {
   useEffect(() => {
     if (AUTH_ENABLED && authLoading) return;
     getUserIdentity().then(async (settings) => {
-      if (auth?.name && settings.userName.startsWith('Anonymous ')) {
+      if (auth?.name && settings.createdAt === settings.updatedAt) {
         const updated = await updateUserName(auth.name);
         setScreenName(updated.userName);
         setCursorColor(updated.userColor);
@@ -133,6 +133,42 @@ function App() {
     navigateToProject,
     navigateToFile,
   } = useRouting();
+
+  // Live refs for the dev-only console debug API. The API itself
+  // is installed once (per the gate below) and reads current state
+  // through these refs, so it doesn't churn on every project /
+  // route change. See `services/debugApi.ts` and bd-2rv8.
+  const projectRef = useRef(project);
+  projectRef.current = project;
+  const filesRef = useRef<FileEntry[]>(files);
+  filesRef.current = files;
+  const routeRef = useRef<Route>(route);
+  routeRef.current = route;
+  const navigateToFileRef = useRef(navigateToFile);
+  navigateToFileRef.current = navigateToFile;
+
+  useEffect(() => {
+    const enabled =
+      import.meta.env.DEV ||
+      (typeof localStorage !== 'undefined' &&
+        localStorage.getItem('quartoDebug') === '1');
+    if (!enabled) return;
+    return installDebugApi({
+      getProject: () => projectRef.current,
+      getFiles: () => filesRef.current,
+      getActiveFile: () => {
+        const r = routeRef.current;
+        return r.type === 'file' ? r.filePath : null;
+      },
+      setActiveFile: (path: string) => {
+        const p = projectRef.current;
+        if (!p) {
+          throw new Error('quartoDebug.setActiveFile: no project loaded');
+        }
+        navigateToFileRef.current(p.id, path);
+      },
+    });
+  }, []);
 
   // Handle browser back/forward navigation
   // We use a separate effect instead of the onRouteChange callback to avoid
@@ -531,11 +567,7 @@ function App() {
   // Dev harness: render components in isolation for visual testing.
   // Only available in development builds; the DevRoute type is never parsed in production.
   if (route.type === 'dev') {
-    return (
-      <ThemeProvider>
-        <DevHarnessLazy page={route.page} />
-      </ThemeProvider>
-    );
+    return <DevHarnessLazy page={route.page} />;
   }
 
   // Show project set setup/migration screen if needed
@@ -574,7 +606,7 @@ function App() {
   }
 
   return (
-    <ThemeProvider>
+    <>
       {!project ? (
         <ProjectSelector
           onSelectProject={handleSelectProject}
@@ -617,7 +649,7 @@ function App() {
         visible={showSaveToast}
         onHide={() => setShowSaveToast(false)}
       />
-    </ThemeProvider>
+    </>
   );
 }
 

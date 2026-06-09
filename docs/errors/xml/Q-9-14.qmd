@@ -1,0 +1,47 @@
+---
+title: "Duplicate Macro Definition"
+description: "Two `<cs:macro>` elements share the same `name` attribute."
+code: Q-9-14
+subsystem: xml
+status: stub
+since: "99.9.9"
+categories:
+  - xml
+---
+
+# `Q-9-14` — Duplicate Macro Definition
+
+> Two `<cs:macro>` elements share the same `name` attribute.
+
+## What this means
+
+Macro names form a namespace: each `<cs:macro name="...">` must
+be unique within a style. This error fires when the parser
+finds a second `<cs:macro>` with a name it has already seen.
+The message identifies the second definition (the first one is
+treated as authoritative).
+
+## Why this happens
+
+Common causes:
+
+- **A copy-paste during editing** that duplicated a macro and
+  did not rename it.
+- **A merge conflict resolution** that kept both versions of a
+  macro instead of picking one.
+- **A migration from a different citation framework** that
+  combined two source macros into one CSL macro file without
+  renaming.
+
+## How to fix
+
+Decide which definition you want to keep, and either delete the
+other or rename it. If both definitions are meaningfully
+different but you cannot tell which is correct, the original
+upstream style (CSL repository, journal-provided style) is the
+source of truth.
+
+## Related
+
+- `Q-9-12` — undefined macro: the inverse — a reference with
+  no definition.

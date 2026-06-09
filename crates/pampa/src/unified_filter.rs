@@ -20,6 +20,7 @@ use quarto_error_reporting::DiagnosticMessage;
 
 use quarto_system_runtime::SystemRuntime;
 
+use crate::attribution::AttributionLookup;
 use crate::pandoc::Pandoc;
 use crate::pandoc::ast_context::ASTContext;
 
@@ -42,6 +43,10 @@ pub struct FilterOutput {
     /// Only populated by Lua filters.
     #[cfg(feature = "lua-filter")]
     pub text_includes: Vec<TextInclude>,
+    /// Raw paths registered via `quarto.doc.add_resource(path)`
+    /// (`bd-o8pr` Phase 3). Only populated by Lua filters.
+    #[cfg(feature = "lua-filter")]
+    pub resources: Vec<PathBuf>,
 }
 
 /// A filter specification parsed from a command-line argument.
@@ -198,14 +203,19 @@ impl std::error::Error for CiteprocFilterError {}
 
 /// Apply a filter to a Pandoc document.
 ///
-/// Returns the filtered document, updated context, diagnostics, and any
-/// HTML dependencies or text includes (from Lua filters only).
+/// Returns the filtered document, updated context, diagnostics, and
+/// any HTML dependencies or text includes (from Lua filters only).
+///
+/// The `attribution` handle is forwarded to Lua filters — see
+/// [`crate::lua::apply_lua_filter`] for the contract. Non-Lua
+/// filters (Citeproc, JSON) ignore the handle.
 pub async fn apply_filter(
     pandoc: Pandoc,
     context: ASTContext,
     filter: &FilterSpec,
     target_format: &str,
     runtime: Arc<dyn SystemRuntime>,
+    attribution: Option<Arc<dyn AttributionLookup>>,
 ) -> Result<FilterOutput, FilterError> {
     match filter {
         FilterSpec::Citeproc => {
@@ -219,6 +229,8 @@ pub async fn apply_filter(
                 html_dependencies: Vec::new(),
                 #[cfg(feature = "lua-filter")]
                 text_includes: Vec::new(),
+                #[cfg(feature = "lua-filter")]
+                resources: Vec::new(),
             })
         }
 
@@ -230,6 +242,7 @@ pub async fn apply_filter(
                 &[path.clone()],
                 target_format,
                 runtime,
+                attribution,
             )
             .await?;
             Ok(FilterOutput {
@@ -238,6 +251,7 @@ pub async fn apply_filter(
                 diagnostics: lua_output.diagnostics,
                 html_dependencies: lua_output.html_dependencies,
                 text_includes: lua_output.text_includes,
+                resources: lua_output.resources,
             })
         }
 
@@ -259,6 +273,8 @@ pub async fn apply_filter(
                 html_dependencies: Vec::new(),
                 #[cfg(feature = "lua-filter")]
                 text_includes: Vec::new(),
+                #[cfg(feature = "lua-filter")]
+                resources: Vec::new(),
             })
         }
 
@@ -272,15 +288,21 @@ pub async fn apply_filter(
 
 /// Apply multiple filters in sequence.
 ///
-/// Filters are applied in the order provided. The output of each filter
-/// becomes the input to the next. Diagnostics, HTML dependencies, and
-/// text includes are accumulated across all filter passes.
+/// Filters are applied in the order provided. The output of each
+/// filter becomes the input to the next. Diagnostics, HTML
+/// dependencies, and text includes are accumulated across all filter
+/// passes. The `attribution` handle is threaded through every Lua
+/// pass so the `quarto.attribution.*` host binding is alive;
+/// `quarto-core`'s
+/// [`UserFiltersStage`](../../quarto_core/stage/stages/struct.UserFiltersStage.html)
+/// routes through this function for both pre and post passes.
 pub async fn apply_filters(
     pandoc: Pandoc,
     context: ASTContext,
     filters: &[FilterSpec],
     target_format: &str,
     runtime: Arc<dyn SystemRuntime>,
+    attribution: Option<Arc<dyn AttributionLookup>>,
 ) -> Result<FilterOutput, FilterError> {
     let mut current_pandoc = pandoc;
     let mut current_context = context;
@@ -289,6 +311,8 @@ pub async fn apply_filters(
     let mut all_html_dependencies = Vec::new();
     #[cfg(feature = "lua-filter")]
     let mut all_text_includes = Vec::new();
+    #[cfg(feature = "lua-filter")]
+    let mut all_resources = Vec::new();
 
     for filter in filters {
         let output = apply_filter(
@@ -297,6 +321,7 @@ pub async fn apply_filters(
             filter,
             target_format,
             runtime.clone(),
+            attribution.clone(),
         )
         .await?;
         current_pandoc = output.pandoc;
@@ -306,6 +331,8 @@ pub async fn apply_filters(
         all_html_dependencies.extend(output.html_dependencies);
         #[cfg(feature = "lua-filter")]
         all_text_includes.extend(output.text_includes);
+        #[cfg(feature = "lua-filter")]
+        all_resources.extend(output.resources);
     }
 
     Ok(FilterOutput {
@@ -316,6 +343,8 @@ pub async fn apply_filters(
         html_dependencies: all_html_dependencies,
         #[cfg(feature = "lua-filter")]
         text_includes: all_text_includes,
+        #[cfg(feature = "lua-filter")]
+        resources: all_resources,
     })
 }
 

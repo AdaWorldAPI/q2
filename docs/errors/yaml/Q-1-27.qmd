@@ -1,0 +1,51 @@
+---
+title: "Config Nesting Too Deep"
+description: "A configuration structure is nested more deeply than Quarto allows."
+code: Q-1-27
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-27` — Config Nesting Too Deep
+
+> A configuration structure is nested more deeply than Quarto
+> allows.
+
+## What this means
+
+Quarto's configuration loader places a bound on how deeply nested
+a configuration can be. The bound is large enough that ordinary
+project configurations sit comfortably inside it; this error fires
+only when nesting reaches unusual depths.
+
+The bound is in place to protect the loader from infinite or
+near-infinite structures that could arise from accidental
+self-reference in generated configurations.
+
+## Why this happens
+
+Two situations:
+
+- **A generated configuration has accidentally recursed.** A tool
+  that emits part of `_quarto.yml` has nested its output inside
+  itself, multiplying the depth on each run.
+- **A configuration was hand-built with deeper structure than
+  Quarto's data model expects.** This is rare; Quarto's schema
+  rarely demands very deep nesting.
+
+## How to fix
+
+Inspect the configuration at the location named in the error. If
+the structure is the result of generation, flatten or repair the
+generator. If the configuration was written by hand, look for
+whether the same information could be expressed at a shallower
+level — Quarto's schema typically offers a flatter alternative
+where one exists.
+
+## Related
+
+- [`Q-1-23`](Q-1-23.qmd) — config layer parse failure: a different way the same
+  layer can be rejected.

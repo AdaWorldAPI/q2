@@ -1,0 +1,50 @@
+---
+title: "Invalid Metadata Structure"
+description: "Document metadata must be a map structure for this output format."
+code: Q-3-40
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-40` — Invalid Metadata Structure
+
+> Document metadata must be a map structure for this output
+> format.
+
+## What this means
+
+A document's metadata — what you write in the `---` front matter
+— is structured as a map: keys to values. The writer expects
+the AST's metadata field to hold that map shape. This error
+fires when the writer finds something else there: a list at the
+top level, a scalar, or `null`.
+
+## Why this happens
+
+The most common cause is a Lua filter that rewrites
+`Pandoc.meta` to a non-map value, either as part of a
+metadata-manipulation pass or by accident. Hand-edited AST input
+(via `--from json`) can also trigger the error.
+
+The default Quarto pipeline does not produce non-map metadata.
+
+## How to fix
+
+If a Lua filter is in use, audit any code that assigns to
+`Pandoc.meta` directly. Metadata operations should preserve the
+top-level map shape; modify keys, do not replace the whole
+container with a different type.
+
+If the failing input came from a tool that emitted JSON
+directly, fix the tool to wrap top-level metadata as
+`{"t": "MetaMap", "c": {...}}` (or whichever map form your
+toolchain emits).
+
+## Related
+
+- `Q-3-20` — block-level metadata reaching the writer: a
+  related metadata-shape failure, but at the block level rather
+  than the document level.

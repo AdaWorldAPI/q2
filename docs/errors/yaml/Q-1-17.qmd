@@ -1,0 +1,57 @@
+---
+title: "Unresolved Schema Reference"
+description: "A schema references another schema by `$ref`, but Quarto could not locate or resolve the target."
+code: Q-1-17
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-17` — Unresolved Schema Reference
+
+> A schema references another schema by `$ref`, but Quarto could
+> not locate or resolve the target.
+
+## What this means
+
+Quarto's schemas are modular: one schema can refer to another by
+its name, using a JSON-Schema-style `$ref` field. When the schema
+loader cannot find the referenced schema, this error fires.
+
+This error is uncommon in user-supplied configuration. It usually
+indicates a problem inside a Quarto extension's schema or a
+project schema, not in `_quarto.yml` itself.
+
+## Why this happens
+
+The likely causes are infrastructural:
+
+- **A bundled schema reference points at a name that has been
+  renamed or removed**, typically after upgrading Quarto or an
+  extension.
+- **An extension's schema is missing or malformed**, so the
+  reference target is unavailable.
+- **A user-supplied schema (rare) uses `$ref` against a name the
+  Quarto schema loader does not know.**
+
+## How to fix
+
+If the error fires after an upgrade, the most likely cause is a
+stale schema in an extension. Reinstall or update the extension.
+
+If the error references a name you authored — for instance in a
+custom schema — check that the schema defining that name is in
+fact loaded by Quarto. The reference must resolve to a schema
+Quarto can see, not just to one that exists on disk.
+
+If neither of these applies, the error likely indicates a Quarto
+bug; report it with the failing schema reference name from the
+message.
+
+## Related
+
+- [`Q-1-23`](Q-1-23.qmd) — config layer parse failure: the configuration file
+  itself could not be parsed, before schema resolution even
+  began.

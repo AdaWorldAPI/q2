@@ -1,0 +1,49 @@
+---
+title: "Mixed Category Modes On One Page"
+description: "Two or more listings on the same page declare different `categories:` modes; the first non-disabled mode wins."
+code: Q-12-11
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-11` — Mixed Category Modes On One Page
+
+> Two or more listings on the same page declare different
+> `categories:` modes; the first non-disabled mode in
+> declaration order wins for the rendered sidebar.
+
+## What this means
+
+The `categories:` key on a listing controls how categories are
+collected and displayed in the categories sidebar — possible
+modes include the default tag-cloud-style view, an unnumbered
+list, a numbered count view, and outright disabling the
+sidebar. Quarto renders one sidebar per page, so when multiple
+listings on the same page disagree on the mode, only one mode
+can apply.
+
+The chosen mode is the first non-disabled one in declaration
+order. The other listings still contribute their items to the
+category set, but their preferred display mode is overridden.
+
+## Why this happens
+
+A page hosts more than one listing (a `listings:` array, or a
+host page that includes a sub-document also configured as a
+listing), and the entries declare different `categories:`
+values.
+
+## How to fix
+
+Decide which mode you want for the page's sidebar and set the
+same `categories:` value on every listing that contributes to
+it. If a listing should not affect the sidebar, set its
+`categories: false`.
+
+## Related
+
+- `Q-12-12` — categories enabled but no item declares any: the
+  sidebar collapses to empty rather than overriding modes.

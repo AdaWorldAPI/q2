@@ -1,0 +1,54 @@
+---
+title: "Lua Filter Diagnostic"
+description: "A Lua filter emitted a diagnostic message during execution."
+code: Q-11-1
+subsystem: lua
+status: stub
+since: "99.9.9"
+categories:
+  - lua
+---
+
+# `Q-11-1` — Lua Filter Diagnostic
+
+> A Lua filter emitted a diagnostic message during execution.
+
+## What this means
+
+Quarto supports Lua filters — small Lua programs that
+transform the document AST between parsing and rendering. A
+filter can emit diagnostics of its own through Quarto's filter
+API: warnings the user should see, errors that abort the run.
+Every such diagnostic surfaces with code `Q-11-1`. The
+underlying filter is the source of the message.
+
+This single code covers every filter-emitted diagnostic
+because the meaning is determined by the filter, not by
+Quarto. The accompanying message and (when available) source
+location come from the filter author.
+
+## Why this happens
+
+The trigger is entirely filter-specific. Common patterns:
+
+- **Input the filter could not process** — a node shape the
+  filter did not anticipate.
+- **A precondition violation** — a metadata key the filter
+  expected to find was missing.
+- **A deliberate authoring constraint** — the filter checks
+  the document against a project-specific style rule and
+  reports violations.
+
+## How to fix
+
+Read the filter's message — it is the authoritative source for
+what to do. If the filter does not document its diagnostics,
+the filter's source code (`.lua` file) is the next place to
+look.
+
+## Related
+
+There are no other `Q-11-*` codes. Quarto-side filter problems
+that are not the filter's own diagnostics surface under
+different codes (often `Q-0-1` for internal failures inside
+the filter runtime).

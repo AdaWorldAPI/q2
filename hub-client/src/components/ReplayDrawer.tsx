@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { ReplayState, ReplayControls } from '../hooks/useReplayMode';
-import { actorColor } from '../hooks/useReplayMode';
-import type { ActorIdentity } from '../services/automergeSync';
-import { getActorId } from '../services/automergeSync';
+import { actorColor } from '../utils/palette';
+import type { ActorIdentity } from '@quarto/preview-runtime';
+import { getActorId } from '@quarto/preview-runtime';
 import './ReplayDrawer.css';
 
 interface Props {
@@ -10,6 +10,78 @@ interface Props {
   controls: ReplayControls;
   disabled?: boolean;
   identities?: Record<string, ActorIdentity>;
+  /**
+   * Attribution overlay state. Lives alongside replay because both
+   * surfaces share the same per-actor colour palette and the
+   * attribution inspection is a peer of replay. Both props must be
+   * supplied to render the toggle; if either is omitted (e.g. in
+   * a non-editor surface) the toggle is hidden.
+   *
+   * Session-only — kept as React state in the parent, never
+   * persisted, so the overlay resets on reload.
+   */
+  attributionOn?: boolean;
+  onAttributionChange?: (next: boolean) => void;
+  /**
+   * Whether the attribution producer (`useAttribution` in
+   * ReactPreview) is currently building or updating the payload.
+   * When true the pill border animates with a rotating gradient so
+   * the user knows work is happening on a large document. Default
+   * `false`; effectively gated by `attributionOn` upstream because
+   * the hook only generates when the toggle is on.
+   */
+  attributionGenerating?: boolean;
+  /**
+   * When true the pill renders greyed-out and non-interactive. Used
+   * for formats that don't surface attribution visually
+   * (everything but q2-debug / q2-preview today). The `attributionOn`
+   * state is preserved across the disabled period so toggling back
+   * to a supported format restores the user's previous preference.
+   */
+  attributionDisabled?: boolean;
+}
+
+interface AttributionToggleProps {
+  attributionOn: boolean;
+  onAttributionChange: (next: boolean) => void;
+  generating: boolean;
+  disabled: boolean;
+}
+
+function AttributionToggle({ attributionOn, onAttributionChange, generating, disabled }: AttributionToggleProps) {
+  const classes = [
+    'replay-drawer__attribution',
+    attributionOn && !disabled && 'replay-drawer__attribution--on',
+    generating && !disabled && 'replay-drawer__attribution--generating',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const titleText = disabled
+    ? 'Authors overlay is not available for this format'
+    : attributionOn
+      ? 'Hide authors overlay'
+      : 'Show authors overlay';
+  const ariaLabel = disabled
+    ? 'Authors overlay unavailable for this format'
+    : `Authors overlay ${attributionOn ? 'on' : 'off'}`;
+  return (
+    <button
+      type="button"
+      className={classes}
+      onClick={(e) => {
+        e.stopPropagation();
+        onAttributionChange(!attributionOn);
+      }}
+      disabled={disabled}
+      aria-pressed={disabled ? undefined : attributionOn}
+      aria-label={ariaLabel}
+      aria-busy={generating && !disabled || undefined}
+      title={titleText}
+    >
+      <span className="replay-drawer__attribution-dot" />
+      <span className="replay-drawer__attribution-label">Authors</span>
+    </button>
+  );
 }
 
 function formatRelativeTime(ts: number): string {
@@ -39,7 +111,18 @@ function formatFullTimestamp(ts: number | null): string {
   return date.toLocaleString();
 }
 
-export default function ReplayDrawer({ state, controls, disabled, identities }: Props) {
+export default function ReplayDrawer({
+  state,
+  controls,
+  disabled,
+  identities,
+  attributionOn,
+  onAttributionChange,
+  attributionGenerating,
+  attributionDisabled,
+}: Props) {
+  const showAttributionToggle =
+    attributionOn !== undefined && onAttributionChange !== undefined;
   const currentActorId = getActorId();
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -143,6 +226,14 @@ export default function ReplayDrawer({ state, controls, disabled, identities }: 
           <span className="replay-drawer__chevron">&#x25B6;</span>
           <span>Replay</span>
         </button>
+        {showAttributionToggle && (
+          <AttributionToggle
+            attributionOn={attributionOn!}
+            onAttributionChange={onAttributionChange!}
+            generating={!!attributionGenerating}
+            disabled={!!attributionDisabled}
+          />
+        )}
       </div>
     );
   }
@@ -198,6 +289,14 @@ export default function ReplayDrawer({ state, controls, disabled, identities }: 
           </span>
         </div>
 
+        {showAttributionToggle && (
+          <AttributionToggle
+            attributionOn={attributionOn!}
+            onAttributionChange={onAttributionChange!}
+            generating={!!attributionGenerating}
+            disabled={!!attributionDisabled}
+          />
+        )}
       </div>
 
       <div className="replay-drawer__controls">

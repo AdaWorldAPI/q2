@@ -23,6 +23,9 @@ pub struct ProjectFiles {
 
     /// All text files discovered inside `_extensions/` directories (paths relative to project root)
     pub extension_files: Vec<PathBuf>,
+
+    /// Other text source files (currently `.tsx`, paths relative to project root)
+    pub source_files: Vec<PathBuf>,
 }
 
 impl ProjectFiles {
@@ -90,6 +93,15 @@ impl ProjectFiles {
                     continue;
                 }
 
+                // Check for .tsx source files
+                if ext == Some("tsx") {
+                    if let Ok(relative) = path.strip_prefix(project_root) {
+                        debug!(?relative, "Discovered .tsx source file");
+                        files.source_files.push(relative.to_path_buf());
+                    }
+                    continue;
+                }
+
                 // Check for binary resource files (images, PDFs, etc.)
                 if let Some(ext_str) = ext {
                     if is_binary_extension(ext_str) {
@@ -107,8 +119,28 @@ impl ProjectFiles {
         files.config_files.sort();
         files.binary_files.sort();
         files.extension_files.sort();
+        files.source_files.sort();
 
         files
+    }
+
+    /// Build a `ProjectFiles` whose only entry is the supplied
+    /// relative path, treated as a `.qmd` file. Used by `q2 preview`
+    /// when invoked on a single file with no `_quarto.yml` ancestor
+    /// (bd-tnm3k): the parent directory becomes `project_root`, but
+    /// discovery must not walk it — that would pull in arbitrary
+    /// sibling files (think `~/Downloads/`).
+    ///
+    /// The caller is responsible for supplying a *non-empty* relative
+    /// path. We do not validate, but downstream
+    /// `reconcile_files_with_index` produces a `project_root + '/'`
+    /// path that trips ENOTDIR when `read_to_string` is called on it
+    /// if the relative path is empty.
+    pub fn single_file(relative: PathBuf) -> Self {
+        Self {
+            qmd_files: vec![relative],
+            ..Self::default()
+        }
     }
 
     /// Returns the total number of discovered files.
@@ -117,11 +149,15 @@ impl ProjectFiles {
             + self.config_files.len()
             + self.binary_files.len()
             + self.extension_files.len()
+            + self.source_files.len()
     }
 
-    /// Returns the count of text files (config + qmd + extension text files).
+    /// Returns the count of text files (config + qmd + extension text + source files).
     pub fn text_file_count(&self) -> usize {
-        self.qmd_files.len() + self.config_files.len() + self.extension_files.len()
+        self.qmd_files.len()
+            + self.config_files.len()
+            + self.extension_files.len()
+            + self.source_files.len()
     }
 
     /// Returns an iterator over all discovered file paths.
@@ -130,15 +166,17 @@ impl ProjectFiles {
             .iter()
             .chain(self.qmd_files.iter())
             .chain(self.extension_files.iter())
+            .chain(self.source_files.iter())
             .chain(self.binary_files.iter())
     }
 
-    /// Returns an iterator over text files only (config + qmd + extension text files).
+    /// Returns an iterator over text files only (config + qmd + extension text + source files).
     pub fn text_files(&self) -> impl Iterator<Item = &PathBuf> {
         self.config_files
             .iter()
             .chain(self.qmd_files.iter())
             .chain(self.extension_files.iter())
+            .chain(self.source_files.iter())
     }
 }
 
@@ -366,6 +404,73 @@ mod tests {
         assert_eq!(text.len(), 2);
         assert!(text.contains(&&PathBuf::from("_quarto.yml")));
         assert!(text.contains(&&PathBuf::from("index.qmd")));
+    }
+
+    #[test]
+    fn test_discover_tsx_files() {
+        let temp = TempDir::new().unwrap();
+
+        fs::write(temp.path().join("index.qmd"), "# Hello").unwrap();
+        fs::write(
+            temp.path().join("App.tsx"),
+            "export const App = () => null;",
+        )
+        .unwrap();
+        fs::create_dir(temp.path().join("components")).unwrap();
+        fs::write(
+            temp.path().join("components/Widget.tsx"),
+            "export const Widget = () => null;",
+        )
+        .unwrap();
+
+        // .ts (not .tsx) should NOT be picked up
+        fs::write(temp.path().join("util.ts"), "export const x = 1;").unwrap();
+
+        let files = ProjectFiles::discover(temp.path());
+
+        assert_eq!(files.source_files.len(), 2);
+        assert!(files.source_files.contains(&PathBuf::from("App.tsx")));
+        assert!(
+            files
+                .source_files
+                .contains(&PathBuf::from("components/Widget.tsx"))
+        );
+
+        // .tsx flows through text_files() so it gets synced as text
+        let text: Vec<_> = files.text_files().collect();
+        assert!(text.contains(&&PathBuf::from("App.tsx")));
+        assert!(text.contains(&&PathBuf::from("components/Widget.tsx")));
+
+        // .ts is silently dropped (only .tsx is included)
+        assert!(!files.source_files.contains(&PathBuf::from("util.ts")));
+    }
+
+    /// bd-tnm3k: `q2 preview` on a single `.qmd` file with no
+    /// `_quarto.yml` ancestor needs a `ProjectFiles` that contains
+    /// exactly that one file with a *non-empty* relative path. The
+    /// pre-fix walk-based discovery produced an empty relative path
+    /// (because `path.strip_prefix(self)` returns `""`), which made
+    /// `project_root.join(rel)` append a trailing slash and trip
+    /// ENOTDIR downstream. The explicit single-file constructor
+    /// short-circuits the walk and guarantees a sane relative path.
+    #[test]
+    fn single_file_constructor_yields_one_qmd_with_nonempty_path() {
+        let temp = TempDir::new().unwrap();
+        let project_root = temp.path();
+        // Sibling file that must NOT be included.
+        fs::write(project_root.join("sibling.qmd"), "# sibling").unwrap();
+        let rel = PathBuf::from("doc.qmd");
+        fs::write(project_root.join(&rel), "# doc").unwrap();
+
+        let files = ProjectFiles::single_file(rel.clone());
+
+        assert_eq!(files.qmd_files, vec![rel.clone()]);
+        assert!(files.config_files.is_empty());
+        assert!(files.binary_files.is_empty());
+        assert!(files.extension_files.is_empty());
+        assert!(files.source_files.is_empty());
+        // Critically: the relative path is non-empty.
+        assert!(!files.qmd_files[0].as_os_str().is_empty());
     }
 
     #[test]

@@ -1,0 +1,42 @@
+---
+title: "Page footer references missing document"
+description: "A page-footer entry points at a document that is not in the project's render index."
+code: Q-13-3
+subsystem: navigation
+status: stub
+since: "99.9.9"
+categories:
+  - navigation
+---
+
+# `Q-13-3` — Page footer references missing document
+
+> A page-footer entry points at a document that is not in the
+> project's render index.
+
+## What this means
+
+The website page footer (rendered at the bottom of every page)
+is built from `website.page-footer` entries in `_quarto.yml`.
+Each entry that names a document is looked up in the project
+index at render time. This error fires when the name does not
+appear in that index. The footer still renders, but the entry
+has no working link.
+
+## Why this happens
+
+Same family of causes as `Q-13-1` (sidebar missing document):
+typo, renamed or deleted document, excluded file, wrong
+relative-path base.
+
+## How to fix
+
+Update the footer entry to point at a file that is in the
+render set, or add the missing file. The message names the
+missing path.
+
+## Related
+
+- `Q-13-1`, `Q-13-2`, `Q-13-4`, `Q-13-7` — same shape of
+  diagnostic for sidebar, navbar, body link, and
+  page-navigation surfaces respectively.

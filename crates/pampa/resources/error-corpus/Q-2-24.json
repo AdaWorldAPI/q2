@@ -9,19 +9,5 @@
       "noteType": "simple"
     }
   ],
-  "cases": [
-    {
-      "name": "simple",
-      "description": "Simple case",
-      "content": "`",
-      "captures": [
-        {
-          "label": "code-start",
-          "row": 0,
-          "column": 0,
-          "size": 1
-        }
-      ]
-    }
-  ]
+  "_note": "bd-ilv8p: this diagnostic is currently dormant. The multi-line code-span lift requires a closing backtick to exist within the paragraph before any code span starts, so a bare unclosed '`' is now handled by the generic parse-error path rather than producing the labeled code_span_delimiter token this case relied on. The corpus entry is kept as documentation; restore a `cases` array if a future grammar change exposes a parser state where Q-2-24 fires distinctly."
 }

@@ -1,0 +1,94 @@
+---
+title: "Filing bug reports"
+---
+
+When something doesn't render the way you expected, a good bug report
+makes the difference between "fixed in an hour" and "back-and-forth
+for a week." Most of the time we need three things:
+
+1. A small `.qmd` file that reproduces the problem.
+2. The exact `quarto` command you ran.
+3. Either the rendered output (HTML, PDF, …) or the error message.
+
+If those three things are enough, you're done — open an issue at
+<https://github.com/quarto-dev/q2/issues> and attach them.
+
+## Attach a pipeline trace when you can
+
+For anything beyond a trivial parse error — a transform that misbehaves,
+crossrefs that don't resolve, a sidebar that comes out empty, a
+website-stage that produces unexpected HTML — please attach a
+**pipeline trace.** A trace captures the document at every internal
+stage of the render, so we can see exactly where things went off the
+rails without having to recreate your environment.
+
+To generate one, add `trace: true` to your document's YAML frontmatter:
+
+```yaml
+---
+title: "My doc"
+trace: true
+---
+```
+
+Render the document normally:
+
+```bash
+quarto render my-doc.qmd
+```
+
+The trace will be written to:
+
+```
+.quarto/trace/my-doc/latest.json.gz
+```
+
+Attach that file to your issue. It's gzipped and typically well under
+1 MB even for medium-sized documents — small enough to drop directly
+into a GitHub comment.
+
+## What's in a trace, and what isn't
+
+A trace contains:
+
+- The pipeline stages that ran and their order.
+- An AST snapshot at each stage boundary.
+- Stage timings (so we can spot regressions).
+- The git hash of the `quarto` build that produced the trace.
+- The path to your input document and your output document.
+
+A trace does **not** contain:
+
+- The contents of your input `.qmd` file (we still need that
+  separately — the trace records the parsed AST, not the raw
+  Markdown).
+- Files referenced by your document (images, includes, bibliographies,
+  etc.). If the bug involves one of those, attach it too.
+- Anything from outside the document — environment variables, your
+  shell history, files elsewhere on your machine.
+
+The AST snapshots include text content from your document, so if your
+document is sensitive, treat the trace as you'd treat the document.
+
+## Inspecting a trace yourself
+
+You don't have to know what's in a trace to file a useful bug report,
+but if you want to look:
+
+```bash
+# List traces in the current project
+quarto trace list
+
+# Print a single stage's snapshot (pretty-printed)
+quarto trace show --doc my-doc --stage parse
+
+# Open the interactive viewer in a browser
+quarto trace view
+```
+
+The on-disk format is gzipped JSON; if you want raw bytes for `jq` or
+similar, decompress first:
+
+```bash
+gunzip -c .quarto/trace/my-doc/latest.json.gz | jq .schema_version
+```

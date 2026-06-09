@@ -305,12 +305,16 @@ fn transform_list_table_div(div: Div) -> Block {
     let source_info = div.source_info.clone();
 
     // Extract attributes from div (LinkedHashMap iteration returns (&String, &String))
+    //
+    // bd-fyb4z: default `header-rows` to 1 (not 0) so a bare list-table
+    // promotes its first row to `<thead>`, matching Quarto 1. Explicit
+    // `header-rows="0"` opts back into the no-header behavior.
     let header_rows: usize = div
         .attr
         .2
         .get("header-rows")
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
+        .unwrap_or(1);
 
     let aligns_str = div.attr.2.get("aligns").map(|v| v.as_str());
     let widths_str = div.attr.2.get("widths").map(|v| v.as_str());
@@ -1131,6 +1135,15 @@ pub fn postprocess(doc: Pandoc, error_collector: &mut DiagnosticCollector) -> Re
             // Shortcodes remain as Inline::Shortcode so that ShortcodeResolveTransform
             // in quarto-core can resolve them. The shortcode_to_span conversion is only
             // needed for Lua filter compatibility, which happens separately if needed.
+            // Lower a named footnote reference `[^id]` into an empty Span
+            // carrying class `quarto-note-reference` and a `reference-id` kv,
+            // so the AST round-trips through standard Pandoc JSON (which has
+            // no `NoteReference` inline). The matching consumer that resolves
+            // this Span back into a footnote reference is
+            // `FootnotesTransform` in quarto-core
+            // (`crates/quarto-core/src/transforms/footnotes.rs`, the
+            // `Inline::Span` arm of `process_inline`). Keep the class/kv names
+            // in sync with that consumer. (bd-po3gn41h)
             .with_note_reference(|note_ref, _ctx| {
                 let mut kv = LinkedHashMap::new();
                 kv.insert("reference-id".to_string(), note_ref.id.clone());

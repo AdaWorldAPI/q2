@@ -67,11 +67,16 @@ use tracing::debug;
 use quarto_system_runtime::SystemRuntime;
 
 use crate::Result;
+use crate::artifact::{ArtifactScope, ArtifactStore};
 use crate::error::QuartoError;
 use crate::format::Format;
+use crate::output_sink::OutputSink;
 use crate::pipeline::{HtmlRenderConfig, RenderOutput, render_qmd_to_html};
+use crate::project::index::ProjectIndex;
+use crate::project::orchestrator::project_type_for;
 use crate::project::{DocumentInfo, ProjectContext};
 use crate::render::{BinaryDependencies, RenderContext};
+use crate::resource_resolver::ResourceResolverContext;
 use crate::resources;
 
 /// Options for rendering a document to a file.
@@ -83,6 +88,37 @@ pub struct RenderToFileOptions {
     pub output_dir: Option<PathBuf>,
     /// Suppress informational messages (logging).
     pub quiet: bool,
+    /// Replay engine captures loaded from a trace file (bd-45yw,
+    /// extended to a sequence by bd-5yff4).
+    ///
+    /// When non-empty, the render substitutes a
+    /// [`crate::engine::ReplayEngine`] for each recorded engine
+    /// (one capture per engine, in execution order) in the
+    /// pipeline's registry. Activated out-of-band by the
+    /// orchestrator/CLI (`--replay <trace>` / `QUARTO_REPLAY=...`);
+    /// the document under investigation does not need to know.
+    pub replay_captures: Vec<quarto_trace::EngineCapture>,
+
+    /// Direct override for the engine registry the pipeline uses
+    /// (bd-45yw, primarily for tests).
+    ///
+    /// When `Some`, takes precedence over `replay_captures`: the
+    /// caller hands the pipeline an arbitrary registry. Tests use
+    /// this seam to register probe engines that capture the QMD
+    /// `EngineExecutionStage` hands to `execute()` (so a replay
+    /// trace can be fabricated against the real pipeline rather
+    /// than a synthetic context). Production callers should prefer
+    /// `replay_captures`.
+    pub engine_registry_override: Option<crate::engine::EngineRegistry>,
+
+    /// Resolved attribution mode (CLI override merged with YAML).
+    /// `Some(AttributionMode::Git)` installs a [`GitBlameProvider`]
+    /// on the outer `RenderContext`; `Some(AttributionMode::Off)` or
+    /// `None` leaves the provider slot empty so the unflagged code
+    /// path is taken.
+    ///
+    /// [`GitBlameProvider`]: crate::attribution::GitBlameProvider
+    pub attribution: Option<crate::attribution::AttributionMode>,
 }
 
 /// Result of rendering a document to a file.
@@ -94,6 +130,13 @@ pub struct RenderToFileResult {
     pub resources_dir: PathBuf,
     /// The full render output including HTML and diagnostics.
     pub render_output: RenderOutput,
+    /// Per-document resource report (`bd-o8pr` Phase 2). Contains
+    /// engine-emitted (and Phase 3+ Lua-filter-emitted) supporting
+    /// files. Drained by the project orchestrator after the per-doc
+    /// render completes; resolved against the project root and
+    /// merged with the static-channel list before the copy step.
+    /// Empty for renders that produced no engine/filter resources.
+    pub resource_report: crate::project_resources::DocumentResourceReport,
 }
 
 /// Render a QMD document to a file (simple API).
@@ -121,7 +164,11 @@ pub fn render_to_file(
     options: &RenderToFileOptions,
     runtime: Arc<dyn SystemRuntime>,
 ) -> Result<RenderToFileResult> {
-    render_document_to_file(input_path, format, options, None, runtime)
+    // Standalone: pass `None` for project_artifacts so the
+    // function flushes Project-scoped artifacts via the resolver.
+    // `format_override = None`: the caller passed an explicit format string,
+    // which is authoritative for this entry point.
+    render_document_to_file(input_path, format, options, None, runtime, None, None, None)
 }
 
 /// Render a QMD document to a file (advanced API).
@@ -157,6 +204,9 @@ pub fn render_document_to_file(
     options: &RenderToFileOptions,
     project: Option<&ProjectContext>,
     runtime: Arc<dyn SystemRuntime>,
+    project_index: Option<Arc<ProjectIndex>>,
+    project_artifacts: Option<&mut ArtifactStore>,
+    format_override: Option<&str>,
 ) -> Result<RenderToFileResult> {
     debug!("Rendering: {}", input_path.display());
 
@@ -179,9 +229,40 @@ pub fn render_document_to_file(
         }
     };
 
-    // Determine output paths
+    // Per-document format resolution (bd-l6itt34u minimal slice). The
+    // effective format key is a prefer-merge of the `format:` declarations:
+    // project config → this document's front matter → `--to` (synthesized as
+    // `format: !prefer`). So a `format: revealjs` deck inside an otherwise-HTML
+    // `type: default` project — or a project-level `format: revealjs` — renders
+    // as a real deck, while an explicit `--to` still wins for every document.
+    // The result drives BOTH the transform pipeline (reveal assembly) and the
+    // output paths/extension, so it must be resolved here, before the pipeline
+    // is built. `format` is the caller's fallback default (e.g. "html").
+    let project_format = project
+        .config
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("format"))
+        .and_then(crate::format::format_key_from_config_value);
+    let document_format = std::str::from_utf8(&input_bytes)
+        .ok()
+        .and_then(crate::format::format_key_from_frontmatter);
+    let resolved_format = crate::format::resolve_format_key(
+        project_format.as_deref(),
+        document_format.as_deref(),
+        format_override,
+        format,
+    );
+    let format: &str = &resolved_format;
+
+    // Determine output paths. If the options don't specify an
+    // explicit output path / dir, fall back to the project's
+    // `output-dir` (e.g. websites render into `_site/`). Single-file
+    // and default-kind projects leave `output_dir == dir`, preserving
+    // the pre-Phase-1 "beside the input" behavior.
+    let effective_options = apply_project_output_dir_to_options(options, project, input_path);
     let (output_path, output_dir, output_stem) =
-        determine_output_paths(input_path, format, options)?;
+        determine_output_paths(input_path, format, &effective_options)?;
 
     // Create output directory
     runtime.dir_create(&output_dir, true).map_err(|e| {
@@ -199,18 +280,58 @@ pub fn render_document_to_file(
     // Set up render context
     let doc_info = DocumentInfo::from_path(input_path);
     let render_format = format_from_name(format)?;
-    let binaries = BinaryDependencies::new();
+    // Discover binaries from the runtime so the git path (used by
+    // `GitBlameProvider`) is populated alongside pandoc/typst/etc.
+    let binaries = BinaryDependencies::discover(runtime.as_ref());
     let mut ctx = RenderContext::new(project, &doc_info, &render_format, &binaries);
+    if let Some(index) = project_index {
+        ctx.project_index = Some(index);
+    }
+    // Install the attribution provider when the CLI/YAML resolved
+    // mode is `Git`. `Off` and `None` leave the slot empty, which is
+    // the unflagged default code path.
+    if matches!(
+        options.attribution,
+        Some(crate::attribution::AttributionMode::Git)
+    ) {
+        ctx.attribution_provider = Some(std::sync::Arc::new(
+            crate::attribution::GitBlameProvider::new(),
+        ));
+    }
 
-    // Configure the pipeline with CSS paths and resource prefix.
-    // The resource prefix (e.g., "doc_files/") ensures extension dependency
-    // paths like "libs/kbd/kbd.css" become "doc_files/libs/kbd/kbd.css" in
-    // the HTML output, matching where the files are written on disk.
-    let resource_prefix = format!("{}_files/", output_stem);
-    let config = HtmlRenderConfig {
-        css_paths: &resource_paths.css,
-        resource_prefix: &resource_prefix,
-    };
+    // Phase 5: build a scope-aware resolver from the doc's
+    // output location and the project's lib dir. Single-doc /
+    // default projects pass `lib_dir == ""` so Project-scope
+    // artifacts resolve under the per-page resource dir
+    // (preserving pre-Phase-5 byte-identical behavior). Website
+    // projects pass `lib_dir == "site_libs"` so Project-scope
+    // artifacts resolve under `{output_dir}/site_libs/`.
+    let project_type = project_type_for(project);
+    let resolver = ResourceResolverContext::website(
+        &project.output_dir,
+        &output_path,
+        project_type.lib_dir(),
+        &output_stem,
+    );
+    // Phase 6: make the same resolver available to AST transforms
+    // via `RenderContext::resource_resolver` so the body-link
+    // rewriter (`LinkRewriteTransform`) can compute page-relative
+    // URLs the same way Phase 5's `ApplyTemplateStage` does for
+    // shared assets.
+    ctx.resource_resolver = Some(resolver.clone());
+    let mut config = HtmlRenderConfig::with_resolver(resolver.clone());
+    // bd-45yw / bd-5yff4: pick the engine registry the pipeline will
+    // use. engine_registry_override takes precedence (tests / probe
+    // engines). Otherwise replay_captures (one per recorded engine)
+    // build the registry. Otherwise the pipeline builds its own default
+    // registry.
+    if let Some(reg) = options.engine_registry_override.clone() {
+        config.engine_registry = Some(reg);
+    } else if !options.replay_captures.is_empty() {
+        config.engine_registry = Some(crate::engine::EngineRegistry::with_replay_many(
+            options.replay_captures.clone(),
+        ));
+    }
 
     // Run the render pipeline
     let render_output = pollster::block_on(render_qmd_to_html(
@@ -221,71 +342,138 @@ pub fn render_document_to_file(
         runtime.clone(),
     ))?;
 
-    // Write CSS from pipeline artifact (CompileThemeCssStage always produces this)
-    let css_content = ctx
-        .artifacts
-        .get("css:default")
-        .and_then(|a| a.as_str())
-        .unwrap_or(resources::DEFAULT_CSS);
-    let css_path = resource_paths.resource_dir.join("styles.css");
-    runtime
-        .file_write(&css_path, css_content.as_bytes())
-        .map_err(|e| {
-            QuartoError::other(format!(
-                "Failed to write CSS to {}: {}",
-                css_path.display(),
-                e
-            ))
-        })?;
+    // bd-cfl67: one sink per render owns every destructive write.
+    // Construct it from the resolver's declared output roots so
+    // any escape (e.g. an absolute artifact path that bypassed
+    // `scope_root.join`) is refused before the disk is touched.
+    let mut sink = OutputSink::new(resolver.allowed_output_roots());
 
-    // Write extension CSS/JS dependency artifacts (e.g., libs/kbd/kbd.css)
-    for (key, artifact) in ctx.artifacts.iter() {
-        if key == "css:default" {
-            continue;
+    // Phase 5: enqueue Page-scoped artifacts at their per-doc
+    // locations. Project-scoped artifacts are drained out of the
+    // per-doc store and either:
+    // - merged into the orchestrator's project-wide artifact
+    //   accumulator (when running under a project type that has
+    //   a shared lib dir, e.g. websites), so
+    //   `WebsiteProjectType::post_render` can flush them once
+    //   for the whole project; OR
+    // - flushed in-place via the resolver (otherwise — either
+    //   no orchestrator is involved, or the orchestrator's
+    //   project type has no shared lib dir, e.g. default
+    //   single-doc / loose-directory projects).
+    enqueue_artifacts(&ctx.artifacts, &resolver, ArtifactScope::Page, &mut sink)?;
+    let drained = ctx.artifacts.drain_project_scoped();
+
+    let has_shared_lib = !project_type.lib_dir().is_empty();
+    match (project_artifacts, has_shared_lib) {
+        (Some(dest), true) => {
+            // Real multi-doc project (e.g. website): drain into
+            // the orchestrator's accumulator; post_render flushes.
+            dest.merge_into_project(drained).map_err(|e| {
+                QuartoError::other(format!(
+                    "Project-scoped artifact merge failed for {}: {}",
+                    input_path.display(),
+                    e
+                ))
+            })?;
         }
-        if (key.starts_with("css:") || key.starts_with("js:"))
-            && let Some(path) = &artifact.path
-        {
-            let output_path = resource_paths.resource_dir.join(path);
-            if let Some(parent) = output_path.parent() {
-                runtime.dir_create(parent, true).map_err(|e| {
-                    QuartoError::other(format!(
-                        "Failed to create directory {}: {}",
-                        parent.display(),
-                        e
-                    ))
-                })?;
-            }
-            runtime
-                .file_write(&output_path, &artifact.content)
-                .map_err(|e| {
-                    QuartoError::other(format!(
-                        "Failed to write dependency file {}: {}",
-                        output_path.display(),
-                        e
-                    ))
-                })?;
+        _ => {
+            // Default project or standalone call: enqueue Project-
+            // scoped artifacts via the resolver. For lib_dir == ""
+            // the resolver routes them under `{stem}_files/`,
+            // preserving pre-Phase-5 layout.
+            enqueue_artifacts(&drained, &resolver, ArtifactScope::Project, &mut sink)?;
         }
     }
 
-    // Write output HTML
-    runtime
-        .file_write(&output_path, render_output.html.as_bytes())
-        .map_err(|e| {
-            QuartoError::other(format!(
-                "Failed to write output file {}: {}",
-                output_path.display(),
-                e
-            ))
-        })?;
+    // Drain user-resource copy intents (images etc. collected by
+    // `ResourceCollectorTransform`) into the sink. The sink will
+    // skip ops whose src and dest canonicalize equal — the common
+    // single-doc case where output_dir == input_dir and the
+    // resource is already where the HTML expects it.
+    let resource_copies = std::mem::take(&mut ctx.resource_copies);
+    for (src, dest) in resource_copies {
+        sink.copy(src, dest).map_err(QuartoError::from)?;
+    }
+
+    // Output HTML also goes through the sink so the whole render's
+    // destructive output is validated and committed atomically.
+    sink.write(output_path.clone(), render_output.html.as_bytes().to_vec())
+        .map_err(QuartoError::from)?;
+
+    sink.flush(runtime.as_ref()).map_err(QuartoError::from)?;
 
     debug!("Output: {}", output_path.display());
 
+    let resource_report = std::mem::take(&mut ctx.resource_report);
     Ok(RenderToFileResult {
         output_path,
         resources_dir: resource_paths.resource_dir,
         render_output,
+        resource_report,
     })
+}
+
+/// Enqueue every artifact in `store` whose scope matches `scope_filter`
+/// into `sink` at its resolver-determined on-disk location. Skips
+/// artifacts without a `path`.
+///
+/// The caller owns the sink lifecycle (construct, enqueue producers,
+/// flush). Used by `render_document_to_file` (Page scope, per-doc;
+/// Project scope when standalone) and by
+/// `WebsiteProjectType::post_render` for project-shared artifacts
+/// (via [`crate::project::website_post_render::flush_site_libs`]).
+///
+/// Iteration is sorted-key so the resulting flush order is
+/// deterministic across runs / platforms.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn enqueue_artifacts(
+    store: &ArtifactStore,
+    resolver: &ResourceResolverContext,
+    scope_filter: ArtifactScope,
+    sink: &mut OutputSink,
+) -> Result<()> {
+    let mut entries: Vec<(&str, &crate::artifact::Artifact)> = store
+        .iter()
+        .filter(|(_, a)| a.scope == scope_filter)
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (_, artifact) in entries {
+        let Some(path) = &artifact.path else { continue };
+        let on_disk = resolver.on_disk_path_for(artifact.scope, path);
+        sink.write(on_disk, artifact.content.clone())
+            .map_err(QuartoError::from)?;
+    }
+    Ok(())
+}
+
+/// When `options` has no explicit `output_path` / `output_dir`, fall
+/// back to the project's output dir so e.g. `_site/index.html` is
+/// produced rather than `index.html` beside the input.
+///
+/// Preserves the input's subdirectory under `project_dir` so
+/// `docs/api.qmd` in a website project renders to `_site/docs/api.html`.
+fn apply_project_output_dir_to_options(
+    options: &RenderToFileOptions,
+    project: &ProjectContext,
+    input_path: &Path,
+) -> RenderToFileOptions {
+    if options.output_path.is_some() || options.output_dir.is_some() {
+        return options.clone();
+    }
+    if project.output_dir == project.dir {
+        return options.clone();
+    }
+    let relative = input_path
+        .strip_prefix(&project.dir)
+        .ok()
+        .and_then(|r| r.parent())
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    let resolved = project.output_dir.join(relative);
+    let mut next = options.clone();
+    next.output_dir = Some(resolved);
+    next
 }
 
 /// Determine output paths from input path and options.
@@ -396,6 +584,270 @@ mod tests {
         assert_eq!(stem, "doc");
     }
 
+    /// bd-9ez3ngt1: `reference-location` set in YAML front matter must be
+    /// honored end-to-end. In document-metadata context a bare YAML string is
+    /// parsed as markdown and stored as `ConfigValueKind::PandocInlines`, so
+    /// the transform's `meta.get("reference-location").as_str()` returned
+    /// `None` and silently fell back to the `document` default. With
+    /// `as_plain_text()` the value resolves, so `reference-location: margin`
+    /// produces a `margin-note` reference and NO document footnotes section.
+    #[test]
+    fn test_render_to_file_honors_margin_reference_location() {
+        let temp = TempDir::new().unwrap();
+        let input_path = temp.path().join("margin.qmd");
+
+        fs::write(
+            &input_path,
+            "---\nformat: html\nreference-location: margin\n---\nRef.^[the body]\n",
+        )
+        .unwrap();
+
+        let runtime = Arc::new(NativeRuntime::new());
+        let options = RenderToFileOptions::default();
+
+        let result = render_to_file(&input_path, "html", &options, runtime).unwrap();
+        let html = fs::read_to_string(&result.output_path).unwrap();
+
+        assert!(
+            html.contains("margin-note"),
+            "expected margin-note class for reference-location: margin; got:\n{html}"
+        );
+        assert!(
+            !html.contains("doc-endnotes"),
+            "margin mode must NOT emit a document footnotes section; got:\n{html}"
+        );
+    }
+
+    // ── bd-y89ihf0i: front-matter string options must resolve through
+    //    `as_plain_text()` ───────────────────────────────────────────────
+    //
+    // Each option below is a user-authored metadata string that, in
+    // document-metadata context, is parsed as markdown and stored as
+    // `ConfigValueKind::PandocInlines`. Reading it with `as_str()` returns
+    // `None`, so the feature is silently dropped. These end-to-end tests write
+    // the option as a bare front-matter string and assert the rendered HTML
+    // reflects it. They FAIL on `as_str()` and PASS on `as_plain_text()`.
+
+    /// `license: <string>` (bare) must produce the appendix "Reuse" section.
+    /// With `as_str()` the bare value is `PandocInlines`, so
+    /// `create_license_section` drops the section entirely.
+    #[test]
+    fn test_render_to_file_honors_license_string() {
+        let temp = TempDir::new().unwrap();
+        let input_path = temp.path().join("license.qmd");
+        fs::write(
+            &input_path,
+            "---\nformat: html\nlicense: CC BY-SA 4.0\n---\nBody.\n",
+        )
+        .unwrap();
+
+        let runtime = Arc::new(NativeRuntime::new());
+        let result = render_to_file(
+            &input_path,
+            "html",
+            &RenderToFileOptions::default(),
+            runtime,
+        )
+        .unwrap();
+        let html = fs::read_to_string(&result.output_path).unwrap();
+
+        assert!(
+            html.contains("quarto-reuse"),
+            "expected a quarto-reuse license section for bare `license:` string; got:\n{html}"
+        );
+        assert!(
+            html.contains("CC BY-SA 4.0"),
+            "expected the license text in output; got:\n{html}"
+        );
+    }
+
+    /// `license:` with a nested `text:` bare string must resolve.
+    #[test]
+    fn test_render_to_file_honors_license_nested_text() {
+        let temp = TempDir::new().unwrap();
+        let input_path = temp.path().join("license_nested.qmd");
+        fs::write(
+            &input_path,
+            "---\nformat: html\nlicense:\n  text: My Custom Reuse Terms\n---\nBody.\n",
+        )
+        .unwrap();
+
+        let runtime = Arc::new(NativeRuntime::new());
+        let result = render_to_file(
+            &input_path,
+            "html",
+            &RenderToFileOptions::default(),
+            runtime,
+        )
+        .unwrap();
+        let html = fs::read_to_string(&result.output_path).unwrap();
+
+        assert!(
+            html.contains("My Custom Reuse Terms"),
+            "expected nested license.text in output; got:\n{html}"
+        );
+    }
+
+    /// `copyright: <string>` (bare) must produce the appendix "Copyright" section.
+    #[test]
+    fn test_render_to_file_honors_copyright_string() {
+        let temp = TempDir::new().unwrap();
+        let input_path = temp.path().join("copyright.qmd");
+        fs::write(
+            &input_path,
+            "---\nformat: html\ncopyright: Copyright 2026 ACME Corp\n---\nBody.\n",
+        )
+        .unwrap();
+
+        let runtime = Arc::new(NativeRuntime::new());
+        let result = render_to_file(
+            &input_path,
+            "html",
+            &RenderToFileOptions::default(),
+            runtime,
+        )
+        .unwrap();
+        let html = fs::read_to_string(&result.output_path).unwrap();
+
+        assert!(
+            html.contains("quarto-copyright"),
+            "expected a quarto-copyright section for bare `copyright:` string; got:\n{html}"
+        );
+        assert!(
+            html.contains("Copyright 2026 ACME Corp"),
+            "expected the copyright text in output; got:\n{html}"
+        );
+    }
+
+    /// `citation:` with a nested `url:` bare string must produce the
+    /// "For attribution" citation link.
+    #[test]
+    fn test_render_to_file_honors_citation_url() {
+        let temp = TempDir::new().unwrap();
+        let input_path = temp.path().join("citation.qmd");
+        fs::write(
+            &input_path,
+            "---\nformat: html\ncitation:\n  url: https://example.com/cite\n---\nBody.\n",
+        )
+        .unwrap();
+
+        let runtime = Arc::new(NativeRuntime::new());
+        let result = render_to_file(
+            &input_path,
+            "html",
+            &RenderToFileOptions::default(),
+            runtime,
+        )
+        .unwrap();
+        let html = fs::read_to_string(&result.output_path).unwrap();
+
+        assert!(
+            html.contains("For attribution"),
+            "expected the citation-url attribution text; got:\n{html}"
+        );
+        assert!(
+            html.contains("example.com/cite"),
+            "expected the citation url in output; got:\n{html}"
+        );
+    }
+
+    /// `appendix-style: plain` (bare) must set the appendix container class to
+    /// `plain`. A user `::: {.appendix}` div forces a container regardless of
+    /// other metadata. With `as_str()` the bare value falls back to the
+    /// `default` style.
+    #[test]
+    fn test_render_to_file_honors_appendix_style_plain() {
+        let temp = TempDir::new().unwrap();
+        let input_path = temp.path().join("appendix_style.qmd");
+        fs::write(
+            &input_path,
+            "---\nformat: html\nappendix-style: plain\n---\nBody.\n\n::: {.appendix}\nExtra material.\n:::\n",
+        )
+        .unwrap();
+
+        let runtime = Arc::new(NativeRuntime::new());
+        let result = render_to_file(
+            &input_path,
+            "html",
+            &RenderToFileOptions::default(),
+            runtime,
+        )
+        .unwrap();
+        let html = fs::read_to_string(&result.output_path).unwrap();
+
+        assert!(
+            html.contains("quarto-appendix"),
+            "expected an appendix container; got:\n{html}"
+        );
+        assert!(
+            html.contains(r#"id="quarto-appendix" class="plain""#)
+                || html.contains(r#"class="plain" id="quarto-appendix""#),
+            "expected appendix container with class `plain` for bare `appendix-style: plain`; got:\n{html}"
+        );
+    }
+
+    /// `toc: auto` (bare string) must trigger TOC generation. With `as_str()`
+    /// the bare value is `PandocInlines`, so the `== Some("auto")` comparison
+    /// fails and no TOC is generated.
+    #[test]
+    fn test_render_to_file_honors_toc_auto_string() {
+        let temp = TempDir::new().unwrap();
+        let input_path = temp.path().join("toc_auto.qmd");
+        fs::write(
+            &input_path,
+            "---\nformat: html\ntoc: auto\n---\nIntro.\n\n## A Section\n\nText.\n",
+        )
+        .unwrap();
+
+        let runtime = Arc::new(NativeRuntime::new());
+        let result = render_to_file(
+            &input_path,
+            "html",
+            &RenderToFileOptions::default(),
+            runtime,
+        )
+        .unwrap();
+        let html = fs::read_to_string(&result.output_path).unwrap();
+
+        assert!(
+            html.contains("nav-link"),
+            "expected a generated TOC (nav-link) for `toc: auto`; got:\n{html}"
+        );
+    }
+
+    /// `toc-title: <string>` (bare) must appear as the TOC heading. With
+    /// `as_str()` the bare value is `PandocInlines`, so it falls back to the
+    /// default "Table of Contents".
+    #[test]
+    fn test_render_to_file_honors_toc_title() {
+        let temp = TempDir::new().unwrap();
+        let input_path = temp.path().join("toc_title.qmd");
+        fs::write(
+            &input_path,
+            "---\nformat: html\ntoc: true\ntoc-title: My Custom Contents\n---\nIntro.\n\n## A Section\n\nText.\n",
+        )
+        .unwrap();
+
+        let runtime = Arc::new(NativeRuntime::new());
+        let result = render_to_file(
+            &input_path,
+            "html",
+            &RenderToFileOptions::default(),
+            runtime,
+        )
+        .unwrap();
+        let html = fs::read_to_string(&result.output_path).unwrap();
+
+        assert!(
+            html.contains("My Custom Contents"),
+            "expected the custom toc-title in output; got:\n{html}"
+        );
+        assert!(
+            !html.contains("Table of Contents"),
+            "custom toc-title must replace the default; got:\n{html}"
+        );
+    }
+
     #[test]
     fn test_render_to_file_creates_output() {
         let temp = TempDir::new().unwrap();
@@ -430,6 +882,54 @@ Hello world.
         let html = fs::read_to_string(&result.output_path).unwrap();
         assert!(html.contains("Hello world"));
         assert!(html.contains("<title>"));
+    }
+
+    /// bd-po3gn41h: end-to-end check that a named/reference-style
+    /// footnote (`[^id]` reference + a `::: ^id … :::` block definition)
+    /// resolves through the real `q2 render` file path. This drives
+    /// `render_to_file`, the exact entry point the native CLI pass-2
+    /// renderer uses (`project/pass2_renderer.rs` -> `render_document_to_file`).
+    ///
+    /// Before the fix, the body kept an empty
+    /// `<span class="quarto-note-reference" data-reference-id="bk">` and
+    /// the definition's text ("Note.") was dropped with no footnotes
+    /// section emitted.
+    #[test]
+    fn test_render_to_file_resolves_named_footnote_reference() {
+        let temp = TempDir::new().unwrap();
+        let input_path = temp.path().join("named-fn.qmd");
+
+        fs::write(
+            &input_path,
+            "---\nformat: html\n---\nRef.[^bk]\n\n::: ^bk\nNote.\n:::\n",
+        )
+        .unwrap();
+
+        let runtime = Arc::new(NativeRuntime::new());
+        let options = RenderToFileOptions::default();
+
+        let result = render_to_file(&input_path, "html", &options, runtime).unwrap();
+        let html = fs::read_to_string(&result.output_path).unwrap();
+
+        // The footnote reference must resolve to the standard fnref link...
+        assert!(
+            html.contains("footnote-ref"),
+            "expected a footnote-ref link for the resolved [^bk] reference; got:\n{html}"
+        );
+        // ...and a footnotes section must be emitted carrying the body.
+        assert!(
+            html.contains("doc-endnotes"),
+            "expected a doc-endnotes footnotes section; got:\n{html}"
+        );
+        assert!(
+            html.contains("Note."),
+            "expected the definition's text (\"Note.\") in the footnotes section; got:\n{html}"
+        );
+        // The unresolved lowering span must be gone.
+        assert!(
+            !html.contains("quarto-note-reference"),
+            "the empty quarto-note-reference span should have been resolved away; got:\n{html}"
+        );
     }
 
     #[test]
@@ -491,10 +991,20 @@ Content.
 
         let options = RenderToFileOptions::default();
 
-        // Render with pre-discovered project
-        let result =
-            render_document_to_file(&input_path, "html", &options, Some(&project), runtime)
-                .unwrap();
+        // Render with pre-discovered project (standalone call: no
+        // project_artifacts accumulator, so the function flushes
+        // Project-scoped artifacts via the resolver itself).
+        let result = render_document_to_file(
+            &input_path,
+            "html",
+            &options,
+            Some(&project),
+            runtime,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         assert!(result.output_path.exists());
     }

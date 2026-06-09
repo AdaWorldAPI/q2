@@ -1,0 +1,53 @@
+---
+title: "Unprocessed Insert Markup"
+description: !str "Insert editorial markup ({++ ...}) was not desugared to a Span during postprocessing."
+code: Q-3-33
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-33` — Unprocessed Insert Markup
+
+> Insert editorial markup `{++ ...}` was not desugared to a
+> Span during postprocessing.
+
+## What this means
+
+Quarto supports a small family of editorial-markup constructs
+inspired by CriticMarkup: insertions `{++ ...}`, deletions
+`{-- ...}`, highlights `{== ...}`, and comments
+`{>> ...}`. The parser emits each as its own AST node type;
+postprocessing rewrites those nodes into `Span` nodes with the
+right classes (`.ins`, `.del`, etc.) before the writer runs.
+
+This error fires when an `Insert` node survives the
+postprocessing pass. The writer does not know how to render the
+raw form — only the postprocessed `Span` form.
+
+This is a defensive guard. A document author cannot fix it from
+the source.
+
+## Why this happens
+
+Two known triggers:
+
+- **A Lua filter ran after postprocessing** and reintroduced an
+  `Insert` AST node.
+- **A bug in the postprocessor** that misses some insertions.
+
+## How to fix
+
+If a custom filter is in use, ensure it does not produce
+`Insert` AST nodes after postprocessing, or move the filter
+earlier in the pipeline so postprocessing runs again.
+
+If no custom filter is in use, report the document at the Quarto
+issue tracker.
+
+## Related
+
+- `Q-3-34`, `Q-3-35`, `Q-3-36` — same condition for `Delete`,
+  `Highlight`, and `EditComment` markup respectively.

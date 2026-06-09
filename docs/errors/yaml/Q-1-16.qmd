@@ -1,0 +1,52 @@
+---
+title: "Object Property Count Violation"
+description: "An object has too few or too many properties for the schema's count constraint."
+code: Q-1-16
+subsystem: yaml
+status: stub
+since: "99.9.9"
+categories:
+  - yaml
+---
+
+# `Q-1-16` — Object Property Count Violation
+
+> An object has too few or too many properties for the schema's
+> count constraint.
+
+## What this means
+
+Some schema entries restrict not which properties an object can
+have, but *how many*. This error fires when an object has fewer
+properties than the schema's minimum or more properties than the
+schema's maximum.
+
+This is distinct from `Q-1-10` (missing *required* property) and
+`Q-1-18` (unknown property): a schema that limits property count
+may accept any combination of property names so long as the count
+stays in range.
+
+## Why this happens
+
+The pattern shows up most often where a schema models *exactly one
+of N choices*: the object is allowed to set exactly one of several
+mutually exclusive keys. Setting none triggers the minimum
+violation; setting two triggers the maximum violation.
+
+## How to fix
+
+Re-read the schema for the property and identify which group of
+keys it is enforcing the count over. If you set zero, add the one
+key you mean to use. If you set more than one, decide which is
+intended and remove the others — they likely represent alternative
+ways of expressing the same thing.
+
+## Related
+
+- [`Q-1-10`](Q-1-10.qmd) — missing required property: this object has fewer
+  properties than allowed, but at least one of them is required
+  by name.
+- [`Q-1-18`](Q-1-18.qmd) — unknown property: the schema accepts a known *set*
+  of properties, regardless of count.
+- [`Q-1-13`](Q-1-13.qmd) — array length: the same constraint applied to array
+  items rather than object keys.

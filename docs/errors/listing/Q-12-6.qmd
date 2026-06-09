@@ -1,0 +1,48 @@
+---
+title: "listing: false Not Allowed"
+description: "`listing: false` is not allowed; remove the key entirely instead."
+code: Q-12-6
+subsystem: listing
+status: stub
+since: "99.9.9"
+categories:
+  - listing
+---
+
+# `Q-12-6` — `listing: false` Not Allowed
+
+> `listing: false` is not allowed; remove the key entirely
+> instead.
+
+## What this means
+
+To turn a page into a listing, set the `listing:` key in its
+front matter to a non-`false` value. To *not* have a listing on
+a page, omit the key. Quarto does not treat `listing: false` as
+"turn listings off on this page" — there is nothing to turn off
+when the key is absent.
+
+The parser emits this warning rather than silently treating
+`listing: false` as the absence of the key, because both
+interpretations are plausible and the user should pick.
+
+## Why this happens
+
+Most often the author is trying to override a setting from a
+parent `_metadata.yml` or `_quarto.yml` that turns on a listing
+project-wide. Setting `listing: false` looks like a natural
+override but is not the supported way to opt out.
+
+## How to fix
+
+To opt out of a project-wide listing on a single page, instead
+of `listing: false`, override the relevant project-level setting
+in a different way — for example, by changing the project's
+listing scope or by moving the page out of the listing directory.
+
+If the goal was simply "don't make this page a listing," delete
+the `listing:` line from the front matter.
+
+## Related
+
+- `Q-12-1` — other unsupported shapes of the `listing:` value.

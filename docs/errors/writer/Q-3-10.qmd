@@ -1,0 +1,64 @@
+---
+title: "Inline Note Definition Not Supported"
+description: "Inline note definitions ([^id]: content) cannot be rendered in this output format because content coalescing is not yet implemented."
+code: Q-3-10
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-10` — Inline Note Definition Not Supported
+
+> Inline note definitions (`[^id]: content`) cannot be rendered
+> in this output format because content coalescing is not yet
+> implemented.
+
+## What this means
+
+There are two ways to write a footnote in qmd:
+
+- **Inline footnotes**, where the note text sits where the
+  reference appears: `text^[note content]`.
+- **Note definitions**, where the reference and the definition
+  are separated: `text[^1]` plus a later `[^1]: note content`.
+
+The current writer for this output format does not yet implement
+the second form. To render the note in-place, it would need to
+collect every definition and weave each one back to its
+reference — a step the writer does not yet perform.
+
+## Why this happens
+
+Your document uses the `[^id]: content` form for a footnote, and
+the output format you selected has not been taught to coalesce
+those into their references.
+
+## How to fix
+
+Rewrite the footnote inline:
+
+```markdown
+A claim that needs a citation.^[Smith 2020, p. 42.]
+```
+
+instead of:
+
+```markdown
+A claim that needs a citation.[^smith]
+
+[^smith]: Smith 2020, p. 42.
+```
+
+Both render the same in formats that *do* support coalescing
+(such as HTML); rewriting to the inline form is the
+lowest-friction workaround when the output format does not.
+
+## Related
+
+- `Q-3-11` — the same limitation for *fenced* note definitions,
+  where the note body is a multi-paragraph fenced block.
+- `Q-3-54` — note definitions are also not supported in ANSI
+  output, for a different reason: ANSI has no way to place
+  footnotes at all.

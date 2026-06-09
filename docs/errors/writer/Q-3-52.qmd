@@ -1,0 +1,39 @@
+---
+title: "Table Not Supported in ANSI Format"
+description: "Table elements cannot be rendered in ANSI terminal output."
+code: Q-3-52
+subsystem: writer
+status: stub
+since: "99.9.9"
+categories:
+  - writer
+---
+
+# `Q-3-52` — Table Not Supported in ANSI Format
+
+> Table elements cannot be rendered in ANSI terminal output.
+
+## What this means
+
+The ANSI writer (used when rendering to a terminal) does not
+yet render tables. Faithful ANSI table rendering needs
+column-width measurement against the terminal width and
+multi-row layout decisions the writer does not yet make, so the
+writer refuses rather than emit a broken approximation.
+
+## Why this happens
+
+Your document contains a table — a pipe table, a list-table, or
+a fenced div with the `.table` class — and you rendered to ANSI
+output.
+
+## How to fix
+
+Render to a different format. HTML, PDF, and the markdown
+writers all handle tables. If you need a quick text view of the
+data, render to markdown (`--to qmd`) and view that.
+
+## Related
+
+- `Q-3-50`, `Q-3-51`, `Q-3-53`, `Q-3-54`, `Q-3-55` — other
+  block types the ANSI writer does not yet support.

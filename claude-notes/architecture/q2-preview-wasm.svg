@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 760"
+     preserveAspectRatio="xMidYMid meet" role="img"
+     aria-labelledby="title desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="title">q2 binary build chain and the WASM-in-binary nesting</title>
+  <desc id="desc">A three-step build compiles the engine to wasm32, bundles it into the q2-preview SPA,
+  and embeds that SPA into the native q2 binary via include_dir. The result ships two builds of the same
+  engine: native for q2 render, and wasm32 for q2 preview, which boots an ephemeral hub server and renders
+  in the browser. Four roles (q2 render, q2 preview, hub, hub-client) share one server and one schema.</desc>
+
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a6573"/>
+    </marker>
+    <style>
+      .h1  { font-size: 27px; font-weight: 700; fill: #16202e; }
+      .sub { font-size: 13px; fill: #5a6573; }
+      .col { font-size: 14px; font-weight: 700; letter-spacing: .03em; fill: #16202e; }
+      .bt  { font-size: 12.5px; font-weight: 700; fill: #16202e; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .bs  { font-size: 10.5px; fill: #5a6573; }
+      .stepl { font-size: 11px; font-weight: 700; fill: #16202e; }
+      .stepc { font-size: 10.5px; fill: #5a6573; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .ic  { font-size: 11px; fill: #29333f; }
+      .mono{ font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .ref { font-size: 10.5px; fill: #7a8696; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+      .card{ font-size: 11px; fill: #3a4656; }
+      .cardt{ font-size: 12px; font-weight: 700; }
+      .flow{ stroke: #5a6573; stroke-width: 1.6; fill: none; }
+    </style>
+  </defs>
+
+  <text class="h1" x="40" y="42">Quarto&#160;2 &#8212; q2 Binary, Build Chain &amp; WASM-in-Binary</text>
+  <text class="sub" x="42" y="64">How the native <tspan class="mono">q2</tspan> command ships &#8212; and runs &#8212; a WASM build of itself for <tspan class="mono">q2 preview</tspan></text>
+
+  <text class="ref" x="1240" y="32" text-anchor="end" fill="#6a7bd0" font-weight="700">&#9656; Companion reading guide</text>
+  <text class="ref" x="1240" y="48" text-anchor="end">claude-notes/architecture/04-q2-preview-wasm.md</text>
+  <text x="1240" y="65" text-anchor="end" font-size="10.5" fill="#5a6573">numbered marker = note in guide &#183; <tspan fill="#c47e10" font-weight="700">amber = note worth reading first</tspan></text>
+
+  <!-- ============ BUILD CHAIN (left, vertical) ============ -->
+  <text class="col" x="40" y="92">BUILD CHAIN &#160;<tspan class="ref" font-weight="400" fill="#7a8696">(produces the q2 binary)</tspan></text>
+
+  <!-- B1 -->
+  <rect x="56" y="100" width="504" height="50" rx="8" fill="#e8f6f6" stroke="#2f8f8f" stroke-width="1.5"/>
+  <text class="bt" x="72" y="121">crates/wasm-quarto-hub-client</text>
+  <text class="bs" x="72" y="139">Rust engine (quarto-core + pampa + &#8230;) &#8212; the WASM target</text>
+  <path class="flow" d="M118,150 L118,188" marker-end="url(#arw)"/>
+  <text class="stepl" x="138" y="166">Step 1 &#183; <tspan class="mono" font-weight="400">npm run build:wasm</tspan></text>
+  <text class="stepc" x="138" y="181">cargo wasm32 (-Zbuild-std) + wasm-bindgen --target web</text>
+
+  <!-- B2 -->
+  <rect x="56" y="188" width="504" height="44" rx="8" fill="#e8f6f6" stroke="#2f8f8f" stroke-width="1.5"/>
+  <text class="bt" x="72" y="208">wasm-quarto-hub-client/pkg/</text>
+  <text class="bs" x="72" y="224"><tspan class="mono">&#8230;_bg.wasm</tspan> + JS glue</text>
+  <path class="flow" d="M118,232 L118,262" marker-end="url(#arw)"/>
+  <text class="stepc" x="138" y="251" fill="#5a6573">imported by @quarto/preview-runtime + preview-renderer</text>
+
+  <!-- B3 -->
+  <rect x="56" y="262" width="504" height="44" rx="8" fill="#f4f1fb" stroke="#9a5fb0" stroke-width="1.5"/>
+  <text class="bt" x="72" y="282">q2-preview-spa <tspan class="bs" font-weight="400" font-family="ui-sans-serif, system-ui">(Vite + React SPA)</tspan></text>
+  <text class="bs" x="72" y="298">depends on preview-renderer + preview-runtime</text>
+  <path class="flow" d="M118,306 L118,344" marker-end="url(#arw)"/>
+  <text class="stepl" x="138" y="322">Step 2 &#183; <tspan class="mono" font-weight="400">cargo xtask build-q2-preview-spa</tspan></text>
+  <text class="stepc" x="138" y="337">npm run build &#160;(tsc -b &amp;&amp; vite build)</text>
+
+  <!-- B4 -->
+  <rect x="56" y="344" width="504" height="44" rx="8" fill="#f4f1fb" stroke="#9a5fb0" stroke-width="1.5"/>
+  <text class="bt" x="72" y="364">q2-preview-spa/dist/</text>
+  <text class="bs" x="72" y="380"><tspan class="mono">index.html</tspan> + JS + bundled <tspan class="mono">.wasm</tspan></text>
+  <path class="flow" d="M118,388 L118,426" marker-end="url(#arw)"/>
+  <text class="stepl" x="138" y="404">Step 3 &#183; <tspan class="mono" font-weight="400">cargo build --bin q2</tspan></text>
+  <text class="stepc" x="138" y="419">build.rs &#8594; QUARTO_PREVIEW_EMBED_DIR &#183; include_dir!</text>
+
+  <!-- B5 -->
+  <rect x="56" y="426" width="504" height="50" rx="8" fill="#eef1f5" stroke="#16202e" stroke-width="2"/>
+  <text class="bt" x="72" y="447">q2 &#8212; native binary</text>
+  <text class="bs" x="72" y="465">the SPA (with its <tspan class="mono">.wasm</tspan>) is baked in via <tspan class="mono">include_dir!</tspan></text>
+  <circle cx="560" cy="426" r="8.5" fill="#e8941f"/><text x="560" y="430" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+
+  <!-- expand connector from B5 to anatomy -->
+  <path stroke="#6a7bd0" stroke-width="1.6" stroke-dasharray="5 4" fill="none" d="M560,451 L575,451 L575,250 L590,250" marker-end="url(#arw)"/>
+  <text class="ref" x="566" y="445" fill="#6a7bd0">inside &#9656;</text>
+
+  <!-- ============ q2 BINARY ANATOMY (right top) ============ -->
+  <rect x="590" y="96" width="650" height="208" rx="10" fill="#fdf7ec" stroke="#d6a23c" stroke-width="1.8"/>
+  <text class="col" x="606" y="120" fill="#a9781c">THE q2 BINARY &#8212; one native executable, two engine builds</text>
+  <circle cx="1240" cy="96" r="8.5" fill="#6a7bd0"/><text x="1240" y="100" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+
+  <!-- native engine sub-box -->
+  <rect x="606" y="134" width="618" height="48" rx="7" fill="#e9f2fb" stroke="#4a8fd4" stroke-width="1.4"/>
+  <text class="bt" x="620" y="154" font-size="12">Native engine &#8212; <tspan class="mono">quarto-core</tspan> + <tspan class="mono">pampa</tspan> (native)</text>
+  <text class="bs" x="620" y="171">&#8594; <tspan class="mono">q2 render</tspan> &#160;(and <tspan class="mono">q2 preview</tspan> server-side re-execution)</text>
+
+  <!-- embedded SPA sub-box (nested) -->
+  <rect x="606" y="190" width="618" height="74" rx="7" fill="#e8f6f6" stroke="#2f8f8f" stroke-width="1.4"/>
+  <text class="bt" x="620" y="210" font-size="12">Embedded SPA &#8212; <tspan class="mono">include_dir!(q2-preview-spa/dist/)</tspan></text>
+  <rect x="620" y="220" width="590" height="36" rx="6" fill="#d6f0f0" stroke="#2f8f8f" stroke-width="1.2"/>
+  <text class="ic" x="632" y="236" font-family="ui-monospace, Menlo, monospace" font-size="10.5" font-weight="700">wasm-quarto-hub-client.wasm = quarto-core + pampa (wasm32)</text>
+  <text class="bs" x="632" y="250">&#8594; <tspan class="mono">q2 preview</tspan> in-browser rendering</text>
+
+  <text x="606" y="290" font-size="11.5" font-weight="700" fill="#a9781c">q2 ships TWO builds of the same engine: native (render) + wasm32 (preview).</text>
+
+  <!-- ============ q2 preview RUNTIME (right bottom) ============ -->
+  <rect x="590" y="320" width="650" height="222" rx="10" fill="#e9f2fb" stroke="#4a8fd4" stroke-width="1.6"/>
+  <text class="col" x="606" y="344" fill="#2f6db0"><tspan class="mono">q2 preview</tspan> &#8212; RUNTIME</text>
+  <text class="ic" x="606" y="368"><tspan font-weight="700">Boots an ephemeral hub server</tspan> &#8212; <tspan class="mono" font-size="10.5">quarto_hub::server::run_server_with</tspan></text>
+  <text class="bs" x="606" y="385"><tspan class="mono">tempfile::TempDir</tspan> (throwaway per run) &#183; loopback only &#183; <tspan class="mono">register_root_ws = false</tspan></text>
+  <text class="ic" x="606" y="409" font-weight="700">Routes</text>
+  <text class="ic" x="620" y="426"><tspan class="mono">/</tspan> &#8594; embedded SPA (the baked-in <tspan class="mono">dist/</tspan>)</text>
+  <text class="ic" x="620" y="443"><tspan class="mono">/ws</tspan> &#8594; ephemeral Automerge sync (samod)</text>
+  <text class="ic" x="620" y="460"><tspan class="mono">/api/preview/{re-execute, deps, diagnostics}</tspan></text>
+  <text class="ic" x="606" y="484"><tspan font-weight="700">Browser:</tspan> SPA loads <tspan class="mono">.wasm</tspan> &#8594; connects <tspan class="mono">/ws</tspan> &#8594; VFS &#8594; WASM render &#160;<tspan class="ref">&#8594; diagram 3</tspan></text>
+  <text class="ic" x="606" y="504"><tspan font-weight="700">Native:</tspan> file watcher &#8594; re-execute engines &#8594; capture docs (replayed in WASM)</text>
+  <text class="ref" x="606" y="528" fill="#2f6db0">crates/quarto/src/commands/preview.rs &#183; crates/quarto-preview/src/lib.rs</text>
+
+  <!-- ============ FOUR ROLES band (full width) ============ -->
+  <text class="col" x="40" y="576">FOUR ROLES &#8212; one server, one schema, one engine</text>
+  <!-- card 1 -->
+  <rect x="40" y="586" width="288" height="128" rx="9" fill="#fff" stroke="#cdd5df" stroke-width="1.4"/>
+  <text class="cardt" x="56" y="608" fill="#16202e"><tspan class="mono">q2 render</tspan></text>
+  <text class="card" x="56" y="628">native CLI render</text>
+  <text class="card" x="56" y="646">no server</text>
+  <text class="card" x="56" y="664">native engine</text>
+  <text class="ref"  x="56" y="690">&#8594; diagram 1</text>
+  <!-- card 2 (highlight) -->
+  <rect x="344" y="586" width="288" height="128" rx="9" fill="#e8f6f6" stroke="#2f8f8f" stroke-width="1.8"/>
+  <text class="cardt" x="360" y="608" fill="#1d6b6b"><tspan class="mono">q2 preview</tspan></text>
+  <text class="card" x="360" y="628">native CLI live preview</text>
+  <text class="card" x="360" y="646">embedded ephemeral hub</text>
+  <text class="card" x="360" y="664">embedded SPA &#183; WASM render</text>
+  <text class="ref"  x="360" y="690" fill="#1d6b6b">&#9670; this diagram</text>
+  <!-- card 3 -->
+  <rect x="648" y="586" width="288" height="128" rx="9" fill="#fff" stroke="#cdd5df" stroke-width="1.4"/>
+  <text class="cardt" x="664" y="608" fill="#16202e"><tspan class="mono">hub</tspan> (bin)</text>
+  <text class="card" x="664" y="628">standalone collab server</text>
+  <text class="card" x="664" y="646">all interfaces &#183; optional auth</text>
+  <text class="card" x="664" y="664">no UI (serves clients)</text>
+  <text class="ref"  x="664" y="690">clients render</text>
+  <!-- card 4 -->
+  <rect x="952" y="586" width="288" height="128" rx="9" fill="#fff" stroke="#cdd5df" stroke-width="1.4"/>
+  <text class="cardt" x="968" y="608" fill="#16202e"><tspan class="mono">hub-client</tspan></text>
+  <text class="card" x="968" y="628">collaborative web app</text>
+  <text class="card" x="968" y="646">needs an external server</text>
+  <text class="card" x="968" y="664">full editor &#183; WASM render</text>
+  <text class="ref"  x="968" y="690">&#8594; diagram 3</text>
+
+  <text class="sub" x="40" y="738">All four share <tspan class="mono">quarto-hub::server</tspan> (HTTP/WS) + the Automerge schema (diagram 3) + the engine (diagram 2). <tspan class="mono">q2 preview</tspan> is the unusual one: a native binary bundling a WASM renderer + an ephemeral sync server.</text>
+</svg>

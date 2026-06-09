@@ -1,0 +1,5 @@
+---
+source: crates/quarto-markdown-pandoc/tests/test.rs
+expression: output
+---
+[ BulletList [[Header 1 ( "section-1" , [] , [] ) [Str "Section", Space, Str "1"]], [Plain [Str "second", Space, Str "item"]]] ]

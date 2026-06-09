@@ -37,35 +37,44 @@
 //! ```
 
 pub mod artifact;
+pub mod attribution;
 pub mod crossref;
 pub mod dependency;
+pub mod document_profile;
 pub mod engine;
 pub mod error;
 pub mod extension;
 pub mod filter_resolve;
 pub mod format;
+pub mod get_config;
+pub mod output_sink;
 pub mod pipeline;
 pub mod project;
+pub mod project_resources;
 pub mod render;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod render_to_file;
+pub mod resource_resolver;
 pub mod resources;
+pub mod revealjs;
 pub mod stage;
 pub mod template;
+pub mod theme_diagnostic;
 pub mod transform;
 pub mod transforms;
 
 // Re-export commonly used types
-pub use artifact::{Artifact, ArtifactStore};
+pub use artifact::{Artifact, ArtifactMergeConflict, ArtifactScope, ArtifactStore, MergeStats};
 pub use error::{ParseError, QuartoError, Result};
 pub use format::{Format, FormatIdentifier};
 pub use pipeline::{
-    DEFAULT_CSS_ARTIFACT_PATH, HtmlRenderConfig, RenderOutput, build_html_pipeline,
-    build_html_pipeline_stages, build_html_pipeline_with_stages, build_wasm_html_pipeline,
-    render_qmd_to_html,
+    DEFAULT_CSS_ARTIFACT_PATH, HtmlRenderConfig, PreviewAstOutput, RenderOutput,
+    build_html_pipeline, build_html_pipeline_stages, build_html_pipeline_with_stages,
+    build_wasm_html_pipeline, render_qmd_to_html, render_qmd_to_preview_ast,
 };
-pub use project::{DocumentInfo, ProjectConfig, ProjectContext, ProjectType};
+pub use project::{DocumentInfo, ProjectConfig, ProjectContext, ProjectKind};
 pub use render::{BinaryDependencies, RenderContext, RenderOptions, RenderResult};
+pub use resource_resolver::ResourceResolverContext;
 pub use transform::{AstTransform, TransformPipeline};
 pub use transforms::{
     CalloutResolveTransform, CalloutTransform, MetadataNormalizeTransform,

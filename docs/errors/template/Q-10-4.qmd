@@ -1,0 +1,44 @@
+---
+title: "Recursive Partial"
+description: "A `$partial(name)$` reference ultimately includes itself, forming a cycle."
+code: Q-10-4
+subsystem: template
+status: stub
+since: "99.9.9"
+categories:
+  - template
+---
+
+# `Q-10-4` — Recursive Partial
+
+> A `$partial(name)$` reference ultimately includes itself,
+> forming a cycle.
+
+## What this means
+
+Pandoc-flavored templates can use partials, and a partial may
+itself include other partials. The template engine builds the
+include graph at compile time and requires it to be acyclic —
+a partial that depends on itself would expand forever. This
+error fires when a cycle is detected.
+
+## Why this happens
+
+Two common causes:
+
+- **Self-inclusion**, often introduced by an editing mistake:
+  a partial includes itself.
+- **A transitive cycle**: partial A includes B, B includes C,
+  C includes A. Often the result of a refactor that split one
+  partial into several.
+
+## How to fix
+
+Break the cycle. Inline one of the partials at the edge of the
+cycle, or restructure so no partial ultimately depends on
+itself.
+
+## Related
+
+- `Q-10-3` — partial not found: a different partial-resolution
+  failure mode.

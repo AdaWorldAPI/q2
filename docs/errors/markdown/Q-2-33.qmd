@@ -1,0 +1,48 @@
+---
+title: "Spaces in Link Targets"
+description: "A link or image URL contains a literal space; URLs must encode spaces as `%20`."
+code: Q-2-33
+subsystem: markdown
+status: stub
+since: "99.9.9"
+categories:
+  - markdown
+---
+
+# `Q-2-33` — Spaces in Link Targets
+
+> A link or image URL contains a literal space; URLs must encode
+> spaces as `%20`.
+
+## What this means
+
+The URL portion of a link or image — the part inside `(...)` —
+cannot contain literal spaces. The standard URL-encoding for a
+space is `%20`; an unencoded space terminates the URL prematurely
+and confuses the parser.
+
+## Why this happens
+
+Almost always a filename or path with a space character (common
+on macOS and Windows):
+
+```markdown
+![](image file.png)
+```
+
+## How to fix
+
+Replace each space with `%20`:
+
+```markdown
+![](image%20file.png)
+```
+
+Better still, rename the file so it has no spaces — for example
+`image-file.png` or `image_file.png`. URL-encoding works, but
+spaces in filenames cause friction in many other tools too.
+
+## Related
+
+- [`Q-2-31`](Q-2-31.qmd) — inline code execution inside URLs:
+  another restriction on link destination contents.

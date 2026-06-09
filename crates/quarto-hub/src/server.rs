@@ -141,6 +141,129 @@ fn unauthorized() -> (StatusCode, Json<serde_json::Value>) {
     )
 }
 
+/// Source the credential was attached on. Cookie-authenticated
+/// requests still require CSRF + WS-Origin checks (browsers attach
+/// cookies automatically); Bearer-authenticated requests come from
+/// non-browser clients (hub-mcp) which are not subject to either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialKind {
+    Cookie,
+    Bearer,
+}
+
+impl CredentialKind {
+    fn label(self) -> &'static str {
+        match self {
+            CredentialKind::Cookie => "cookie",
+            CredentialKind::Bearer => "bearer",
+        }
+    }
+}
+
+/// A request's auth credential, normalized to the JWT it carries.
+#[derive(Debug, Clone)]
+pub enum Credential {
+    Cookie(String),
+    Bearer(String),
+}
+
+impl Credential {
+    pub fn token(&self) -> &str {
+        match self {
+            Credential::Cookie(t) | Credential::Bearer(t) => t,
+        }
+    }
+    pub fn kind(&self) -> CredentialKind {
+        match self {
+            Credential::Cookie(_) => CredentialKind::Cookie,
+            Credential::Bearer(_) => CredentialKind::Bearer,
+        }
+    }
+}
+
+/// Failure mode for [`extract_credential`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialError {
+    /// Both `Cookie` and `Authorization: Bearer` were attached. We
+    /// reject with HTTP 400 + body `{"error":"conflicting_credentials"}`
+    /// rather than picking one — the auth-confusion CVE shape this
+    /// rule blocks is what drove Phase 2 of the device-flow plan.
+    Conflicting,
+    /// `Authorization` header present but the scheme is not `Bearer`
+    /// (we explicitly reject `Basic`, `Token`, etc.). 401, never 400.
+    UnsupportedScheme,
+}
+
+/// Extract a Cookie/Bearer credential from request headers.
+///
+/// Returns:
+///   * `Ok(Some(Credential::Cookie))` — cookie present, no Authorization.
+///   * `Ok(Some(Credential::Bearer))` — Authorization: Bearer present,
+///     no cookie.
+///   * `Ok(None)` — neither attached (anonymous request).
+///   * `Err(Conflicting)` — both attached. Caller maps to 400.
+///   * `Err(UnsupportedScheme)` — non-Bearer Authorization. Caller maps
+///     to 401.
+///
+/// The dual-credential 400 rule MUST run before CSRF / WS-Origin
+/// checks: a request that smuggles a stolen Bearer with a same-origin
+/// cookie must not be silently routed through one credential path or
+/// the other.
+pub fn extract_credential(
+    headers: &HeaderMap,
+) -> std::result::Result<Option<Credential>, CredentialError> {
+    let cookie = cookie_token(headers);
+    let auth_header = headers.get(http::header::AUTHORIZATION);
+
+    let bearer = match auth_header {
+        Some(value) => {
+            let raw = value
+                .to_str()
+                .map_err(|_| CredentialError::UnsupportedScheme)?;
+            let trimmed = raw.trim();
+            // `Bearer <token>` (case-insensitive scheme per RFC 6750 §2.1).
+            if let Some(token) = trimmed
+                .strip_prefix("Bearer ")
+                .or_else(|| trimmed.strip_prefix("bearer "))
+            {
+                let token = token.trim();
+                if token.is_empty() {
+                    return Err(CredentialError::UnsupportedScheme);
+                }
+                Some(token.to_string())
+            } else {
+                return Err(CredentialError::UnsupportedScheme);
+            }
+        }
+        None => None,
+    };
+
+    match (cookie, bearer) {
+        (Some(_), Some(_)) => Err(CredentialError::Conflicting),
+        (Some(c), None) => Ok(Some(Credential::Cookie(c))),
+        (None, Some(b)) => Ok(Some(Credential::Bearer(b))),
+        (None, None) => Ok(None),
+    }
+}
+
+/// JSON error body for dual-credential rejection. Stable shape — the
+/// `error` discriminator is consumed by hub-mcp's connection manager
+/// to detect the auth-confusion case without parsing free-form text.
+fn conflicting_credentials() -> (StatusCode, Json<serde_json::Value>) {
+    tracing::event!(
+        target: "quarto_hub::audit",
+        tracing::Level::WARN,
+        action = "auth_fail",
+        outcome = "deny",
+        credential_kind = "bearer",
+        detail = "conflicting_credentials",
+    );
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "conflicting_credentials"})),
+    )
+}
+
 /// Extract the auth token from the `Cookie` header.
 ///
 /// Uses the `cookie` crate parser for RFC 6265 compliance (handles
@@ -259,12 +382,23 @@ impl<B> tower_http::trace::MakeSpan<B> for RedactedMakeSpan {
     }
 }
 
-/// Axum extractor that validates the auth cookie before the handler runs.
+/// Axum extractor that validates the request's auth credential before
+/// the handler runs.
 ///
-/// If auth is disabled, extraction always succeeds. If auth is enabled,
-/// the `quarto_hub_token` cookie must be present and contain a valid JWT.
-/// Returns 401 with a JSON body on failure.
-struct Authenticated;
+/// Accepts either an `Authorization: Bearer <jwt>` header (used by
+/// quarto-hub-mcp) or the `quarto_hub_token` HttpOnly cookie (used by
+/// the SPA). A request that carries BOTH is rejected with HTTP 400 —
+/// see [`extract_credential`]. The `credential_kind` field on this
+/// extractor is what mutating handlers gate CSRF / WS-Origin checks
+/// on: cookie auth still requires them; Bearer auth does not.
+///
+/// When auth is disabled (`auth_config: None`), the extractor still
+/// returns successfully so handlers don't need separate code paths —
+/// the credential kind defaults to `Cookie` (preserving the existing
+/// CSRF-applies-always semantic for no-auth deployments).
+pub struct Authenticated {
+    pub credential_kind: CredentialKind,
+}
 
 impl<S> FromRequestParts<S> for Authenticated
 where
@@ -278,11 +412,44 @@ where
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
         let ctx = SharedContext::from_ref(state);
-        let token = cookie_token(&parts.headers);
-        ctx.authenticate(token.as_deref())
+        let credential = match extract_credential(&parts.headers) {
+            Ok(c) => c,
+            Err(CredentialError::Conflicting) => {
+                return Err(conflicting_credentials());
+            }
+            Err(CredentialError::UnsupportedScheme) => {
+                return Err(unauthorized());
+            }
+        };
+
+        // Auth disabled — no credential to validate, default kind to Cookie
+        // so CSRF still applies (no behavior change for no-auth setups).
+        if ctx.auth_config().is_none() {
+            return Ok(Authenticated {
+                credential_kind: CredentialKind::Cookie,
+            });
+        }
+
+        let credential = credential.ok_or_else(unauthorized)?;
+        let kind = credential.kind();
+        // Preserve the original status code: `authenticate_claims_for_kind`
+        // returns 401 for invalid/missing credentials but 403 for valid
+        // credentials whose user is not allowlisted. Collapsing both
+        // to 401 loses the distinction that the plan's allowlist-parity
+        // tests assert.
+        ctx.authenticate_claims_for_kind(Some(credential.token()), kind.label())
             .await
-            .map_err(|_| unauthorized())?;
-        Ok(Authenticated)
+            .map_err(|status| {
+                let body = if status == StatusCode::FORBIDDEN {
+                    serde_json::json!({"error": "forbidden"})
+                } else {
+                    serde_json::json!({"error": "unauthorized"})
+                };
+                (status, Json(body))
+            })?;
+        Ok(Authenticated {
+            credential_kind: kind,
+        })
     }
 }
 
@@ -388,7 +555,7 @@ async fn get_document(
 /// This is a simple endpoint that puts a key-value pair into the document.
 /// In a real implementation, the document schema would be more structured.
 async fn update_document(
-    _auth: Authenticated,
+    auth: Authenticated,
     headers: HeaderMap,
     State(ctx): State<SharedContext>,
     Path(doc_id_str): Path<String>,
@@ -396,14 +563,19 @@ async fn update_document(
 ) -> impl IntoResponse {
     use automerge::{ROOT, transaction::Transactable};
 
-    if let Err(status) = check_csrf(&headers) {
-        return (
-            status,
-            Json(ErrorResponse {
-                error: "csrf check failed".to_string(),
-            }),
-        )
-            .into_response();
+    // CSRF protection applies to cookie-authenticated requests only.
+    // Browsers attach cookies automatically across origins; Bearer
+    // tokens are explicit, so cross-site form posts can't smuggle them.
+    if auth.credential_kind == CredentialKind::Cookie {
+        if let Err(status) = check_csrf(&headers) {
+            return (
+                status,
+                Json(ErrorResponse {
+                    error: "csrf check failed".to_string(),
+                }),
+            )
+                .into_response();
+        }
     }
 
     // Validate the document ID format
@@ -465,55 +637,78 @@ async fn update_document(
     }
 }
 
-/// Google-frontend-specific OAuth2 redirect callback form data.
+/// Form data for `POST /auth/callback`.
 ///
-/// When `GoogleLogin` uses `ux_mode="redirect"`, Google POSTs the credential
-/// JWT and a CSRF token to the `login_uri` after the user authenticates.
-///
-/// This form structure is specific to Google's Sign-In library. Non-Google
-/// OIDC frontends should use `POST /auth/refresh` instead.
+/// Providers that use `response_mode=form_post` (or equivalent) POST a
+/// credential JWT plus a provider-specific CSRF field. Fields are optional at
+/// the struct level; `validate_callback_csrf` enforces which ones are required
+/// for the active provider.
 #[derive(Deserialize)]
 struct AuthCallbackForm {
     credential: String,
-    g_csrf_token: String,
+    /// Google double-submit CSRF token (GIS `ux_mode=redirect`). Present only
+    /// for Google providers.
+    g_csrf_token: Option<String>,
 }
 
-/// Handle Google-frontend-specific OAuth2 redirect callback.
+/// Validate the CSRF token for `POST /auth/callback`.
 ///
-/// Receives the credential JWT from Google's POST, validates the CSRF token
-/// and the JWT itself, then sets an HttpOnly cookie and redirects to `/`.
+/// Dispatches to the provider-specific check determined by `mode`:
 ///
-/// Validating the JWT here (not just in subsequent API calls) prevents
-/// setting a cookie with a bogus credential.
+/// - `GoogleDoubleSubmit`: the `g_csrf_token` form value must equal the
+///   `g_csrf_token` cookie set by GIS on the hub origin before navigation.
+/// - `OidcState`: not yet implemented; returns `false` so the callback fails
+///   safe until the pre-flight endpoint and signing key are in place.
+fn validate_callback_csrf(
+    mode: &auth::CallbackCsrfMode,
+    form: &AuthCallbackForm,
+    headers: &HeaderMap,
+) -> bool {
+    match mode {
+        auth::CallbackCsrfMode::GoogleDoubleSubmit => {
+            let Some(token) = form.g_csrf_token.as_deref().filter(|t| !t.is_empty()) else {
+                return false;
+            };
+            let cookie_csrf = headers
+                .get("cookie")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|cookies| {
+                    cookies
+                        .split(';')
+                        .filter_map(|s| cookie::Cookie::parse(s.trim()).ok())
+                        .find(|c| c.name() == "g_csrf_token")
+                        .map(|c| c.value().to_owned())
+                });
+            cookie_csrf.as_deref() == Some(token)
+        }
+        auth::CallbackCsrfMode::OidcState { .. } => {
+            // Stateful validation requires a hub-set signed cookie from a
+            // pre-flight endpoint that does not yet exist. Fail safe.
+            false
+        }
+    }
+}
+
+/// Handle `POST /auth/callback` — credential delivery via form POST.
 ///
-/// **Google-specific**: This endpoint is tightly coupled to Google's Sign-In
-/// library (which controls the POST body and `g_csrf_token` cookie). Non-Google
-/// OIDC frontends should use `POST /auth/refresh` instead — it accepts a JWT
-/// via JSON POST, validates through the full JWKS/issuer/allowlist pipeline,
-/// and is protected by the standard `X-Requested-With` CSRF check.
+/// Registered for providers where [`AuthConfig::uses_form_post_callback()`]
+/// returns `true`. Validates the provider-specific CSRF token, then validates
+/// the credential JWT and sets an HttpOnly cookie.
 ///
-/// **CSRF**: This endpoint is excluded from the `X-Requested-With` CSRF
-/// check because it receives a cross-origin POST from Google's servers.
-/// Google's own `g_csrf_token` cookie provides CSRF protection instead.
+/// **CSRF**: excluded from the `X-Requested-With` check because the POST
+/// originates from the IdP (cross-origin). Provider-specific CSRF is handled
+/// by [`validate_callback_csrf`] instead.
 async fn auth_callback(
     State(ctx): State<SharedContext>,
     headers: HeaderMap,
     Form(form): Form<AuthCallbackForm>,
 ) -> impl IntoResponse {
-    // Validate CSRF: g_csrf_token cookie must match the form value.
-    // Google sets this cookie and includes the same value in the POST body.
-    let cookie_csrf = headers
-        .get("cookie")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|cookies| {
-            cookies
-                .split(';')
-                .filter_map(|s| cookie::Cookie::parse(s.trim()).ok())
-                .find(|c| c.name() == "g_csrf_token")
-                .map(|c| c.value().to_owned())
-        });
+    let mode = ctx
+        .auth_config()
+        .map(|c| c.callback_csrf_mode())
+        .unwrap_or(auth::CallbackCsrfMode::GoogleDoubleSubmit);
 
-    if form.g_csrf_token.is_empty() || cookie_csrf.as_deref() != Some(form.g_csrf_token.as_str()) {
+    if !validate_callback_csrf(&mode, &form, &headers) {
         return Redirect::to("/?auth_error").into_response();
     }
 
@@ -609,13 +804,18 @@ async fn auth_actor(
 /// Clear the auth cookie.
 ///
 /// Sets `Max-Age=0` so the browser deletes the cookie immediately.
-/// Requires `X-Requested-With: XMLHttpRequest` for CSRF protection.
+/// Requires `X-Requested-With: XMLHttpRequest` for CSRF protection
+/// when the caller authenticated via cookie. Bearer callers (hub-mcp)
+/// are not subject to CSRF — the header is a no-op cookie-clear for
+/// them, kept symmetric for tooling.
 async fn auth_logout(
-    _auth: Authenticated,
+    auth: Authenticated,
     headers: HeaderMap,
 ) -> std::result::Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    check_csrf(&headers)
-        .map_err(|s| (s, Json(serde_json::json!({"error": "csrf check failed"}))))?;
+    if auth.credential_kind == CredentialKind::Cookie {
+        check_csrf(&headers)
+            .map_err(|s| (s, Json(serde_json::json!({"error": "csrf check failed"}))))?;
+    }
 
     let cookie = build_clear_cookie();
     let mut response = Json(serde_json::json!({"status": "ok"})).into_response();
@@ -641,8 +841,23 @@ async fn auth_refresh(
     State(ctx): State<SharedContext>,
     Json(body): Json<RefreshRequest>,
 ) -> std::result::Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    check_csrf(&headers)
-        .map_err(|s| (s, Json(serde_json::json!({"error": "csrf check failed"}))))?;
+    // Dual-credential 400 wins over CSRF — same precedence as the
+    // `Authenticated` extractor. Without this, a request carrying both
+    // a cookie and a Bearer would bypass the conflicting-credentials
+    // rule on this endpoint (the cookie path runs without `Authenticated`).
+    let bearer_present = match extract_credential(&headers) {
+        Ok(Some(c)) => matches!(c.kind(), CredentialKind::Bearer),
+        Ok(None) => false,
+        Err(CredentialError::Conflicting) => return Err(conflicting_credentials()),
+        // Non-Bearer Authorization scheme — let the request through so the
+        // body's credential is what gets validated; CSRF still applies.
+        Err(CredentialError::UnsupportedScheme) => false,
+    };
+
+    if !bearer_present {
+        check_csrf(&headers)
+            .map_err(|s| (s, Json(serde_json::json!({"error": "csrf check failed"}))))?;
+    }
 
     // Validate the NEW credential (not the existing cookie — it may be expired).
     ctx.authenticate(Some(&body.credential))
@@ -665,9 +880,11 @@ async fn not_found() -> impl IntoResponse {
 
 /// WebSocket upgrade handler for automerge sync.
 ///
-/// Clients connect here to sync documents in real-time. Auth is via the
-/// `quarto_hub_token` HttpOnly cookie (sent automatically by the browser).
-/// The `Origin` header is checked to prevent cross-origin WebSocket hijacking.
+/// Clients connect here to sync documents in real-time. Auth is via
+/// either the `quarto_hub_token` HttpOnly cookie (SPA) or
+/// `Authorization: Bearer <jwt>` header (hub-mcp). The `Origin` header
+/// is checked for the cookie path only — Bearer requests come from
+/// non-browser clients that cannot be cross-origin-hijacked.
 ///
 /// **Security note**: the token is validated once at upgrade time. After
 /// that, the connection lives until the client disconnects. If a user is
@@ -680,25 +897,50 @@ async fn ws_handler(
     State(ctx): State<SharedContext>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
-) -> std::result::Result<impl IntoResponse, StatusCode> {
+) -> axum::response::Response {
     let email = if ctx.auth_config().is_some() {
-        // In dev mode (allow_insecure_auth), the SPA runs on a different
-        // port (Vite :5173) than the hub (:3000). The Vite dev server
-        // proxies /ws to the hub so cookies are forwarded, but the Origin
-        // header still shows the Vite origin. Skip only the Origin check;
-        // cookie auth is still enforced.
-        if !ctx.allow_insecure_auth() {
-            check_ws_origin(&headers)?;
+        let credential = match extract_credential(&headers) {
+            Ok(c) => c,
+            Err(CredentialError::Conflicting) => {
+                return conflicting_credentials().into_response();
+            }
+            Err(CredentialError::UnsupportedScheme) => {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+        };
+
+        let credential = match credential {
+            Some(c) => c,
+            None => return StatusCode::UNAUTHORIZED.into_response(),
+        };
+
+        // Cookie auth applies the Origin check to block cross-origin
+        // WebSocket hijacking. In dev mode (allow_insecure_auth), the
+        // SPA runs on a different port (Vite :5173) than the hub
+        // (:3000) and the Vite dev server proxies /ws with the
+        // original Origin — we skip the check there so dev works.
+        // Bearer requests come from non-browser MCP clients and
+        // cannot be hijacked through Origin, so we skip the check
+        // unconditionally for them.
+        if credential.kind() == CredentialKind::Cookie && !ctx.allow_insecure_auth() {
+            if let Err(status) = check_ws_origin(&headers) {
+                return status.into_response();
+            }
         }
-        let claims = ctx
-            .authenticate_claims(cookie_token(&headers).as_deref())
-            .await?;
-        Some(claims.email)
+
+        match ctx
+            .authenticate_claims_for_kind(Some(credential.token()), credential.kind().label())
+            .await
+        {
+            Ok(claims) => Some(claims.email),
+            Err(status) => return status.into_response(),
+        }
     } else {
         None
     };
 
-    Ok(ws.on_upgrade(move |socket| handle_websocket(socket, ctx, email)))
+    ws.on_upgrade(move |socket| handle_websocket(socket, ctx, email))
+        .into_response()
 }
 
 /// Handle an upgraded WebSocket connection.
@@ -731,7 +973,7 @@ async fn handle_websocket(socket: WebSocket, ctx: SharedContext, email: Option<S
                         }
                         connected_peer_id = Some(peer_info.peer_id);
 
-                        info!(
+                        debug!(
                             peer_id = peer_id_str,
                             storage_id,
                             email = email.as_deref().unwrap_or("-"),
@@ -747,7 +989,7 @@ async fn handle_websocket(socket: WebSocket, ctx: SharedContext, email: Option<S
                             ctx.peer_emails().lock().unwrap().remove(peer_id);
                         }
 
-                        info!(
+                        debug!(
                             email = email.as_deref().unwrap_or("-"),
                             reason = ?reason,
                             "WebSocket client disconnected"
@@ -763,16 +1005,38 @@ async fn handle_websocket(socket: WebSocket, ctx: SharedContext, email: Option<S
     }
 }
 
-/// Build the axum router. Auth state (decoder + JWKS refresh handle) is
-/// initialized here and owned by HubContext for the server's lifetime.
-async fn build_router(ctx: SharedContext) -> Result<Router> {
+/// Build the hub server's axum router. Composable: callers (e.g.
+/// `quarto-preview`) can chain `.fallback(...)` to add SPA serving on
+/// top, as long as `HubConfig::register_root_ws` is `false` so `/` is
+/// available.
+///
+/// Auth state (decoder + JWKS refresh handle) is initialized here and
+/// owned by HubContext for the server's lifetime.
+pub async fn build_router(ctx: SharedContext) -> Result<Router> {
+    let router = build_router_with_state(ctx.clone()).await?;
+    Ok(router.with_state(ctx))
+}
+
+/// Same as [`build_router`] but returns the router with its state
+/// type still unbound (`Router<SharedContext>`). Callers can register
+/// additional routes that extract `State<SharedContext>` before
+/// calling `.with_state(ctx)` to finalize.
+pub async fn build_router_with_state(ctx: SharedContext) -> Result<Router<SharedContext>> {
+    // Skip OIDC discovery when the caller already injected an
+    // `AuthState` directly. Integration tests use this seam so they
+    // can drive the hub against an `http://localhost` mock provider —
+    // production discovery enforces HTTPS in `validate_discovery_document`.
     if let Some(config) = ctx.auth_config() {
-        let auth_state = auth::build_auth_state(config).await.map_err(|e| {
-            crate::error::Error::Server(format!("Failed to initialize OIDC JWKS decoder: {e}"))
-        })?;
-        ctx.set_auth_state(auth_state)
-            .map_err(|e| crate::error::Error::Server(e.to_string()))?;
+        if !ctx.auth_state_initialized() {
+            let auth_state = auth::build_auth_state(config).await.map_err(|e| {
+                crate::error::Error::Server(format!("Failed to initialize OIDC JWKS decoder: {e}"))
+            })?;
+            ctx.set_auth_state(auth_state)
+                .map_err(|e| crate::error::Error::Server(e.to_string()))?;
+        }
     }
+
+    let register_root_ws = ctx.register_root_ws();
 
     let mut router = Router::new()
         .route("/health", get(health))
@@ -787,17 +1051,25 @@ async fn build_router(ctx: SharedContext) -> Result<Router> {
         .route("/auth/actor", get(auth_actor))
         .route("/auth/logout", post(auth_logout))
         .route("/auth/refresh", post(auth_refresh))
-        // WebSocket endpoint for automerge sync
-        // Root path "/" is the standard location used by sync.automerge.org
-        // "/ws" is kept for backward compatibility
-        .route("/", get(ws_handler))
+        // WebSocket endpoint for automerge sync at `/ws` (hub-client +
+        // q2-preview SPA's canonical path).
         .route("/ws", get(ws_handler))
         .fallback(not_found)
         .layer(TraceLayer::new_for_http().make_span_with(RedactedMakeSpan));
 
-    // Google-specific redirect callback: only registered when the issuer is Google.
-    // Non-Google OIDC frontends should use POST /auth/refresh instead.
-    if ctx.auth_config().is_some_and(|c| c.is_google_issuer()) {
+    if register_root_ws {
+        // Root path "/" is the additional standard location used by
+        // sync.automerge.org. `quarto preview` opts out (its embedded
+        // SPA owns `/`) by setting `register_root_ws: false`.
+        router = router.route("/", get(ws_handler));
+    }
+
+    // Register the form-POST callback route for providers that use it.
+    // Add new providers by returning true from AuthConfig::uses_form_post_callback().
+    if ctx
+        .auth_config()
+        .is_some_and(|c| c.uses_form_post_callback())
+    {
         router = router.route("/auth/callback", post(auth_callback));
     }
 
@@ -812,7 +1084,7 @@ async fn build_router(ctx: SharedContext) -> Result<Router> {
         ));
     }
 
-    Ok(router.with_state(ctx))
+    Ok(router)
 }
 
 /// Run the hub server.
@@ -824,20 +1096,104 @@ async fn build_router(ctx: SharedContext) -> Result<Router> {
 /// If `sync_interval_secs` is configured, a background task will periodically
 /// sync all documents to the filesystem for crash resilience.
 pub async fn run_server(storage: StorageManager, config: HubConfig) -> Result<()> {
+    run_server_with(storage, config, None::<NoopExtend>, None, None).await
+}
+
+/// Convenience alias so callers can pass `None` without spelling out a
+/// concrete `FnOnce` type for the `extend_router` parameter.
+type NoopExtend = fn(Router<SharedContext>) -> Router<SharedContext>;
+
+/// Callback that fires once `HubContext::new` finishes (samod repo
+/// initialized, index loaded, initial filesystem sync complete) and
+/// *before* the HTTP listener binds. Receives a clone of the Arc so
+/// the caller can stash it elsewhere or spawn background tasks
+/// against it.
+///
+/// Used by `quarto-preview` to drive Phase C engine-capture recording
+/// from the q2 preview server's startup path without coupling
+/// `quarto-hub` to the engine layer.
+pub type OnReadyCallback =
+    Box<dyn FnOnce(std::sync::Arc<crate::context::HubContext>) + Send + 'static>;
+
+/// Callback that fires once for every file change observed by the
+/// in-process file watcher, *after* the file's bytes have synced
+/// into samod (`HubContext::sync_file` succeeded). Receives a clone
+/// of the context and the project-relative path that changed (the
+/// same path keying the IndexDocument's `files` and `captures`
+/// maps).
+///
+/// Used by `quarto-preview` (Phase C.2) to drive staleness
+/// recomputation against the capture sidecar without coupling
+/// `quarto-hub` to the engine layer. `Fn` (not `FnOnce`) because the
+/// callback fires once per change event; `Send + Sync` because the
+/// watcher task may spawn handlers on other threads.
+pub type OnFileChangedCallback = std::sync::Arc<
+    dyn Fn(std::sync::Arc<crate::context::HubContext>, std::path::PathBuf) + Send + Sync + 'static,
+>;
+
+/// Run the hub server, optionally extending its router before serving.
+///
+/// Same lifecycle as [`run_server`] (signal handling, periodic sync,
+/// file watcher, graceful shutdown), with the option for the caller to
+/// transform the built router *after* `build_router` and *before*
+/// `axum::serve`. This is the seam `quarto-preview` uses to layer its
+/// SPA fallback (`router.fallback(spa_handler)`) on top of the hub's
+/// API + ws routes.
+///
+/// `on_ready`, when provided, is invoked once with an `Arc<HubContext>`
+/// after the context is constructed and its initial filesystem sync
+/// has completed, but before the listener binds. The callback runs
+/// synchronously on the calling task; if it needs to do work that
+/// shouldn't block server startup (engine execution, large I/O), it
+/// should `tokio::spawn` an internal task. Errors inside the callback
+/// are the callback's responsibility — `run_server_with` does not
+/// observe its return value.
+///
+/// The caller must set `HubConfig::register_root_ws` to `false` when
+/// the extension claims `/`; otherwise axum will panic on the
+/// duplicate route.
+pub async fn run_server_with<F>(
+    storage: StorageManager,
+    config: HubConfig,
+    extend_router: Option<F>,
+    on_ready: Option<OnReadyCallback>,
+    on_file_changed: Option<OnFileChangedCallback>,
+) -> Result<()>
+where
+    F: FnOnce(Router<SharedContext>) -> Router<SharedContext> + Send,
+{
     let addr = format!("{}:{}", config.host, config.port);
     let sync_interval = config.sync_interval_secs;
     let watch_enabled = config.watch_enabled;
     let watch_debounce_ms = config.watch_debounce_ms;
+    let watch_filter = config.watch_filter;
+    let watch_single_file = config.single_file.clone();
     let project_root = storage.project_root().map(|p| p.to_path_buf());
     let has_project = project_root.is_some();
 
     // HubContext::new is now async (initializes samod repo and performs initial sync)
     let ctx = Arc::new(HubContext::new(storage, config).await?);
+
+    // Fire the on-ready callback (if any) after initial sync, before
+    // binding the listener. Callback can clone the Arc and spawn
+    // background tasks against it; we don't observe its return.
+    if let Some(callback) = on_ready {
+        callback(ctx.clone());
+    }
+
     let ctx_for_sync = ctx.clone();
     let ctx_for_watch = ctx.clone();
     let ctx_for_shutdown = ctx.clone();
 
-    let router = build_router(ctx).await?;
+    // Build the hub router *before* state binding so extensions can
+    // register routes that consume `State<SharedContext>`. After
+    // extensions land we bind state and the router becomes
+    // `Router<()>`, ready for axum::serve.
+    let mut router = build_router_with_state(ctx.clone()).await?;
+    if let Some(extend) = extend_router {
+        router = extend(router);
+    }
+    let router = router.with_state(ctx);
 
     let listener = TcpListener::bind(&addr).await?;
     if has_project {
@@ -876,14 +1232,21 @@ pub async fn run_server(storage: StorageManager, config: HubConfig) -> Result<()
     let watcher_handle = if has_project && watch_enabled {
         let project_root = project_root.expect("has_project is true");
         let shutdown_rx = shutdown_rx.clone();
+        // bd-tnm3k: when single-file mode is set, the watcher needs
+        // an absolute target path. The project_root is the file's
+        // parent directory, so `project_root.join(rel)` is the file.
+        let single_file_abs = watch_single_file.as_ref().map(|rel| project_root.join(rel));
         let watch_config = WatchConfig {
             debounce_ms: watch_debounce_ms,
+            filter: watch_filter,
+            single_file: single_file_abs,
         };
         match FileWatcher::new(&project_root, watch_config) {
             Ok(watcher) => {
                 info!("Starting filesystem watcher");
+                let on_change = on_file_changed.clone();
                 Some(tokio::spawn(async move {
-                    run_file_watcher(ctx_for_watch, watcher, shutdown_rx).await;
+                    run_file_watcher(ctx_for_watch, watcher, shutdown_rx, on_change).await;
                 }))
             }
             Err(e) => {
@@ -954,8 +1317,8 @@ async fn run_periodic_sync(
             _ = interval.tick() => {
                 debug!("Running periodic filesystem sync...");
                 let result = ctx.sync_all().await;
-                if result.total_synced() > 0 || result.has_errors() {
-                    info!(
+                if result.has_changes() || result.has_errors() {
+                    debug!(
                         synced = result.total_synced(),
                         no_changes = result.no_changes,
                         automerge_changed = result.automerge_changed,
@@ -986,6 +1349,7 @@ async fn run_file_watcher(
     ctx: Arc<HubContext>,
     mut watcher: FileWatcher,
     mut shutdown_rx: watch::Receiver<bool>,
+    on_file_changed: Option<OnFileChangedCallback>,
 ) {
     loop {
         tokio::select! {
@@ -1000,6 +1364,14 @@ async fn run_file_watcher(
                                     result = ?result,
                                     "File synced successfully"
                                 );
+                                // Phase C.2 hook: fire post-sync callback so
+                                // engine-aware consumers (quarto-preview) can
+                                // recompute capture staleness. The callback
+                                // takes the absolute path on disk; it owns
+                                // the conversion to the project-relative key.
+                                if let Some(callback) = on_file_changed.as_ref() {
+                                    callback(ctx.clone(), path.clone());
+                                }
                             }
                             Ok(None) => {
                                 debug!(path = %path.display(), "File not in index, skipping");
@@ -1216,6 +1588,7 @@ mod tests {
     fn google_auth_config() -> auth::AuthConfig {
         auth::AuthConfig::new(
             "test-client-id".to_string(),
+            Vec::new(),
             "https://accounts.google.com".to_string(),
             vec!["lh3.googleusercontent.com".to_string()],
             None,
@@ -1236,6 +1609,7 @@ mod tests {
     fn csp_custom_issuer() {
         let config = auth::AuthConfig::new(
             "test".to_string(),
+            Vec::new(),
             "https://login.microsoftonline.com/tenant-id/v2.0".to_string(),
             vec!["graph.microsoft.com".to_string()],
             None,
@@ -1252,6 +1626,7 @@ mod tests {
     fn csp_custom_image_domains() {
         let config = auth::AuthConfig::new(
             "test".to_string(),
+            Vec::new(),
             "https://accounts.google.com".to_string(),
             vec![
                 "avatars.example.com".to_string(),
@@ -1270,6 +1645,7 @@ mod tests {
     fn csp_default_image_domain_when_empty() {
         let config = auth::AuthConfig::new(
             "test".to_string(),
+            Vec::new(),
             "https://accounts.google.com".to_string(),
             vec![],
             None,
@@ -1312,17 +1688,117 @@ mod tests {
     // ── AuthCallbackForm ──────────────────────────────────────────
 
     #[test]
-    fn auth_callback_form_deserializes() {
-        // AuthCallbackForm is used by axum's Form extractor which parses
-        // URL-encoded POST bodies. Verify it has the expected fields by
-        // deserializing from JSON (same serde derive).
+    fn auth_callback_form_google_deserializes() {
         let form: AuthCallbackForm = serde_json::from_value(serde_json::json!({
             "credential": "eyJhbGciOiJSUzI1NiJ9.test",
             "g_csrf_token": "abc123"
         }))
         .unwrap();
         assert_eq!(form.credential, "eyJhbGciOiJSUzI1NiJ9.test");
-        assert_eq!(form.g_csrf_token, "abc123");
+        assert_eq!(form.g_csrf_token.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn auth_callback_form_oidc_deserializes() {
+        // `state` is an extra field serde ignores — the struct only holds fields
+        // it actually uses. Verify credential and absent g_csrf_token.
+        let form: AuthCallbackForm = serde_json::from_value(serde_json::json!({
+            "credential": "eyJhbGciOiJSUzI1NiJ9.test",
+            "state": "random-state-value"
+        }))
+        .unwrap();
+        assert_eq!(form.credential, "eyJhbGciOiJSUzI1NiJ9.test");
+        assert!(form.g_csrf_token.is_none());
+    }
+
+    // ── validate_callback_csrf ────────────────────────────────────
+
+    fn google_csrf_form(token: &str) -> AuthCallbackForm {
+        AuthCallbackForm {
+            credential: "cred".to_string(),
+            g_csrf_token: Some(token.to_string()),
+        }
+    }
+
+    fn oidc_state_form(_state: &str) -> AuthCallbackForm {
+        AuthCallbackForm {
+            credential: "cred".to_string(),
+            g_csrf_token: None,
+        }
+    }
+
+    #[test]
+    fn google_double_submit_accepts_matching_token() {
+        let form = google_csrf_form("tok123");
+        let headers = headers_with(&[("cookie", "g_csrf_token=tok123")]);
+        assert!(validate_callback_csrf(
+            &auth::CallbackCsrfMode::GoogleDoubleSubmit,
+            &form,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn google_double_submit_rejects_mismatched_token() {
+        let form = google_csrf_form("tok123");
+        let headers = headers_with(&[("cookie", "g_csrf_token=other")]);
+        assert!(!validate_callback_csrf(
+            &auth::CallbackCsrfMode::GoogleDoubleSubmit,
+            &form,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn google_double_submit_rejects_missing_form_token() {
+        let form = AuthCallbackForm {
+            credential: "cred".to_string(),
+            g_csrf_token: None,
+        };
+        let headers = headers_with(&[("cookie", "g_csrf_token=tok123")]);
+        assert!(!validate_callback_csrf(
+            &auth::CallbackCsrfMode::GoogleDoubleSubmit,
+            &form,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn google_double_submit_rejects_empty_form_token() {
+        let form = google_csrf_form("");
+        let headers = headers_with(&[("cookie", "g_csrf_token=tok123")]);
+        assert!(!validate_callback_csrf(
+            &auth::CallbackCsrfMode::GoogleDoubleSubmit,
+            &form,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn google_double_submit_rejects_missing_cookie() {
+        let form = google_csrf_form("tok123");
+        let headers = HeaderMap::new();
+        assert!(!validate_callback_csrf(
+            &auth::CallbackCsrfMode::GoogleDoubleSubmit,
+            &form,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn oidc_state_fails_safe_until_implemented() {
+        // OidcState is a placeholder: the pre-flight endpoint and signed cookie
+        // that would make this check stateful do not exist yet. Validate that
+        // the callback always rejects rather than silently passing.
+        let form = oidc_state_form("any-state");
+        let headers = headers_with(&[("cookie", "oidc_state=any-state")]);
+        assert!(!validate_callback_csrf(
+            &auth::CallbackCsrfMode::OidcState {
+                cookie_name: "oidc_state"
+            },
+            &form,
+            &headers
+        ));
     }
 
     // ── format_peer_info ──────────────────────────────────────────

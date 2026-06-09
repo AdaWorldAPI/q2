@@ -15,6 +15,13 @@ use quarto_hub::{StorageManager, auth, context::HubConfig, default_standalone_da
 #[command(name = "hub")]
 #[command(about = "Collaborative sync server for Quarto projects")]
 struct Args {
+    /// Increase log verbosity. Repeat for more detail:
+    /// `-v` adds info, `-vv` adds debug + samod=info,
+    /// `-vvv` adds trace + samod=debug + tower_http=debug.
+    /// `RUST_LOG` overrides this flag entirely when set.
+    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count)]
+    verbose: u8,
+
     /// Watch a local Quarto project directory.
     /// When provided, the hub discovers and syncs files from this directory.
     /// When omitted, the hub runs as a standalone sync server.
@@ -100,20 +107,34 @@ struct Args {
     /// Ensure your provider verifies email ownership before trusting domain-based access.
     #[arg(long, env = "QUARTO_HUB_ALLOWED_DOMAINS", value_delimiter = ',')]
     allowed_domains: Option<Vec<String>>,
+
+    /// Additional OAuth client IDs accepted as JWT audiences alongside
+    /// `--oidc-client-id`. The primary use is sharing a hub between the
+    /// SPA (whose Google ID token's `aud = --oidc-client-id`) and
+    /// quarto-hub-mcp (whose Google device-flow ID token's `aud` is the
+    /// hub-mcp client_id registered separately as "TV and Limited Input
+    /// devices"). Comma-separated; exact matches only — no wildcards.
+    /// Plan §Phase 2 — `claude-notes/plans/2026-05-05-hub-mcp-device-flow-implementation.md`.
+    #[arg(long, env = "QUARTO_HUB_ADDITIONAL_AUDIENCES", value_delimiter = ',')]
+    additional_audiences: Vec<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
+    let args = Args::parse();
+
+    // Initialize tracing. `-v` chooses a default filter directive (see
+    // `quarto_util::verbose_to_filter`); `RUST_LOG`, when set, takes
+    // precedence and is parsed directly by `try_from_default_env`.
+    // This shares its mapping with the `q2` root command so both
+    // binaries agree on what each verbosity level means.
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "quarto_hub=info,tower_http=debug".into()),
+                .unwrap_or_else(|_| quarto_util::verbose_to_filter(args.verbose).into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
-
-    let args = Args::parse();
 
     // Initialize storage based on mode
     let mut storage = if let Some(project) = &args.project {
@@ -171,6 +192,7 @@ async fn main() -> anyhow::Result<()> {
         .map(|client_id| {
             auth::AuthConfig::new(
                 client_id,
+                args.additional_audiences,
                 args.oidc_issuer,
                 args.oidc_image_domains,
                 args.allowed_emails,
@@ -194,8 +216,11 @@ async fn main() -> anyhow::Result<()> {
         sync_interval_secs,
         watch_enabled: !args.no_watch,
         watch_debounce_ms: args.watch_debounce,
+        watch_filter: Default::default(),
+        single_file: None,
         auth_config,
         allow_insecure_auth: args.allow_insecure_auth,
+        register_root_ws: true,
     };
 
     server::run_server(storage, config).await?;

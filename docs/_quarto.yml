@@ -2,40 +2,205 @@ project:
   type: website
 
 website:
-  title: "Quarto-markdown"
+  title: "Quarto 2"
+  logo: quarto.png
   navbar:
     left:
       - href: index.qmd
         text: Home
       - about.qmd
-      - href: syntax/index.qmd
-        text: Syntax
-      - href: writers/index.qmd
-        text: Writers
-      - href: navigation.qmd
-        text: Navigation
-      - href: quarto-hub/index.qmd
-        text: Quarto Hub
-      - text: "Library Docs"
-        menu:
-          - href: ../library-docs/index.qmd
-            text: Overview
-          - text: "---"
-          - text: "Rust Libraries"
-          - href: ../library-docs/rust/source-info/index.qmd
-            text: Source Tracking
-          - text: "---"
-          - text: "TypeScript Libraries"
-          - href: ../library-docs/typescript/annotated-qmd/index.qmd
-            text: "@quarto/annotated-qmd"
+      - guide/index.qmd
+      - href: presentations/revealjs/index.qmd
+        text: Presentations
+      - href: errors/index.qmd
+        text: Errors
+  sidebar:
+    - id: guide
+      collapse-level: 1
+      contents:
+        - section: "Guide"
+          href: docs/guide/index.qmd
+    - id: presentations
+      title: "Presentations"
+      contents:
+        - section: "Reveal.js"
+          href: presentations/revealjs/index.qmd
+          contents:
+            - presentations/revealjs/index.qmd
+    - id: errors
+      title: "Error reference"
+      contents:
+        - errors/index.qmd
+        - section: "yaml"
+          contents:
+            - errors/yaml/Q-1-1.qmd
+            - errors/yaml/Q-1-10.qmd
+            - errors/yaml/Q-1-11.qmd
+            - errors/yaml/Q-1-12.qmd
+            - errors/yaml/Q-1-13.qmd
+            - errors/yaml/Q-1-14.qmd
+            - errors/yaml/Q-1-15.qmd
+            - errors/yaml/Q-1-16.qmd
+            - errors/yaml/Q-1-17.qmd
+            - errors/yaml/Q-1-18.qmd
+            - errors/yaml/Q-1-19.qmd
+            - errors/yaml/Q-1-20.qmd
+            - errors/yaml/Q-1-21.qmd
+            - errors/yaml/Q-1-22.qmd
+            - errors/yaml/Q-1-23.qmd
+            - errors/yaml/Q-1-24.qmd
+            - errors/yaml/Q-1-25.qmd
+            - errors/yaml/Q-1-26.qmd
+            - errors/yaml/Q-1-27.qmd
+            - errors/yaml/Q-1-28.qmd
+            - errors/yaml/Q-1-29.qmd
+            - errors/yaml/Q-1-99.qmd
+        - section: "markdown"
+          contents:
+            - errors/markdown/Q-2-1.qmd
+            - errors/markdown/Q-2-2.qmd
+            - errors/markdown/Q-2-3.qmd
+            - errors/markdown/Q-2-4.qmd
+            - errors/markdown/Q-2-5.qmd
+            - errors/markdown/Q-2-6.qmd
+            - errors/markdown/Q-2-7.qmd
+            - errors/markdown/Q-2-8.qmd
+            - errors/markdown/Q-2-9.qmd
+            - errors/markdown/Q-2-10.qmd
+            - errors/markdown/Q-2-11.qmd
+            - errors/markdown/Q-2-12.qmd
+            - errors/markdown/Q-2-13.qmd
+            - errors/markdown/Q-2-14.qmd
+            - errors/markdown/Q-2-15.qmd
+            - errors/markdown/Q-2-16.qmd
+            - errors/markdown/Q-2-17.qmd
+            - errors/markdown/Q-2-18.qmd
+            - errors/markdown/Q-2-19.qmd
+            - errors/markdown/Q-2-20.qmd
+            - errors/markdown/Q-2-21.qmd
+            - errors/markdown/Q-2-22.qmd
+            - errors/markdown/Q-2-23.qmd
+            - errors/markdown/Q-2-24.qmd
+            - errors/markdown/Q-2-25.qmd
+            - errors/markdown/Q-2-26.qmd
+            - errors/markdown/Q-2-27.qmd
+            - errors/markdown/Q-2-28.qmd
+            - errors/markdown/Q-2-29.qmd
+            - errors/markdown/Q-2-30.qmd
+            - errors/markdown/Q-2-31.qmd
+            - errors/markdown/Q-2-32.qmd
+            - errors/markdown/Q-2-33.qmd
+            - errors/markdown/Q-2-34.qmd
+            - errors/markdown/Q-2-35.qmd
+            - errors/markdown/Q-2-39.qmd
+        - section: "writer"
+          contents:
+            - errors/writer/Q-3-1.qmd
+            - errors/writer/Q-3-10.qmd
+            - errors/writer/Q-3-11.qmd
+            - errors/writer/Q-3-12.qmd
+            - errors/writer/Q-3-20.qmd
+            - errors/writer/Q-3-21.qmd
+            - errors/writer/Q-3-30.qmd
+            - errors/writer/Q-3-31.qmd
+            - errors/writer/Q-3-32.qmd
+            - errors/writer/Q-3-33.qmd
+            - errors/writer/Q-3-34.qmd
+            - errors/writer/Q-3-35.qmd
+            - errors/writer/Q-3-36.qmd
+            - errors/writer/Q-3-38.qmd
+            - errors/writer/Q-3-40.qmd
+            - errors/writer/Q-3-50.qmd
+            - errors/writer/Q-3-51.qmd
+            - errors/writer/Q-3-52.qmd
+            - errors/writer/Q-3-53.qmd
+            - errors/writer/Q-3-54.qmd
+            - errors/writer/Q-3-55.qmd
+        - section: "listing"
+          contents:
+            - errors/listing/Q-12-1.qmd
+            - errors/listing/Q-12-2.qmd
+            - errors/listing/Q-12-3.qmd
+            - errors/listing/Q-12-4.qmd
+            - errors/listing/Q-12-5.qmd
+            - errors/listing/Q-12-6.qmd
+            - errors/listing/Q-12-7.qmd
+            - errors/listing/Q-12-8.qmd
+            - errors/listing/Q-12-9.qmd
+            - errors/listing/Q-12-10.qmd
+            - errors/listing/Q-12-11.qmd
+            - errors/listing/Q-12-12.qmd
+            - errors/listing/Q-12-13.qmd
+            - errors/listing/Q-12-14.qmd
+            - errors/listing/Q-12-15.qmd
+            - errors/listing/Q-12-16.qmd
+        - section: "xml"
+          contents:
+            - errors/xml/Q-9-1.qmd
+            - errors/xml/Q-9-2.qmd
+            - errors/xml/Q-9-3.qmd
+            - errors/xml/Q-9-4.qmd
+            - errors/xml/Q-9-5.qmd
+            - errors/xml/Q-9-6.qmd
+            - errors/xml/Q-9-7.qmd
+            - errors/xml/Q-9-8.qmd
+            - errors/xml/Q-9-9.qmd
+            - errors/xml/Q-9-10.qmd
+            - errors/xml/Q-9-11.qmd
+            - errors/xml/Q-9-12.qmd
+            - errors/xml/Q-9-13.qmd
+            - errors/xml/Q-9-14.qmd
+            - errors/xml/Q-9-15.qmd
+            - errors/xml/Q-9-16.qmd
+        - section: "cli"
+          contents:
+            - errors/cli/Q-7-1.qmd
+            - errors/cli/Q-7-2.qmd
+            - errors/cli/Q-7-3.qmd
+            - errors/cli/Q-7-4.qmd
+            - errors/cli/Q-7-5.qmd
+            - errors/cli/Q-7-6.qmd
+            - errors/cli/Q-7-7.qmd
+            - errors/cli/Q-7-8.qmd
+        - section: "navigation"
+          contents:
+            - errors/navigation/Q-13-1.qmd
+            - errors/navigation/Q-13-2.qmd
+            - errors/navigation/Q-13-3.qmd
+            - errors/navigation/Q-13-4.qmd
+            - errors/navigation/Q-13-5.qmd
+            - errors/navigation/Q-13-6.qmd
+            - errors/navigation/Q-13-7.qmd
+        - section: "template"
+          contents:
+            - errors/template/Q-10-1.qmd
+            - errors/template/Q-10-2.qmd
+            - errors/template/Q-10-3.qmd
+            - errors/template/Q-10-4.qmd
+            - errors/template/Q-10-5.qmd
+            - errors/template/Q-10-6.qmd
+            - errors/template/Q-10-7.qmd
+        - section: "project"
+          contents:
+            - errors/project/Q-5-1.qmd
+            - errors/project/Q-5-2.qmd
+            - errors/project/Q-5-3.qmd
+        - section: "internal"
+          contents:
+            - errors/internal/Q-0-1.qmd
+            - errors/internal/Q-0-99.qmd
+        - section: "theme"
+          contents:
+            - errors/theme/Q-14-1.qmd
+            - errors/theme/Q-14-2.qmd
+        - section: "lua"
+          contents:
+            - errors/lua/Q-11-1.qmd
 
 format:
   html:
     theme:
       - cosmo
-      - brand
+      # - brand
     css: styles.css
     toc: true
-
-
-
