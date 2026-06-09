@@ -157,10 +157,16 @@ Skeleton only — contents wait on the design discussion.
         clean; workspace tests green.
   - [ ] `perf-harness` driver that renders a theme-heavy website fixture in
         a loop (mimicking keystroke re-renders) through the same flush code.
-  - [ ] `perf.vfs-flush` gauge (QUARTO_PERF_STATS=1): per render —
-        artifact count, bytes_total, bytes_skipped, flush time.
-  - [ ] Also measure producer-side clone cost (artifact-store population
-        time/bytes per render) so bd-w5qyuzeg inherits real numbers.
+  - [x] Instrumentation (QUARTO_PERF_STATS=1, playbook conventions):
+        gauge `perf.vfs-write` — counters on `VirtualFileSystem`
+        (writes/bytes_written/skipped_writes/bytes_skipped; skip counters
+        wired now, stay zero until Phase 2, so before/after share one
+        format; `write_stats()` accessor for per-render diffing) — and
+        gauge `perf.artifact-store` — producer-side counters on
+        `ArtifactStore::store()` (stores/bytes_stored; drain/merge moves
+        not counted) so bd-w5qyuzeg inherits real numbers. Smoke-tested:
+        one themed render stores 4 artifacts / 400,692 bytes
+        (`perf.artifact-store stores=4 bytes_stored=400692`).
   - [ ] Geometric scaling of total artifact bytes (synthetic binary assets /
         plot images); record Findings table in this plan **before** Phase 2.
 - **Phase 1 — Test plan (TDD).**

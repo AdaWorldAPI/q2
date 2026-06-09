@@ -191,6 +191,14 @@ impl Artifact {
 pub struct ArtifactStore {
     /// Artifacts keyed by string identifier
     artifacts: HashMap<String, Artifact>,
+    /// Producer-side diagnostic counters (bd-q3bxnq2e / bd-w5qyuzeg):
+    /// how many `store()` calls this store received and how many content
+    /// bytes producers materialized into it. Printed on Drop when
+    /// `QUARTO_PERF_STATS=1` (gauge `perf.artifact-store`). Drain/merge
+    /// moves between stores are intentionally not counted — they move,
+    /// not copy.
+    stat_stores: usize,
+    stat_bytes_stored: usize,
 }
 
 impl ArtifactStore {
@@ -198,11 +206,15 @@ impl ArtifactStore {
     pub fn new() -> Self {
         Self {
             artifacts: HashMap::new(),
+            stat_stores: 0,
+            stat_bytes_stored: 0,
         }
     }
 
     /// Store an artifact by key
     pub fn store(&mut self, key: impl Into<String>, artifact: Artifact) {
+        self.stat_stores += 1;
+        self.stat_bytes_stored += artifact.content.len();
         self.artifacts.insert(key.into(), artifact);
     }
 
@@ -345,7 +357,12 @@ impl ArtifactStore {
         &mut self,
         other: ArtifactStore,
     ) -> std::result::Result<MergeStats, ArtifactMergeConflict> {
-        let mut entries: Vec<(String, Artifact)> = other.artifacts.into_iter().collect();
+        // `mem::take` instead of a field move: `ArtifactStore` implements
+        // `Drop` (perf gauge), and Rust forbids moving fields out of
+        // `Drop` types. `other` then drops with an empty map.
+        let mut other = other;
+        let mut entries: Vec<(String, Artifact)> =
+            std::mem::take(&mut other.artifacts).into_iter().collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0));
 
         let mut stats = MergeStats::default();
@@ -369,6 +386,28 @@ impl ArtifactStore {
             }
         }
         Ok(stats)
+    }
+
+    /// Producer-side diagnostic counters (bd-q3bxnq2e): `(store_calls,
+    /// bytes_stored)` accumulated over this store's lifetime.
+    pub fn producer_stats(&self) -> (usize, usize) {
+        (self.stat_stores, self.stat_bytes_stored)
+    }
+}
+
+impl Drop for ArtifactStore {
+    fn drop(&mut self) {
+        // Diagnostic gauge for bd-q3bxnq2e / bd-w5qyuzeg. A per-doc
+        // store drops at the end of each render, so under
+        // QUARTO_PERF_STATS=1 this prints once per render. (Drained
+        // sub-stores bypass `store()`, keep zero counters, and stay
+        // silent.) Free when the env var is unset.
+        if self.stat_stores > 0 && std::env::var_os("QUARTO_PERF_STATS").is_some_and(|v| v == "1") {
+            eprintln!(
+                "perf.artifact-store stores={} bytes_stored={}",
+                self.stat_stores, self.stat_bytes_stored,
+            );
+        }
     }
 }
 

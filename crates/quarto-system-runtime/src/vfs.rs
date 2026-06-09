@@ -25,6 +25,25 @@ pub(crate) fn not_found_error(path: &Path) -> RuntimeError {
     ))
 }
 
+/// Write-path counters for the VFS (bd-q3bxnq2e). Printed on Drop when
+/// `QUARTO_PERF_STATS=1` (gauge `perf.vfs-write`). Free when unused.
+///
+/// `skipped_writes` / `bytes_skipped` count writes elided by
+/// change-detection (byte-identical content already present); they stay
+/// zero until that path exists, but are part of the stats shape from the
+/// start so before/after measurements share one output format.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct VfsWriteStats {
+    /// Number of `add_file` calls that inserted or replaced content.
+    pub writes: usize,
+    /// Total bytes inserted across all performed writes.
+    pub bytes_written: usize,
+    /// Number of writes skipped because identical content was present.
+    pub skipped_writes: usize,
+    /// Total bytes of skipped (byte-identical) writes.
+    pub bytes_skipped: usize,
+}
+
 /// Virtual filesystem for WASM environments.
 ///
 /// This provides an in-memory filesystem that can be pre-populated with
@@ -45,6 +64,8 @@ pub struct VirtualFileSystem {
     directories: HashSet<PathBuf>,
     /// Project root directory (default working directory)
     project_root: PathBuf,
+    /// Write-path diagnostic counters (bd-q3bxnq2e).
+    stats: VfsWriteStats,
 }
 
 impl VirtualFileSystem {
@@ -54,6 +75,7 @@ impl VirtualFileSystem {
             files: HashMap::new(),
             directories: HashSet::new(),
             project_root: PathBuf::from("/project"),
+            stats: VfsWriteStats::default(),
         };
         // Create the root directory
         vfs.directories.insert(PathBuf::from("/"));
@@ -67,6 +89,7 @@ impl VirtualFileSystem {
             files: HashMap::new(),
             directories: HashSet::new(),
             project_root: project_root.clone(),
+            stats: VfsWriteStats::default(),
         };
         // Create the root directory and project root
         vfs.directories.insert(PathBuf::from("/"));
@@ -83,7 +106,16 @@ impl VirtualFileSystem {
         if let Some(parent) = normalized.parent() {
             self.add_directory_and_parents(parent);
         }
+        self.stats.writes += 1;
+        self.stats.bytes_written += contents.len();
         self.files.insert(normalized, contents);
+    }
+
+    /// Snapshot of the write-path counters (bd-q3bxnq2e). Counters are
+    /// cumulative over the VFS's lifetime; callers wanting per-interval
+    /// numbers (e.g. per render) should diff two snapshots.
+    pub fn write_stats(&self) -> VfsWriteStats {
+        self.stats
     }
 
     /// Update an existing file (same as add_file, but semantically clearer).
@@ -300,6 +332,23 @@ impl VirtualFileSystem {
         for component in path.components() {
             current.push(component);
             self.directories.insert(current.clone());
+        }
+    }
+}
+
+impl Drop for VirtualFileSystem {
+    fn drop(&mut self) {
+        // Diagnostic gauge for the bd-q3bxnq2e write-path investigation.
+        // (On wasm32 `var_os` always returns None, so this never prints
+        // there — quantification happens through the native proxy.)
+        if std::env::var_os("QUARTO_PERF_STATS").is_some_and(|v| v == "1") {
+            eprintln!(
+                "perf.vfs-write writes={} bytes_written={} skipped_writes={} bytes_skipped={}",
+                self.stats.writes,
+                self.stats.bytes_written,
+                self.stats.skipped_writes,
+                self.stats.bytes_skipped,
+            );
         }
     }
 }

@@ -53,7 +53,7 @@ pub use traits::{
     CommandOutput, PathKind, PathMetadata, RuntimeError, RuntimeResult, SystemRuntime, TempDir,
     XdgDirKind, validate_cache_key, validate_cache_namespace,
 };
-pub use vfs::VirtualFileSystem;
+pub use vfs::{VfsWriteStats, VirtualFileSystem};
 
 // Re-export runtime implementations based on target
 #[cfg(not(target_arch = "wasm32"))]
