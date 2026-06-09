@@ -111,7 +111,7 @@ function App() {
   useEffect(() => {
     if (AUTH_ENABLED && authLoading) return;
     getUserIdentity().then(async (settings) => {
-      if (auth?.name && settings.userName.startsWith('Anonymous ')) {
+      if (auth?.name && settings.createdAt === settings.updatedAt) {
         const updated = await updateUserName(auth.name);
         setScreenName(updated.userName);
         setCursorColor(updated.userColor);

@@ -66,7 +66,7 @@ export const resetUserIdentity = vi.fn(async (): Promise<UserSettings> => {
   mockIdentity = {
     key: 'identity',
     userId,
-    userName: 'Anonymous Test User',
+    userName: 'Swift Penguin',
     userColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
