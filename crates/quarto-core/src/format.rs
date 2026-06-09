@@ -125,6 +125,7 @@ fn builtin_pseudo_format(name: &str) -> Option<(&'static str, Option<&'static st
         "q2-slides" => Some(("html", Some("preview"))),
         "q2-debug" => Some(("html", None)),
         "q2-preview" => Some(("html", Some("preview"))),
+        "q2-raw" => Some(("html", None)),
         _ => None,
     }
 }
