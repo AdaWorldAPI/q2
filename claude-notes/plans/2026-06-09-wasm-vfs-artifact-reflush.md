@@ -174,13 +174,62 @@ Skeleton only — contents wait on the design discussion.
         not counted) so bd-w5qyuzeg inherits real numbers. Smoke-tested:
         one themed render stores 4 artifacts / 400,692 bytes
         (`perf.artifact-store stores=4 bytes_stored=400692`).
-  - [ ] Geometric scaling of total artifact bytes via `pad_bytes`; record
-        Findings table in this plan. **Deferred to a quiet-machine session**
-        (user note 2026-06-09: parallel agents make timings unreliable);
-        will run as a single before/after session once Phase 2's
-        `--mode` flag exists. Fix direction is already settled by
-        decision 1 (land the skip regardless), so Phases 1–2 proceed
-        meanwhile.
+  - [x] Geometric scaling + before/after run on an idle machine
+        (2026-06-09, see Findings below).
+
+## Findings (recorded 2026-06-09, idle machine)
+
+Driver: `target/release/vfs-flush theme-heavy.qmd 12 <pad> <mode>`, 2
+modes × 6 pad sizes × 12 iterations; steady-state = median of
+iterations 1–11 (iteration 0 is cold: SASS compile + first writes).
+Raw output preserved at
+`claude-notes/plans/wasm-vfs-artifact-reflush-investigation/measurements-2026-06-09.txt`.
+
+| mode | total artifact B | flush µs (median) | bytes written | bytes skipped | render ms |
+|---|---:|---:|---:|---:|---:|
+| legacy | 400,692 | 10.6 | 400,692 | 0 | 50.6 |
+| legacy | 810,292 | 17.0 | 810,292 | 0 | 52.1 |
+| legacy | 1,219,892 | 22.9 | 1,219,892 | 0 | 52.6 |
+| legacy | 2,039,092 | 32.8 | 2,039,092 | 0 | 51.3 |
+| legacy | 3,677,492 | 54.3 | 3,677,492 | 0 | 51.3 |
+| legacy | 6,954,292 | 97.5 | 6,954,292 | 0 | 51.1 |
+| skip | 400,692 | 11.4 | 0 | 400,692 | 52.3 |
+| skip | 810,292 | 18.9 | 0 | 810,292 | 51.6 |
+| skip | 1,219,892 | 26.1 | 0 | 1,219,892 | 51.6 |
+| skip | 2,039,092 | 40.8 | 0 | 2,039,092 | 52.6 |
+| skip | 3,677,492 | 69.8 | 0 | 3,677,492 | 51.3* |
+| skip | 6,954,292 | 131.2 | 0 | 6,954,292 | 52.8 |
+
+(*50.6 measured; table shows medians of independent runs — render time
+is flat ~51 ms throughout, as expected.)
+
+Conclusions:
+
+1. **Complexity class confirmed: the flush is linear in total artifact
+   bytes** (both modes; ratios track byte ratios to within noise).
+   No accidental quadratic behavior.
+2. **The flush was never a meaningful native cost.** At the realistic
+   400 KB themed-doc size it is ~11 µs against a ~51 ms render —
+   **0.02 %**. Even inflated to 7 MB of artifacts it is ~0.1–0.26 %.
+   The per-keystroke latency lives in the render itself, not the flush.
+   The strand's "suspected to contribute to observed preview perf
+   issues" is **not supported** for the native proxy; any WASM-side
+   contribution would have to come from allocation pressure, not CPU.
+3. **The skip's native win is allocation elimination, not wall time.**
+   memcmp over equal buffers reads both sides to the end, so skip-mode
+   flush wall time is slightly *higher* than legacy clone+insert
+   natively (131 vs 98 µs at 7 MB) — while writing **zero** bytes
+   (no Vec allocations, no old-buffer frees, no heap growth). In the
+   WASM/browser environment allocation churn is relatively more
+   expensive (wasm memory only grows; GC pressure on the JS boundary),
+   so zero-allocation steady state is the right trade — and per
+   decision 1 the fix lands regardless, with this share stated
+   honestly.
+4. **Producer-side cost (bd-w5qyuzeg) is the same magnitude** —
+   `producer_bytes` equals flushed bytes (~400 KB/render realistic),
+   i.e. another ~10–100 µs/render of memcpy natively. Recommendation
+   recorded on the strand: deprioritize to backlog unless a WASM
+   browser profile shows allocation pressure mattering.
 - **Phase 1 — Test plan (TDD).** Committed red at `f2e328e8`; all five
   skip-behavior tests verified failing against an always-write stub.
   - [x] Unit tests for `add_file_if_changed` semantics (new / changed /
@@ -225,11 +274,39 @@ Skeleton only — contents wait on the design discussion.
     signal). Also discovered `hub-client/test-wasm.mjs` is broken in
     bare Node (raw_module imports need Vite aliasing) → filed
     bd-ye90x1ga.
-- **Phase 3 — Verify.**
-  - [ ] Native before/after numbers across scales (complexity-class table).
-  - [ ] Full `cargo xtask verify` (WASM leg affected).
-  - [ ] Browser cross-check per playbook step 8 (sanity check only); record
-        the end-to-end example here.
+- **Phase 3 — Verify.** All complete (2026-06-09).
+  - [x] Native before/after numbers across scales — see Findings table
+        above (linear confirmed; skip mode writes zero bytes in steady
+        state).
+  - [x] Full `cargo xtask verify` (Rust build + tests, hub-client
+        `build:all` incl. WASM rebuild, hub-client `test:ci`): exit 0.
+  - [x] Browser cross-check (playbook step 8) — see end-to-end record
+        below.
+
+## End-to-end verification record (2026-06-09)
+
+Per CLAUDE.md § End-to-end verification. Exercised through the real
+`q2` binary + a real Chrome session, after rebuilding the full WASM
+chain (`npm run build:wasm` → `cargo xtask build-q2-preview-spa` →
+`cargo build --bin q2`, per the preview-spa-rebuild instructions):
+
+- **Invocation:** `cargo run --bin q2 -- preview tmp-preview-check/doc.qmd`
+  (doc = the committed theme-heavy fixture, `theme: cosmo`), then
+  loaded `http://127.0.0.1:56232/` in Chrome via the devtools MCP.
+- **Observed (initial render, inspected via script evaluation in the
+  preview iframe):** heading "Theme-heavy flush fixture (bd-q3bxnq2e)"
+  rendered; `getComputedStyle(body).fontFamily` = `"Source Sans Pro", …`
+  — the **cosmo** theme font, proving theme SCSS compiled in-browser
+  and the theme CSS artifact was read back from the VFS through the
+  new flush path (browser env compiles themes, unlike the Node/vitest
+  fallback).
+- **Observed (keystroke steady state):** appended a `## Live edit
+  marker bd-q3bxnq2e` section to the file on disk; the preview
+  re-rendered (second flush — unchanged theme CSS now *skipped*),
+  new heading present in the iframe, theme font still applied.
+- **Console:** no errors; only the pre-existing iframe sandbox warning.
+- The output was inspected directly (iframe DOM + computed styles),
+  not inferred from absence of errors.
 
 ## Design decisions (settled with user, 2026-06-09)
 
