@@ -25,6 +25,7 @@
 //! to markdown.
 
 use async_trait::async_trait;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use quarto_error_reporting::DiagnosticMessage;
@@ -75,6 +76,23 @@ pub const ENGINE_CAPTURE_KIND: &str = "EngineCapture";
 pub struct EngineExecutionStage {
     /// Engine registry for looking up engines by name
     registry: EngineRegistry,
+
+    /// Engine names whose post-engine output was already provided to the
+    /// pipeline out-of-band — specifically, spliced into the AST by
+    /// [`CaptureSpliceStage`](super::CaptureSpliceStage) in the q2-preview
+    /// pipeline (bd-sauc9iiq).
+    ///
+    /// When an engine in this set falls back to markdown (because it is
+    /// unregistered in this build — e.g. `knitr` under WASM — or its
+    /// runtime is unavailable), the "no execution" fallback warning is
+    /// **suppressed**: the user *did* see real execution results (recorded
+    /// server-side and spliced in), so the warning would be misleading.
+    /// Engines *not* in this set still warn exactly as before, so a
+    /// genuinely-unexecuted document is unaffected.
+    ///
+    /// Empty for every pipeline except q2-preview; see
+    /// [`with_spliced_engines`](Self::with_spliced_engines).
+    spliced_engines: HashSet<String>,
 }
 
 impl EngineExecutionStage {
@@ -87,12 +105,30 @@ impl EngineExecutionStage {
     pub fn new() -> Self {
         Self {
             registry: EngineRegistry::new(),
+            spliced_engines: HashSet::new(),
         }
     }
 
     /// Create with a custom registry (primarily for testing).
     pub fn with_registry(registry: EngineRegistry) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            spliced_engines: HashSet::new(),
+        }
+    }
+
+    /// Mark a set of engines as already executed out-of-band, their output
+    /// spliced into the AST upstream (bd-sauc9iiq).
+    ///
+    /// Used by the q2-preview pipeline builder: the WASM preview registry
+    /// has no `knitr`/`jupyter`, so those engines fall back to markdown
+    /// here — but [`CaptureSpliceStage`](super::CaptureSpliceStage) has
+    /// already spliced their server-recorded output into the AST. Naming
+    /// them here suppresses the otherwise-misleading "(no execution)"
+    /// fallback warning. See [`spliced_engines`](Self::spliced_engines).
+    pub fn with_spliced_engines(mut self, names: impl IntoIterator<Item = String>) -> Self {
+        self.spliced_engines = names.into_iter().collect();
+        self
     }
 
     /// Get the engine to use, with fallback behavior.
@@ -110,13 +146,20 @@ impl EngineExecutionStage {
                 return engine;
             }
 
-            // Engine exists but isn't available (e.g., R not installed)
-            warnings.push(DiagnosticMessage::warning(format!(
-                "Engine '{}' is not available (runtime not found), using markdown (no execution)",
-                engine_name
-            )));
-        } else {
-            // Engine not registered (e.g., jupyter in WASM)
+            // Engine exists but isn't available (e.g., R not installed).
+            // Suppress the "(no execution)" warning if this engine's output
+            // was already spliced in out-of-band (bd-sauc9iiq).
+            if !self.spliced_engines.contains(engine_name) {
+                warnings.push(DiagnosticMessage::warning(format!(
+                    "Engine '{}' is not available (runtime not found), using markdown (no execution)",
+                    engine_name
+                )));
+            }
+        } else if !self.spliced_engines.contains(engine_name) {
+            // Engine not registered (e.g., jupyter in WASM). Same
+            // suppression rule: if the output was spliced in (q2-preview
+            // capture replay), the fallback warning would be misleading,
+            // because the user *did* see real execution results.
             warnings.push(DiagnosticMessage::warning(format!(
                 "Engine '{}' not available in this build, using markdown (no execution)",
                 engine_name
@@ -767,6 +810,79 @@ mod tests {
         assert_eq!(engine.name(), "markdown");
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].title.contains("not available"));
+    }
+
+    // bd-sauc9iiq: when an engine's output was already spliced into the AST
+    // out-of-band (q2-preview capture replay), the fallback-to-markdown
+    // warning is misleading — the user *did* see execution results. Naming
+    // the engine via `with_spliced_engines` suppresses that warning.
+    #[test]
+    fn test_spliced_engine_suppresses_fallback_warning() {
+        let stage =
+            EngineExecutionStage::new().with_spliced_engines(["nonexistent-engine".to_string()]);
+        let mut warnings = Vec::new();
+
+        let engine = stage.get_engine_with_fallback("nonexistent-engine", &mut warnings);
+
+        // Still falls back to markdown (the engine isn't registered)...
+        assert_eq!(engine.name(), "markdown");
+        // ...but the misleading "(no execution)" warning is suppressed,
+        // because the output was provided via a spliced capture.
+        assert!(
+            warnings.is_empty(),
+            "expected no fallback warning for a spliced engine, got: {:?}",
+            warnings.iter().map(|w| w.title.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    // Guard against over-suppression: an engine that was *not* spliced must
+    // still warn, even when a sibling engine was spliced. Keyed per-engine.
+    #[test]
+    fn test_unspliced_engine_still_warns_when_sibling_spliced() {
+        let stage =
+            EngineExecutionStage::new().with_spliced_engines(["spliced-engine".to_string()]);
+        let mut warnings = Vec::new();
+
+        // The spliced one is silent.
+        let e1 = stage.get_engine_with_fallback("spliced-engine", &mut warnings);
+        assert_eq!(e1.name(), "markdown");
+        assert!(warnings.is_empty());
+
+        // A different, un-spliced engine still warns as before.
+        let e2 = stage.get_engine_with_fallback("other-engine", &mut warnings);
+        assert_eq!(e2.name(), "markdown");
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].title.contains("not available"));
+        assert!(warnings[0].title.contains("other-engine"));
+    }
+
+    // End-to-end through `run`: a doc declaring an unregistered engine whose
+    // name is marked spliced produces no engine-fallback diagnostic.
+    #[tokio::test]
+    async fn test_spliced_engine_no_diagnostic_through_run() {
+        let stage =
+            EngineExecutionStage::new().with_spliced_engines(["unknown-engine".to_string()]);
+        let mut ctx = make_test_context();
+
+        let content = b"---\ntitle: Test\nengine: unknown-engine\n---\n\n# Hello";
+        let doc_ast = parse_qmd_to_ast(content, "/project/test.qmd");
+
+        let input = PipelineData::DocumentAst(doc_ast);
+        let output = stage.run(input, &mut ctx).await.unwrap();
+
+        let result = output.into_document_ast().expect("Should be DocumentAst");
+        assert!(!result.ast.blocks.is_empty());
+        // No "not available" diagnostic should have been emitted.
+        assert!(
+            !ctx.diagnostics
+                .iter()
+                .any(|d| d.title.contains("not available")),
+            "expected no engine-fallback diagnostic, got: {:?}",
+            ctx.diagnostics
+                .iter()
+                .map(|d| d.title.clone())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
