@@ -388,8 +388,38 @@ pub fn build_q2_preview_pipeline_stages(
     engine_registry: Option<crate::engine::EngineRegistry>,
     captures: Vec<quarto_trace::EngineCapture>,
 ) -> Vec<Box<dyn PipelineStage>> {
-    let mut stages = build_html_pipeline_stages_with_options(None, engine_registry);
+    // Build the base list *without* threading the engine registry through;
+    // we reconstruct the engine-execution stage ourselves below so it can
+    // also carry the spliced-engine set (bd-sauc9iiq). Passing `None` here
+    // avoids both a registry clone and a discarded-registry bug.
+    let mut stages = build_html_pipeline_stages_with_options(None, None);
     stages.retain(|s| !Q2_PREVIEW_STAGE_EXCLUDED.contains(&s.name()));
+
+    // bd-sauc9iiq: the WASM preview registry has no knitr/jupyter, so
+    // EngineExecutionStage would fall back to markdown and warn
+    // "(no execution)" for every engine these captures replay — even though
+    // CaptureSpliceStage (inserted just below) has already provided their
+    // real output. Collect the captured engine names and hand them to the
+    // engine stage so it suppresses that misleading warning for exactly
+    // those engines (others still warn). Done before `captures` is moved
+    // into the splice stage.
+    let spliced_engine_names: std::collections::HashSet<String> =
+        captures.iter().map(|c| c.engine_name.clone()).collect();
+
+    // Reconstruct the engine-execution stage with the caller's registry (if
+    // any — e.g. a ReplayEngine for regression testing) *and* the
+    // spliced-engine set. Mirrors the registry handling in
+    // `build_html_pipeline_stages_with_options`.
+    let engine_stage = match engine_registry {
+        Some(reg) => EngineExecutionStage::with_registry(reg),
+        None => EngineExecutionStage::new(),
+    }
+    .with_spliced_engines(spliced_engine_names);
+    let engine_idx = stages
+        .iter()
+        .position(|s| s.name() == "engine-execution")
+        .expect("engine-execution stage must exist in the q2-preview pipeline");
+    stages[engine_idx] = Box::new(engine_stage);
 
     // Insert the splice stage immediately *before* EngineExecutionStage.
     // bd-lucp: this is the q2-preview-specific consumer of recorded
@@ -400,10 +430,6 @@ pub fn build_q2_preview_pipeline_stages(
     // an entirely different code path).
     let splice_stage: Box<dyn PipelineStage> =
         Box::new(crate::stage::CaptureSpliceStage::new().with_captures(captures));
-    let engine_idx = stages
-        .iter()
-        .position(|s| s.name() == "engine-execution")
-        .expect("engine-execution stage must exist in the q2-preview pipeline");
     stages.insert(engine_idx, splice_stage);
 
     stages
@@ -2237,6 +2263,95 @@ mod tests {
     }
 
     // ─── q2-preview pipeline (Plan 1) ────────────────────────────
+
+    /// bd-sauc9iiq: when a capture is supplied for an engine the WASM
+    /// preview registry doesn't implement, `build_q2_preview_pipeline_stages`
+    /// must thread that engine's name into `EngineExecutionStage` so the
+    /// "(no execution)" fallback warning is suppressed — the user *did* see
+    /// real (server-spliced) output. Uses a fictitious engine name no
+    /// platform registers, so the unregistered-fallback branch fires
+    /// deterministically on every OS (unlike `knitr`, whose availability
+    /// depends on whether R is installed).
+    #[test]
+    fn q2_preview_capture_suppresses_engine_unavailable_warning() {
+        use quarto_trace::EngineCapture;
+
+        let content = b"---\ntitle: Test\nengine: replay-only-engine\n---\n\n# Heading\n\nBody.\n";
+
+        let capture = EngineCapture {
+            engine_name: "replay-only-engine".into(),
+            input_qmd: String::new(),
+            result: serde_json::json!({ "markdown": "" }),
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::from_format_string("q2-preview").unwrap();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        let runtime = make_test_runtime();
+
+        let output = pollster::block_on(render_qmd_to_preview_ast(
+            content,
+            "test.qmd",
+            &mut ctx,
+            runtime,
+            None,
+            vec![capture],
+        ))
+        .expect("q2-preview render");
+
+        assert!(
+            !output
+                .diagnostics
+                .iter()
+                .any(|d| d.title.contains("not available")),
+            "a spliced capture must suppress the engine-unavailable warning; got: {:?}",
+            output
+                .diagnostics
+                .iter()
+                .map(|d| d.title.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Companion to the test above: with *no* capture for the engine, the
+    /// "(no execution)" warning is still emitted. Guards against the
+    /// suppression over-firing and silencing genuinely-unexecuted documents.
+    #[test]
+    fn q2_preview_without_capture_still_warns_unavailable_engine() {
+        let content = b"---\ntitle: Test\nengine: replay-only-engine\n---\n\n# Heading\n\nBody.\n";
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::from_format_string("q2-preview").unwrap();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+        let runtime = make_test_runtime();
+
+        let output = pollster::block_on(render_qmd_to_preview_ast(
+            content,
+            "test.qmd",
+            &mut ctx,
+            runtime,
+            None,
+            Vec::new(),
+        ))
+        .expect("q2-preview render");
+
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.title.contains("not available")),
+            "without a capture, the engine-unavailable warning must still fire; got: {:?}",
+            output
+                .diagnostics
+                .iter()
+                .map(|d| d.title.clone())
+                .collect::<Vec<_>>()
+        );
+    }
 
     /// Drift-protection helper for subset transform pipelines.
     ///
