@@ -35,7 +35,7 @@ import { useRouting } from './hooks/useRouting';
 import { useProjectSet } from './hooks/useProjectSet';
 import { useAuth } from './hooks/useAuth';
 import { useAuthProbe } from './hooks/useAuthProbe';
-import { fetchActorId } from './services/authService';
+import { resolveActorId as resolveActorIdRequest } from './services/authService';
 import type { Route, ShareRoute, LinkProjectSetRoute } from './utils/routing';
 import './App.css';
 
@@ -103,19 +103,13 @@ function App() {
   const projectSetStateRef = useRef(projectSetState);
   projectSetStateRef.current = projectSetState;
 
-  // Fetch per-project actor ID. On 401 (mid-session expiry), trigger a
-  // silent refresh and return undefined — the caller's action is abandoned
-  // for this attempt, while One Tap either restores the session in place
-  // or eventually clears auth via its onError path.
-  const resolveActorId = useCallback(async (indexDocId: string): Promise<string | undefined | null> => {
-    if (!AUTH_ENABLED) return undefined;
-    const id = await fetchActorId(indexDocId);
-    if (id === null) {
-      triggerRefresh();
-      return undefined;
-    }
-    return id;
-  }, [triggerRefresh]);
+  // Resolve the per-project actor ID before opening a document. See
+  // `resolveActorIdRequest` for the three-valued contract; callers abandon
+  // the open only on `null` (auth failure), proceed on `string`/`undefined`.
+  const resolveActorId = useCallback(
+    (indexDocId: string) => resolveActorIdRequest(indexDocId, AUTH_ENABLED, triggerRefresh),
+    [triggerRefresh],
+  );
 
   // Capture auth error from redirect query param (once, before URL is cleaned).
   const [authError] = useState(() => {
