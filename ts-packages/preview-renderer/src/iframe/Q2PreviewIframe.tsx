@@ -71,6 +71,13 @@ interface Q2PreviewIframeProps {
    * follow-up).
    */
   currentActor?: string | null;
+  /**
+   * Globally disable the edit surface inside the iframe (bd-ov4gqk3m).
+   * Set by read-only hosts — the q2-preview SPA when the server
+   * reports `allowEdit: false`. Absent/false ⇒ editable (hub-client's
+   * existing behavior).
+   */
+  editingDisabled?: boolean;
 }
 
 /**
@@ -104,6 +111,7 @@ export function Q2PreviewIframe({
   renderedContent,
   untransformedAstJson,
   currentActor,
+  editingDisabled,
 }: Q2PreviewIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeReady, setIframeReady] = useState(false);
@@ -221,6 +229,8 @@ export function Q2PreviewIframe({
           // Reactji-authorship demo (2026-05-25 plan): viewer's
           // Automerge actor id, threaded through to user TSX.
           currentActor,
+          // bd-ov4gqk3m: read-only hosts disable the edit surface.
+          editingDisabled,
         },
       },
       '*',
@@ -236,6 +246,7 @@ export function Q2PreviewIframe({
     renderedContent,
     untransformedAstJson,
     currentActor,
+    editingDisabled,
   ]);
 
   // Send theme CSS when iframe is ready and fingerprint is known.

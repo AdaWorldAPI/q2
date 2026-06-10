@@ -135,6 +135,13 @@ export function useBlockEditHover(): {
         }
     }, [activate, ctx]);
 
+    // Global read-only mode (bd-ov4gqk3m): return an inert surface — no
+    // handlers, no affordance CSS. Placed after all hook calls so the
+    // hook order stays stable if the flag ever changes between renders.
+    if (ctx?.editingDisabled) {
+        return { hostProps: {}, stylesheet: null };
+    }
+
     const hostProps: React.HTMLAttributes<HTMLElement> = {
         onPointerMove,
         onPointerDown,

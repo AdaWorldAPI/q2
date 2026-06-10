@@ -13,7 +13,8 @@ export const Header = (args: NodeArgs<HeaderBlock>) => {
 
     const isEditable = resolved != null
         && resolved.reachabilityClass !== 'Opaque'
-        && poolId !== undefined;
+        && poolId !== undefined
+        && !ctx?.editingDisabled;
 
     const domProps: Record<string, string> = {};
     if (id) domProps.id = id;

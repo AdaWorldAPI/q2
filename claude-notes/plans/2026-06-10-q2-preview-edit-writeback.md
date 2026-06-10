@@ -274,9 +274,11 @@ Same races, same semantics as hub-client today.
 - [ ] TS test for the SPA edit path: with allowEdit on, `handleSetAst` calls
       `applyEditorOperations` with the diff of (automerge content → new QMD);
       with allowEdit off, it does not.
-- [ ] TS test for read-only mode: with `editingDisabled` set, `Para`/`Header`
+- [x] TS test for read-only mode: with `editingDisabled` set, `Para`/`Header`
       render without `data-block-pool-id` and `useBlockEditHover` does not
-      activate (no `setEditTarget` call, no affordance stylesheet).
+      activate (no `setEditTarget` call, no hover outline, no affordance
+      stylesheet) — 7 new cases across `q2-preview.integration.test.tsx` and
+      `useBlockEditHover.integration.test.tsx`, verified red first.
 
 ### Phase 2 — Implementation
 
@@ -301,10 +303,11 @@ Same races, same semantics as hub-client today.
 - [x] `GET /api/preview/config` endpoint in `extend_with_preview`, returning
       `{ "allowEdit": bool }` from an `ALLOW_EDIT` OnceLock (same pattern as
       the other preview handler state).
-- [ ] Read-only plumbing in `preview-renderer`: `editingDisabled` through
+- [x] Read-only plumbing in `preview-renderer`: `editingDisabled` through
       `Q2PreviewIframe` props → `UPDATE_AST` payload → `PreviewRoot` →
       `PreviewContext`; guards in `Para.tsx`, `Header.tsx`,
-      `useBlockEditHover.tsx` (§3).
+      `useBlockEditHover.tsx` (§3). Hosts that pass nothing (hub-client)
+      keep today's always-editable behavior.
 - [ ] SPA: fetch config at boot; pass `editingDisabled={!allowEdit}` to the
       iframe; route `handleSetAst` through `applyEditorOperations` when
       enabled (guard when not).
