@@ -3,7 +3,11 @@
 **Date:** 2026-06-10
 **Braid:** bd-4b7f1hr7
 **Checkout:** room-2 main checkout, branch `main` @ `e628a18f` (investigation committed here; implementation stacks on `feature/revealjs-render-preview-convergence`, PR #271 — decided [Q1])
-**Status:** Design aligned with user (2026-06-10) — decisions recorded below. **Awaiting explicit go-ahead to start implementation.**
+**Status:** DONE (2026-06-10) — all phases complete, full `cargo xtask verify`
+green on branch `beads/bd-4b7f1hr7-q2-preview-audit-html` (stacked on PR
+#271's `feature/revealjs-render-preview-convergence`). Not pushed. Follow-up
+strands: bd-izs62xci (SCSS compiler split), bd-sm314r1x (math engine
+divergence).
 
 ## Triage verdict
 
@@ -214,8 +218,9 @@ a phase so findings land as fixtures/strands rather than ad-hoc notes.
         Fixture committed at
         `claude-notes/plans/html-preview-css-drift-audit-investigation/math-katex.qmd`
         (generated outputs removed).
-  - [ ] Full `cargo xtask verify` (hub build leg included — hub-client
-        files changed).
+  - [x] Full `cargo xtask verify` (hub build leg included — hub-client
+        files changed): **all steps passed** (2026-06-10, branch
+        `beads/bd-4b7f1hr7-q2-preview-audit-html`).
   - [x] Bootstrap SCSS↔JS pairing check:
         `bootstrap_js_version_matches_scss_readme` in `bootstrap_js.rs`
         tests — the JS bundle's `Bootstrap vX.Y.Z` banner must equal the
