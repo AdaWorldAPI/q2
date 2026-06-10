@@ -69,10 +69,18 @@ use crate::trace_event;
 pub const DEFAULT_MATHJAX_URL: &str =
     "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js";
 
-/// Default jsDelivr base URL for KaTeX. Matches Pandoc's
-/// `defaultKaTeXURL`. Loader is `${base}katex.min.js`, stylesheet is
+/// Default jsDelivr base URL for KaTeX (same CDN as Pandoc's
+/// `defaultKaTeXURL`). Loader is `${base}katex.min.js`, stylesheet is
 /// `${base}katex.min.css`, auto-render is `${base}contrib/auto-render.min.js`.
-pub const DEFAULT_KATEX_URL_BASE: &str = "https://cdn.jsdelivr.net/npm/katex@latest/dist/";
+///
+/// Pinned to the exact version of the npm `katex` dependency the
+/// preview surfaces bundle, so render (CDN) and preview (bundled)
+/// render math identically and render output doesn't change under
+/// users when the CDN's `latest` advances (bd-4b7f1hr7). The
+/// `katex_cdn_version_matches_npm_pin` test enforces the pairing —
+/// bump this together with the `katex` pins in the root and
+/// `hub-client/quarto-hub-sandboxed-preview` package.json.
+pub const DEFAULT_KATEX_URL_BASE: &str = "https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/";
 
 /// Math-rendering engine selected by `html-math-method:`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -994,6 +1002,61 @@ mod tests {
             MathEngine::Mathjax { url } => assert_eq!(url, DEFAULT_MATHJAX_URL),
             other => panic!("expected default Mathjax engine, got {:?}", other),
         }
+    }
+
+    /// bd-4b7f1hr7: every KaTeX copy in the tree must reference the
+    /// same, exact version — otherwise `q2 render` (CDN link) and the
+    /// preview surfaces (bundled npm copies) can render math
+    /// differently. Same drift class the reveal convergence fixed
+    /// (bd-ibqkf9ry; cf. `vendored_reveal_assets_match_npm_package` in
+    /// `revealjs/assemble.rs`). The npm pins must be exact (no
+    /// `^`/`~`) for "CDN matches the npm pin" to be well-defined.
+    ///
+    /// Covered copies:
+    /// - `DEFAULT_KATEX_URL_BASE` (this file) — the CDN URL render
+    ///   emits for `html-math-method: katex`.
+    /// - root `package.json` — hoisted dependency the q2-preview
+    ///   iframe bundles (`q2-preview/entry.tsx` imports `katex` +
+    ///   `katex/dist/katex.min.css`).
+    /// - `hub-client/quarto-hub-sandboxed-preview/package.json` — a
+    ///   standalone (non-workspace) sub-project with its own lockfile
+    ///   and its own bundled KaTeX.
+    #[test]
+    fn katex_cdn_version_matches_npm_pin() {
+        fn katex_pin(pkg_path: &str) -> String {
+            let pkg_text = std::fs::read_to_string(pkg_path)
+                .unwrap_or_else(|e| panic!("reading {pkg_path}: {e}"));
+            let pkg: serde_json::Value = serde_json::from_str(&pkg_text)
+                .unwrap_or_else(|e| panic!("parsing {pkg_path}: {e}"));
+            let version = ["dependencies", "devDependencies"]
+                .iter()
+                .find_map(|section| pkg.get(section)?.get("katex")?.as_str())
+                .unwrap_or_else(|| panic!("{pkg_path} must declare a `katex` dependency"));
+            assert!(
+                version.chars().next().is_some_and(|c| c.is_ascii_digit()),
+                "{pkg_path}: `katex` must be pinned to an exact version (got \
+                 `{version}`) — a range pin lets that copy drift from render's CDN URL"
+            );
+            version.to_string()
+        }
+
+        let root_version = katex_pin(concat!(env!("CARGO_MANIFEST_DIR"), "/../../package.json"));
+        let sandboxed_version = katex_pin(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../hub-client/quarto-hub-sandboxed-preview/package.json"
+        ));
+        assert_eq!(
+            root_version, sandboxed_version,
+            "root package.json and quarto-hub-sandboxed-preview/package.json \
+             must pin the same KaTeX version — bump them together"
+        );
+
+        let expected_base = format!("https://cdn.jsdelivr.net/npm/katex@{root_version}/dist/");
+        assert_eq!(
+            DEFAULT_KATEX_URL_BASE, expected_base,
+            "DEFAULT_KATEX_URL_BASE must pin the same exact KaTeX version as the \
+             npm `katex` dependency in the root package.json — bump the two together"
+        );
     }
 
     /// Sanity: silence the unused-import warnings if the test scope
