@@ -34,6 +34,7 @@ import { getUserIdentity, updateUserName } from './services/userSettings';
 import { useRouting } from './hooks/useRouting';
 import { useProjectSet } from './hooks/useProjectSet';
 import { useAuth } from './hooks/useAuth';
+import { useAuthProbe } from './hooks/useAuthProbe';
 import { fetchActorId } from './services/authService';
 import type { Route, ShareRoute, LinkProjectSetRoute } from './utils/routing';
 import './App.css';
@@ -63,7 +64,14 @@ const AUTH_ENABLED = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 
 function App() {
-  const { auth, loading: authLoading, logout, triggerRefresh } = useAuth();
+  const {
+    auth,
+    loading: authLoading,
+    logout,
+    triggerRefresh,
+    sessionExpired,
+    expireSession,
+  } = useAuth();
 
   const [project, setProject] = useState<ProjectEntry | null>(null);
   const [files, setFiles] = useState<FileEntry[]>([]);
@@ -75,6 +83,17 @@ function App() {
   const [cursorColor, setCursorColor] = useState<string | undefined>();
   const [identities, setIdentities] = useState<Record<string, ActorIdentity>>({});
   const [isOnline, setIsOnline] = useState<boolean>(false);
+
+  // While a project's sync is disconnected, check whether the disconnect is
+  // actually an auth rejection (browsers hide the WS upgrade status). Only
+  // definitive 401/403 evidence ever clears auth — never network errors.
+  // Past the token's exp, useAuth's expiry timer logs out on the first 401
+  // (preempting this probe's two-strike); the probe governs earlier drops.
+  useAuthProbe({
+    enabled: AUTH_ENABLED && !!auth && !!project && !isOnline,
+    triggerRefresh,
+    onAuthRejected: expireSession,
+  });
 
   // Project set management (synced project list)
   const [projectSetState, projectSetActions] = useProjectSet();
@@ -551,7 +570,12 @@ function App() {
   }
 
   if (AUTH_ENABLED && !auth) {
-    return <LoginScreen error={authError} />;
+    return (
+      <LoginScreen
+        error={authError}
+        message={sessionExpired ? 'Your session expired — please sign in again.' : undefined}
+      />
+    );
   }
 
   // Gate on screen name being loaded (fast IndexedDB read).

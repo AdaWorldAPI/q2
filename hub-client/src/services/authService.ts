@@ -13,6 +13,8 @@ export interface AuthState {
   email: string;
   name: string | null;
   picture: string | null;
+  /** Token expiry in ms-epoch (from the server's `exp`). Absent on older servers. */
+  expiresAt?: number;
 }
 
 /** Raw JSON shape from GET /auth/me (snake_case). */
@@ -20,6 +22,8 @@ interface AuthMeResponse {
   email: string;
   name: string | null;
   picture: string | null;
+  /** Token expiry in epoch seconds. */
+  exp?: number;
 }
 
 /** Fetch user info from the server. Returns null on 401 (not authenticated). */
@@ -32,6 +36,7 @@ export async function fetchAuthMe(): Promise<AuthState | null> {
     email: data.email,
     name: data.name,
     picture: data.picture,
+    expiresAt: data.exp ? data.exp * 1000 : undefined,
   };
 }
 
