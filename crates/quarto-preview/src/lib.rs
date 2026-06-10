@@ -53,6 +53,14 @@ static SPA_DIR_OVERRIDE: OnceLock<Option<PathBuf>> = OnceLock::new();
 /// the service-worker workstream. (bd-kjrpya2d)
 static RESOURCE_DISK_MAP: OnceLock<std::collections::HashMap<String, PathBuf>> = OnceLock::new();
 
+/// Whether this preview session allows edits made in the preview UI to
+/// persist to disk (bd-ov4gqk3m). Set once at `run()` from
+/// [`PreviewConfig::allow_edit`] and served to the SPA via
+/// `GET /api/preview/config` so it can enable/disable its edit surface.
+/// Same first-writer-wins OnceLock pattern as the other handler state
+/// above (one preview server per process; nextest isolates tests).
+static ALLOW_EDIT: OnceLock<bool> = OnceLock::new();
+
 /// Runtime configuration for the preview server.
 #[derive(Clone)]
 pub struct PreviewConfig {
@@ -104,6 +112,16 @@ pub struct PreviewConfig {
     /// dedicated tempdir; future cross-session reuse (per-project
     /// location) is a Phase D follow-up.
     pub cache_dir: Option<PathBuf>,
+    /// Allow edits made in the preview UI to persist to the files on
+    /// disk (bd-ov4gqk3m). Set by the `--allow-edit` CLI flag.
+    ///
+    /// When `false` (the default), the preview is read-only end to end:
+    /// the SPA disables its edit surface (it learns the setting from
+    /// `GET /api/preview/config`), and — defense in depth — the hub
+    /// runs with [`quarto_hub::sync::DiskWritePolicy::ReadOnly`] so
+    /// document changes from *any* connected client can never be
+    /// written back to the user's files.
+    pub allow_edit: bool,
 }
 
 /// Run the preview server. Returns when the server is shut down (ctrl-c
@@ -165,6 +183,10 @@ where
     // tests inject pre-built sinks by setting SINK before calling
     // run_with_on_ready.
     diagnostics::set_sink(std::sync::Arc::new(diagnostics::DiagnosticSink::new()));
+
+    // bd-ov4gqk3m: stash the edit-permission bit for the
+    // `/api/preview/config` handler before the server starts serving.
+    let _ = ALLOW_EDIT.set(config.allow_edit);
 
     let storage = build_storage(&config).context("building storage manager")?;
     let hub_config = build_hub_config(&config);
@@ -302,6 +324,15 @@ fn build_hub_config(config: &PreviewConfig) -> HubConfig {
         allow_insecure_auth: false,
         // SPA owns `/`; hub gets `/ws` only.
         register_root_ws: false,
+        // bd-ov4gqk3m: browser edits reach the user's files only when
+        // `--allow-edit` was given. Without it the hub is
+        // disk-authoritative — document changes from any connected
+        // client are never written back to disk.
+        disk_write_policy: if config.allow_edit {
+            quarto_hub::sync::DiskWritePolicy::WriteBack
+        } else {
+            quarto_hub::sync::DiskWritePolicy::ReadOnly
+        },
     }
 }
 
@@ -351,10 +382,24 @@ pub fn extend_with_preview(
             "/api/preview/diagnostics",
             get(diagnostics::diagnostics_handler),
         )
+        // bd-ov4gqk3m: session-level preview settings the SPA reads
+        // once at boot — currently just `allowEdit`, which gates the
+        // inline block-editing surface.
+        .route("/api/preview/config", get(preview_config_handler))
         .fallback(spa_handler)
 }
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
+
+/// `GET /api/preview/config` — session-level preview settings the SPA
+/// reads once at boot (bd-ov4gqk3m). `allowEdit` mirrors the
+/// `--allow-edit` CLI flag; the SPA uses it to enable or fully disable
+/// the inline block-editing surface, and the server independently
+/// enforces the same setting via [`quarto_hub::sync::DiskWritePolicy`].
+async fn preview_config_handler() -> Response {
+    let allow_edit = ALLOW_EDIT.get().copied().unwrap_or(false);
+    axum::Json(serde_json::json!({ "allowEdit": allow_edit })).into_response()
+}
 
 async fn spa_handler(req: axum::http::Request<axum::body::Body>) -> Response {
     let path = req.uri().path();

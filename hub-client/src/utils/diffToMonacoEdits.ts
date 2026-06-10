@@ -1,14 +1,13 @@
 /**
- * Convert a text diff to Monaco editor edit operations or Automerge splice ops.
+ * Convert a text diff to Monaco editor edit operations.
  *
- * Two exports:
- *  - `diffToMonacoEdits`  — Monaco IIdentifiedSingleEditOperation[] (line/col positions)
- *  - `diffToEditorChanges` — EditorContentChange[] (byte-offset positions for Automerge)
+ * The Automerge-splice sibling (`diffToEditorChanges`) lives in
+ * `@quarto/preview-runtime` so the q2-preview SPA can use it too
+ * (bd-ov4gqk3m); import it from there.
  */
 
 import diff from 'fast-diff';
 import type * as Monaco from 'monaco-editor';
-import type { EditorContentChange } from '@quarto/preview-runtime';
 
 // fast-diff operation constants
 const DIFF_DELETE = -1;
@@ -108,38 +107,4 @@ export function diffToMonacoEdits(
   }
 
   return edits;
-}
-
-/**
- * Compute Automerge-compatible splice operations to transform `currentContent`
- * into `targetContent`.
- *
- * Produces the same minimal diff as `diffToMonacoEdits` but expresses positions
- * as byte offsets (EditorContentChange.rangeOffset / rangeLength) instead of
- * Monaco line/column pairs.  Used by the Monaco-absent write-back path in
- * handleContentRewrite when editorRef.current is null.
- */
-export function diffToEditorChanges(
-  currentContent: string,
-  targetContent: string,
-): EditorContentChange[] {
-  if (currentContent === targetContent) return [];
-
-  const diffs = diff(currentContent, targetContent);
-  const changes: EditorContentChange[] = [];
-  let offset = 0;
-
-  for (const [operation, text] of diffs) {
-    if (operation === DIFF_EQUAL) {
-      offset += text.length;
-    } else if (operation === DIFF_DELETE) {
-      changes.push({ rangeOffset: offset, rangeLength: text.length, text: '' });
-      // offset stays the same: deleted chars are gone, next op starts at same position
-    } else if (operation === DIFF_INSERT) {
-      changes.push({ rangeOffset: offset, rangeLength: 0, text });
-      offset += text.length; // advance past the newly inserted chars
-    }
-  }
-
-  return changes;
 }

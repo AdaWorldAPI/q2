@@ -48,6 +48,9 @@ import {
   parseQmdContentSync,
   vfsAddFile,
   vfsReadFile,
+  getFileContent,
+  diffToEditorChanges,
+  applyEditorOperations,
 } from '@quarto/preview-runtime';
 import { Q2PreviewIframe } from '@quarto/preview-renderer/iframe/Q2PreviewIframe';
 import { extractMetaString } from '@quarto/preview-renderer/framework';
@@ -178,6 +181,16 @@ interface PreviewAppState {
   /** Bumps on every onFileContent callback so the render effect re-fires. */
   contentTick: number;
   /**
+   * Whether this preview session may edit documents (bd-ov4gqk3m).
+   * Fetched once at boot from `GET /api/preview/config`; mirrors the
+   * `--allow-edit` CLI flag. When false the entire edit surface is
+   * disabled (`editingDisabled` on the iframe) and `handleSetAst`
+   * drops any payload that arrives anyway. Defaults to false and
+   * fails closed if the endpoint is missing or errors — a read-only
+   * preview is the safe state.
+   */
+  allowEdit: boolean;
+  /**
    * IndexDocument V2 capture sidecar (Phase C.3) — path → CaptureRef
    * mapping. Populated by the server-side eager-capture driver (Phase
    * C.1) and read here by the render effect (Phase C.4) so the
@@ -227,6 +240,7 @@ const INITIAL_STATE: PreviewAppState = {
   serverDiagnostics: [],
   contentTick: 0,
   captures: {},
+  allowEdit: false,
 };
 
 /**
@@ -359,6 +373,24 @@ async function fetchIndexDocId(loc: Location = window.location): Promise<string>
 }
 
 /**
+ * Fetch the session's edit permission from `GET /api/preview/config`
+ * (bd-ov4gqk3m). Mirrors the CLI's `--allow-edit` flag. Fails closed:
+ * any network error, non-2xx status, or malformed body yields `false`
+ * — a read-only preview is always the safe state, and the server
+ * independently refuses disk write-back when the flag is off.
+ */
+async function fetchAllowEdit(loc: Location = window.location): Promise<boolean> {
+  try {
+    const resp = await fetch(`${loc.protocol}//${loc.host}/api/preview/config`);
+    if (!resp.ok) return false;
+    const body = (await resp.json()) as { allowEdit?: unknown };
+    return body.allowEdit === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Derive the websocket URL from the page location. The CLI serves the
  * SPA on the same host:port that hosts the samod ws endpoint, so we
  * just swap the scheme.
@@ -382,17 +414,22 @@ export default function PreviewApp() {
     setState((s) => ({ ...s, contentTick: s.contentTick + 1 }));
   }, []);
 
-  // Phase 4 (target-incremental-writes): real setAst handler for
-  // q2-preview node edits.  Reads the current file's content from VFS,
-  // calls apply_node_edit with the retained untransformedAst, writes
-  // the result back to VFS, and bumps contentTick to trigger re-render.
-  // Note: does NOT yet write back to the Automerge document — a sync
-  // event will overwrite the local edit on the next change.  Full
-  // Automerge write-back is a Phase 5 follow-up.
+  // Phase 4 (target-incremental-writes) + bd-ov4gqk3m: real setAst
+  // handler for q2-preview node edits. Calls apply_node_edit with the
+  // retained untransformedAst, splices the resulting QMD into the
+  // Automerge document (which the server persists to disk — the CLI
+  // ran with --allow-edit if we got here), writes the result to the
+  // VFS as an optimistic local update, and bumps contentTick to
+  // trigger re-render.
+  //
+  // Read-only sessions (no --allow-edit) never get here through the
+  // UI — `editingDisabled` keeps the edit surface inert — but a stray
+  // payload is dropped anyway as defense in depth.
   const handleSetAst = useCallback(
     (payload: any) => {
       const edit = payload as PreviewNodeEditPayload;
       if (!edit.__isPreviewNodeEdit) return;
+      if (!state.allowEdit) return;
       if (!state.untransformedAstJson || !state.activeFile) return;
       // Use the content snapshot captured at render time so byte offsets are
       // guaranteed to match astJson (live VFS content may have drifted).
@@ -417,13 +454,25 @@ export default function PreviewApp() {
           edit.destinationSourceInfoJson,
           modifiedSubtreeJson,
         );
+        // Write the edit into the Automerge document so it syncs to the
+        // server (and from there to disk). The diff base must be the
+        // Automerge-side content — same reasoning as hub-client's
+        // handleContentRewrite. The change echoes back through
+        // onFileContent with identical text; re-render is idempotent.
+        const oldContent = getFileContent(state.activeFile) ?? '';
+        const changes = diffToEditorChanges(oldContent, newQmd);
+        if (changes.length > 0) {
+          applyEditorOperations(state.activeFile, changes);
+        }
+        // Optimistic local update so the re-render is immediate rather
+        // than waiting for the sync round-trip.
         vfsAddFile(state.activeFile, newQmd);
         setState((s) => ({ ...s, contentTick: s.contentTick + 1 }));
       } catch (err) {
         console.error('apply_node_edit failed in PreviewApp:', err);
       }
     },
-    [state.untransformedAstJson, state.activeFile, state.renderedContent],
+    [state.allowEdit, state.untransformedAstJson, state.activeFile, state.renderedContent],
   );
 
   // Phase F.1 (bd-kw93.14): the iframe posts NAVIGATE_TO_DOCUMENT
@@ -501,6 +550,9 @@ export default function PreviewApp() {
       try {
         const indexDocId = await fetchIndexDocId();
         const wsUrl = deriveWsUrl();
+        // bd-ov4gqk3m: learn whether this session may edit documents.
+        // Fail-closed helper — never throws, defaults to read-only.
+        const allowEdit = await fetchAllowEdit();
 
         await initWasm();
 
@@ -585,6 +637,7 @@ export default function PreviewApp() {
           // scroll to; staying at 0 means "no scroll has been
           // requested," which the iframe ignores.
           pendingAnchorEpoch: initialHash ? 1 : 0,
+          allowEdit,
           boot: 'ready',
         }));
       } catch (err) {
@@ -930,6 +983,9 @@ export default function PreviewApp() {
         // Plan 2a: pre-pipeline AST for the structural editability
         // gate. In lockstep with astJson + renderedContent.
         untransformedAstJson={state.untransformedAstJson}
+        // bd-ov4gqk3m: without --allow-edit the preview is read-only —
+        // no edit affordance renders inside the iframe at all.
+        editingDisabled={!state.allowEdit}
       />
       {showStaleOverlay && (
         <StaleCaptureOverlay

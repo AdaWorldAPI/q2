@@ -180,6 +180,12 @@ interface UpdateAstPayload {
      * TSX so `useCurrentActor()` can drive `actor === me` checks.
      */
     currentActor?: string | null;
+    /**
+     * Globally disable the edit surface (bd-ov4gqk3m). Forwarded into
+     * `PreviewContext.editingDisabled`; set by read-only hosts
+     * (`q2 preview` without `--allow-edit`). Absent/false ⇒ editable.
+     */
+    editingDisabled?: boolean;
 }
 
 // Module-top message handler. Registered before `IFRAME_READY` is
@@ -332,6 +338,8 @@ interface PreviewRootProps {
     renderedContent?: string;
     /** Pre-pipeline AST JSON for the structural editability gate (Plan 2a). */
     untransformedAstJson?: string | null;
+    /** Globally disable the edit surface (bd-ov4gqk3m). */
+    editingDisabled?: boolean;
 }
 
 /**
@@ -582,6 +590,7 @@ function PreviewRoot(props: PreviewRootProps) {
                 setEditTarget,
                 sourceIndex,
                 resolveSource,
+                editingDisabled: props.editingDisabled,
             }}
         >
             <CurrentActorContext.Provider value={props.currentActor ?? null}>
@@ -621,6 +630,7 @@ function updateAst(payload: UpdateAstPayload) {
         renderedContent,
         untransformedAstJson,
         currentActor,
+        editingDisabled,
     } = payload;
     const rootElement = document.getElementById('root');
     if (!rootElement) {
@@ -643,6 +653,7 @@ function updateAst(payload: UpdateAstPayload) {
                 renderedContent={renderedContent}
                 untransformedAstJson={untransformedAstJson}
                 currentActor={currentActor ?? null}
+                editingDisabled={editingDisabled}
                 onNavigateToDocument={(path, anchor) => {
                     window.parent.postMessage(
                         { type: 'NAVIGATE_TO_DOCUMENT', path, anchor },

@@ -79,6 +79,7 @@ async fn boots_serves_spa_plus_hub_health() {
         engine_policy: Default::default(),
         resource_html_files: Vec::new(),
         cache_dir: None,
+        allow_edit: false,
     };
 
     // Spawn the server. `run()` blocks until shutdown; we abort the

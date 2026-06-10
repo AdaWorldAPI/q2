@@ -54,18 +54,26 @@ function ptrEvent(
 /* ── Minimal host component ─────────────────────────────────────────── */
 
 function Inner() {
-    const { hostProps } = useBlockEditHover();
+    const { hostProps, stylesheet } = useBlockEditHover();
     return (
         <div {...hostProps} data-testid="host">
+            {stylesheet}
             <p data-block-pool-id="5" data-testid="block5">block 5</p>
         </div>
     );
 }
 
-function BlockHost({ setEditTarget }: { setEditTarget: (t: any) => void }) {
+function BlockHost({
+    setEditTarget,
+    editingDisabled,
+}: {
+    setEditTarget: (t: any) => void;
+    editingDisabled?: boolean;
+}) {
     const ctx: PreviewContextValue = {
         currentFilePath: '/project/test.qmd',
         setEditTarget,
+        ...(editingDisabled !== undefined ? { editingDisabled } : {}),
     };
     return (
         <PreviewContext.Provider value={ctx}>
@@ -79,9 +87,11 @@ const MOCK_RECT: DOMRect = {
     left: 0, right: 200, x: 0, y: 100, toJSON: () => ({}),
 };
 
-function mountHost() {
+function mountHost(opts: { editingDisabled?: boolean } = {}) {
     const setEditTarget = vi.fn();
-    const utils = render(<BlockHost setEditTarget={setEditTarget} />);
+    const utils = render(
+        <BlockHost setEditTarget={setEditTarget} editingDisabled={opts.editingDisabled} />,
+    );
     return { ...utils, setEditTarget };
 }
 
@@ -220,5 +230,43 @@ describe('useBlockEditHover — keyboard', () => {
         fireEvent.keyDown(host, { key: 'Escape' });
 
         expect(setEditTarget).toHaveBeenCalledWith(null);
+    });
+});
+
+/* ── Global editingDisabled (bd-ov4gqk3m) ───────────────────────────── */
+
+describe('useBlockEditHover — editingDisabled', () => {
+    // Defense in depth: even if a block somehow carries
+    // data-block-pool-id (here: hardcoded in the test host), a disabled
+    // context must make the hook completely inert — no activation, no
+    // hover outline, no affordance stylesheet.
+    it('does NOT activate on mouse click when editing is disabled', () => {
+        const { getByTestId, setEditTarget } = mountHost({ editingDisabled: true });
+        const block = getByTestId('block5');
+        vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(MOCK_RECT);
+
+        fireEvent(block, ptrEvent('pointerdown', { pointerType: 'mouse' }));
+        fireEvent(block, ptrEvent('pointerup', { pointerType: 'mouse' }));
+
+        expect(setEditTarget).not.toHaveBeenCalled();
+    });
+
+    it('does NOT apply a hover outline when editing is disabled', () => {
+        const { getByTestId } = mountHost({ editingDisabled: true });
+        const block = getByTestId('block5');
+
+        fireEvent(block, ptrEvent('pointermove', { pointerType: 'mouse' }));
+
+        expect(block.style.boxShadow).toBe('');
+    });
+
+    it('does NOT inject the affordance stylesheet when editing is disabled', () => {
+        const { container } = mountHost({ editingDisabled: true });
+        expect(container.querySelector('style')).toBeNull();
+    });
+
+    it('still injects the stylesheet when editing is enabled (control)', () => {
+        const { container } = mountHost();
+        expect(container.querySelector('style')).not.toBeNull();
     });
 });

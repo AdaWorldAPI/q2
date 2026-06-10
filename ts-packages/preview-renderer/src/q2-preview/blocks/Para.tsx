@@ -10,7 +10,8 @@ export const Para = (args: NodeArgs<ParaBlock>) => {
 
     const isEditable = resolved != null
         && resolved.reachabilityClass !== 'Opaque'
-        && poolId !== undefined;
+        && poolId !== undefined
+        && !ctx?.editingDisabled;
 
     return (
         <p {...(isEditable ? { 'data-block-pool-id': poolId } : {})}>

@@ -47,6 +47,13 @@ export interface PreviewContextValue {
     sourceIndex?: Map<string, SourceIndexEntry> | null;
     /** Resolve a transformed block to its source counterpart + reachability class (Plan 2a). */
     resolveSource?: (node: BlockNode) => ResolvedSource | null;
+    /**
+     * Globally disable the edit surface (bd-ov4gqk3m). When true, no
+     * block renders an edit affordance (`data-block-pool-id`) and
+     * `useBlockEditHover` is inert. Set by hosts that are read-only —
+     * `q2 preview` without `--allow-edit`. Absent/false ⇒ editable.
+     */
+    editingDisabled?: boolean;
 }
 
 export const PreviewContext = createContext<PreviewContextValue | null>(null);

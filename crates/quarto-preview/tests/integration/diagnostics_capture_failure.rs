@@ -78,6 +78,7 @@ async fn capture_failure_lands_in_sink() {
         engine_policy: Default::default(),
         resource_html_files: Vec::new(),
         cache_dir: None,
+        allow_edit: false,
     };
 
     let (ready_tx, ready_rx) = oneshot::channel::<Arc<HubContext>>();

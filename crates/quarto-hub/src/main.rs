@@ -224,6 +224,8 @@ async fn main() -> anyhow::Result<()> {
         auth_config,
         allow_insecure_auth: args.allow_insecure_auth,
         register_root_ws: true,
+        // The collaborative hub always persists document changes to disk.
+        disk_write_policy: quarto_hub::sync::DiskWritePolicy::WriteBack,
     };
 
     server::run_server(storage, config).await?;

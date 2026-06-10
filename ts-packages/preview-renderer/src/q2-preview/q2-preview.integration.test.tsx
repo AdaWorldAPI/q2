@@ -989,12 +989,14 @@ describe('Class-compatibility (stub constants)', () => {
 function mountWithSource(
     blocks: any[],
     resolveSource: (node: BlockNode) => ResolvedSource | null,
+    ctxOverrides: Partial<PreviewContextValue> = {},
 ) {
     const ctx: PreviewContextValue = {
         currentFilePath: '/project/test.qmd',
         content: 'test qmd content',
         commitTextEdit: vi.fn(),
         resolveSource,
+        ...ctxOverrides,
     };
     return render(
         <PreviewContext.Provider value={ctx}>
@@ -1068,6 +1070,49 @@ describe('Affordance gate — Plan 3 widening: Descendable + Opaque', () => {
         const p = container.querySelector('p')!;
         expect(p).not.toBeNull();
         expect(p.hasAttribute('data-block-pool-id')).toBe(false);
+    });
+});
+
+describe('Affordance gate — global editingDisabled (bd-ov4gqk3m)', () => {
+    // `q2 preview` without --allow-edit sets editingDisabled on the
+    // context; otherwise-editable blocks must render with no affordance
+    // attribute at all.
+    it('TopLevel Para with editingDisabled has NO data-block-pool-id', () => {
+        const blocks = [{ t: 'Para', s: 0, c: [STR('hello')] }];
+        const { container } = mountWithSource(
+            blocks,
+            (node) => ((node as any).s === 0 ? TOP_LEVEL_SOURCE : null),
+            { editingDisabled: true },
+        );
+        const p = container.querySelector('p')!;
+        expect(p).not.toBeNull();
+        expect(p.hasAttribute('data-block-pool-id')).toBe(false);
+    });
+
+    it('TopLevel Header with editingDisabled has NO data-block-pool-id', () => {
+        const blocks = [{ t: 'Header', s: 0, c: [2, ['sec', [], []], [STR('title')]] }];
+        const { container } = mountWithSource(
+            blocks,
+            (node) => ((node as any).s === 0 ? TOP_LEVEL_SOURCE : null),
+            { editingDisabled: true },
+        );
+        const h2 = container.querySelector('h2')!;
+        expect(h2).not.toBeNull();
+        expect(h2.hasAttribute('data-block-pool-id')).toBe(false);
+    });
+
+    it('explicit editingDisabled: false keeps blocks editable', () => {
+        const blocks = [
+            { t: 'Para', s: 0, c: [STR('hello')] },
+            { t: 'Header', s: 0, c: [2, ['sec', [], []], [STR('title')]] },
+        ];
+        const { container } = mountWithSource(
+            blocks,
+            (node) => ((node as any).s === 0 ? TOP_LEVEL_SOURCE : null),
+            { editingDisabled: false },
+        );
+        expect(container.querySelector('p')!.hasAttribute('data-block-pool-id')).toBe(true);
+        expect(container.querySelector('h2')!.hasAttribute('data-block-pool-id')).toBe(true);
     });
 });
 

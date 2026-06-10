@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import type { FileEntry } from '@quarto/quarto-automerge-schema';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -30,8 +30,17 @@ type MockState = {
   files: FileEntry[];
   renderResult: Record<string, unknown>;
   connectError?: string;
+  /**
+   * What `GET /api/preview/config` answers (bd-ov4gqk3m). `undefined`
+   * makes the endpoint 404 — the SPA must fail closed (read-only).
+   */
+  allowEdit?: boolean;
 };
 let mockState: MockState;
+
+// Sentinel splice ops returned by the mocked diffToEditorChanges so the
+// write-back test can assert applyEditorOperations receives them verbatim.
+const SENTINEL_CHANGES = [{ rangeOffset: 0, rangeLength: 5, text: 'updated' }];
 
 vi.mock('@quarto/preview-runtime', () => ({
   initWasm: vi.fn().mockResolvedValue(undefined),
@@ -51,6 +60,10 @@ vi.mock('@quarto/preview-runtime', () => ({
     ast: '{"blocks":[{"t":"Para","c":[{"t":"Str","c":"replacement"}]}]}',
   })),
   applyNodeEdit: vi.fn(() => 'updated qmd\n'),
+  // bd-ov4gqk3m: Automerge write-back path.
+  getFileContent: vi.fn(() => 'old qmd content\n'),
+  diffToEditorChanges: vi.fn(() => SENTINEL_CHANGES),
+  applyEditorOperations: vi.fn(),
 }));
 
 import PreviewApp from './PreviewApp';
@@ -66,6 +79,9 @@ beforeEach(async () => {
       untransformed_ast_json:
         '{"blocks":[{"t":"Para","s":0,"c":[]}],"astContext":{"p":[{"t":0,"r":[0,12],"d":0}]}}',
     },
+    // Channel-routing tests exercise the edit path, which since
+    // bd-ov4gqk3m only runs when the server allows editing.
+    allowEdit: true,
   };
   vi.stubGlobal(
     'fetch',
@@ -76,6 +92,15 @@ beforeEach(async () => {
           JSON.stringify({ status: 'ok', index_document_id: 'automerge:test-doc' }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
+      }
+      if (url.endsWith('/api/preview/config')) {
+        if (mockState.allowEdit === undefined) {
+          return new Response('not found', { status: 404 });
+        }
+        return new Response(JSON.stringify({ allowEdit: mockState.allowEdit }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
       }
       return new Response('not found', { status: 404 });
     }),
@@ -170,5 +195,74 @@ describe('PreviewApp channel routing (Plan 2b)', () => {
     setAst({ channel: 'text', newText: 'should be ignored' });
 
     expect(applyNodeEdit).not.toHaveBeenCalled();
+  });
+});
+
+// ── Automerge write-back + read-only gating (bd-ov4gqk3m) ────────────────────
+
+const TEXT_PAYLOAD = {
+  __isPreviewNodeEdit: true,
+  channel: 'text' as const,
+  destinationSourceInfoJson: '{"t":0,"r":[0,12],"d":0}',
+  newText: 'Updated paragraph text.\n',
+};
+
+describe('PreviewApp edit write-back (bd-ov4gqk3m)', () => {
+  it('with allowEdit: routes the new QMD into Automerge via applyEditorOperations', async () => {
+    const { applyEditorOperations, diffToEditorChanges, getFileContent, vfsAddFile } =
+      await import('@quarto/preview-runtime');
+    const setAst = await mountAndGetSetAst();
+
+    setAst(TEXT_PAYLOAD);
+
+    // Diff base is the Automerge-side content; target is applyNodeEdit's output.
+    expect(getFileContent).toHaveBeenCalledWith('index.qmd');
+    expect(diffToEditorChanges).toHaveBeenCalledWith('old qmd content\n', 'updated qmd\n');
+    // The splice ops go into the Automerge doc for the active file...
+    expect(applyEditorOperations).toHaveBeenCalledOnce();
+    expect(applyEditorOperations).toHaveBeenCalledWith('index.qmd', SENTINEL_CHANGES);
+    // ...and the optimistic local VFS update still happens.
+    expect(vfsAddFile).toHaveBeenCalledWith('index.qmd', 'updated qmd\n');
+  });
+
+  it('without allowEdit: drops the edit entirely (no applyNodeEdit, no Automerge, no VFS)', async () => {
+    mockState.allowEdit = false;
+    const { applyNodeEdit, applyEditorOperations, vfsAddFile } =
+      await import('@quarto/preview-runtime');
+    const setAst = await mountAndGetSetAst();
+    (vfsAddFile as ReturnType<typeof vi.fn>).mockClear();
+
+    setAst(TEXT_PAYLOAD);
+
+    expect(applyNodeEdit).not.toHaveBeenCalled();
+    expect(applyEditorOperations).not.toHaveBeenCalled();
+    expect(vfsAddFile).not.toHaveBeenCalled();
+  });
+
+  it('config endpoint missing (404): fails closed to read-only', async () => {
+    mockState.allowEdit = undefined;
+    const { applyNodeEdit, applyEditorOperations } =
+      await import('@quarto/preview-runtime');
+    const setAst = await mountAndGetSetAst();
+
+    setAst(TEXT_PAYLOAD);
+
+    expect(applyNodeEdit).not.toHaveBeenCalled();
+    expect(applyEditorOperations).not.toHaveBeenCalled();
+  });
+
+  it('forwards editingDisabled: false to the iframe when the server allows edits', async () => {
+    await mountAndGetSetAst();
+    const props = capturedIframeProps[capturedIframeProps.length - 1];
+    expect(props.editingDisabled).toBe(false);
+  });
+
+  it('forwards editingDisabled: true to the iframe when the server is read-only', async () => {
+    cleanup();
+    capturedIframeProps.length = 0;
+    mockState.allowEdit = false;
+    await mountAndGetSetAst();
+    const props = capturedIframeProps[capturedIframeProps.length - 1];
+    expect(props.editingDisabled).toBe(true);
   });
 });
