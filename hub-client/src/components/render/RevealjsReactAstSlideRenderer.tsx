@@ -1,7 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 import { Deck, Slide } from '@revealjs/react';
-import 'reveal.js/reveal.css';
-import 'reveal.js/theme/white.css';
+// Base reveal CSS comes from the VENDORED copy (same files `q2 render`
+// embeds), not npm `reveal.js/*.css` — bd-4b7f1hr7, same convergence
+// as q2-preview's RevealDeck (bd-ibqkf9ry). The plugin CSS/JS below
+// stays npm: plugins are editor chrome with no render-side
+// counterpart. Note this surface deliberately does NOT import
+// `reset.css`/`quarto-reveal.css` — it predates them and adding them
+// would change the live editor's deck appearance.
+import '../../../../resources/revealjs/reveal.css';
+import '../../../../resources/revealjs/theme/white.css';
 import 'katex/dist/katex.min.css';
 import './revealjs-menu-override.css';
 import RevealNotes from 'reveal.js/plugin/notes';

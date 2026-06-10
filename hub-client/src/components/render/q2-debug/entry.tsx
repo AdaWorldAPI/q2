@@ -10,8 +10,16 @@
 import { createRoot } from 'react-dom/client';
 import React from 'react';
 import { Deck, Slide } from '@revealjs/react';
-import 'reveal.js/reveal.css';
-import 'reveal.js/theme/white.css';
+// Reveal CSS comes from the VENDORED copy — the same files `q2 render`
+// embeds and `q2-preview/RevealDeck.tsx` imports — not from npm
+// `reveal.js/*.css`, so the debug surface can't drift from render's
+// deck styling (bd-4b7f1hr7; same convergence as bd-ibqkf9ry). The
+// vendored↔npm byte-identity test in `revealjs/assemble.rs` keeps
+// these in sync with the pinned npm package.
+import '../../../../../resources/revealjs/reset.css';
+import '../../../../../resources/revealjs/reveal.css';
+import '../../../../../resources/revealjs/theme/white.css';
+import '../../../../../resources/revealjs/quarto-reveal.css';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 

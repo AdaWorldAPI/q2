@@ -25,16 +25,19 @@
 
 import { describe, test, expect, beforeAll, vi } from 'vitest';
 
-// q2-debug's entry imports `@revealjs/react` and `reveal.js/reveal.css`.
-// In the test environment those would pull a heavy dependency graph;
-// stub them so importing the entry is fast and side-effect-free for
-// the renderer-surface global.
+// q2-debug's entry imports `@revealjs/react` and the vendored reveal
+// CSS (bd-4b7f1hr7 converged it off npm `reveal.js/*.css`). In the
+// test environment those would pull a heavy dependency graph; stub
+// them so importing the entry is fast and side-effect-free for the
+// renderer-surface global.
 vi.mock('@revealjs/react', () => ({
     Deck: () => null,
     Slide: () => null,
 }));
-vi.mock('reveal.js/reveal.css', () => ({}));
-vi.mock('reveal.js/theme/white.css', () => ({}));
+vi.mock('../../../../resources/revealjs/reset.css', () => ({}));
+vi.mock('../../../../resources/revealjs/reveal.css', () => ({}));
+vi.mock('../../../../resources/revealjs/theme/white.css', () => ({}));
+vi.mock('../../../../resources/revealjs/quarto-reveal.css', () => ({}));
 vi.mock('katex/dist/katex.min.css', () => ({}));
 vi.mock('react-dom/client', () => ({
     createRoot: vi.fn(() => ({ render: vi.fn() })),
