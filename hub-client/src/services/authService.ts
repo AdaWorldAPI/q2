@@ -65,6 +65,32 @@ export async function fetchActorId(projectId: string): Promise<string | null> {
   return data.actor_id;
 }
 
+/**
+ * Resolve the per-project actor ID for a document open. Three-valued contract
+ * the callers depend on:
+ *   - string    → actor ID resolved; open with it
+ *   - undefined → auth disabled; open with no (random) actor ID
+ *   - null      → auth failure (401/403); abandon the open
+ *
+ * On auth failure we fire `onSessionExpired` (a silent refresh) and return
+ * `null` so callers' `=== null` guard abandons this attempt; One Tap either
+ * restores the session in place or eventually clears auth via its onError path.
+ * Throws propagate (e.g. 500) so callers' try/catch surfaces a connection error.
+ */
+export async function resolveActorId(
+  indexDocId: string,
+  authEnabled: boolean,
+  onSessionExpired: () => void,
+): Promise<string | undefined | null> {
+  if (!authEnabled) return undefined;
+  const id = await fetchActorId(indexDocId);
+  if (id === null) {
+    onSessionExpired();
+    return null;
+  }
+  return id;
+}
+
 /** Clear the auth cookie server-side. */
 export async function logout(): Promise<void> {
   await fetch('/auth/logout', {
