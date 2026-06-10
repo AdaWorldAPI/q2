@@ -372,4 +372,5 @@ Same races, same semantics as hub-client today.
         measured ~1.5 s SIGINT race.
       - bd-f8d753iq — automated Playwright e2e for the `--allow-edit`
         round-trip against the real binary.
-- [ ] Merge topic branch + close strand (pending review).
+- [x] Merge topic branch + close strand (Carlos tested and approved,
+      2026-06-10).
