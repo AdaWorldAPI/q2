@@ -271,9 +271,13 @@ Same races, same semantics as hub-client today.
       apply-the-ops round-trip property, incl. unicode/emoji). Note: the
       hub-client test file only covered `diffToMonacoEdits`; these are new
       tests, not relocated ones.
-- [ ] TS test for the SPA edit path: with allowEdit on, `handleSetAst` calls
-      `applyEditorOperations` with the diff of (automerge content → new QMD);
-      with allowEdit off, it does not.
+- [x] TS test for the SPA edit path
+      (`q2-preview-spa/src/channelRouting.integration.test.tsx`, 5 new cases,
+      verified red first): with allowEdit on, `handleSetAst` calls
+      `applyEditorOperations(activeFile, diffToEditorChanges(getFileContent,
+      newQmd))` plus the optimistic `vfsAddFile`; with allowEdit off the
+      payload is dropped entirely; a missing config endpoint fails closed;
+      `editingDisabled={!allowEdit}` reaches the iframe both ways.
 - [x] TS test for read-only mode: with `editingDisabled` set, `Para`/`Header`
       render without `data-block-pool-id` and `useBlockEditHover` does not
       activate (no `setEditTarget` call, no hover outline, no affordance
@@ -308,9 +312,12 @@ Same races, same semantics as hub-client today.
       `PreviewContext`; guards in `Para.tsx`, `Header.tsx`,
       `useBlockEditHover.tsx` (§3). Hosts that pass nothing (hub-client)
       keep today's always-editable behavior.
-- [ ] SPA: fetch config at boot; pass `editingDisabled={!allowEdit}` to the
-      iframe; route `handleSetAst` through `applyEditorOperations` when
-      enabled (guard when not).
+- [x] SPA: `fetchAllowEdit()` at boot (fail-closed); `allowEdit` in
+      `PreviewAppState`; `editingDisabled={!allowEdit}` on the iframe;
+      `handleSetAst` routes the new QMD into Automerge via
+      `diffToEditorChanges` + `applyEditorOperations` (diff base =
+      `getFileContent`, hub-client's `handleContentRewrite` pattern), keeps
+      the optimistic VFS update, and early-returns when read-only.
 
 ### Phase 3 — Verification
 
