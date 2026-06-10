@@ -72,11 +72,11 @@ Related: bd-ey6jg70f (hub-minted sliding sessions, out of scope here).
 
 ## Phase 4 — verification & bookkeeping
 
-- [ ] `npm run build:all` from hub-client (production build is stricter)
-- [ ] `npm run test:ci` from hub-client
-- [ ] `cargo xtask verify` (full: quarto-hub Rust change + hub-client change)
-- [ ] Commits (hub-client two-commit changelog dance), strand comment + close
-- [ ] Honest E2E note: real-expiry flow needs a browser with a live Google
+- [x] `npm run build:all` from hub-client (production build is stricter)
+- [x] `npm run test:ci` from hub-client
+- [x] `cargo xtask verify` (full: quarto-hub Rust change + hub-client change)
+- [x] Commits (hub-client two-commit changelog dance), strand comment + close
+- [x] Honest E2E note: real-expiry flow needs a browser with a live Google
       session; record what was and wasn't exercised end-to-end
 
 ## Design details
@@ -90,3 +90,17 @@ Related: bd-ey6jg70f (hub-minted sliding sessions, out of scope here).
 - Cold-starting the app while fully offline still lands on login (mount-time
   probe can't succeed; HttpOnly cookie unreadable client-side). Known
   limitation, unchanged by this strand; belongs to bd-ey6jg70f territory.
+
+## Verification record (2026-06-10)
+
+- `cargo xtask verify` (full): 9648 Rust tests passed; hub-client 574 unit +
+  66 integration + 81 wasm tests passed; WASM + production builds green.
+- New tests: `auth_me_returns_token_exp` (Rust); 5 expiry/offline tests in
+  `useAuth.test.tsx`; 6 tests in `useAuthProbe.test.tsx`; 2 LoginScreen tests.
+- Commits: `465de01f` (fix), `329e3702` (changelog).
+- **E2E honesty note**: the real expiry flow (Google token aging past 1 h with
+  One Tap blocked) was NOT exercised end-to-end in a browser — it needs a live
+  Google session. Manual recipe: sign in, delete the `quarto_hub_token` cookie
+  in DevTools → Application, restart the hub (drops the established WS); the
+  client should attempt renewal within ~30 s and land on the login screen with
+  the "session expired" message within ~60 s, instead of retrying forever.
