@@ -30,7 +30,8 @@ import {
   setImmediateFileChangeCallback,
   type EditorContentChange,
 } from '@quarto/preview-runtime';
-import { diffToMonacoEdits, diffToEditorChanges } from '../utils/diffToMonacoEdits';
+import { diffToMonacoEdits } from '../utils/diffToMonacoEdits';
+import { diffToEditorChanges } from '@quarto/preview-runtime';
 
 interface UseAutomergeSyncOptions {
   /** Current file being edited (null if none selected) */

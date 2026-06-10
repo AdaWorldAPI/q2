@@ -266,8 +266,11 @@ Same races, same semantics as hub-client today.
       behavior (doc-side edit + `sync_file` reaches disk only with
       `allow_edit`). Verified red (SPA fallback served HTML) before the
       endpoint existed.
-- [ ] TS unit tests for `diffToEditorChanges` relocated with the function into
-      `ts-packages/preview-runtime`.
+- [x] TS unit tests for `diffToEditorChanges` in
+      `ts-packages/preview-runtime` (7 tests — exact splice offsets plus
+      apply-the-ops round-trip property, incl. unicode/emoji). Note: the
+      hub-client test file only covered `diffToMonacoEdits`; these are new
+      tests, not relocated ones.
 - [ ] TS test for the SPA edit path: with allowEdit on, `handleSetAst` calls
       `applyEditorOperations` with the diff of (automerge content → new QMD);
       with allowEdit off, it does not.
@@ -277,8 +280,11 @@ Same races, same semantics as hub-client today.
 
 ### Phase 2 — Implementation
 
-- [ ] Move `diffToEditorChanges` to `ts-packages/preview-runtime`; update
-      hub-client imports (`useAutomergeSync.ts`, tests).
+- [x] Move `diffToEditorChanges` to `ts-packages/preview-runtime`
+      (`src/diffToEditorChanges.ts`, exported from index; `fast-diff` added to
+      package deps); hub-client now imports it from `@quarto/preview-runtime`
+      (`useAutomergeSync.ts` + test mocks updated; `diffToMonacoEdits` stays
+      hub-client-local).
 - [x] `--allow-edit` flag in `crates/quarto/src/main.rs` (clap) →
       `PreviewArgs` → `PreviewConfig.allow_edit` → `build_hub_config`
       (`disk_write_policy = WriteBack` iff allow_edit). Verified in

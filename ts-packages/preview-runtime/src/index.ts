@@ -14,4 +14,5 @@
 
 export * from './wasmRenderer';
 export * from './automergeSync';
+export * from './diffToEditorChanges';
 export * from './pipelineKind';
