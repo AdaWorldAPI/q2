@@ -218,6 +218,14 @@ enum Commands {
         /// Run as a bare sync server with no local project.
         #[arg(long)]
         no_project: bool,
+
+        /// Allow edits made in the preview UI (clicking a paragraph or
+        /// heading and typing) to be written back to the source files
+        /// on disk. Without this flag the preview is read-only: the
+        /// edit surface is disabled and the server refuses to persist
+        /// document changes to your files.
+        #[arg(long)]
+        allow_edit: bool,
     },
 
     /// Serve a Shiny interactive document
@@ -630,6 +638,7 @@ fn main() -> Result<()> {
             data_dir,
             preview_dir,
             no_project,
+            allow_edit,
         } => commands::preview::execute(commands::preview::PreviewArgs {
             path,
             port,
@@ -638,6 +647,7 @@ fn main() -> Result<()> {
             data_dir,
             preview_dir,
             no_project,
+            allow_edit,
         }),
         Commands::Serve { .. } => commands::serve::execute(),
         Commands::Create { .. } => commands::create::execute(),

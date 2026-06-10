@@ -3,6 +3,7 @@
 
 pub mod boot;
 pub mod cache_hit;
+pub mod config_endpoint;
 pub mod diagnostics_capture_failure;
 pub mod diagnostics_endpoint;
 pub mod eager_capture;

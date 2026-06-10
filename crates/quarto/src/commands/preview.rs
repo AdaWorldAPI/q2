@@ -41,6 +41,10 @@ pub struct PreviewArgs {
     pub preview_dir: Option<PathBuf>,
     /// Run standalone (no local project mode).
     pub no_project: bool,
+    /// Allow edits made in the preview UI to be written back to the
+    /// files on disk (bd-ov4gqk3m). Off by default: without it the
+    /// preview is read-only end to end.
+    pub allow_edit: bool,
 }
 
 pub fn execute(args: PreviewArgs) -> Result<()> {
@@ -180,6 +184,7 @@ async fn run(args: PreviewArgs) -> Result<()> {
         // Phase C.7: derive the capture cache dir from `data_dir`
         // (per-session; tracked as a follow-up for per-project reuse).
         cache_dir: None,
+        allow_edit: args.allow_edit,
     };
     quarto_preview::run(config).await
 }

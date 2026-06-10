@@ -260,8 +260,12 @@ Same races, same semantics as hub-client today.
       to disk; binary doc-only change reverts to fs content). 5 tests in
       `sync.rs::tests`, written first and verified red (file was written
       despite ReadOnly), then green after gating.
-- [ ] Rust test for `GET /api/preview/config` reflecting the flag
-      (`quarto-preview`).
+- [x] Rust test for `GET /api/preview/config` reflecting the flag
+      (`quarto-preview`): `tests/integration/config_endpoint.rs` boots a real
+      server each way and asserts both the JSON wire shape **and** the disk
+      behavior (doc-side edit + `sync_file` reaches disk only with
+      `allow_edit`). Verified red (SPA fallback served HTML) before the
+      endpoint existed.
 - [ ] TS unit tests for `diffToEditorChanges` relocated with the function into
       `ts-packages/preview-runtime`.
 - [ ] TS test for the SPA edit path: with allowEdit on, `handleSetAst` calls
@@ -275,8 +279,10 @@ Same races, same semantics as hub-client today.
 
 - [ ] Move `diffToEditorChanges` to `ts-packages/preview-runtime`; update
       hub-client imports (`useAutomergeSync.ts`, tests).
-- [ ] `--allow-edit` flag in `crates/quarto/src/commands/preview.rs` →
-      `PreviewConfig` → `build_hub_config`.
+- [x] `--allow-edit` flag in `crates/quarto/src/main.rs` (clap) →
+      `PreviewArgs` → `PreviewConfig.allow_edit` → `build_hub_config`
+      (`disk_write_policy = WriteBack` iff allow_edit). Verified in
+      `q2 preview --help`.
 - [x] `HubConfig.disk_write_policy` (`DiskWritePolicy::{WriteBack, ReadOnly}`
       enum — richer than the planned bool) + gating in `sync_document` and
       `sync_binary_document`; threaded through `sync_document_auto`,
@@ -286,7 +292,9 @@ Same races, same semantics as hub-client today.
       `quarto hub` stay `WriteBack`. ReadOnly semantics: disk authoritative —
       text docs keep doc-side changes merged until the next disk edit
       converges the doc back to disk content; binary docs revert immediately.
-- [ ] `GET /api/preview/config` endpoint in `extend_with_preview`.
+- [x] `GET /api/preview/config` endpoint in `extend_with_preview`, returning
+      `{ "allowEdit": bool }` from an `ALLOW_EDIT` OnceLock (same pattern as
+      the other preview handler state).
 - [ ] Read-only plumbing in `preview-renderer`: `editingDisabled` through
       `Q2PreviewIframe` props → `UPDATE_AST` payload → `PreviewRoot` →
       `PreviewContext`; guards in `Para.tsx`, `Header.tsx`,

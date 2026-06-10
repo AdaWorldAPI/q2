@@ -80,6 +80,7 @@ async fn eager_capture_populates_index_sidecar() {
         engine_policy: Default::default(),
         resource_html_files: Vec::new(),
         cache_dir: None,
+        allow_edit: false,
     };
 
     let (ready_tx, ready_rx) = oneshot::channel::<Arc<HubContext>>();
@@ -174,6 +175,7 @@ async fn prose_only_doc_leaves_sidecar_empty() {
         engine_policy: Default::default(),
         resource_html_files: Vec::new(),
         cache_dir: None,
+        allow_edit: false,
     };
 
     let (ready_tx, ready_rx) = oneshot::channel::<Arc<HubContext>>();
