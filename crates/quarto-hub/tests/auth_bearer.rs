@@ -364,6 +364,7 @@ impl TestHub {
             auth_config: Some(auth_config),
             allow_insecure_auth: true,
             register_root_ws: false,
+            disk_write_policy: Default::default(),
         };
 
         let ctx = HubContext::new(storage, config).await.unwrap();
@@ -483,6 +484,7 @@ async fn allowlist_setup() -> &'static (MockOidcProvider, TestHub) {
                 auth_config: Some(auth_config),
                 allow_insecure_auth: true,
                 register_root_ws: false,
+                disk_write_policy: Default::default(),
             };
 
             let ctx = HubContext::new(storage, config).await.unwrap();
@@ -946,6 +948,7 @@ async fn secure_setup() -> &'static (MockOidcProvider, TestHub) {
                 auth_config: Some(auth_config),
                 allow_insecure_auth: false, // <-- the key difference
                 register_root_ws: false,
+                disk_write_policy: Default::default(),
             };
 
             let ctx = HubContext::new(storage, config).await.unwrap();

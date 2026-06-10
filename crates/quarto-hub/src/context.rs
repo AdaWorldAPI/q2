@@ -22,7 +22,9 @@ use crate::index::{IndexDocument, load_or_create_index};
 use crate::peer::spawn_peer_connection;
 use crate::resource::{create_binary_document, detect_mime_type};
 use crate::storage::StorageManager;
-use crate::sync::{SyncAllResult, SyncResult, sync_all_documents, sync_file_by_path};
+use crate::sync::{
+    DiskWritePolicy, SyncAllResult, SyncResult, sync_all_documents, sync_file_by_path,
+};
 use crate::sync_state::SyncState;
 use crate::watch::WatchFilter;
 
@@ -97,6 +99,14 @@ pub struct HubConfig {
     /// works at `/ws`, which hub-client and the q2-preview SPA both
     /// already use as their canonical connect path.
     pub register_root_ws: bool,
+
+    /// Whether automerge document changes may be written back to files on
+    /// disk. See [`DiskWritePolicy`].
+    ///
+    /// Default: `WriteBack` (the hub's collaborative semantics). `q2 preview`
+    /// sets `ReadOnly` unless `--allow-edit` is given, so browser-originated
+    /// document changes can never modify the user's files.
+    pub disk_write_policy: DiskWritePolicy,
 }
 
 impl Default for HubConfig {
@@ -114,6 +124,7 @@ impl Default for HubConfig {
             auth_config: None,
             allow_insecure_auth: false,
             register_root_ws: true,
+            disk_write_policy: DiskWritePolicy::default(),
         }
     }
 }
@@ -164,6 +175,10 @@ pub struct HubContext {
     /// `build_router` can consult it after `HubContext::new` consumes
     /// the originating `HubConfig`.
     register_root_ws: bool,
+
+    /// See [`HubConfig::disk_write_policy`]. Applied to every filesystem
+    /// sync this context performs (initial, periodic, watcher-triggered).
+    disk_write_policy: DiskWritePolicy,
 
     /// Maps peer IDs to authenticated user emails.
     /// Populated by handle_websocket when auth is enabled; read by the
@@ -266,8 +281,14 @@ impl HubContext {
                 let mut sync_state = SyncState::load(storage.hub_dir())?;
 
                 // Perform initial sync on startup
-                let sync_result =
-                    sync_all_documents(&repo, &index, project_root, &mut sync_state).await;
+                let sync_result = sync_all_documents(
+                    &repo,
+                    &index,
+                    project_root,
+                    &mut sync_state,
+                    config.disk_write_policy,
+                )
+                .await;
 
                 info!(
                     synced = sync_result.total_synced(),
@@ -290,6 +311,7 @@ impl HubContext {
         let auth_config = config.auth_config.take();
         let allow_insecure_auth = config.allow_insecure_auth;
         let register_root_ws = config.register_root_ws;
+        let disk_write_policy = config.disk_write_policy;
 
         Ok(Self {
             storage,
@@ -302,6 +324,7 @@ impl HubContext {
             auth_state: OnceLock::new(),
             allow_insecure_auth,
             register_root_ws,
+            disk_write_policy,
             peer_emails,
         })
     }
@@ -353,7 +376,14 @@ impl HubContext {
             return SyncAllResult::default();
         };
         let mut sync_state = sync_state_mutex.lock().await;
-        sync_all_documents(&self.repo, &self.index, project_root, &mut sync_state).await
+        sync_all_documents(
+            &self.repo,
+            &self.index,
+            project_root,
+            &mut sync_state,
+            self.disk_write_policy,
+        )
+        .await
     }
 
     /// Sync a single file by its path.
@@ -382,6 +412,7 @@ impl HubContext {
             file_path,
             &project_root,
             &mut sync_state,
+            self.disk_write_policy,
         )
         .await
     }

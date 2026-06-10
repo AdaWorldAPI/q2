@@ -27,6 +27,24 @@ use crate::resource::{
 };
 use crate::sync_state::{SyncState, sha256_hash};
 
+/// Policy controlling the automerge → filesystem direction of sync.
+///
+/// The disk → automerge direction is never gated: filesystem changes always
+/// flow into the document so connected clients see fresh content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiskWritePolicy {
+    /// Bidirectional sync (hub default): merged automerge content is written
+    /// back to the file when it differs from what's on disk.
+    #[default]
+    WriteBack,
+    /// The file on disk is authoritative; document changes are never written
+    /// to disk (`q2 preview` without `--allow-edit`). Text documents keep
+    /// remote changes merged in until the next filesystem edit converges the
+    /// document back to disk content; binary documents are reverted to the
+    /// filesystem content immediately.
+    ReadOnly,
+}
+
 /// Synchronize a single document with its corresponding filesystem file.
 ///
 /// This implements the unified sync algorithm:
@@ -35,13 +53,15 @@ use crate::sync_state::{SyncState, sha256_hash};
 /// 3. Fork at sync checkpoint (with fallback if fork_at fails)
 /// 4. Apply filesystem content to fork (update_text handles diff internally)
 /// 5. Merge fork back into main document
-/// 6. Write merged state back to filesystem
+/// 6. Write merged state back to filesystem (skipped under
+///    [`DiskWritePolicy::ReadOnly`], where disk stays authoritative)
 /// 7. Update sync checkpoint
 ///
 /// # Arguments
 /// * `doc_handle` - Handle to the automerge document
 /// * `file_path` - Path to the filesystem file
 /// * `sync_state` - Mutable reference to sync state for reading/updating checkpoints
+/// * `policy` - Whether merged automerge content may be written back to disk
 ///
 /// # Returns
 /// * `Ok(SyncResult)` - Summary of what happened during sync
@@ -50,6 +70,7 @@ pub fn sync_document(
     doc_handle: &DocHandle,
     file_path: &Path,
     sync_state: &mut SyncState,
+    policy: DiskWritePolicy,
 ) -> Result<SyncResult> {
     let doc_id = doc_handle.document_id().to_string();
 
@@ -145,26 +166,45 @@ pub fn sync_document(
             }
         };
 
-        // Write merged content back to filesystem (only if it differs)
+        // Write merged content back to filesystem (only if it differs and
+        // the policy allows the automerge → disk direction)
         let merged_content_hash = sha256_hash(&merged_content);
         if merged_content_hash != fs_content_hash {
-            std::fs::write(file_path, &merged_content).map_err(|e| {
-                Error::Sync(format!(
-                    "failed to write merged content to {}: {}",
-                    file_path.display(),
-                    e
-                ))
-            })?;
-            debug!(
-                doc_id = %doc_id,
-                path = %file_path.display(),
-                "Wrote merged content to filesystem"
-            );
+            match policy {
+                DiskWritePolicy::WriteBack => {
+                    std::fs::write(file_path, &merged_content).map_err(|e| {
+                        Error::Sync(format!(
+                            "failed to write merged content to {}: {}",
+                            file_path.display(),
+                            e
+                        ))
+                    })?;
+                    debug!(
+                        doc_id = %doc_id,
+                        path = %file_path.display(),
+                        "Wrote merged content to filesystem"
+                    );
+                }
+                DiskWritePolicy::ReadOnly => {
+                    debug!(
+                        doc_id = %doc_id,
+                        path = %file_path.display(),
+                        "Disk write-back disabled; file left untouched"
+                    );
+                }
+            }
         }
 
-        // 7. Update sync checkpoint
+        // 7. Update sync checkpoint. Under ReadOnly the file was not
+        // written, so the checkpoint must record the hash of what is
+        // actually on disk — otherwise the next sync would misread the
+        // unchanged file as a fresh filesystem edit.
+        let checkpoint_hash = match policy {
+            DiskWritePolicy::WriteBack => &merged_content_hash,
+            DiskWritePolicy::ReadOnly => &fs_content_hash,
+        };
         let new_heads = doc.get_heads();
-        sync_state.set_checkpoint(&doc_id, &new_heads, &merged_content_hash);
+        sync_state.set_checkpoint(&doc_id, &new_heads, checkpoint_hash);
 
         Ok(result_type)
     });
@@ -229,6 +269,7 @@ pub fn sync_binary_document(
     doc_handle: &DocHandle,
     file_path: &Path,
     sync_state: &mut SyncState,
+    policy: DiskWritePolicy,
 ) -> Result<SyncResult> {
     let doc_id = doc_handle.document_id().to_string();
 
@@ -259,8 +300,12 @@ pub fn sync_binary_document(
             return Ok(SyncResult::NoChanges);
         }
 
-        // Determine sync direction
-        let (result_type, final_content, final_hash) = if !doc_unchanged && fs_unchanged {
+        // Determine sync direction. Under ReadOnly the automerge → disk
+        // direction is forbidden: a document-only change is reverted to the
+        // filesystem content instead (binary has no merge, so leaving the
+        // divergence in place would re-trigger on every periodic sync).
+        let doc_to_disk = !doc_unchanged && fs_unchanged && policy == DiskWritePolicy::WriteBack;
+        let (result_type, final_content, final_hash) = if doc_to_disk {
             // Document changed, filesystem unchanged -> write doc to filesystem
             let content = read_binary_content(doc).ok_or_else(|| {
                 Error::Sync(format!(
@@ -283,6 +328,13 @@ pub fn sync_binary_document(
                 SyncResult::BothChanged {
                     merged_len: fs_content.len(),
                 }
+            } else if !doc_unchanged {
+                // ReadOnly revert of a document-only change: report the
+                // automerge side as the one that changed, but the content
+                // that wins is the filesystem's.
+                SyncResult::AutomergeChanged {
+                    new_len: fs_content.len(),
+                }
             } else {
                 SyncResult::FilesystemChanged {
                     new_len: fs_content.len(),
@@ -302,8 +354,9 @@ pub fn sync_binary_document(
             (result_type, fs_content, fs_hash)
         };
 
-        // Write to filesystem if needed (only if doc changed)
-        if matches!(result_type, SyncResult::AutomergeChanged { .. }) {
+        // Write to filesystem if needed (only in the doc → disk direction;
+        // a ReadOnly revert also reports AutomergeChanged but must not write)
+        if doc_to_disk {
             std::fs::write(file_path, &final_content).map_err(|e| {
                 Error::Sync(format!(
                     "failed to write binary content to {}: {}",
@@ -373,12 +426,13 @@ pub fn sync_document_auto(
     doc_handle: &DocHandle,
     file_path: &Path,
     sync_state: &mut SyncState,
+    policy: DiskWritePolicy,
 ) -> Result<SyncResult> {
     let doc_type = doc_handle.with_document(|doc| detect_document_type(doc));
 
     match doc_type {
-        DocumentType::Text => sync_document(doc_handle, file_path, sync_state),
-        DocumentType::Binary => sync_binary_document(doc_handle, file_path, sync_state),
+        DocumentType::Text => sync_document(doc_handle, file_path, sync_state, policy),
+        DocumentType::Binary => sync_binary_document(doc_handle, file_path, sync_state, policy),
         DocumentType::Invalid => {
             // Try to infer from file extension
             let is_binary = file_path
@@ -387,9 +441,9 @@ pub fn sync_document_auto(
                 .is_some_and(resource::is_binary_extension);
 
             if is_binary {
-                sync_binary_document(doc_handle, file_path, sync_state)
+                sync_binary_document(doc_handle, file_path, sync_state, policy)
             } else {
-                sync_document(doc_handle, file_path, sync_state)
+                sync_document(doc_handle, file_path, sync_state, policy)
             }
         }
     }
@@ -417,6 +471,7 @@ pub async fn sync_file_by_path(
     file_path: &Path,
     project_root: &Path,
     sync_state: &mut SyncState,
+    policy: DiskWritePolicy,
 ) -> Result<Option<SyncResult>> {
     // Convert absolute path to relative path for index lookup
     let relative_path = match file_path.strip_prefix(project_root) {
@@ -466,7 +521,7 @@ pub async fn sync_file_by_path(
     };
 
     // Sync the document (auto-detects text vs binary)
-    let result = sync_document_auto(&doc_handle, file_path, sync_state)?;
+    let result = sync_document_auto(&doc_handle, file_path, sync_state, policy)?;
 
     // Save sync state
     sync_state.save()?;
@@ -529,6 +584,7 @@ pub async fn sync_all_documents(
     index: &IndexDocument,
     project_root: &Path,
     sync_state: &mut SyncState,
+    policy: DiskWritePolicy,
 ) -> SyncAllResult {
     let mut result = SyncAllResult::default();
 
@@ -628,7 +684,7 @@ pub async fn sync_all_documents(
         }
 
         // Sync the document (auto-detects text vs binary)
-        match sync_document_auto(&doc_handle, &file_path, sync_state) {
+        match sync_document_auto(&doc_handle, &file_path, sync_state, policy) {
             Ok(sync_result) => match sync_result {
                 SyncResult::NoChanges => result.no_changes += 1,
                 SyncResult::AutomergeChanged { .. } => result.automerge_changed += 1,
@@ -917,7 +973,13 @@ mod tests {
         sync_state.set_checkpoint(&doc_id, &heads, &sha256_hash("Hello, world!"));
 
         // Sync should detect no changes
-        let result = sync_document(&handle, &file_path, &mut sync_state).unwrap();
+        let result = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .unwrap();
         assert_eq!(result, SyncResult::NoChanges);
 
         // Content should be unchanged
@@ -948,7 +1010,13 @@ mod tests {
         sync_state.set_checkpoint(&doc_id, &heads, &sha256_hash("Original content"));
 
         // Sync should pull filesystem changes into automerge
-        let result = sync_document(&handle, &file_path, &mut sync_state).unwrap();
+        let result = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .unwrap();
         assert!(matches!(result, SyncResult::FilesystemChanged { .. }));
 
         // Both should now have filesystem content
@@ -982,7 +1050,13 @@ mod tests {
         update_text_in_handle(&handle, "Modified by automerge");
 
         // Sync should push automerge changes to filesystem
-        let result = sync_document(&handle, &file_path, &mut sync_state).unwrap();
+        let result = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .unwrap();
         assert!(matches!(result, SyncResult::AutomergeChanged { .. }));
 
         // Both should now have automerge content
@@ -1016,7 +1090,13 @@ mod tests {
         update_text_in_handle(&handle, "Line one - am edit\nLine two");
 
         // Sync should merge both changes
-        let result = sync_document(&handle, &file_path, &mut sync_state).unwrap();
+        let result = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .unwrap();
         assert!(matches!(result, SyncResult::BothChanged { .. }));
 
         // Both should have merged content (exact result depends on CRDT merge)
@@ -1048,7 +1128,13 @@ mod tests {
         let mut sync_state = SyncState::load(temp.path()).unwrap();
 
         // Sync should work even without prior checkpoint
-        let result = sync_document(&handle, &file_path, &mut sync_state).unwrap();
+        let result = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .unwrap();
 
         // Should detect as filesystem changed (since no checkpoint means we treat
         // current heads as checkpoint, and file content differs from... wait, file
@@ -1104,14 +1190,28 @@ mod tests {
         let mut sync_state = SyncState::load(project_root).unwrap();
 
         // Sync all documents
-        let result = sync_all_documents(&repo, &index, project_root, &mut sync_state).await;
+        let result = sync_all_documents(
+            &repo,
+            &index,
+            project_root,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .await;
 
         // All 3 documents should be synced (first run, so filesystem_changed)
         assert_eq!(result.total_synced(), 3);
         assert!(!result.has_errors());
 
         // Now sync again - should all be no_changes
-        let result2 = sync_all_documents(&repo, &index, project_root, &mut sync_state).await;
+        let result2 = sync_all_documents(
+            &repo,
+            &index,
+            project_root,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .await;
         assert_eq!(result2.no_changes, 3);
         assert_eq!(result2.total_synced(), 3);
     }
@@ -1146,7 +1246,14 @@ mod tests {
         let mut sync_state = SyncState::load(project_root).unwrap();
 
         // Sync all documents
-        let result = sync_all_documents(&repo, &index, project_root, &mut sync_state).await;
+        let result = sync_all_documents(
+            &repo,
+            &index,
+            project_root,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .await;
 
         // 1 synced, 1 skipped
         assert_eq!(result.total_synced(), 1);
@@ -1201,7 +1308,13 @@ mod tests {
         sync_state.set_checkpoint(&doc_id, &heads, &content_hash);
 
         // Sync should detect no changes
-        let result = sync_binary_document(&handle, &file_path, &mut sync_state).unwrap();
+        let result = sync_binary_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .unwrap();
         assert_eq!(result, SyncResult::NoChanges);
 
         // Content should be unchanged
@@ -1231,7 +1344,13 @@ mod tests {
         sync_state.set_checkpoint(&doc_id, &heads, &compute_hash(&original_content));
 
         // Sync should update document from filesystem
-        let result = sync_binary_document(&handle, &file_path, &mut sync_state).unwrap();
+        let result = sync_binary_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .unwrap();
         assert!(matches!(result, SyncResult::FilesystemChanged { .. }));
 
         // Document should have new content
@@ -1263,7 +1382,13 @@ mod tests {
         update_binary_in_handle(&handle, &new_content, "image/jpeg");
 
         // Sync should push document changes to filesystem
-        let result = sync_binary_document(&handle, &file_path, &mut sync_state).unwrap();
+        let result = sync_binary_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .unwrap();
         assert!(matches!(result, SyncResult::AutomergeChanged { .. }));
 
         // File should have new content
@@ -1296,7 +1421,13 @@ mod tests {
         update_binary_in_handle(&handle, &doc_content, "application/octet-stream");
 
         // Sync should pick filesystem (last-writer-wins for binary)
-        let result = sync_binary_document(&handle, &file_path, &mut sync_state).unwrap();
+        let result = sync_binary_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        )
+        .unwrap();
         assert!(matches!(result, SyncResult::BothChanged { .. }));
 
         // Filesystem content wins
@@ -1320,7 +1451,12 @@ mod tests {
         let mut sync_state = SyncState::load(temp.path()).unwrap();
 
         // sync_document_auto should work for text documents
-        let result = sync_document_auto(&handle, &file_path, &mut sync_state);
+        let result = sync_document_auto(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        );
         assert!(result.is_ok());
     }
 
@@ -1341,7 +1477,12 @@ mod tests {
         let mut sync_state = SyncState::load(temp.path()).unwrap();
 
         // sync_document_auto should work for binary documents
-        let result = sync_document_auto(&handle, &file_path, &mut sync_state);
+        let result = sync_document_auto(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        );
         assert!(result.is_ok());
     }
 
@@ -1369,7 +1510,12 @@ mod tests {
         // sync_document_auto should fall back to extension-based detection
         // For binary extension with .png, it should use binary sync which
         // will update the empty document with the filesystem content
-        let result = sync_document_auto(&handle, &file_path, &mut sync_state);
+        let result = sync_document_auto(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        );
         assert!(result.is_ok());
 
         // After sync, document should have the binary content
@@ -1400,7 +1546,227 @@ mod tests {
         // sync_document_auto should fall back to extension-based detection
         // For text extension .qmd, it should attempt text sync which will fail
         // because the document has no "text" field
-        let result = sync_document_auto(&handle, &file_path, &mut sync_state);
+        let result = sync_document_auto(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::WriteBack,
+        );
         assert!(result.is_err());
+    }
+
+    // ========== DiskWritePolicy::ReadOnly tests (bd-ov4gqk3m) ==========
+
+    #[tokio::test]
+    async fn test_sync_readonly_automerge_change_not_written_to_disk() {
+        let temp = TempDir::new().unwrap();
+        let repo = create_test_repo().await;
+
+        let doc = create_doc_with_text("Original content");
+        let handle = repo.create(doc).await.unwrap();
+        let doc_id = handle.document_id().to_string();
+
+        let file_path = temp.path().join("test.qmd");
+        std::fs::write(&file_path, "Original content").unwrap();
+
+        let mut sync_state = SyncState::load(temp.path()).unwrap();
+        let heads = handle.with_document(|doc| doc.get_heads());
+        sync_state.set_checkpoint(&doc_id, &heads, &sha256_hash("Original content"));
+
+        // Simulate a browser-originated document edit
+        update_text_in_handle(&handle, "Modified by automerge");
+
+        let result = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::ReadOnly,
+        )
+        .unwrap();
+        assert!(matches!(result, SyncResult::AutomergeChanged { .. }));
+
+        // The file on disk must be untouched; the doc keeps its change.
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "Original content"
+        );
+        assert_eq!(read_text_from_handle(&handle), "Modified by automerge");
+    }
+
+    #[tokio::test]
+    async fn test_sync_readonly_repeat_sync_is_stable() {
+        let temp = TempDir::new().unwrap();
+        let repo = create_test_repo().await;
+
+        let doc = create_doc_with_text("Original content");
+        let handle = repo.create(doc).await.unwrap();
+        let doc_id = handle.document_id().to_string();
+
+        let file_path = temp.path().join("test.qmd");
+        std::fs::write(&file_path, "Original content").unwrap();
+
+        let mut sync_state = SyncState::load(temp.path()).unwrap();
+        let heads = handle.with_document(|doc| doc.get_heads());
+        sync_state.set_checkpoint(&doc_id, &heads, &sha256_hash("Original content"));
+
+        update_text_in_handle(&handle, "Modified by automerge");
+
+        // First sync absorbs the doc change without touching disk...
+        sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::ReadOnly,
+        )
+        .unwrap();
+
+        // ...and every subsequent sync is a no-op (no churn from the
+        // 5-second periodic loop), with the file still untouched.
+        let second = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::ReadOnly,
+        )
+        .unwrap();
+        assert_eq!(second, SyncResult::NoChanges);
+        let third = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::ReadOnly,
+        )
+        .unwrap();
+        assert_eq!(third, SyncResult::NoChanges);
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "Original content"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sync_readonly_filesystem_change_syncs_to_doc() {
+        let temp = TempDir::new().unwrap();
+        let repo = create_test_repo().await;
+
+        let doc = create_doc_with_text("Original content");
+        let handle = repo.create(doc).await.unwrap();
+        let doc_id = handle.document_id().to_string();
+
+        let file_path = temp.path().join("test.qmd");
+        std::fs::write(&file_path, "Modified by filesystem").unwrap();
+
+        let mut sync_state = SyncState::load(temp.path()).unwrap();
+        let heads = handle.with_document(|doc| doc.get_heads());
+        sync_state.set_checkpoint(&doc_id, &heads, &sha256_hash("Original content"));
+
+        // The disk → automerge direction must be unaffected by ReadOnly.
+        let result = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::ReadOnly,
+        )
+        .unwrap();
+        assert!(matches!(result, SyncResult::FilesystemChanged { .. }));
+        assert_eq!(read_text_from_handle(&handle), "Modified by filesystem");
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "Modified by filesystem"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sync_readonly_disk_edit_converges_doc_to_disk() {
+        let temp = TempDir::new().unwrap();
+        let repo = create_test_repo().await;
+
+        let doc = create_doc_with_text("Original content");
+        let handle = repo.create(doc).await.unwrap();
+        let doc_id = handle.document_id().to_string();
+
+        let file_path = temp.path().join("test.qmd");
+        std::fs::write(&file_path, "Original content").unwrap();
+
+        let mut sync_state = SyncState::load(temp.path()).unwrap();
+        let heads = handle.with_document(|doc| doc.get_heads());
+        sync_state.set_checkpoint(&doc_id, &heads, &sha256_hash("Original content"));
+
+        // A doc-side edit is absorbed (file untouched)...
+        update_text_in_handle(&handle, "Rogue browser edit");
+        sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::ReadOnly,
+        )
+        .unwrap();
+
+        // ...then the user edits the file on disk. Disk is authoritative:
+        // the next sync converges the document back to exactly the disk
+        // content, discarding the doc-side edit rather than merging it.
+        std::fs::write(&file_path, "Original content, user addition").unwrap();
+        let result = sync_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::ReadOnly,
+        )
+        .unwrap();
+        assert!(matches!(result, SyncResult::FilesystemChanged { .. }));
+        assert_eq!(
+            read_text_from_handle(&handle),
+            "Original content, user addition"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "Original content, user addition"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sync_binary_readonly_doc_change_reverts_to_filesystem() {
+        let temp = TempDir::new().unwrap();
+        let repo = create_test_repo().await;
+
+        let original = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        let doc = create_doc_with_binary(&original, "image/png");
+        let handle = repo.create(doc).await.unwrap();
+        let doc_id = handle.document_id().to_string();
+
+        let file_path = temp.path().join("image.png");
+        std::fs::write(&file_path, &original).unwrap();
+
+        let mut sync_state = SyncState::load(temp.path()).unwrap();
+        let heads = handle.with_document(|doc| doc.get_heads());
+        sync_state.set_checkpoint(&doc_id, &heads, &compute_hash(&original));
+
+        // Simulate a remote binary update
+        let remote = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        update_binary_in_handle(&handle, &remote, "image/jpeg");
+
+        // ReadOnly: the file must not be written; the document is reverted
+        // to the filesystem content (binary has no merge, so divergence
+        // would otherwise re-trigger every periodic sync).
+        let result = sync_binary_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::ReadOnly,
+        )
+        .unwrap();
+        assert!(!matches!(result, SyncResult::NoChanges));
+        assert_eq!(std::fs::read(&file_path).unwrap(), original);
+        assert_eq!(read_binary_from_handle(&handle), original);
+
+        // And the cycle terminates: next sync is a no-op.
+        let second = sync_binary_document(
+            &handle,
+            &file_path,
+            &mut sync_state,
+            DiskWritePolicy::ReadOnly,
+        )
+        .unwrap();
+        assert_eq!(second, SyncResult::NoChanges);
     }
 }

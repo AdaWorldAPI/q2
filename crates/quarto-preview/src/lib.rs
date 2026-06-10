@@ -302,6 +302,10 @@ fn build_hub_config(config: &PreviewConfig) -> HubConfig {
         allow_insecure_auth: false,
         // SPA owns `/`; hub gets `/ws` only.
         register_root_ws: false,
+        // Browser edits must never reach the user's files unless
+        // explicitly allowed; the --allow-edit flag (bd-ov4gqk3m) will
+        // make this conditional. Until then, preview is disk-authoritative.
+        disk_write_policy: quarto_hub::sync::DiskWritePolicy::ReadOnly,
     }
 }
 
