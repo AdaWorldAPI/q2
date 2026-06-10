@@ -15,6 +15,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-10
+
+- [`465de01f`](https://github.com/quarto-dev/q2/commits/465de01f): An expired sign-in no longer presents as a permanent "working offline" state — the client now detects the rejected session, attempts silent renewal, and returns to the login screen with a "session expired" message; genuine network outages keep offline editing intact.
+
 ### 2026-06-09
 
 - [`57bc49cf`](https://github.com/quarto-dev/q2/commits/57bc49cf): Preview renders no longer re-copy unchanged artifacts (theme CSS, fonts, shared JS) into the virtual filesystem on every keystroke — byte-identical re-writes are now skipped.
