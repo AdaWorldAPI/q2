@@ -319,27 +319,57 @@ Same races, same semantics as hub-client today.
       `getFileContent`, hub-client's `handleContentRewrite` pattern), keeps
       the optimistic VFS update, and early-returns when read-only.
 
-### Phase 3 — Verification
+### Phase 3 — Verification (all done 2026-06-10; output inspected)
 
-- [ ] `cargo xtask verify` (full — WASM leg affected).
-- [ ] `npm run build:all` from `hub-client/` (changed shared ts-package).
-- [ ] End-to-end per CLAUDE.md: rebuild the preview chain
-      (`npm run build:wasm` → `cargo xtask build-q2-preview-spa` →
-      `cargo build --bin q2`), then `cargo run --bin q2 -- preview
-      <fixture>.qmd --allow-edit`, edit a paragraph in the browser, and `cat`
-      the file on disk showing the edit (record invocation + output snippet).
-- [ ] E2e negative case: without `--allow-edit`, blocks show no edit
-      affordance (no hover outline, click does nothing) and the file on disk
-      is untouched.
-- [ ] E2e SIGINT flush: commit an edit, Ctrl-C the preview within the 5 s
-      sync window, confirm the file on disk contains the edit.
-- [ ] Check e2e harness (`cargo xtask verify --e2e` / hub-client Playwright)
-      for a place to automate the round-trip; add if feasible, otherwise file
-      a follow-up strand.
+- [x] `cargo xtask verify` (full, all 12 steps): **"✓ All verification steps
+      passed!"** (includes `npm run build:all` + hub-client `test:ci`).
+- [x] End-to-end positive case. Chain rebuilt
+      (`cargo xtask build-q2-preview-spa` → `cargo build --bin q2`), then:
+      ```
+      cargo run --bin q2 -- preview tmp-e2e-allow-edit/doc.qmd --allow-edit --no-browser --port 7341
+      ```
+      `GET /api/preview/config` → `{"allowEdit": true}`. Clicked the paragraph
+      in Chrome (real PointerEvents), edited the textarea, committed via blur;
+      the file on disk read back as:
+      ```
+      ---
+      title: Edit write-back e2e
+      ---
+
+      This paragraph was EDITED IN THE BROWSER and must reach disk.
+
+      A second paragraph that must stay untouched.
+      ```
+      Frontmatter and the sibling paragraph were untouched. Output inspected
+      directly (`cat`).
+- [x] E2e negative case. Same fixture, **without** `--allow-edit`:
+      `GET /api/preview/config` → `{"allowEdit": false}`; in the browser,
+      zero `[data-block-pool-id]` elements, no affordance stylesheet, cursor
+      stays `auto`, and clicking the paragraph produces no edit surface. After
+      several sync cycles + SIGINT shutdown, the file's SHA-1
+      (`68bf80bd8be8…`) was byte-identical to the pre-session content.
+- [x] E2e SIGINT flush. With `RUST_LOG=quarto_hub=debug`: commit edit →
+      `kill -INT` ~6 s later → log shows `Performing final filesystem sync
+      before shutdown…` / `Final filesystem sync complete synced=1 errors=0`
+      and the file contains the edit. **Measured residual race:** in one run
+      the SIGINT landed ~1.5 s after commit and the edit was lost — the WS
+      frame had not yet reached the server when shutdown began, so there was
+      nothing to flush. This is the accepted best-effort window from §6, but
+      it is wider than "milliseconds"; the eager-sync follow-up strand should
+      close it (SPA could also flush on `visibilitychange`).
+- [x] Automated e2e harness: not added in this strand — filed as a follow-up
+      strand (Playwright spec driving the real `q2 preview` binary).
 
 ### Phase 4 — Bookkeeping
 
-- [ ] hub-client changelog entry if hub-client files changed (two-commit
-      workflow).
-- [ ] Close strand with summary; file the eager-sync endpoint
-      (`POST /api/preview/sync-file`) as a discovered-from strand if deferred.
+- [x] hub-client changelog: deliberately **no entry**. The only
+      hub-client-touching commit (`0072c42f`) is a pure refactor (import of
+      `diffToEditorChanges` repointed to `@quarto/preview-runtime`; no
+      behavior change), and the changelog header excludes refactors.
+- [x] Follow-ups filed as discovered-from strands:
+      - bd-g4uw7d8g — eager sync trigger (`POST /api/preview/sync-file` +
+        SPA flush on visibilitychange) to close the ≤5 s latency and the
+        measured ~1.5 s SIGINT race.
+      - bd-f8d753iq — automated Playwright e2e for the `--allow-edit`
+        round-trip against the real binary.
+- [ ] Merge topic branch + close strand (pending review).
