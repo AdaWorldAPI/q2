@@ -17,6 +17,8 @@ be in reverse chronological order (latest first).
 
 ### 2026-06-10
 
+- [`fae16ea0`](https://github.com/quarto-dev/q2/commits/fae16ea0): The q2-debug and editor reveal-deck renderers now draw their reveal.js CSS from the same vendored copy `q2 render` embeds, so deck styling cannot drift between the preview surfaces and rendered output.
+- [`84ad8099`](https://github.com/quarto-dev/q2/commits/84ad8099): KaTeX is now pinned to one exact version (0.16.28) across rendered output (CDN link) and the preview's bundled copy, so math renders identically in both and no longer changes when the CDN's `latest` advances.
 - [`fa2cf019`](https://github.com/quarto-dev/q2/commits/fa2cf019): Opening a document after the sign-in session has expired now cleanly aborts and triggers a silent renewal, instead of opening the document with a randomized collaboration identity.
 - [`465de01f`](https://github.com/quarto-dev/q2/commits/465de01f): An expired sign-in no longer presents as a permanent "working offline" state — the client now detects the rejected session, attempts silent renewal, and returns to the login screen with a "session expired" message; genuine network outages keep offline editing intact.
 - [`6b8fb166`](https://github.com/quarto-dev/q2/commits/6b8fb166): Paragraphs, headings, and nested content blocks (inside callouts, fenced divs, list items, and blockquotes) in q2-preview are now click-to-edit — click any block to open an inline editor, make changes, and they save back to the QMD source automatically.

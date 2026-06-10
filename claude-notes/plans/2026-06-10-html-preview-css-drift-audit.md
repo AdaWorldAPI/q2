@@ -146,27 +146,59 @@ a phase so findings land as fixtures/strands rather than ad-hoc notes.
 ## Phases
 
 - **Phase 0 — Test plan (TDD: failing tests first).**
-  - [ ] Theme-CSS identity test: for a fixture doc + theme, run the html
-        pipeline and the q2-preview pipeline (both natively, in-process — no
-        browser needed) and byte-compare render's emitted CSS with the
-        q2-preview `styles.css` VFS artifact.
-  - [ ] KaTeX version-sync test: root `package.json`'s `katex` pin must be
-        exact and must equal the version in `DEFAULT_KATEX_URL_BASE`
-        (`math_js.rs`). Fails today (`@latest` vs `^0.16.28`).
-- **Phase 1 — Theme-CSS identity.** Make the identity test pass; if the bytes
-  differ, chase the input divergence (format metadata, resolver) and
-  converge. If render legitimately post-processes CSS, define a principled
-  normalization and document it in the test.
-- **Phase 2 — KaTeX convergence.** Pin npm `katex` exact; pin
-  `DEFAULT_KATEX_URL_BASE` to the same version; sync test green.
-- **Phase 3 — q2-debug opportunistic cleanup.** Switch its npm reveal/KaTeX
-  CSS imports to the vendored copies if the change stays simple; otherwise
-  exempt with a comment.
+  - [x] Theme-CSS identity test:
+        `crates/quarto-core/tests/integration/preview_render_css_parity.rs` —
+        4 cases (default theme, `theme: cosmo`, format-scoped
+        `format: html: theme: darkly`, `theme: none`), each rendering the
+        same doc through `render_qmd_to_html` and `render_qmd_to_preview_ast`
+        with private sass caches and byte-comparing the
+        `css:theme:<fingerprint>` artifact (key + content).
+  - [x] KaTeX version-sync test: `katex_cdn_version_matches_npm_pin` in
+        `math_js.rs` tests — root `package.json` AND
+        `hub-client/quarto-hub-sandboxed-preview/package.json` (a
+        non-workspace sub-project with its own bundled KaTeX, discovered
+        during implementation) must pin `katex` exactly, agree with each
+        other, and match `DEFAULT_KATEX_URL_BASE`. **Verified failing
+        first** (`^0.16.28` not exact; URL said `@latest`).
+- **Phase 1 — Theme-CSS identity.** ✅ **No divergence found**: all 4
+  identity cases passed on first run — the html and q2-preview pipelines
+  already assemble byte-identical theme CSS (incl. the format-scoped case,
+  because `MetadataMergeStage` flattens on `ctx.format.identifier` = html
+  for the q2-preview pseudo-format). The tests stay as regression guards.
+  No normalization needed.
+- **Phase 2 — KaTeX convergence.** ✅ Pinned `katex` to exactly `0.16.28`
+  in root + sandboxed-preview package.json (lockfiles regenerated);
+  `DEFAULT_KATEX_URL_BASE` → `katex@0.16.28` (was `@latest`); sync test
+  green; all 27 katex/math/parity tests pass.
+- **Phase 3 — q2-debug opportunistic cleanup.** ✅
+  - [x] `q2-debug/entry.tsx`: npm `reveal.js/*.css` → the four vendored
+        `resources/revealjs/{reset,reveal,theme/white,quarto-reveal}.css`
+        (mirrors `RevealDeck.tsx`; q2-debug had also been missing
+        `reset.css`/`quarto-reveal.css` relative to render).
+  - [x] `RevealjsReactAstSlideRenderer.tsx` (hub editor's deck renderer —
+        same drift class, discovered during the sweep): swapped its two npm
+        base-CSS imports for the vendored equivalents (byte-identical today
+        → no visual change). Deliberately did NOT add
+        `reset.css`/`quarto-reveal.css` there — it predates them and adding
+        them would change the live editor's appearance.
+  - [x] `parity.integration.test.tsx` mocks updated to the vendored paths.
+        (Note: hub-client integration tests need `npm run build:wasm` in a
+        fresh worktree; the parity suite fails to collect without it —
+        pre-existing, verified via stash-compare.)
 - **Phase 4 — E2E verification.** Per the end-to-end verification policy:
-  real `q2 render` + `q2 preview` invocations on a math-bearing fixture,
-  inspect emitted KaTeX URL + theme link, record invocation + output snippet
-  here. (Bootstrap SCSS↔JS pairing check folded in here if cheap, else filed
-  as a follow-up strand.)
+  - [ ] Real `q2 render` on a math-bearing fixture with
+        `html-math-method: katex`: inspect the emitted CDN URL
+        (`katex@0.16.28`, not `@latest`); record invocation + output
+        snippet here.
+  - [ ] Full `cargo xtask verify` (hub build leg included — hub-client
+        files changed).
+  - [ ] Bootstrap SCSS↔JS pairing check if cheap, else follow-up strand.
+  - [ ] File follow-up strand for the **SCSS compiler split**: native
+        render compiles assembled SCSS with `grass`, the browser preview
+        compiles the same SCSS with dart-sass (JS bridge) — so the bytes
+        shipped to the browser are NOT guaranteed identical to render's
+        even with converged inputs (which the identity tests now pin).
+        Structural, out of scope here; needs its own assessment.
 
 ## Risks / tradeoffs
 
