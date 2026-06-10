@@ -124,5 +124,17 @@
 # hidden }` and rendered as a stray empty line at the bottom of every
 # highlighted code block. doc.html hash unchanged: the fixture has no
 # code blocks, and the change is CSS-only.
+#
+# Re-captured 2026-06-10 (bd-15uump3h): doc_files/styles.css hash updated
+# because a new built-in SCSS layer `embed-example.scss` ships default
+# styling for the `.embed-example-iframe` transform's "Demo N" blocks
+# (bordered frame + muted caption: `.embed-example`,
+# `.embed-example iframe.embed-example-iframe { border: 3px solid
+# $gray-300 }`, `.embed-example-source`, `.embed-example-label`). Like
+# the highlight layer, it's always included so the feature has a sensible
+# default appearance with no per-project CSS. doc.html hash unchanged:
+# the fixture has no `.embed-example-iframe` div, so the new selectors
+# match nothing in the body/head — they only appear in the compiled CSS,
+# so the `styles.css` hash shifts.
 doc.html f81f6b0c1ceac71d249f208dac84875e53b251b85d2ead6129169320c86ac7f6
-doc_files/styles.css 7ffc66830849fc1107cc663797366e94942cf60634c639ec73a99ccd36eaafea
+doc_files/styles.css 53eb1e60ea330392e7d0db61366c7febaf097722a3139bf8fc65aadbaecab721

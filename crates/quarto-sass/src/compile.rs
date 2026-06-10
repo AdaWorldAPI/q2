@@ -73,7 +73,7 @@ pub fn assemble_theme_scss(
     config: &ThemeConfig,
     context: &ThemeContext<'_>,
 ) -> Result<(String, Vec<PathBuf>), SassError> {
-    use crate::bundle::{load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
 
     // Process theme specs into layers
     let result = process_theme_specs(&config.themes, context)?;
@@ -84,7 +84,8 @@ pub fn assemble_theme_scss(
     // title-block rule by declaring the same selector in a later layer.
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
-    let mut user_layers = vec![title_block_layer, highlight_layer];
+    let embed_example_layer = load_embed_example_layer()?;
+    let mut user_layers = vec![title_block_layer, highlight_layer, embed_example_layer];
     user_layers.extend(result.layers);
 
     // Assemble SCSS
@@ -186,7 +187,7 @@ pub fn compile_with_doc_vars(
     context: &ThemeContext<'_>,
     doc_vars: &crate::SassLayer,
 ) -> Result<String, SassError> {
-    use crate::bundle::{load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
     use crate::themes::process_theme_specs;
     use quarto_system_runtime::sass_native::compile_scss_with_embedded;
 
@@ -205,7 +206,8 @@ pub fn compile_with_doc_vars(
     // merged-defaults section and wins the `!default` race.
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
-    let mut user_layers = vec![title_block_layer, highlight_layer];
+    let embed_example_layer = load_embed_example_layer()?;
+    let mut user_layers = vec![title_block_layer, highlight_layer, embed_example_layer];
 
     let mut load_paths = default_load_paths();
     if config.has_themes() {
@@ -318,7 +320,7 @@ pub fn compile_default_css(
     runtime: &dyn SystemRuntime,
     minified: bool,
 ) -> Result<String, SassError> {
-    use crate::bundle::{load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
     use quarto_system_runtime::sass_native::compile_scss_with_embedded;
 
     // Return cached version if available (only for minified)
@@ -332,9 +334,11 @@ pub fn compile_default_css(
     // highlight colors. Both ship with Quarto and are always included.
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
+    let embed_example_layer = load_embed_example_layer()?;
 
-    // Assemble SCSS: Bootstrap + Quarto + title block + highlight defaults
-    let scss = assemble_with_user_layers(&[title_block_layer, highlight_layer])?;
+    // Assemble SCSS: Bootstrap + Quarto + title block + highlight + embed-example defaults
+    let scss =
+        assemble_with_user_layers(&[title_block_layer, highlight_layer, embed_example_layer])?;
 
     // Get load paths and resources
     let load_paths = default_load_paths();
@@ -415,7 +419,7 @@ pub async fn compile_with_doc_vars(
     context: &ThemeContext<'_>,
     doc_vars: &crate::SassLayer,
 ) -> Result<String, SassError> {
-    use crate::bundle::{load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
     use crate::themes::process_theme_specs;
 
     if doc_vars.is_empty() {
@@ -427,7 +431,8 @@ pub async fn compile_with_doc_vars(
 
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
-    let mut user_layers = vec![title_block_layer, highlight_layer];
+    let embed_example_layer = load_embed_example_layer()?;
+    let mut user_layers = vec![title_block_layer, highlight_layer, embed_example_layer];
 
     let mut load_paths = default_load_paths();
     if config.has_themes() {
@@ -492,7 +497,7 @@ pub async fn compile_default_css(
     runtime: &dyn SystemRuntime,
     minified: bool,
 ) -> Result<String, SassError> {
-    use crate::bundle::{load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
 
     // Return cached version if available (only for minified, matching
     // native). Minified is always true in practice for hub-client.
@@ -510,9 +515,11 @@ pub async fn compile_default_css(
     // associated colors.
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
+    let embed_example_layer = load_embed_example_layer()?;
 
-    // Assemble SCSS: Bootstrap + Quarto + title block + highlight defaults
-    let scss = assemble_with_user_layers(&[title_block_layer, highlight_layer])?;
+    // Assemble SCSS: Bootstrap + Quarto + title block + highlight + embed-example defaults
+    let scss =
+        assemble_with_user_layers(&[title_block_layer, highlight_layer, embed_example_layer])?;
 
     // Get load paths (these point to VFS paths populated by wasm-quarto-hub-client)
     let load_paths = default_load_paths();

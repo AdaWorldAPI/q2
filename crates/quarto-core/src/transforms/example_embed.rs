@@ -223,7 +223,17 @@ fn sugar_embed(div: &Div, diags: &mut Vec<DiagnosticMessage>) -> CustomNode {
 
     let mut node = CustomNode::new(NODE_TYPE, attr, div.source_info.clone());
     node.plain_data = Value::Object(plain_data);
-    node.set_slot("body", Slot::Blocks(div.content.clone()));
+
+    // Split a leading code block off the body: it is the illustrative snippet,
+    // rendered *above* the iframe (Q1's code → frame → caption reading). What
+    // remains is the caption (the author's "second element"). A body with no
+    // leading code block keeps the original whole-body-is-caption behavior.
+    let mut body = div.content.clone();
+    if matches!(body.first(), Some(Block::CodeBlock(_))) {
+        let snippet = body.remove(0);
+        node.set_slot("snippet", Slot::Blocks(vec![snippet]));
+    }
+    node.set_slot("body", Slot::Blocks(body));
     node
 }
 
@@ -294,13 +304,20 @@ fn render_embed(node: &mut CustomNode, resolve: Resolve) -> Div {
     let extra_classes = node.attr.1.clone();
 
     let file = node.plain_data.get("file").and_then(|v| v.as_str());
+    let snippet = match node.slots.remove("snippet") {
+        Some(Slot::Blocks(bs)) => bs,
+        Some(Slot::Block(b)) => vec![*b],
+        _ => Vec::new(),
+    };
     let body = match node.slots.remove("body") {
         Some(Slot::Blocks(bs)) => bs,
         Some(Slot::Block(b)) => vec![*b],
         _ => Vec::new(),
     };
 
+    // Order: snippet (if any) → iframe → caption.
     let mut content: Vec<Block> = Vec::new();
+    content.extend(snippet);
     if let Some(file) = file {
         content.push(iframe_block(file, node, &source_info, resolve));
     }
@@ -617,6 +634,53 @@ mod tests {
         })
     }
 
+    /// A markdown code-block, as the first child of a placeholder would parse.
+    fn code_block(text: &str) -> Block {
+        Block::CodeBlock(quarto_pandoc_types::block::CodeBlock {
+            attr: (
+                String::new(),
+                vec!["markdown".to_string()],
+                LinkedHashMap::new(),
+            ),
+            text: text.to_string(),
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    /// A placeholder Div whose body is a leading code block followed by the
+    /// given caption blocks.
+    fn placeholder_with_snippet(id: &str, kvs: &[(&str, &str)], body: Vec<Block>) -> Block {
+        let mut map = LinkedHashMap::new();
+        for (k, v) in kvs {
+            map.insert((*k).to_string(), (*v).to_string());
+        }
+        Block::Div(Div {
+            attr: (id.to_string(), vec![MATCH_CLASS.to_string()], map),
+            content: body,
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    /// The ordered top-level block kinds inside the rendered container Div.
+    /// `"code"` / `"iframe"` / `"source"` / `"other"`.
+    fn container_block_kinds(block: &Block) -> Vec<&'static str> {
+        let Block::Div(container) = block else {
+            return vec![];
+        };
+        container
+            .content
+            .iter()
+            .map(|b| match b {
+                Block::CodeBlock(_) => "code",
+                Block::RawBlock(r) if r.text.contains("<iframe") => "iframe",
+                Block::Div(d) if d.attr.1.iter().any(|c| c == SOURCE_CLASS) => "source",
+                _ => "other",
+            })
+            .collect()
+    }
+
     /// Run ONLY the sugar stage.
     async fn run_sugar(blocks: Vec<Block>) -> (Pandoc, Vec<DiagnosticMessage>) {
         let mut ast = Pandoc {
@@ -903,6 +967,146 @@ mod tests {
             "a rejected target must not emit an iframe"
         );
         assert!(collect_text(&ast.blocks[0]).contains("View source"));
+    }
+
+    // ---- inline code snippet (bd-15uump3h) ----
+
+    #[tokio::test]
+    async fn sugar_peels_leading_codeblock_into_snippet_slot() {
+        let (ast, diags) = run_sugar(vec![placeholder_with_snippet(
+            "demo-frag",
+            &[("file", "/examples/x/slides.html")],
+            vec![
+                code_block("## Slide\n\n::: {.fragment}\nHi\n:::"),
+                source_link("View source", "https://github.com/q/x"),
+            ],
+        )])
+        .await;
+        assert!(diags.is_empty());
+        let node = first_custom(&ast);
+        // Snippet peeled out…
+        match node.slots.get("snippet") {
+            Some(Slot::Blocks(bs)) => {
+                assert_eq!(bs.len(), 1);
+                assert!(matches!(bs[0], Block::CodeBlock(_)));
+            }
+            other => panic!("expected a snippet Blocks slot, got {other:?}"),
+        }
+        // …and the body keeps only the caption (no code block).
+        match node.slots.get("body") {
+            Some(Slot::Blocks(bs)) => {
+                assert_eq!(bs.len(), 1, "caption only");
+                assert!(matches!(bs[0], Block::Paragraph(_)));
+            }
+            other => panic!("expected a body Blocks slot, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn sugar_no_leading_codeblock_has_no_snippet_slot() {
+        let (ast, _) = run_sugar(vec![placeholder(
+            "demo-frag",
+            &[("file", "/examples/x/slides.html")],
+        )])
+        .await;
+        let node = first_custom(&ast);
+        assert!(
+            node.slots.get("snippet").is_none(),
+            "no leading code block → no snippet slot"
+        );
+        // Body unchanged: the single caption paragraph.
+        match node.slots.get("body") {
+            Some(Slot::Blocks(bs)) => assert_eq!(bs.len(), 1),
+            other => panic!("expected body, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn render_emits_snippet_then_iframe_then_caption() {
+        let ast = run_sugar_then_render(
+            vec![placeholder_with_snippet(
+                "demo-frag",
+                &[("file", "/examples/x/slides.html")],
+                vec![
+                    code_block("## Slide"),
+                    source_link("View source", "https://github.com/q/x"),
+                ],
+            )],
+            None,
+            "/project/doc.qmd",
+            None,
+        )
+        .await;
+        assert_eq!(
+            container_block_kinds(&ast.blocks[0]),
+            vec!["code", "iframe", "source"],
+            "order must be code block, then iframe, then caption"
+        );
+    }
+
+    #[tokio::test]
+    async fn render_numbered_label_attaches_to_caption_not_snippet() {
+        let ast = run_sugar_then_render(
+            vec![placeholder_with_snippet(
+                "demo-frag",
+                &[("file", "/examples/presentations/03-fragments/slides.html")],
+                vec![
+                    code_block("## Slide\n\n::: {.fragment}\nHi\n:::"),
+                    source_link("View source", "https://github.com/q/x"),
+                ],
+            )],
+            Some(1),
+            "/project/presentations/revealjs/index.qmd",
+            Some("presentations/revealjs/index.html"),
+        )
+        .await;
+        assert_eq!(
+            container_block_kinds(&ast.blocks[0]),
+            vec!["code", "iframe", "source"]
+        );
+        // The "Demo 1" label lives in the caption text, not in the code block.
+        let Block::Div(container) = &ast.blocks[0] else {
+            panic!()
+        };
+        let code = &container.content[0];
+        let Block::CodeBlock(cb) = code else {
+            panic!("first block must be the untouched snippet")
+        };
+        assert!(
+            !cb.text.contains("Demo"),
+            "label must not leak into the code snippet; got {:?}",
+            cb.text
+        );
+        let source_div = container.content.last().unwrap();
+        assert!(
+            collect_text(source_div).contains("Demo\u{a0}1"),
+            "Demo label belongs on the caption; got {:?}",
+            collect_text(source_div)
+        );
+    }
+
+    #[tokio::test]
+    async fn render_snippet_without_caption_still_numbers() {
+        // Numbered demo whose body is *only* a code block (no caption text).
+        let ast = run_sugar_then_render(
+            vec![placeholder_with_snippet(
+                "demo-frag",
+                &[("file", "/examples/x/slides.html")],
+                vec![code_block("## Slide")],
+            )],
+            Some(2),
+            "/project/doc.qmd",
+            None,
+        )
+        .await;
+        let kinds = container_block_kinds(&ast.blocks[0]);
+        assert_eq!(kinds[0], "code");
+        assert_eq!(kinds[1], "iframe");
+        // A visible "Demo 2" label is kept even with no caption text.
+        assert!(
+            collect_text(&ast.blocks[0]).contains("Demo\u{a0}2"),
+            "numbered demo keeps a visible label even without caption text"
+        );
     }
 
     #[tokio::test]

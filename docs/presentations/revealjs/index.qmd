@@ -16,8 +16,8 @@ format: revealjs
 From there, headings become slides and the document metadata becomes a
 title slide. The rest of this page walks through the slide-authoring
 features Quarto 2 supports today. Each feature is paired with a small,
-self-contained example project you can render and adapt; the example
-projects live under
+self-contained example you can render and adapt; the example projects live
+under
 [`examples/presentations/`](https://github.com/quarto-dev/q2/tree/main/examples/presentations).
 
 ::: {.callout-note}
@@ -34,6 +34,7 @@ slide; a level-1 heading (`#`) starts a *section*, gathering the slides
 beneath it into a vertical stack; and a horizontal rule (`---`) starts a
 new slide where you have no heading to give it.
 
+:::: {#demo-creating-slides .embed-example-iframe file="/examples/presentations/01-creating-slides/slides.html"}
 ```markdown
 ---
 title: "Habits"
@@ -52,12 +53,13 @@ format: revealjs
 - Count sheep
 ```
 
-::: {.embed-example-iframe file="/examples/presentations/01-creating-slides/slides.html"}
-[Example: 01-creating-slides](https://github.com/quarto-dev/q2/tree/main/examples/presentations/01-creating-slides)
-:::
+A minimal deck: the front matter becomes a title slide, and each `##`
+heading starts a new slide. [View source](https://github.com/quarto-dev/q2/tree/main/examples/presentations/01-creating-slides)
+::::
 
 Sections and rule-delimited slides follow the same heading logic:
 
+:::: {#demo-sections .embed-example-iframe file="/examples/presentations/02-sections/slides.html"}
 ```markdown
 # Part One
 
@@ -76,9 +78,9 @@ Content.
 An untitled slide, created with a horizontal rule.
 ```
 
-::: {.embed-example-iframe file="/examples/presentations/02-sections/slides.html"}
-[Example: 02-sections](https://github.com/quarto-dev/q2/tree/main/examples/presentations/02-sections)
-:::
+Level-1 headings build section stacks, and a horizontal rule starts an
+untitled slide. [View source](https://github.com/quarto-dev/q2/tree/main/examples/presentations/02-sections)
+::::
 
 ### The title slide
 
@@ -107,18 +109,6 @@ A fragment reveals part of a slide on a later click instead of all at once.
 Wrap the content in a `.fragment` div, and reveal.js holds it back until you
 advance.
 
-```markdown
-## Reveal on click
-
-::: {.fragment}
-Appears on the first click.
-:::
-
-::: {.fragment .fade-up}
-Then this one fades up.
-:::
-```
-
 Variant classes such as `.fade-up`, `.fade-out`, `.grow`, and
 `.highlight-red` change how a fragment animates in. To control the reveal
 order independently of source order, set `fragment-index`:
@@ -133,11 +123,23 @@ Shown first.
 :::
 ```
 
-@demo-fragments puts these together in a runnable deck.
+@demo-fragments puts a couple of fragments together in a runnable deck.
 
-::: {#demo-fragments .embed-example-iframe file="/examples/presentations/03-fragments/slides.html"}
-Fragments revealing content one step at a time. [View source](https://github.com/quarto-dev/q2/tree/main/examples/presentations/03-fragments)
+:::: {#demo-fragments .embed-example-iframe file="/examples/presentations/03-fragments/slides.html"}
+```markdown
+## Reveal on click
+
+::: {.fragment}
+Appears on the first click.
 :::
+
+::: {.fragment .fade-up}
+Then this one fades up.
+:::
+```
+
+Fragments reveal content one step at a time. [View source](https://github.com/quarto-dev/q2/tree/main/examples/presentations/03-fragments)
+::::
 
 ## Incremental lists
 
@@ -156,6 +158,7 @@ shows all its items at once even under the global setting, and an
 `.incremental` list steps through its items even when the global setting is
 off:
 
+:::: {#demo-incremental-lists .embed-example-iframe file="/examples/presentations/04-incremental-lists/slides.html"}
 ```markdown
 ::: {.nonincremental}
 - All three
@@ -164,15 +167,15 @@ off:
 :::
 ```
 
-::: {.embed-example-iframe file="/examples/presentations/04-incremental-lists/slides.html"}
-[Example: 04-incremental-lists](https://github.com/quarto-dev/q2/tree/main/examples/presentations/04-incremental-lists)
-:::
+A `.nonincremental` list opts out of the deck's incremental reveal. [View source](https://github.com/quarto-dev/q2/tree/main/examples/presentations/04-incremental-lists)
+::::
 
 ## Multiple columns
 
 To place content side by side, use a `.columns` container holding two or more
 `.column` divs. Each column's `width` sets its share of the row.
 
+:::: {#demo-columns .embed-example-iframe file="/examples/presentations/05-columns/slides.html"}
 ```markdown
 :::: {.columns}
 
@@ -187,15 +190,15 @@ Right column.
 ::::
 ```
 
-::: {.embed-example-iframe file="/examples/presentations/05-columns/slides.html"}
-[Example: 05-columns](https://github.com/quarto-dev/q2/tree/main/examples/presentations/05-columns)
-:::
+Two columns sit side by side, each taking its share of the row. [View source](https://github.com/quarto-dev/q2/tree/main/examples/presentations/05-columns)
+::::
 
 ## Speaker notes
 
 A `.notes` div holds commentary for the presenter. The note does not appear
 on the slide.
 
+:::: {#demo-speaker-notes .embed-example-iframe file="/examples/presentations/06-speaker-notes/slides.html"}
 ```markdown
 ## A slide with notes
 
@@ -206,9 +209,8 @@ Speaker notes go here.
 :::
 ```
 
-::: {.embed-example-iframe file="/examples/presentations/06-speaker-notes/slides.html"}
-[Example: 06-speaker-notes](https://github.com/quarto-dev/q2/tree/main/examples/presentations/06-speaker-notes)
-:::
+Speaker notes travel with the slide without appearing on it. [View source](https://github.com/quarto-dev/q2/tree/main/examples/presentations/06-speaker-notes)
+::::
 
 ::: {.callout-note}
 Speaker notes render today as a hidden `aside`; the live speaker view that
@@ -220,6 +222,7 @@ displays them while presenting is not yet available.
 An aside holds content of more peripheral interest — a caveat, a citation, a
 side remark. Quarto shows it small and muted at the bottom of the slide.
 
+:::: {#demo-asides .embed-example-iframe file="/examples/presentations/07-asides/slides.html"}
 ```markdown
 ## A slide with an aside
 
@@ -230,9 +233,8 @@ Some commentary of more peripheral interest.
 :::
 ```
 
-::: {.embed-example-iframe file="/examples/presentations/07-asides/slides.html"}
-[Example: 07-asides](https://github.com/quarto-dev/q2/tree/main/examples/presentations/07-asides)
-:::
+An aside sits small and muted at the bottom of the slide. [View source](https://github.com/quarto-dev/q2/tree/main/examples/presentations/07-asides)
+::::
 
 ## Footnotes
 
@@ -241,6 +243,7 @@ slide, rather than into a single list at the end of the deck. Each slide
 numbers its own footnotes from one, and when a slide carries both an aside
 and footnotes, they share a single block at the bottom.
 
+:::: {#demo-footnotes .embed-example-iframe file="/examples/presentations/08-footnotes/slides.html"}
 ```markdown
 ## Per-slide footnotes
 
@@ -251,9 +254,8 @@ An aside and the footnotes share the bottom of the slide.
 :::
 ```
 
-::: {.embed-example-iframe file="/examples/presentations/08-footnotes/slides.html"}
-[Example: 08-footnotes](https://github.com/quarto-dev/q2/tree/main/examples/presentations/08-footnotes)
-:::
+Footnotes gather into a per-slide aside at the bottom of their own slide. [View source](https://github.com/quarto-dev/q2/tree/main/examples/presentations/08-footnotes)
+::::
 
 To keep footnotes at the end of the deck instead — as a final slide —
 set `reference-location: document`:

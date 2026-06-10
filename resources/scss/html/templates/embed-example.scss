@@ -1,0 +1,37 @@
+/*-- scss:rules --*/
+
+// Default styling for embedded runnable examples produced by the
+// `.embed-example-iframe` transform ("Demo N" blocks). Mirrors the
+// reading experience of Quarto 1's `.slide-deck` embeds: an optional
+// illustrative code snippet, a bordered full-width frame, and a muted
+// caption carrying the "Demo N" label and source link.
+//
+// Shipped as a built-in layer (alongside title-block / highlight) so the
+// feature has a sensible default appearance on every Quarto 2 site, with
+// no per-project CSS. Theme authors override by targeting the same
+// `.embed-example*` classes in a later layer.
+
+.embed-example {
+  margin: 1.5rem 0;
+}
+
+.embed-example .code-copy-outer-scaffold,
+.embed-example > pre {
+  margin-bottom: 0.75rem;
+}
+
+.embed-example iframe.embed-example-iframe {
+  display: block;
+  width: 100%;
+  border: 3px solid $gray-300;
+}
+
+.embed-example .embed-example-source {
+  margin-top: 0.5rem;
+  font-size: 0.875em;
+  color: $text-muted;
+}
+
+.embed-example .embed-example-label {
+  font-weight: 600;
+}

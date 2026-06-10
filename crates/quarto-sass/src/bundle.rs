@@ -229,6 +229,29 @@ pub fn load_highlight_layer() -> Result<SassLayer, SassError> {
     parse_layer(content, Some("highlight.scss"))
 }
 
+/// Load the default `.embed-example` (runnable-example "Demo N") SCSS layer.
+///
+/// Reads `embed-example.scss` from the embedded templates directory. The
+/// layer gives the built-in `.embed-example-iframe` transform a sensible
+/// default appearance (bordered frame + muted caption) on every site, with
+/// no per-project CSS — mirroring how `highlight.scss` ships default
+/// `.hl-*` rules.
+///
+/// Included as a user-layer (after Bootstrap / Quarto defaults, before
+/// user theme overrides) so themes can redefine any `.embed-example*`
+/// class without touching markup.
+pub fn load_embed_example_layer() -> Result<SassLayer, SassError> {
+    use crate::resources::TEMPLATES_RESOURCES;
+
+    let content = TEMPLATES_RESOURCES
+        .read_str(Path::new("embed-example.scss"))
+        .ok_or_else(|| SassError::CompilationFailed {
+            message: "embed-example.scss not found in templates resources".to_string(),
+        })?;
+
+    parse_layer(content, Some("embed-example.scss"))
+}
+
 /// Assemble a complete SCSS string for compilation.
 ///
 /// This function implements the correct assembly order from TypeScript Quarto:
