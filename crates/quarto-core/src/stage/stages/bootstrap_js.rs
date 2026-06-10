@@ -571,4 +571,53 @@ mod tests {
             "Bootstrap JS must be the bundled build that includes Popper"
         );
     }
+
+    /// bd-4b7f1hr7: enforce the "bump the two together" version
+    /// contract between the vendored Bootstrap JS bundle and the
+    /// vendored Bootstrap SCSS distribution.
+    ///
+    /// The SCSS dist carries no machine-readable version string, so
+    /// the strongest available SCSS-side marker is the version
+    /// `resources/scss/README.md` documents (the README is part of
+    /// the documented bump procedure for `resources/scss/`). The JS
+    /// side is the `Bootstrap vX.Y.Z` banner in the bundle itself.
+    /// Bumping either artifact without updating the README — or the
+    /// README without the other artifact — fails this test.
+    #[test]
+    fn bootstrap_js_version_matches_scss_readme() {
+        fn version_after(text: &str, marker: &str, source: &str) -> String {
+            let at = text
+                .find(marker)
+                .unwrap_or_else(|| panic!("{source}: no `{marker}` version marker found"));
+            let rest = &text[at + marker.len()..];
+            let version: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            assert!(
+                version.split('.').count() == 3 && version.split('.').all(|p| !p.is_empty()),
+                "{source}: malformed version `{version}` after `{marker}`"
+            );
+            version
+        }
+
+        let js = std::str::from_utf8(BOOTSTRAP_JS).expect("Bootstrap JS must be valid UTF-8");
+        let js_version = version_after(js, "Bootstrap v", "bootstrap.bundle.min.js banner");
+
+        let readme_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../resources/scss/README.md"
+        );
+        let readme = std::fs::read_to_string(readme_path)
+            .unwrap_or_else(|e| panic!("reading {readme_path}: {e}"));
+        let scss_version = version_after(&readme, "Bootstrap ", "resources/scss/README.md");
+
+        assert_eq!(
+            js_version, scss_version,
+            "vendored Bootstrap JS bundle (v{js_version}) and the SCSS \
+             distribution documented in resources/scss/README.md \
+             (v{scss_version}) must be the same version — bump the two \
+             together (and update the README)"
+        );
+    }
 }

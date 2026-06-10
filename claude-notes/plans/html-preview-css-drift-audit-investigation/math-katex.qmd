@@ -1,0 +1,10 @@
+---
+title: KaTeX E2E fixture (bd-4b7f1hr7)
+format:
+  html:
+    html-math-method: katex
+---
+
+Inline math $e = mc^2$ and display math:
+
+$$\int_0^1 x^2 \, dx = \frac{1}{3}$$

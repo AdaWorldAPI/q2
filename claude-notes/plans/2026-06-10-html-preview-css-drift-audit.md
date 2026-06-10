@@ -114,6 +114,19 @@ PR #271 only converged the `ts-packages/preview-renderer` q2-preview entry.
 q2-debug ignores `UPDATE_THEME` entirely (no theme link), so it's a debug
 surface with deliberately different chrome — scope question [Q3].
 
+### (4b) Math engine divergence (found during implementation)
+
+The preview typesets math **unconditionally with KaTeX**
+(`ts-packages/preview-renderer/src/q2-preview/inlines/Math.tsx`,
+`katex.renderToString`) and never consults `html-math-method`; render's
+*default* engine is **MathJax 3** (`MathEngine::default_engine`). So with
+default settings the two surfaces typeset math with different engines.
+Plausibly deliberate (KaTeX is synchronous and fast — right for live
+editing), but it should be a decision, not an accident. Filed
+**bd-sm314r1x** (discovered-from this strand) to assess; out of scope here.
+The KaTeX version pin from Phase 2 means that *when* both sides use KaTeX,
+they now match exactly.
+
 ### (5) Computed-style parity sweep
 
 Not yet performed (browser work). The `/preview-render-parity` skill exists
@@ -186,19 +199,39 @@ a phase so findings land as fixtures/strands rather than ad-hoc notes.
         fresh worktree; the parity suite fails to collect without it —
         pre-existing, verified via stash-compare.)
 - **Phase 4 — E2E verification.** Per the end-to-end verification policy:
-  - [ ] Real `q2 render` on a math-bearing fixture with
-        `html-math-method: katex`: inspect the emitted CDN URL
-        (`katex@0.16.28`, not `@latest`); record invocation + output
-        snippet here.
+  - [x] Real `q2 render` through the binary, output inspected:
+
+        ```
+        $ cargo run --bin q2 -- render \
+            claude-notes/plans/html-preview-css-drift-audit-investigation/math-katex.qmd
+        $ grep -o 'https://cdn.jsdelivr.net/npm/katex[^"]*' math-katex.html | sort -u
+        https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/contrib/auto-render.min.js
+        https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.css
+        https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.js
+        ```
+
+        All three emitted KaTeX URLs carry the exact pin; no `@latest`.
+        Fixture committed at
+        `claude-notes/plans/html-preview-css-drift-audit-investigation/math-katex.qmd`
+        (generated outputs removed).
   - [ ] Full `cargo xtask verify` (hub build leg included — hub-client
         files changed).
-  - [ ] Bootstrap SCSS↔JS pairing check if cheap, else follow-up strand.
-  - [ ] File follow-up strand for the **SCSS compiler split**: native
-        render compiles assembled SCSS with `grass`, the browser preview
-        compiles the same SCSS with dart-sass (JS bridge) — so the bytes
-        shipped to the browser are NOT guaranteed identical to render's
-        even with converged inputs (which the identity tests now pin).
-        Structural, out of scope here; needs its own assessment.
+  - [x] Bootstrap SCSS↔JS pairing check:
+        `bootstrap_js_version_matches_scss_readme` in `bootstrap_js.rs`
+        tests — the JS bundle's `Bootstrap vX.Y.Z` banner must equal the
+        version `resources/scss/README.md` documents for the SCSS dist
+        (the SCSS distribution itself carries no machine-readable version
+        string, so the README — part of the documented bump procedure —
+        is the strongest SCSS-side marker). Passes today (both 5.3.1);
+        guards future bumps.
+  - [x] Filed **bd-izs62xci** (discovered-from bd-4b7f1hr7) for the
+        **SCSS compiler split**: native render compiles assembled SCSS
+        with `grass`, the browser preview compiles the same SCSS with
+        dart-sass (JS bridge) — so the bytes shipped to the browser are
+        NOT guaranteed identical to render's even with converged inputs
+        (which the identity tests now pin). Structural, out of scope
+        here; the strand covers measuring the practical difference and
+        deciding converge-vs-document.
 
 ## Risks / tradeoffs
 
