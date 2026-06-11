@@ -32,6 +32,11 @@ pub fn run(extra_args: &[String], rustflags: Option<&str>) -> Result<()> {
 
     let mut cmd = Command::new("cargo");
     cmd.args(&args_refs).current_dir(&project_root);
+    // Nested cargo: strip the outer `cargo xtask`'s package env vars so a child
+    // cargo doesn't spuriously rebuild q2's TLS-stack closure (an inherited
+    // CARGO_MANIFEST_DIR flips the `ring` build script dirty). See
+    // `crate::util::strip_inherited_cargo_env` (bd-awchm8w7).
+    crate::util::strip_inherited_cargo_env(&mut cmd);
 
     if let Some(flags) = rustflags {
         cmd.env("RUSTFLAGS", flags);

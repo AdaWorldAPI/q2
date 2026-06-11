@@ -29,7 +29,6 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use crate::create_worktree::repo_root;
 
@@ -116,10 +115,16 @@ fn stage_one(
 
 /// Render a single example project in place with `q2`.
 fn render_project(root: &Path, project: &Path) -> Result<()> {
-    let status = Command::new("cargo")
-        .current_dir(root)
-        .args(["run", "--quiet", "--bin", "q2", "--", "render"])
-        .arg(project)
+    // We are a nested `cargo` invocation; strip the outer `cargo xtask`'s
+    // package env vars so the child cargo fingerprints q2 as a fresh shell
+    // would. Without this, an inherited `CARGO_MANIFEST_DIR` forces a full
+    // rebuild of q2's TLS-stack dependency closure on every run. See
+    // `util::strip_inherited_cargo_env` (bd-awchm8w7).
+    let mut cmd = crate::util::nested_command("cargo");
+    cmd.current_dir(root)
+        .args(["run", "--bin", "q2", "--", "render"])
+        .arg(project);
+    let status = cmd
         .status()
         .context("spawning `cargo run --bin q2 -- render`")?;
     if !status.success() {
