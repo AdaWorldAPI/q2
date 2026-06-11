@@ -49,8 +49,6 @@ export function useAuth() {
   const [refreshEnabled, setRefreshEnabled] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const isRefreshing = useRef(false);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout>>(null);
-  const expiryTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const refreshDeadline = useRef<ReturnType<typeof setTimeout>>(null);
 
   // Effective expiry of the current session (0 = no session).
@@ -95,6 +93,12 @@ export function useAuth() {
     isRefreshing.current = false;
   }, []);
 
+  /** Renewal failed without a hub verdict — settle and stand One Tap down. */
+  const abandonRenewal = useCallback(() => {
+    settleRefresh();
+    setRefreshEnabled(false);
+  }, [settleRefresh]);
+
   // Single entry point for activating One Tap. Coalesces concurrent
   // triggers (e.g. N parallel 401s) into one refresh attempt.
   const triggerRefresh = useCallback(() => {
@@ -104,11 +108,8 @@ export function useAuth() {
     // The IdP may never call back (GIS blocked / FedCM policies). Without a
     // deadline, isRefreshing wedges true for the tab's lifetime: the expiry
     // re-check never reaches a verdict and refocus/retry are disabled.
-    refreshDeadline.current = setTimeout(() => {
-      settleRefresh();
-      setRefreshEnabled(false);
-    }, REFRESH_VERDICT_TIMEOUT_MS);
-  }, [settleRefresh]);
+    refreshDeadline.current = setTimeout(abandonRenewal, REFRESH_VERDICT_TIMEOUT_MS);
+  }, [abandonRenewal]);
 
   // Silent renewal via the active AuthProvider. The provider collapses
   // "renewal returned no usable credential" into onError, so the consumer
@@ -133,8 +134,7 @@ export function useAuth() {
       setRefreshEnabled(false);
     },
     onError: () => {
-      settleRefresh();
-      setRefreshEnabled(false);
+      abandonRenewal();
       if (sessionLapsed()) expireSession();
     },
   });
@@ -180,9 +180,6 @@ export function useAuth() {
   // Schedule silent refresh and an expiry-time server re-check from the
   // session's real expiry.
   useEffect(() => {
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    if (expiryTimer.current) clearTimeout(expiryTimer.current);
-
     if (!auth) {
       expiresAtRef.current = 0;
       return;
@@ -192,15 +189,16 @@ export function useAuth() {
     expiresAtRef.current = expiresAt;
 
     // Silent refresh before expiry; immediately if already inside the buffer.
-    refreshTimer.current = setTimeout(
+    const refreshTimer = setTimeout(
       triggerRefresh,
       Math.max(expiresAt - REFRESH_BUFFER_MS - Date.now(), 0),
     );
 
     // Expiry-time re-check. Only a definitive 401/403 clears the session;
     // network errors reschedule (logout on evidence, not on schedule).
+    let expiryTimer: ReturnType<typeof setTimeout>;
     const scheduleExpiryCheck = (delay: number) => {
-      expiryTimer.current = setTimeout(() => {
+      expiryTimer = setTimeout(() => {
         fetchAuthMe()
           .then((me) => {
             if (me) {
@@ -222,8 +220,8 @@ export function useAuth() {
     scheduleExpiryCheck(msUntilExpiry > 0 ? msUntilExpiry + 1000 : EXPIRY_RECHECK_MS);
 
     return () => {
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      if (expiryTimer.current) clearTimeout(expiryTimer.current);
+      clearTimeout(refreshTimer);
+      clearTimeout(expiryTimer);
     };
   }, [auth, applyAuth, expireSession, triggerRefresh]);
 
