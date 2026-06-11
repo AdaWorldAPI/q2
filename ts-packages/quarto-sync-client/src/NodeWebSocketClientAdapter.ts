@@ -113,6 +113,8 @@ export class NodeWebSocketClientAdapter extends NetworkAdapter {
 
   private socket: WebSocketLike | undefined;
   private retryIntervalId: ReturnType<typeof setInterval> | undefined;
+  /** Set by disconnect(); makes any later connect() a permanent no-op. */
+  private stopped = false;
   private ready = false;
   private readyResolver?: () => void;
   private readonly readyPromise: Promise<void>;
@@ -145,6 +147,12 @@ export class NodeWebSocketClientAdapter extends NetworkAdapter {
   }
 
   connect(peerId: PeerId, peerMetadata?: PeerMetadata): void {
+    // Terminal-disconnect guard (bd-jit6pdwq): onClose schedules a
+    // one-shot reconnect setTimeout that disconnect() cannot cancel;
+    // without this gate a discarded adapter resurrects itself and
+    // retries a dead endpoint forever. Mirrors
+    // StoppableWebSocketClientAdapter (the browser-side fix).
+    if (this.stopped) return;
     if (!this.socket || !this.peerId) {
       this.peerId = peerId;
       this.peerMetadata = peerMetadata ?? {};
@@ -250,6 +258,7 @@ export class NodeWebSocketClientAdapter extends NetworkAdapter {
   }
 
   disconnect(): void {
+    this.stopped = true;
     if (this.socket) {
       this.removeListeners(this.socket);
       this.socket.close();

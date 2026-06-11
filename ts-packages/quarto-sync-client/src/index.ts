@@ -49,6 +49,11 @@ export type {
 export { createSyncClient } from './client.js';
 export type { SyncClient } from './client.js';
 
+// Browser adapter with terminal disconnect (zombie-reconnect fix,
+// bd-jit6pdwq) — used internally by connect(); exported for tests
+// and for consumers that build adapters directly.
+export { StoppableWebSocketClientAdapter } from './StoppableWebSocketClientAdapter.js';
+
 // Export Node-only adapter (consumers wanting Bearer-authenticated
 // WebSocket upgrades). Browser bundles that never touch this module
 // will not pull in `ws`.

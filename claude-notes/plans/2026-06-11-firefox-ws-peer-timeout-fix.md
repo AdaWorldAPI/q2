@@ -161,10 +161,11 @@ boot controller if extracted.
       `{ phase: 'server-gone' }`.
 - [x] Suites: spa unit 22 + integration 66 green; `tsc -b` + vite
       build green.
-- [ ] Manual check (folded into Phase 5 end-to-end): kill the server
-      under an open preview tab; observe WS attempts stop (DevTools
-      network) and the banner appears; restart server; tab recovers
-      without reload.
+- [x] Manual check (done in Phase 5 end-to-end, scripted against real
+      Firefox + real binary): kill the server under an open preview
+      tab → WS attempts stop (0 in a 12 s window) and the banner
+      appears; restart server → tab recovers without reload. See
+      Phase 5 for the two bugs this check surfaced and their fixes.
 
 ### Phase 4 — Firefox regression e2e (gated, slow, demotable)
 
@@ -206,16 +207,56 @@ boot controller if extracted.
 
 ### Phase 5 — verification + bookkeeping
 
-- [ ] `cargo xtask verify` (full; ts-packages changes flow into the
-      hub-client build leg).
-- [ ] End-to-end per CLAUDE.md: real `q2 preview` + real Firefox with
-      a live blackhole tab (`node claude-notes/tmp/blackhole-server.mjs`
-      + a tab holding a WS to it); record invocation + observed
-      recovery in this plan.
-- [ ] hub-client changelog only if `hub-client/` files change (not
-      expected; ts-packages + q2-preview-spa are outside it).
-- [ ] braid: comment progress per phase; close bd-jit6pdwq with the
-      e2e evidence.
+**The end-to-end checks found two real bugs the unit/integration
+suites missed** (vindicating the CLAUDE.md e2e policy):
+
+1. **Zombie adapters.** With the server dead, the SPA still made WS
+   attempts every ~3 s ("zero WS churn" check failed). Two causes,
+   both fixed:
+   - the boot controller abandoned in-flight attempts without
+     tearing down their transport → new `teardown` option, called on
+     both server-gone exits (3 new bootController specs);
+   - upstream `BrowserWebSocketClientAdapter.disconnect()` clears the
+     retry interval but NOT the onClose-scheduled reconnect
+     `setTimeout` — a discarded adapter resurrects itself. Fixed via
+     `StoppableWebSocketClientAdapter` (terminal disconnect; the
+     local-subclass fallback this plan reserved). Control test
+     documents the upstream bug and detects when upstream fixes it.
+     Same gate added to our `NodeWebSocketClientAdapter` (same bug).
+     Upstream PR target: automerge/automerge-repo,
+     `WebSocketClientAdapter.ts` `disconnect()`.
+2. **Stale doc id across server restart.** The kill/restart check
+   never recovered: q2 preview keeps samod state in a per-process
+   temp dir, so a same-port restart serves a NEW index document and
+   reconnecting with the boot-time id retries "unavailable" forever.
+   Fixed: the SPA re-fetches the doc id from `/health` on every
+   connect attempt (health-gating already guarantees /health answers
+   first). New integration test pins it.
+
+Also fixed in passing: quarto-sync-client's tsconfig compiled
+`*.test.ts` into `dist/`, where vitest's default glob double-ran
+stale copies (now excluded from the build).
+
+- [x] `cargo xtask verify` (full) — green at Phase 4 HEAD and re-run
+      green at final HEAD.
+- [x] End-to-end evidence (real `target/debug/q2` + real Firefox,
+      scripts in `claude-notes/tmp/`):
+      - `verify-kill-restart.mjs`: render → SIGKILL server → banner
+        "Reconnecting to the preview server…" with content retained →
+        restart on same port (new doc id `35mH6uaQ…`) → banner
+        cleared ~1 s later, heading re-rendered, no reload. PASS.
+      - `verify-no-ws-churn.mjs`: 1 WS attempt at boot; **0** WS
+        attempts during a 12 s window with the server dead (HTTP
+        /health polling only). PASS.
+      - `e2e/firefox-ws-queue.spec.ts`: pre-fix binary fails with the
+        production error; post-fix passes in 9.1 s. Chromium control
+        green.
+- [x] Final suite counts: quarto-sync-client 84, preview-runtime 74,
+      spa unit 25, spa integration 67, hub-client 575 — all green;
+      `tsc -b` + vite builds green.
+- [x] hub-client changelog: not needed — no `hub-client/` files
+      changed (verified via git diff).
+- [ ] braid: final comment + close decision (with user, post-review).
 
 ## Details & decisions
 

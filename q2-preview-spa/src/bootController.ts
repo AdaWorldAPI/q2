@@ -68,6 +68,16 @@ export interface BootRetryOptions<T> {
   confirmIntervalMs?: number;
   /** Consecutive failed probes that mean "server gone". Default 3. */
   healthStrikes?: number;
+  /**
+   * Called when the server is declared gone, BEFORE ServerGoneError
+   * propagates. Must tear down the in-flight/failed connection
+   * attempt's transport (the SPA passes preview-runtime's
+   * `disconnect()`). Without this, the abandoned attempt's network
+   * adapter keeps retrying the dead port every 5 s forever — the
+   * exact stale-tab WebSocket churn bd-jit6pdwq eliminates. (Found
+   * by the Phase 5 end-to-end WS-churn check.)
+   */
+  teardown?: () => Promise<void> | void;
   /** Injectable for tests. */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -97,6 +107,7 @@ export async function bootWithRetry<T>(options: BootRetryOptions<T>): Promise<T 
     watchdogIntervalMs = 2000,
     confirmIntervalMs = 500,
     healthStrikes = 3,
+    teardown,
     sleep = defaultSleep,
   } = options;
 
@@ -166,7 +177,9 @@ export async function bootWithRetry<T>(options: BootRetryOptions<T>): Promise<T 
       if (winner.kind === 'connected') return winner.files;
       if (winner.kind === 'cancelled') return null;
       // Watchdog verdict 'gone': the server died while we were
-      // patiently waiting on the WebSocket.
+      // patiently waiting on the WebSocket. Tear down the abandoned
+      // attempt's transport so it can't keep retrying the dead port.
+      await teardown?.();
       throw new ServerGoneError();
     } catch (err) {
       raceSettled = true;
@@ -177,7 +190,12 @@ export async function bootWithRetry<T>(options: BootRetryOptions<T>): Promise<T 
     if (isCancelled()) return null;
     const verdict = await confirmHealth();
     if (verdict === 'cancelled') return null;
-    if (verdict === 'gone') throw new ServerGoneError();
+    if (verdict === 'gone') {
+      // Same churn-prevention as the watchdog path: the rejected
+      // attempt's adapter is still installed and retrying.
+      await teardown?.();
+      throw new ServerGoneError();
+    }
 
     // Healthy ⇒ the failure was transient (cold-start sync race, WS
     // queue contention). Back off and go again — no attempt cap.

@@ -9,8 +9,9 @@
 import { Repo, DocHandle, updateText, splice, generateAutomergeUrl, parseAutomergeUrl } from '@automerge/automerge-repo';
 import type { DocumentId, Patch } from '@automerge/automerge-repo';
 import { clone as automergeClone, from as automergeFrom, save as automergeSerialize } from '@automerge/automerge';
-import { BrowserWebSocketClientAdapter } from '@automerge/automerge-repo-network-websocket';
 import type { NetworkAdapter } from '@automerge/automerge-repo/slim';
+
+import { StoppableWebSocketClientAdapter } from './StoppableWebSocketClientAdapter.js';
 
 import { buildStorageAdapter } from './storage-adapter.js';
 
@@ -60,10 +61,14 @@ async function buildWsAdapter(
   retryIntervalMs?: number,
 ): Promise<NetworkAdapter> {
   if (!auth) {
+    // Stoppable subclass: upstream's disconnect() doesn't cancel the
+    // onClose-scheduled reconnect timer, so a discarded adapter would
+    // otherwise resurrect and retry a dead port forever (zombie
+    // churn; see StoppableWebSocketClientAdapter.ts).
     const adapter =
       retryIntervalMs !== undefined
-        ? new BrowserWebSocketClientAdapter(url, retryIntervalMs)
-        : new BrowserWebSocketClientAdapter(url);
+        ? new StoppableWebSocketClientAdapter(url, retryIntervalMs)
+        : new StoppableWebSocketClientAdapter(url);
     return adapter as unknown as NetworkAdapter;
   }
   const mod = await import('./NodeWebSocketClientAdapter.js');

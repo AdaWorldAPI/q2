@@ -364,6 +364,45 @@ describe('PreviewApp boot path', () => {
     );
   }, 20000);
 
+  it('re-fetches the index docId on reconnect (server restarts serve a NEW doc id)', async () => {
+    // q2 preview keeps samod state in a per-process temp dir, so a
+    // same-port restart serves a different index document. Reconnecting
+    // with the boot-time id would retry "unavailable" forever — found
+    // by the Phase 5 kill/restart end-to-end check.
+    let servedDocId = 'first-doc-id';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) {
+          return new Response(
+            JSON.stringify({ status: 'ok', index_document_id: servedDocId }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+    const { runtime, handlers } = await bootToReady();
+    const connectMock = runtime.connect as ReturnType<typeof vi.fn>;
+    expect(connectMock.mock.calls[connectMock.mock.calls.length - 1][1]).toBe(
+      'automerge:first-doc-id',
+    );
+
+    // The server "restarts" with a new doc id, then the connection drops.
+    servedDocId = 'second-doc-id';
+    act(() => handlers.onConnectionChange?.(false));
+
+    await waitFor(() => {
+      const calls = connectMock.mock.calls;
+      expect(calls[calls.length - 1][1]).toBe('automerge:second-doc-id');
+    });
+    // Recovered: banner cleared.
+    await waitFor(() => {
+      expect(screen.queryByText(/reconnecting/i)).toBeNull();
+    });
+  });
+
   it('disconnects on pagehide so a closing tab frees its socket', async () => {
     const { runtime } = await bootToReady();
     const disconnectMock = runtime.disconnect as ReturnType<typeof vi.fn>;

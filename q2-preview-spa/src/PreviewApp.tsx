@@ -606,7 +606,10 @@ export default function PreviewApp() {
 
     void (async () => {
       try {
-        const indexDocId = await fetchIndexDocId();
+        // Fail-fast probe: a dead server at boot is an immediate,
+        // explicit error (there is nothing to retry toward). The doc
+        // id itself is re-fetched per connect attempt below.
+        await fetchIndexDocId();
         const wsUrl = deriveWsUrl();
         // bd-ov4gqk3m: learn whether this session may edit documents.
         // Fail-closed helper — never throws, defaults to read-only.
@@ -698,11 +701,21 @@ export default function PreviewApp() {
             return false;
           }
         };
-        const connectWithPreviewOptions = () =>
-          connect(wsUrl, indexDocId, undefined, undefined, undefined, {
+        // Re-fetch the index doc id on EVERY attempt: q2 preview keeps
+        // samod state in a per-process temp dir, so a server restart
+        // (same port) serves a brand-new index document — reconnecting
+        // with a stale id would retry "unavailable" forever. /health
+        // is health-gate-required before any attempt, so this adds no
+        // new failure mode. (Found by the Phase 5 kill/restart check;
+        // `indexDocId` from the initial fetch above is only used to
+        // fail fast when the server is down at boot.)
+        const connectWithPreviewOptions = async () => {
+          const currentDocId = await fetchIndexDocId();
+          return connect(wsUrl, currentDocId, undefined, undefined, undefined, {
             peerTimeoutMs: Infinity,
             storage: 'memory',
           });
+        };
 
         const initialFiles = await bootWithRetry({
           connect: connectWithPreviewOptions,
@@ -716,6 +729,9 @@ export default function PreviewApp() {
             }));
           },
           isCancelled: () => cancelled,
+          // Server declared gone ⇒ tear the abandoned attempt's
+          // adapter down so it stops retrying the dead port.
+          teardown: () => disconnect(),
         });
         if (cancelled || initialFiles === null) return;
 
@@ -781,6 +797,10 @@ export default function PreviewApp() {
               }));
             },
             isCancelled: () => cancelled,
+            // Gone phase must be HTTP-only: drop the abandoned
+            // attempt's adapter (it would retry the dead port
+            // every 5 s otherwise).
+            teardown: () => disconnect(),
           });
           if (cancelled || refreshedFiles === null) return;
 

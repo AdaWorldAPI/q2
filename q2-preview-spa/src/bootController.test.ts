@@ -208,6 +208,56 @@ describe('bootWithRetry', () => {
     expect(connect).toHaveBeenCalledTimes(1);
   });
 
+  it('calls teardown when the post-failure confirmation declares the server gone', async () => {
+    // The failed attempt's network adapter would otherwise keep
+    // retrying the dead port every 5 s forever — the exact stale-tab
+    // churn this strand eliminates. (Found by the Phase 5 end-to-end
+    // WS-churn check, not by the unit suite — see plan.)
+    const connect = vi.fn().mockRejectedValue(new Error('boom'));
+    const checkHealth = vi.fn().mockResolvedValue(false);
+    const teardown = vi.fn().mockResolvedValue(undefined);
+    const { tuning } = instantTuning();
+
+    await expect(
+      bootWithRetry({ connect, checkHealth, teardown, ...tuning }),
+    ).rejects.toBeInstanceOf(ServerGoneError);
+    expect(teardown).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls teardown when the watchdog abandons a hung attempt', async () => {
+    const connect = vi.fn().mockImplementation(() => new Promise(() => {}));
+    const checkHealth = vi.fn().mockResolvedValue(false);
+    const teardown = vi.fn().mockResolvedValue(undefined);
+    const { tuning } = instantTuning();
+
+    await expect(
+      bootWithRetry({ connect, checkHealth, teardown, ...tuning }),
+    ).rejects.toBeInstanceOf(ServerGoneError);
+    expect(teardown).toHaveBeenCalledTimes(1);
+  });
+
+  it('superviseReconnect: tears down the abandoned attempt before the gone phase', async () => {
+    // While gone, the only permitted traffic is HTTP /health — an
+    // orphaned adapter from the abandoned connect would violate that.
+    let healthCalls = 0;
+    const checkHealth = vi.fn().mockImplementation(() => {
+      healthCalls++;
+      return Promise.resolve(healthCalls > 6);
+    });
+    const connect = vi.fn().mockImplementation(() =>
+      healthCalls > 6
+        ? Promise.resolve(FILES)
+        : Promise.reject(new Error('nope')),
+    );
+    const teardown = vi.fn().mockResolvedValue(undefined);
+    const { tuning } = instantTuning();
+
+    const result = await superviseReconnect({ connect, checkHealth, teardown, ...tuning });
+
+    expect(result).toEqual(FILES);
+    expect(teardown).toHaveBeenCalledTimes(1);
+  });
+
   it('superviseReconnect: passes through when the server stays healthy', async () => {
     const connect = vi.fn().mockResolvedValue(FILES);
     const checkHealth = vi.fn().mockResolvedValue(true);
