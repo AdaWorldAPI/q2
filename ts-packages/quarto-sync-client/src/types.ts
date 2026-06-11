@@ -183,6 +183,67 @@ export interface SyncClientAuthOptions {
   getBearer: () => Promise<string>;
 }
 
+/**
+ * Which storage adapter backs the automerge `Repo` for a connection.
+ *
+ * - `'indexeddb'` (default): document caches survive page reloads.
+ *   Right for hub-client, whose offline-first flow reads cached docs.
+ * - `'memory'`: process-local only. Right for the q2-preview SPA,
+ *   whose hubs are ephemeral (the cache can never hit) — and where the
+ *   IndexedDB open would otherwise sit on the critical path of the
+ *   WebSocket `join` (automerge-repo defers `adapter.connect()` on
+ *   `storageSubsystem.id()`; see bd-jit6pdwq research note).
+ */
+export type StorageKind = 'indexeddb' | 'memory';
+
+/**
+ * Retry policy for `repo.find()` calls that lose the cold-start sync
+ * race (handle resolves "unavailable" because the doc hasn't synced
+ * yet). Retries only happen while at least one peer is connected —
+ * with no peers, "unavailable" is the truth, not a race, and
+ * hub-client's offline fast-fail must be preserved.
+ */
+export interface FindDocRetryOptions {
+  /** Additional attempts after the first failure. Default 3. */
+  attempts?: number;
+  /** Base backoff delay; doubles per attempt. Default 250 ms. */
+  baseDelayMs?: number;
+}
+
+/**
+ * Options bag for `connect()` (bd-jit6pdwq). Passed in place of the
+ * legacy positional `peerTimeoutMs` number; all fields optional and
+ * defaults preserve the legacy behavior exactly.
+ */
+export interface ConnectOptions {
+  /**
+   * How long to wait for the samod `peer` event before falling
+   * through to offline mode. Defaults to 1 ms (hub-client's
+   * probe-then-use-IndexedDB behavior). `Infinity` is supported and
+   * means "never fall through": wait for the peer event indefinitely
+   * and never enter offline mode. Callers using `Infinity` own the
+   * decision of when the server is actually gone (the q2-preview SPA
+   * arbitrates via HTTP `/health`, which Firefox's per-IP WebSocket
+   * handshake queue cannot stall).
+   */
+  peerTimeoutMs?: number;
+  /** Storage backing for this connection. Default `'indexeddb'`. */
+  storage?: StorageKind;
+  /**
+   * WebSocket adapter retry interval (ms). Default: upstream's 5000.
+   * Note for Firefox-sensitive callers: do not shorten this — the
+   * upstream retry abandons CONNECTING sockets without closing them,
+   * and abandoned sockets occupy Firefox's per-IP admission queue
+   * until the open timeout. Raise it (or leave the default) and drive
+   * reconnects at the application layer instead.
+   */
+  retryIntervalMs?: number;
+  /** Cold-start "unavailable" retry policy. See {@link FindDocRetryOptions}. */
+  findDocRetry?: FindDocRetryOptions;
+  /** Bearer-auth options (alternative to the positional `auth` param). */
+  auth?: SyncClientAuthOptions;
+}
+
 // ============================================================================
 // Result Types
 // ============================================================================
@@ -230,6 +291,12 @@ export interface CreateProjectOptions {
    * the background-sync race against `waitForServerDocuments`.
    */
   peerTimeoutMs?: number;
+  /** Storage backing for this connection. Default `'indexeddb'`. */
+  storage?: StorageKind;
+  /** WebSocket adapter retry interval (ms). See {@link ConnectOptions}. */
+  retryIntervalMs?: number;
+  /** Cold-start "unavailable" retry policy for post-create index syncs. */
+  findDocRetry?: FindDocRetryOptions;
 }
 
 /**

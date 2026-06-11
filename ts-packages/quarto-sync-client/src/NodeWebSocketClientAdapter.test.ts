@@ -149,6 +149,42 @@ describe('NodeWebSocketClientAdapter', () => {
     expect(redacted).not.toContain('ya29');
   });
 
+  it('disconnect is terminal: the onClose-scheduled reconnect cannot resurrect the adapter (bd-jit6pdwq)', async () => {
+    // The onClose handler schedules `setTimeout(connect, retryInterval)`
+    // which disconnect() cannot cancel. Without the stopped-flag gate,
+    // a discarded adapter reconnects to a dead endpoint forever.
+    const socket1 = makeFakeSocket();
+    const socket2 = makeFakeSocket();
+    const sockets = [socket1, socket2];
+    const calls: FactoryCall[] = [];
+    const factory: WebSocketFactory = (url, protocols, options) => {
+      calls.push({ url, protocols, options });
+      return sockets.shift()!;
+    };
+
+    const adapter = new NodeWebSocketClientAdapter('wss://hub.example.com/ws', {
+      getBearer: async () => 'tok',
+      webSocketFactory: factory,
+      retryInterval: 1000,
+    });
+
+    adapter.connect(peerId);
+    // 0 ms advance flushes the async socket creation WITHOUT firing
+    // the 1000 ms retry interval (runOnlyPendingTimersAsync would).
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.length).toBe(1);
+
+    // Server dies: the socket closes, scheduling the zombie timer…
+    socket1.emit('close', {});
+    // …and the owner discards the adapter.
+    adapter.disconnect();
+
+    // The zombie timer (and the retry interval) fire — repeatedly.
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(calls.length).toBe(1); // no resurrection
+  });
+
   it('returns the same fresh token on each reconnect (getBearer called each time)', async () => {
     const socket1 = makeFakeSocket();
     const socket2 = makeFakeSocket();

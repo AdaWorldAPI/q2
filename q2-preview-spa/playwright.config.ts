@@ -32,5 +32,25 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      // bd-jit6pdwq Phase 4: Firefox-only WS handshake-queue
+      // regression. Firefox serializes WebSocket opening handshakes
+      // per IP address browser-wide; this project pins the
+      // open-timeout to 8 s — it must EXCEED the legacy 5 s peer
+      // budget (or the pre-fix bug can't reproduce) while staying far
+      // under the 20 s default so the spec runs fast. Only the
+      // matching spec runs here; the chromium project above runs the
+      // same spec as the unserialized control.
+      name: 'firefox-ws-queue',
+      testMatch: /firefox-ws-queue\.spec\.ts/,
+      use: {
+        ...devices['Desktop Firefox'],
+        launchOptions: {
+          firefoxUserPrefs: {
+            'network.websocket.timeout.open': 8,
+          },
+        },
+      },
+    },
   ],
 });

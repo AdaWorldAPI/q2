@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import type { FileEntry } from '@quarto/quarto-automerge-schema';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
@@ -51,6 +51,7 @@ vi.mock('@quarto/preview-runtime', () => ({
     }
     return runtimeMockState.files;
   }),
+  disconnect: vi.fn(async () => undefined),
   setSyncHandlers: vi.fn(),
   renderPageForPreview: vi.fn(
     async (_path: string, _grammars?: unknown, _capture?: Uint8Array) =>
@@ -144,17 +145,288 @@ describe('PreviewApp boot path', () => {
     });
   });
 
-  it('surfaces a connection error via <PreviewErrorOverlay>', async () => {
-    runtimeMockState.connectError = 'kaboom: sync server unreachable';
+  // ── bd-jit6pdwq Phase 2: health-arbitrated boot ────────────────────
+  //
+  // A connect() failure is no longer terminal while the server is
+  // provably alive over HTTP. Firefox serializes WebSocket opening
+  // handshakes per IP address browser-wide, so a stalled/failed WS is
+  // routinely transient; only /health decides "server gone". See
+  // claude-notes/research/2026-06-11-firefox-ws-handshake-serialization.md
+
+  it('passes preview connection options (infinite peer wait, memory storage) to connect', async () => {
     render(<PreviewApp />);
     await waitFor(() => {
-      // PreviewErrorOverlay shows "Render Error" in the expanded state;
-      // we render it with `collapsed={false}` for the error case so
-      // users see the message immediately.
+      expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+    });
+    const runtime = await import('@quarto/preview-runtime');
+    const calls = (runtime.connect as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const optionsArg = calls[calls.length - 1][5];
+    expect(optionsArg).toEqual(
+      expect.objectContaining({
+        peerTimeoutMs: Infinity,
+        storage: 'memory',
+      }),
+    );
+  });
+
+  it('retries a failed connect while /health is OK instead of showing a terminal error', async () => {
+    // First attempt fails (cold-start unavailable race / WS contention),
+    // second succeeds. The default /health stub stays healthy.
+    const runtime = await import('@quarto/preview-runtime');
+    (runtime.connect as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('Document automerge:test is unavailable'))
+      .mockResolvedValueOnce(runtimeMockState.files);
+
+    render(<PreviewApp />);
+
+    // Eventually the retry succeeds and the iframe appears. (Backoff
+    // base is 1 s — give waitFor room.)
+    await waitFor(
+      () => {
+        expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+      },
+      { timeout: 5000 },
+    );
+    // The failure never produced the terminal overlay.
+    expect(screen.queryByText(/render error/i)).toBeNull();
+    expect((runtime.connect as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+  }, 10000);
+
+  it('shows a terminal "server gone" error when /health stops answering', async () => {
+    // /health answers once (the boot's docId fetch), then the server
+    // dies: subsequent /health probes fail, and connect always throws.
+    let healthCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) {
+          healthCalls++;
+          if (healthCalls === 1) {
+            return new Response(
+              JSON.stringify({ status: 'ok', index_document_id: 'automerge:test-index-doc' }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+          }
+          return new Response('gone', { status: 500 });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+    runtimeMockState.connectError = 'WebSocket is not connected';
+
+    render(<PreviewApp />);
+
+    await waitFor(
+      () => {
+        expect(screen.queryByText(/render error/i)).not.toBeNull();
+      },
+      { timeout: 8000 },
+    );
+    expect(screen.queryByText(/preview server is not responding/i)).not.toBeNull();
+    expect(screen.queryByTestId('q2-preview-iframe-mock')).toBeNull();
+  }, 15000);
+
+  it('unmounting during a pending boot neither crashes nor updates state afterwards', async () => {
+    // connect() hangs (the indefinite peer wait), the component
+    // unmounts (tab navigation / StrictMode remount), then the
+    // attempt finally settles. The cancelled guard must swallow the
+    // late result — React logs an error for setState-after-unmount,
+    // so a clean console is the assertion.
+    let rejectConnect!: (err: Error) => void;
+    const runtime = await import('@quarto/preview-runtime');
+    (runtime.connect as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise<FileEntry[]>((_res, rej) => { rejectConnect = rej; }),
+    );
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { unmount } = render(<PreviewApp />);
+    // Let boot reach the pending connect.
+    await waitFor(() => {
+      expect((runtime.connect as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    });
+    unmount();
+    rejectConnect(new Error('late failure after unmount'));
+    // Give any (buggy) post-unmount state updates a chance to fire.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const reactWarnings = consoleError.mock.calls.filter((args) =>
+      String(args[0]).match(/unmounted|not wrapped in act/i),
+    );
+    expect(reactWarnings).toEqual([]);
+    consoleError.mockRestore();
+  });
+
+  // ── bd-jit6pdwq Phase 3: steady-state reconnect hygiene ────────────
+
+  /** Boot to ready and return the handlers PreviewApp registered. */
+  async function bootToReady() {
+    render(<PreviewApp />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+    });
+    const runtime = await import('@quarto/preview-runtime');
+    const handlerCalls = (runtime.setSyncHandlers as ReturnType<typeof vi.fn>).mock.calls;
+    expect(handlerCalls.length).toBeGreaterThan(0);
+    return {
+      runtime,
+      handlers: handlerCalls[handlerCalls.length - 1][0] as {
+        onConnectionChange?: (connected: boolean) => void;
+      },
+    };
+  }
+
+  it('tears down the adapter and reconnects when the connection drops', async () => {
+    const { runtime, handlers } = await bootToReady();
+    const connectMock = runtime.connect as ReturnType<typeof vi.fn>;
+    const disconnectMock = runtime.disconnect as ReturnType<typeof vi.fn>;
+    const bootConnects = connectMock.mock.calls.length;
+
+    act(() => handlers.onConnectionChange?.(false));
+
+    // The adapter is torn down (stops automerge-repo's forever-retry,
+    // closes the socket → frees Firefox's per-IP handshake queue)…
+    await waitFor(() => expect(disconnectMock).toHaveBeenCalled());
+    // …and a fresh connect follows while /health is OK.
+    await waitFor(() => {
+      expect(connectMock.mock.calls.length).toBe(bootConnects + 1);
+    });
+    // Recovery is silent: no reconnect banner left, iframe intact.
+    await waitFor(() => {
+      expect(screen.queryByText(/reconnecting/i)).toBeNull();
+    });
+    expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+  });
+
+  it('shows a reconnecting banner while the reconnect is in flight', async () => {
+    const { runtime, handlers } = await bootToReady();
+    // Post-drop connect hangs (e.g. the WS handshake queue again).
+    (runtime.connect as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise<FileEntry[]>(() => {}),
+    );
+
+    act(() => handlers.onConnectionChange?.(false));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/reconnecting/i)).not.toBeNull();
+    });
+    // The rendered content stays up behind the banner.
+    expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+  });
+
+  it('shows a server-stopped banner when /health dies after a drop, and recovers when it returns', async () => {
+    // Stateful health: alive during boot, dead after the drop, alive
+    // again later.
+    let healthAlive = true;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) {
+          return healthAlive
+            ? new Response(
+                JSON.stringify({ status: 'ok', index_document_id: 'automerge:test-index-doc' }),
+                { status: 200, headers: { 'content-type': 'application/json' } },
+              )
+            : new Response('gone', { status: 500 });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+    const { runtime, handlers } = await bootToReady();
+    const connectMock = runtime.connect as ReturnType<typeof vi.fn>;
+
+    // Server dies: post-drop connects fail, health probes fail.
+    healthAlive = false;
+    runtimeMockState.connectError = 'WebSocket is not connected';
+    act(() => handlers.onConnectionChange?.(false));
+
+    await waitFor(
+      () => {
+        expect(screen.queryByText(/server stopped|not responding/i)).not.toBeNull();
+      },
+      { timeout: 8000 },
+    );
+    // The page does NOT go to the terminal error overlay — content stays.
+    expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+
+    // Server comes back (same port): the tab recovers on its own.
+    healthAlive = true;
+    runtimeMockState.connectError = undefined;
+    const connectsBeforeRecovery = connectMock.mock.calls.length;
+    await waitFor(
+      () => {
+        expect(connectMock.mock.calls.length).toBeGreaterThan(connectsBeforeRecovery);
+        expect(screen.queryByText(/server stopped|not responding|reconnecting/i)).toBeNull();
+      },
+      { timeout: 8000 },
+    );
+  }, 20000);
+
+  it('re-fetches the index docId on reconnect (server restarts serve a NEW doc id)', async () => {
+    // q2 preview keeps samod state in a per-process temp dir, so a
+    // same-port restart serves a different index document. Reconnecting
+    // with the boot-time id would retry "unavailable" forever — found
+    // by the Phase 5 kill/restart end-to-end check.
+    let servedDocId = 'first-doc-id';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) {
+          return new Response(
+            JSON.stringify({ status: 'ok', index_document_id: servedDocId }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+    const { runtime, handlers } = await bootToReady();
+    const connectMock = runtime.connect as ReturnType<typeof vi.fn>;
+    expect(connectMock.mock.calls[connectMock.mock.calls.length - 1][1]).toBe(
+      'automerge:first-doc-id',
+    );
+
+    // The server "restarts" with a new doc id, then the connection drops.
+    servedDocId = 'second-doc-id';
+    act(() => handlers.onConnectionChange?.(false));
+
+    await waitFor(() => {
+      const calls = connectMock.mock.calls;
+      expect(calls[calls.length - 1][1]).toBe('automerge:second-doc-id');
+    });
+    // Recovered: banner cleared.
+    await waitFor(() => {
+      expect(screen.queryByText(/reconnecting/i)).toBeNull();
+    });
+  });
+
+  it('disconnects on pagehide so a closing tab frees its socket', async () => {
+    const { runtime } = await bootToReady();
+    const disconnectMock = runtime.disconnect as ReturnType<typeof vi.fn>;
+    expect(disconnectMock).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+
+    await waitFor(() => expect(disconnectMock).toHaveBeenCalled());
+  });
+
+  it('still fails fast when the initial /health (docId fetch) is dead', async () => {
+    // Pre-existing behavior preserved: with no docId there is nothing
+    // to retry toward; the boot error surfaces immediately.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('gone', { status: 503 })),
+    );
+    render(<PreviewApp />);
+    await waitFor(() => {
       expect(screen.queryByText(/render error/i)).not.toBeNull();
     });
-    expect(screen.queryByText(/kaboom/i)).not.toBeNull();
-    expect(screen.queryByTestId('q2-preview-iframe-mock')).toBeNull();
+    expect(screen.queryByText(/health/i)).not.toBeNull();
   });
 
   it('forwards theme_fingerprint into Q2PreviewIframe so the iframe styles itself', async () => {

@@ -41,6 +41,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   initWasm,
   connect,
+  disconnect,
   setSyncHandlers,
   renderPageForPreview,
   getBinaryDocById,
@@ -56,6 +57,8 @@ import { Q2PreviewIframe } from '@quarto/preview-renderer/iframe/Q2PreviewIframe
 import { extractMetaString } from '@quarto/preview-renderer/framework';
 import type { Diagnostic, Pass1Failure, PreviewNodeEditPayload } from '@quarto/preview-renderer/types/diagnostic';
 import type { CaptureRef, FileEntry } from '@quarto/quarto-automerge-schema';
+import { bootWithRetry, superviseReconnect } from './bootController';
+import { BootLoadingScreen } from './components/BootLoadingScreen';
 import { ForceRefreshButton } from './components/ForceRefreshButton';
 import { PreviewDiagnosticsOverlay } from './components/PreviewDiagnosticsOverlay';
 import { StaleCaptureOverlay } from './components/StaleCaptureOverlay';
@@ -198,6 +201,23 @@ interface PreviewAppState {
    * engine.
    */
   captures: Record<string, CaptureRef>;
+  /**
+   * bd-jit6pdwq Phase 2: boot-retry visibility. The boot controller
+   * retries `connect()` without an attempt cap while `/health` says
+   * the server is alive; these two fields keep that loop from looking
+   * like a silent hang. 1-based attempt counter; `bootLastError` is
+   * the previous attempt's failure (null on the first attempt).
+   */
+  bootAttempt: number;
+  bootLastError: Error | null;
+  /**
+   * bd-jit6pdwq Phase 3: steady-state connection status, rendered as
+   * a banner over the (still-shown) content. `reconnecting` while a
+   * health-arbitrated reconnect is in flight; `server-gone` once
+   * `/health` confirms the server is down (the supervision loop keeps
+   * polling HTTP-only and recovers automatically if it returns).
+   */
+  connection: 'connected' | 'reconnecting' | 'server-gone';
 }
 
 /**
@@ -224,6 +244,21 @@ const EMPTY_RENDER_STATUS: RenderStatus = {
   pass1Failures: [],
 };
 
+const CONNECTION_BANNER_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  top: 8,
+  left: '50%',
+  transform: 'translateX(-50%)',
+  zIndex: 1000,
+  padding: '6px 14px',
+  borderRadius: 6,
+  background: '#fff8e1',
+  border: '1px solid #e0d4a8',
+  color: '#6b5d2e',
+  font: '13px -apple-system, Segoe UI, sans-serif',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+};
+
 const INITIAL_STATE: PreviewAppState = {
   boot: 'loading',
   files: [],
@@ -241,6 +276,9 @@ const INITIAL_STATE: PreviewAppState = {
   contentTick: 0,
   captures: {},
   allowEdit: false,
+  bootAttempt: 1,
+  bootLastError: null,
+  connection: 'connected',
 };
 
 /**
@@ -542,13 +580,36 @@ export default function PreviewApp() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  // bd-jit6pdwq Phase 3: close the sync connection when the tab goes
+  // away. A socket in CONNECTING state occupies Firefox's per-IP
+  // WebSocket handshake queue browser-wide; explicitly disconnecting
+  // on pagehide aborts it instead of leaving it to time out — so a
+  // closing/navigating preview tab can't stall other localhost tabs.
+  useEffect(() => {
+    const onPageHide = () => {
+      void disconnect();
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, []);
+
   // Boot once: WASM init + samod connect + initial file pick.
   useEffect(() => {
     let cancelled = false;
+    // bd-jit6pdwq Phase 3: bridge between the sync client's
+    // onConnectionChange callback and the supervision loop below.
+    // `notifyConnection` is non-null only while the loop is waiting
+    // for a drop; `releaseConnectionWait` unblocks that wait on
+    // unmount so the async closure can exit.
+    let notifyConnection: ((connected: boolean) => void) | null = null;
+    let releaseConnectionWait: (() => void) | null = null;
 
     void (async () => {
       try {
-        const indexDocId = await fetchIndexDocId();
+        // Fail-fast probe: a dead server at boot is an immediate,
+        // explicit error (there is nothing to retry toward). The doc
+        // id itself is re-fetched per connect attempt below.
+        await fetchIndexDocId();
         const wsUrl = deriveWsUrl();
         // bd-ov4gqk3m: learn whether this session may edit documents.
         // Fail-closed helper — never throws, defaults to read-only.
@@ -599,19 +660,80 @@ export default function PreviewApp() {
               contentTick: s.contentTick + 1,
             }));
           },
+          // bd-jit6pdwq Phase 3: the supervision loop (below) listens
+          // for drops on an established connection. Events fired while
+          // no waiter is armed (boot phase, mid-reconnect) go nowhere
+          // by design — those phases own their connection state.
+          onConnectionChange: (connected) => {
+            if (cancelled) return;
+            notifyConnection?.(connected);
+          },
           onError: (err) => {
             if (cancelled) return;
-            setState((s) => ({ ...s, error: err, boot: 'error' }));
+            // bd-jit6pdwq: while booting or reconnecting, connection
+            // errors belong to the boot/supervision retry loops (each
+            // failed connect() fires this callback too) — surfacing
+            // them here would turn a retryable failure into a terminal
+            // error screen. Otherwise errors surface as before.
+            setState((s) =>
+              s.boot === 'loading' || s.connection !== 'connected'
+                ? s
+                : { ...s, error: err, boot: 'error' },
+            );
           },
         });
 
-        // 5s peer wait: the q2-preview SPA always hits a fresh
-        // ephemeral hub with no IndexedDB cache, so the underlying
-        // 1ms "probe" default in quarto-sync-client would race the
-        // samod handshake and `findDoc(indexDocId)` would fail with
-        // "Document … is unavailable" on cold loads.
-        const initialFiles = await connect(wsUrl, indexDocId, undefined, undefined, undefined, 5000);
-        if (cancelled) return;
+        // bd-jit6pdwq Phase 2: health-arbitrated boot. The WebSocket
+        // gets patience (peerTimeoutMs: Infinity — Firefox serializes
+        // WS opening handshakes per IP address browser-wide, so a hung
+        // handshake in another tab can stall ours past any finite
+        // budget); HTTP /health decides liveness (that queue can't
+        // stall it). Memory storage: preview hubs are ephemeral, the
+        // IndexedDB cache can never hit, and its open would otherwise
+        // gate sending the WS join. See
+        // claude-notes/research/2026-06-11-firefox-ws-handshake-serialization.md
+        const healthUrl = `${window.location.protocol}//${window.location.host}/health`;
+        const checkHealth = async (): Promise<boolean> => {
+          try {
+            const resp = await fetch(healthUrl);
+            return resp.ok;
+          } catch {
+            return false;
+          }
+        };
+        // Re-fetch the index doc id on EVERY attempt: q2 preview keeps
+        // samod state in a per-process temp dir, so a server restart
+        // (same port) serves a brand-new index document — reconnecting
+        // with a stale id would retry "unavailable" forever. /health
+        // is health-gate-required before any attempt, so this adds no
+        // new failure mode. (Found by the Phase 5 kill/restart check;
+        // `indexDocId` from the initial fetch above is only used to
+        // fail fast when the server is down at boot.)
+        const connectWithPreviewOptions = async () => {
+          const currentDocId = await fetchIndexDocId();
+          return connect(wsUrl, currentDocId, undefined, undefined, undefined, {
+            peerTimeoutMs: Infinity,
+            storage: 'memory',
+          });
+        };
+
+        const initialFiles = await bootWithRetry({
+          connect: connectWithPreviewOptions,
+          checkHealth,
+          onStatus: (status) => {
+            if (cancelled || status.phase !== 'connecting') return;
+            setState((s) => ({
+              ...s,
+              bootAttempt: status.attempt,
+              bootLastError: status.lastError,
+            }));
+          },
+          isCancelled: () => cancelled,
+          // Server declared gone ⇒ tear the abandoned attempt's
+          // adapter down so it stops retrying the dead port.
+          teardown: () => disconnect(),
+        });
+        if (cancelled || initialFiles === null) return;
 
         // Phase D.2 (bd-kw93.13): seed `activeFile` from the boot
         // URL's `?page=<rel>` query if the CLI carried one through.
@@ -640,6 +762,57 @@ export default function PreviewApp() {
           allowEdit,
           boot: 'ready',
         }));
+
+        // bd-jit6pdwq Phase 3: steady-state supervision. When the
+        // established connection drops, tear the adapter down (stops
+        // automerge-repo's retry-every-5s-forever loop and closes the
+        // socket — a stale tab must not occupy Firefox's per-IP WS
+        // handshake queue) and reconnect under /health arbitration:
+        // alive ⇒ reconnect now; dead ⇒ banner + cheap HTTP polling
+        // (1 s → 30 s cap) until it returns. Same-port restarts
+        // recover without a manual reload.
+        for (;;) {
+          const dropped = await new Promise<boolean>((resolve) => {
+            releaseConnectionWait = () => resolve(false);
+            notifyConnection = (connected) => {
+              if (!connected) resolve(true);
+            };
+          });
+          notifyConnection = null;
+          if (cancelled || !dropped) return;
+
+          setState((s) => ({ ...s, connection: 'reconnecting' }));
+          await disconnect();
+          if (cancelled) return;
+
+          const refreshedFiles = await superviseReconnect({
+            connect: connectWithPreviewOptions,
+            checkHealth,
+            onStatus: (status) => {
+              if (cancelled) return;
+              setState((s) => ({
+                ...s,
+                connection:
+                  status.phase === 'server-gone' ? 'server-gone' : 'reconnecting',
+              }));
+            },
+            isCancelled: () => cancelled,
+            // Gone phase must be HTTP-only: drop the abandoned
+            // attempt's adapter (it would retry the dead port
+            // every 5 s otherwise).
+            teardown: () => disconnect(),
+          });
+          if (cancelled || refreshedFiles === null) return;
+
+          setState((s) => ({
+            ...s,
+            connection: 'connected',
+            files: refreshedFiles,
+            // Content may have changed while we were offline; re-fire
+            // the render effect through the usual channel.
+            contentTick: s.contentTick + 1,
+          }));
+        }
       } catch (err) {
         if (cancelled) return;
         setState((s) => ({
@@ -652,6 +825,7 @@ export default function PreviewApp() {
 
     return () => {
       cancelled = true;
+      releaseConnectionWait?.();
     };
   }, []);
 
@@ -933,15 +1107,10 @@ export default function PreviewApp() {
 
   if (state.boot === 'loading' || !state.activeFile || state.astJson === null) {
     return (
-      <div
-        style={{
-          padding: 24,
-          color: '#666',
-          font: '14px -apple-system, Segoe UI, sans-serif',
-        }}
-      >
-        Initializing q2-preview…
-      </div>
+      <BootLoadingScreen
+        attempt={state.bootAttempt}
+        lastError={state.bootLastError}
+      />
     );
   }
 
@@ -1011,6 +1180,17 @@ export default function PreviewApp() {
           severity={overlayInputs.severity}
           serverDiagnostics={state.serverDiagnostics}
         />
+      )}
+      {/* bd-jit6pdwq Phase 3: connection status banner. The rendered
+          content stays up underneath — a dropped connection is not a
+          render failure. server-gone recovers automatically when
+          /health answers again (same-port restart). */}
+      {state.connection !== 'connected' && (
+        <div role="status" style={CONNECTION_BANNER_STYLE}>
+          {state.connection === 'reconnecting'
+            ? 'Reconnecting to the preview server…'
+            : 'Preview server stopped. Restart `q2 preview` — this page reconnects automatically.'}
+        </div>
       )}
       <ForceRefreshButton onRefresh={handleRefresh} />
     </div>
