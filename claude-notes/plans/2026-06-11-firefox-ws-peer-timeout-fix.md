@@ -168,23 +168,33 @@ boot controller if extracted.
 
 ### Phase 4 — Firefox regression e2e (gated, slow, demotable)
 
-- [ ] Port `claude-notes/tmp/firefox-serialization-test.mjs` +
-      `blackhole-server.mjs` into a Playwright spec (preview-spa e2e,
-      run under `cargo xtask verify --e2e` alongside the existing
-      browser leg; needs a `q2 preview` server fixture — reuse the
-      pattern from `crates/quarto-preview/tests/integration/`).
-- [ ] Make it state-based, not latency-based: assert the SPA
-      **reaches rendered content and never shows the offline/boot
-      error overlay** (pre-fix behavior is a *permanent* error state,
-      so this is a binary distinction with a generous ceiling, not a
-      timing race). Chromium control: same assertion.
-- [ ] Pin the timing variable: set
-      `firefoxUserPrefs: { 'network.websocket.timeout.open': 3 }`
-      (seconds) so the slot-release cycle is fast and explicit instead
-      of depending on the undocumented 20 s default. Document the pref
-      in the spec.
-- [ ] Verify the test fails against pre-fix code (checkout or feature
-      flag) — the TDD "watch it fail" step for the e2e layer.
+- [x] Ported into `q2-preview-spa/e2e/firefox-ws-queue.spec.ts` +
+      `e2e/helpers/blackhole.ts`, using the existing
+      `previewServer.ts` harness (real `q2 preview` binary). New
+      `firefox-ws-queue` Playwright project runs only this spec; the
+      chromium project runs the same spec as the unserialized
+      control. Two findings baked into the spec: (a) tab A must be a
+      real `http://127.0.0.1` page — sockets opened from `about:blank`
+      don't enter Firefox's admission queue (the spec uses the
+      server's `/health` page); (b) a precondition assertion pins tab
+      A's probe socket in `readyState === CONNECTING` so the test
+      can't pass vacuously if the blackhole isn't holding the slot.
+- [x] State-based, not latency-based: asserts rendered content
+      appears and the terminal overlay never does.
+- [x] Pinned pref — **revised from the original 3 s**: the open
+      timeout must EXCEED the legacy 5 s peer budget or the pre-fix
+      bug can't reproduce (a 3 s release beats the old deadline and
+      masks it). Pinned at 8 s, documented in spec + config.
+- [x] Watch-it-fail: against the Jun-10 binary (pre-fix embedded
+      SPA): fails with the exact production failure ("Render Error —
+      Document automerge:<id> is unavailable"). After
+      `cargo xtask build-q2-preview-spa` + `cargo build -p quarto
+      --bin q2`: passes in 9.1 s (one 8 s queue-release cycle +
+      render). Chromium control + full chromium e2e suite: 31 passed;
+      3 pre-existing failures in `edit-cell-sizing.spec.ts` traced to
+      bd-ov4gqk3m's read-only gating (helper never passes
+      `--allow-edit`) — filed as bd-dsgrew1x (discovered-from
+      bd-jit6pdwq), predates this branch.
 - [ ] **Demotion policy** (agreed 2026-06-11): this spec is never
       PR-blocking (lives behind `--e2e`). If it flakes twice, demote
       it to a documented manual harness (promote the scripts out of
