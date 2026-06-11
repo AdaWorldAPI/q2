@@ -1,0 +1,246 @@
+# Fix: q2 preview Firefox peer-connection timeout (bd-jit6pdwq)
+
+**Strand:** bd-jit6pdwq
+**Research:** `claude-notes/research/2026-06-11-firefox-ws-handshake-serialization.md`
+**Repro scripts:** `claude-notes/tmp/` (blackhole-server, firefox-serialization-test, …)
+
+## Overview
+
+Firefox serializes WebSocket opening handshakes per resolved IP address,
+browser-wide (RFC 6455 §4.1, `nsWSAdmissionManager`). A hung handshake to
+*any* `127.0.0.1` port (wedged/suspended local server in any tab) starves
+all localhost WS handshakes for up to 20 s per attempt. The preview SPA
+budgets 5 s for the samod `peer` event, then "falls back" to an offline
+mode that is meaningless for preview (docs are ephemeral, never cached),
+and the boot fails permanently — even though the socket typically
+connects seconds later.
+
+### Design principles
+
+1. **HTTP for liveness, patience for WebSocket.** The preview server's
+   `/health` endpoint is reachable over plain HTTP, which Firefox's WS
+   admission queue does not affect. The SPA already fetches it at boot
+   (`fetchIndexDocId`). So: never infer "server gone" from WS handshake
+   latency; infer it from `/health`. While `/health` answers, keep
+   waiting/retrying the WebSocket — however long it takes.
+2. **No behavior change for hub-client.** All new capabilities are
+   opt-in options on `createSyncClient`/`connect` with defaults that
+   preserve today's semantics (IndexedDB storage, 1 ms peer probe,
+   offline fallback). Hub-client's offline-first flow is intentional
+   and stays.
+3. **No regression in other browsers.** Every change is pure
+   robustness: an indefinite peer wait resolves in ~60 ms when the
+   handshake is fast (Chrome today, clean Firefox today); memory
+   storage is strictly faster than IndexedDB; health-gated reconnects
+   only kick in when the connection actually drops.
+4. **Reduce the SPA's own contribution to the problem.** Stale preview
+   tabs currently retry `ws://127.0.0.1:<dead-port>/ws` every 5 s
+   forever, and automerge-repo's retry abandons CONNECTING sockets
+   without closing them — each abandoned socket occupies Firefox's
+   per-IP queue until the 20 s open-timeout. Health-gating reconnects
+   removes that churn at the source.
+
+### Why not "just raise the timeout"
+
+The adapter's silent retry interval (5 s) equals the SPA's peer budget
+(5 s), so any first-attempt failure is fatal by construction; raising
+the budget to 15 s only moves the cliff. The hung-slot condition can
+persist for minutes (a perpetually-retrying stale tab holds the slot
+~100 % of the time), so any finite WS deadline picks a wrong answer.
+The right deadline lives on `/health`, not on the socket.
+
+## Phases & work items
+
+### Phase 1 — quarto-sync-client: options + tests (TDD)
+
+Write the tests first against the existing vitest harness
+(`ts-packages/quarto-sync-client/src/client.test.ts`,
+`ts-packages/sync-test-harness` for in-memory repo pairs).
+
+- [x] Tests: `connect()` options-bag back-compat — existing positional
+      call sites (hub-client `App.tsx`, preview-runtime) behave
+      identically (probe default 1 ms, IndexedDB-by-default in
+      browser-shaped env, offline fallback preserved).
+      (`client.connect-options.test.ts`; watched 6/12 fail pre-impl.)
+- [x] Tests: `peerTimeoutMs: Infinity` waits for the `peer` event
+      without scheduling a timer (no `setTimeout(…, Infinity)`
+      coercion bug — skip the timer when `!Number.isFinite`), resolves
+      when a late peer arrives (60 s simulated), and never enters
+      the offline branch. Plus a finite-budget control test.
+- [x] Tests: `storage: 'memory'` uses `MemoryStorageAdapter` (no
+      `indexedDB` global touched even when one exists); default
+      remains IndexedDB.
+- [x] Tests: `retryIntervalMs` is forwarded to
+      `BrowserWebSocketClientAdapter`'s constructor.
+- [x] Tests: `findDoc` unavailable-recovery — first `repo.find()`
+      rejects "unavailable", a peer then connects, retry succeeds;
+      no retry with zero peers (offline fast-fail); bounded attempts;
+      non-"unavailable" errors rethrown immediately.
+- [x] Implement: 6th param of `connect()` widened to
+      `number | ConnectOptions` (auth stays positional; TypeError on
+      auth passed both ways). `CreateProjectOptions` gains `storage`,
+      `retryIntervalMs`, `findDocRetry`.
+- [x] Implement: `buildStorageAdapter(kind)` in `storage-adapter.ts`.
+- [x] Implement: `waitForPeer` infinite-budget branch; `findDoc`
+      retry-on-unavailable (peer-gated via `state.connectedPeers`,
+      tracked from repo creation in both connect and
+      createNewProject); reset on disconnect.
+- [x] `npm run test` in quarto-sync-client (148 passed); hub-client
+      `npm run build` (tsc -b project references + vite) green. Full
+      `build:all` deferred to Phase 5 (WASM leg untouched by
+      TS-only changes).
+
+### Phase 2 — preview-runtime + PreviewApp: resilient boot (TDD)
+
+Tests first in `q2-preview-spa/src/PreviewApp.integration.test.tsx`
+(mock `connect` already exists there) plus a small unit suite for the
+boot controller if extracted.
+
+- [ ] Tests: boot uses `storage: 'memory'` and `peerTimeoutMs:
+      Infinity`, and leaves the adapter `retryIntervalMs` at its
+      default (assert via the connect mock's args). Do NOT shorten
+      the retry interval — see Details.
+- [ ] Tests: boot retry loop — `connect` rejects once (simulated
+      unavailable race), `/health` mock still OK → retries with
+      backoff and succeeds; UI stays in "connecting" state, not
+      `boot: 'error'`.
+- [ ] Tests: `/health` unreachable (server killed) → terminal
+      `boot: 'error'` with a "preview server is not running" message;
+      no further WS attempts.
+- [ ] Tests: slow-connect status UI — after a threshold (~8 s) the
+      loading screen adds the Firefox hint ("another tab may be
+      holding localhost WebSocket connections…"). Timer-based; use
+      fake timers.
+- [ ] Tests: React StrictMode/unmount safety — `cancelled` guard stops
+      the retry loop (no setState after unmount).
+- [ ] Implement: boot controller in `PreviewApp.tsx` (extract
+      `bootWithRetry()` so it's unit-testable): connect → on failure,
+      `GET /health` → healthy ⇒ backoff retry (1 s, 2 s, 4 s … cap
+      10 s, no attempt cap while healthy); unhealthy ×3 ⇒ terminal
+      error.
+- [ ] Implement: thread options through `preview-runtime`'s
+      `connect()` wrapper (`automergeSync.ts`); update its doc comment
+      (the current one describes the 5 s rationale this plan removes).
+- [ ] Implement: loading-state copy + delayed Firefox hint in the
+      existing `boot === 'loading'` branch.
+- [ ] `npm run test:ci` for q2-preview-spa; `npm run build:all`.
+
+### Phase 3 — steady-state reconnect hygiene (stale tabs)
+
+- [ ] Tests: on `onConnectionChange(false)` after an established
+      session, the SPA calls `disconnect()` (tearing down the adapter
+      so automerge-repo's 5 s-forever retry stops and the socket is
+      closed → frees Firefox's queue), then polls `/health` with
+      backoff (1 s → 30 s cap); healthy ⇒ fresh `connect()`;
+      unreachable ⇒ banner "preview server stopped — restart
+      `q2 preview` and reload", polling continues at the 30 s cap so
+      a restarted server is picked up eventually.
+- [ ] Tests: `pagehide` handler calls `disconnect()` (aborts any
+      CONNECTING socket on tab close/navigation).
+- [ ] Implement the above in `PreviewApp.tsx` /
+      `preview-runtime`.
+- [ ] Manual check: kill the server under an open preview tab; observe
+      WS attempts stop (DevTools network) and the banner appears;
+      restart server; tab recovers without reload.
+
+### Phase 4 — Firefox regression e2e (gated, slow, demotable)
+
+- [ ] Port `claude-notes/tmp/firefox-serialization-test.mjs` +
+      `blackhole-server.mjs` into a Playwright spec (preview-spa e2e,
+      run under `cargo xtask verify --e2e` alongside the existing
+      browser leg; needs a `q2 preview` server fixture — reuse the
+      pattern from `crates/quarto-preview/tests/integration/`).
+- [ ] Make it state-based, not latency-based: assert the SPA
+      **reaches rendered content and never shows the offline/boot
+      error overlay** (pre-fix behavior is a *permanent* error state,
+      so this is a binary distinction with a generous ceiling, not a
+      timing race). Chromium control: same assertion.
+- [ ] Pin the timing variable: set
+      `firefoxUserPrefs: { 'network.websocket.timeout.open': 3 }`
+      (seconds) so the slot-release cycle is fast and explicit instead
+      of depending on the undocumented 20 s default. Document the pref
+      in the spec.
+- [ ] Verify the test fails against pre-fix code (checkout or feature
+      flag) — the TDD "watch it fail" step for the e2e layer.
+- [ ] **Demotion policy** (agreed 2026-06-11): this spec is never
+      PR-blocking (lives behind `--e2e`). If it flakes twice, demote
+      it to a documented manual harness (promote the scripts out of
+      `claude-notes/tmp/`) and let the Phase 1/2 vitest guards be the
+      durable regression net. Known benign decay: if Firefox ever
+      relaxes per-IP handshake serialization, the blackhole stops
+      mattering and the spec degrades into a plain boot test (passes
+      vacuously) — acceptable.
+
+### Phase 5 — verification + bookkeeping
+
+- [ ] `cargo xtask verify` (full; ts-packages changes flow into the
+      hub-client build leg).
+- [ ] End-to-end per CLAUDE.md: real `q2 preview` + real Firefox with
+      a live blackhole tab (`node claude-notes/tmp/blackhole-server.mjs`
+      + a tab holding a WS to it); record invocation + observed
+      recovery in this plan.
+- [ ] hub-client changelog only if `hub-client/` files change (not
+      expected; ts-packages + q2-preview-spa are outside it).
+- [ ] braid: comment progress per phase; close bd-jit6pdwq with the
+      e2e evidence.
+
+## Details & decisions
+
+- **Options bag, not more positionals.** `connect()` already takes 7
+  positional params; the Phase 1 additions go in a trailing options
+  object. Hub-client call sites untouched.
+- **`Infinity` peer wait is preview-only.** Hub-client keeps its 1 ms
+  probe → IndexedDB-first behavior. The sync client stays
+  policy-free; the *SPA* owns the "HTTP decides liveness" loop.
+- **Why memory storage for preview.** (a) removes the IndexedDB open
+  from the path that gates sending the WS `join` (independently
+  verified failure mode — automerge-repo defers `adapter.connect()`
+  on `storageSubsystem.id()`); (b) preview origins are
+  port-randomized, so the cache can never hit and every session
+  permanently adds an origin database to the user's profile.
+- **Adapter retry interval: keep default (or raise), never shorten.**
+  Both numbers are under our control (`peerTimeoutMs` is our literal in
+  `PreviewApp.tsx`; `retryInterval` is the second ctor arg of
+  `BrowserWebSocketClientAdapter`, built in `client.ts` `buildWsAdapter`).
+  But shortening the retry is *counterproductive in Firefox*: the
+  adapter's retry fires while the previous socket is still CONNECTING
+  and replaces it without `close()`, and abandoned CONNECTING sockets
+  keep occupying Firefox's per-IP admission queue until the open
+  timeout. Faster retries ⇒ more queue pollution under exactly the
+  failure condition we're fixing. With `peerTimeoutMs: Infinity` the
+  old de-alignment concern (5 s budget == 5 s retry) is moot; the
+  SPA's health-gated loop is the reconnect driver and the adapter's
+  internal retry is a background fallback we want quiet. The
+  `retryIntervalMs` option (Phase 1) exists so preview can *raise* it
+  if Phase 3 testing shows residual churn.
+- **findDoc retry stays bounded.** Unbounded retry could mask real
+  "doc id mismatch" bugs; 3 attempts gated on peer presence is enough
+  to cover the cold-start sync race already documented in
+  `client.ts`.
+- **Not in scope:** patching/vendoring
+  `BrowserWebSocketClientAdapter`'s abandon-without-close retry
+  behavior. Health-gating makes the SPA stop driving that loop;
+  upstreaming a `socket.close()`-before-replace fix is a separate
+  nice-to-have. Target for that PR: `automerge/automerge-repo` on
+  GitHub, `packages/automerge-repo-network-websocket/src/
+  WebSocketClientAdapter.ts` (we consume it as
+  `@automerge/automerge-repo-network-websocket` 2.5.6). Local
+  fallback if upstream stalls: subclass the browser adapter in
+  `quarto-sync-client` (precedent: our `NodeWebSocketClientAdapter`).
+  File a follow-up strand if Phase 3 testing shows abandoned
+  CONNECTING sockets still piling up.
+- **UX in non-Firefox browsers:** unchanged paths everywhere —
+  fast-connect case resolves identically; the new states only render
+  when connection actually stalls/drops (where today's behavior is a
+  permanent error screen).
+
+## Success criteria
+
+1. Firefox + blackhole tab: preview renders (≤ 30 s worst case),
+   never the permanent offline error. Chromium: no measurable boot
+   regression.
+2. Killing the preview server produces the "server stopped" banner and
+   zero ongoing WS retries; restarting it recovers the tab without a
+   manual reload.
+3. All existing quarto-sync-client / hub-client / preview-spa suites
+   green; `cargo xtask verify` green.

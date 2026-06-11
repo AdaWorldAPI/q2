@@ -20,6 +20,7 @@ import {
   type StorageKey,
 } from '@automerge/automerge-repo';
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb';
+import type { StorageKind } from './types.js';
 
 /**
  * Process-local in-memory storage. Matches automerge-repo's bundled
@@ -68,7 +69,13 @@ export class MemoryStorageAdapter extends StorageAdapter implements StorageAdapt
   }
 }
 
-export function buildStorageAdapter(): StorageAdapterInterface {
+export function buildStorageAdapter(kind?: StorageKind): StorageAdapterInterface {
+  // Explicit memory selection (q2-preview SPA): ephemeral docs make
+  // IndexedDB useless as a cache, and its open would otherwise gate
+  // sending the WebSocket `join` (bd-jit6pdwq).
+  if (kind === 'memory') {
+    return new MemoryStorageAdapter();
+  }
   // `globalThis.indexedDB` only exists in browser-shaped runtimes.
   // Hub-client's tsconfig pulls in DOM lib so the lookup typechecks
   // cleanly there; hub-mcp's tsconfig doesn't, so we fall back to an
