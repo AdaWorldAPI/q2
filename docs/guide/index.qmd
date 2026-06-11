@@ -5,8 +5,8 @@ sidebar:
     - text: "Introduction"
       href: introduction.qmd
     - text: "Markdown"
-      href: ../authoring/markdown/index.qmd
-    - text: "Brand themes (_brand.yml)"
+      href: ../guides/authoring/markdown-basics.qmd
+    - text: "Brand themes (`_brand.yml`)"
       href: themes/brand.qmd
     - text: "Reading configuration (get-config)"
       href: get-config.qmd

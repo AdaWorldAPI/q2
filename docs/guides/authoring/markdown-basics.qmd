@@ -2,10 +2,6 @@
 title: Authoring Markdown documents in Quarto 2
 ---
 
-## TBD
-
-- add tbl-colwidths to list-tables
-
 ## Overview
 
 Quarto 2 uses its own dialect of Markdown as its underlying document syntax.

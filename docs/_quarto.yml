@@ -20,6 +20,33 @@ website:
       - href: errors/index.qmd
         text: Errors
   sidebar:
+    - id: Guides
+      collapse-level: 1
+      contents:
+        - section: "Guides"
+          href: guides/index.qmd
+          contents:
+            - guides/authoring/index.qmd
+            - guides/publishing/index.qmd
+    - id: Authoring
+      collapse-level: 1
+      contents:
+        - section: "Authoring Quarto Documents"
+          href: guides/authoring/index.qmd
+          contents:
+            - guides/authoring/markdown-basics.qmd
+            - guides/authoring/figures.qmd
+            - guides/authoring/tables.qmd
+            - guides/authoring/diagrams.qmd
+            - guides/authoring/shortcodes.qmd
+            - guides/authoring/brand.qmd
+            - guides/authoring/layout.qmd
+            - guides/authoring/scholarly-writing.qmd
+            - guides/authoring/computations.qmd
+            - guides/authoring/navigation.qmd
+            - guides/authoring/extensions.qmd
+            - guides/authoring/templates.qmd
+            - guides/publishing/index.qmd
     - id: guide
       collapse-level: 1
       contents:
