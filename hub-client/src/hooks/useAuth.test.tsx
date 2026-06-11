@@ -322,6 +322,36 @@ describe('useAuth', () => {
       );
     });
 
+    it('clears auth at expiry even when the renewal never settles (wedged IdP)', async () => {
+      const user = { email: 'a@b.com', name: 'A', picture: null };
+      mockFetchAuthMe
+        .mockResolvedValueOnce(user) // mount check
+        .mockResolvedValueOnce(null); // expiry re-check
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await vi.waitFor(() =>
+        expect(result.current.auth).toEqual(user),
+      );
+
+      // Refresh point: renewal is triggered, but the IdP never calls back
+      // (GIS blocked / FedCM — neither onCredential nor onError fires).
+      await act(async () => {
+        vi.advanceTimersByTime(COOKIE_MAX_AGE_MS - REFRESH_BUFFER_MS + 100);
+      });
+      expect(mockProvider.lastSilentRenewalOpts?.enabled).toBe(true);
+
+      // The verdict deadline must settle isRefreshing so the expiry
+      // re-check can still reach its logout verdict.
+      await act(async () => {
+        vi.advanceTimersByTime(REFRESH_BUFFER_MS + 100);
+      });
+
+      await vi.waitFor(() =>
+        expect(result.current.auth).toBeNull(),
+      );
+      expect(result.current.sessionExpired).toBe(true);
+    });
+
     it('keeps auth if server confirms valid cookie at expiry', async () => {
       const user = { email: 'a@b.com', name: 'A', picture: null };
       const freshUser = {

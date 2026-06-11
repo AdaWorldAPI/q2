@@ -39,6 +39,9 @@ const DEFAULT_SESSION_MS = 3600 * 1000;
 /** Re-check interval when an expiry-time verdict couldn't be reached. */
 const EXPIRY_RECHECK_MS = 60 * 1000;
 
+/** Time the IdP gets to settle a renewal before it counts as failed (30 s). */
+export const REFRESH_VERDICT_TIMEOUT_MS = 30 * 1000;
+
 export function useAuth() {
   const provider = useAuthProvider();
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -48,6 +51,7 @@ export function useAuth() {
   const isRefreshing = useRef(false);
   const refreshTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const expiryTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const refreshDeadline = useRef<ReturnType<typeof setTimeout>>(null);
 
   // Effective expiry of the current session (0 = no session).
   const expiresAtRef = useRef<number>(0);
@@ -84,13 +88,27 @@ export function useAuth() {
     return () => { cancelled = true; };
   }, []);
 
+  /** A renewal settled (success, failure, or deadline) — clear the in-flight gate. */
+  const settleRefresh = useCallback(() => {
+    if (refreshDeadline.current) clearTimeout(refreshDeadline.current);
+    refreshDeadline.current = null;
+    isRefreshing.current = false;
+  }, []);
+
   // Single entry point for activating One Tap. Coalesces concurrent
   // triggers (e.g. N parallel 401s) into one refresh attempt.
   const triggerRefresh = useCallback(() => {
     if (isRefreshing.current) return;
     isRefreshing.current = true;
     setRefreshEnabled(true);
-  }, []);
+    // The IdP may never call back (GIS blocked / FedCM policies). Without a
+    // deadline, isRefreshing wedges true for the tab's lifetime: the expiry
+    // re-check never reaches a verdict and refocus/retry are disabled.
+    refreshDeadline.current = setTimeout(() => {
+      settleRefresh();
+      setRefreshEnabled(false);
+    }, REFRESH_VERDICT_TIMEOUT_MS);
+  }, [settleRefresh]);
 
   // Silent renewal via the active AuthProvider. The provider collapses
   // "renewal returned no usable credential" into onError, so the consumer
@@ -110,16 +128,21 @@ export function useAuth() {
           if (sessionLapsed()) expireSession();
         })
         .finally(() => {
-          isRefreshing.current = false;
+          settleRefresh();
         });
       setRefreshEnabled(false);
     },
     onError: () => {
-      isRefreshing.current = false;
+      settleRefresh();
       setRefreshEnabled(false);
       if (sessionLapsed()) expireSession();
     },
   });
+
+  // Clear any pending renewal deadline on unmount.
+  useEffect(() => () => {
+    if (refreshDeadline.current) clearTimeout(refreshDeadline.current);
+  }, []);
 
   // On visibility change, verify the cookie. If rejected, try One Tap
   // refresh; a network error means offline and never clears the session.
