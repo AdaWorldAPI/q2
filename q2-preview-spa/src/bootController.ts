@@ -29,13 +29,22 @@ export class ServerGoneError extends Error {
   }
 }
 
-export interface BootStatus {
-  phase: 'connecting';
-  /** 1-based attempt counter. */
-  attempt: number;
-  /** The previous attempt's failure, if any. */
-  lastError: Error | null;
-}
+export type BootStatus =
+  | {
+      phase: 'connecting';
+      /** 1-based attempt counter. */
+      attempt: number;
+      /** The previous attempt's failure, if any. */
+      lastError: Error | null;
+    }
+  | {
+      /**
+       * `/health` has confirmed the server is down. Emitted by
+       * {@link superviseReconnect} only — it keeps polling and goes
+       * back to `connecting` if the server returns.
+       */
+      phase: 'server-gone';
+    };
 
 export interface BootRetryOptions<T> {
   /** One connection attempt (the SPA's samod connect). */
@@ -173,5 +182,60 @@ export async function bootWithRetry<T>(options: BootRetryOptions<T>): Promise<T 
     // Healthy ⇒ the failure was transient (cold-start sync race, WS
     // queue contention). Back off and go again — no attempt cap.
     await sleep(Math.min(backoffBaseMs * 2 ** (attempt - 1), backoffCapMs));
+  }
+}
+
+export interface SuperviseReconnectOptions<T> extends BootRetryOptions<T> {
+  /** First gone-phase poll spacing. Default 1000 ms. */
+  gonePollBaseMs?: number;
+  /** Gone-phase poll ceiling. Default 30000 ms. */
+  gonePollCapMs?: number;
+}
+
+/**
+ * Steady-state variant of {@link bootWithRetry}: "server gone" is a
+ * *state*, not a verdict. Used after an established connection drops —
+ * the tab keeps its rendered content, shows a banner, and recovers
+ * without a manual reload when the server comes back on the same port.
+ *
+ * Cheap by construction: while gone, the only traffic is an HTTP
+ * `/health` probe with capped exponential backoff (1 s → 30 s). No
+ * WebSocket is attempted until `/health` answers — which keeps stale
+ * preview tabs from occupying Firefox's per-IP handshake queue, the
+ * very mechanism that breaks *other* tabs (bd-jit6pdwq).
+ *
+ * Resolves with the reconnected result, or `null` when cancelled.
+ * Never throws.
+ */
+export async function superviseReconnect<T>(
+  options: SuperviseReconnectOptions<T>,
+): Promise<T | null> {
+  const {
+    checkHealth,
+    onStatus,
+    isCancelled = () => false,
+    gonePollBaseMs = 1000,
+    gonePollCapMs = 30000,
+    sleep = defaultSleep,
+  } = options;
+
+  for (;;) {
+    try {
+      return await bootWithRetry(options);
+    } catch (err) {
+      if (!(err instanceof ServerGoneError)) throw err;
+      onStatus?.({ phase: 'server-gone' });
+    }
+
+    // Gone phase: poll /health (HTTP only — no WebSocket churn) until
+    // the server answers again, then loop back into bootWithRetry.
+    let delay = gonePollBaseMs;
+    for (;;) {
+      if (isCancelled()) return null;
+      await sleep(delay);
+      if (isCancelled()) return null;
+      if (await checkHealth()) break;
+      delay = Math.min(delay * 2, gonePollCapMs);
+    }
   }
 }

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { bootWithRetry, ServerGoneError } from './bootController';
+import { bootWithRetry, superviseReconnect, ServerGoneError } from './bootController';
 import type { FileEntry } from '@quarto/quarto-automerge-schema';
 
 const FILES: FileEntry[] = [{ path: 'index.qmd', docId: 'doc-1' }];
@@ -206,6 +206,99 @@ describe('bootWithRetry', () => {
 
     expect(result).toBeNull();
     expect(connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('superviseReconnect: passes through when the server stays healthy', async () => {
+    const connect = vi.fn().mockResolvedValue(FILES);
+    const checkHealth = vi.fn().mockResolvedValue(true);
+    const { tuning } = instantTuning();
+
+    const result = await superviseReconnect({ connect, checkHealth, ...tuning });
+
+    expect(result).toEqual(FILES);
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('superviseReconnect: server gone is not terminal — waits for /health to return, then reconnects', async () => {
+    // Server is dead at first (confirmation probes fail ⇒ inner
+    // bootWithRetry throws ServerGoneError), then comes back.
+    let healthCalls = 0;
+    const checkHealth = vi.fn().mockImplementation(() => {
+      healthCalls++;
+      return Promise.resolve(healthCalls > 6);
+    });
+    let serverUp = false;
+    const connect = vi.fn().mockImplementation(() => {
+      serverUp = healthCalls > 6;
+      return serverUp
+        ? Promise.resolve(FILES)
+        : Promise.reject(new Error('WebSocket is not connected'));
+    });
+    const statuses: unknown[] = [];
+    const { tuning } = instantTuning();
+
+    const result = await superviseReconnect({
+      connect,
+      checkHealth,
+      onStatus: (s) => statuses.push(s),
+      ...tuning,
+    });
+
+    expect(result).toEqual(FILES);
+    // The gone phase was visible to the UI…
+    expect(statuses).toContainEqual(expect.objectContaining({ phase: 'server-gone' }));
+    // …and a reconnect followed.
+    expect(connect.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('superviseReconnect: polls with capped backoff while the server is gone', async () => {
+    // checkHealth: calls 1-3 are the inner bootWithRetry's death
+    // confirmation (false), calls 4-9 are gone-phase polls (false),
+    // call 10 finds the server back. The reconnect then succeeds.
+    let healthCalls = 0;
+    const checkHealth = vi.fn().mockImplementation(() => {
+      healthCalls++;
+      return Promise.resolve(healthCalls >= 10);
+    });
+    const connect = vi.fn().mockImplementation(() =>
+      healthCalls >= 10
+        ? Promise.resolve(FILES)
+        : Promise.reject(new Error('nope')),
+    );
+    const { tuning, sleepCalls } = instantTuning({
+      watchdogIntervalMs: 7777,
+      gonePollBaseMs: 1000,
+      gonePollCapMs: 30000,
+    });
+
+    const result = await superviseReconnect({ connect, checkHealth, ...tuning });
+
+    expect(result).toEqual(FILES);
+    // Exclude watchdog ticks (7777) and confirm spacing (500): the
+    // remaining sleeps are the gone-phase polls — exponential, capped.
+    const gonePolls = sleepCalls.filter((ms) => ms !== 7777 && ms !== 500);
+    expect(gonePolls).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000]);
+  });
+
+  it('superviseReconnect: returns null when cancelled during the gone phase', async () => {
+    let cancelled = false;
+    let healthCalls = 0;
+    const checkHealth = vi.fn().mockImplementation(() => {
+      healthCalls++;
+      if (healthCalls === 6) cancelled = true;
+      return Promise.resolve(false);
+    });
+    const connect = vi.fn().mockRejectedValue(new Error('nope'));
+    const { tuning } = instantTuning();
+
+    const result = await superviseReconnect({
+      connect,
+      checkHealth,
+      isCancelled: () => cancelled,
+      ...tuning,
+    });
+
+    expect(result).toBeNull();
   });
 
   it('stops watchdog polling after cancellation during a hang', async () => {

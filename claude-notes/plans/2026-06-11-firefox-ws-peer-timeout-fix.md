@@ -140,21 +140,31 @@ boot controller if extracted.
 
 ### Phase 3 — steady-state reconnect hygiene (stale tabs)
 
-- [ ] Tests: on `onConnectionChange(false)` after an established
-      session, the SPA calls `disconnect()` (tearing down the adapter
-      so automerge-repo's 5 s-forever retry stops and the socket is
-      closed → frees Firefox's queue), then polls `/health` with
-      backoff (1 s → 30 s cap); healthy ⇒ fresh `connect()`;
-      unreachable ⇒ banner "preview server stopped — restart
-      `q2 preview` and reload", polling continues at the 30 s cap so
-      a restarted server is picked up eventually.
-- [ ] Tests: `pagehide` handler calls `disconnect()` (aborts any
+- [x] Tests: on `onConnectionChange(false)` after an established
+      session, the SPA calls `disconnect()` then reconnects under
+      health arbitration; reconnecting banner while in flight;
+      server-gone banner when `/health` dies (content stays up, no
+      terminal overlay); automatic recovery when `/health` returns
+      (4 new PreviewApp integration tests, watched failing first).
+      Unit side: 4 `superviseReconnect` specs in
+      `bootController.test.ts` (passthrough, gone→recover, capped
+      gone-phase poll backoff 1 s→30 s, cancellation).
+- [x] Tests: `pagehide` handler calls `disconnect()` (aborts any
       CONNECTING socket on tab close/navigation).
-- [ ] Implement the above in `PreviewApp.tsx` /
-      `preview-runtime`.
-- [ ] Manual check: kill the server under an open preview tab; observe
-      WS attempts stop (DevTools network) and the banner appears;
-      restart server; tab recovers without reload.
+- [x] Implement: `superviseReconnect()` in bootController (reuses
+      `bootWithRetry`; `ServerGoneError` becomes a *state*, not a
+      verdict — HTTP-only polling while gone, so stale tabs make zero
+      WS attempts); supervision loop + connection banner + pagehide
+      handler in `PreviewApp.tsx`; `onError` also gated on
+      `connection === 'connected'` so reconnect-phase failures don't
+      flash the terminal overlay. `BootStatus` is now a union with
+      `{ phase: 'server-gone' }`.
+- [x] Suites: spa unit 22 + integration 66 green; `tsc -b` + vite
+      build green.
+- [ ] Manual check (folded into Phase 5 end-to-end): kill the server
+      under an open preview tab; observe WS attempts stop (DevTools
+      network) and the banner appears; restart server; tab recovers
+      without reload.
 
 ### Phase 4 — Firefox regression e2e (gated, slow, demotable)
 

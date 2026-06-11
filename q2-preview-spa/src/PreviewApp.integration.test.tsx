@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import type { FileEntry } from '@quarto/quarto-automerge-schema';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
@@ -51,6 +51,7 @@ vi.mock('@quarto/preview-runtime', () => ({
     }
     return runtimeMockState.files;
   }),
+  disconnect: vi.fn(async () => undefined),
   setSyncHandlers: vi.fn(),
   renderPageForPreview: vi.fn(
     async (_path: string, _grammars?: unknown, _capture?: Uint8Array) =>
@@ -255,6 +256,124 @@ describe('PreviewApp boot path', () => {
     );
     expect(reactWarnings).toEqual([]);
     consoleError.mockRestore();
+  });
+
+  // ── bd-jit6pdwq Phase 3: steady-state reconnect hygiene ────────────
+
+  /** Boot to ready and return the handlers PreviewApp registered. */
+  async function bootToReady() {
+    render(<PreviewApp />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+    });
+    const runtime = await import('@quarto/preview-runtime');
+    const handlerCalls = (runtime.setSyncHandlers as ReturnType<typeof vi.fn>).mock.calls;
+    expect(handlerCalls.length).toBeGreaterThan(0);
+    return {
+      runtime,
+      handlers: handlerCalls[handlerCalls.length - 1][0] as {
+        onConnectionChange?: (connected: boolean) => void;
+      },
+    };
+  }
+
+  it('tears down the adapter and reconnects when the connection drops', async () => {
+    const { runtime, handlers } = await bootToReady();
+    const connectMock = runtime.connect as ReturnType<typeof vi.fn>;
+    const disconnectMock = runtime.disconnect as ReturnType<typeof vi.fn>;
+    const bootConnects = connectMock.mock.calls.length;
+
+    act(() => handlers.onConnectionChange?.(false));
+
+    // The adapter is torn down (stops automerge-repo's forever-retry,
+    // closes the socket → frees Firefox's per-IP handshake queue)…
+    await waitFor(() => expect(disconnectMock).toHaveBeenCalled());
+    // …and a fresh connect follows while /health is OK.
+    await waitFor(() => {
+      expect(connectMock.mock.calls.length).toBe(bootConnects + 1);
+    });
+    // Recovery is silent: no reconnect banner left, iframe intact.
+    await waitFor(() => {
+      expect(screen.queryByText(/reconnecting/i)).toBeNull();
+    });
+    expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+  });
+
+  it('shows a reconnecting banner while the reconnect is in flight', async () => {
+    const { runtime, handlers } = await bootToReady();
+    // Post-drop connect hangs (e.g. the WS handshake queue again).
+    (runtime.connect as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise<FileEntry[]>(() => {}),
+    );
+
+    act(() => handlers.onConnectionChange?.(false));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/reconnecting/i)).not.toBeNull();
+    });
+    // The rendered content stays up behind the banner.
+    expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+  });
+
+  it('shows a server-stopped banner when /health dies after a drop, and recovers when it returns', async () => {
+    // Stateful health: alive during boot, dead after the drop, alive
+    // again later.
+    let healthAlive = true;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) {
+          return healthAlive
+            ? new Response(
+                JSON.stringify({ status: 'ok', index_document_id: 'automerge:test-index-doc' }),
+                { status: 200, headers: { 'content-type': 'application/json' } },
+              )
+            : new Response('gone', { status: 500 });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+    const { runtime, handlers } = await bootToReady();
+    const connectMock = runtime.connect as ReturnType<typeof vi.fn>;
+
+    // Server dies: post-drop connects fail, health probes fail.
+    healthAlive = false;
+    runtimeMockState.connectError = 'WebSocket is not connected';
+    act(() => handlers.onConnectionChange?.(false));
+
+    await waitFor(
+      () => {
+        expect(screen.queryByText(/server stopped|not responding/i)).not.toBeNull();
+      },
+      { timeout: 8000 },
+    );
+    // The page does NOT go to the terminal error overlay — content stays.
+    expect(screen.queryByTestId('q2-preview-iframe-mock')).not.toBeNull();
+
+    // Server comes back (same port): the tab recovers on its own.
+    healthAlive = true;
+    runtimeMockState.connectError = undefined;
+    const connectsBeforeRecovery = connectMock.mock.calls.length;
+    await waitFor(
+      () => {
+        expect(connectMock.mock.calls.length).toBeGreaterThan(connectsBeforeRecovery);
+        expect(screen.queryByText(/server stopped|not responding|reconnecting/i)).toBeNull();
+      },
+      { timeout: 8000 },
+    );
+  }, 20000);
+
+  it('disconnects on pagehide so a closing tab frees its socket', async () => {
+    const { runtime } = await bootToReady();
+    const disconnectMock = runtime.disconnect as ReturnType<typeof vi.fn>;
+    expect(disconnectMock).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+
+    await waitFor(() => expect(disconnectMock).toHaveBeenCalled());
   });
 
   it('still fails fast when the initial /health (docId fetch) is dead', async () => {
