@@ -36,9 +36,12 @@ export type {
   SyncClientCallbacks,
   ASTOptions,
   CaptureRef,
+  ConnectOptions,
   CreateBinaryFileResult,
   CreateProjectOptions,
   CreateProjectResult,
+  FindDocRetryOptions,
+  StorageKind,
   SyncClientAuthOptions,
 } from './types.js';
 

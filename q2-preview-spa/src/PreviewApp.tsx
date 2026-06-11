@@ -56,6 +56,8 @@ import { Q2PreviewIframe } from '@quarto/preview-renderer/iframe/Q2PreviewIframe
 import { extractMetaString } from '@quarto/preview-renderer/framework';
 import type { Diagnostic, Pass1Failure, PreviewNodeEditPayload } from '@quarto/preview-renderer/types/diagnostic';
 import type { CaptureRef, FileEntry } from '@quarto/quarto-automerge-schema';
+import { bootWithRetry } from './bootController';
+import { BootLoadingScreen } from './components/BootLoadingScreen';
 import { ForceRefreshButton } from './components/ForceRefreshButton';
 import { PreviewDiagnosticsOverlay } from './components/PreviewDiagnosticsOverlay';
 import { StaleCaptureOverlay } from './components/StaleCaptureOverlay';
@@ -198,6 +200,15 @@ interface PreviewAppState {
    * engine.
    */
   captures: Record<string, CaptureRef>;
+  /**
+   * bd-jit6pdwq Phase 2: boot-retry visibility. The boot controller
+   * retries `connect()` without an attempt cap while `/health` says
+   * the server is alive; these two fields keep that loop from looking
+   * like a silent hang. 1-based attempt counter; `bootLastError` is
+   * the previous attempt's failure (null on the first attempt).
+   */
+  bootAttempt: number;
+  bootLastError: Error | null;
 }
 
 /**
@@ -241,6 +252,8 @@ const INITIAL_STATE: PreviewAppState = {
   contentTick: 0,
   captures: {},
   allowEdit: false,
+  bootAttempt: 1,
+  bootLastError: null,
 };
 
 /**
@@ -601,17 +614,52 @@ export default function PreviewApp() {
           },
           onError: (err) => {
             if (cancelled) return;
-            setState((s) => ({ ...s, error: err, boot: 'error' }));
+            // bd-jit6pdwq: while booting, connection errors belong to
+            // the boot controller's retry loop (each failed connect()
+            // fires this callback too) — surfacing them here would
+            // turn a retryable failure into a terminal error screen.
+            // After boot, errors surface as before.
+            setState((s) =>
+              s.boot === 'loading' ? s : { ...s, error: err, boot: 'error' },
+            );
           },
         });
 
-        // 5s peer wait: the q2-preview SPA always hits a fresh
-        // ephemeral hub with no IndexedDB cache, so the underlying
-        // 1ms "probe" default in quarto-sync-client would race the
-        // samod handshake and `findDoc(indexDocId)` would fail with
-        // "Document … is unavailable" on cold loads.
-        const initialFiles = await connect(wsUrl, indexDocId, undefined, undefined, undefined, 5000);
-        if (cancelled) return;
+        // bd-jit6pdwq Phase 2: health-arbitrated boot. The WebSocket
+        // gets patience (peerTimeoutMs: Infinity — Firefox serializes
+        // WS opening handshakes per IP address browser-wide, so a hung
+        // handshake in another tab can stall ours past any finite
+        // budget); HTTP /health decides liveness (that queue can't
+        // stall it). Memory storage: preview hubs are ephemeral, the
+        // IndexedDB cache can never hit, and its open would otherwise
+        // gate sending the WS join. See
+        // claude-notes/research/2026-06-11-firefox-ws-handshake-serialization.md
+        const healthUrl = `${window.location.protocol}//${window.location.host}/health`;
+        const initialFiles = await bootWithRetry({
+          connect: () =>
+            connect(wsUrl, indexDocId, undefined, undefined, undefined, {
+              peerTimeoutMs: Infinity,
+              storage: 'memory',
+            }),
+          checkHealth: async () => {
+            try {
+              const resp = await fetch(healthUrl);
+              return resp.ok;
+            } catch {
+              return false;
+            }
+          },
+          onStatus: (status) => {
+            if (cancelled) return;
+            setState((s) => ({
+              ...s,
+              bootAttempt: status.attempt,
+              bootLastError: status.lastError,
+            }));
+          },
+          isCancelled: () => cancelled,
+        });
+        if (cancelled || initialFiles === null) return;
 
         // Phase D.2 (bd-kw93.13): seed `activeFile` from the boot
         // URL's `?page=<rel>` query if the CLI carried one through.
@@ -933,15 +981,10 @@ export default function PreviewApp() {
 
   if (state.boot === 'loading' || !state.activeFile || state.astJson === null) {
     return (
-      <div
-        style={{
-          padding: 24,
-          color: '#666',
-          font: '14px -apple-system, Segoe UI, sans-serif',
-        }}
-      >
-        Initializing q2-preview…
-      </div>
+      <BootLoadingScreen
+        attempt={state.bootAttempt}
+        lastError={state.bootLastError}
+      />
     );
   }
 

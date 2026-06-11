@@ -11,6 +11,7 @@ import {
   parseProjectZip,
   type SyncClient,
   type SyncClientCallbacks,
+  type ConnectOptions,
   type Patch,
   type EditorContentChange,
   type FileEntry,
@@ -25,7 +26,7 @@ import {
 import { vfsAddFile, vfsAddBinaryFile, vfsRemoveFile, vfsClear, initWasm, type ProjectFile } from './wasmRenderer';
 
 // Re-export types for use in other components
-export type { Patch, EditorContentChange, FileEntry, ActorIdentity, CaptureRef, CreateBinaryFileResult, CreateProjectOptions, CreateProjectResult };
+export type { ConnectOptions, Patch, EditorContentChange, FileEntry, ActorIdentity, CaptureRef, CreateBinaryFileResult, CreateProjectOptions, CreateProjectResult };
 
 // Event handlers for state changes
 type FilesChangeHandler = (files: FileEntry[]) => void;
@@ -140,19 +141,22 @@ function ensureClient(): SyncClient {
  * Auth is handled via HttpOnly cookies, sent automatically by the
  * browser on same-origin WebSocket upgrades.
  *
- * `peerTimeoutMs` controls how long to wait for the samod handshake
- * before falling through to offline-from-IndexedDB mode. The
- * underlying default (1 ms) is appropriate for hub-client where
- * IndexedDB usually has cached docs from a prior session. The
- * q2-preview SPA hits a fresh ephemeral hub with no IndexedDB
- * cache, so it passes a longer timeout to avoid an `findDoc`
- * "unavailable" race on cold start.
+ * The sixth parameter is forwarded to the sync client: either the
+ * legacy numeric `peerTimeoutMs` (how long to wait for the samod
+ * handshake before falling through to offline-from-IndexedDB mode;
+ * underlying default 1 ms, right for hub-client's cached-IndexedDB
+ * flow) or a `ConnectOptions` bag (bd-jit6pdwq). The q2-preview SPA
+ * passes `{ peerTimeoutMs: Infinity, storage: 'memory' }`: its hubs
+ * are ephemeral (no cache to fall back to, nothing worth persisting)
+ * and a finite WS deadline can't be made correct under Firefox's
+ * per-IP handshake serialization — the SPA's boot controller
+ * arbitrates server liveness over HTTP `/health` instead.
  */
-export async function connect(syncServerUrl: string, indexDocId: string, actorId?: string, screenName?: string, color?: string, peerTimeoutMs?: number): Promise<FileEntry[]> {
+export async function connect(syncServerUrl: string, indexDocId: string, actorId?: string, screenName?: string, color?: string, peerTimeoutMsOrOptions?: number | ConnectOptions): Promise<FileEntry[]> {
   await initWasm();
   vfsClear();
 
-  return ensureClient().connect(syncServerUrl, indexDocId, actorId, screenName, color, peerTimeoutMs);
+  return ensureClient().connect(syncServerUrl, indexDocId, actorId, screenName, color, peerTimeoutMsOrOptions ?? 1);
 }
 
 /**

@@ -96,34 +96,47 @@ Tests first in `q2-preview-spa/src/PreviewApp.integration.test.tsx`
 (mock `connect` already exists there) plus a small unit suite for the
 boot controller if extracted.
 
-- [ ] Tests: boot uses `storage: 'memory'` and `peerTimeoutMs:
+- [x] Tests: boot uses `storage: 'memory'` and `peerTimeoutMs:
       Infinity`, and leaves the adapter `retryIntervalMs` at its
       default (assert via the connect mock's args). Do NOT shorten
       the retry interval — see Details.
-- [ ] Tests: boot retry loop — `connect` rejects once (simulated
+- [x] Tests: boot retry loop — `connect` rejects once (simulated
       unavailable race), `/health` mock still OK → retries with
       backoff and succeeds; UI stays in "connecting" state, not
-      `boot: 'error'`.
-- [ ] Tests: `/health` unreachable (server killed) → terminal
-      `boot: 'error'` with a "preview server is not running" message;
-      no further WS attempts.
-- [ ] Tests: slow-connect status UI — after a threshold (~8 s) the
-      loading screen adds the Firefox hint ("another tab may be
-      holding localhost WebSocket connections…"). Timer-based; use
-      fake timers.
-- [ ] Tests: React StrictMode/unmount safety — `cancelled` guard stops
-      the retry loop (no setState after unmount).
-- [ ] Implement: boot controller in `PreviewApp.tsx` (extract
-      `bootWithRetry()` so it's unit-testable): connect → on failure,
-      `GET /health` → healthy ⇒ backoff retry (1 s, 2 s, 4 s … cap
-      10 s, no attempt cap while healthy); unhealthy ×3 ⇒ terminal
-      error.
-- [ ] Implement: thread options through `preview-runtime`'s
-      `connect()` wrapper (`automergeSync.ts`); update its doc comment
-      (the current one describes the 5 s rationale this plan removes).
-- [ ] Implement: loading-state copy + delayed Firefox hint in the
-      existing `boot === 'loading'` branch.
-- [ ] `npm run test:ci` for q2-preview-spa; `npm run build:all`.
+      `boot: 'error'`. (Old "connection error ⇒ terminal overlay"
+      test rewritten to this contract; watched 3 new tests fail
+      pre-impl.) Plus: `bootController.test.ts` — 10 browser-free
+      specs covering backoff growth/cap, health-strikes confirmation,
+      transient-blip tolerance, hang watchdog, no-attempt-cap, and
+      cancellation (these are the durable regression net promised in
+      the e2e demotion policy).
+- [x] Tests: `/health` unreachable (server killed) → terminal
+      `boot: 'error'` ("preview server is not responding"); initial
+      /health-dead (docId fetch) still fails fast.
+- [x] Tests: slow-connect status UI — Firefox hint after threshold;
+      retry attempt/last-error line; no hint/retry-line initially
+      (`BootLoadingScreen.integration.test.tsx`, threshold injected
+      via `hintAfterMs` prop instead of fake timers).
+- [x] Tests: unmount during pending boot — no setState-after-unmount
+      (clean console.error), late rejection swallowed; bootController
+      cancellation covered unit-side (stops watchdog polling too).
+- [x] Implement: `bootController.ts` (`bootWithRetry()`, generic,
+      dependency-free): per-attempt health watchdog raced against
+      connect (sleep-first so fast attempts cost zero probes),
+      post-failure health confirmation (3 strikes, 500 ms spacing),
+      capped exponential backoff (1 s → 10 s), `ServerGoneError`
+      terminal, cooperative cancellation.
+- [x] Implement: thread `ConnectOptions` through `preview-runtime`'s
+      `connect()` (+ re-export from quarto-sync-client index, which
+      was missing); doc comments updated.
+- [x] Implement: `BootLoadingScreen` component (initializing copy,
+      retry visibility, Firefox hint after 8 s); PreviewApp's
+      `onError` now ignores connection errors while `boot ===
+      'loading'` (the boot controller owns them — otherwise each
+      retryable failure would flash the terminal overlay).
+- [x] q2-preview-spa: unit 18 + integration 62 green; preview-runtime
+      74 green; quarto-sync-client 148 green; hub-client build +
+      575 tests green; SPA `tsc -b` + `vite build` green.
 
 ### Phase 3 — steady-state reconnect hygiene (stale tabs)
 
