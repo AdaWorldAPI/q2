@@ -15,6 +15,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-11
+
+- [`1ecc1d8c`](https://github.com/quarto-dev/q2/commits/1ecc1d8c): Sessions whose silent sign-in renewal never completes (e.g. Google One Tap blocked) now correctly reach the login screen at token expiry, instead of silently losing both the expiry logout and all future renewal attempts.
+
 ### 2026-06-10
 
 - [`a7bb7a08`](https://github.com/quarto-dev/q2/commits/a7bb7a08): Upgrade Automerge to 3.2.6, substantially reducing memory usage when loading documents.
