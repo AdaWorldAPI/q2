@@ -4,8 +4,7 @@ title: "Reveal.js presentations"
 
 ## Overview
 
-You write a reveal.js presentation the same way you write any Quarto
-document — as Markdown — and choose the slide format in the front matter:
+Like other documents, a reveal.js presentation in Quarto is a Markdown document. Add `format: revealjs` to the document's front matter to choose the slideshow format:
 
 ```yaml
 ---
@@ -15,10 +14,7 @@ format: revealjs
 
 From there, headings become slides and the document metadata becomes a
 title slide. The rest of this page walks through the slide-authoring
-features Quarto 2 supports today. Each feature is paired with a small,
-self-contained example you can render and adapt; the example projects live
-under
-[`examples/presentations/`](https://github.com/quarto-dev/q2/tree/main/examples/presentations).
+features Quarto 2 supports today.
 
 ::: {.callout-note}
 Quarto 2's reveal.js support is still growing. This page documents only
@@ -29,10 +25,9 @@ available.
 
 ## Creating slides
 
-Slide boundaries follow heading levels. A level-2 heading (`##`) starts a
-slide; a level-1 heading (`#`) starts a *section*, gathering the slides
-beneath it into a vertical stack; and a horizontal rule (`---`) starts a
-new slide where you have no heading to give it.
+A level-2 heading (`##`) starts a new slide, and the heading content becomes the slide title. A level-1 heading (`#`) starts a *section*, gathering the slides
+beneath it into a vertical stack. A horizontal rule (`---`) starts a
+new slide with no title.
 
 :::: {#demo-creating-slides .embed-example-iframe file="/examples/presentations/01-creating-slides/slides.html"}
 ```markdown
@@ -84,9 +79,7 @@ untitled slide. [View source](https://github.com/quarto-dev/q2/tree/main/example
 
 ### The title slide
 
-When the front matter carries a `title` — and, optionally, an `author` or
-`date` — Quarto opens the deck with a generated title slide. Omit those
-fields and the deck starts directly on your first content slide.
+When the front matter carries a `title` metadata entry (and optionally, an `author` or `date` fields), Quarto will produce a title slide.
 
 ### Slide level
 

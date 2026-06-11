@@ -1,0 +1,13 @@
+---
+title: RevealJS Basics
+---
+
+
+``` {.yaml preview="/examples/scrollable-and-smaller"}
+---
+format:
+  revealjs:
+    smaller: true
+    scrollable: true
+---
+```

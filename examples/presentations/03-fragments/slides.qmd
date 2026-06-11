@@ -1,32 +1,19 @@
 ---
-title: "Fragments"
 format: revealjs
 ---
 
-## Reveal on click
+# Part One
 
-Wrap content in a `.fragment` div to reveal it one step at a time.
+## First topic
 
-::: {.fragment}
-Appears on the first click.
-:::
+Content.
 
-::: {.fragment .fade-up}
-Then this one fades up.
-:::
+# Part Two
 
-::: {.fragment .highlight-red}
-Then this one turns red.
-:::
+## Another topic
 
-## Controlling the order
+Content.
 
-`fragment-index` sets the order explicitly, regardless of source position.
+---
 
-::: {.fragment fragment-index="2"}
-Shown second.
-:::
-
-::: {.fragment fragment-index="1"}
-Shown first.
-:::
+An untitled slide, created with a horizontal rule.
