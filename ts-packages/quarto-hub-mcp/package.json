@@ -24,7 +24,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && chmod +x dist/index.js",
+    "build": "tsc && node -e \"import('node:fs').then(fs => fs.chmodSync('dist/index.js', 0o755))\"",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "test": "vitest run",

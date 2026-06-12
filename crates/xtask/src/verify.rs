@@ -7,14 +7,16 @@
 //! 3. Build all Rust crates (with -D warnings, matching CI)
 //! 4. Test tree-sitter grammars
 //! 5. Run all Rust tests (with -D warnings, matching CI)
-//! 6. Build hub-client (including WASM)
-//! 7. Run hub-client tests
-//! 8. Build trace-viewer SPA
-//! 9. Run trace-viewer tests
-//! 10. Run shared workspace-package tests (@quarto/preview-renderer +
+//! 6. Build ts-packages workspaces + quarto-hub-mcp smoke check
+//!    (bd-6rczoll3 — see `ts_packages.rs`)
+//! 7. Build hub-client (including WASM)
+//! 8. Run hub-client tests
+//! 9. Build trace-viewer SPA
+//! 10. Run trace-viewer tests
+//! 11. Run shared workspace-package tests (@quarto/preview-renderer +
 //!     @quarto/preview-runtime, both unit and integration)
-//! 11. Build q2-preview-spa placeholder
-//! 12. q2-preview-spa Playwright E2E (only when --e2e is set)
+//! 12. Build q2-preview-spa placeholder
+//! 13. q2-preview-spa Playwright E2E (only when --e2e is set)
 
 use anyhow::{Context, Result, bail};
 use std::process::Command;
@@ -22,7 +24,7 @@ use std::process::Command;
 use crate::lint;
 use crate::test;
 
-const TOTAL_STEPS: u32 = 12;
+const TOTAL_STEPS: u32 = 13;
 
 /// Configuration for the verify command.
 pub struct VerifyConfig {
@@ -30,6 +32,8 @@ pub struct VerifyConfig {
     pub skip_rust_build: bool,
     /// Skip Rust tests.
     pub skip_rust_tests: bool,
+    /// Skip the ts-packages build + quarto-hub-mcp smoke check.
+    pub skip_ts_packages_build: bool,
     /// Skip hub-client build.
     pub skip_hub_build: bool,
     /// Skip hub-client tests.
@@ -57,6 +61,7 @@ impl Default for VerifyConfig {
         Self {
             skip_rust_build: false,
             skip_rust_tests: false,
+            skip_ts_packages_build: false,
             skip_hub_build: false,
             skip_hub_tests: false,
             skip_trace_viewer_build: false,
@@ -212,11 +217,75 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         println!("\n━━━ Step 5/{}: Skipping Rust tests ━━━\n", TOTAL_STEPS);
     }
 
-    // Step 6: Build hub-client (includes WASM)
+    // Step 6: Build ts-packages workspaces + quarto-hub-mcp smoke check
+    //
+    // The ts-packages `dist/` output is consumed at runtime only by Node
+    // consumers — concretely the quarto-hub-mcp server, which resolves
+    // workspace imports via the `"import": "./dist/index.js"` export
+    // condition. hub-client bundles these packages from source, so no
+    // other step builds them (bd-6rczoll3).
+    let ts_workspaces = crate::ts_packages::workspace_paths(&project_root);
+    if !config.skip_ts_packages_build && !ts_workspaces.is_empty() {
+        println!(
+            "\n━━━ Step 6/{}: Building ts-packages workspaces ━━━\n",
+            TOTAL_STEPS
+        );
+        let mut npm_args: Vec<&str> = vec!["run", "build", "--if-present"];
+        for workspace in &ts_workspaces {
+            npm_args.push("-w");
+            npm_args.push(workspace);
+        }
+        run_command(
+            "npm",
+            &npm_args,
+            &project_root,
+            None,
+            "ts-packages build failed",
+        )?;
+
+        // Smoke check: `--help` exits 0 only after the entire ESM graph
+        // links, so a missing/stale dependency dist (the failure mode that
+        // kills the MCP server with ERR_MODULE_NOT_FOUND) fails verify
+        // instead of the next MCP session.
+        if ts_workspaces.iter().any(|w| w.ends_with("quarto-hub-mcp")) {
+            let mcp_entry = project_root.join("ts-packages/quarto-hub-mcp/dist/index.js");
+            if !mcp_entry.is_file() {
+                bail!(
+                    "ts-packages build did not produce {} — quarto-hub-mcp's build script is broken",
+                    mcp_entry.display()
+                );
+            }
+            println!(
+                "\n  ↳ Smoke-checking quarto-hub-mcp module graph (node dist/index.js --help)..."
+            );
+            let mcp_entry_str = mcp_entry.to_string_lossy();
+            run_command(
+                "node",
+                &[mcp_entry_str.as_ref(), "--help"],
+                &project_root,
+                None,
+                "quarto-hub-mcp smoke check failed (module graph did not load)",
+            )?;
+            println!("  ✓ quarto-hub-mcp module graph loads");
+        }
+        println!("✓ ts-packages build complete");
+    } else if ts_workspaces.is_empty() {
+        println!(
+            "\n━━━ Step 6/{}: ts-packages/ not present, skipping ━━━\n",
+            TOTAL_STEPS
+        );
+    } else {
+        println!(
+            "\n━━━ Step 6/{}: Skipping ts-packages build ━━━\n",
+            TOTAL_STEPS
+        );
+    }
+
+    // Step 7: Build hub-client (includes WASM)
     let hub_client_dir = project_root.join("hub-client");
     if !config.skip_hub_build {
         println!(
-            "\n━━━ Step 6/{}: Building hub-client (includes WASM) ━━━\n",
+            "\n━━━ Step 7/{}: Building hub-client (includes WASM) ━━━\n",
             TOTAL_STEPS
         );
         run_command(
@@ -229,12 +298,12 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         println!("✓ hub-client build complete");
     } else {
         println!(
-            "\n━━━ Step 6/{}: Skipping hub-client build ━━━\n",
+            "\n━━━ Step 7/{}: Skipping hub-client build ━━━\n",
             TOTAL_STEPS
         );
     }
 
-    // Step 7: Run hub-client tests
+    // Step 8: Run hub-client tests
     if !config.skip_hub_tests {
         let test_script = if config.include_e2e {
             "test:all"
@@ -242,7 +311,7 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
             "test:ci"
         };
         println!(
-            "\n━━━ Step 7/{}: Running hub-client tests ({}) ━━━\n",
+            "\n━━━ Step 8/{}: Running hub-client tests ({}) ━━━\n",
             TOTAL_STEPS, test_script
         );
         run_command(
@@ -255,17 +324,17 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         println!("✓ hub-client tests complete");
     } else {
         println!(
-            "\n━━━ Step 7/{}: Skipping hub-client tests ━━━\n",
+            "\n━━━ Step 8/{}: Skipping hub-client tests ━━━\n",
             TOTAL_STEPS
         );
     }
 
-    // Step 8: Build trace-viewer SPA
+    // Step 9: Build trace-viewer SPA
     let trace_viewer_dir = project_root.join("trace-viewer");
     let have_trace_viewer = trace_viewer_dir.join("package.json").is_file();
     if !config.skip_trace_viewer_build && have_trace_viewer {
         println!(
-            "\n━━━ Step 8/{}: Building trace-viewer SPA ━━━\n",
+            "\n━━━ Step 9/{}: Building trace-viewer SPA ━━━\n",
             TOTAL_STEPS
         );
         run_command(
@@ -278,20 +347,20 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         println!("✓ trace-viewer build complete");
     } else if !have_trace_viewer {
         println!(
-            "\n━━━ Step 8/{}: trace-viewer/ not present, skipping ━━━\n",
+            "\n━━━ Step 9/{}: trace-viewer/ not present, skipping ━━━\n",
             TOTAL_STEPS
         );
     } else {
         println!(
-            "\n━━━ Step 8/{}: Skipping trace-viewer build ━━━\n",
+            "\n━━━ Step 9/{}: Skipping trace-viewer build ━━━\n",
             TOTAL_STEPS
         );
     }
 
-    // Step 9: Run trace-viewer tests
+    // Step 10: Run trace-viewer tests
     if !config.skip_trace_viewer_tests && have_trace_viewer {
         println!(
-            "\n━━━ Step 9/{}: Running trace-viewer tests ━━━\n",
+            "\n━━━ Step 10/{}: Running trace-viewer tests ━━━\n",
             TOTAL_STEPS
         );
         run_command(
@@ -304,17 +373,17 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         println!("✓ trace-viewer tests complete");
     } else if !have_trace_viewer {
         println!(
-            "\n━━━ Step 9/{}: trace-viewer/ not present, skipping ━━━\n",
+            "\n━━━ Step 10/{}: trace-viewer/ not present, skipping ━━━\n",
             TOTAL_STEPS
         );
     } else {
         println!(
-            "\n━━━ Step 9/{}: Skipping trace-viewer tests ━━━\n",
+            "\n━━━ Step 10/{}: Skipping trace-viewer tests ━━━\n",
             TOTAL_STEPS
         );
     }
 
-    // Step 10: Run shared workspace-package tests
+    // Step 11: Run shared workspace-package tests
     //
     // These run the @quarto/preview-renderer + @quarto/preview-runtime
     // unit + integration suites. The packages were carved out of
@@ -327,7 +396,7 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         && preview_runtime_dir.join("package.json").is_file();
     if !config.skip_shared_package_tests && have_shared_packages {
         println!(
-            "\n━━━ Step 10/{}: Running shared preview-* package tests ━━━\n",
+            "\n━━━ Step 11/{}: Running shared preview-* package tests ━━━\n",
             TOTAL_STEPS
         );
         run_command(
@@ -354,17 +423,17 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         println!("✓ Shared package tests complete");
     } else if !have_shared_packages {
         println!(
-            "\n━━━ Step 10/{}: shared preview-* packages not present, skipping ━━━\n",
+            "\n━━━ Step 11/{}: shared preview-* packages not present, skipping ━━━\n",
             TOTAL_STEPS
         );
     } else {
         println!(
-            "\n━━━ Step 10/{}: Skipping shared package tests ━━━\n",
+            "\n━━━ Step 11/{}: Skipping shared package tests ━━━\n",
             TOTAL_STEPS
         );
     }
 
-    // Step 11: Build q2-preview-spa placeholder
+    // Step 12: Build q2-preview-spa placeholder
     //
     // The SPA is the future host of `quarto preview` (bd-kw93). Today
     // it's a skeleton — building it confirms the cross-package boundary
@@ -374,7 +443,7 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
     let have_q2_preview_spa = q2_preview_spa_dir.join("package.json").is_file();
     if !config.skip_q2_preview_spa_build && have_q2_preview_spa {
         println!(
-            "\n━━━ Step 11/{}: Building q2-preview-spa placeholder ━━━\n",
+            "\n━━━ Step 12/{}: Building q2-preview-spa placeholder ━━━\n",
             TOTAL_STEPS
         );
         run_command(
@@ -387,17 +456,17 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         println!("✓ q2-preview-spa build complete");
     } else if !have_q2_preview_spa {
         println!(
-            "\n━━━ Step 11/{}: q2-preview-spa/ not present, skipping ━━━\n",
+            "\n━━━ Step 12/{}: q2-preview-spa/ not present, skipping ━━━\n",
             TOTAL_STEPS
         );
     } else {
         println!(
-            "\n━━━ Step 11/{}: Skipping q2-preview-spa build ━━━\n",
+            "\n━━━ Step 12/{}: Skipping q2-preview-spa build ━━━\n",
             TOTAL_STEPS
         );
     }
 
-    // Step 12: q2-preview-spa Playwright E2E (gated on --e2e).
+    // Step 13: q2-preview-spa Playwright E2E (gated on --e2e).
     //
     // The Playwright suite spawns the real `q2 preview` binary
     // against a temp fixture; for that to work we need the binary
@@ -407,7 +476,7 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
     // (`npx playwright install chromium`).
     if config.include_e2e && have_q2_preview_spa {
         println!(
-            "\n━━━ Step 12/{}: Running q2-preview-spa Playwright E2E ━━━\n",
+            "\n━━━ Step 13/{}: Running q2-preview-spa Playwright E2E ━━━\n",
             TOTAL_STEPS
         );
         run_command(
@@ -425,7 +494,7 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
             "--e2e not set"
         };
         println!(
-            "\n━━━ Step 12/{}: Skipping q2-preview-spa Playwright E2E ({}) ━━━\n",
+            "\n━━━ Step 13/{}: Skipping q2-preview-spa Playwright E2E ({}) ━━━\n",
             TOTAL_STEPS, reason
         );
     }
