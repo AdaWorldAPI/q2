@@ -15,8 +15,10 @@
 //! 10. Run trace-viewer tests
 //! 11. Run shared workspace-package tests (@quarto/preview-renderer +
 //!     @quarto/preview-runtime, both unit and integration)
-//! 12. Build q2-preview-spa placeholder
-//! 13. q2-preview-spa Playwright E2E (only when --e2e is set)
+//! 12. Run hub MCP package tests (quarto-sync-client + quarto-hub-mcp,
+//!     including the q2-mcp bundle smoke test)
+//! 13. Build q2-preview-spa placeholder
+//! 14. q2-preview-spa Playwright E2E (only when --e2e is set)
 
 use anyhow::{Context, Result, bail};
 use std::process::Command;
@@ -24,7 +26,7 @@ use std::process::Command;
 use crate::lint;
 use crate::test;
 
-const TOTAL_STEPS: u32 = 13;
+const TOTAL_STEPS: u32 = 14;
 
 /// Configuration for the verify command.
 pub struct VerifyConfig {
@@ -50,6 +52,8 @@ pub struct VerifyConfig {
     pub skip_shared_package_tests: bool,
     /// Skip the q2-preview-spa placeholder build.
     pub skip_q2_preview_spa_build: bool,
+    /// Skip the quarto-sync-client + quarto-hub-mcp package tests.
+    pub skip_hub_mcp_tests: bool,
     /// Run hub-client e2e tests (slower, requires browser).
     pub include_e2e: bool,
     /// Do not set RUSTFLAGS="-D warnings" (allows warnings during iteration).
@@ -70,6 +74,7 @@ impl Default for VerifyConfig {
             skip_treesitter_crlf_tests: false,
             skip_shared_package_tests: false,
             skip_q2_preview_spa_build: false,
+            skip_hub_mcp_tests: false,
             include_e2e: false,
             no_deny_warnings: false,
         }
@@ -433,7 +438,68 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         );
     }
 
-    // Step 12: Build q2-preview-spa placeholder
+    // Step 12: hub MCP package tests (bd-81cfshmw)
+    //
+    // quarto-sync-client + quarto-hub-mcp carry the MCP server that
+    // `q2 mcp` embeds, including stdio-hygiene regression tests and the
+    // bundle smoke test (which runs the esbuild bundler itself). Their
+    // vitest suites spawn the tsc build (dist/index.js) and resolve
+    // workspace deps through dist entries, so build in dependency
+    // order first. (Step 6 typically pre-built these dists — the
+    // builds here are incremental no-ops then — but this step stays
+    // self-contained so --skip-ts-packages-build can't break it.)
+    let schema_dir = project_root.join("ts-packages/quarto-automerge-schema");
+    let sync_client_dir = project_root.join("ts-packages/quarto-sync-client");
+    let hub_mcp_dir = project_root.join("ts-packages/quarto-hub-mcp");
+    let have_hub_mcp = schema_dir.join("package.json").is_file()
+        && sync_client_dir.join("package.json").is_file()
+        && hub_mcp_dir.join("package.json").is_file();
+    if !config.skip_hub_mcp_tests && have_hub_mcp {
+        println!(
+            "\n━━━ Step 12/{}: Running hub MCP package tests ━━━\n",
+            TOTAL_STEPS
+        );
+        for (dir, what) in [
+            (&schema_dir, "quarto-automerge-schema build"),
+            (&sync_client_dir, "quarto-sync-client build"),
+            (&hub_mcp_dir, "quarto-hub-mcp build"),
+        ] {
+            run_command(
+                "npm",
+                &["run", "build"],
+                dir,
+                None,
+                &format!("{} failed", what),
+            )?;
+        }
+        run_command(
+            "npm",
+            &["test"],
+            &sync_client_dir,
+            None,
+            "quarto-sync-client tests failed",
+        )?;
+        run_command(
+            "npm",
+            &["test"],
+            &hub_mcp_dir,
+            None,
+            "quarto-hub-mcp tests failed",
+        )?;
+        println!("✓ hub MCP package tests complete");
+    } else if !have_hub_mcp {
+        println!(
+            "\n━━━ Step 12/{}: hub MCP packages not present, skipping ━━━\n",
+            TOTAL_STEPS
+        );
+    } else {
+        println!(
+            "\n━━━ Step 12/{}: Skipping hub MCP package tests ━━━\n",
+            TOTAL_STEPS
+        );
+    }
+
+    // Step 13: Build q2-preview-spa placeholder
     //
     // The SPA is the future host of `quarto preview` (bd-kw93). Today
     // it's a skeleton — building it confirms the cross-package boundary
@@ -443,7 +509,7 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
     let have_q2_preview_spa = q2_preview_spa_dir.join("package.json").is_file();
     if !config.skip_q2_preview_spa_build && have_q2_preview_spa {
         println!(
-            "\n━━━ Step 12/{}: Building q2-preview-spa placeholder ━━━\n",
+            "\n━━━ Step 13/{}: Building q2-preview-spa placeholder ━━━\n",
             TOTAL_STEPS
         );
         run_command(
@@ -456,17 +522,17 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         println!("✓ q2-preview-spa build complete");
     } else if !have_q2_preview_spa {
         println!(
-            "\n━━━ Step 12/{}: q2-preview-spa/ not present, skipping ━━━\n",
+            "\n━━━ Step 13/{}: q2-preview-spa/ not present, skipping ━━━\n",
             TOTAL_STEPS
         );
     } else {
         println!(
-            "\n━━━ Step 12/{}: Skipping q2-preview-spa build ━━━\n",
+            "\n━━━ Step 13/{}: Skipping q2-preview-spa build ━━━\n",
             TOTAL_STEPS
         );
     }
 
-    // Step 13: q2-preview-spa Playwright E2E (gated on --e2e).
+    // Step 14: q2-preview-spa Playwright E2E (gated on --e2e).
     //
     // The Playwright suite spawns the real `q2 preview` binary
     // against a temp fixture; for that to work we need the binary
@@ -476,7 +542,7 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
     // (`npx playwright install chromium`).
     if config.include_e2e && have_q2_preview_spa {
         println!(
-            "\n━━━ Step 13/{}: Running q2-preview-spa Playwright E2E ━━━\n",
+            "\n━━━ Step 14/{}: Running q2-preview-spa Playwright E2E ━━━\n",
             TOTAL_STEPS
         );
         run_command(
@@ -494,7 +560,7 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
             "--e2e not set"
         };
         println!(
-            "\n━━━ Step 13/{}: Skipping q2-preview-spa Playwright E2E ({}) ━━━\n",
+            "\n━━━ Step 14/{}: Skipping q2-preview-spa Playwright E2E ({}) ━━━\n",
             TOTAL_STEPS, reason
         );
     }

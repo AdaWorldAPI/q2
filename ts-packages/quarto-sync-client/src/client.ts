@@ -7,7 +7,7 @@
  */
 
 import { Repo, DocHandle, updateText, splice, generateAutomergeUrl, parseAutomergeUrl } from '@automerge/automerge-repo';
-import type { DocumentId, Patch } from '@automerge/automerge-repo';
+import type { DocumentId, Patch, StorageId } from '@automerge/automerge-repo';
 import { clone as automergeClone, from as automergeFrom, save as automergeSerialize } from '@automerge/automerge';
 import type { NetworkAdapter } from '@automerge/automerge-repo/slim';
 
@@ -34,6 +34,7 @@ import {
 } from '@quarto/quarto-automerge-schema';
 
 import type {
+  AnnotatedFileEntry,
   EditorContentChange,
   SyncClientCallbacks,
   ASTOptions,
@@ -41,10 +42,81 @@ import type {
   CreateBinaryFileResult,
   CreateProjectOptions,
   CreateProjectResult,
+  DisconnectOptions,
+  DisconnectReport,
   FindDocRetryOptions,
   SyncClientAuthOptions,
 } from './types.js';
 import { computeSHA256 } from './hash.js';
+import { syncLog } from './log.js';
+
+/**
+ * The sync server could not be reached within the peer-wait budget
+ * and the caller demanded a live connection (`requireOnline: true`).
+ * See bd-xnmd5ni1.
+ */
+export class PeerUnavailableError extends Error {
+  override readonly name = 'PeerUnavailableError';
+  constructor(serverUrl: string, timeoutMs: number, cause?: unknown) {
+    super(
+      `no peer connection to ${serverUrl} within ${timeoutMs} ms; ` +
+        'refusing to continue offline (requireOnline is set)',
+    );
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
+  }
+}
+
+/**
+ * Normalize a document id from the index into the `automerge:<id>`
+ * URL form that `repo.find()` requires (bd-4uvv). `String(...)`
+ * coerces first because automerge's read proxy can return
+ * string-valued fields as `RawString` (no `.startsWith` method)
+ * depending on how the doc was constructed.
+ */
+function normalizeDocId(docId: string): string {
+  const docIdStr = String(docId);
+  return docIdStr.startsWith('automerge:') ? docIdStr : `automerge:${docIdStr}`;
+}
+
+/**
+ * True for the "document is unavailable" error shape thrown by
+ * `repo.find()` (and re-thrown by `findDoc`) when a document cannot
+ * be fetched. Used to tell dangling-entry failures (tolerated,
+ * bd-vm5e5u10) apart from real bugs (re-thrown).
+ */
+function isUnavailableError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /unavailable/i.test(message);
+}
+
+/**
+ * Error text for a dangling index entry: a file document the index
+ * references but the sync server cannot provide (bd-vm5e5u10). Names
+ * the path and the kind of document — during the 2026-06-12 incident
+ * the bare `Document <id> is unavailable` text misled the response
+ * into suspecting the index. Wording is locked by
+ * dangling-entries.test.ts; quarto-hub-mcp reuses it for per-file
+ * tool errors.
+ */
+export function fileUnavailableMessage(path: string, docId: string): string {
+  return (
+    `file document for '${path}' (${normalizeDocId(docId)}) is unavailable ` +
+    'on the sync server — the file may have been created by a client that ' +
+    'never synced it; other files in the project remain usable'
+  );
+}
+
+/**
+ * Error text for an unavailable project index document — this one IS
+ * fatal: nothing sensible can be done without the index.
+ */
+export function indexUnavailableMessage(indexDocId: string): string {
+  return (
+    `project index document ${normalizeDocId(indexDocId)} is unavailable ` +
+    'on the sync server — cannot open the project (verify the project id ' +
+    'and the sync server URL)'
+  );
+}
 
 /**
  * Build the WebSocket adapter for a sync connection. With `auth` set,
@@ -82,6 +154,18 @@ async function buildWsAdapter(
 type FileDocument = TextDocumentContent | BinaryDocumentContent;
 
 /**
+ * Order-insensitive equality of two automerge head sets (URL-encoded
+ * change hashes). Equality with a peer's last-confirmed heads is the
+ * sync protocol's convergence steady state — the delivery signal the
+ * exit drain waits for (bd-10deu8h4).
+ */
+function sameHeads(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const bSet = new Set<string>(b);
+  return a.every((h) => bSet.has(h));
+}
+
+/**
  * Internal state for a sync client instance.
  */
 interface SyncClientState {
@@ -89,6 +173,13 @@ interface SyncClientState {
   wsAdapter: NetworkAdapter | null;
   indexHandle: DocHandle<IndexDocument> | null;
   fileHandles: Map<string, DocHandle<FileDocument>>;
+  /**
+   * Dangling index entries (path → doc id as stored in the index):
+   * files the index references but whose documents the sync server
+   * could not provide (bd-vm5e5u10). Tracked so listings can mark
+   * them `unavailable` instead of the whole project failing.
+   */
+  unavailableFiles: Map<string, string>;
   binaryFiles: Set<string>;
   cleanupFns: (() => void)[];
   actorId: string | null;
@@ -98,6 +189,14 @@ interface SyncClientState {
    * unavailable is the truth (offline), not a sync race.
    */
   connectedPeers: Set<string>;
+  /**
+   * storageIds announced in peer handshake metadata, by peerId.
+   * Storage-backed peers (the hub — samod always announces one) are
+   * the ones whose remote-heads sync info counts as delivery proof
+   * for the exit drain (bd-10deu8h4). Entries are kept after a peer
+   * disconnects: heads a hub confirmed remain delivered.
+   */
+  peerStorageIds: Map<string, string>;
   /** Resolved retry policy for the current connection. */
   findDocRetry: Required<FindDocRetryOptions>;
 }
@@ -128,10 +227,12 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     wsAdapter: null,
     indexHandle: null,
     fileHandles: new Map(),
+    unavailableFiles: new Map(),
     binaryFiles: new Set(),
     cleanupFns: [],
     actorId: null,
     connectedPeers: new Set(),
+    peerStorageIds: new Map(),
     findDocRetry: DEFAULT_FIND_DOC_RETRY,
   };
 
@@ -149,11 +250,11 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
   const g = globalThis as any;
   if (typeof g.addEventListener === 'function') {
     const onBrowserOffline = () => {
-      console.log('Browser offline event fired');
+      syncLog('Browser offline event fired');
       callbacks.onConnectionChange?.(false);
     };
     const onBrowserOnline = () => {
-      console.log('Browser online event fired');
+      syncLog('Browser online event fired');
       callbacks.onConnectionChange?.(true);
     };
 
@@ -264,8 +365,19 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
   // Must run before waitForPeer so the first peer event is counted.
   // Returns a cleanup registered into state.cleanupFns by the caller.
   function trackPeers(repo: Repo): void {
-    const onPeer = ({ peerId }: { peerId: string }) => {
+    const onPeer = ({
+      peerId,
+      peerMetadata,
+    }: {
+      peerId: string;
+      peerMetadata?: { storageId?: string };
+    }) => {
       state.connectedPeers.add(peerId);
+      // Deliberately not removed on peer-disconnected: see the field
+      // doc on SyncClientState.peerStorageIds.
+      if (peerMetadata?.storageId) {
+        state.peerStorageIds.set(peerId, peerMetadata.storageId);
+      }
     };
     const onPeerGone = ({ peerId }: { peerId: string }) => {
       state.connectedPeers.delete(peerId);
@@ -413,16 +525,42 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     state.cleanupFns.push(() => handle.off('change', changeHandler));
   }
 
-  // Helper: load file documents
+  // Helper: run syncWithFiles from an index-change handler. The
+  // handler is a synchronous event callback, so the promise used to be
+  // fire-and-forget — a dangling entry appearing mid-session became an
+  // unhandled rejection that took down the whole session
+  // (bd-vm5e5u10). Unavailable documents are tolerated inside
+  // syncWithFiles; anything else is surfaced through onError.
+  function syncWithFilesHandled(newFiles: FileEntry[]): void {
+    void syncWithFiles(newFiles).catch((err: unknown) => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      syncLog('Error syncing files after index change:', error);
+      callbacks.onError?.(error);
+    });
+  }
+
+  // Helper: record a dangling index entry and notify, without failing
+  // the project (bd-vm5e5u10).
+  function markFileUnavailable(path: string, docId: string): void {
+    state.unavailableFiles.set(path, docId);
+    syncLog(fileUnavailableMessage(path, docId));
+    callbacks.onFileUnavailable?.(path, docId);
+  }
+
+  // Helper: load file documents. One dangling entry must not brick the
+  // project (bd-vm5e5u10): unavailable documents are recorded and
+  // skipped; other errors still throw (don't mask real bugs).
   async function loadFileDocuments(files: FileEntry[]): Promise<void> {
     if (!state.repo) return;
 
     for (const file of files) {
-      const docId = file.docId.startsWith('automerge:')
-        ? file.docId
-        : `automerge:${file.docId}`;
-      const handle = await findDoc<FileDocument>(docId as DocumentId);
-      await subscribeToFile(file.path, handle);
+      try {
+        const handle = await findDoc<FileDocument>(normalizeDocId(file.docId) as DocumentId);
+        await subscribeToFile(file.path, handle);
+      } catch (err) {
+        if (!isUnavailableError(err)) throw err;
+        markFileUnavailable(file.path, String(file.docId));
+      }
     }
   }
 
@@ -434,11 +572,19 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     // Find new files
     for (const file of newFiles) {
       if (!currentPaths.has(file.path) && state.repo) {
-        const docId = file.docId.startsWith('automerge:')
-          ? file.docId
-          : `automerge:${file.docId}`;
-        const handle = await findDoc<FileDocument>(docId as DocumentId);
-        await subscribeToFile(file.path, handle);
+        const rawDocId = String(file.docId);
+        // Don't re-probe a known dangling entry on every index change —
+        // retry-on-peer-arrival is out of scope here (parent plan D2).
+        // A changed doc id means the entry was repaired; re-attempt then.
+        if (state.unavailableFiles.get(file.path) === rawDocId) continue;
+        try {
+          const handle = await findDoc<FileDocument>(normalizeDocId(rawDocId) as DocumentId);
+          state.unavailableFiles.delete(file.path);
+          await subscribeToFile(file.path, handle);
+        } catch (err) {
+          if (!isUnavailableError(err)) throw err;
+          markFileUnavailable(file.path, rawDocId);
+        }
       }
     }
 
@@ -448,6 +594,16 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
         state.fileHandles.delete(path);
         state.binaryFiles.delete(path);
         astCache.delete(path);
+        callbacks.onFileRemoved(path);
+      }
+    }
+
+    // Dangling entries removed from the index (e.g. a colleague's
+    // delete-file repair): drop the marker and notify — the path was
+    // visible in listings as `unavailable`.
+    for (const path of Array.from(state.unavailableFiles.keys())) {
+      if (!newPaths.has(path)) {
+        state.unavailableFiles.delete(path);
         callbacks.onFileRemoved(path);
       }
     }
@@ -475,7 +631,7 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
    * serialization), and memory storage keeps the IndexedDB open off
    * the critical path of the WebSocket `join`.
    */
-  async function connect(syncServerUrl: string, indexDocId: string, actorId?: string, screenName?: string, color?: string, peerTimeoutMsOrOptions: number | ConnectOptions = 1, auth?: SyncClientAuthOptions): Promise<FileEntry[]> {
+  async function connect(syncServerUrl: string, indexDocId: string, actorId?: string, screenName?: string, color?: string, peerTimeoutMsOrOptions: number | ConnectOptions = 1, auth?: SyncClientAuthOptions): Promise<AnnotatedFileEntry[]> {
     const options: ConnectOptions =
       typeof peerTimeoutMsOrOptions === 'number'
         ? { peerTimeoutMs: peerTimeoutMsOrOptions }
@@ -504,17 +660,35 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
       // Try to connect to peer, but continue in offline mode if it fails
       let isOnline = false;
       try {
-        console.log('Waiting for peer connection...');
+        syncLog('Waiting for peer connection...');
         await waitForPeer(state.repo, peerTimeoutMs);
-        console.log('Peer connected - online mode');
+        syncLog('Peer connected - online mode');
         isOnline = true;
       } catch (peerError) {
+        if (options.requireOnline) {
+          // Tear down the adapter's reconnect loop before failing —
+          // the caller asked for online-or-error, not a background
+          // retry it can't observe.
+          await disconnect();
+          throw new PeerUnavailableError(syncServerUrl, peerTimeoutMs, peerError);
+        }
         console.warn('Peer connection failed, continuing in offline mode:', peerError);
         isOnline = false;
       }
 
+      // The index staying unavailable IS fatal — nothing sensible can
+      // be done without it — but say so precisely: "index" vs "file"
+      // confusion misled the 2026-06-12 incident response.
       const docId = indexDocId as DocumentId;
-      const indexHandle = await findDoc<IndexDocument>(docId);
+      let indexHandle: DocHandle<IndexDocument>;
+      try {
+        indexHandle = await findDoc<IndexDocument>(docId);
+      } catch (err) {
+        if (!isUnavailableError(err)) throw err;
+        const wrapped = new Error(indexUnavailableMessage(indexDocId));
+        (wrapped as { cause?: unknown }).cause = err;
+        throw wrapped;
+      }
       state.indexHandle = indexHandle;
 
       const doc = indexHandle.doc();
@@ -551,7 +725,7 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
         const changedDoc = indexHandle.doc();
         if (changedDoc) {
           const newFiles = getFilesFromIndex(changedDoc);
-          syncWithFiles(newFiles);
+          syncWithFilesHandled(newFiles);
           callbacks.onFilesChange?.(newFiles);
           notifyIdentitiesIfChanged(changedDoc);
           notifyCapturesIfChanged(changedDoc);
@@ -565,14 +739,14 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
       const onPeerConnect = () => {
         if (!currentlyOnline) {
           currentlyOnline = true;
-          console.log('Peer connected - switching to online mode');
+          syncLog('Peer connected - switching to online mode');
           callbacks.onConnectionChange?.(true);
         }
       };
       const onPeerDisconnect = () => {
         if (currentlyOnline) {
           currentlyOnline = false;
-          console.log('Peer disconnected - switching to offline mode');
+          syncLog('Peer disconnected - switching to offline mode');
           callbacks.onConnectionChange?.(false);
         }
       };
@@ -587,7 +761,11 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
       await loadFileDocuments(files);
 
       callbacks.onConnectionChange?.(currentlyOnline);
-      return files;
+      // Annotate dangling entries so callers can list-but-mark them
+      // (bd-vm5e5u10). Presentation only; the index is not changed.
+      return files.map((f): AnnotatedFileEntry =>
+        state.unavailableFiles.has(f.path) ? { ...f, status: 'unavailable' } : f,
+      );
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       callbacks.onError?.(error);
@@ -595,10 +773,106 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Exit drain (bd-10deu8h4)
+  //
+  // Delivery proof for a document: some storage-backed peer's
+  // last-confirmed heads (DocHandle sync info, which automerge-repo
+  // updates from `syncState.theirHeads` on every received sync
+  // message) equal the handle's current heads. The hub (samod) always
+  // announces a storageId in its handshake metadata, so against a real
+  // hub this signal fires as soon as the hub has acked our changes.
+  // ---------------------------------------------------------------------
+
+  /** Every document this connection is responsible for delivering. */
+  function trackedDocs(): Array<{ path: string | null; handle: DocHandle<unknown> }> {
+    const docs: Array<{ path: string | null; handle: DocHandle<unknown> }> = [];
+    if (state.indexHandle) {
+      docs.push({ path: null, handle: state.indexHandle as unknown as DocHandle<unknown> });
+    }
+    for (const [path, handle] of state.fileHandles) {
+      docs.push({ path, handle: handle as unknown as DocHandle<unknown> });
+    }
+    return docs;
+  }
+
+  /** True iff some storage-backed peer has confirmed the handle's current heads. */
+  function isDelivered(handle: DocHandle<unknown>): boolean {
+    // A handle that never became ready holds no local changes of ours
+    // — there is nothing to deliver (and `heads()` would throw).
+    if (!handle.isReady()) return true;
+    const heads = handle.heads();
+    for (const storageId of new Set(state.peerStorageIds.values())) {
+      const info = handle.getSyncInfo(storageId as StorageId);
+      if (info && sameHeads(info.lastHeads, heads)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Wait (bounded by `drainMs`, returning early on confirmation) until
+   * every tracked document is delivered. Event-driven: re-checks on
+   * each `remote-heads` update and on `peer` (a reconnect mid-drain
+   * brings a fresh storageId and a fresh chance to deliver). Never
+   * rejects; never waits past the budget.
+   */
+  async function drainOutbound(drainMs: number): Promise<DisconnectReport> {
+    const repo = state.repo;
+    if (!repo) return { drained: true, undelivered: [] };
+    const docs = trackedDocs();
+    const pendingDocs = () => docs.filter((d) => !isDelivered(d.handle));
+
+    if (pendingDocs().length > 0) {
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const cleanups: Array<() => void> = [];
+        const finish = () => {
+          if (done) return;
+          done = true;
+          for (const cleanup of cleanups) cleanup();
+          resolve();
+        };
+        const timer = setTimeout(finish, drainMs);
+        cleanups.push(() => clearTimeout(timer));
+        const recheck = () => {
+          if (pendingDocs().length === 0) finish();
+        };
+        for (const { handle } of docs) {
+          handle.on('remote-heads', recheck);
+          cleanups.push(() => handle.off('remote-heads', recheck));
+        }
+        repo.networkSubsystem.on('peer', recheck);
+        cleanups.push(() => repo.networkSubsystem.off('peer', recheck));
+      });
+    }
+
+    const undelivered = pendingDocs().map(({ path, handle }) => ({
+      path,
+      docId: String(handle.documentId),
+    }));
+    return { drained: undelivered.length === 0, undelivered };
+  }
+
   /**
    * Disconnect from the sync server.
+   *
+   * With `drainMs > 0`, first gives outbound document sync a bounded
+   * window to reach the hub (see {@link DisconnectOptions}); the
+   * teardown itself is unconditional and identical either way.
    */
-  async function disconnect(): Promise<void> {
+  async function disconnect(options?: DisconnectOptions): Promise<DisconnectReport> {
+    const drainMs = options?.drainMs ?? 0;
+    let report: DisconnectReport = { drained: true, undelivered: [] };
+    if (drainMs > 0 && state.repo) {
+      report = await drainOutbound(drainMs);
+      if (!report.drained) {
+        syncLog(
+          `[disconnect] drain budget (${drainMs} ms) expired with ` +
+            `${report.undelivered.length} possibly-undelivered document(s): ` +
+            report.undelivered.map((u) => u.path ?? `<index ${u.docId}>`).join(', '),
+        );
+      }
+    }
     // Clean up subscriptions
     for (const cleanup of state.cleanupFns) {
       cleanup();
@@ -611,6 +885,7 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     }
 
     state.fileHandles.clear();
+    state.unavailableFiles.clear();
     state.binaryFiles.clear();
     astCache.clear();
 
@@ -623,11 +898,13 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     state.indexHandle = null;
     state.actorId = null;
     state.connectedPeers = new Set();
+    state.peerStorageIds = new Map();
     state.findDocRetry = DEFAULT_FIND_DOC_RETRY;
     lastIdentities = {};
     lastCaptures = {};
 
     callbacks.onConnectionChange?.(false);
+    return report;
   }
 
   /**
@@ -679,20 +956,9 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     if (!state.repo) return null;
     // bd-4uvv: samod's TS `repo.find()` requires the `automerge:<id>`
     // URL scheme; the bare docId we get from the IndexDocument capture
-    // sidecar throws `Invalid AutomergeUrl`. The text-doc loader
-    // (`loadFileDocuments`) normalizes the same way — keep both call
-    // sites consistent.
-    //
-    // `String(docId)` coerces the value before `.startsWith` because
-    // automerge's read proxy can return string-valued fields as
-    // `RawString` (no `.startsWith` method) depending on how the doc
-    // was constructed. `loadFileDocuments` reads from the same shape;
-    // bare-id callers that synthesize an `automerge:` URL must
-    // coerce first.
-    const docIdStr = String(docId);
-    const normalized = docIdStr.startsWith('automerge:')
-      ? docIdStr
-      : `automerge:${docIdStr}`;
+    // sidecar throws `Invalid AutomergeUrl`. `normalizeDocId` is the
+    // shared normalization used by the file loaders too.
+    const normalized = normalizeDocId(docId);
     try {
       const handle = await findDoc<BinaryDocumentContent>(normalized as DocumentId);
       const doc = handle.doc();
@@ -843,6 +1109,9 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     });
 
     state.fileHandles.delete(path);
+    // Deleting a dangling entry is the self-service repair for
+    // bd-vm5e5u10 — only the index is edited, no document fetch needed.
+    state.unavailableFiles.delete(path);
     state.binaryFiles.delete(path);
     astCache.delete(path);
     callbacks.onFileRemoved(path);
@@ -876,6 +1145,13 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     if (handle) {
       state.fileHandles.delete(oldPath);
       state.fileHandles.set(newPath, handle);
+    }
+
+    // A dangling entry can be renamed too — it only edits the index.
+    const ghostDocId = state.unavailableFiles.get(oldPath);
+    if (ghostDocId !== undefined) {
+      state.unavailableFiles.delete(oldPath);
+      state.unavailableFiles.set(newPath, ghostDocId);
     }
 
     if (state.binaryFiles.has(oldPath)) {
@@ -921,6 +1197,18 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
   }
 
   /**
+   * Dangling index entries currently known to this connection
+   * (bd-vm5e5u10): paths the index references whose documents the
+   * sync server could not provide. `docId` is as stored in the index.
+   * Empty when every file loaded. Listings should mark these
+   * `unavailable`; `deleteFile`/`renameFile` work on them (they only
+   * edit the index), which is the self-service repair path.
+   */
+  function getUnavailableFiles(): FileEntry[] {
+    return Array.from(state.unavailableFiles, ([path, docId]) => ({ path, docId }));
+  }
+
+  /**
    * Create a new project with the given files.
    */
   async function createNewProject(
@@ -951,11 +1239,19 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
       // helpers) should pass options.peerTimeoutMs to wait for the peer.
       let isOnline = false;
       try {
-        console.log('Waiting for peer connection...');
+        syncLog('Waiting for peer connection...');
         await waitForPeer(state.repo, options.peerTimeoutMs ?? 1);
-        console.log('Peer connected - online mode');
+        syncLog('Peer connected - online mode');
         isOnline = true;
       } catch (peerError) {
+        if (options.requireOnline) {
+          await disconnect();
+          throw new PeerUnavailableError(
+            options.syncServer,
+            options.peerTimeoutMs ?? 1,
+            peerError,
+          );
+        }
         console.warn('Peer connection failed, creating project in offline mode:', peerError);
         isOnline = false;
       }
@@ -973,13 +1269,13 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
 
       // Phase 2: Create the index document via createDoc with the
       // pre-generated ID so the first change uses the correct actor.
-      console.log(`[createNewProject] Creating index document with ID ${indexDocId}`);
+      syncLog(`[createNewProject] Creating index document with ID ${indexDocId}`);
       const indexHandle = createDoc<IndexDocument>(
         { files: {}, version: CURRENT_SCHEMA_VERSION, identities: {} },
         indexDocId,
       );
       state.indexHandle = indexHandle;
-      console.log(`[createNewProject] Index document created, ID:`, indexHandle.documentId);
+      syncLog(`[createNewProject] Index document created, ID:`, indexHandle.documentId);
 
       // Write identity (separate change so the schema init is clean).
       if (resolvedActorId && screenName) {
@@ -1043,7 +1339,7 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
         const changedDoc = indexHandle.doc();
         if (changedDoc) {
           const newFiles = getFilesFromIndex(changedDoc);
-          syncWithFiles(newFiles);
+          syncWithFilesHandled(newFiles);
           callbacks.onFilesChange?.(newFiles);
           notifyIdentitiesIfChanged(changedDoc);
         }
@@ -1056,14 +1352,14 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
       const onPeerConnect = () => {
         if (!currentlyOnline) {
           currentlyOnline = true;
-          console.log('Peer connected - switching to online mode');
+          syncLog('Peer connected - switching to online mode');
           callbacks.onConnectionChange?.(true);
         }
       };
       const onPeerDisconnect = () => {
         if (currentlyOnline) {
           currentlyOnline = false;
-          console.log('Peer disconnected - switching to offline mode');
+          syncLog('Peer disconnected - switching to offline mode');
           callbacks.onConnectionChange?.(false);
         }
       };
@@ -1146,6 +1442,7 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     isConnected,
     getFileHandle,
     getFilePaths,
+    getUnavailableFiles,
     createNewProject,
     getActorId,
   };

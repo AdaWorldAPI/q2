@@ -25,6 +25,7 @@
 
 import {
   createSyncClient,
+  type DisconnectOptions,
   type SyncClient,
   type SyncClientCallbacks,
   type FilePayload,
@@ -120,6 +121,13 @@ function toHttpUrl(wsUrl: URL): URL {
 // ConnectionManager
 // ---------------------------------------------------------------------------
 
+/**
+ * Peer-wait budget for connect/create (bd-xnmd5ni1). Generous because
+ * the authenticated path runs several HTTP round-trips (health probe,
+ * /auth/actor, possibly a token refresh) before the websocket joins.
+ */
+const PEER_TIMEOUT_MS = 15_000;
+
 export class ConnectionManager {
   private readonly serverUrl: string;
   private readonly serverUrlParsed: URL;
@@ -196,15 +204,16 @@ export class ConnectionManager {
     const client = this.syncClientFactory(callbacks);
     // Pass auth iff we resolved a Bearer; otherwise the sync-client
     // uses the browser adapter (no header).
-    await client.connect(
-      this.serverUrl,
-      indexDocId,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+    await client.connect(this.serverUrl, indexDocId, undefined, undefined, undefined, {
       auth,
-    );
+      // Server-backed client with memory storage: offline mode would
+      // be a silent data black hole — demand a live peer or fail
+      // loudly (bd-xnmd5ni1). The budget covers the auth round-trips
+      // (health probe, actor fetch, token refresh) that made the old
+      // 1 ms default lose deterministically.
+      requireOnline: true,
+      peerTimeoutMs: PEER_TIMEOUT_MS,
+    });
 
     const state: ProjectState = { client, files };
     this.projects.set(indexDocId, state);
@@ -246,6 +255,10 @@ export class ConnectionManager {
         contentType: 'text' as const,
       })),
       auth,
+      // See connect(): online-or-error, never a silent offline project
+      // that dies with the process (bd-xnmd5ni1).
+      requireOnline: true,
+      peerTimeoutMs: PEER_TIMEOUT_MS,
     });
 
     const state: ProjectState = { client, files: tempFiles };
@@ -269,11 +282,38 @@ export class ConnectionManager {
     return state;
   }
 
-  async disconnectAll(): Promise<void> {
-    const disconnects = Array.from(this.projects.values()).map((s) =>
-      s.client.disconnect(),
+  /**
+   * Disconnect every project. Pass `drainMs` at shutdown so outbound
+   * document sync gets a bounded window to reach the hub before the
+   * process exits — MCP clients run on memory storage, so anything
+   * undelivered at exit is lost (bd-10deu8h4, the 2026-06-12
+   * incident). Projects drain in parallel; the wall-clock bound is a
+   * single budget, not budget × projects.
+   *
+   * Loud on failure, never silent: every project that could not
+   * confirm delivery gets a stderr line naming the project and the
+   * possibly-lost paths (stdout is protocol — bd-sl4o01y0).
+   */
+  async disconnectAll(options?: DisconnectOptions): Promise<void> {
+    const results = await Promise.all(
+      Array.from(this.projects.entries()).map(async ([indexDocId, s]) => ({
+        indexDocId,
+        report: await s.client.disconnect(options),
+      })),
     );
-    await Promise.all(disconnects);
+    for (const { indexDocId, report } of results) {
+      if (!report.drained) {
+        const names = report.undelivered
+          .map((u) => u.path ?? `<index document ${u.docId}>`)
+          .join(', ');
+        console.error(
+          `[hub-mcp] WARNING: exiting before outbound sync completed for ` +
+            `project ${indexDocId}. Possibly NOT delivered to the hub ` +
+            `(and lost — this server keeps no local copy): ${names}. ` +
+            `Verify these documents on the hub before trusting them.`,
+        );
+      }
+    }
     this.projects.clear();
   }
 

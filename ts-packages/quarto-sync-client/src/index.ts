@@ -28,6 +28,7 @@ export {
 
 // Export sync client types
 export type {
+  AnnotatedFileEntry,
   Patch,
   EditorContentChange,
   TextFilePayload,
@@ -40,14 +41,29 @@ export type {
   CreateBinaryFileResult,
   CreateProjectOptions,
   CreateProjectResult,
+  DisconnectOptions,
+  DisconnectReport,
   FindDocRetryOptions,
   StorageKind,
   SyncClientAuthOptions,
+  UndeliveredDoc,
 } from './types.js';
 
 // Export sync client
-export { createSyncClient } from './client.js';
+export {
+  createSyncClient,
+  PeerUnavailableError,
+  // Locked unavailability wording (bd-vm5e5u10) — reused by hub-mcp
+  // so per-file tool errors match the sync client's diagnostics.
+  fileUnavailableMessage,
+  indexUnavailableMessage,
+} from './client.js';
 export type { SyncClient } from './client.js';
+
+// Injectable diagnostic-log sink (bd-sl4o01y0): stdio hosts (hub-mcp)
+// must route library diagnostics to stderr; browsers keep console.log.
+export { setSyncLogger, syncLog } from './log.js';
+export type { SyncLogger } from './log.js';
 
 // Browser adapter with terminal disconnect (zombie-reconnect fix,
 // bd-jit6pdwq) — used internally by connect(); exported for tests
@@ -66,6 +82,12 @@ export type {
   WebSocketFactory,
   WebSocketLike,
 } from './NodeWebSocketClientAdapter.js';
+
+// In-memory storage adapter. Exported for test hubs that need a
+// storageId in their handshake metadata (the real samod hub always
+// announces one — exit-drain delivery confirmation keys off it,
+// bd-10deu8h4).
+export { MemoryStorageAdapter } from './storage-adapter.js';
 
 // Export utilities
 export { computeSHA256 } from './hash.js';

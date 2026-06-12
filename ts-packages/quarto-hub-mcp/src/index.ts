@@ -15,14 +15,21 @@
  *   QUARTO_HUB_SERVER              - Sync server URL (overridden by --server)
  *   QUARTO_HUB_MCP_CLIENT_ID       - Operator-supplied Google OAuth client id
  *   QUARTO_HUB_MCP_CLIENT_SECRET   - Operator-supplied matching client secret
+ *   QUARTO_HUB_MCP_ISSUER          - OIDC issuer URL (default:
+ *                                    https://accounts.google.com). http://
+ *                                    only for loopback issuers, and only with
+ *                                    the insecure escape hatch below.
  *   QUARTO_HUB_MCP_ALLOW_INSECURE_AUTH - "1" to allow Bearer over plain HTTP
- *                                        to non-loopback hosts (dev only)
+ *                                        to non-loopback hosts, and plain-http
+ *                                        loopback issuers (dev only)
  */
 
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { setSyncLogger } from '@quarto/quarto-sync-client';
 
 import { ConnectionManager } from './connection-manager.js';
 import { registerTools } from './tools.js';
@@ -32,11 +39,17 @@ import {
   discoverAuthorizationServer,
   loadOAuthConfigFromEnv,
   MissingOAuthConfigError,
+  resolveIssuer,
 } from './auth/oauth-config.js';
 import { redactTokens } from './auth/redact.js';
 import { RefreshManager } from './auth/refresh-manager.js';
 
-const GOOGLE_ISSUER = 'https://accounts.google.com';
+/**
+ * Canonical Quarto Hub sync server — the default when neither
+ * `--server` nor `QUARTO_HUB_SERVER` is given (bd-81cfshmw plan,
+ * resolved question 3: the "easy path" for `q2 mcp` / npx users).
+ */
+export const DEFAULT_SERVER_URL = 'wss://quarto-hub.com/ws';
 
 interface ParsedArgs {
   serverUrl: string;
@@ -68,8 +81,11 @@ export function parseRedirectPort(raw: string): number {
   return port;
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
-  let serverUrl = process.env['QUARTO_HUB_SERVER'] ?? '';
+export function parseArgs(
+  argv: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): ParsedArgs {
+  let serverUrl = env['QUARTO_HUB_SERVER'] ?? '';
   let readOnly = false;
   let redirectPort: number | undefined;
 
@@ -87,10 +103,11 @@ function parseArgs(argv: string[]): ParsedArgs {
         process.exit(1);
       }
     } else if (arg === '--help' || arg === '-h') {
-      console.error(`Usage: quarto-hub-mcp --server <url> [--read-only] [--redirect-port <N>]
+      console.error(`Usage: quarto-hub-mcp [--server <url>] [--read-only] [--redirect-port <N>]
 
 Options:
-  --server <url>        Automerge sync server URL (or set QUARTO_HUB_SERVER)
+  --server <url>        Automerge sync server URL (or set QUARTO_HUB_SERVER).
+                        Default: wss://quarto-hub.com/ws
   --read-only           Only expose read tools (no write/create/delete)
   --redirect-port <N>   Fixed loopback port for the sign-in redirect
                         (1024-65535). Omit to let the OS pick one. Set a
@@ -105,8 +122,7 @@ Options:
   }
 
   if (!serverUrl) {
-    console.error('Error: --server <url> or QUARTO_HUB_SERVER is required');
-    process.exit(1);
+    serverUrl = DEFAULT_SERVER_URL;
   }
 
   return { serverUrl, readOnly, redirectPort };
@@ -131,9 +147,25 @@ function installRedactingErrorHandlers(): void {
   });
 }
 
+/**
+ * Once the JSON-RPC transport owns stdout, nothing else may write to
+ * it (bd-sl4o01y0). Route sync-client diagnostics to stderr via its
+ * logger seam, and — defense in depth against any dependency that
+ * calls `console.log` — rebind console.log itself to stderr. The
+ * transport is unaffected: it writes to `process.stdout` directly.
+ *
+ * Called after parseArgs, which is pre-protocol (its --help/usage
+ * output already goes to stderr by this package's convention).
+ */
+function protectProtocolStdout(): void {
+  setSyncLogger((...args) => console.error(...args));
+  console.log = (...args: unknown[]) => console.error(...args);
+}
+
 async function main(): Promise<void> {
   installRedactingErrorHandlers();
   const { serverUrl, readOnly, redirectPort } = parseArgs(process.argv);
+  protectProtocolStdout();
 
   // Optional auth bootstrap: if both env vars are set we wire up the
   // credential store + refresh manager + auth tools; if not, we run
@@ -147,11 +179,22 @@ async function main(): Promise<void> {
   let refreshManager: RefreshManager | undefined;
   let flowConfig: ReturnType<typeof loadOAuthConfigFromEnv> | undefined;
 
-  // Lazy, memoized discovery: defers the Google network call off the
+  // IdP issuer: QUARTO_HUB_MCP_ISSUER override (validated: https, or
+  // gated loopback http) with Google as the default. Fail fast and
+  // named on bad config.
+  let issuer: string;
+  try {
+    issuer = resolveIssuer();
+  } catch (err) {
+    console.error(`[hub-mcp] ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+
+  // Lazy, memoized discovery: defers the IdP network call off the
   // startup path so a slow/unreachable discovery endpoint can't stop the
   // server from coming up (no-auth hubs and reads don't need it). Fires
   // on the first refresh / sign-in that actually requires it.
-  const authServer = () => discoverAuthorizationServer(GOOGLE_ISSUER);
+  const authServer = () => discoverAuthorizationServer(issuer);
 
   if (hasAuthEnv) {
     try {
@@ -165,7 +208,7 @@ async function main(): Promise<void> {
     }
 
     credentialStore = new CredentialStore({
-      issuer: GOOGLE_ISSUER,
+      issuer,
       clientId: flowConfig.clientId,
     });
     refreshManager = new RefreshManager({
@@ -205,7 +248,7 @@ async function main(): Promise<void> {
           flowConfig: {
             clientId: flowConfig.clientId,
             clientSecret: flowConfig.clientSecret,
-            issuer: GOOGLE_ISSUER,
+            issuer,
             redirectPort,
           },
           authServer,
@@ -217,20 +260,57 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
+  // Outbound-sync drain budget at shutdown (bd-10deu8h4): created
+  // documents live only in this process's memory until the hub acks
+  // them, so exit must give delivery a bounded window. The drain
+  // returns early the moment the hub confirms; the budget only binds
+  // when the hub is slow or unreachable. 3 s keeps the stdin-EOF exit
+  // comfortably inside the 5 s promptness contract that
+  // stdio-hygiene.test.ts asserts (bd-9jq2a060).
+  const SHUTDOWN_DRAIN_MS = 3000;
+
+  let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
-    await manager.disconnectAll();
+    // Re-entrancy guard: server.close() below fires server.onclose,
+    // which routes back here.
+    if (shuttingDown) return;
+    shuttingDown = true;
+    await manager.disconnectAll({ drainMs: SHUTDOWN_DRAIN_MS });
     await server.close();
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  // MCP hosts terminate stdio servers by closing stdin — but the SDK's
+  // StdioServerTransport never watches for EOF (its onclose only fires
+  // on programmatic close), and live sync websockets / reconnect
+  // timers keep the event loop alive forever, leaking one process per
+  // agent session (bd-9jq2a060). Watch stdin EOF ourselves; also wire
+  // server.onclose so a programmatic transport close shuts down too.
+  process.stdin.on('end', () => {
+    void shutdown();
+  });
+  server.onclose = () => {
+    void shutdown();
+  };
 }
 
 // Run only when executed as the binary, not when imported (e.g. by
-// unit tests exercising `parseRedirectPort`).
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+// unit tests exercising `parseRedirectPort`). argv[1] must be
+// canonicalized before comparing: Node resolves import.meta.url
+// through realpath, so a symlink anywhere in the invocation path
+// (macOS /tmp and /var, npm/npx .bin shims) would otherwise make this
+// guard silently skip main() (bd-2d8ur7e9).
+const invokedDirectly = (() => {
+  const argv1 = process.argv[1];
+  if (argv1 === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argv1)).href;
+  } catch {
+    // argv[1] doesn't resolve to a real file — we can't be it.
+    return false;
+  }
+})();
 
 if (invokedDirectly) {
   main().catch((err) => {

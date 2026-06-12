@@ -26,11 +26,38 @@ export class McpTestClient {
   private nextId = 1;
 
   /**
-   * Start the MCP server process with the given arguments.
+   * Every stdout line that failed to parse as JSON-RPC. In a correct
+   * stdio MCP server this stays empty: stdout belongs exclusively to
+   * the protocol, and any stray write here corrupts the stream for
+   * real clients.
    */
-  async start(args: string[]): Promise<void> {
-    this.proc = spawn('node', [SERVER_ENTRY, ...args], {
+  readonly stdoutPollution: string[] = [];
+
+  /** Server stderr, line by line (diagnostics; the auth e2e scrapes
+   * the sign-in URL from here). */
+  readonly stderrLines: string[] = [];
+  private stderrBuffer = '';
+
+  /**
+   * Start the MCP server process with the given arguments.
+   *
+   * `entry` overrides the server entry point (default: the tsc build
+   * at dist/index.js) — used by bundle tests to drive the esbuild
+   * artifact from outside the repo tree. `command` (+ leading args)
+   * replaces `node` entirely — used by the auth e2e to drive the real
+   * `q2 mcp` launcher. `env` REPLACES the child environment when
+   * given (callers spread process.env themselves if they want it).
+   */
+  async start(
+    args: string[],
+    opts?: { entry?: string; command?: { program: string; args: string[] }; env?: NodeJS.ProcessEnv },
+  ): Promise<void> {
+    const [program, leading] = opts?.command
+      ? [opts.command.program, opts.command.args]
+      : ['node', [opts?.entry ?? SERVER_ENTRY]];
+    this.proc = spawn(program, [...leading, ...args], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      ...(opts?.env ? { env: opts.env } : {}),
     });
 
     this.proc.stdout!.setEncoding('utf-8');
@@ -41,6 +68,12 @@ export class McpTestClient {
 
     this.proc.stderr!.setEncoding('utf-8');
     this.proc.stderr!.on('data', (chunk: string) => {
+      this.stderrBuffer += chunk;
+      let nl;
+      while ((nl = this.stderrBuffer.indexOf('\n')) >= 0) {
+        this.stderrLines.push(this.stderrBuffer.slice(0, nl));
+        this.stderrBuffer = this.stderrBuffer.slice(nl + 1);
+      }
       // Suppress stderr noise in tests unless debugging
       if (process.env['DEBUG_MCP']) {
         process.stderr.write(`[mcp-stderr] ${chunk}`);
@@ -56,6 +89,42 @@ export class McpTestClient {
 
     // Send initialized notification
     this.sendNotification('notifications/initialized');
+  }
+
+  /**
+   * Wait until a stderr line matching `pattern` appears (scanning
+   * lines already received too) and return the first match.
+   */
+  async waitForStderr(pattern: RegExp, timeoutMs = 10000): Promise<string> {
+    const deadline = Date.now() + timeoutMs;
+    let scanned = 0;
+    while (Date.now() < deadline) {
+      for (; scanned < this.stderrLines.length; scanned++) {
+        const line = this.stderrLines[scanned]!;
+        if (pattern.test(line)) return line;
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error(
+      `timed out waiting for stderr matching ${pattern}; saw:\n${this.stderrLines.join('\n')}`,
+    );
+  }
+
+  /**
+   * Close the server's stdin (how MCP hosts terminate stdio servers)
+   * and report whether the process exited within `timeoutMs`. Unlike
+   * `stop()`, does NOT kill the process on timeout — callers assert on
+   * the result and then call `stop()` to clean up.
+   */
+  async endStdinAndWaitForExit(timeoutMs = 5000): Promise<boolean> {
+    if (!this.proc) throw new Error('server not started');
+    if (this.proc.exitCode !== null) return true;
+    const exited = once(this.proc, 'exit').then(() => true);
+    this.proc.stdin!.end();
+    const timedOut = new Promise<boolean>((resolve) =>
+      setTimeout(() => resolve(false), timeoutMs),
+    );
+    return Promise.race([exited, timedOut]);
   }
 
   /**
@@ -163,7 +232,8 @@ export class McpTestClient {
             for (const w of waiters) w();
           }
         } catch {
-          // Ignore unparseable lines
+          // Not JSON-RPC: record as protocol pollution (see field doc).
+          this.stdoutPollution.push(line);
         }
       }
     }
