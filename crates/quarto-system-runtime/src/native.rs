@@ -19,7 +19,6 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::js_native::JsEngine;
 use crate::sass_native;
 use crate::traits::{
     CommandOutput, PathKind, PathMetadata, RuntimeError, RuntimeResult, SystemRuntime, TempDir,
@@ -32,17 +31,8 @@ use reqwest;
 /// This is the default runtime for trusted code on native targets.
 /// It provides unrestricted access to the filesystem, process execution,
 /// environment variables, and network (if enabled).
-///
-/// # JavaScript Execution
-///
-/// This runtime supports JavaScript execution via deno_core/V8.
-/// Due to V8's single-threaded nature, a new JsEngine is created for
-/// each JS operation. For performance-critical code, consider batching
-/// operations or using a dedicated JS execution thread.
 #[derive(Debug, Default)]
 pub struct NativeRuntime {
-    // Note: JsEngine is NOT stored here because V8's JsRuntime is not Send+Sync.
-    // Each JS operation creates a fresh engine. This is less efficient but correct.
     /// Optional cache directory for persistent caching.
     /// When `None`, all cache operations are silent no-ops.
     cache_dir: Option<PathBuf>,
@@ -396,37 +386,6 @@ impl SystemRuntime for NativeRuntime {
 
     fn stderr_write(&self, data: &[u8]) -> RuntimeResult<()> {
         io::stderr().write_all(data).map_err(RuntimeError::from)
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // JAVASCRIPT EXECUTION
-    //
-    // Performance note: Creates fresh JsEngine per call. Adequate for project
-    // scaffolding (1-10 templates). For optimization strategies if large-scale
-    // template rendering becomes needed, see:
-    // `claude-notes/plans/js-execution-performance.md`
-    // ═══════════════════════════════════════════════════════════════════════
-
-    fn js_available(&self) -> bool {
-        true
-    }
-
-    async fn js_render_simple_template(
-        &self,
-        template: &str,
-        data: &serde_json::Value,
-    ) -> RuntimeResult<String> {
-        // Create a fresh JsEngine for each call.
-        // V8's JsRuntime is not Send+Sync, so we can't store it.
-        let mut engine = JsEngine::new()?;
-        engine.render_simple_template(template, data)
-    }
-
-    async fn render_ejs(&self, template: &str, data: &serde_json::Value) -> RuntimeResult<String> {
-        // Create a fresh JsEngine for each call.
-        // V8's JsRuntime is not Send+Sync, so we can't store it.
-        let mut engine = JsEngine::new()?;
-        engine.render_ejs(template, data)
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -962,64 +921,6 @@ mod tests {
         // Should fail for nonexistent paths
         let result = rt.canonicalize(&temp.path().join("nonexistent.txt"));
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_js_available() {
-        let rt = runtime();
-        // NativeRuntime has JS available
-        assert!(rt.js_available());
-    }
-
-    // Test async JS methods using pollster for simple blocking
-    #[test]
-    fn test_js_render_simple_template() {
-        let rt = runtime();
-        let data = serde_json::json!({"name": "World"});
-
-        // Use pollster to block on the async call
-        let result = pollster::block_on(rt.js_render_simple_template("Hello, ${name}!", &data));
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "Hello, World!");
-    }
-
-    #[test]
-    fn test_js_render_simple_template_multiple_vars() {
-        let rt = runtime();
-        let data = serde_json::json!({"greeting": "Hi", "name": "Alice", "count": 5});
-
-        let result =
-            pollster::block_on(rt.js_render_simple_template(
-                "${greeting}, ${name}! You have ${count} messages.",
-                &data,
-            ));
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "Hi, Alice! You have 5 messages.");
-    }
-
-    #[test]
-    fn test_render_ejs_basic() {
-        let rt = runtime();
-        let data = serde_json::json!({"title": "Test"});
-
-        let result = pollster::block_on(rt.render_ejs("<%= title %>", &data));
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "Test");
-    }
-
-    #[test]
-    fn test_render_ejs_with_logic() {
-        let rt = runtime();
-        let data = serde_json::json!({"show": true});
-
-        let result =
-            pollster::block_on(rt.render_ejs("<% if (show) { %>Yes<% } else { %>No<% } %>", &data));
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "Yes");
     }
 
     // SASS compilation tests (via trait methods)

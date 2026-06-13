@@ -302,26 +302,6 @@ impl<R: SystemRuntime> SystemRuntime for SandboxedRuntime<R> {
     fn runtime_metadata(&self) -> Option<serde_json::Value> {
         self.inner.runtime_metadata()
     }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // JAVASCRIPT EXECUTION (delegated to inner runtime)
-    // ═══════════════════════════════════════════════════════════════════════
-
-    fn js_available(&self) -> bool {
-        self.inner.js_available()
-    }
-
-    async fn js_render_simple_template(
-        &self,
-        template: &str,
-        data: &serde_json::Value,
-    ) -> RuntimeResult<String> {
-        self.inner.js_render_simple_template(template, data).await
-    }
-
-    async fn render_ejs(&self, template: &str, data: &serde_json::Value) -> RuntimeResult<String> {
-        self.inner.render_ejs(template, data).await
-    }
 }
 
 /// Type alias for a thread-safe shared runtime.

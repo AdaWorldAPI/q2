@@ -47,11 +47,6 @@ declare module 'wasm-quarto-hub-client' {
   ): string | undefined;
   export function get_builtin_template(name: string): string;
 
-  // JavaScript execution test functions (interstitial validation)
-  export function test_js_available(): boolean;
-  export function test_js_simple_template(template: string, data_json: string): Promise<string>;
-  export function test_js_ejs(template: string, data_json: string): Promise<string>;
-
   // Project creation functions
   export function get_project_choices(): string;
   export function create_project(choice_id: string, title: string): string;
