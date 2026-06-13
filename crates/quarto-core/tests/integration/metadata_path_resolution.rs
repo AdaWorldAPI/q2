@@ -167,7 +167,7 @@ fn frontmatter_sidebar_resolves_sibling_relative_qmd() {
         .filter(|d| {
             matches!(
                 d.code.as_deref(),
-                Some("Q-13-1") | Some("Q-13-2") | Some("Q-13-3") | Some("Q-13-7")
+                Some("Q-13-1" | "Q-13-2" | "Q-13-3" | "Q-13-7")
             )
         })
         .collect();
@@ -275,8 +275,7 @@ fn frontmatter_sidebar_missing_document_diagnostic_carries_location() {
     assert!(
         d.problem
             .as_ref()
-            .map(|p| p.as_str().contains("not-here.qmd"))
-            .unwrap_or(false),
+            .is_some_and(|p| p.as_str().contains("not-here.qmd")),
         "Q-13-1 problem must mention the missing path; got {:?}",
         d.problem
     );

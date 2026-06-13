@@ -340,6 +340,11 @@ fn trim_mantissa(s: &str) -> String {
 /// either source without duplicating the logic. It's also what makes
 /// this module unit-testable natively: tests implement `VaArgSource` on
 /// a tiny `Vec`-backed mock.
+// Each method documents its safety contract in prose: `next_i32` carries the
+// canonical `# Safety` section and the rest say "Safety as `next_i32`". The
+// contract is identical across them, so clippy's per-method `# Safety` heading
+// would be pure repetition.
+#[allow(clippy::missing_safety_doc)]
 pub trait VaArgSource {
     /// Read the next `i32` argument.
     ///
@@ -601,14 +606,14 @@ mod tests {
     #[test]
     fn spec_x() {
         let mut args = MockArgs::default();
-        args.uints.push_back(0xdeadbeef);
+        args.uints.push_back(0xdead_beef);
         assert_eq!(render("%x", &mut args, 100), "deadbeef");
     }
 
     #[test]
     fn spec_x_upper() {
         let mut args = MockArgs::default();
-        args.uints.push_back(0xdeadbeef);
+        args.uints.push_back(0xdead_beef);
         assert_eq!(render("%X", &mut args, 100), "DEADBEEF");
     }
 
@@ -703,6 +708,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is %g test data, not an approximation of π
     fn g_simple() {
         let mut args = MockArgs::default();
         args.floats.push_back(3.14);

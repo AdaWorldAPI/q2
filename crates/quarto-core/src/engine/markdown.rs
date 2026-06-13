@@ -171,7 +171,7 @@ x <- 1:10
 
     #[test]
     fn test_markdown_engine_default_impl() {
-        let engine = MarkdownEngine::default();
+        let engine = MarkdownEngine;
         assert_eq!(engine.name(), "markdown");
     }
 

@@ -109,7 +109,7 @@ fn find_html<'a>(outputs: &'a [(String, String)], stem: &str) -> &'a str {
 
 /// Extract the slice of HTML between `<nav class="page-navigation">`
 /// and `</nav>` for assertions about its internal structure.
-fn page_nav_block<'a>(html: &'a str) -> &'a str {
+fn page_nav_block(html: &str) -> &str {
     let start = html
         .find("<nav class=\"page-navigation\">")
         .unwrap_or_else(|| panic!("no <nav class=\"page-navigation\"> in:\n{}", html));
@@ -560,8 +560,7 @@ fn pipeline_page_nav_emits_layout_css() {
         .find(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .map(|s| s.starts_with("quarto-theme-") && s.ends_with(".css"))
-                .unwrap_or(false)
+                .is_some_and(|s| s.starts_with("quarto-theme-") && s.ends_with(".css"))
         })
         .expect("expected a quarto-theme-*.css under site_libs/quarto/");
     let css = read(&css_path);

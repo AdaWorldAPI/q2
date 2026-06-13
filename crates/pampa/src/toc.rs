@@ -314,10 +314,10 @@ fn is_section_div(div: &Div) -> bool {
 fn get_section_level(div: &Div) -> Option<i32> {
     let (_, classes, _) = &div.attr;
     for class in classes {
-        if class.starts_with("level") {
-            if let Ok(level) = class[5..].parse::<i32>() {
-                return Some(level);
-            }
+        if class.starts_with("level")
+            && let Ok(level) = class[5..].parse::<i32>()
+        {
+            return Some(level);
         }
     }
     None

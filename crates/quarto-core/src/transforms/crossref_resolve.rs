@@ -215,10 +215,10 @@ fn resolve_inline(
     }
 
     // Now check this inline itself: is it a crossref Cite?
-    if let Inline::Cite(cite) = inline {
-        if let Some(replacement) = classify_cite(cite, reg, index, diags) {
-            *inline = Inline::Custom(replacement);
-        }
+    if let Inline::Cite(cite) = inline
+        && let Some(replacement) = classify_cite(cite, reg, index, diags)
+    {
+        *inline = Inline::Custom(replacement);
     }
 }
 

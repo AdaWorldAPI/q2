@@ -154,10 +154,12 @@ impl PageFooter {
             };
         }
 
-        let mut footer = PageFooter::default();
-        footer.left = FooterRegion::from_config_value(cv.get("left"));
-        footer.center = FooterRegion::from_config_value(cv.get("center"));
-        footer.right = FooterRegion::from_config_value(cv.get("right"));
+        let mut footer = PageFooter {
+            left: FooterRegion::from_config_value(cv.get("left")),
+            center: FooterRegion::from_config_value(cv.get("center")),
+            right: FooterRegion::from_config_value(cv.get("right")),
+            ..Default::default()
+        };
         if let Some(border_cv) = cv.get("border") {
             footer.border = FooterBorder::from_config_value(border_cv);
         }

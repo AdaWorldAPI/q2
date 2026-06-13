@@ -295,12 +295,11 @@ pub fn parse_listings(
 
             // Pre-collect explicit ids so synthesized ids skip them.
             for item in items {
-                if let ConfigValueKind::Map(_) = &item.value {
-                    if let Some(id_val) = item.get("id") {
-                        if let Some(id) = id_val.as_plain_text() {
-                            explicit_ids.push(id);
-                        }
-                    }
+                if let ConfigValueKind::Map(_) = &item.value
+                    && let Some(id_val) = item.get("id")
+                    && let Some(id) = id_val.as_plain_text()
+                {
+                    explicit_ids.push(id);
                 }
             }
 
@@ -319,14 +318,13 @@ pub fn parse_listings(
                     _ => true,
                 };
                 let synth_id = if needs_synth {
-                    let candidate = loop {
+                    loop {
                         let c = format!("listing-{}", next_synth);
                         next_synth += 1;
                         if !explicit_ids.iter().any(|e| e == &c) && !seen.contains(&c) {
                             break c;
                         }
-                    };
-                    candidate
+                    }
                 } else {
                     // The fallback id won't be used (parse_one_listing
                     // will read the explicit `id:`), but we still
@@ -752,7 +750,7 @@ fn parse_categories_mode(value: &ConfigValue) -> ListingCategoriesMode {
         };
     }
     match value.as_plain_text().as_deref() {
-        Some("true") | Some("default") => ListingCategoriesMode::Default,
+        Some("true" | "default") => ListingCategoriesMode::Default,
         Some("unnumbered") => ListingCategoriesMode::Unnumbered,
         Some("cloud") => ListingCategoriesMode::Cloud,
         _ => ListingCategoriesMode::Disabled,

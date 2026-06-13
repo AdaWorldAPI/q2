@@ -54,13 +54,13 @@ pub(crate) fn enrich_one(item: &mut NavigationItem, index: &ProjectIndex) {
     let Some(href) = item.href.as_deref() else {
         return;
     };
-    if let Some(profile) = index.lookup_by_source(Path::new(href)) {
-        if let Some(title) = &profile.title {
-            item.text = Some(ConfigValue::new_string(
-                title,
-                SourceInfo::generated(By::programmatic_config()),
-            ));
-        }
+    if let Some(profile) = index.lookup_by_source(Path::new(href))
+        && let Some(title) = &profile.title
+    {
+        item.text = Some(ConfigValue::new_string(
+            title,
+            SourceInfo::generated(By::programmatic_config()),
+        ));
     }
 }
 

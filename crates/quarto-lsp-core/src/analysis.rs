@@ -171,8 +171,7 @@ pub async fn analyze_document_async(doc: &Document) -> DocumentAnalysis {
 fn minimal_project_context(document_path: &Path) -> ProjectContext {
     let dir = document_path
         .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("/"));
+        .map_or_else(|| PathBuf::from("/"), |p| p.to_path_buf());
     ProjectContext {
         dir: dir.clone(),
         config: ProjectConfig::default(),
@@ -217,10 +216,10 @@ fn collect_symbols_from_blocks(
             // entries. The inner structure (e.g. `## Line` absorbed into
             // a theorem title) is semantically part of the target.
             // Skip recursion whether or not the id is well-formed.
-            if is_well_formed_identifier(view.identifier) {
-                if let Some(symbol) = crossref_symbol_from_view(block, view, ctx) {
-                    symbols.push((LEAF_LEVEL, symbol));
-                }
+            if is_well_formed_identifier(view.identifier)
+                && let Some(symbol) = crossref_symbol_from_view(block, view, ctx)
+            {
+                symbols.push((LEAF_LEVEL, symbol));
             }
             continue;
         }
@@ -375,15 +374,15 @@ fn format_crossref_detail(node: &pampa::pandoc::custom::CustomNode, kind: &str) 
 /// the first `Paragraph` inside `caption_long` (blocks slot).
 /// For `Theorem` / `Proof`: reads the `title` inline slot.
 fn crossref_label_tail(node: &pampa::pandoc::custom::CustomNode) -> Option<String> {
-    if let Some(Slot::Inlines(title)) = node.slots.get("title") {
-        if !title.is_empty() {
-            return Some(inlines_to_text(title));
-        }
+    if let Some(Slot::Inlines(title)) = node.slots.get("title")
+        && !title.is_empty()
+    {
+        return Some(inlines_to_text(title));
     }
-    if let Some(Slot::Inlines(short)) = node.slots.get("caption_short") {
-        if !short.is_empty() {
-            return Some(inlines_to_text(short));
-        }
+    if let Some(Slot::Inlines(short)) = node.slots.get("caption_short")
+        && !short.is_empty()
+    {
+        return Some(inlines_to_text(short));
     }
     if let Some(Slot::Blocks(long)) = node.slots.get("caption_long") {
         for b in long {
@@ -534,14 +533,14 @@ fn extract_folding_ranges_from_blocks(
             Block::Header(header) => {
                 while let Some(&(stack_level, start_line)) = header_stack.last() {
                     if stack_level >= header.level {
-                        if let Some(current_line) = get_start_line(&header.source_info, ctx) {
-                            if current_line > start_line + 1 {
-                                ranges.push(FoldingRange::with_kind(
-                                    start_line,
-                                    current_line - 1,
-                                    FoldingRangeKind::Region,
-                                ));
-                            }
+                        if let Some(current_line) = get_start_line(&header.source_info, ctx)
+                            && current_line > start_line + 1
+                        {
+                            ranges.push(FoldingRange::with_kind(
+                                start_line,
+                                current_line - 1,
+                                FoldingRangeKind::Region,
+                            ));
                         }
                         header_stack.pop();
                     } else {

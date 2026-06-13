@@ -267,8 +267,7 @@ fn gitblame_multi_author_fixture_satisfies_producer_invariant() {
         let actor_str: &str = actor;
         let expected_local = actor_str
             .split_once('@')
-            .map(|(l, _)| l.to_string())
-            .unwrap_or_else(|| actor_str.to_string());
+            .map_or_else(|| actor_str.to_string(), |(l, _)| l.to_string());
         assert_eq!(identity.display_name, expected_local);
         assert_eq!(identity.color, actor_color(&fnv1a_hex8(actor_str)));
     }

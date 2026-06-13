@@ -322,7 +322,7 @@ mod tests {
         // Backslash-escaped characters should become the character itself
         let inlines = get_first_para_inlines("\\*not emphasis\\*\n");
         // Should produce: Str("*not"), Space, Str("emphasis*")
-        assert!(inlines.len() >= 1);
+        assert!(!inlines.is_empty());
         // The escaped asterisks should be in the text
         let text: String = inlines
             .iter()
@@ -332,7 +332,7 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join(" ");
-        assert!(text.contains("*"));
+        assert!(text.contains('*'));
     }
 
     #[test]

@@ -320,26 +320,26 @@ fn emit_metadata_prefix(
     };
 
     // Check if there's a metadata region before the first block
-    if let Some(start) = first_block_start {
-        if start > 0 {
-            // There is a metadata prefix region
-            if metadata_content_eq(&original_ast.meta, &new_ast.meta) {
-                // Metadata unchanged — copy verbatim
-                result.push_str(&original_qmd[..start]);
-            } else {
-                // Metadata changed — rewrite the front matter, but preserve
-                // the original gap (blank lines) between the closing --- and
-                // the first block.
-                let meta_str = write_metadata_to_string(&new_ast.meta)?;
-                result.push_str(&meta_str);
+    if let Some(start) = first_block_start
+        && start > 0
+    {
+        // There is a metadata prefix region
+        if metadata_content_eq(&original_ast.meta, &new_ast.meta) {
+            // Metadata unchanged — copy verbatim
+            result.push_str(&original_qmd[..start]);
+        } else {
+            // Metadata changed — rewrite the front matter, but preserve
+            // the original gap (blank lines) between the closing --- and
+            // the first block.
+            let meta_str = write_metadata_to_string(&new_ast.meta)?;
+            result.push_str(&meta_str);
 
-                // Find where the original front matter content ends (the closing ---)
-                // and preserve the gap between it and the first block.
-                let gap = find_metadata_trailing_gap(original_qmd, start);
-                result.push_str(gap);
-            }
-            return Ok(true);
+            // Find where the original front matter content ends (the closing ---)
+            // and preserve the gap between it and the first block.
+            let gap = find_metadata_trailing_gap(original_qmd, start);
+            result.push_str(gap);
         }
+        return Ok(true);
     }
 
     // No metadata prefix
@@ -391,20 +391,20 @@ fn compute_separator<'a>(
         CoarsenedEntry::InlineSplice { orig_idx, .. } => Some(*orig_idx),
         _ => None,
     };
-    if let (Some(prev_idx), Some(curr_idx)) = (prev_orig_idx, curr_orig_idx) {
-        if curr_idx == prev_idx + 1 {
-            // Consecutive in original — use original gap
-            let prev_span = block_source_span(&original_ast.blocks[prev_idx]);
-            let curr_span = block_source_span(&original_ast.blocks[curr_idx]);
-            return &original_qmd[prev_span.end..curr_span.start];
-        }
+    if let (Some(prev_idx), Some(curr_idx)) = (prev_orig_idx, curr_orig_idx)
+        && curr_idx == prev_idx + 1
+    {
+        // Consecutive in original — use original gap
+        let prev_span = block_source_span(&original_ast.blocks[prev_idx]);
+        let curr_span = block_source_span(&original_ast.blocks[curr_idx]);
+        return &original_qmd[prev_span.end..curr_span.start];
     }
 
     // Standard separator — but check if previous block already ends with \n\n
-    if let Some(text) = prev_block_text {
-        if text.ends_with("\n\n") {
-            return "";
-        }
+    if let Some(text) = prev_block_text
+        && text.ends_with("\n\n")
+    {
+        return "";
     }
 
     "\n"
@@ -825,9 +825,7 @@ pub fn is_inline_splice_safe(new_inlines: &[Inline], plan: &InlineReconciliation
 /// Returns true if the inline or any descendant is SoftBreak or LineBreak.
 pub fn inline_subtree_has_break(inline: &Inline) -> bool {
     matches!(inline, Inline::SoftBreak(_) | Inline::LineBreak(_))
-        || inline_children(inline)
-            .iter()
-            .any(|child| inline_subtree_has_break(child))
+        || inline_children(inline).iter().any(inline_subtree_has_break)
 }
 
 /// Extract the child inlines of a container inline.
@@ -1560,17 +1558,13 @@ fn classify_none_preimage(
     findings: &mut Vec<TilingFinding>,
 ) {
     match si {
-        SourceInfo::Generated { .. } => {
-            if si.invocation_anchor().is_none() {
-                findings.push(TilingFinding {
-                    kind: TilingFindingKind::GeneratedNoInvocation,
-                    message: format!(
-                        "GeneratedNoInvocation: `{node_type}` has no Invocation anchor"
-                    ),
-                });
-            }
-            // Invocation exists but resolves to None (different file) — skip silently.
+        SourceInfo::Generated { .. } if si.invocation_anchor().is_none() => {
+            findings.push(TilingFinding {
+                kind: TilingFindingKind::GeneratedNoInvocation,
+                message: format!("GeneratedNoInvocation: `{node_type}` has no Invocation anchor"),
+            });
         }
+        // Invocation exists but resolves to None (different file) — skip silently.
         SourceInfo::Concat { pieces } => {
             classify_none_concat(node_type, pieces, target, src, findings);
         }
@@ -1710,17 +1704,17 @@ fn check_tightness(
             if e > 0 { src.get(e - 1).copied() } else { None },
         ),
     ] {
-        if let Some(b) = byte_opt {
-            if b == b' ' || b == b'\t' {
-                findings.push(TilingFinding {
-                    kind: TilingFindingKind::TightnessViolation,
-                    message: format!(
-                        "TightnessViolation: `{node_type}` [{}..{}] has {boundary} \
+        if let Some(b) = byte_opt
+            && (b == b' ' || b == b'\t')
+        {
+            findings.push(TilingFinding {
+                kind: TilingFindingKind::TightnessViolation,
+                message: format!(
+                    "TightnessViolation: `{node_type}` [{}..{}] has {boundary} \
                          space/tab byte ({:?})",
-                        s, e, b as char,
-                    ),
-                });
-            }
+                    s, e, b as char,
+                ),
+            });
         }
     }
 }

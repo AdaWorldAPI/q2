@@ -118,15 +118,14 @@ fn project_relative_source(source: &Path, project_dir: &Path) -> PathBuf {
 /// Forward-slash separated so the value is directly usable as an href
 /// in rendered HTML and as a cache key across platforms.
 fn project_relative_output_href(output_path: &Path, project_output_dir: &Path) -> String {
-    let rel = output_path
-        .strip_prefix(project_output_dir)
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|_| {
+    let rel = output_path.strip_prefix(project_output_dir).map_or_else(
+        |_| {
             output_path
                 .file_name()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| output_path.to_path_buf())
-        });
+                .map_or_else(|| output_path.to_path_buf(), PathBuf::from)
+        },
+        |p| p.to_path_buf(),
+    );
     to_forward_slash(&rel)
 }
 

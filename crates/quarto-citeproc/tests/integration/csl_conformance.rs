@@ -58,17 +58,14 @@ impl CslTest {
         let result = sections
             .get("result")
             .ok_or("Missing RESULT section")?
-            .to_string();
+            .clone();
 
-        let csl = sections
-            .get("csl")
-            .ok_or("Missing CSL section")?
-            .to_string();
+        let csl = sections.get("csl").ok_or("Missing CSL section")?.clone();
 
         let input = sections
             .get("input")
             .ok_or("Missing INPUT section")?
-            .to_string();
+            .clone();
 
         Ok(CslTest {
             name: name.to_string(),

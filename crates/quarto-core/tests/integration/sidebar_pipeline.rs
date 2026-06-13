@@ -190,8 +190,8 @@ fn pipeline_renders_sidebar_for_two_page_website() {
          got body tag: {}",
         index_html
             .find("<body")
-            .map(|i| &index_html[i..(i + 80).min(index_html.len())])
-            .unwrap_or("<no body tag>")
+            .map_or("<no body tag>", |i| &index_html
+                [i..(i + 80).min(index_html.len())])
     );
     assert!(
         about_html.contains("<body class=\"nav-sidebar floating quarto-light\">"),
@@ -199,8 +199,8 @@ fn pipeline_renders_sidebar_for_two_page_website() {
          got body tag: {}",
         about_html
             .find("<body")
-            .map(|i| &about_html[i..(i + 80).min(about_html.len())])
-            .unwrap_or("<no body tag>")
+            .map_or("<no body tag>", |i| &about_html
+                [i..(i + 80).min(about_html.len())])
     );
 
     // bd-mgoh — the sidebar nav must be a direct grid child of
@@ -397,8 +397,8 @@ fn pipeline_unresolved_sidebar_entry_keeps_raw_qmd() {
         "unresolved .qmd link should pass through verbatim; got sidebar region: {}",
         index_html
             .find("<nav id=\"quarto-sidebar\"")
-            .map(|i| &index_html[i..(i + 400).min(index_html.len())])
-            .unwrap_or("<no sidebar found>")
+            .map_or("<no sidebar found>", |i| &index_html
+                [i..(i + 400).min(index_html.len())])
     );
 }
 

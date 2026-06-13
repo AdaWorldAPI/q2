@@ -56,10 +56,10 @@ pub fn highlight_with_user(
     source: &str,
     user: Option<&mut UserGrammars>,
 ) -> Result<Option<String>, HighlightError> {
-    if let Some(user) = user {
-        if user.contains(language_class) {
-            return user.highlight(language_class, source);
-        }
+    if let Some(user) = user
+        && user.contains(language_class)
+    {
+        return user.highlight(language_class, source);
     }
     Registry::global().highlight(language_class, source)
 }

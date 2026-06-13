@@ -60,7 +60,7 @@ Here is a citation [@jones2019].
 
     // Run the binary with citeproc filter
     let binary = get_binary_path();
-    let output = Command::new(&binary)
+    let output = Command::new(binary)
         .args(["-F", "citeproc", "-t", "html", "-i"])
         .arg(&test_file)
         .output()
@@ -133,7 +133,7 @@ references:
     fs::write(&test_file, qmd_content).expect("Failed to write test file");
 
     let binary = get_binary_path();
-    let output = Command::new(&binary)
+    let output = Command::new(binary)
         .args(["-F", "citeproc", "-t", "html", "-i"])
         .arg(&test_file)
         .output()

@@ -114,8 +114,7 @@ impl ResourceResolverContext {
         let page_output = output_path.into();
         let site_root = page_output
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."));
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
         let stem = stem.into();
         let page_files_dir = format!("{}_files", stem);
         Self {

@@ -56,6 +56,9 @@ impl CollapseBelow {
         }
     }
 
+    // Deliberate Option-returning parser; `FromStr` would force a `Result`/`Err`
+    // type this lightweight enum doesn't need.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "sm" => Some(Self::Sm),
@@ -84,6 +87,9 @@ impl TogglePosition {
         }
     }
 
+    // Deliberate Option-returning parser; `FromStr` would force a `Result`/`Err`
+    // type this lightweight enum doesn't need.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "left" => Some(Self::Left),
@@ -466,7 +472,7 @@ mod tests {
         let meta = map(vec![("navbar", map(vec![]))]);
         let nav = resolve_navbar(&meta).unwrap();
         assert!(matches!(nav.title, NavbarTitle::Default));
-        assert_eq!(nav.collapse, true);
+        assert!(nav.collapse);
         assert_eq!(nav.collapse_below, CollapseBelow::Lg);
         assert_eq!(nav.toggle_position, TogglePosition::Left);
         assert!(!nav.search);

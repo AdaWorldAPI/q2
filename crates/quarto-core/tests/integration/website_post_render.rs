@@ -94,7 +94,7 @@ fn render_project(fixture: impl FnOnce(&Path)) -> (PathBuf, ProjectRenderSummary
     (project_dir, summary)
 }
 
-fn html_for_stem<'a>(summary: &'a ProjectRenderSummary, stem: &str) -> String {
+fn html_for_stem(summary: &ProjectRenderSummary, stem: &str) -> String {
     let path = summary
         .outputs
         .iter()

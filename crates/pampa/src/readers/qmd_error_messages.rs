@@ -37,7 +37,7 @@ pub fn produce_diagnostic_messages(
     );
 
     for diag in &mut diagnostics {
-        if matches!(diag.code.as_deref(), Some("Q-2-35") | Some("Q-2-36")) {
+        if matches!(diag.code.as_deref(), Some("Q-2-35" | "Q-2-36")) {
             widen_diagnostic_to_line(diag, input_bytes);
         }
     }
@@ -81,13 +81,11 @@ fn widen_diagnostic_to_line(
     let line_start = input_bytes[..pivot]
         .iter()
         .rposition(|&b| b == b'\n')
-        .map(|p| p + 1)
-        .unwrap_or(0);
+        .map_or(0, |p| p + 1);
     let line_end = input_bytes[pivot..]
         .iter()
         .position(|&b| b == b'\n' || b == b'\r')
-        .map(|p| pivot + p)
-        .unwrap_or(input_bytes.len());
+        .map_or(input_bytes.len(), |p| pivot + p);
 
     diag.location = Some(SourceInfo::original(*file_id, line_start, line_end));
 }

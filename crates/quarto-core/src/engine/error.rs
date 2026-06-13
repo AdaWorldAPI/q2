@@ -191,7 +191,7 @@ mod tests {
         let err = ExecutionError::runtime_not_found("knitr", "R");
         let msg = format!("{}", err);
         assert!(msg.contains("knitr"));
-        assert!(msg.contains("R"));
+        assert!(msg.contains('R'));
     }
 
     #[test]

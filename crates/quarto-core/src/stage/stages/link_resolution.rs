@@ -125,10 +125,10 @@ struct TargetCollector<'a> {
 
 impl<'a> TargetCollector<'a> {
     fn record(&mut self, raw: &str) {
-        if let Some(target) = resolve_doc_relative_target(raw, self.source) {
-            if !self.seen.contains(&target) {
-                self.seen.push(target);
-            }
+        if let Some(target) = resolve_doc_relative_target(raw, self.source)
+            && !self.seen.contains(&target)
+        {
+            self.seen.push(target);
         }
     }
 

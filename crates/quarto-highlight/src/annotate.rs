@@ -225,10 +225,10 @@ where
     P: UserGrammarProvider + ?Sized,
 {
     classes.iter().map(|s| s.as_str()).find(|class| {
-        if let Some(u) = user {
-            if u.contains(class) {
-                return true;
-            }
+        if let Some(u) = user
+            && u.contains(class)
+        {
+            return true;
         }
         Registry::global().resolve(class).is_some()
     })

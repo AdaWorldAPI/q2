@@ -480,11 +480,11 @@ fn normalize_path(path: &Path) -> String {
             Component::CurDir => {} // skip `.`
             Component::ParentDir => {
                 // Pop last component if it's a normal component
-                if let Some(last) = components.last() {
-                    if !matches!(last, Component::RootDir | Component::Prefix(_)) {
-                        components.pop();
-                        continue;
-                    }
+                if let Some(last) = components.last()
+                    && !matches!(last, Component::RootDir | Component::Prefix(_))
+                {
+                    components.pop();
+                    continue;
                 }
                 components.push(component);
             }
@@ -533,7 +533,7 @@ mod tests {
             .eval()
             .unwrap();
         assert!(result.contains("\"a\""));
-        assert!(result.contains("1"));
+        assert!(result.contains('1'));
     }
 
     // =========================================================================

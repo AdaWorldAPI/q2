@@ -204,8 +204,7 @@ impl ProjectDependencyGraph {
                         let cand_host_relative = relative_to_dir(&cand_str, &host_dir_str);
                         let host_match = cand_host_relative
                             .as_deref()
-                            .map(|hr| glob_match_path(glob, hr))
-                            .unwrap_or(false);
+                            .is_some_and(|hr| glob_match_path(glob, hr));
                         let project_match = glob_match_path(glob, &cand_str);
                         if host_match || project_match {
                             add_edge(from, &candidate.source_path);
@@ -427,10 +426,7 @@ mod tests {
         for (from, deps) in &g.edges {
             for to in deps {
                 assert!(
-                    g.reverse_edges
-                        .get(to)
-                        .map(|s| s.contains(from))
-                        .unwrap_or(false),
+                    g.reverse_edges.get(to).is_some_and(|s| s.contains(from)),
                     "reverse edge missing: {to:?} → {from:?}"
                 );
             }
@@ -466,12 +462,7 @@ mod tests {
         assert!(a_deps.contains(Path::new("b.qmd")));
         // No incoming for `a.qmd`; `b.qmd` has reverse edge from `a.qmd`.
         assert!(!g.edges.contains_key(Path::new("b.qmd")));
-        assert!(
-            g.reverse_edges
-                .get(Path::new("b.qmd"))
-                .unwrap()
-                .contains(Path::new("a.qmd"))
-        );
+        assert!(g.reverse_edges[Path::new("b.qmd")].contains(Path::new("a.qmd")));
     }
 
     #[test]
@@ -505,7 +496,7 @@ mod tests {
         let mut diags = Vec::new();
         let g = ProjectDependencyGraph::build(&index, &ConfigValue::default(), &mut diags);
 
-        let foo_deps = g.edges.get(Path::new("foo.qmd")).unwrap();
+        let foo_deps = &g.edges[Path::new("foo.qmd")];
         assert!(foo_deps.contains(Path::new("a.qmd")));
         assert!(foo_deps.contains(Path::new("b.qmd")));
     }
@@ -847,7 +838,7 @@ mod tests {
         let mut diags = Vec::new();
         let g = ProjectDependencyGraph::build(&index, &ConfigValue::default(), &mut diags);
 
-        let deps = g.edges.get(Path::new("index.qmd")).unwrap();
+        let deps = &g.edges[Path::new("index.qmd")];
         assert!(deps.contains(Path::new("posts/foo.qmd")));
         assert!(deps.contains(Path::new("posts/bar.qmd")));
         assert!(!deps.contains(Path::new("outside.qmd")));
@@ -920,7 +911,7 @@ mod tests {
         let mut diags = Vec::new();
         let g = ProjectDependencyGraph::build(&index, &ConfigValue::default(), &mut diags);
 
-        let deps = g.edges.get(Path::new("posts/index.qmd")).unwrap();
+        let deps = &g.edges[Path::new("posts/index.qmd")];
         assert!(deps.contains(Path::new("posts/foo.qmd")));
         assert!(deps.contains(Path::new("posts/bar.qmd")));
         assert!(
@@ -947,7 +938,7 @@ mod tests {
         let mut diags = Vec::new();
         let g = ProjectDependencyGraph::build(&index, &ConfigValue::default(), &mut diags);
 
-        let deps = g.edges.get(Path::new("index.qmd")).unwrap();
+        let deps = &g.edges[Path::new("index.qmd")];
         // Both `a.qmd` (from body link AND listing glob) and `b.qmd`
         // (from listing glob only). One edge per target — the
         // BTreeSet dedupes.
@@ -987,7 +978,7 @@ mod tests {
         let mut diags = Vec::new();
         let g = ProjectDependencyGraph::build(&index, &ConfigValue::default(), &mut diags);
 
-        let deps = g.edges.get(Path::new("index.qmd")).unwrap();
+        let deps = &g.edges[Path::new("index.qmd")];
         assert!(deps.contains(Path::new("a/one.qmd")));
         assert!(deps.contains(Path::new("b/two.qmd")));
         assert!(!deps.contains(Path::new("c/three.qmd")));

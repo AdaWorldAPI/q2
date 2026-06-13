@@ -79,10 +79,10 @@ impl RunConfig {
         }
 
         // CI check
-        if let Some(false) = self.ci {
-            if is_ci() {
-                return Some("tests.run.ci is false".to_string());
-            }
+        if let Some(false) = self.ci
+            && is_ci()
+        {
+            return Some("tests.run.ci is false".to_string());
         }
 
         // OS whitelist

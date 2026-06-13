@@ -58,7 +58,7 @@ fn watch_recursive(root: &Path) {
     for entry in entries.flatten() {
         let path = entry.path();
         println!("cargo:rerun-if-changed={}", path.display());
-        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
         if is_dir {
             watch_recursive(&path);
         }

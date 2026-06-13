@@ -74,9 +74,7 @@ impl JsonTraceObserver {
         let state = self.state.lock().unwrap();
         quarto_trace::write::write_trace(&state.doc, &self.output_path).map_err(|e| match e {
             quarto_trace::write::WriteError::Io { source, .. } => source,
-            quarto_trace::write::WriteError::Json(e) => {
-                std::io::Error::new(std::io::ErrorKind::Other, e)
-            }
+            quarto_trace::write::WriteError::Json(e) => std::io::Error::other(e),
         })
     }
 
@@ -88,16 +86,15 @@ impl JsonTraceObserver {
     fn push_entry(state: &mut JsonTraceState, entry: TraceEntry) {
         // If this entry's data is a FinalOutput, grab the output path for
         // RenderInfo while we have it.
-        if state.doc.render.output_path.is_none() {
-            if let Some(data) = &entry.data {
-                if let Some(output_path) = data.get("output_path").and_then(|v| v.as_str()) {
-                    // Only FinalOutput entries emit a top-level "output_path"
-                    // field via serialize_pipeline_data below, so this is a
-                    // safe heuristic.
-                    if entry.data_kind.as_deref() == Some("FinalOutput") {
-                        state.doc.render.output_path = Some(output_path.to_string());
-                    }
-                }
+        if state.doc.render.output_path.is_none()
+            && let Some(data) = &entry.data
+            && let Some(output_path) = data.get("output_path").and_then(|v| v.as_str())
+        {
+            // Only FinalOutput entries emit a top-level "output_path"
+            // field via serialize_pipeline_data below, so this is a
+            // safe heuristic.
+            if entry.data_kind.as_deref() == Some("FinalOutput") {
+                state.doc.render.output_path = Some(output_path.to_string());
             }
         }
         state.doc.pipeline.push(entry);
@@ -122,10 +119,10 @@ impl PipelineObserver for JsonTraceObserver {
         let data_json = serialize_pipeline_data(data);
         let mut state = self.state.lock().unwrap();
         // Populate input_path from the initial input if not already set.
-        if state.doc.render.input_path.is_none() {
-            if let PipelineData::LoadedSource(s) = data {
-                state.doc.render.input_path = Some(s.path.display().to_string());
-            }
+        if state.doc.render.input_path.is_none()
+            && let PipelineData::LoadedSource(s) = data
+        {
+            state.doc.render.input_path = Some(s.path.display().to_string());
         }
         Self::push_entry(
             &mut state,

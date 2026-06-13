@@ -59,14 +59,12 @@ impl From<RawSpan> for HighlightSpan {
             .0
             .first()
             .and_then(|v| v.as_u64())
-            .map(|n| n as usize)
-            .unwrap_or(0);
+            .map_or(0, |n| n as usize);
         let end = raw
             .0
             .get(1)
             .and_then(|v| v.as_u64())
-            .map(|n| n as usize)
-            .unwrap_or(start);
+            .map_or(start, |n| n as usize);
         let capture = raw
             .0
             .get(2)

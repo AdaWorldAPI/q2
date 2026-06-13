@@ -739,7 +739,7 @@ mod tests {
         let inlines = vec![Inline::Link(Link {
             attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
             content: vec![make_str("link text")],
-            target: ("https://example.com".to_string(), "".to_string()),
+            target: ("https://example.com".to_string(), String::new()),
             source_info: dummy_source_info(),
             attr_source: crate::pandoc::attr::AttrSourceInfo::empty(),
             target_source: crate::pandoc::attr::TargetSourceInfo::empty(),
@@ -754,7 +754,7 @@ mod tests {
         let inlines = vec![Inline::Image(Image {
             attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
             content: vec![make_str("alt text")],
-            target: ("image.png".to_string(), "".to_string()),
+            target: ("image.png".to_string(), String::new()),
             source_info: dummy_source_info(),
             attr_source: crate::pandoc::attr::AttrSourceInfo::empty(),
             target_source: crate::pandoc::attr::TargetSourceInfo::empty(),

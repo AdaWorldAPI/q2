@@ -1609,7 +1609,7 @@ mod tests {
 
         assert_eq!(
             get_inline_type_name(&Inline::Str(Str {
-                text: "".into(),
+                text: String::new(),
                 source_info: SourceInfo::for_test()
             })),
             "Str"

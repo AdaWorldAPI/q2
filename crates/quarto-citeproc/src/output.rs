@@ -1837,20 +1837,14 @@ fn apply_title_case_to_inlines_with_last(
             }
             // SmallCaps, Superscript, Subscript are "implicit nocase" per CSL-JSON spec
             // But they still "consume" the first word position if they contain text
-            Inline::SmallCaps(s) => {
-                if has_text_content(&s.content) {
-                    *seen_first_word = true;
-                }
+            Inline::SmallCaps(s) if has_text_content(&s.content) => {
+                *seen_first_word = true;
             }
-            Inline::Superscript(s) => {
-                if has_text_content(&s.content) {
-                    *seen_first_word = true;
-                }
+            Inline::Superscript(s) if has_text_content(&s.content) => {
+                *seen_first_word = true;
             }
-            Inline::Subscript(s) => {
-                if has_text_content(&s.content) {
-                    *seen_first_word = true;
-                }
+            Inline::Subscript(s) if has_text_content(&s.content) => {
+                *seen_first_word = true;
             }
             Inline::Quoted(q) => {
                 apply_title_case_to_inlines_with_last(
@@ -1941,50 +1935,32 @@ fn has_text_content(inlines: &quarto_pandoc_types::Inlines) -> bool {
 
     for inline in inlines.iter() {
         match inline {
-            Inline::Str(s) => {
-                if s.text.chars().any(|c| c.is_alphabetic()) {
-                    return true;
-                }
+            Inline::Str(s) if s.text.chars().any(|c| c.is_alphabetic()) => {
+                return true;
             }
-            Inline::Emph(e) => {
-                if has_text_content(&e.content) {
-                    return true;
-                }
+            Inline::Emph(e) if has_text_content(&e.content) => {
+                return true;
             }
-            Inline::Strong(s) => {
-                if has_text_content(&s.content) {
-                    return true;
-                }
+            Inline::Strong(s) if has_text_content(&s.content) => {
+                return true;
             }
-            Inline::SmallCaps(s) => {
-                if has_text_content(&s.content) {
-                    return true;
-                }
+            Inline::SmallCaps(s) if has_text_content(&s.content) => {
+                return true;
             }
-            Inline::Superscript(s) => {
-                if has_text_content(&s.content) {
-                    return true;
-                }
+            Inline::Superscript(s) if has_text_content(&s.content) => {
+                return true;
             }
-            Inline::Subscript(s) => {
-                if has_text_content(&s.content) {
-                    return true;
-                }
+            Inline::Subscript(s) if has_text_content(&s.content) => {
+                return true;
             }
-            Inline::Quoted(q) => {
-                if has_text_content(&q.content) {
-                    return true;
-                }
+            Inline::Quoted(q) if has_text_content(&q.content) => {
+                return true;
             }
-            Inline::Link(l) => {
-                if has_text_content(&l.content) {
-                    return true;
-                }
+            Inline::Link(l) if has_text_content(&l.content) => {
+                return true;
             }
-            Inline::Span(s) => {
-                if has_text_content(&s.content) {
-                    return true;
-                }
+            Inline::Span(s) if has_text_content(&s.content) => {
+                return true;
             }
             _ => {}
         }

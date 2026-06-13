@@ -367,30 +367,29 @@ impl ShortcodeResolveTransform {
             }
 
             // 3. Try name-based extension lookup (on-demand loading)
-            if let Some(ext) = find_extension(&shortcode.name, &self.extensions) {
-                if !ext.contributes.shortcodes.is_empty() {
-                    for script_path in &ext.contributes.shortcodes {
-                        if let Err(e) = engine.load_script(script_path).await {
-                            let diagnostic =
-                                DiagnosticMessageBuilder::warning("Shortcode script error")
-                                    .problem(format!(
-                                        "Failed to load shortcode script `{}`: {}",
-                                        script_path.display(),
-                                        e
-                                    ))
-                                    .with_location(ctx.source_info.clone())
-                                    .build();
-                            return ShortcodeResult::Error(ShortcodeError {
-                                key: shortcode.name.clone(),
-                                diagnostic,
-                            });
-                        }
+            if let Some(ext) = find_extension(&shortcode.name, &self.extensions)
+                && !ext.contributes.shortcodes.is_empty()
+            {
+                for script_path in &ext.contributes.shortcodes {
+                    if let Err(e) = engine.load_script(script_path).await {
+                        let diagnostic =
+                            DiagnosticMessageBuilder::warning("Shortcode script error")
+                                .problem(format!(
+                                    "Failed to load shortcode script `{}`: {}",
+                                    script_path.display(),
+                                    e
+                                ))
+                                .with_location(ctx.source_info.clone())
+                                .build();
+                        return ShortcodeResult::Error(ShortcodeError {
+                            key: shortcode.name.clone(),
+                            diagnostic,
+                        });
                     }
-                    // Retry after loading extension scripts
-                    if engine.has_handler(&shortcode.name) {
-                        return dispatch_lua_shortcode(engine, shortcode, ctx, resolution_ctx)
-                            .await;
-                    }
+                }
+                // Retry after loading extension scripts
+                if engine.has_handler(&shortcode.name) {
+                    return dispatch_lua_shortcode(engine, shortcode, ctx, resolution_ctx).await;
                 }
             }
         }
@@ -2754,23 +2753,20 @@ mod tests {
         // Walk every inline in the AST and assert: any
         // Generated{by.kind=="shortcode"} carries at least one Invocation.
         fn check_inline(inline: &Inline) {
-            if let SourceInfo::Generated { by, from } = inline.source_info() {
-                if by.kind == "shortcode" {
-                    assert!(
-                        from.iter()
-                            .any(|a| a.role == quarto_source_map::AnchorRole::Invocation),
-                        "Generated{{by:shortcode}} missing Invocation anchor"
-                    );
-                }
+            if let SourceInfo::Generated { by, from } = inline.source_info()
+                && by.kind == "shortcode"
+            {
+                assert!(
+                    from.iter()
+                        .any(|a| a.role == quarto_source_map::AnchorRole::Invocation),
+                    "Generated{{by:shortcode}} missing Invocation anchor"
+                );
             }
             // Recurse into children for the common containers exercised here.
-            match inline {
-                Inline::Strong(s) => {
-                    for c in &s.content {
-                        check_inline(c);
-                    }
+            if let Inline::Strong(s) = inline {
+                for c in &s.content {
+                    check_inline(c);
                 }
-                _ => {}
             }
         }
 

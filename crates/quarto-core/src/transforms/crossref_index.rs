@@ -347,10 +347,10 @@ fn advance_sections(sections: &mut Vec<u32>, level: usize) {
 /// Prefers `caption_short` (a short form authored by the user). Falls back
 /// to concatenating the inlines of `caption_long`'s first Paragraph.
 fn extract_caption_inlines(node: &CustomNode) -> Option<quarto_pandoc_types::inline::Inlines> {
-    if let Some(Slot::Inlines(short)) = node.slots.get("caption_short") {
-        if !short.is_empty() {
-            return Some(short.clone());
-        }
+    if let Some(Slot::Inlines(short)) = node.slots.get("caption_short")
+        && !short.is_empty()
+    {
+        return Some(short.clone());
     }
     if let Some(Slot::Blocks(long)) = node.slots.get("caption_long") {
         for block in long {

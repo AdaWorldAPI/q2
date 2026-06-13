@@ -84,10 +84,10 @@ impl Debug for RuntimeFs<'_> {
 impl grass::Fs for RuntimeFs<'_> {
     fn is_dir(&self, path: &Path) -> bool {
         // Check embedded resources first
-        if let Some(embedded) = self.embedded {
-            if embedded.is_dir(path) {
-                return true;
-            }
+        if let Some(embedded) = self.embedded
+            && embedded.is_dir(path)
+        {
+            return true;
         }
         // Fall back to runtime
         self.runtime.is_dir(path).unwrap_or(false)
@@ -95,10 +95,10 @@ impl grass::Fs for RuntimeFs<'_> {
 
     fn is_file(&self, path: &Path) -> bool {
         // Check embedded resources first
-        if let Some(embedded) = self.embedded {
-            if embedded.is_file(path) {
-                return true;
-            }
+        if let Some(embedded) = self.embedded
+            && embedded.is_file(path)
+        {
+            return true;
         }
         // Fall back to runtime
         self.runtime.is_file(path).unwrap_or(false)
@@ -106,15 +106,15 @@ impl grass::Fs for RuntimeFs<'_> {
 
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         // Check embedded resources first
-        if let Some(embedded) = self.embedded {
-            if let Some(content) = embedded.read(path) {
-                return Ok(content.to_vec());
-            }
+        if let Some(embedded) = self.embedded
+            && let Some(content) = embedded.read(path)
+        {
+            return Ok(content.to_vec());
         }
         // Fall back to runtime
         self.runtime
             .file_read(path)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .map_err(|e| io::Error::other(e.to_string()))
     }
 }
 

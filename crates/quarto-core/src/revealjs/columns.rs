@@ -97,7 +97,7 @@ mod tests {
             kvs.insert("style".to_string(), s.to_string());
         }
         Div {
-            attr: ("".to_string(), vec!["column".to_string()], kvs),
+            attr: (String::new(), vec!["column".to_string()], kvs),
             content: vec![],
             source_info: SourceInfo::generated(By::revealjs()),
             attr_source: AttrSourceInfo::empty(),
@@ -130,7 +130,7 @@ mod tests {
         let mut kvs = LinkedHashMap::new();
         kvs.insert("width".to_string(), "40%".to_string());
         let mut div = Div {
-            attr: ("".to_string(), vec!["notcolumn".to_string()], kvs),
+            attr: (String::new(), vec!["notcolumn".to_string()], kvs),
             content: vec![],
             source_info: SourceInfo::generated(By::revealjs()),
             attr_source: AttrSourceInfo::empty(),

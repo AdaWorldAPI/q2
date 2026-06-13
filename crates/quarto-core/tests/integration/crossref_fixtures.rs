@@ -383,10 +383,10 @@ fn find_first_float_ref_target(
 ) -> Option<&quarto_pandoc_types::custom::CustomNode> {
     use quarto_pandoc_types::block::Block;
     for b in blocks {
-        if let Block::Custom(node) = b {
-            if node.type_name == quarto_core::crossref::FLOAT_REF_TARGET {
-                return Some(node);
-            }
+        if let Block::Custom(node) = b
+            && node.type_name == quarto_core::crossref::FLOAT_REF_TARGET
+        {
+            return Some(node);
         }
     }
     None
@@ -830,10 +830,10 @@ fn find_div_by_id<'a>(
 ) -> Option<&'a quarto_pandoc_types::block::Div> {
     use quarto_pandoc_types::block::Block;
     for b in blocks {
-        if let Block::Div(d) = b {
-            if d.attr.0 == id {
-                return Some(d);
-            }
+        if let Block::Div(d) = b
+            && d.attr.0 == id
+        {
+            return Some(d);
         }
     }
     None
@@ -1006,10 +1006,10 @@ See @thm-x.
     for b in &ast.blocks {
         if let Block::Paragraph(p) = b {
             for i in &p.content {
-                if let Inline::Link(l) = i {
-                    if l.target.0 == "#thm-x" {
-                        link_text = Some(flatten_inlines(&l.content));
-                    }
+                if let Inline::Link(l) = i
+                    && l.target.0 == "#thm-x"
+                {
+                    link_text = Some(flatten_inlines(&l.content));
                 }
             }
         }

@@ -237,8 +237,7 @@ fn render_one(
                     parse_diags.len(),
                     parse_diags
                         .first()
-                        .map(|d| d.title.as_str())
-                        .unwrap_or("(no message)")
+                        .map_or("(no message)", |d| d.title.as_str())
                 ),
             );
             return;
@@ -372,8 +371,7 @@ fn load_custom_template(
     } else {
         host_input
             .parent()
-            .map(|p| p.join(template_rel))
-            .unwrap_or_else(|| template_rel.to_path_buf())
+            .map_or_else(|| template_rel.to_path_buf(), |p| p.join(template_rel))
     };
 
     match std::fs::read_to_string(&template_abs) {
@@ -659,7 +657,7 @@ mod tests {
         );
         let titles = rendered_block_titles(div);
         assert!(
-            titles.iter().any(|t| t.contains("a")),
+            titles.iter().any(|t| t.contains('a')),
             "expected item title `a` in rendered headers, got {:?}",
             titles
         );
@@ -1451,11 +1449,11 @@ mod tests {
         }
         fn walk_inlines(inlines: &[I], out: &mut String) {
             for i in inlines {
-                if let I::RawInline(ri) = i {
-                    if ri.format.eq_ignore_ascii_case("html") {
-                        out.push_str(&ri.text);
-                        out.push('\n');
-                    }
+                if let I::RawInline(ri) = i
+                    && ri.format.eq_ignore_ascii_case("html")
+                {
+                    out.push_str(&ri.text);
+                    out.push('\n');
                 }
             }
         }

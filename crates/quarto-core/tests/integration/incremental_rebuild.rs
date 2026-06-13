@@ -92,10 +92,10 @@ fn list_cache_files(dir: &std::path::Path) -> Vec<PathBuf> {
         Err(_) => return out,
     };
     for entry in read.flatten() {
-        if let Ok(ft) = entry.file_type() {
-            if ft.is_file() {
-                out.push(entry.path());
-            }
+        if let Ok(ft) = entry.file_type()
+            && ft.is_file()
+        {
+            out.push(entry.path());
         }
     }
     out

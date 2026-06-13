@@ -385,8 +385,7 @@ mod tests {
         assert!(
             d.problem
                 .as_ref()
-                .map(|p| p.as_str().contains("missing.qmd"))
-                .unwrap_or(false),
+                .is_some_and(|p| p.as_str().contains("missing.qmd")),
             "Q-13-3 problem must mention missing.qmd; got {:?}",
             d.problem
         );

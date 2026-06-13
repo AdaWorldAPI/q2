@@ -212,7 +212,7 @@ impl Build {
                 // Override Lua's setjmp/longjmp error handling with Rust's
                 // panic/catch_unwind mechanism via a force-included header.
                 let wasm_header = source_dir.join("luaconf_wasm.h");
-                config.flag(&format!("-include{}", wasm_header.display()));
+                config.flag(format!("-include{}", wasm_header.display()));
 
                 // Enable WASM exception handling for unwind-through-C-frames
                 config.flag("-fwasm-exceptions");

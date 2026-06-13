@@ -517,8 +517,7 @@ fn determine_output_paths(
     // Determine output directory
     let output_dir = output_path
         .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
+        .map_or_else(|| PathBuf::from("."), |p| p.to_path_buf());
 
     // Get output stem (may differ from input stem if explicit output path given)
     let output_stem = output_path
@@ -532,7 +531,7 @@ fn determine_output_paths(
 
 /// Convert a format name to a Format instance.
 fn format_from_name(name: &str) -> Result<Format> {
-    Format::from_format_string(name).map_err(|e| QuartoError::other(e).into())
+    Format::from_format_string(name).map_err(QuartoError::other)
 }
 
 #[cfg(test)]

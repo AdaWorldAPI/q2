@@ -24,7 +24,6 @@ use crate::traits::{
     CommandOutput, PathKind, PathMetadata, RuntimeError, RuntimeResult, SystemRuntime, TempDir,
     XdgDirKind,
 };
-use reqwest;
 
 /// Native runtime with full system access.
 ///

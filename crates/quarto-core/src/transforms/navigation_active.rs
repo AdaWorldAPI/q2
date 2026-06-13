@@ -42,8 +42,7 @@ pub fn page_relative_source(ctx: &RenderContext) -> String {
             ctx.document
                 .input
                 .file_name()
-                .map(std::path::Path::new)
-                .unwrap_or(&ctx.document.input)
+                .map_or(&ctx.document.input, std::path::Path::new)
         });
     relative.to_string_lossy().replace('\\', "/")
 }
@@ -60,11 +59,13 @@ pub fn page_relative_source(ctx: &RenderContext) -> String {
 pub fn mark_active(items: &mut [NavigationItem], page_source: &str) -> bool {
     let mut any = false;
     for item in items.iter_mut() {
-        if let Some(href) = item.href.as_deref() {
-            if !is_external(href) && !href.starts_with('#') && href == page_source {
-                item.active = true;
-                any = true;
-            }
+        if let Some(href) = item.href.as_deref()
+            && !is_external(href)
+            && !href.starts_with('#')
+            && href == page_source
+        {
+            item.active = true;
+            any = true;
         }
         if !item.menu.is_empty() && mark_active(&mut item.menu, page_source) {
             any = true;

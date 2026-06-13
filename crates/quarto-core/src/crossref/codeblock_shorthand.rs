@@ -93,10 +93,10 @@ pub fn desugar_blocks(blocks: &mut Blocks, registry: &RefTypeRegistry) {
         }
 
         // Try to desugar this block.
-        if let Block::CodeBlock(cb) = &blocks[i] {
-            if let Some(replacement) = try_desugar_code_block(cb, registry) {
-                blocks[i] = replacement;
-            }
+        if let Block::CodeBlock(cb) = &blocks[i]
+            && let Some(replacement) = try_desugar_code_block(cb, registry)
+        {
+            blocks[i] = replacement;
         }
         i += 1;
     }
@@ -212,11 +212,11 @@ fn strip_consumed_lines(
             let trimmed = line.trim_start();
             if let Some(rest) = trimmed.strip_prefix("#|") {
                 let rest = rest.trim_start();
-                if let Some((key, _value)) = rest.split_once(':') {
-                    if consumed.contains_key(key.trim()) {
-                        // Drop this line.
-                        continue;
-                    }
+                if let Some((key, _value)) = rest.split_once(':')
+                    && consumed.contains_key(key.trim())
+                {
+                    // Drop this line.
+                    continue;
                 }
                 // `#|` line that isn't consumed — keep it.
                 out.push_str(line);
@@ -230,10 +230,8 @@ fn strip_consumed_lines(
         out.push('\n');
     }
     // Preserve trailing newline iff the original had one.
-    if !text.ends_with('\n') {
-        if out.ends_with('\n') {
-            out.pop();
-        }
+    if !text.ends_with('\n') && out.ends_with('\n') {
+        out.pop();
     }
     out
 }
@@ -274,15 +272,15 @@ mod tests {
     fn parses_cell_options() {
         let opts =
             parse_cell_options("#| label: fig-plot\n#| fig-cap: \"My caption\"\nprint('hi')\n");
-        assert_eq!(opts.get("label").unwrap(), "fig-plot");
-        assert!(opts.get("fig-cap").unwrap().contains("My caption"));
+        assert_eq!(&opts["label"], "fig-plot");
+        assert!(opts["fig-cap"].contains("My caption"));
         assert!(opts.get("print('hi')").is_none());
     }
 
     #[test]
     fn stops_at_first_non_pipe_line() {
         let opts = parse_cell_options("#| label: fig-one\nprint('hi')\n#| fig-cap: Too late");
-        assert_eq!(opts.get("label").unwrap(), "fig-one");
+        assert_eq!(&opts["label"], "fig-one");
         assert!(opts.get("fig-cap").is_none());
     }
 

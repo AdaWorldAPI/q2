@@ -452,7 +452,7 @@ pub trait SystemRuntime: Send + Sync {
         use std::time::UNIX_EPOCH;
         let secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| RuntimeError::Io(io::Error::new(io::ErrorKind::Other, e.to_string())))?
+            .map_err(|e| RuntimeError::Io(io::Error::other(e.to_string())))?
             .as_secs();
         Ok(secs)
     }

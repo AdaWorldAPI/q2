@@ -339,10 +339,9 @@ fn get_caller_location(lua: &Lua) -> (String, i64) {
                 }
             }
             None
-        }) {
-            if let Some(location) = result {
-                return location;
-            }
+        }) && let Some(location) = result
+        {
+            return location;
         }
     }
     ("unknown".to_string(), 0)

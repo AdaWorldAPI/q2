@@ -28,7 +28,7 @@ use std::sync::OnceLock;
 /// managers are found.
 fn find_python() -> &'static str {
     static PYTHON: OnceLock<&str> = OnceLock::new();
-    *PYTHON.get_or_init(|| {
+    PYTHON.get_or_init(|| {
         let candidates: &[&str] = if cfg!(windows) {
             &[
                 "python3",
@@ -47,10 +47,9 @@ fn find_python() -> &'static str {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
+                && status.success()
             {
-                if status.success() {
-                    return candidate;
-                }
+                return candidate;
             }
         }
         "python3"
@@ -66,23 +65,23 @@ fn find_python() -> &'static str {
 ///   the OS resolve it via PATH (e.g., `pandoc-crossref`).
 /// - On Unix, always use `Command::new` directly — shebangs work.
 fn build_filter_command(filter_path: &Path) -> Command {
-    if cfg!(windows) && filter_path.exists() {
-        if let Some(ext) = filter_path
+    if cfg!(windows)
+        && filter_path.exists()
+        && let Some(ext) = filter_path
             .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_ascii_lowercase())
-        {
-            match ext.as_str() {
-                "py" => {
-                    let mut cmd = Command::new(find_python());
-                    cmd.arg(filter_path);
-                    return cmd;
-                }
-                // .sh/.bash filters are not dispatched to bash on Windows — path
-                // translation varies across bash variants (WSL, Git Bash, Cygwin).
-                // On Unix, the shebang line handles dispatch via Command::new().
-                _ => {}
+    {
+        match ext.as_str() {
+            "py" => {
+                let mut cmd = Command::new(find_python());
+                cmd.arg(filter_path);
+                return cmd;
             }
+            // .sh/.bash filters are not dispatched to bash on Windows — path
+            // translation varies across bash variants (WSL, Git Bash, Cygwin).
+            // On Unix, the shebang line handles dispatch via Command::new().
+            _ => {}
         }
     }
     Command::new(filter_path)

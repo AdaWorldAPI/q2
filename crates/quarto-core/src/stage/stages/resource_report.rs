@@ -189,8 +189,7 @@ mod tests {
         // production behavior — see DocumentProfileStage).
         profile.source_path = doc_path
             .strip_prefix(&project.dir)
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|_| doc_path.clone());
+            .map_or_else(|_| doc_path.clone(), |p| p.to_path_buf());
         profile.resources = snapshot
             .into_iter()
             .map(crate::project_resources::RawResourcePattern::without_source)

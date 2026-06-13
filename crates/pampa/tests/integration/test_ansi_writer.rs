@@ -51,7 +51,7 @@ fn test_plain_block() {
 
     let output = write_ansi(&pandoc);
     assert!(output.contains("Hello world"));
-    assert!(output.ends_with("\n"));
+    assert!(output.ends_with('\n'));
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn test_horizontal_rule() {
 
     let output = write_ansi(&pandoc);
     // Should contain horizontal line characters
-    assert!(output.contains("─") || output.contains("-"));
+    assert!(output.contains("─") || output.contains('-'));
 }
 
 // ============================================================================
@@ -328,7 +328,7 @@ fn test_blockquote() {
     let output = write_ansi(&pandoc);
     assert!(output.contains("Quoted text"));
     // Should have some marker (either │ or >)
-    assert!(output.contains("│") || output.contains(">"));
+    assert!(output.contains("│") || output.contains('>'));
 }
 
 // ============================================================================

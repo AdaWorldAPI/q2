@@ -186,7 +186,7 @@ mod tests {
             path: PathBuf::from("/project/test.qmd"),
             ast: Pandoc {
                 meta: quarto_pandoc_types::ConfigValue::default(),
-                blocks: vec![].into(),
+                blocks: vec![],
             },
             ast_context: ASTContext::default(),
             source_context: SourceContext::new(),

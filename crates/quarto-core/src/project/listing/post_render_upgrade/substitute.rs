@@ -155,9 +155,9 @@ fn substitute_descriptions(
     for caps in re.captures_iter(host_html) {
         // Capture groups (DESC_REGEX): 1=max, 2=href, 3=inner.
         let m = caps.get(0).expect("whole match always present");
-        let max_str = caps.get(1).map(|c| c.as_str()).unwrap_or("0");
-        let href = caps.get(2).map(|c| c.as_str()).unwrap_or("").to_string();
-        let inner = caps.get(3).map(|c| c.as_str()).unwrap_or("");
+        let max_str = caps.get(1).map_or("0", |c| c.as_str());
+        let href = caps.get(2).map_or("", |c| c.as_str()).to_string();
+        let inner = caps.get(3).map_or("", |c| c.as_str());
         let max_length: usize = max_str.parse().unwrap_or(0);
 
         // Append everything before this match.
@@ -235,12 +235,12 @@ fn substitute_images(
         // Capture groups (IMG_REGEX): 1=attrs, 2=listing-id, 3=idx,
         // 4=href, 5=b64-default, 6=inner.
         let m = caps.get(0).expect("whole match always present");
-        let attrs = caps.get(1).map(|c| c.as_str()).unwrap_or("");
-        let _listing_id = caps.get(2).map(|c| c.as_str()).unwrap_or("");
-        let _idx = caps.get(3).map(|c| c.as_str()).unwrap_or("");
-        let href = caps.get(4).map(|c| c.as_str()).unwrap_or("").to_string();
-        let b64_default = caps.get(5).map(|c| c.as_str()).unwrap_or("");
-        let inner = caps.get(6).map(|c| c.as_str()).unwrap_or("");
+        let attrs = caps.get(1).map_or("", |c| c.as_str());
+        let _listing_id = caps.get(2).map_or("", |c| c.as_str());
+        let _idx = caps.get(3).map_or("", |c| c.as_str());
+        let href = caps.get(4).map_or("", |c| c.as_str()).to_string();
+        let b64_default = caps.get(5).map_or("", |c| c.as_str());
+        let inner = caps.get(6).map_or("", |c| c.as_str());
 
         // Append before-match chunk.
         out.push_str(&host_html[last_end..m.start()]);
@@ -342,8 +342,9 @@ fn resolve_preview_url(host_path: &Path, sibling_abs: &Path, preview_src: &str) 
         return preview_src.to_string();
     }
     let preview_abs = sibling_dir.join(preview_src);
-    pathdiff::diff_paths(&preview_abs, host_dir)
-        .map(|p| {
+    pathdiff::diff_paths(&preview_abs, host_dir).map_or_else(
+        || preview_src.to_string(),
+        |p| {
             // Normalize separators to forward slashes for URL.
             p.components()
                 .filter_map(|c| match c {
@@ -355,8 +356,8 @@ fn resolve_preview_url(host_path: &Path, sibling_abs: &Path, preview_src: &str) 
                 })
                 .collect::<Vec<_>>()
                 .join("/")
-        })
-        .unwrap_or_else(|| preview_src.to_string())
+        },
+    )
 }
 
 fn is_absolute_url(s: &str) -> bool {

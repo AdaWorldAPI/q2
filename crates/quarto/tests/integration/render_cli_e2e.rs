@@ -96,9 +96,7 @@ fn clean_cache_flag_wipes_then_renders() {
         String::from_utf8_lossy(&out.stderr)
     );
     let profiles_dir = project.join(".quarto/cache/profiles");
-    let cold_count = std::fs::read_dir(&profiles_dir)
-        .map(|d| d.flatten().count())
-        .unwrap_or(0);
+    let cold_count = std::fs::read_dir(&profiles_dir).map_or(0, |d| d.flatten().count());
     assert!(
         cold_count > 0,
         "cold render should populate profile cache; found {cold_count} entries"
@@ -128,9 +126,7 @@ fn clean_cache_flag_wipes_then_renders() {
     );
 
     // Profile cache is repopulated from the fresh render.
-    let warm_count = std::fs::read_dir(&profiles_dir)
-        .map(|d| d.flatten().count())
-        .unwrap_or(0);
+    let warm_count = std::fs::read_dir(&profiles_dir).map_or(0, |d| d.flatten().count());
     assert_eq!(
         warm_count, cold_count,
         "profile cache should be re-populated after --clean-cache"

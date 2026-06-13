@@ -195,8 +195,7 @@ impl PipelineStage for MetadataMergeStage {
         let document_dir = doc
             .path
             .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| ctx.project.dir.clone());
+            .map_or_else(|| ctx.project.dir.clone(), |p| p.to_path_buf());
         let project_layer = ctx.project.config.metadata.as_ref().map(|m| {
             let mut flattened = resolve_format_config(m, base_format);
             adjust_paths_to_document_dir(&mut flattened, &ctx.project.dir, &document_dir);

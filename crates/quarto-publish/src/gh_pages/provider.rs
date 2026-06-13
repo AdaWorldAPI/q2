@@ -411,19 +411,18 @@ impl PublishProvider for GhPagesProvider {
 
         // Default-site nudge (`<user>.github.io` first publish):
         // tell the user they need to flip the source branch.
-        if state.is_first_publish {
-            if let Some(site_url) = state.site_url.as_deref() {
-                if let Some(user) = default_site_user(site_url) {
-                    host.emit(PublishEvent::Note {
-                        message: format!(
-                            "First publish to a default GitHub Pages site detected. \
+        if state.is_first_publish
+            && let Some(site_url) = state.site_url.as_deref()
+            && let Some(user) = default_site_user(site_url)
+        {
+            host.emit(PublishEvent::Note {
+                message: format!(
+                    "First publish to a default GitHub Pages site detected. \
                              You may need to set the source branch to gh-pages at \
                              https://github.com/{user}/{user}.github.io/settings/pages"
-                        ),
-                    })
-                    .await;
-                }
-            }
+                ),
+            })
+            .await;
         }
 
         Ok(outcome)

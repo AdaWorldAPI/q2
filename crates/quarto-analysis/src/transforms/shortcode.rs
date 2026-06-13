@@ -428,7 +428,6 @@ mod tests {
                 source_info: SourceInfo::for_test(),
                 attr_source: AttrSourceInfo::empty(),
             })],
-            ..Default::default()
         };
 
         let transform = MetaShortcodeTransform;
@@ -461,7 +460,6 @@ mod tests {
                 content: vec![make_meta_shortcode("nonexistent")],
                 source_info: SourceInfo::for_test(),
             })],
-            ..Default::default()
         };
 
         let transform = MetaShortcodeTransform;
@@ -508,7 +506,6 @@ mod tests {
                 source_info: SourceInfo::for_test(),
                 attr_source: AttrSourceInfo::empty(),
             })],
-            ..Default::default()
         };
 
         let transform = MetaShortcodeTransform;

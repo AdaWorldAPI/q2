@@ -269,7 +269,7 @@ pub fn render_sidebar_html(agg: &AggregatedCategories) -> String {
 
     // Sort case-insensitively (Q1 uses `localeCompare` on lowercase).
     let mut sorted: Vec<(&String, &u32)> = agg.counts.iter().collect();
-    sorted.sort_by(|(a, _), (b, _)| a.to_lowercase().cmp(&b.to_lowercase()));
+    sorted.sort_by_key(|(a, _)| a.to_lowercase());
 
     for (name, count) in &sorted {
         let count = **count;
@@ -961,11 +961,9 @@ mod tests {
         )];
         let (_ast, diags) = run_transform(empty_pandoc(), resolved).await;
         assert!(
-            !diags.iter().any(|d| d
-                .code
-                .as_deref()
-                .map(|c| c.starts_with("Q-12"))
-                .unwrap_or(false)),
+            !diags
+                .iter()
+                .any(|d| d.code.as_deref().is_some_and(|c| c.starts_with("Q-12"))),
             "no Q-12 diagnostics on happy path; got: {:?}",
             diags
         );

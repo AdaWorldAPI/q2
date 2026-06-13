@@ -438,7 +438,7 @@ $second: 2;
         };
 
         let layer2 = SassLayer {
-            defaults: "".to_string(), // Empty - should be skipped
+            defaults: String::new(), // Empty - should be skipped
             rules: ".b { }".to_string(),
             ..Default::default()
         };

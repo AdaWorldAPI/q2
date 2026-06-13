@@ -107,10 +107,10 @@ fn collect_member_paths(entries: &[SidebarEntry]) -> Vec<PathBuf> {
                     }
                 }
                 SidebarEntry::Section { href, contents, .. } => {
-                    if let Some(h) = href.as_deref() {
-                        if !is_external_or_anchor(h) {
-                            push_unique(out, PathBuf::from(h));
-                        }
+                    if let Some(h) = href.as_deref()
+                        && !is_external_or_anchor(h)
+                    {
+                        push_unique(out, PathBuf::from(h));
                     }
                     walk(contents, out);
                 }

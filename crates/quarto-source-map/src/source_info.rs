@@ -160,6 +160,11 @@ impl SourceInfo {
         note = "Use SourceInfo::for_test() in tests, or the appropriate Generated{by: <kind>} in production. See provenance-contract.md."
     )]
     #[doc(hidden)]
+    // Intentionally shadows `Default::default` (see the doc comment above): this
+    // deprecated inherent method is the provenance-contract tripwire, kept so
+    // `unwrap_or_default()`/`#[derive(Default)]` still compile while flagging
+    // direct calls. The name must match the trait method, so the lint is moot.
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         <Self as Default>::default()
     }

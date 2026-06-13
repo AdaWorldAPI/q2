@@ -214,8 +214,7 @@ fn website_render_emits_site_libs_dir() {
             e.path()
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map(|s| s.starts_with("quarto-theme-") && s.ends_with(".css"))
-                .unwrap_or(false)
+                .is_some_and(|s| s.starts_with("quarto-theme-") && s.ends_with(".css"))
         })
         .collect();
     assert_eq!(
@@ -260,8 +259,7 @@ fn website_render_emits_two_themes_when_docs_differ() {
             e.path()
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map(|s| s.starts_with("quarto-theme-") && s.ends_with(".css"))
-                .unwrap_or(false)
+                .is_some_and(|s| s.starts_with("quarto-theme-") && s.ends_with(".css"))
         })
         .collect();
     assert_eq!(

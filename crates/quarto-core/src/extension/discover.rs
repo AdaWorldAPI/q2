@@ -34,13 +34,12 @@ pub fn discover_extensions(
     let mut dirs_to_search = Vec::new();
 
     // Built-in extensions first (lowest priority)
-    if let Some(builtin_dir) = builtin_extensions_dir {
-        if runtime
+    if let Some(builtin_dir) = builtin_extensions_dir
+        && runtime
             .path_exists(builtin_dir, Some(PathKind::Directory))
             .unwrap_or(false)
-        {
-            scan_extensions_dir(builtin_dir, runtime, &mut extensions);
-        }
+    {
+        scan_extensions_dir(builtin_dir, runtime, &mut extensions);
     }
 
     let start_dir = input.parent().unwrap_or(input);

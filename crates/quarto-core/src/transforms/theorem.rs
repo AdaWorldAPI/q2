@@ -172,16 +172,15 @@ fn transform_block(
         // that's the visible-display intent — but record the mismatch.
         if let (Some((class_rt, _)), Some(reg_id_def)) =
             (class_match, registry_classify(&div.attr, registry))
+            && reg_id_def.ref_type != class_rt
         {
-            if reg_id_def.ref_type != class_rt {
-                // The user wrote `.theorem` / `.lemma` / … but `#foo-bar`
-                // where `foo` is a registered (non-theorem) prefix like `fig`.
-                diagnostics.push(DiagnosticMessage::warning(format!(
+            // The user wrote `.theorem` / `.lemma` / … but `#foo-bar`
+            // where `foo` is a registered (non-theorem) prefix like `fig`.
+            diagnostics.push(DiagnosticMessage::warning(format!(
                     "inconsistent cross-reference specification: `{}` id prefix is incompatible with `{}` class",
                     reg_id_def.ref_type,
                     theorem_class_for(class_rt),
                 )));
-            }
         }
 
         let matched = class_match.or(id_match);
@@ -287,10 +286,10 @@ fn convert_div(mut div: Div, ref_type: &str, kind: &str) -> CustomNode {
     });
     node.slots
         .insert("content".into(), Slot::Blocks(div.content));
-    if let Some(inlines) = title {
-        if !inlines.is_empty() {
-            node.slots.insert("title".into(), Slot::Inlines(inlines));
-        }
+    if let Some(inlines) = title
+        && !inlines.is_empty()
+    {
+        node.slots.insert("title".into(), Slot::Inlines(inlines));
     }
     node
 }

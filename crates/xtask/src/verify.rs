@@ -29,6 +29,7 @@ use crate::test;
 const TOTAL_STEPS: u32 = 14;
 
 /// Configuration for the verify command.
+#[derive(Default)]
 pub struct VerifyConfig {
     /// Skip Rust build step.
     pub skip_rust_build: bool,
@@ -58,27 +59,6 @@ pub struct VerifyConfig {
     pub include_e2e: bool,
     /// Do not set RUSTFLAGS="-D warnings" (allows warnings during iteration).
     pub no_deny_warnings: bool,
-}
-
-impl Default for VerifyConfig {
-    fn default() -> Self {
-        Self {
-            skip_rust_build: false,
-            skip_rust_tests: false,
-            skip_ts_packages_build: false,
-            skip_hub_build: false,
-            skip_hub_tests: false,
-            skip_trace_viewer_build: false,
-            skip_trace_viewer_tests: false,
-            skip_treesitter_tests: false,
-            skip_treesitter_crlf_tests: false,
-            skip_shared_package_tests: false,
-            skip_q2_preview_spa_build: false,
-            skip_hub_mcp_tests: false,
-            include_e2e: false,
-            no_deny_warnings: false,
-        }
-    }
 }
 
 /// Run the verify command.

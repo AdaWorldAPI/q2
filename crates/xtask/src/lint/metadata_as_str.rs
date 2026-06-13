@@ -138,16 +138,12 @@ impl MetaVisitor {
         let method = call.method.to_string();
         match method.as_str() {
             // Direct chain: `<meta-get>.as_str()`
-            "as_str" => {
-                if is_metadata_get(&call.receiver) {
-                    self.record(call.method.span());
-                }
+            "as_str" if is_metadata_get(&call.receiver) => {
+                self.record(call.method.span());
             }
             // Closure forms: `<meta-get>.and_then(|v| v.as_str())` / `.map(...)`
-            "and_then" | "map" => {
-                if is_metadata_get(&call.receiver) && closure_calls_as_str(call) {
-                    self.record(call.method.span());
-                }
+            "and_then" | "map" if is_metadata_get(&call.receiver) && closure_calls_as_str(call) => {
+                self.record(call.method.span());
             }
             _ => {}
         }

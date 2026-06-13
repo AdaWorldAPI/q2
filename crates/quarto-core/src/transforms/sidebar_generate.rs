@@ -97,10 +97,10 @@ impl AstTransform for SidebarGenerateTransform {
         // — the common Pass-2 shape for titles — survive into the
         // renderer, where `render_text` walks them as inlines instead of
         // string scalars. Explicit `Text` and `Hidden` are left alone.
-        if matches!(resolved.title, SidebarTitle::Default) {
-            if let Some(title_cv) = ast.meta.get_path(&["website", "title"]).cloned() {
-                resolved.title = SidebarTitle::Text(title_cv);
-            }
+        if matches!(resolved.title, SidebarTitle::Default)
+            && let Some(title_cv) = ast.meta.get_path(&["website", "title"]).cloned()
+        {
+            resolved.title = SidebarTitle::Text(title_cv);
         }
 
         // Pull diagnostics out of RenderContext temporarily so
@@ -221,17 +221,15 @@ fn enrich_text_from_index(
             } => {
                 // If the section has an href and no text, pull the
                 // index profile's title.
-                if text.is_none() {
-                    if let Some(h) = href.as_deref() {
-                        if let Some(profile) = index.lookup_by_source(std::path::Path::new(h)) {
-                            if let Some(title) = &profile.title {
-                                *text = Some(ConfigValue::new_string(
-                                    title,
-                                    SourceInfo::generated(By::programmatic_config()),
-                                ));
-                            }
-                        }
-                    }
+                if text.is_none()
+                    && let Some(h) = href.as_deref()
+                    && let Some(profile) = index.lookup_by_source(std::path::Path::new(h))
+                    && let Some(title) = &profile.title
+                {
+                    *text = Some(ConfigValue::new_string(
+                        title,
+                        SourceInfo::generated(By::programmatic_config()),
+                    ));
                 }
                 enrich_text_from_index(contents, index);
             }

@@ -312,7 +312,7 @@ impl PipelineStage for EngineExecutionStage {
                 temp_dir,
                 ctx.project.dir.clone(),
                 path.clone(),
-                &ctx.format.identifier.to_string(),
+                ctx.format.identifier.to_string(),
             )
             .with_project_dir(if ctx.project.is_single_file {
                 None
@@ -1278,8 +1278,7 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+                .map_or(0, |d| d.as_nanos())
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let trace_path = dir.join("latest.json.gz");
@@ -1358,8 +1357,7 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+                .map_or(0, |d| d.as_nanos())
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let trace_path = dir.join("latest.json.gz");
@@ -1861,8 +1859,7 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+                .map_or(0, |d| d.as_nanos())
         ));
         let _ = std::fs::remove_dir_all(&dir);
         // Phase-1 on-disk format: gzipped.

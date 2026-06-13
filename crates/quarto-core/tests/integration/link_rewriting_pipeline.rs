@@ -133,8 +133,7 @@ fn body_region(html: &str) -> &str {
     let start = html.find("<main").unwrap_or(0);
     let end = html[start..]
         .find("</main>")
-        .map(|i| start + i)
-        .unwrap_or(html.len());
+        .map_or(html.len(), |i| start + i);
     &html[start..end]
 }
 
@@ -308,8 +307,7 @@ fn pipeline_body_link_external_unchanged() {
         !diags.iter().any(|d| d.title.contains("github")
             || d.problem
                 .as_ref()
-                .map(|p| p.as_str().contains("github"))
-                .unwrap_or(false)),
+                .is_some_and(|p| p.as_str().contains("github"))),
         "external URL should not produce a diagnostic"
     );
 }
@@ -340,8 +338,7 @@ fn pipeline_body_link_broken_qmd_emits_diagnostic() {
         d.code.as_deref() == Some("Q-13-4")
             && d.problem
                 .as_ref()
-                .map(|p| p.as_str().contains("nope.qmd"))
-                .unwrap_or(false)
+                .is_some_and(|p| p.as_str().contains("nope.qmd"))
     });
     assert!(
         q_13_4.is_some(),
@@ -395,8 +392,7 @@ fn pipeline_body_link_unresolvable_in_website_warns() {
         d.code.as_deref() == Some("Q-13-4")
             && d.problem
                 .as_ref()
-                .map(|p| p.as_str().contains("other.qmd"))
-                .unwrap_or(false)
+                .is_some_and(|p| p.as_str().contains("other.qmd"))
     });
     assert!(
         q_13_4.is_some(),

@@ -215,7 +215,7 @@ impl AstTransform for CodeBlockGenerateTransform {
             // `filename` per-block; Phase 2 takes copy from the
             // document default (Q1 supports no per-block override).
             // Future phases will extend this match.
-            let filename = cb.attr.2.get("filename").map(|s| s.clone());
+            let filename = cb.attr.2.get("filename").cloned();
 
             let decoration = CodeBlockDecoration {
                 filename,
@@ -378,7 +378,7 @@ mod tests {
 
         assert_eq!(ctx.code_block_decorations.len(), 1);
         let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
-        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        let deco = &ctx.code_block_decorations[&key];
         assert_eq!(deco.filename.as_deref(), Some("hello.py"));
     }
 
@@ -442,7 +442,7 @@ mod tests {
 
         assert_eq!(ctx.code_block_decorations.len(), 1);
         let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
-        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        let deco = &ctx.code_block_decorations[&key];
         assert_eq!(deco.copy, CopyMode::Hover);
         assert!(deco.filename.is_none());
     }
@@ -494,7 +494,7 @@ mod tests {
             .unwrap();
 
         let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
-        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        let deco = &ctx.code_block_decorations[&key];
         assert_eq!(deco.copy, CopyMode::Always);
     }
 
@@ -517,7 +517,7 @@ mod tests {
             .unwrap();
 
         let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
-        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        let deco = &ctx.code_block_decorations[&key];
         assert_eq!(deco.copy, CopyMode::Hover);
     }
 
@@ -540,7 +540,7 @@ mod tests {
             .unwrap();
 
         let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
-        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        let deco = &ctx.code_block_decorations[&key];
         assert_eq!(deco.copy, CopyMode::Always);
     }
 
@@ -570,7 +570,7 @@ mod tests {
             .unwrap();
 
         let key = CodeBlockDecorationKey::from_source_info(ast.blocks[0].source_info()).unwrap();
-        let deco = ctx.code_block_decorations.get(&key).unwrap();
+        let deco = &ctx.code_block_decorations[&key];
         assert_eq!(deco.filename.as_deref(), Some("hello.py"));
         assert_eq!(deco.copy, CopyMode::Hover);
     }

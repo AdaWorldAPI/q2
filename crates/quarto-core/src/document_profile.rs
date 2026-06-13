@@ -1194,6 +1194,9 @@ Body.
     /// `skip_serializing_if` guard rests on this property — if any
     /// field stops being checked, the on-disk profile silently grows.
     #[test]
+    // Each block sets exactly one field on a default value to prove that field
+    // alone defeats `is_empty()`; the default-then-assign shape is the point.
+    #[allow(clippy::field_reassign_with_default)]
     fn listing_item_info_partial_not_empty_per_field() {
         let mut li = ListingItemInfo::default();
         li.title = Some("X".into());

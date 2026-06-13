@@ -231,7 +231,8 @@ fn rewrite_relative_urls(html: &str, site_url: &str, sibling_dir: &str) -> Strin
             format!(r#"<{}{}href="{}"{}>"#, tag, pre, rewrite_url(url), post)
         })
         .into_owned();
-    let after_src = re_src
+
+    re_src
         .replace_all(&after_href, |caps: &Captures| {
             let tag = caps.get(1).map_or("", |m| m.as_str());
             let pre = caps.get(2).map_or("", |m| m.as_str());
@@ -239,8 +240,7 @@ fn rewrite_relative_urls(html: &str, site_url: &str, sibling_dir: &str) -> Strin
             let post = caps.get(4).map_or("", |m| m.as_str());
             format!(r#"<{}{}src="{}"{}>"#, tag, pre, rewrite_url(url), post)
         })
-        .into_owned();
-    after_src
+        .into_owned()
 }
 
 /// True if `s` is already an absolute reference. Includes the

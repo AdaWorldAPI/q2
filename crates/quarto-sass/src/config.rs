@@ -237,10 +237,10 @@ impl ThemeConfig {
                     base_dir.join(&rel_path)
                 };
                 let bytes = runtime.file_read(&full_path).map_err(|e| {
-                    SassError::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("reading brand file {}: {e}", full_path.display()),
-                    ))
+                    SassError::Io(std::io::Error::other(format!(
+                        "reading brand file {}: {e}",
+                        full_path.display()
+                    )))
                 })?;
                 let yaml =
                     std::str::from_utf8(&bytes).map_err(|e| SassError::InvalidThemeConfig {
@@ -253,8 +253,7 @@ impl ThemeConfig {
                 let brand = Brand::from_yaml_str(yaml).map_err(brand_err)?;
                 let dir = full_path
                     .parent()
-                    .map(Path::to_path_buf)
-                    .unwrap_or_else(|| PathBuf::from("."));
+                    .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
                 (Some(brand), Some(dir))
             }
             Some(BrandRef::Inline(value)) => {

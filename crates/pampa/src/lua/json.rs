@@ -237,7 +237,7 @@ mod tests {
         table.set("a", 1).unwrap();
         let result: String = encode.call(table).unwrap();
         assert!(result.contains("\"a\""));
-        assert!(result.contains("1"));
+        assert!(result.contains('1'));
     }
 
     // =========================================================================

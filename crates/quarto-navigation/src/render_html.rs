@@ -61,10 +61,10 @@ pub fn navbar_to_html(
 
     let theme_attr = theme_for_background(navbar.background.as_deref());
     let mut inline_style = String::new();
-    if let Some(bg) = navbar.background.as_deref() {
-        if !is_named_bootstrap_color(bg) {
-            inline_style.push_str(&format!("background-color: {}; ", bg));
-        }
+    if let Some(bg) = navbar.background.as_deref()
+        && !is_named_bootstrap_color(bg)
+    {
+        inline_style.push_str(&format!("background-color: {}; ", bg));
     }
     if let Some(fg) = navbar.foreground.as_deref() {
         inline_style.push_str(&format!("color: {}; ", fg));
@@ -532,14 +532,12 @@ fn render_sidebar_section(
     path: &[usize],
     collapse_level: u32,
 ) {
-    let section_id = explicit_id
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| default_section_id(path));
+    let section_id = explicit_id.map_or_else(|| default_section_id(path), |s| s.to_string());
     let label = text.map(render_text).unwrap_or_default();
     // A section is collapsed by default when its depth is at or below
     // the user's `collapse-level`, unless `expanded: true` was set
     // (either by YAML or by the active-state expander).
-    let is_collapsed = !expanded && (depth as u32) >= collapse_level;
+    let is_collapsed = !expanded && depth >= collapse_level;
 
     html.push_str("      <li class=\"sidebar-item sidebar-item-section\">\n");
     html.push_str("        <div class=\"sidebar-item-container\">\n");

@@ -196,10 +196,7 @@ mod tests {
                 info.message_template
             );
             assert!(
-                info.docs_url
-                    .as_deref()
-                    .map(|u| u.ends_with(code))
-                    .unwrap_or(false),
+                info.docs_url.as_deref().is_some_and(|u| u.ends_with(code)),
                 "{} docs_url must end with {}; got: {:?}",
                 code,
                 code,

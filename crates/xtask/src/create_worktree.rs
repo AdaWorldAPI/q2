@@ -164,8 +164,7 @@ pub fn strip_managed_section(content: &str) -> Result<String> {
     if after_begin.contains(BEGIN_MARKER) {
         eprintln!(
             "warning: CLAUDE.local.md contains multiple BEGIN markers \u{2014} using the first; \
-             recommend manual review of {}",
-            "CLAUDE.local.md"
+             recommend manual review of CLAUDE.local.md"
         );
     }
 
@@ -181,7 +180,7 @@ pub fn strip_managed_section(content: &str) -> Result<String> {
     let end_marker_end = end_search_start + end_rel + END_MARKER.len();
 
     // Strip from the start of the BEGIN line through one trailing newline after END.
-    let begin_line_start = content[..begin_pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let begin_line_start = content[..begin_pos].rfind('\n').map_or(0, |i| i + 1);
 
     let mut after_end = end_marker_end;
     let rest = &content[after_end..];
@@ -623,12 +622,11 @@ pub fn run(args: Args) -> Result<()> {
     // the worktree gets created on `main` regardless. To silence the
     // warning, the user re-runs with `--base main` (or whatever
     // integration branch they meant).
-    if !base_explicit {
-        if let (Some(id), Some(parent)) = (args.beads_id.as_deref(), plan.parent_epic.as_ref()) {
-            if parent.status == "open" {
-                eprintln!("{}", default_base_warning(id, parent));
-            }
-        }
+    if !base_explicit
+        && let (Some(id), Some(parent)) = (args.beads_id.as_deref(), plan.parent_epic.as_ref())
+        && parent.status == "open"
+    {
+        eprintln!("{}", default_base_warning(id, parent));
     }
 
     git_worktree_add(&plan.branch, &plan.dir, &plan.base)?;
@@ -735,16 +733,13 @@ fn plan_braid(id: &str, slug_override: Option<&str>, base: &str, repo_root: &Pat
     };
     let leaf = format!("{id}-{slug}");
     let github_url = parse_external_ref_to_github_url(meta.external_ref.as_deref());
-    if github_url.is_none() {
-        if let Some(other) = meta
+    if github_url.is_none()
+        && let Some(other) = meta
             .external_ref
             .as_deref()
             .filter(|s| !s.is_empty() && !s.starts_with("gh-"))
-        {
-            eprintln!(
-                "note: external_ref {other:?} is not a `gh-` reference; omitting GitHub line"
-            );
-        }
+    {
+        eprintln!("note: external_ref {other:?} is not a `gh-` reference; omitting GitHub line");
     }
     Ok(Plan {
         branch: format!("beads/{leaf}"),
@@ -1129,6 +1124,8 @@ mod tests {
         update_claude_local_md(&p, &make_dummy_section()).unwrap();
         let out = fs::read(&p).unwrap();
         // Output should contain CRLF; no bare LFs.
+        // (Plain byte filter is fine for a small test buffer; no `bytecount` dep.)
+        #[allow(clippy::naive_bytecount)]
         let lf_total = out.iter().filter(|&&b| b == b'\n').count();
         let crlf_pairs = out.windows(2).filter(|w| w == b"\r\n").count();
         assert_eq!(

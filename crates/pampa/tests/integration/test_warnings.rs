@@ -574,7 +574,7 @@ fn test_code_block_with_class_no_q236() {
 
     let q236_or_q28: Vec<_> = warnings
         .iter()
-        .filter(|w| matches!(w.code.as_deref(), Some("Q-2-36") | Some("Q-2-8")))
+        .filter(|w| matches!(w.code.as_deref(), Some("Q-2-36" | "Q-2-8")))
         .collect();
 
     assert!(
@@ -605,7 +605,7 @@ fn test_code_block_with_class_and_options_no_q236() {
 
     let q236_or_q28: Vec<_> = warnings
         .iter()
-        .filter(|w| matches!(w.code.as_deref(), Some("Q-2-36") | Some("Q-2-8")))
+        .filter(|w| matches!(w.code.as_deref(), Some("Q-2-36" | "Q-2-8")))
         .collect();
 
     assert!(
@@ -633,7 +633,7 @@ fn test_simple_code_block_no_q236() {
 
     let q236_or_q28: Vec<_> = warnings
         .iter()
-        .filter(|w| matches!(w.code.as_deref(), Some("Q-2-36") | Some("Q-2-8")))
+        .filter(|w| matches!(w.code.as_deref(), Some("Q-2-36" | "Q-2-8")))
         .collect();
 
     assert!(

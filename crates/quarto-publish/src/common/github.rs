@@ -93,12 +93,12 @@ pub fn github_context(dir: &Path) -> Result<GitHubContext, GitError> {
     ctx.site_url = derive_site_url(dir, ctx.origin_url.as_deref());
 
     // org/repo split from origin URL, when it parses.
-    if let Some(url) = ctx.origin_url.as_deref() {
-        if let Some(info) = parse_origin(url) {
-            ctx.repo_url = Some(info.repo_url);
-            ctx.organization = Some(info.organization);
-            ctx.repository = Some(info.repository);
-        }
+    if let Some(url) = ctx.origin_url.as_deref()
+        && let Some(info) = parse_origin(url)
+    {
+        ctx.repo_url = Some(info.repo_url);
+        ctx.organization = Some(info.organization);
+        ctx.repository = Some(info.repository);
     }
 
     Ok(ctx)
@@ -158,27 +158,28 @@ fn parse_origin(url: &str) -> Option<OriginInfo> {
     let url = url.trim();
 
     // SSH form: `git@host:org/repo[.git]` (also `user@host:...`).
-    if let Some(rest) = url.strip_prefix("git@") {
-        if let Some((host, path)) = rest.split_once(':') {
-            return parse_path(host, path);
-        }
+    if let Some(rest) = url.strip_prefix("git@")
+        && let Some((host, path)) = rest.split_once(':')
+    {
+        return parse_path(host, path);
     }
     if let Some((user_host, path)) = url.split_once(':') {
         // Only treat `user@host:` as SSH; bare `host:port/...` is
         // not what we mean.
-        if user_host.contains('@') && !url.starts_with("http") {
-            if let Some((_, host)) = user_host.split_once('@') {
-                return parse_path(host, path);
-            }
+        if user_host.contains('@')
+            && !url.starts_with("http")
+            && let Some((_, host)) = user_host.split_once('@')
+        {
+            return parse_path(host, path);
         }
     }
 
     // HTTP(S) form.
     for prefix in ["https://", "http://"] {
-        if let Some(rest) = url.strip_prefix(prefix) {
-            if let Some((host, path)) = rest.split_once('/') {
-                return parse_path(host, path);
-            }
+        if let Some(rest) = url.strip_prefix(prefix)
+            && let Some((host, path)) = rest.split_once('/')
+        {
+            return parse_path(host, path);
         }
     }
 
@@ -218,15 +219,15 @@ fn parse_path(host: &str, path: &str) -> Option<OriginInfo> {
 /// 3. Other hosts → `None` (not derivable without explicit config).
 fn derive_site_url(dir: &Path, origin_url: Option<&str>) -> Option<String> {
     let cname = dir.join("CNAME");
-    if cname.exists() {
-        if let Ok(contents) = std::fs::read_to_string(&cname) {
-            let url = contents.trim();
-            if !url.is_empty() {
-                if url.starts_with("http://") || url.starts_with("https://") {
-                    return Some(url.to_string());
-                }
-                return Some(format!("https://{url}"));
+    if cname.exists()
+        && let Ok(contents) = std::fs::read_to_string(&cname)
+    {
+        let url = contents.trim();
+        if !url.is_empty() {
+            if url.starts_with("http://") || url.starts_with("https://") {
+                return Some(url.to_string());
             }
+            return Some(format!("https://{url}"));
         }
     }
 
@@ -236,7 +237,7 @@ fn derive_site_url(dir: &Path, origin_url: Option<&str>) -> Option<String> {
     // → `<org>.<server-with-pages-suffix>` convention; for now we
     // limit derivation to github.com to avoid guessing wrong on
     // enterprise installs).
-    let host = origin_url.and_then(|u| host_of(u)).unwrap_or_default();
+    let host = origin_url.and_then(host_of).unwrap_or_default();
     if host != GITHUB_COM {
         return None;
     }
@@ -251,16 +252,16 @@ fn derive_site_url(dir: &Path, origin_url: Option<&str>) -> Option<String> {
 
 fn host_of(url: &str) -> Option<String> {
     let url = url.trim();
-    if let Some(rest) = url.strip_prefix("git@") {
-        if let Some((host, _)) = rest.split_once(':') {
-            return Some(host.to_string());
-        }
+    if let Some(rest) = url.strip_prefix("git@")
+        && let Some((host, _)) = rest.split_once(':')
+    {
+        return Some(host.to_string());
     }
     for prefix in ["https://", "http://"] {
-        if let Some(rest) = url.strip_prefix(prefix) {
-            if let Some((host, _)) = rest.split_once('/') {
-                return Some(host.to_string());
-            }
+        if let Some(rest) = url.strip_prefix(prefix)
+            && let Some((host, _)) = rest.split_once('/')
+        {
+            return Some(host.to_string());
         }
     }
     None

@@ -250,7 +250,7 @@ mod tests {
     fn test_registry_len() {
         let registry = EngineRegistry::new();
         // At minimum, markdown is registered
-        assert!(registry.len() >= 1);
+        assert!(!registry.is_empty());
     }
 
     #[test]

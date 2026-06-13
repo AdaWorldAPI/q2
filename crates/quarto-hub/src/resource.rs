@@ -83,15 +83,13 @@ pub fn detect_mime_type(content: &[u8], filename: Option<&str>) -> String {
     }
 
     // Fall back to extension-based detection
-    if let Some(name) = filename {
-        if let Some(ext) = std::path::Path::new(name)
+    if let Some(name) = filename
+        && let Some(ext) = std::path::Path::new(name)
             .extension()
             .and_then(|e| e.to_str())
-        {
-            if let Some(mime) = mime_type_from_extension(ext) {
-                return mime.to_string();
-            }
-        }
+        && let Some(mime) = mime_type_from_extension(ext)
+    {
+        return mime.to_string();
     }
 
     // Default fallback
@@ -182,10 +180,10 @@ pub fn read_binary_content(doc: &Automerge) -> Option<Vec<u8>> {
     let (value, _) = doc.get(ROOT, "content").ok()??;
 
     // Content is stored as bytes (scalar value)
-    if let automerge::Value::Scalar(scalar) = value {
-        if let automerge::ScalarValue::Bytes(bytes) = scalar.as_ref() {
-            return Some(bytes.clone());
-        }
+    if let automerge::Value::Scalar(scalar) = value
+        && let automerge::ScalarValue::Bytes(bytes) = scalar.as_ref()
+    {
+        return Some(bytes.clone());
     }
 
     None
@@ -197,10 +195,10 @@ pub fn read_mime_type(doc: &Automerge) -> Option<String> {
 
     let (value, _) = doc.get(ROOT, "mimeType").ok()??;
 
-    if let automerge::Value::Scalar(scalar) = value {
-        if let automerge::ScalarValue::Str(s) = scalar.as_ref() {
-            return Some(s.to_string());
-        }
+    if let automerge::Value::Scalar(scalar) = value
+        && let automerge::ScalarValue::Str(s) = scalar.as_ref()
+    {
+        return Some(s.to_string());
     }
 
     None
@@ -212,10 +210,10 @@ pub fn read_content_hash(doc: &Automerge) -> Option<String> {
 
     let (value, _) = doc.get(ROOT, "hash").ok()??;
 
-    if let automerge::Value::Scalar(scalar) = value {
-        if let automerge::ScalarValue::Str(s) = scalar.as_ref() {
-            return Some(s.to_string());
-        }
+    if let automerge::Value::Scalar(scalar) = value
+        && let automerge::ScalarValue::Str(s) = scalar.as_ref()
+    {
+        return Some(s.to_string());
     }
 
     None

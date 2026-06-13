@@ -1012,7 +1012,7 @@ mod tests {
         };
         assert_eq!(f.attr.0, "fig-bare");
         // Caption.long stays empty — no "Figure 1: " prefix without a caption.
-        assert!(f.caption.long.as_ref().map_or(true, |v| v.is_empty()));
+        assert!(f.caption.long.as_ref().is_none_or(|v| v.is_empty()));
     }
 
     #[test]
@@ -1187,7 +1187,7 @@ mod tests {
         let strong_text = |block: &Block| -> String {
             let strong = theorem_label_strong(block);
             let Inline::Str(st) = &strong.content[0] else {
-                return "".into();
+                return String::new();
             };
             st.text.clone()
         };
@@ -1249,7 +1249,7 @@ mod tests {
             kvs.insert("name".into(), t.to_string());
         }
         Block::Div(Div {
-            attr: ("".into(), vec!["proof".into()], kvs),
+            attr: (String::new(), vec!["proof".into()], kvs),
             content: vec![para(body)],
             source_info: si(),
             attr_source: AttrSourceInfo::empty(),

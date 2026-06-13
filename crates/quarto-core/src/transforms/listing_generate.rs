@@ -161,9 +161,7 @@ fn matches_any_glob(
             // Try host-relative first (Q1 default `*.qmd` is host-
             // relative). If that misses, try project-relative for
             // explicit patterns like `posts/**/*.qmd`.
-            host_relative
-                .map(|hr| glob_match_path(pattern, hr))
-                .unwrap_or(false)
+            host_relative.is_some_and(|hr| glob_match_path(pattern, hr))
                 || glob_match_path(pattern, project_relative)
         }
         ListingContents::Inline(_) => false,

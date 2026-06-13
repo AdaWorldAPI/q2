@@ -122,7 +122,7 @@ impl LuaShortcodeEngine {
         let script_bytes = self.runtime.file_read(script_path).map_err(|e| {
             LuaShortcodeError::FileReadError(
                 script_path.to_owned(),
-                std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                std::io::Error::other(e.to_string()),
             )
         })?;
         let script_source = String::from_utf8(script_bytes).map_err(|e| {
@@ -189,10 +189,10 @@ impl LuaShortcodeEngine {
             let (name, value) = pair.map_err(LuaShortcodeError::LuaError)?;
             if is_callable(&value) {
                 // Skip globals that were inherited (only register new ones)
-                if let Ok(global_val) = self.lua.globals().get::<Value>(name.as_str()) {
-                    if same_lua_value(&value, &global_val) {
-                        continue;
-                    }
+                if let Ok(global_val) = self.lua.globals().get::<Value>(name.as_str())
+                    && same_lua_value(&value, &global_val)
+                {
+                    continue;
                 }
                 let key = self
                     .lua
@@ -480,16 +480,13 @@ fn classify_table_result(table: &mlua::Table) -> LuaShortcodeResult {
 
     for i in 1..=len {
         let value: std::result::Result<Value, _> = table.get(i);
-        match value {
-            Ok(Value::UserData(ud)) => {
-                if let Ok(inline) = extract_lua_inline(&ud) {
-                    inlines.push(inline);
-                } else if let Ok(block) = extract_lua_block(&ud) {
-                    has_blocks = true;
-                    blocks.push(block);
-                }
+        if let Ok(Value::UserData(ud)) = value {
+            if let Ok(inline) = extract_lua_inline(&ud) {
+                inlines.push(inline);
+            } else if let Ok(block) = extract_lua_block(&ud) {
+                has_blocks = true;
+                blocks.push(block);
             }
-            _ => {}
         }
     }
 

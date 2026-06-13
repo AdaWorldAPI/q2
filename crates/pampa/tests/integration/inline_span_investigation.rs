@@ -121,7 +121,7 @@ fn describe_inlines(input: &str, inlines: &[Inline]) -> Vec<(String, usize, usiz
 
 /// Describe gaps between consecutive inline spans.
 fn describe_inline_gaps(input: &str, inlines: &[Inline]) -> Vec<(usize, usize, String)> {
-    let spans: Vec<(usize, usize)> = inlines.iter().map(|i| inline_span(i)).collect();
+    let spans: Vec<(usize, usize)> = inlines.iter().map(inline_span).collect();
     let mut gaps = Vec::new();
     for i in 0..spans.len().saturating_sub(1) {
         let gap_start = spans[i].1;
@@ -768,8 +768,8 @@ fn inline_spans_mixed_containers() {
     let _para_inlines = inlines;
     let total_inline_bytes: usize = descs.iter().map(|d| d.2 - d.1).sum();
     let total_gap_bytes: usize = gaps.iter().map(|g| g.1 - g.0).sum();
-    let first_start = descs.first().map(|d| d.1).unwrap_or(0);
-    let last_end = descs.last().map(|d| d.2).unwrap_or(0);
+    let first_start = descs.first().map_or(0, |d| d.1);
+    let last_end = descs.last().map_or(0, |d| d.2);
     eprintln!(
         "\n  Coverage: {} inline bytes + {} gap bytes = {} total, span range [{}, {})",
         total_inline_bytes,

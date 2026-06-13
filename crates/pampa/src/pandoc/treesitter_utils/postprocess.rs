@@ -1791,8 +1791,7 @@ fn math_with_attr_span_source_info(
     hull.unwrap_or_else(|| {
         attr_source
             .combine_all()
-            .map(|a| math_si.combine(&a))
-            .unwrap_or_else(|| math_si.clone())
+            .map_or_else(|| math_si.clone(), |a| math_si.combine(&a))
     })
 }
 

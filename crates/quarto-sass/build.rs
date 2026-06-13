@@ -140,7 +140,7 @@ fn collect_files_with_ext(dir: &Path, ext: &str) -> Vec<std::path::PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 files.extend(collect_files_with_ext(&path, ext));
-            } else if path.extension().map_or(false, |e| e == ext) {
+            } else if path.extension().is_some_and(|e| e == ext) {
                 files.push(path);
             }
         }

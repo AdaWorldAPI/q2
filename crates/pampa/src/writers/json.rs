@@ -620,12 +620,11 @@ fn node_with_source(
     let mut value = serde_json::to_value(node).unwrap();
 
     // Add location field if configured
-    if ctx.serializer.config.include_inline_locations {
-        if let Some(location) = resolve_location(source_info, ctx.serializer.context) {
-            if let Value::Object(ref mut obj) = value {
-                obj.insert("l".to_string(), location);
-            }
-        }
+    if ctx.serializer.config.include_inline_locations
+        && let Some(location) = resolve_location(source_info, ctx.serializer.context)
+        && let Value::Object(ref mut obj) = value
+    {
+        obj.insert("l".to_string(), location);
     }
 
     value
@@ -681,8 +680,7 @@ fn write_attr_source(attr_source: &AttrSourceInfo, ctx: &mut JsonWriterContext) 
             .iter()
             .map(|cls| {
                 cls.as_ref()
-                    .map(|s| ctx.serializer.to_json_ref(s))
-                    .unwrap_or(Value::Null)
+                    .map_or(Value::Null, |s| ctx.serializer.to_json_ref(s))
             })
             .collect(),
         id: attr_source
@@ -3814,19 +3812,19 @@ fn stream_write_pandoc<W: io::Write>(
         w.end_array()?;
 
         // metaTopLevelKeySources (only if non-empty)
-        if let ConfigValueKind::Map(entries) = &pandoc.meta.value {
-            if !entries.is_empty() {
-                w.key("metaTopLevelKeySources")?;
-                let mut sorted_indices: Vec<usize> = (0..entries.len()).collect();
-                sorted_indices.sort_by(|&a, &b| entries[a].key.cmp(&entries[b].key));
-                w.begin_object()?;
-                for idx in sorted_indices {
-                    let entry = &entries[idx];
-                    w.key(&entry.key)?;
-                    stream_source_ref(w, &mut ctx, &entry.key_source)?;
-                }
-                w.end_object()?;
+        if let ConfigValueKind::Map(entries) = &pandoc.meta.value
+            && !entries.is_empty()
+        {
+            w.key("metaTopLevelKeySources")?;
+            let mut sorted_indices: Vec<usize> = (0..entries.len()).collect();
+            sorted_indices.sort_by(|&a, &b| entries[a].key.cmp(&entries[b].key));
+            w.begin_object()?;
+            for idx in sorted_indices {
+                let entry = &entries[idx];
+                w.key(&entry.key)?;
+                stream_source_ref(w, &mut ctx, &entry.key_source)?;
             }
+            w.end_object()?;
         }
 
         // p (sourceInfoPool)
@@ -3862,24 +3860,24 @@ fn stream_write_pandoc<W: io::Write>(
         // attributionActors (actor → { name, color }). Pre-pruned by
         // the render transform; we emit verbatim, sorted by actor key
         // for deterministic output.
-        if let Some(actors) = ctx.serializer.config.attribution_actors.as_ref() {
-            if !actors.is_empty() {
-                let mut keys: Vec<&Arc<str>> = actors.keys().collect();
-                keys.sort_by(|a, b| a.as_ref().cmp(b.as_ref()));
-                w.key("attributionActors")?;
+        if let Some(actors) = ctx.serializer.config.attribution_actors.as_ref()
+            && !actors.is_empty()
+        {
+            let mut keys: Vec<&Arc<str>> = actors.keys().collect();
+            keys.sort_by(|a, b| a.as_ref().cmp(b.as_ref()));
+            w.key("attributionActors")?;
+            w.begin_object()?;
+            for k in keys {
+                let v = &actors[k];
+                w.key(k.as_ref())?;
                 w.begin_object()?;
-                for k in keys {
-                    let v = &actors[k];
-                    w.key(k.as_ref())?;
-                    w.begin_object()?;
-                    w.key("color")?;
-                    w.str_value(&v.color)?;
-                    w.key("name")?;
-                    w.str_value(&v.display_name)?;
-                    w.end_object()?;
-                }
+                w.key("color")?;
+                w.str_value(&v.color)?;
+                w.key("name")?;
+                w.str_value(&v.display_name)?;
                 w.end_object()?;
             }
+            w.end_object()?;
         }
 
         w.end_object()?; // astContext

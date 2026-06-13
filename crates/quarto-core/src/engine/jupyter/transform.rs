@@ -163,15 +163,15 @@ impl JupyterTransform {
                 for (inline_idx, inline) in para.content.iter().enumerate() {
                     if let Inline::Code(code) = inline {
                         // Check if it starts with {language}
-                        if let Some(expr) = Self::parse_inline_expression(&code.text) {
-                            if is_jupyter_language(&expr.0) {
-                                exprs.push(InlineExpr {
-                                    block_idx,
-                                    inline_idx,
-                                    language: expr.0,
-                                    code: expr.1,
-                                });
-                            }
+                        if let Some(expr) = Self::parse_inline_expression(&code.text)
+                            && is_jupyter_language(&expr.0)
+                        {
+                            exprs.push(InlineExpr {
+                                block_idx,
+                                inline_idx,
+                                language: expr.0,
+                                code: expr.1,
+                            });
                         }
                     }
                 }
@@ -188,13 +188,13 @@ impl JupyterTransform {
         let text = text.trim();
 
         // Try {language} syntax first
-        if text.starts_with('{') {
-            if let Some(close_brace) = text.find('}') {
-                let lang = text[1..close_brace].trim().to_lowercase();
-                let expr = text[close_brace + 1..].trim().to_string();
-                if !lang.is_empty() && !expr.is_empty() {
-                    return Some((lang, expr));
-                }
+        if text.starts_with('{')
+            && let Some(close_brace) = text.find('}')
+        {
+            let lang = text[1..close_brace].trim().to_lowercase();
+            let expr = text[close_brace + 1..].trim().to_string();
+            if !lang.is_empty() && !expr.is_empty() {
+                return Some((lang, expr));
             }
         }
 
@@ -244,7 +244,7 @@ impl JupyterTransform {
                     }
                     _ => None,
                 })
-                .unwrap_or_else(|| "".to_string());
+                .unwrap_or_else(String::new);
 
             results.push(result_text);
         }
@@ -271,14 +271,14 @@ impl JupyterTransform {
         });
 
         for (block_idx, inline_idx, result) in replacements {
-            if let Some(Block::Paragraph(para)) = ast.blocks.get_mut(block_idx) {
-                if inline_idx < para.content.len() {
-                    // Replace the Code inline with a Str inline
-                    para.content[inline_idx] = Inline::Str(Str {
-                        text: result,
-                        source_info: SourceInfo::generated(By::jupyter_output()),
-                    });
-                }
+            if let Some(Block::Paragraph(para)) = ast.blocks.get_mut(block_idx)
+                && inline_idx < para.content.len()
+            {
+                // Replace the Code inline with a Str inline
+                para.content[inline_idx] = Inline::Str(Str {
+                    text: result,
+                    source_info: SourceInfo::generated(By::jupyter_output()),
+                });
             }
         }
     }
@@ -334,8 +334,7 @@ impl AstTransform for JupyterTransform {
             .document
             .input
             .parent()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| ctx.project.dir.clone());
+            .map_or_else(|| ctx.project.dir.clone(), PathBuf::from);
 
         // Create session key
         let key = SessionKey::new(&kernel_name, working_dir.clone());

@@ -317,7 +317,7 @@ fn section_for_dir(dir: &str, members: &[&DocumentProfile], index: &ProjectIndex
         }
         None => (
             Some(ConfigValue::new_string(
-                &capitalize(dir),
+                capitalize(dir),
                 SourceInfo::generated(By::programmatic_config()),
             )),
             None,
@@ -359,8 +359,7 @@ fn link_entry(profile: &DocumentProfile) -> SidebarEntry {
             .source_path
             .file_stem()
             .and_then(|s| s.to_str())
-            .map(capitalize)
-            .unwrap_or_else(|| href.clone())
+            .map_or_else(|| href.clone(), capitalize)
     });
     SidebarEntry::Link {
         item: NavigationItem {
@@ -393,13 +392,11 @@ fn sort_profiles(list: &mut [&DocumentProfile]) {
         let ta = a
             .title
             .as_deref()
-            .map(str::to_lowercase)
-            .unwrap_or_else(|| source_fwd_slash(a).to_lowercase());
+            .map_or_else(|| source_fwd_slash(a).to_lowercase(), str::to_lowercase);
         let tb = b
             .title
             .as_deref()
-            .map(str::to_lowercase)
-            .unwrap_or_else(|| source_fwd_slash(b).to_lowercase());
+            .map_or_else(|| source_fwd_slash(b).to_lowercase(), str::to_lowercase);
         ta.cmp(&tb)
     });
 }
@@ -632,8 +629,7 @@ mod tests {
         assert!(
             d.problem
                 .as_ref()
-                .map(|p| p.as_str().contains("project index"))
-                .unwrap_or(false),
+                .is_some_and(|p| p.as_str().contains("project index")),
             "Q-13-5 problem must mention project index; got {:?}",
             d.problem
         );
@@ -662,8 +658,7 @@ mod tests {
         assert!(
             d.problem
                 .as_ref()
-                .map(|p| p.as_str().contains("nonexistent"))
-                .unwrap_or(false),
+                .is_some_and(|p| p.as_str().contains("nonexistent")),
             "Q-13-6 problem must include the spec text; got {:?}",
             d.problem
         );

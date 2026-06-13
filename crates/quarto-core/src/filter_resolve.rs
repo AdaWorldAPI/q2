@@ -90,7 +90,7 @@ pub fn resolve_filters(
     // Use as_plain_text() to handle both Scalar(String) and PandocInlines forms.
     let sentinel_index = items
         .iter()
-        .position(|item| item.as_plain_text().map(|s| s == "quarto").unwrap_or(false));
+        .position(|item| item.as_plain_text().is_some_and(|s| s == "quarto"));
 
     let default_before_idx = entry_point_index(DEFAULT_BEFORE_SENTINEL).unwrap();
     let default_after_idx = entry_point_index(DEFAULT_AFTER_SENTINEL).unwrap();
@@ -102,7 +102,7 @@ pub fn resolve_filters(
             continue;
         }
 
-        let after_sentinel = sentinel_index.map(|si| i > si).unwrap_or(false);
+        let after_sentinel = sentinel_index.is_some_and(|si| i > si);
         let default_idx = if after_sentinel {
             default_after_idx
         } else {
@@ -115,51 +115,51 @@ pub fn resolve_filters(
                 let file_exists = runtime
                     .path_exists(&document_dir.join(&s), None)
                     .unwrap_or(false);
-                if !file_exists {
-                    if let Some(ext_filters) = try_resolve_extension_filter(&s, extensions) {
-                        for ef in &ext_filters {
-                            let spec = FilterSpec::parse(&ef.path.to_string_lossy());
-                            let ep_idx = ef
-                                .at
-                                .as_deref()
-                                .and_then(entry_point_index)
-                                .unwrap_or(default_idx);
-                            annotated.push(AnnotatedFilter {
-                                spec,
-                                entry_point_index: ep_idx,
-                                original_index: i,
-                            });
-                        }
-                        continue;
+                if !file_exists
+                    && let Some(ext_filters) = try_resolve_extension_filter(&s, extensions)
+                {
+                    for ef in &ext_filters {
+                        let spec = FilterSpec::parse(&ef.path.to_string_lossy());
+                        let ep_idx = ef
+                            .at
+                            .as_deref()
+                            .and_then(entry_point_index)
+                            .unwrap_or(default_idx);
+                        annotated.push(AnnotatedFilter {
+                            spec,
+                            entry_point_index: ep_idx,
+                            original_index: i,
+                        });
                     }
+                    continue;
                 }
             }
         }
         // Try extension resolution for map-form items
-        else if let Some(path_val) = item.get("path") {
-            if let Some(path_str) = path_val.as_plain_text() {
-                let file_exists = runtime
-                    .path_exists(&document_dir.join(&path_str), None)
-                    .unwrap_or(false);
-                if !file_exists {
-                    if let Some(ext_filters) = try_resolve_extension_filter(&path_str, extensions) {
-                        let at_override = item.get("at").and_then(|v| v.as_plain_text());
-                        for ef in &ext_filters {
-                            let spec = FilterSpec::parse(&ef.path.to_string_lossy());
-                            let ep_idx = at_override
-                                .as_deref()
-                                .or(ef.at.as_deref())
-                                .and_then(entry_point_index)
-                                .unwrap_or(default_idx);
-                            annotated.push(AnnotatedFilter {
-                                spec,
-                                entry_point_index: ep_idx,
-                                original_index: i,
-                            });
-                        }
-                        continue;
-                    }
+        else if let Some(path_val) = item.get("path")
+            && let Some(path_str) = path_val.as_plain_text()
+        {
+            let file_exists = runtime
+                .path_exists(&document_dir.join(&path_str), None)
+                .unwrap_or(false);
+            if !file_exists
+                && let Some(ext_filters) = try_resolve_extension_filter(&path_str, extensions)
+            {
+                let at_override = item.get("at").and_then(|v| v.as_plain_text());
+                for ef in &ext_filters {
+                    let spec = FilterSpec::parse(&ef.path.to_string_lossy());
+                    let ep_idx = at_override
+                        .as_deref()
+                        .or(ef.at.as_deref())
+                        .and_then(entry_point_index)
+                        .unwrap_or(default_idx);
+                    annotated.push(AnnotatedFilter {
+                        spec,
+                        entry_point_index: ep_idx,
+                        original_index: i,
+                    });
                 }
+                continue;
             }
         }
 
@@ -215,35 +215,35 @@ fn parse_filter_item(item: &ConfigValue, default_ep_idx: usize) -> (FilterSpec, 
     }
 
     // Map form: {type: "lua", path: "filter.lua"} or {path: "filter.lua", at: "pre-ast"}
-    if let Some(path_val) = item.get("path") {
-        if let Some(path_str) = path_val.as_plain_text() {
-            // Determine filter type from explicit `type` field or path extension
-            let type_val = item.get("type").and_then(|v| v.as_plain_text());
-            let spec = match type_val.as_deref() {
-                Some("lua") => FilterSpec::Lua(path_str.into()),
-                Some("json") => FilterSpec::Json(path_str.into()),
-                _ => FilterSpec::parse(&path_str),
-            };
+    if let Some(path_val) = item.get("path")
+        && let Some(path_str) = path_val.as_plain_text()
+    {
+        // Determine filter type from explicit `type` field or path extension
+        let type_val = item.get("type").and_then(|v| v.as_plain_text());
+        let spec = match type_val.as_deref() {
+            Some("lua") => FilterSpec::Lua(path_str.into()),
+            Some("json") => FilterSpec::Json(path_str.into()),
+            _ => FilterSpec::parse(&path_str),
+        };
 
-            // Check for explicit `at` entry point
-            let ep_idx = if let Some(at_str) = item.get("at").and_then(|v| v.as_plain_text()) {
-                match entry_point_index(&at_str) {
-                    Some(idx) => idx,
-                    None => {
-                        tracing::warn!(
-                            "Unknown filter entry point '{}', defaulting to '{}'",
-                            at_str,
-                            DEFAULT_BEFORE_SENTINEL
-                        );
-                        entry_point_index(DEFAULT_BEFORE_SENTINEL).unwrap()
-                    }
+        // Check for explicit `at` entry point
+        let ep_idx = if let Some(at_str) = item.get("at").and_then(|v| v.as_plain_text()) {
+            match entry_point_index(&at_str) {
+                Some(idx) => idx,
+                None => {
+                    tracing::warn!(
+                        "Unknown filter entry point '{}', defaulting to '{}'",
+                        at_str,
+                        DEFAULT_BEFORE_SENTINEL
+                    );
+                    entry_point_index(DEFAULT_BEFORE_SENTINEL).unwrap()
                 }
-            } else {
-                default_ep_idx
-            };
+            }
+        } else {
+            default_ep_idx
+        };
 
-            return (spec, ep_idx);
-        }
+        return (spec, ep_idx);
     }
 
     // Unrecognized format
