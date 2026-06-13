@@ -441,12 +441,13 @@ enum Commands {
     /// Run the Quarto Hub MCP server (for AI agents; needs Node.js).
     ///
     /// Delegates to the embedded TypeScript MCP server: all arguments
-    /// pass through verbatim (`q2 mcp --help` shows the server's own
-    /// usage, e.g. `--server <url>`, `--read-only`). Launcher-specific
-    /// controls: the `QUARTO_NODE` env var picks the Node.js binary
-    /// when discovery fails (GUI MCP hosts don't see your shell PATH),
-    /// and `q2 mcp --launcher-info` prints embed/cache/node
-    /// diagnostics.
+    /// pass through verbatim (`q2 mcp --help` shows launcher options
+    /// followed by the server's own usage, e.g. `--server <url>`,
+    /// `--read-only`). Launcher-specific controls: `q2 mcp
+    /// --print-config` prints a ready-to-paste `.mcp.json` entry, `q2
+    /// mcp --launcher-info` prints embed/cache/node diagnostics, and the
+    /// `QUARTO_NODE` env var picks the Node.js binary when discovery
+    /// fails (GUI MCP hosts don't see your shell PATH).
     #[command(disable_help_flag = true)]
     Mcp {
         /// Arguments passed through to the MCP server verbatim.
