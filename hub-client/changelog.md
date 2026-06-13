@@ -15,6 +15,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-12
+
+- [`3a35de43`](https://github.com/quarto-dev/q2/commits/3a35de43): Project-creation scaffolds (`create_project`) now render their templates in pure Rust (quarto-doctemplate) instead of EJS via the JS bridge; titles containing quotes, backslashes, or `&` now produce correct YAML in `_quarto.yml` and `index.qmd`.
+
 ### 2026-06-11
 
 - [`1ecc1d8c`](https://github.com/quarto-dev/q2/commits/1ecc1d8c): Sessions whose silent sign-in renewal never completes (e.g. Google One Tap blocked) now correctly reach the login screen at token expiry, instead of silently losing both the expiry logout and all future renewal attempts.
