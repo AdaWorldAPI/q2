@@ -4249,11 +4249,8 @@ dependencies = [
 name = "quarto-project-create"
 version = "0.1.0"
 dependencies = [
- "async-trait",
- "pollster",
- "quarto-system-runtime",
+ "quarto-doctemplate",
  "serde",
- "serde_json",
  "thiserror 2.0.18",
 ]
 

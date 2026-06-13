@@ -5,31 +5,18 @@
  * Project scaffolding for Quarto projects.
  *
  * This crate provides functionality to create new Quarto projects with
- * appropriate scaffold files. It is platform-agnostic and works with
- * both native (deno_core) and WASM (browser JS) environments via the
- * `SystemRuntime` abstraction.
- *
- * # Architecture
- *
- * Templates are embedded at compile time via `include_str!()`. The
- * creation logic uses `SystemRuntime::render_ejs()` to render templates,
- * which abstracts over the actual JavaScript execution environment:
- *
- * - **Native**: Uses deno_core with embedded V8 runtime
- * - **WASM**: Calls out to browser JavaScript via wasm-bindgen
- *
- * This design allows the same template rendering code to work across
- * all target platforms without any platform-specific code in this crate.
+ * appropriate scaffold files. It is platform-agnostic: templates are
+ * embedded at compile time via `include_str!()` and rendered with
+ * `quarto-doctemplate` (Pandoc template syntax), which is pure Rust and
+ * works identically on native and wasm32 targets — no JS runtime involved.
  *
  * # Usage
  *
  * ```ignore
  * use quarto_project_create::{create_project, CreateProjectOptions, ProjectType};
- * use quarto_system_runtime::NativeRuntime;
  *
- * let runtime = NativeRuntime::new();
  * let options = CreateProjectOptions::new(ProjectType::Website, "My Website");
- * let files = create_project(&runtime, options).await?;
+ * let files = create_project(options)?;
  *
  * for file in files {
  *     println!("Create: {} ({} bytes)", file.path.display(), file.content.len());
@@ -51,9 +38,55 @@ pub use scaffold::{
 };
 pub use types::{CreateError, CreateProjectOptions, ProjectFile, ProjectType};
 
-use quarto_system_runtime::SystemRuntime;
-use serde_json::json;
+use quarto_doctemplate::{Template, TemplateContext, TemplateValue};
 use std::path::PathBuf;
+
+/// Escape a string for interpolation inside a YAML double-quoted scalar.
+///
+/// Scaffold templates interpolate `$title$` only inside double-quoted YAML
+/// strings (`title: "$title$"`), so the value must be escaped for that
+/// context — otherwise a title containing `"` or a newline would produce
+/// invalid YAML.
+fn yaml_escape_double_quoted(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Build the template context shared by all scaffold templates.
+fn template_context(title: &str, project_type: &str, template: Option<&str>) -> TemplateContext {
+    let mut ctx = TemplateContext::new();
+    ctx.insert(
+        "title",
+        TemplateValue::String(yaml_escape_double_quoted(title)),
+    );
+    ctx.insert(
+        "projectType",
+        TemplateValue::String(project_type.to_string()),
+    );
+    if let Some(template) = template {
+        ctx.insert("template", TemplateValue::String(template.to_string()));
+    }
+    ctx
+}
+
+/// Compile and render a single scaffold template.
+fn render_template(template: &str, ctx: &TemplateContext) -> Result<String, CreateError> {
+    let compiled =
+        Template::compile(template).map_err(|e| CreateError::TemplateRender(e.to_string()))?;
+    compiled
+        .render(ctx)
+        .map_err(|e| CreateError::TemplateRender(e.to_string()))
+}
 
 /// Create a new Quarto project with the given options.
 ///
@@ -63,7 +96,6 @@ use std::path::PathBuf;
 ///
 /// # Arguments
 ///
-/// * `runtime` - The system runtime to use for EJS template rendering
 /// * `options` - Project creation options (type, title, etc.)
 ///
 /// # Returns
@@ -78,27 +110,13 @@ use std::path::PathBuf;
 /// # Example
 ///
 /// ```ignore
-/// let files = create_project(&runtime, CreateProjectOptions::new(
+/// let files = create_project(CreateProjectOptions::new(
 ///     ProjectType::Website,
 ///     "My Website"
-/// )).await?;
+/// ))?;
 /// ```
-pub async fn create_project(
-    runtime: &dyn SystemRuntime,
-    options: CreateProjectOptions,
-) -> Result<Vec<ProjectFile>, CreateError> {
-    // Check if JS execution is available
-    if !runtime.js_available() {
-        return Err(CreateError::TemplateRender(
-            "JavaScript execution is not available for template rendering".to_string(),
-        ));
-    }
-
-    // Build template data
-    let data = json!({
-        "title": options.title,
-        "projectType": options.project_type.id(),
-    });
+pub fn create_project(options: CreateProjectOptions) -> Result<Vec<ProjectFile>, CreateError> {
+    let ctx = template_context(&options.title, options.project_type.id(), None);
 
     // Get templates for this project type
     let template_files = templates::get_templates(options.project_type);
@@ -107,10 +125,7 @@ pub async fn create_project(
     let mut files = Vec::with_capacity(template_files.len());
 
     for template_file in template_files {
-        let content = runtime
-            .render_ejs(template_file.template, &data)
-            .await
-            .map_err(|e| CreateError::TemplateRender(e.to_string()))?;
+        let content = render_template(template_file.template, &ctx)?;
 
         files.push(ProjectFile {
             path: PathBuf::from(template_file.path),
@@ -153,7 +168,6 @@ impl CreateFromChoiceOptions {
 ///
 /// # Arguments
 ///
-/// * `runtime` - The system runtime to use for EJS template rendering
 /// * `options` - Project creation options (choice ID, title)
 ///
 /// # Returns
@@ -170,12 +184,10 @@ impl CreateFromChoiceOptions {
 ///
 /// ```ignore
 /// let files = create_project_from_choice(
-///     &runtime,
 ///     CreateFromChoiceOptions::new("website", "My Website")
-/// ).await?;
+/// )?;
 /// ```
-pub async fn create_project_from_choice(
-    runtime: &dyn SystemRuntime,
+pub fn create_project_from_choice(
     options: CreateFromChoiceOptions,
 ) -> Result<Vec<ScaffoldedFile>, CreateError> {
     // Look up the choice
@@ -200,7 +212,7 @@ pub async fn create_project_from_choice(
     })?;
 
     // Render the scaffold
-    create_scaffolded_files(runtime, &scaffold, &options.title).await
+    create_scaffolded_files(&scaffold, &options.title)
 }
 
 /// Create files from a project scaffold.
@@ -211,31 +223,21 @@ pub async fn create_project_from_choice(
 ///
 /// # Arguments
 ///
-/// * `runtime` - The system runtime to use for EJS template rendering
 /// * `scaffold` - The project scaffold definition
 /// * `title` - Project title (used in templates)
 ///
 /// # Returns
 ///
 /// A list of `ScaffoldedFile` structs ready to be written to disk or VFS.
-pub async fn create_scaffolded_files(
-    runtime: &dyn SystemRuntime,
+pub fn create_scaffolded_files(
     scaffold: &ProjectScaffold,
     title: &str,
 ) -> Result<Vec<ScaffoldedFile>, CreateError> {
-    // Check if JS execution is available (needed for EJS templates)
-    if !runtime.js_available() {
-        return Err(CreateError::TemplateRender(
-            "JavaScript execution is not available for template rendering".to_string(),
-        ));
-    }
-
-    // Build template data
-    let data = json!({
-        "title": title,
-        "projectType": scaffold.target.project_type.id(),
-        "template": scaffold.target.template,
-    });
+    let ctx = template_context(
+        title,
+        scaffold.target.project_type.id(),
+        scaffold.target.template.as_deref(),
+    );
 
     let mut files = Vec::with_capacity(scaffold.files.len());
 
@@ -244,10 +246,7 @@ pub async fn create_scaffolded_files(
 
         match &file_def.content {
             ScaffoldContent::Template(template) => {
-                let content = runtime
-                    .render_ejs(template, &data)
-                    .await
-                    .map_err(|e| CreateError::TemplateRender(e.to_string()))?;
+                let content = render_template(template, &ctx)?;
 
                 files.push(ScaffoldedFile::Text { path, content });
             }
@@ -346,37 +345,50 @@ mod tests {
         assert_eq!(options.project_type, ProjectType::Website);
         assert_eq!(options.title, "My Site");
     }
+
+    #[test]
+    fn test_yaml_escape_double_quoted() {
+        assert_eq!(yaml_escape_double_quoted("plain title"), "plain title");
+        assert_eq!(yaml_escape_double_quoted(r#"a "b" c"#), r#"a \"b\" c"#);
+        assert_eq!(yaml_escape_double_quoted(r"back\slash"), r"back\\slash");
+        assert_eq!(yaml_escape_double_quoted("a\nb"), r"a\nb");
+        assert_eq!(yaml_escape_double_quoted("a\tb"), r"a\tb");
+        assert_eq!(yaml_escape_double_quoted("a\r\nb"), r"a\r\nb");
+    }
 }
 
-// Integration tests that require the native runtime
+// Rendering tests for the doctemplate-based scaffolding path.
+//
+// These run on every platform: template rendering is pure Rust
+// (quarto-doctemplate), with no JS runtime involved.
 #[cfg(test)]
-#[cfg(not(target_arch = "wasm32"))]
-mod integration_tests {
+mod render_tests {
     use super::*;
-    use quarto_system_runtime::NativeRuntime;
 
     #[test]
     fn test_create_default_project() {
-        let runtime = NativeRuntime::new();
         let options = CreateProjectOptions::new(ProjectType::Default, "Test Project");
 
-        let files = pollster::block_on(create_project(&runtime, options)).unwrap();
+        let files = create_project(options).unwrap();
 
         // Should have exactly one file: _quarto.yml
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path.to_str().unwrap(), "_quarto.yml");
 
-        // Content should contain the title
-        assert!(files[0].content.contains("Test Project"));
+        // The title must land inside the YAML double-quoted string
+        assert!(files[0].content.contains("title: \"Test Project\""));
         assert!(files[0].content.contains("project:"));
+
+        // No template-syntax residue of either engine
+        assert!(!files[0].content.contains("$title$"));
+        assert!(!files[0].content.contains("<%"));
     }
 
     #[test]
     fn test_create_website_project() {
-        let runtime = NativeRuntime::new();
         let options = CreateProjectOptions::new(ProjectType::Website, "My Website");
 
-        let files = pollster::block_on(create_project(&runtime, options)).unwrap();
+        let files = create_project(options).unwrap();
 
         // Should have two files: _quarto.yml and index.qmd
         assert_eq!(files.len(), 2);
@@ -390,44 +402,68 @@ mod integration_tests {
             .iter()
             .find(|f| f.path.to_str() == Some("_quarto.yml"))
             .unwrap();
-        assert!(quarto_yml.content.contains("My Website"));
+        assert!(quarto_yml.content.contains("title: \"My Website\""));
         assert!(quarto_yml.content.contains("type: website"));
 
-        // Check index.qmd content
+        // Check index.qmd content (title in YAML front matter)
         let index_qmd = files
             .iter()
             .find(|f| f.path.to_str() == Some("index.qmd"))
             .unwrap();
-        assert!(index_qmd.content.contains("My Website"));
+        assert!(index_qmd.content.contains("title: \"My Website\""));
         assert!(index_qmd.content.contains("Quarto website"));
+
+        // No template-syntax residue in any file
+        for file in &files {
+            assert!(!file.content.contains("$title$"));
+            assert!(!file.content.contains("<%"));
+        }
     }
 
     #[test]
-    fn test_create_project_special_characters_in_title() {
-        let runtime = NativeRuntime::new();
-        let options = CreateProjectOptions::new(
-            ProjectType::Default,
-            "Project with \"quotes\" & <special> chars",
-        );
+    fn test_title_special_characters_yaml_escaped() {
+        let options =
+            CreateProjectOptions::new(ProjectType::Default, r#"R & D "quoted" \ backslash"#);
 
-        let files = pollster::block_on(create_project(&runtime, options)).unwrap();
-
-        // Should succeed and contain the title
+        let files = create_project(options).unwrap();
         assert_eq!(files.len(), 1);
-        // The title should be present (EJS handles escaping)
-        assert!(files[0].content.contains("quotes"));
+
+        // `&` passes through raw. (The old EJS path HTML-escaped it to
+        // `&amp;` — a latent bug for YAML output.)
+        assert!(!files[0].content.contains("&amp;"));
+
+        // `"` and `\` are escaped for the YAML double-quoted context,
+        // keeping the output valid YAML.
+        assert!(
+            files[0]
+                .content
+                .contains(r#"title: "R & D \"quoted\" \\ backslash""#),
+            "unexpected rendering: {}",
+            files[0].content
+        );
+    }
+
+    #[test]
+    fn test_title_with_newline_yaml_escaped() {
+        let options = CreateProjectOptions::new(ProjectType::Default, "Line one\nLine two");
+
+        let files = create_project(options).unwrap();
+        assert_eq!(files.len(), 1);
+
+        // A literal newline would break the single-line YAML string; it must
+        // be emitted as the YAML escape sequence `\n`.
+        assert!(files[0].content.contains(r#"title: "Line one\nLine two""#));
     }
 
     // ========================================================================
-    // New scaffold-based API tests
+    // Scaffold-based API tests
     // ========================================================================
 
     #[test]
     fn test_create_project_from_choice_website() {
-        let runtime = NativeRuntime::new();
         let options = CreateFromChoiceOptions::new("website", "My Website");
 
-        let files = pollster::block_on(create_project_from_choice(&runtime, options)).unwrap();
+        let files = create_project_from_choice(options).unwrap();
 
         // Should have two files: _quarto.yml and index.qmd
         assert_eq!(files.len(), 2);
@@ -452,16 +488,15 @@ mod integration_tests {
             .iter()
             .find(|(p, _)| *p == "_quarto.yml")
             .unwrap();
-        assert!(quarto_yml.contains("My Website"));
+        assert!(quarto_yml.contains("title: \"My Website\""));
         assert!(quarto_yml.contains("type: website"));
     }
 
     #[test]
     fn test_create_project_from_choice_default() {
-        let runtime = NativeRuntime::new();
         let options = CreateFromChoiceOptions::new("default", "Test Project");
 
-        let files = pollster::block_on(create_project_from_choice(&runtime, options)).unwrap();
+        let files = create_project_from_choice(options).unwrap();
 
         // Should have one file: _quarto.yml
         assert_eq!(files.len(), 1);
@@ -469,7 +504,7 @@ mod integration_tests {
 
         if let ScaffoldedFile::Text { path, content } = &files[0] {
             assert_eq!(path.to_str().unwrap(), "_quarto.yml");
-            assert!(content.contains("Test Project"));
+            assert!(content.contains("title: \"Test Project\""));
         } else {
             panic!("Expected text file");
         }
@@ -477,10 +512,9 @@ mod integration_tests {
 
     #[test]
     fn test_create_project_from_choice_unknown() {
-        let runtime = NativeRuntime::new();
         let options = CreateFromChoiceOptions::new("nonexistent", "Test");
 
-        let result = pollster::block_on(create_project_from_choice(&runtime, options));
+        let result = create_project_from_choice(options);
 
         assert!(result.is_err());
         assert!(matches!(
@@ -491,11 +525,10 @@ mod integration_tests {
 
     #[test]
     fn test_create_project_from_choice_unimplemented() {
-        let runtime = NativeRuntime::new();
         // "blog" is defined but marked as unimplemented
         let options = CreateFromChoiceOptions::new("blog", "My Blog");
 
-        let result = pollster::block_on(create_project_from_choice(&runtime, options));
+        let result = create_project_from_choice(options);
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), CreateError::InvalidConfig(_)));
@@ -503,12 +536,10 @@ mod integration_tests {
 
     #[test]
     fn test_implemented_choices_are_usable() {
-        let runtime = NativeRuntime::new();
-
         // All implemented choices should successfully create projects
         for choice in implemented_choices() {
             let options = CreateFromChoiceOptions::new(&choice.id, "Test Project");
-            let result = pollster::block_on(create_project_from_choice(&runtime, options));
+            let result = create_project_from_choice(options);
 
             assert!(
                 result.is_ok(),

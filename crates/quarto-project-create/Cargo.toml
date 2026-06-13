@@ -8,24 +8,14 @@ repository.workspace = true
 description = "Project scaffolding for Quarto projects"
 
 [dependencies]
-# Runtime abstraction for JS execution (EJS template rendering)
-quarto-system-runtime.workspace = true
-
-# Async methods
-async-trait.workspace = true
-
-# JSON data for templates
-serde_json.workspace = true
+# Template rendering (Pandoc template syntax, pure Rust, native + WASM)
+quarto-doctemplate.workspace = true
 
 # Serialization for types
 serde.workspace = true
 
 # Error handling
 thiserror.workspace = true
-
-[dev-dependencies]
-# For blocking on async in tests
-pollster = "0.4"
 
 [lints]
 workspace = true

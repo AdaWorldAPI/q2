@@ -13,16 +13,18 @@ use crate::types::ProjectType;
 /// Templates for default project type.
 pub mod default {
     /// `_quarto.yml` template for default projects.
-    pub const QUARTO_YML: &str = include_str!("../resources/templates/default/_quarto.yml.ejs");
+    pub const QUARTO_YML: &str =
+        include_str!("../resources/templates/default/_quarto.yml.template");
 }
 
 /// Templates for website project type.
 pub mod website {
     /// `_quarto.yml` template for website projects.
-    pub const QUARTO_YML: &str = include_str!("../resources/templates/website/_quarto.yml.ejs");
+    pub const QUARTO_YML: &str =
+        include_str!("../resources/templates/website/_quarto.yml.template");
 
     /// `index.qmd` template for website projects.
-    pub const INDEX_QMD: &str = include_str!("../resources/templates/website/index.qmd.ejs");
+    pub const INDEX_QMD: &str = include_str!("../resources/templates/website/index.qmd.template");
 }
 
 /// A template file with its target path.
@@ -30,7 +32,7 @@ pub mod website {
 pub struct TemplateFile {
     /// Relative path where the file should be created
     pub path: &'static str,
-    /// EJS template content
+    /// Doctemplate (Pandoc template syntax) content
     pub template: &'static str,
 }
 
@@ -86,14 +88,27 @@ mod tests {
     }
 
     #[test]
-    fn test_templates_are_valid_ejs() {
-        // Check that templates contain EJS syntax
+    fn test_templates_are_valid_doctemplate() {
         for project_type in ProjectType::implemented() {
             for template in get_templates(*project_type) {
-                // All our templates use <%= title %> at minimum
+                // Every template must compile with the doctemplate engine
+                quarto_doctemplate::Template::compile(template.template).unwrap_or_else(|e| {
+                    panic!(
+                        "Template {} for {:?} failed to compile: {}",
+                        template.path, project_type, e
+                    )
+                });
+
+                // All our templates use $title$ at minimum, and no EJS residue
                 assert!(
-                    template.template.contains("<%"),
-                    "Template {} for {:?} should contain EJS syntax",
+                    template.template.contains("$title$"),
+                    "Template {} for {:?} should contain $title$",
+                    template.path,
+                    project_type
+                );
+                assert!(
+                    !template.template.contains("<%"),
+                    "Template {} for {:?} still contains EJS syntax",
                     template.path,
                     project_type
                 );

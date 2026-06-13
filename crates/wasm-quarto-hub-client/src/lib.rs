@@ -1948,8 +1948,8 @@ pub fn test_js_available() -> bool {
 // ============================================================================
 //
 // These functions provide the WASM entry points for creating new Quarto projects.
-// They use the quarto-project-create crate which renders EJS templates via the
-// JS bridge.
+// They use the quarto-project-create crate, which renders its scaffold templates
+// with quarto-doctemplate (pure Rust — no JS bridge involved).
 
 use quarto_project_create::{
     CreateFromChoiceOptions, ScaffoldedFile, create_project_from_choice, implemented_choices,
@@ -2069,7 +2069,7 @@ pub fn get_project_choices() -> String {
 ///
 /// # Example
 /// ```javascript
-/// const response = JSON.parse(await create_project("website", "My Website"));
+/// const response = JSON.parse(create_project("website", "My Website"));
 /// if (response.success) {
 ///     for (const file of response.files) {
 ///         if (file.content_type === "text") {
@@ -2082,23 +2082,14 @@ pub fn get_project_choices() -> String {
 /// }
 /// ```
 #[wasm_bindgen]
-pub async fn create_project(choice_id: &str, title: &str) -> String {
+pub fn create_project(choice_id: &str, title: &str) -> String {
     use base64::Engine;
-
-    let runtime = get_runtime();
-
-    // Check if JS is available (required for EJS template rendering)
-    if !runtime.js_available() {
-        return CreateProjectResponse::error(
-            "JavaScript execution is not available for template rendering",
-        );
-    }
 
     // Create project options
     let options = CreateFromChoiceOptions::new(choice_id, title);
 
     // Create the project
-    match create_project_from_choice(runtime, options).await {
+    match create_project_from_choice(options) {
         Ok(files) => {
             let json_files: Vec<JsonProjectFile> = files
                 .into_iter()
