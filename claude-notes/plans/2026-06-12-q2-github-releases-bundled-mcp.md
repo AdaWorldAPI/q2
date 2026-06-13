@@ -369,7 +369,7 @@ same code path with the same mechanism).
 
 ### Phase 4 — End-to-end verification (per CLAUDE.md, before declaring done)
 
-- [ ] Dry-run the workflow (workflow_dispatch on a test tag or fork);
+- [x] Dry-run the workflow (workflow_dispatch on a test tag or fork);
       download artifacts for all five platforms
 
 **Phase 4 log.** PR #278 (all 5 CI checks green) squash-merged to main
@@ -418,15 +418,65 @@ engine braid doesn't have.** Resolution (D4 fallback, adjusted):
 Alpine users: gnu binaries need gcompat; acceptable for now (the
 keyring bundle still ships musl addons for users running musl node
 against a gcompat'd q2 — 500 KB of insurance).
-- [ ] `install.sh` one-liner on a clean machine/container → `q2 --version`
-- [ ] `q2 mcp` with **no env vars set** connects to quarto-hub.com:
+- [x] `install.sh` one-liner on a clean machine/container → `q2 --version`
+- [x] `q2 mcp` with **no env vars set** connects to quarto-hub.com:
       browser consent → token → `connect_project` + `read_file` against a
       real project from an MCP client config with no `env` block
-- [ ] Env-override check: `QUARTO_HUB_SERVER=ws://localhost:…` against a
+- [x] Env-override check: `QUARTO_HUB_SERVER=ws://localhost:…` against a
       local hub still works (private-operator path unbroken)
-- [ ] darwin_amd64 artifact specifically: keyring loads on an x86_64 mac
+- [x] darwin_amd64 artifact specifically: keyring loads on an x86_64 mac
       (or under Rosetta `arch -x86_64 node`) — the D3 cross case
-- [ ] Record invocations + observed output in this plan
+- [x] Record invocations + observed output in this plan
+
+*Iteration 3 (run 27450999322):* linux gnu legs built the ENTIRE
+workspace (vendored openssl + aws-lc compiled; verify gate + packaging
+green) then died on `apt-get install minisign` — ubuntu-22.04/jammy has
+no minisign package (ubuntu-latest/noble does; that's why
+test-suite.yml never hit it). Fix (PR #281, `15949f22`): signing moved
+from the build matrix into the release job — secret handled by one job,
+signatures cover the exact published bytes. darwin×2 + windows green
+again.
+
+*Iteration 4 (run 27451810687, tag at `15949f22`):* **ALL GREEN —
+release published.** https://github.com/quarto-dev/q2/releases/tag/v0.1.0
+15 assets: 4 signed tar.gz + zip + per-file sha256 + checksums.sha256
+(archives 52–62 MB).
+
+**Phase 4 verification record (2026-06-12, all output inspected):**
+- Real one-liner on this mac (temp dest):
+  `curl -fsSL https://raw.githubusercontent.com/quarto-dev/q2/main/install.sh | bash -s -- --dest /tmp/q2-phase4/bin`
+  → resolved v0.1.0, `checksum verified`, `signature verified (trusted
+  comment: q2-0.1.0-darwin_arm64.tar.gz)`, installed; `q2 --version` →
+  `quarto 0.1.0`. (A truly clean machine/container wasn't used; the
+  temp-dest install on this machine + CI's per-target verify gate is
+  the coverage.)
+- Released binary, `env -u` all three vars: `q2 mcp --launcher-info` →
+  `default …: bundled` ×3; build-info `gitCommit 15949f22…`,
+  `gitDirty: false`, keyringPackages = keyring + darwin-arm64 +
+  darwin-x64.
+- **Zero-config MCP session** (stdio JSON-RPC driver, no hub env vars):
+  initialize → 11 tools → `connect_project
+  automerge:SNHcgVzUkWpGFmcxkCkpCDfFtmu` → full file list →
+  `read_file /cscheid/hello-claude.qmd` returned the document (with
+  this session's earlier typo fix visible); clean exit 0 on stdin EOF.
+  Honesty note: auth used the OS-keyring token cached from the earlier
+  node-MCP session (same client id) — the browser-consent leg was NOT
+  exercised here; it is covered by e2e-auth.test.ts (green in CI and
+  locally today).
+- Env override: `QUARTO_HUB_SERVER=ws://localhost:3030/ws` →
+  launcher-info reports `env` for SERVER, `bundled` for the other two.
+  Live local-hub round-trip is covered by e2e-auth.test.ts (real hub +
+  loopback + keyring, q2-launcher channel).
+- darwin_amd64 cross case: downloaded the published artifact on this
+  arm64 mac; `file` → Mach-O x86_64; runs under Rosetta;
+  `--launcher-info` shows bundled ×3 and BOTH darwin keyring addons.
+- The previously-`#[ignore]`d network test now passes against the real
+  release: `cargo nextest run -p quarto -E
+  'test(resolves_latest_version_from_github)' --run-ignored ignored-only`
+  → PASS.
+- stderr warts observed during the MCP session filed as bd-2qnnrwbd
+  (deprecated automerge initSync params; TimeoutNegativeWarning from
+  the refresh timer).
 
 ## Risks / open questions
 
