@@ -97,14 +97,13 @@ async fn file_slot_include_lands_in_profile_includes() {
     let extra_html = "<style>span.x { color: red; }</style>\n";
     std::fs::write(project_dir.join("extra.html"), extra_html).unwrap();
 
-    let qmd = format!(
-        "---\n\
+    let qmd = "---\n\
          title: With include\n\
          include-in-header: extra.html\n\
          ---\n\
          \n\
          Body.\n"
-    );
+        .to_string();
     let qmd_path = project_dir.join("test.qmd");
     std::fs::write(&qmd_path, &qmd).unwrap();
 
@@ -127,8 +126,7 @@ async fn file_slot_include_lands_in_profile_includes() {
         entry
             .path
             .file_name()
-            .map(|n| n == std::ffi::OsStr::new("extra.html"))
-            .unwrap_or(false),
+            .is_some_and(|n| n == std::ffi::OsStr::new("extra.html")),
         "expected entry for extra.html, got {:?}",
         entry.path
     );

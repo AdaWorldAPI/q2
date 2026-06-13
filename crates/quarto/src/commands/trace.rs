@@ -159,8 +159,8 @@ pub fn execute_view(args: TraceViewArgs) -> Result<()> {
     let trace_dir = resolve_trace_dir(args.trace_dir.as_deref());
     // `doc` preselection isn't wired into the SPA yet; accept it now so
     // the CLI shape is stable.
-    let _doc = args.doc;
-    let _no_browser = args.no_browser;
+    let _ = args.doc;
+    let _ = args.no_browser;
 
     let mut config = quarto_trace_server::ServerConfig::new(trace_dir);
     if let Some(host) = args.host {

@@ -283,10 +283,10 @@ pub fn assemble_scss(
     if !quarto.uses.is_empty() {
         parts.push(&quarto.uses);
     }
-    if let Some(t) = theme {
-        if !t.uses.is_empty() {
-            parts.push(&t.uses);
-        }
+    if let Some(t) = theme
+        && !t.uses.is_empty()
+    {
+        parts.push(&t.uses);
     }
 
     // 2. FUNCTIONS (framework → quarto → theme)
@@ -297,18 +297,18 @@ pub fn assemble_scss(
     if !quarto.functions.is_empty() {
         parts.push(&quarto.functions);
     }
-    if let Some(t) = theme {
-        if !t.functions.is_empty() {
-            parts.push(&t.functions);
-        }
+    if let Some(t) = theme
+        && !t.functions.is_empty()
+    {
+        parts.push(&t.functions);
     }
 
     // 3. DEFAULTS (theme → quarto → framework - REVERSED!)
     // Theme defaults come FIRST so they take precedence via !default
-    if let Some(t) = theme {
-        if !t.defaults.is_empty() {
-            parts.push(&t.defaults);
-        }
+    if let Some(t) = theme
+        && !t.defaults.is_empty()
+    {
+        parts.push(&t.defaults);
     }
     if !quarto.defaults.is_empty() {
         parts.push(&quarto.defaults);
@@ -324,10 +324,10 @@ pub fn assemble_scss(
     if !quarto.mixins.is_empty() {
         parts.push(&quarto.mixins);
     }
-    if let Some(t) = theme {
-        if !t.mixins.is_empty() {
-            parts.push(&t.mixins);
-        }
+    if let Some(t) = theme
+        && !t.mixins.is_empty()
+    {
+        parts.push(&t.mixins);
     }
 
     // 5. RULES (framework → quarto → theme)
@@ -337,10 +337,10 @@ pub fn assemble_scss(
     if !quarto.rules.is_empty() {
         parts.push(&quarto.rules);
     }
-    if let Some(t) = theme {
-        if !t.rules.is_empty() {
-            parts.push(&t.rules);
-        }
+    if let Some(t) = theme
+        && !t.rules.is_empty()
+    {
+        parts.push(&t.rules);
     }
 
     parts.join("\n\n")

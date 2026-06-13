@@ -102,11 +102,10 @@ fn render_project(fixture: impl FnOnce(&std::path::Path)) -> (PathBuf, Vec<(Stri
 }
 
 fn html_for<'a>(outputs: &'a [(String, String)], stem: &str) -> &'a str {
-    outputs
-        .iter()
-        .find(|(s, _)| s == stem)
-        .map(|(_, h)| h.as_str())
-        .unwrap_or_else(|| panic!("no output for stem `{}`", stem))
+    outputs.iter().find(|(s, _)| s == stem).map_or_else(
+        || panic!("no output for stem `{}`", stem),
+        |(_, h)| h.as_str(),
+    )
 }
 
 /// L3 phase 6 §"e2e CLI verification" — exact-fixture render on
@@ -557,8 +556,7 @@ Third body.
         .expect("expected sidebar container in rendered HTML");
     let sidebar_close = host[sidebar_open..]
         .find("</div>\n</div>")
-        .map(|i| sidebar_open + i)
-        .unwrap_or(host.len());
+        .map_or(host.len(), |i| sidebar_open + i);
     let sidebar_html = &host[sidebar_open..sidebar_close];
     // 1 All pill + 3 distinct categories = 4 sidebar pills with
     // the `<div class="category"` shape (note: per-item chips use
@@ -677,8 +675,7 @@ fn extract_sidebar_block(html: &str) -> String {
     let after_heading = h_start + heading_marker.len();
     let h_close = html[after_heading..]
         .find("</h5>")
-        .map(|i| after_heading + i + "</h5>".len())
-        .unwrap_or(html.len());
+        .map_or(html.len(), |i| after_heading + i + "</h5>".len());
     let container_marker = r#"<div class="quarto-listing-category"#;
     let Some(rel) = html[h_close..].find(container_marker) else {
         return html[h_start..h_close].to_string();

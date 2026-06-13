@@ -115,10 +115,10 @@ pub fn process_pandoc_code_span(
             "content" => {
                 // Handled above via direct tree walk.
             }
-            "code_span_delimiter" => {
+            "code_span_delimiter"
                 // Check if opening delimiter includes leading space
                 // (The closing delimiter never includes trailing space in the grammar)
-                if !checked_opening_delimiter {
+                if !checked_opening_delimiter => {
                     if let PandocNativeIntermediate::IntermediateUnknown(range) = child {
                         let text =
                             std::str::from_utf8(&input_bytes[range.start.offset..range.end.offset])
@@ -130,7 +130,6 @@ pub fn process_pandoc_code_span(
                     }
                     checked_opening_delimiter = true;
                 }
-            }
             "attribute_specifier" => {
                 // Process attributes, raw format, or language specifier if present
                 match child {

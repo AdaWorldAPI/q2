@@ -62,8 +62,7 @@ pub fn hydrate_item(profile: &DocumentProfile) -> ListingItem {
                 .source_path
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .map(String::from)
-                .unwrap_or_else(|| profile.source_path.display().to_string())
+                .map_or_else(|| profile.source_path.display().to_string(), String::from)
         });
 
     let subtitle = li.subtitle.clone().or_else(|| profile.subtitle.clone());

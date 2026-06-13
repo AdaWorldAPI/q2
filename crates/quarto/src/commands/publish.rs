@@ -144,10 +144,10 @@ pub fn execute(args: PublishArgs) -> Result<()> {
 
 /// Derive a site title from project config or directory name.
 fn derive_title(project: &ProjectContext, project_dir: &std::path::Path) -> String {
-    if let Some(meta) = project.config.metadata.as_ref() {
-        if let Some(t) = quarto_core::project::website_config::website_title(meta) {
-            return t;
-        }
+    if let Some(meta) = project.config.metadata.as_ref()
+        && let Some(t) = quarto_core::project::website_config::website_title(meta)
+    {
+        return t;
     }
     project_dir
         .file_name()

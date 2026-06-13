@@ -184,17 +184,18 @@ mod tests {
             files: vec![DocumentInfo::from_path(&doc_path)],
             output_dir: PathBuf::from("/project/_site"),
         };
-        let mut profile = DocumentProfile::default();
-        // Profiles store project-relative source paths (matches
-        // production behavior — see DocumentProfileStage).
-        profile.source_path = doc_path
-            .strip_prefix(&project.dir)
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|_| doc_path.clone());
-        profile.resources = snapshot
-            .into_iter()
-            .map(crate::project_resources::RawResourcePattern::without_source)
-            .collect();
+        let profile = DocumentProfile {
+            // Profiles store project-relative source paths (matches
+            // production behavior — see DocumentProfileStage).
+            source_path: doc_path
+                .strip_prefix(&project.dir)
+                .map_or_else(|_| doc_path.clone(), |p| p.to_path_buf()),
+            resources: snapshot
+                .into_iter()
+                .map(crate::project_resources::RawResourcePattern::without_source)
+                .collect(),
+            ..Default::default()
+        };
         let index = ProjectIndex::new(vec![profile]);
         let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> =
             Arc::new(quarto_system_runtime::NativeRuntime::new());

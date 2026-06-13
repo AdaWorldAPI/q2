@@ -265,13 +265,11 @@ fn block_has_math(block: &Block) -> bool {
                 .caption
                 .short
                 .as_ref()
-                .map(|i| inlines_have_math(i))
-                .unwrap_or(false)
+                .is_some_and(|i| inlines_have_math(i))
                 || f.caption
                     .long
                     .as_ref()
-                    .map(|bs| blocks_have_math(bs))
-                    .unwrap_or(false);
+                    .is_some_and(|bs| blocks_have_math(bs));
             cap_has_math || blocks_have_math(&f.content)
         }
         Block::Table(t) => {
@@ -279,13 +277,11 @@ fn block_has_math(block: &Block) -> bool {
                 .caption
                 .short
                 .as_ref()
-                .map(|i| inlines_have_math(i))
-                .unwrap_or(false)
+                .is_some_and(|i| inlines_have_math(i))
                 || t.caption
                     .long
                     .as_ref()
-                    .map(|bs| blocks_have_math(bs))
-                    .unwrap_or(false);
+                    .is_some_and(|bs| blocks_have_math(bs));
             if cap_has_math {
                 return true;
             }
@@ -603,11 +599,7 @@ mod tests {
     fn doc_with_blocks(blocks: Vec<Block>, meta: ConfigValue) -> PipelineData {
         PipelineData::DocumentAst(DocumentAst {
             path: PathBuf::from("/project/test.qmd"),
-            ast: Pandoc {
-                meta,
-                blocks,
-                ..Default::default()
-            },
+            ast: Pandoc { meta, blocks },
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],

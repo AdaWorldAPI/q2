@@ -121,10 +121,7 @@ impl Brand {
 
     /// All entries from `typography.fonts`, in source order.
     pub fn fonts(&self) -> &[BrandFont] {
-        self.typography
-            .as_ref()
-            .map(|t| t.fonts.as_slice())
-            .unwrap_or(&[])
+        self.typography.as_ref().map_or(&[], |t| t.fonts.as_slice())
     }
 
     /// Effective `monospace-inline` options: a merge of `monospace`

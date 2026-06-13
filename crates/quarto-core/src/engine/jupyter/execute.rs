@@ -134,8 +134,7 @@ impl KernelSession {
             let is_our_message = message
                 .parent_header
                 .as_ref()
-                .map(|h| h.msg_id == request_id)
-                .unwrap_or(false);
+                .is_some_and(|h| h.msg_id == request_id);
 
             if !is_our_message {
                 continue;

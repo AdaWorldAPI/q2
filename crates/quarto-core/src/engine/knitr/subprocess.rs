@@ -154,8 +154,7 @@ fn rscript_name() -> &'static str {
 fn is_rscript(path: &Path) -> bool {
     path.file_name()
         .and_then(|n| n.to_str())
-        .map(|name| name == "Rscript" || name == "Rscript.exe")
-        .unwrap_or(false)
+        .is_some_and(|name| name == "Rscript" || name == "Rscript.exe")
 }
 
 // ============================================================================
@@ -509,9 +508,7 @@ pub fn determine_working_dir(document_dir: &Path, project_dir: Option<&Path>) ->
     if within_active_renv(document_dir) {
         document_dir.to_path_buf()
     } else {
-        project_dir
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| document_dir.to_path_buf())
+        project_dir.map_or_else(|| document_dir.to_path_buf(), |p| p.to_path_buf())
     }
 }
 
@@ -786,8 +783,8 @@ source("renv/activate.R")
 
         assert!(matches!(err, ExecutionError::ExecutionFailedAtLines { .. }));
         let msg = format!("{}", err);
-        assert!(msg.contains("5"));
-        assert!(msg.contains("8")); // End line (inclusive)
+        assert!(msg.contains('5'));
+        assert!(msg.contains('8')); // End line (inclusive)
         assert!(msg.contains("object 'x' not found"));
     }
 
@@ -849,7 +846,7 @@ source("renv/activate.R")
 
         let error_info = RErrorInfo {
             error_type: RErrorType::Generic,
-            message: "".to_string(),
+            message: String::new(),
             suggestion: None,
             source_lines: None,
         };

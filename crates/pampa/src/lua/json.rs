@@ -237,7 +237,7 @@ mod tests {
         table.set("a", 1).unwrap();
         let result: String = encode.call(table).unwrap();
         assert!(result.contains("\"a\""));
-        assert!(result.contains("1"));
+        assert!(result.contains('1'));
     }
 
     // =========================================================================
@@ -258,6 +258,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is JSON round-trip test data, not π
     fn test_decode_number_float() {
         let lua = Lua::new();
         let pandoc = lua.create_table().unwrap();

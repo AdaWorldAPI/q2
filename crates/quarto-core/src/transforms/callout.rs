@@ -231,16 +231,14 @@ fn convert_div_to_callout(
     // If the callout has a crossref-eligible id, inject the standard
     // crossref triple so the indexer and resolver pick it up (plan 2.2).
     let identifier = &div.attr.0;
-    if !identifier.is_empty() {
-        if let Some(reg) = registry {
-            if let Some(def) = reg.classify_cite_id(identifier) {
-                if let Some(obj) = plain_data.as_object_mut() {
-                    obj.insert("ref_type".into(), json!(def.ref_type));
-                    obj.insert("kind".into(), json!(def.kind));
-                    obj.insert("identifier".into(), json!(identifier));
-                }
-            }
-        }
+    if !identifier.is_empty()
+        && let Some(reg) = registry
+        && let Some(def) = reg.classify_cite_id(identifier)
+        && let Some(obj) = plain_data.as_object_mut()
+    {
+        obj.insert("ref_type".into(), json!(def.ref_type));
+        obj.insert("kind".into(), json!(def.kind));
+        obj.insert("identifier".into(), json!(identifier));
     }
 
     // Create the CustomNode

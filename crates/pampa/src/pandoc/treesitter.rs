@@ -745,7 +745,7 @@ fn native_visitor<T: Write>(
                 let mut result = Vec::new();
 
                 let space_range = quarto_source_map::Range {
-                    start: node_range.start.clone(),
+                    start: node_range.start,
                     end: quarto_source_map::Location {
                         offset: node_range.start.offset + leading_ws,
                         row: node_range.start.row,
@@ -768,7 +768,7 @@ fn native_visitor<T: Write>(
                             row: node_range.start.row,
                             column: node_range.start.column + leading_ws,
                         },
-                        end: node_range.end.clone(),
+                        end: node_range.end,
                     };
                     result.push(Inline::Str(Str {
                         text: apply_smart_quotes(text),
@@ -1309,8 +1309,7 @@ fn native_visitor<T: Write>(
                         let line_end = input_bytes[pivot..]
                             .iter()
                             .position(|&b| b == b'\n' || b == b'\r')
-                            .map(|p| pivot + p)
-                            .unwrap_or(input_bytes.len());
+                            .map_or(input_bytes.len(), |p| pivot + p);
                         quarto_source_map::SourceInfo::original(file_id, start_offset, line_end)
                     } else {
                         cb.source_info.clone()
@@ -1496,7 +1495,7 @@ fn native_visitor<T: Write>(
 
                 if leading_ws > 0 {
                     let space_range = quarto_source_map::Range {
-                        start: node_range.start.clone(),
+                        start: node_range.start,
                         end: quarto_source_map::Location {
                             offset: node_range.start.offset + leading_ws,
                             row: node_range.start.row,
@@ -1551,7 +1550,7 @@ fn native_visitor<T: Write>(
                             row: node_range.end.row,
                             column: node_range.end.column - trailing_ws,
                         },
-                        end: node_range.end.clone(),
+                        end: node_range.end,
                     };
                     result.push(Inline::Space(Space {
                         source_info: quarto_source_map::SourceInfo::from_range(
@@ -1592,7 +1591,7 @@ fn native_visitor<T: Write>(
 
                 if leading_ws > 0 {
                     let space_range = quarto_source_map::Range {
-                        start: node_range.start.clone(),
+                        start: node_range.start,
                         end: quarto_source_map::Location {
                             offset: node_range.start.offset + leading_ws,
                             row: node_range.start.row,
@@ -1620,7 +1619,7 @@ fn native_visitor<T: Write>(
                             row: node_range.end.row,
                             column: node_range.end.column - trailing_ws,
                         },
-                        end: node_range.end.clone(),
+                        end: node_range.end,
                     };
                     result.push(Inline::Space(Space {
                         source_info: quarto_source_map::SourceInfo::from_range(

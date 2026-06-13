@@ -162,7 +162,7 @@ pub fn resolve_href_for_html(
     }
     // Split off any `?query` or `#fragment` tail so we look up just the
     // path portion. Preserve and re-append afterwards.
-    let (path_part, tail) = match raw.find(|c| c == '#' || c == '?') {
+    let (path_part, tail) = match raw.find(['#', '?']) {
         Some(i) => (&raw[..i], &raw[i..]),
         None => (raw, ""),
     };
@@ -236,7 +236,7 @@ pub fn resolve_doc_relative_target(raw: &str, source_relative: &str) -> Option<P
     if is_external(raw) || raw.starts_with('#') {
         return None;
     }
-    let path_part = match raw.find(|c| c == '#' || c == '?') {
+    let path_part = match raw.find(['#', '?']) {
         Some(i) => &raw[..i],
         None => raw,
     };
@@ -302,7 +302,7 @@ pub fn resolve_doc_relative_href(
     }
     // Split off `?query` or `#fragment` tail; the lookup operates
     // on the path portion only, and we re-append the tail at the end.
-    let (path_part, tail) = match raw.find(|c| c == '#' || c == '?') {
+    let (path_part, tail) = match raw.find(['#', '?']) {
         Some(i) => (&raw[..i], &raw[i..]),
         None => (raw, ""),
     };
@@ -381,7 +381,7 @@ pub fn resolve_static_resource_href(
     if is_external(raw) || raw.starts_with('#') {
         return raw.to_string();
     }
-    let (path_part, tail) = match raw.find(|c| c == '#' || c == '?') {
+    let (path_part, tail) = match raw.find(['#', '?']) {
         Some(i) => (&raw[..i], &raw[i..]),
         None => (raw, ""),
     };
@@ -784,8 +784,7 @@ mod tests {
             assert!(
                 d.problem
                     .as_ref()
-                    .map(|p| p.as_str().contains("missing.qmd"))
-                    .unwrap_or(false),
+                    .is_some_and(|p| p.as_str().contains("missing.qmd")),
                 "{} problem must mention the missing path; got {:?}",
                 expected_code,
                 d.problem
@@ -1180,8 +1179,7 @@ mod tests {
         assert!(
             d.problem
                 .as_ref()
-                .map(|p| p.as_str().contains("missing.qmd"))
-                .unwrap_or(false),
+                .is_some_and(|p| p.as_str().contains("missing.qmd")),
             "Q-13-4 problem must mention the missing path; got {:?}",
             d.problem
         );
@@ -1362,9 +1360,8 @@ mod tests {
             let prof = idx.lookup_by_source(&target).unwrap();
             let core = prof.output_href.as_str();
             let p2_path: String = p2
-                .find(|c| c == '#' || c == '?')
-                .map(|i| p2[..i].to_string())
-                .unwrap_or_else(|| p2.clone());
+                .find(['#', '?'])
+                .map_or_else(|| p2.clone(), |i| p2[..i].to_string());
             assert!(
                 p2_path.ends_with(core),
                 "case ({}, {}): Pass-2 output {:?} should end with target output_href {:?}",

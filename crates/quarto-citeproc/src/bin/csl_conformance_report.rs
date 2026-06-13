@@ -275,22 +275,10 @@ fn generate_html_report(
 "#
     ));
 
-    // Summary stats
-    let pass_pct = if total > 0 {
-        passing.len() * 100 / total
-    } else {
-        0
-    };
-    let fail_pct = if total > 0 {
-        failing.len() * 100 / total
-    } else {
-        0
-    };
-    let skip_pct = if total > 0 {
-        skipped.len() * 100 / total
-    } else {
-        0
-    };
+    // Summary stats (checked_div yields 0 when there are no test cases)
+    let pass_pct = (passing.len() * 100).checked_div(total).unwrap_or(0);
+    let fail_pct = (failing.len() * 100).checked_div(total).unwrap_or(0);
+    let skip_pct = (skipped.len() * 100).checked_div(total).unwrap_or(0);
 
     html.push_str(&format!(
         r#"
@@ -466,17 +454,14 @@ impl CslTest {
         let result = sections
             .get("result")
             .ok_or("Missing RESULT section")?
-            .to_string();
+            .clone();
 
-        let csl = sections
-            .get("csl")
-            .ok_or("Missing CSL section")?
-            .to_string();
+        let csl = sections.get("csl").ok_or("Missing CSL section")?.clone();
 
         let input = sections
             .get("input")
             .ok_or("Missing INPUT section")?
-            .to_string();
+            .clone();
 
         Ok(CslTest {
             name: name.to_string(),

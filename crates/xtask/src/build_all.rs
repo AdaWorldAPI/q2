@@ -21,6 +21,7 @@ use std::path::Path;
 use std::process::Command;
 
 /// Configuration for the build-all command.
+#[derive(Default)]
 pub struct BuildAllConfig {
     /// Skip `npm install`. Useful when running in a loop where dependencies
     /// haven't changed.
@@ -40,21 +41,6 @@ pub struct BuildAllConfig {
     pub skip_rust_build: bool,
     /// Pass `--release` to `cargo build`.
     pub release: bool,
-}
-
-impl Default for BuildAllConfig {
-    fn default() -> Self {
-        Self {
-            skip_npm_install: false,
-            skip_ts_packages_build: false,
-            skip_hub_build: false,
-            skip_trace_viewer_build: false,
-            skip_hub_mcp_bundle: false,
-            skip_q2_preview_spa_build: false,
-            skip_rust_build: false,
-            release: false,
-        }
-    }
 }
 
 /// Run the build-all command.

@@ -324,10 +324,8 @@ pub fn compile_default_css(
     use quarto_system_runtime::sass_native::compile_scss_with_embedded;
 
     // Return cached version if available (only for minified)
-    if minified {
-        if let Some(cached) = DEFAULT_CSS_CACHE.get() {
-            return Ok(cached.clone());
-        }
+    if minified && let Some(cached) = DEFAULT_CSS_CACHE.get() {
+        return Ok(cached.clone());
     }
 
     // Load built-in user layers: title block styling + default syntax-

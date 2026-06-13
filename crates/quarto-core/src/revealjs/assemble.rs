@@ -417,7 +417,7 @@ mod tests {
             .into_iter()
             .map(|(k, _)| k)
             .collect();
-        css.sort();
+        css.sort_unstable();
         assert_eq!(
             css,
             vec![

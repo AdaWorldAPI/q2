@@ -565,7 +565,7 @@ mod tests {
     /// Create a ConfigValue for a string-encoded integer.
     /// This simulates how YAML integers are sometimes parsed as strings.
     fn yaml_int_as_string(n: i32) -> ConfigValue {
-        ConfigValue::new_string(&n.to_string(), SourceInfo::for_test())
+        ConfigValue::new_string(n.to_string(), SourceInfo::for_test())
     }
 
     /// Create a TOC entry ConfigValue in YAML-parsed format.

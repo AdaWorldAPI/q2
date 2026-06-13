@@ -566,16 +566,16 @@ async fn update_document(
     // CSRF protection applies to cookie-authenticated requests only.
     // Browsers attach cookies automatically across origins; Bearer
     // tokens are explicit, so cross-site form posts can't smuggle them.
-    if auth.credential_kind == CredentialKind::Cookie {
-        if let Err(status) = check_csrf(&headers) {
-            return (
-                status,
-                Json(ErrorResponse {
-                    error: "csrf check failed".to_string(),
-                }),
-            )
-                .into_response();
-        }
+    if auth.credential_kind == CredentialKind::Cookie
+        && let Err(status) = check_csrf(&headers)
+    {
+        return (
+            status,
+            Json(ErrorResponse {
+                error: "csrf check failed".to_string(),
+            }),
+        )
+            .into_response();
     }
 
     // Validate the document ID format
@@ -705,8 +705,9 @@ async fn auth_callback(
 ) -> impl IntoResponse {
     let mode = ctx
         .auth_config()
-        .map(|c| c.callback_csrf_mode())
-        .unwrap_or(auth::CallbackCsrfMode::GoogleDoubleSubmit);
+        .map_or(auth::CallbackCsrfMode::GoogleDoubleSubmit, |c| {
+            c.callback_csrf_mode()
+        });
 
     if !validate_callback_csrf(&mode, &form, &headers) {
         return Redirect::to("/?auth_error").into_response();
@@ -926,10 +927,11 @@ async fn ws_handler(
         // Bearer requests come from non-browser MCP clients and
         // cannot be hijacked through Origin, so we skip the check
         // unconditionally for them.
-        if credential.kind() == CredentialKind::Cookie && !ctx.allow_insecure_auth() {
-            if let Err(status) = check_ws_origin(&headers) {
-                return status.into_response();
-            }
+        if credential.kind() == CredentialKind::Cookie
+            && !ctx.allow_insecure_auth()
+            && let Err(status) = check_ws_origin(&headers)
+        {
+            return status.into_response();
         }
 
         match ctx
@@ -1030,14 +1032,14 @@ pub async fn build_router_with_state(ctx: SharedContext) -> Result<Router<Shared
     // `AuthState` directly. Integration tests use this seam so they
     // can drive the hub against an `http://localhost` mock provider —
     // production discovery enforces HTTPS in `validate_discovery_document`.
-    if let Some(config) = ctx.auth_config() {
-        if !ctx.auth_state_initialized() {
-            let auth_state = auth::build_auth_state(config).await.map_err(|e| {
-                crate::error::Error::Server(format!("Failed to initialize OIDC JWKS decoder: {e}"))
-            })?;
-            ctx.set_auth_state(auth_state)
-                .map_err(|e| crate::error::Error::Server(e.to_string()))?;
-        }
+    if let Some(config) = ctx.auth_config()
+        && !ctx.auth_state_initialized()
+    {
+        let auth_state = auth::build_auth_state(config).await.map_err(|e| {
+            crate::error::Error::Server(format!("Failed to initialize OIDC JWKS decoder: {e}"))
+        })?;
+        ctx.set_auth_state(auth_state)
+            .map_err(|e| crate::error::Error::Server(e.to_string()))?;
     }
 
     let register_root_ws = ctx.register_root_ws();

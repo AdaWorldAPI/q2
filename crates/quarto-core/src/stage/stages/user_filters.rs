@@ -388,7 +388,7 @@ mod tests {
             path: PathBuf::from("/project/test.qmd"),
             ast: Pandoc {
                 meta,
-                blocks: vec![].into(),
+                blocks: vec![],
             },
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),

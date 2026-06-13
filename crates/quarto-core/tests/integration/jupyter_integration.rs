@@ -56,7 +56,6 @@ async fn test_python_kernel_detection() {
 // Run with: cargo nextest run -p quarto-core --ignored jupyter_integration
 
 use quarto_core::engine::jupyter::{CellOutput, ExecuteStatus};
-use std::path::PathBuf;
 
 /// Test starting a kernel, executing code, and shutting it down.
 #[tokio::test]
@@ -69,7 +68,7 @@ async fn test_kernel_execute_print() {
     }
 
     let daemon = daemon();
-    let working_dir = PathBuf::from(std::env::current_dir().unwrap());
+    let working_dir = std::env::current_dir().unwrap();
 
     // Start a kernel session
     let key = daemon
@@ -121,7 +120,7 @@ async fn test_kernel_execute_expression() {
     }
 
     let daemon = daemon();
-    let working_dir = PathBuf::from(std::env::current_dir().unwrap());
+    let working_dir = std::env::current_dir().unwrap();
 
     let key = daemon
         .get_or_start_session("python3", &working_dir)
@@ -141,8 +140,7 @@ async fn test_kernel_execute_expression() {
     let has_result = result.outputs.iter().any(|o| {
         if let CellOutput::ExecuteResult { data, .. } = o {
             data.get("text/plain")
-                .map(|v| v.as_str().unwrap_or("").contains('4'))
-                .unwrap_or(false)
+                .is_some_and(|v| v.as_str().unwrap_or("").contains('4'))
         } else {
             false
         }
@@ -165,7 +163,7 @@ async fn test_kernel_execute_error() {
     }
 
     let daemon = daemon();
-    let working_dir = PathBuf::from(std::env::current_dir().unwrap());
+    let working_dir = std::env::current_dir().unwrap();
 
     let key = daemon
         .get_or_start_session("python3", &working_dir)
@@ -215,13 +213,13 @@ use quarto_source_map::SourceInfo;
 
 fn make_test_project() -> ProjectContext {
     ProjectContext {
-        dir: PathBuf::from(std::env::current_dir().unwrap()),
+        dir: std::env::current_dir().unwrap(),
         config: ProjectConfig::default(),
         is_single_file: true,
         files: vec![DocumentInfo::from_path(
             std::env::current_dir().unwrap().join("test.qmd"),
         )],
-        output_dir: PathBuf::from(std::env::current_dir().unwrap()),
+        output_dir: std::env::current_dir().unwrap(),
     }
 }
 
@@ -449,7 +447,7 @@ async fn test_kernel_execute_matplotlib() {
     }
 
     let daemon = daemon();
-    let working_dir = PathBuf::from(std::env::current_dir().unwrap());
+    let working_dir = std::env::current_dir().unwrap();
 
     let key = daemon
         .get_or_start_session("python3", &working_dir)

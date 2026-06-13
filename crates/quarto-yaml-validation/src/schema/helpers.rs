@@ -309,6 +309,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is parser test data, not an approximation of π
     fn test_get_hash_number_real() {
         let yaml = make_hash("value", Yaml::Real("3.14".to_string()));
         let result = get_hash_number(&yaml, "value").unwrap();
@@ -635,6 +636,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14159 is parser test data, not an approximation of π
     fn test_yaml_to_json_value_real() {
         let yaml = Yaml::Real("3.14159".to_string());
         let result = yaml_to_json_value(&yaml, &source_info()).unwrap();

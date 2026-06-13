@@ -187,7 +187,7 @@ async fn execute_blocks_inner(
         let exec_result = daemon
             .execute_in_session(&key, &block.code)
             .await
-            .ok_or_else(|| JupyterError::NotConnected)??;
+            .ok_or(JupyterError::NotConnected)??;
 
         // Format and append outputs
         let output_md = format_outputs(&exec_result);

@@ -259,13 +259,7 @@ fn segment_match(pat: &[&str], hay: &[&str]) -> bool {
             }
             pat[1..].is_empty()
         }
-        (Some(p), Some(h)) => {
-            if wildcard_match(p, h) {
-                segment_match(&pat[1..], &hay[1..])
-            } else {
-                false
-            }
-        }
+        (Some(p), Some(h)) if wildcard_match(p, h) => segment_match(&pat[1..], &hay[1..]),
         _ => false,
     }
 }

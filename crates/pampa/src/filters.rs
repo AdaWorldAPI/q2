@@ -1166,7 +1166,7 @@ mod tests {
 
     // Helper to create empty attr
     fn empty_attr() -> pandoc::Attr {
-        ("".to_string(), vec![], hashlink::LinkedHashMap::new())
+        (String::new(), vec![], hashlink::LinkedHashMap::new())
     }
 
     // Helper to create a ConfigValue with string
@@ -1439,7 +1439,7 @@ mod tests {
         let inline = Inline::Link(Link {
             attr: empty_attr(),
             content: vec![str_inline("link text")],
-            target: ("https://example.com".to_string(), "".to_string()),
+            target: ("https://example.com".to_string(), String::new()),
             source_info: si(),
             attr_source: AttrSourceInfo::empty(),
             target_source: TargetSourceInfo::empty(),
@@ -1459,7 +1459,7 @@ mod tests {
         let inline = Inline::Image(Image {
             attr: empty_attr(),
             content: vec![str_inline("alt")],
-            target: ("image.png".to_string(), "".to_string()),
+            target: ("image.png".to_string(), String::new()),
             source_info: si(),
             attr_source: AttrSourceInfo::empty(),
             target_source: TargetSourceInfo::empty(),

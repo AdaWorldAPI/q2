@@ -222,14 +222,12 @@ title: Hello
 
     // Navigate: blocks[0] = Div -> content[0] = BulletList -> content[0][0] = Plain -> content[0] = Span
     // Toggle the first checkbox from [x] to [ ] by clearing the span content
-    if let pampa::pandoc::Block::Div(ref mut div) = new_ast.blocks[0] {
-        if let pampa::pandoc::Block::BulletList(ref mut bl) = div.content[0] {
-            if let pampa::pandoc::Block::Plain(ref mut plain) = bl.content[0][0] {
-                if let pampa::pandoc::Inline::Span(ref mut span) = plain.content[0] {
-                    span.content.clear(); // Toggle [x] -> [ ]
-                }
-            }
-        }
+    if let pampa::pandoc::Block::Div(ref mut div) = new_ast.blocks[0]
+        && let pampa::pandoc::Block::BulletList(ref mut bl) = div.content[0]
+        && let pampa::pandoc::Block::Plain(ref mut plain) = bl.content[0][0]
+        && let pampa::pandoc::Inline::Span(ref mut span) = plain.content[0]
+    {
+        span.content.clear(); // Toggle [x] -> [ ]
     }
 
     // Run through JSON round-trip path (simulates WASM/client)
@@ -1662,11 +1660,11 @@ fn inline_splice_concat_led_paragraph_does_not_panic() {
     // uses orig_inlines[0] ("Table:"), whose start_offset() is the Concat
     // sentinel 0 -> reversed slice on the unfixed code.
     let mut new = orig.clone();
-    if let Some(Block::Paragraph(p)) = new.blocks.get_mut(1) {
-        if let Some(Inline::Str(s)) = p.content.last_mut() {
-            s.text = "works.".to_string();
-            s.source_info = SourceInfo::for_test();
-        }
+    if let Some(Block::Paragraph(p)) = new.blocks.get_mut(1)
+        && let Some(Inline::Str(s)) = p.content.last_mut()
+    {
+        s.text = "works.".to_string();
+        s.source_info = SourceInfo::for_test();
     }
 
     let plan = compute_reconciliation(&orig, &new);

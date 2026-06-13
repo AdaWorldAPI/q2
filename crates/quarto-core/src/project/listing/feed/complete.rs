@@ -221,7 +221,7 @@ fn substitute_placeholders(
     let mut last_end = 0usize;
     for caps in re.captures_iter(staged) {
         let m = caps.get(0).expect("regex always has whole match");
-        let href = caps.get(1).map(|c| c.as_str()).unwrap_or("").to_string();
+        let href = caps.get(1).map_or("", |c| c.as_str()).to_string();
         out.push_str(&staged[last_end..m.start()]);
 
         let sibling_abs = output_dir.join(&href);

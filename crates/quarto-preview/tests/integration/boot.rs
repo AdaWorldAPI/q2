@@ -45,10 +45,10 @@ async fn wait_for_health(port: u16) {
     let deadline = Instant::now() + Duration::from_secs(10);
     let client = reqwest::Client::new();
     loop {
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status().is_success() {
-                return;
-            }
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status().is_success()
+        {
+            return;
         }
         if Instant::now() >= deadline {
             panic!("server didn't come up on port {port} within 10s");

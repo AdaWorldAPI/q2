@@ -299,11 +299,11 @@ fn convert_div(div: Div, def: &crate::crossref::RefTypeDef) -> CustomNode {
         node.slots
             .insert("caption_long".into(), Slot::Blocks(caption_long));
     }
-    if let Some(short) = caption_short {
-        if !short.is_empty() {
-            node.slots
-                .insert("caption_short".into(), Slot::Inlines(short));
-        }
+    if let Some(short) = caption_short
+        && !short.is_empty()
+    {
+        node.slots
+            .insert("caption_short".into(), Slot::Inlines(short));
     }
     node
 }
@@ -330,11 +330,11 @@ fn convert_figure(fig: Figure, def: &crate::crossref::RefTypeDef) -> CustomNode 
         node.slots
             .insert("caption_long".into(), Slot::Blocks(caption_long));
     }
-    if let Some(short) = caption_short {
-        if !short.is_empty() {
-            node.slots
-                .insert("caption_short".into(), Slot::Inlines(short));
-        }
+    if let Some(short) = caption_short
+        && !short.is_empty()
+    {
+        node.slots
+            .insert("caption_short".into(), Slot::Inlines(short));
     }
     node
 }

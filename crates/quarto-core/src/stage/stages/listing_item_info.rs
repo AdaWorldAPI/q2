@@ -336,7 +336,7 @@ fn append_inline_text_skip_notes(inlines: &[Inline], out: &mut String) {
 
 /// Ceiling division on `u32`. `1 word / 200 wpm` → 1 minute, not 0.
 fn div_ceil_u32(num: u32, denom: u32) -> u32 {
-    (num + denom - 1) / denom
+    num.div_ceil(denom)
 }
 
 /// File-modification date as `YYYY-MM-DD` (UTC), via the runtime

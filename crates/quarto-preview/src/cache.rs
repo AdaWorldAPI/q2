@@ -179,15 +179,15 @@ pub async fn record_capture_cached(
     }
 
     let captures = record_capture(path, project, runtime, engine_registry).await?;
-    if !captures.is_empty() {
-        if let Err(e) = write_cached(cache_dir, &key, &captures) {
-            tracing::warn!(
-                path = %path.display(),
-                key = %key,
-                error = %e,
-                "engine capture cache write failed; capture still emitted",
-            );
-        }
+    if !captures.is_empty()
+        && let Err(e) = write_cached(cache_dir, &key, &captures)
+    {
+        tracing::warn!(
+            path = %path.display(),
+            key = %key,
+            error = %e,
+            "engine capture cache write failed; capture still emitted",
+        );
     }
     Ok(captures)
 }

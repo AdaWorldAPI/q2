@@ -139,12 +139,12 @@ fn website_sidebar_includes_sibling_pages() {
     assert!(
         output.html().contains("class=\"sidebar"),
         "rendered HTML should contain the sidebar block; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
     assert!(
         output.html().contains(">About<") || output.html().contains(">About\n<"),
         "sidebar should reference the sibling 'About' entry; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
     // The vfs_root resolver makes URLs absolute under the synthetic
     // root; the cross-doc link rewriter still resolves the page
@@ -152,7 +152,7 @@ fn website_sidebar_includes_sibling_pages() {
     assert!(
         output.html().contains("about.html\""),
         "sidebar entry for about.qmd should rewrite to about.html; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
 }
 
@@ -183,7 +183,7 @@ fn sibling_title_edit_reflects_in_sidebar() {
     assert!(
         first.html().contains(">About v1<"),
         "first render should show 'About v1'; got {}",
-        snippet(&first.html())
+        snippet(first.html())
     );
 
     // Edit about.qmd's title and re-render the (unchanged) index.
@@ -195,12 +195,12 @@ fn sibling_title_edit_reflects_in_sidebar() {
     assert!(
         second.html().contains(">About v2<"),
         "second render should reflect the new sibling title; got {}",
-        snippet(&second.html())
+        snippet(second.html())
     );
     assert!(
         !second.html().contains(">About v1<"),
         "second render should *not* still show the old title; got {}",
-        snippet(&second.html())
+        snippet(second.html())
     );
 }
 
@@ -222,12 +222,12 @@ fn single_file_no_sidebar() {
     assert!(
         !output.html().contains("class=\"sidebar"),
         "single-file render should have no sidebar; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
     assert!(
         output.html().contains("Only"),
         "rendered HTML should contain the page title; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
 }
 
@@ -263,14 +263,14 @@ fn cross_document_link_rewrites_to_html() {
     assert!(
         output.html().contains("about.html\""),
         "[link](about.qmd) should rewrite to ...about.html; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
     // And there must be NO `about.qmd` reference left in the body —
     // every internal-doc reference must have been rewritten.
     assert!(
         !output.html().contains("about.qmd\""),
         "no rewritten about.qmd should remain in body; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
 }
 
@@ -298,7 +298,7 @@ fn title_prefix_applied_in_website_render() {
     assert!(
         output.html().contains("<title>Home – Test Site</title>"),
         "title prefix should be applied; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
 }
 
@@ -325,12 +325,12 @@ fn hub_smoke_fixture_renders_cleanly() {
     assert!(
         output.html().contains("about.html\""),
         "sidebar should link to ...about.html; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
     assert!(
         output.html().contains("posts/first.html\""),
         "sidebar should link to ...posts/first.html; got {}",
-        snippet(&output.html())
+        snippet(output.html())
     );
 
     // Cross-doc body link from index.qmd's body rewrites too —
@@ -444,8 +444,7 @@ fn pass1_parse_error_in_sibling_surfaces_alongside_active_render() {
         combined.iter().any(|d| d.code.as_deref() == Some("Q-13-1")
             && d.problem
                 .as_ref()
-                .map(|p| p.as_str().contains("about.qmd"))
-                .unwrap_or(false)),
+                .is_some_and(|p| p.as_str().contains("about.qmd"))),
         "expected Q-13-1 sidebar diagnostic naming about.qmd; got: {:?}",
         combined,
     );
@@ -579,7 +578,7 @@ fn default_project_theme_artifact_lands_in_vfs() {
             panic!(
                 "expected a theme <link> under {}/quarto/quarto-theme-…; html: {}",
                 url_root,
-                snippet(&output.html()),
+                snippet(output.html()),
             )
         });
 
@@ -906,8 +905,7 @@ fn default_project_theme_artifact_lands_in_vfs_under_q2_preview() {
         .filter(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .map(|n| n.starts_with("quarto-theme-") && n.ends_with(".css"))
-                .unwrap_or(false)
+                .is_some_and(|n| n.starts_with("quarto-theme-") && n.ends_with(".css"))
         })
         .collect();
     assert_eq!(

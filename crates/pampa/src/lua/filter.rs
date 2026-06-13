@@ -128,10 +128,7 @@ pub async fn apply_lua_filter(
 ) -> FilterResult<FilterOutput> {
     // Read filter file via runtime (supports VFS on WASM)
     let filter_bytes = runtime.file_read(filter_path).map_err(|e| {
-        LuaFilterError::FileReadError(
-            filter_path.to_owned(),
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-        )
+        LuaFilterError::FileReadError(filter_path.to_owned(), std::io::Error::other(e.to_string()))
     })?;
     let filter_source = String::from_utf8(filter_bytes).map_err(|e| {
         LuaFilterError::FileReadError(
@@ -2619,7 +2616,7 @@ mod unit_tests {
     #[test]
     fn test_traversal_control_clone() {
         let ctrl = TraversalControl::Continue;
-        let cloned = ctrl.clone();
+        let cloned = ctrl;
         assert_eq!(ctrl, cloned);
     }
 

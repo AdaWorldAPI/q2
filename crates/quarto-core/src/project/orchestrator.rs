@@ -130,8 +130,7 @@ fn pass1_threads_record() {
 pub fn pass1_threads_used() -> usize {
     PASS1_THREADS
         .get()
-        .map(|mu| mu.lock().map(|s| s.len()).unwrap_or(0))
-        .unwrap_or(0)
+        .map_or(0, |mu| mu.lock().map_or(0, |s| s.len()))
 }
 
 /// Number of documents Pass-1 has processed since process start.
@@ -193,8 +192,7 @@ pub(crate) fn pass2_record(docs: usize, wall_nanos: u64) {
 pub fn pass2_threads_used() -> usize {
     PASS2_THREADS
         .get()
-        .map(|mu| mu.lock().map(|s| s.len()).unwrap_or(0))
-        .unwrap_or(0)
+        .map_or(0, |mu| mu.lock().map_or(0, |s| s.len()))
 }
 
 /// Print `perf.pass2 docs=N threads_used=K wall_ms=W` to stderr when
@@ -645,17 +643,12 @@ impl<O: OutputDiagnostics> ProjectRenderSummary<O> {
 /// resolving the sidebar-`auto:` chicken-and-egg (membership
 /// resolution consults the index, which doesn't yet exist for
 /// non-target pages). Filed as a Phase-8 follow-up.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum RenderMode {
+    #[default]
     Full,
     Subset(std::collections::HashSet<std::path::PathBuf>),
     ActivePage(std::path::PathBuf),
-}
-
-impl Default for RenderMode {
-    fn default() -> Self {
-        RenderMode::Full
-    }
 }
 
 /// Two-pass project render driver.
@@ -1244,18 +1237,14 @@ impl<'a, R: Pass2Renderer> ProjectPipeline<'a, R> {
 /// `files.len() <= 1`.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn worker_count() -> usize {
-    if let Some(raw) = std::env::var_os("QUARTO_JOBS") {
-        if let Some(s) = raw.to_str() {
-            if let Ok(n) = s.parse::<usize>() {
-                if n >= 1 {
-                    return n;
-                }
-            }
-        }
+    if let Some(raw) = std::env::var_os("QUARTO_JOBS")
+        && let Some(s) = raw.to_str()
+        && let Ok(n) = s.parse::<usize>()
+        && n >= 1
+    {
+        return n;
     }
-    std::thread::available_parallelism()
-        .map(|n| n.get().min(16))
-        .unwrap_or(4)
+    std::thread::available_parallelism().map_or(4, |n| n.get().min(16))
 }
 
 /// WASM has no OS threads; Pass-2 always runs serially there (the
@@ -1656,13 +1645,13 @@ async fn pass1_profile_with_cache(
         Ok(crate::document_profile::IncludeEntry::hash_bytes(&bytes))
     };
 
-    match crate::project::profile_cache::load(runtime.as_ref(), &key_hex, include_resolver).await {
-        Ok(Some(profile)) => return Ok(profile),
-        // Cache miss / verification failure / runtime error: degrade
-        // to a live extraction. We don't surface the error because the
-        // orchestrator never wants a cache hiccup to abort an
-        // otherwise-fine render.
-        Ok(None) | Err(_) => {}
+    // A cache miss / verification failure / runtime error (Ok(None) | Err(_))
+    // degrades to a live extraction. We don't surface the error because the
+    // orchestrator never wants a cache hiccup to abort an otherwise-fine render.
+    if let Ok(Some(profile)) =
+        crate::project::profile_cache::load(runtime.as_ref(), &key_hex, include_resolver).await
+    {
+        return Ok(profile);
     }
 
     let profile =

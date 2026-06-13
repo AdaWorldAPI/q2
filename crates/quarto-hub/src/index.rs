@@ -149,7 +149,7 @@ impl IndexDocument {
             // Get the files map object
             if let Some((_, files_obj)) = doc.get(ROOT, FILES_KEY).ok().flatten() {
                 // Collect keys first to avoid borrow issues
-                let keys: Vec<String> = doc.keys(&files_obj).map(|k| k.to_string()).collect();
+                let keys: Vec<String> = doc.keys(&files_obj).collect();
 
                 // Iterate over all keys in the map
                 for key in keys {
@@ -235,7 +235,7 @@ impl IndexDocument {
             let Some((_, captures_obj)) = doc.get(ROOT, CAPTURES_KEY).ok().flatten() else {
                 return out;
             };
-            let paths: Vec<String> = doc.keys(&captures_obj).map(|k| k.to_string()).collect();
+            let paths: Vec<String> = doc.keys(&captures_obj).collect();
             for path in paths {
                 if let Some((_, entry_obj)) = doc.get(&captures_obj, &path).ok().flatten()
                     && let Some(cap) = read_capture_entry(doc, &entry_obj)
@@ -594,9 +594,9 @@ mod tests {
 
         let all = index.get_all_captures();
         assert_eq!(all.len(), 2);
-        assert_eq!(all.get("a.qmd").unwrap().capture_doc_id, "cap-a");
-        assert_eq!(all.get("b.qmd").unwrap().capture_doc_id, "cap-b");
-        assert_eq!(all.get("b.qmd").unwrap().state, Some(CaptureState::Running));
+        assert_eq!(all["a.qmd"].capture_doc_id, "cap-a");
+        assert_eq!(all["b.qmd"].capture_doc_id, "cap-b");
+        assert_eq!(all["b.qmd"].state, Some(CaptureState::Running));
     }
 
     #[tokio::test]

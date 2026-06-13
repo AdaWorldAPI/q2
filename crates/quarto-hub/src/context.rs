@@ -543,8 +543,7 @@ impl HubContext {
         // accept.
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs() as i64);
         if let Err(status) =
             auth::validate_azp_and_iat(&token_data.claims, auth_state.audiences().iter(), now, 60)
         {

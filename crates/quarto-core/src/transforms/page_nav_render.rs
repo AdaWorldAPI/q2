@@ -75,33 +75,33 @@ impl AstTransform for PageNavRenderTransform {
         let mut page_nav = PageNavigation::from_config_value(cv);
 
         let mut local_diags = std::mem::take(&mut ctx.diagnostics);
-        if let Some(item) = page_nav.prev.as_mut() {
-            if let Some(href) = item.href.as_mut() {
-                // bd-qor9a — pass the prev item's SourceInfo through
-                // so any Q-13-7 diagnostic points at the YAML.
-                let location = Some(item.href_source.clone());
-                *href = resolve_href_for_html(
-                    href,
-                    ctx.resource_resolver.as_ref(),
-                    ctx.project_index.as_deref(),
-                    NavSurface::PageNav,
-                    location,
-                    &mut local_diags,
-                );
-            }
+        if let Some(item) = page_nav.prev.as_mut()
+            && let Some(href) = item.href.as_mut()
+        {
+            // bd-qor9a — pass the prev item's SourceInfo through
+            // so any Q-13-7 diagnostic points at the YAML.
+            let location = Some(item.href_source.clone());
+            *href = resolve_href_for_html(
+                href,
+                ctx.resource_resolver.as_ref(),
+                ctx.project_index.as_deref(),
+                NavSurface::PageNav,
+                location,
+                &mut local_diags,
+            );
         }
-        if let Some(item) = page_nav.next.as_mut() {
-            if let Some(href) = item.href.as_mut() {
-                let location = Some(item.href_source.clone());
-                *href = resolve_href_for_html(
-                    href,
-                    ctx.resource_resolver.as_ref(),
-                    ctx.project_index.as_deref(),
-                    NavSurface::PageNav,
-                    location,
-                    &mut local_diags,
-                );
-            }
+        if let Some(item) = page_nav.next.as_mut()
+            && let Some(href) = item.href.as_mut()
+        {
+            let location = Some(item.href_source.clone());
+            *href = resolve_href_for_html(
+                href,
+                ctx.resource_resolver.as_ref(),
+                ctx.project_index.as_deref(),
+                NavSurface::PageNav,
+                location,
+                &mut local_diags,
+            );
         }
         ctx.diagnostics = local_diags;
 

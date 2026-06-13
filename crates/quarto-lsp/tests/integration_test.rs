@@ -229,16 +229,14 @@ impl LspTestHarness {
         while start.elapsed() < timeout {
             let msg = read_message(&mut self.reader);
             if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+                && let Some(params) = msg.get("params")
+                && params.get("uri").and_then(|u| u.as_str()) == Some(expected_uri)
             {
-                if let Some(params) = msg.get("params") {
-                    if params.get("uri").and_then(|u| u.as_str()) == Some(expected_uri) {
-                        return params
-                            .get("diagnostics")
-                            .and_then(|d| d.as_array())
-                            .cloned()
-                            .unwrap_or_default();
-                    }
-                }
+                return params
+                    .get("diagnostics")
+                    .and_then(|d| d.as_array())
+                    .cloned()
+                    .unwrap_or_default();
             }
         }
         panic!("Timed out waiting for diagnostics for {}", expected_uri);

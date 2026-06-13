@@ -71,7 +71,7 @@ static INLINE_R_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 pub fn resolve_inline_r_expressions(markdown: &str) -> String {
     INLINE_R_PATTERN
         .replace_all(markdown, |caps: &regex::Captures| {
-            let expr = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let expr = caps.get(1).map_or("", |m| m.as_str());
             // Trim the expression to normalize whitespace
             let trimmed = expr.trim();
             if trimmed.is_empty() {

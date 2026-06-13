@@ -526,8 +526,7 @@ pub fn resolve_reported_resources(
         };
         let doc_dir = doc_source
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| project_root.to_path_buf());
+            .map_or_else(|| project_root.to_path_buf(), Path::to_path_buf);
 
         let raw_str = entry.raw_path.to_string_lossy();
         let absolute = if entry.raw_path.is_absolute() {
@@ -605,8 +604,7 @@ pub fn collect_static_resources(
         };
         let doc_dir = doc_source_abs
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| project_root.clone());
+            .map_or_else(|| project_root.clone(), Path::to_path_buf);
 
         out.extend(expand_patterns(
             project_root,
@@ -753,8 +751,7 @@ pub fn collect_static_resources_with_diagnostics(
         };
         let doc_dir = doc_source_abs
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| project_root.clone());
+            .map_or_else(|| project_root.clone(), Path::to_path_buf);
 
         if let Err(e) = (|| -> Result<(), ResourceError> {
             out.extend(expand_patterns(

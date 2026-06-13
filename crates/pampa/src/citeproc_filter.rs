@@ -1116,7 +1116,7 @@ mod tests {
     #[test]
     fn test_inlines_to_text_code() {
         let inlines = vec![Inline::Code(Code {
-            attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+            attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
             text: "println!".to_string(),
             source_info: si(),
             attr_source: crate::pandoc::AttrSourceInfo::empty(),
@@ -1147,9 +1147,9 @@ mod tests {
     #[test]
     fn test_inlines_to_text_link() {
         let inlines = vec![Inline::Link(crate::pandoc::Link {
-            attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+            attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
             content: vec![str_inline("link text")],
-            target: ("https://example.com".to_string(), "".to_string()),
+            target: ("https://example.com".to_string(), String::new()),
             source_info: si(),
             attr_source: crate::pandoc::AttrSourceInfo::empty(),
             target_source: crate::pandoc::TargetSourceInfo::empty(),
@@ -1160,7 +1160,7 @@ mod tests {
     #[test]
     fn test_inlines_to_text_span() {
         let inlines = vec![Inline::Span(crate::pandoc::Span {
-            attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+            attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
             content: vec![str_inline("span content")],
             source_info: si(),
             attr_source: crate::pandoc::AttrSourceInfo::empty(),
@@ -1197,7 +1197,7 @@ mod tests {
             str_inline("!"),
             Inline::Space(Space { source_info: si() }),
             Inline::Code(Code {
-                attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                 text: "code".to_string(),
                 source_info: si(),
                 attr_source: crate::pandoc::AttrSourceInfo::empty(),
@@ -1779,7 +1779,7 @@ mod tests {
         let pandoc = Pandoc {
             meta: meta_map(vec![]),
             blocks: vec![Block::Div(crate::pandoc::Div {
-                attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                 content: vec![Block::Paragraph(crate::pandoc::Paragraph {
                     content: vec![cite],
                     source_info: si(),
@@ -1875,7 +1875,7 @@ mod tests {
             meta: meta_map(vec![]),
             blocks: vec![Block::Header(crate::pandoc::Header {
                 level: 1,
-                attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                 content: vec![str_inline("Title "), make_cite("header2020")],
                 source_info: si(),
                 attr_source: crate::pandoc::AttrSourceInfo::empty(),
@@ -1985,7 +1985,7 @@ mod tests {
         let pandoc = Pandoc {
             meta: meta_map(vec![]),
             blocks: vec![Block::Table(Table {
-                attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                 caption: Caption {
                     short: Some(vec![make_cite("tableshort2020")]),
                     long: Some(vec![Block::Paragraph(crate::pandoc::Paragraph {
@@ -1996,11 +1996,11 @@ mod tests {
                 },
                 colspec: vec![(Alignment::Default, crate::pandoc::ColWidth::Default)],
                 head: TableHead {
-                    attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                    attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                     rows: vec![Row {
-                        attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                        attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                         cells: vec![Cell {
-                            attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                            attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                             alignment: Alignment::Default,
                             row_span: 1,
                             col_span: 1,
@@ -2018,13 +2018,13 @@ mod tests {
                     attr_source: crate::pandoc::AttrSourceInfo::empty(),
                 },
                 bodies: vec![TableBody {
-                    attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                    attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                     rowhead_columns: 0,
                     head: vec![],
                     body: vec![Row {
-                        attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                        attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                         cells: vec![Cell {
-                            attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                            attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                             alignment: Alignment::Default,
                             row_span: 1,
                             col_span: 1,
@@ -2042,11 +2042,11 @@ mod tests {
                     attr_source: crate::pandoc::AttrSourceInfo::empty(),
                 }],
                 foot: TableFoot {
-                    attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                    attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                     rows: vec![Row {
-                        attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                        attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                         cells: vec![Cell {
-                            attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                            attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                             alignment: Alignment::Default,
                             row_span: 1,
                             col_span: 1,
@@ -2229,9 +2229,9 @@ mod tests {
     fn test_collect_citations_in_link() {
         let cite = make_cite("link2020");
         let link = Inline::Link(crate::pandoc::Link {
-            attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+            attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
             content: vec![cite],
-            target: ("https://example.com".to_string(), "".to_string()),
+            target: ("https://example.com".to_string(), String::new()),
             source_info: si(),
             attr_source: crate::pandoc::AttrSourceInfo::empty(),
             target_source: crate::pandoc::TargetSourceInfo::empty(),
@@ -2252,7 +2252,7 @@ mod tests {
     fn test_collect_citations_in_span() {
         let cite = make_cite("span2020");
         let span = Inline::Span(crate::pandoc::Span {
-            attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+            attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
             content: vec![cite],
             source_info: si(),
             attr_source: crate::pandoc::AttrSourceInfo::empty(),
@@ -2389,7 +2389,7 @@ mod tests {
         })];
 
         // Create a mock citation output
-        let citations = vec![CpCitation {
+        let citations = [CpCitation {
             id: None,
             note_number: Some(1),
             items: vec![quarto_citeproc::CitationItem {
@@ -2403,7 +2403,7 @@ mod tests {
                 position: None,
             }],
         }];
-        let rendered = vec!["(Smith 2020)".to_string()];
+        let rendered = ["(Smith 2020)".to_string()];
         let citation_outputs: Vec<_> = citations.iter().zip(rendered.iter()).collect();
 
         // Create a minimal processor
@@ -2442,7 +2442,7 @@ mod tests {
             source_info: si(),
         })];
 
-        let citations = vec![CpCitation {
+        let citations = [CpCitation {
             id: None,
             note_number: Some(1),
             items: vec![quarto_citeproc::CitationItem {
@@ -2456,7 +2456,7 @@ mod tests {
                 position: None,
             }],
         }];
-        let rendered = vec!["(Nested 2020)".to_string()];
+        let rendered = ["(Nested 2020)".to_string()];
         let citation_outputs: Vec<_> = citations.iter().zip(rendered.iter()).collect();
 
         let style = quarto_csl::parse_csl(DEFAULT_CSL_STYLE).unwrap();
@@ -2498,7 +2498,7 @@ mod tests {
             }),
             // Test in Div
             Block::Div(crate::pandoc::Div {
-                attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                 content: vec![Block::Paragraph(crate::pandoc::Paragraph {
                     content: vec![make_cite("div2020")],
                     source_info: si(),
@@ -2508,7 +2508,7 @@ mod tests {
             }),
         ];
 
-        let citations = vec![
+        let citations = [
             CpCitation {
                 id: None,
                 note_number: Some(1),
@@ -2538,7 +2538,7 @@ mod tests {
                 }],
             },
         ];
-        let rendered = vec!["(Container 2020)".to_string(), "(Div 2020)".to_string()];
+        let rendered = ["(Container 2020)".to_string(), "(Div 2020)".to_string()];
         let citation_outputs: Vec<_> = citations.iter().zip(rendered.iter()).collect();
 
         let style = quarto_csl::parse_csl(DEFAULT_CSL_STYLE).unwrap();
@@ -2553,21 +2553,19 @@ mod tests {
         );
 
         // Check BlockQuote
-        if let Block::BlockQuote(bq) = &blocks[0] {
-            if let Block::Paragraph(p) = &bq.content[0] {
-                if let Inline::Str(s) = &p.content[0] {
-                    assert_eq!(s.text, "(Container 2020)");
-                }
-            }
+        if let Block::BlockQuote(bq) = &blocks[0]
+            && let Block::Paragraph(p) = &bq.content[0]
+            && let Inline::Str(s) = &p.content[0]
+        {
+            assert_eq!(s.text, "(Container 2020)");
         }
 
         // Check Div
-        if let Block::Div(d) = &blocks[1] {
-            if let Block::Paragraph(p) = &d.content[0] {
-                if let Inline::Str(s) = &p.content[0] {
-                    assert_eq!(s.text, "(Div 2020)");
-                }
-            }
+        if let Block::Div(d) = &blocks[1]
+            && let Block::Paragraph(p) = &d.content[0]
+            && let Inline::Str(s) = &p.content[0]
+        {
+            assert_eq!(s.text, "(Div 2020)");
         }
     }
 
@@ -2599,7 +2597,7 @@ mod tests {
             }),
         ];
 
-        let citations = vec![
+        let citations = [
             CpCitation {
                 id: None,
                 note_number: Some(1),
@@ -2629,7 +2627,7 @@ mod tests {
                 }],
             },
         ];
-        let rendered = vec!["(Ordered 2020)".to_string(), "(Bullet 2020)".to_string()];
+        let rendered = ["(Ordered 2020)".to_string(), "(Bullet 2020)".to_string()];
         let citation_outputs: Vec<_> = citations.iter().zip(rendered.iter()).collect();
 
         let style = quarto_csl::parse_csl(DEFAULT_CSL_STYLE).unwrap();
@@ -2644,21 +2642,19 @@ mod tests {
         );
 
         // Check OrderedList
-        if let Block::OrderedList(ol) = &blocks[0] {
-            if let Block::Paragraph(p) = &ol.content[0][0] {
-                if let Inline::Str(s) = &p.content[0] {
-                    assert_eq!(s.text, "(Ordered 2020)");
-                }
-            }
+        if let Block::OrderedList(ol) = &blocks[0]
+            && let Block::Paragraph(p) = &ol.content[0][0]
+            && let Inline::Str(s) = &p.content[0]
+        {
+            assert_eq!(s.text, "(Ordered 2020)");
         }
 
         // Check BulletList
-        if let Block::BulletList(bl) = &blocks[1] {
-            if let Block::Paragraph(p) = &bl.content[0][0] {
-                if let Inline::Str(s) = &p.content[0] {
-                    assert_eq!(s.text, "(Bullet 2020)");
-                }
-            }
+        if let Block::BulletList(bl) = &blocks[1]
+            && let Block::Paragraph(p) = &bl.content[0][0]
+            && let Inline::Str(s) = &p.content[0]
+        {
+            assert_eq!(s.text, "(Bullet 2020)");
         }
     }
 
@@ -2705,16 +2701,16 @@ mod tests {
             }),
             // Link
             Inline::Link(crate::pandoc::Link {
-                attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                 content: vec![make_cite("link2020")],
-                target: ("https://example.com".to_string(), "".to_string()),
+                target: ("https://example.com".to_string(), String::new()),
                 source_info: si(),
                 attr_source: crate::pandoc::AttrSourceInfo::empty(),
                 target_source: crate::pandoc::TargetSourceInfo::empty(),
             }),
             // Span
             Inline::Span(crate::pandoc::Span {
-                attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                 content: vec![make_cite("span2020")],
                 source_info: si(),
                 attr_source: crate::pandoc::AttrSourceInfo::empty(),
@@ -2768,10 +2764,10 @@ mod tests {
         assert_eq!(citation_index, 9);
 
         // Verify Strong transformation
-        if let Inline::Strong(s) = &inlines[0] {
-            if let Inline::Str(str) = &s.content[0] {
-                assert_eq!(str.text, "(strong2020)");
-            }
+        if let Inline::Strong(s) = &inlines[0]
+            && let Inline::Str(str) = &s.content[0]
+        {
+            assert_eq!(str.text, "(strong2020)");
         }
     }
 
@@ -2787,7 +2783,7 @@ mod tests {
             source_info: si(),
         })];
 
-        let citations = vec![CpCitation {
+        let citations = [CpCitation {
             id: None,
             note_number: Some(1),
             items: vec![quarto_citeproc::CitationItem {
@@ -2801,7 +2797,7 @@ mod tests {
                 position: None,
             }],
         }];
-        let rendered = vec!["(Note 2020)".to_string()];
+        let rendered = ["(Note 2020)".to_string()];
         let citation_outputs: Vec<_> = citations.iter().zip(rendered.iter()).collect();
 
         let style = quarto_csl::parse_csl(DEFAULT_CSL_STYLE).unwrap();
@@ -2816,12 +2812,11 @@ mod tests {
         );
 
         // Check Note transformation
-        if let Inline::Note(n) = &inlines[0] {
-            if let Block::Paragraph(p) = &n.content[0] {
-                if let Inline::Str(s) = &p.content[0] {
-                    assert_eq!(s.text, "(Note 2020)");
-                }
-            }
+        if let Inline::Note(n) = &inlines[0]
+            && let Block::Paragraph(p) = &n.content[0]
+            && let Inline::Str(s) = &p.content[0]
+        {
+            assert_eq!(s.text, "(Note 2020)");
         }
     }
 
@@ -2836,14 +2831,14 @@ mod tests {
             }),
             Block::Header(crate::pandoc::Header {
                 level: 1,
-                attr: ("".to_string(), vec![], hashlink::LinkedHashMap::new()),
+                attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
                 content: vec![make_cite("header2020")],
                 source_info: si(),
                 attr_source: crate::pandoc::AttrSourceInfo::empty(),
             }),
         ];
 
-        let citations = vec![
+        let citations = [
             CpCitation {
                 id: None,
                 note_number: Some(1),
@@ -2873,7 +2868,7 @@ mod tests {
                 }],
             },
         ];
-        let rendered = vec!["(Plain 2020)".to_string(), "(Header 2020)".to_string()];
+        let rendered = ["(Plain 2020)".to_string(), "(Header 2020)".to_string()];
         let citation_outputs: Vec<_> = citations.iter().zip(rendered.iter()).collect();
 
         let style = quarto_csl::parse_csl(DEFAULT_CSL_STYLE).unwrap();
@@ -2888,17 +2883,17 @@ mod tests {
         );
 
         // Check Plain
-        if let Block::Plain(p) = &blocks[0] {
-            if let Inline::Str(s) = &p.content[0] {
-                assert_eq!(s.text, "(Plain 2020)");
-            }
+        if let Block::Plain(p) = &blocks[0]
+            && let Inline::Str(s) = &p.content[0]
+        {
+            assert_eq!(s.text, "(Plain 2020)");
         }
 
         // Check Header
-        if let Block::Header(h) = &blocks[1] {
-            if let Inline::Str(s) = &h.content[0] {
-                assert_eq!(s.text, "(Header 2020)");
-            }
+        if let Block::Header(h) = &blocks[1]
+            && let Inline::Str(s) = &h.content[0]
+        {
+            assert_eq!(s.text, "(Header 2020)");
         }
     }
 
@@ -2917,7 +2912,7 @@ mod tests {
             source_info: si(),
         })];
 
-        let citations = vec![
+        let citations = [
             CpCitation {
                 id: None,
                 note_number: Some(1),
@@ -2947,7 +2942,7 @@ mod tests {
                 }],
             },
         ];
-        let rendered = vec!["(Term 2020)".to_string(), "(Def 2020)".to_string()];
+        let rendered = ["(Term 2020)".to_string(), "(Def 2020)".to_string()];
         let citation_outputs: Vec<_> = citations.iter().zip(rendered.iter()).collect();
 
         let style = quarto_csl::parse_csl(DEFAULT_CSL_STYLE).unwrap();
@@ -2967,10 +2962,10 @@ mod tests {
             if let Inline::Str(s) = &term[0] {
                 assert_eq!(s.text, "(Term 2020)");
             }
-            if let Block::Paragraph(p) = &defs[0][0] {
-                if let Inline::Str(s) = &p.content[0] {
-                    assert_eq!(s.text, "(Def 2020)");
-                }
+            if let Block::Paragraph(p) = &defs[0][0]
+                && let Inline::Str(s) = &p.content[0]
+            {
+                assert_eq!(s.text, "(Def 2020)");
             }
         }
     }
@@ -2984,7 +2979,7 @@ mod tests {
             source_info: si(),
         })];
 
-        let citations = vec![CpCitation {
+        let citations = [CpCitation {
             id: None,
             note_number: Some(1),
             items: vec![quarto_citeproc::CitationItem {
@@ -2998,7 +2993,7 @@ mod tests {
                 position: None,
             }],
         }];
-        let rendered = vec!["(Line 2020)".to_string()];
+        let rendered = ["(Line 2020)".to_string()];
         let citation_outputs: Vec<_> = citations.iter().zip(rendered.iter()).collect();
 
         let style = quarto_csl::parse_csl(DEFAULT_CSL_STYLE).unwrap();
@@ -3013,10 +3008,10 @@ mod tests {
         );
 
         // Check LineBlock
-        if let Block::LineBlock(lb) = &blocks[0] {
-            if let Inline::Str(s) = &lb.content[0][0] {
-                assert_eq!(s.text, "(Line 2020)");
-            }
+        if let Block::LineBlock(lb) = &blocks[0]
+            && let Inline::Str(s) = &lb.content[0][0]
+        {
+            assert_eq!(s.text, "(Line 2020)");
         }
     }
 
@@ -3100,7 +3095,7 @@ mod tests {
         let (result_pandoc, _, _) = result.unwrap();
 
         // Should have bibliography at the end (refs div)
-        assert!(result_pandoc.blocks.len() >= 1);
+        assert!(!result_pandoc.blocks.is_empty());
         // The citation should be replaced
         if let Block::Paragraph(p) = &result_pandoc.blocks[0] {
             // Citation should be replaced with rendered text

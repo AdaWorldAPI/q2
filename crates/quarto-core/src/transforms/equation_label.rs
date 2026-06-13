@@ -160,10 +160,10 @@ fn transform_inline(inline: &mut Inline) {
     }
 
     // Check if this Span is a labelled display equation.
-    if let Inline::Span(span) = inline {
-        if let Some(node) = try_convert_equation(span) {
-            *inline = Inline::Custom(node);
-        }
+    if let Inline::Span(span) = inline
+        && let Some(node) = try_convert_equation(span)
+    {
+        *inline = Inline::Custom(node);
     }
 }
 

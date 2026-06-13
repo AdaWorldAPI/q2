@@ -367,13 +367,12 @@ fn prop6_roundtrip_str_change_in_blockquote() {
     // BlockQuote contains Paragraph which contains the Str inlines
     // We need to navigate into the blockquote
     let mut new_ast = ast.clone();
-    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0] {
-        if let Block::Paragraph(ref mut p) = bq.content[0] {
-            if let Inline::Str(ref mut s) = p.content[0] {
-                s.text = "Goodbye".to_string();
-                s.source_info = SourceInfo::for_test();
-            }
-        }
+    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0]
+        && let Block::Paragraph(ref mut p) = bq.content[0]
+        && let Inline::Str(ref mut s) = p.content[0]
+    {
+        s.text = "Goodbye".to_string();
+        s.source_info = SourceInfo::for_test();
     }
     assert_inline_roundtrip(qmd, &new_ast);
 }
@@ -383,13 +382,12 @@ fn prop6_roundtrip_str_change_in_bullet_list() {
     let qmd = "* First item\n* Second item\n";
     let ast = parse_qmd(qmd);
     let mut new_ast = ast.clone();
-    if let Block::BulletList(ref mut bl) = new_ast.blocks[0] {
-        if let Block::Plain(ref mut p) = bl.content[0][0] {
-            if let Inline::Str(ref mut s) = p.content[0] {
-                s.text = "Modified".to_string();
-                s.source_info = SourceInfo::for_test();
-            }
-        }
+    if let Block::BulletList(ref mut bl) = new_ast.blocks[0]
+        && let Block::Plain(ref mut p) = bl.content[0][0]
+        && let Inline::Str(ref mut s) = p.content[0]
+    {
+        s.text = "Modified".to_string();
+        s.source_info = SourceInfo::for_test();
     }
     assert_inline_roundtrip(qmd, &new_ast);
 }
@@ -443,13 +441,12 @@ fn prop6_roundtrip_in_multiline_blockquote() {
     let qmd = "> Hello\n> world.\n";
     let ast = parse_qmd(qmd);
     let mut new_ast = ast.clone();
-    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0] {
-        if let Block::Paragraph(ref mut p) = bq.content[0] {
-            if let Inline::Str(ref mut s) = p.content[0] {
-                s.text = "Goodbye".to_string();
-                s.source_info = SourceInfo::for_test();
-            }
-        }
+    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0]
+        && let Block::Paragraph(ref mut p) = bq.content[0]
+        && let Inline::Str(ref mut s) = p.content[0]
+    {
+        s.text = "Goodbye".to_string();
+        s.source_info = SourceInfo::for_test();
     }
     assert_inline_roundtrip(qmd, &new_ast);
 }
@@ -459,13 +456,12 @@ fn prop6_roundtrip_in_multiline_bullet_list() {
     let qmd = "* Hello\n  world.\n";
     let ast = parse_qmd(qmd);
     let mut new_ast = ast.clone();
-    if let Block::BulletList(ref mut bl) = new_ast.blocks[0] {
-        if let Block::Plain(ref mut p) = bl.content[0][0] {
-            if let Inline::Str(ref mut s) = p.content[0] {
-                s.text = "Goodbye".to_string();
-                s.source_info = SourceInfo::for_test();
-            }
-        }
+    if let Block::BulletList(ref mut bl) = new_ast.blocks[0]
+        && let Block::Plain(ref mut p) = bl.content[0][0]
+        && let Inline::Str(ref mut s) = p.content[0]
+    {
+        s.text = "Goodbye".to_string();
+        s.source_info = SourceInfo::for_test();
     }
     assert_inline_roundtrip(qmd, &new_ast);
 }
@@ -699,13 +695,12 @@ fn prop9_no_newlines_in_splice_simple() {
 fn prop9_no_newlines_in_blockquote_splice() {
     let qmd = "> Hello world.\n";
     let mut new_ast = parse_qmd(qmd);
-    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0] {
-        if let Block::Paragraph(ref mut p) = bq.content[0] {
-            if let Inline::Str(ref mut s) = p.content[0] {
-                s.text = "Goodbye".to_string();
-                s.source_info = SourceInfo::for_test();
-            }
-        }
+    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0]
+        && let Block::Paragraph(ref mut p) = bq.content[0]
+        && let Inline::Str(ref mut s) = p.content[0]
+    {
+        s.text = "Goodbye".to_string();
+        s.source_info = SourceInfo::for_test();
     }
 
     let original_ast = parse_qmd(qmd);
@@ -724,13 +719,12 @@ fn prop9_no_newlines_in_multiline_blockquote_splice() {
     // This is Scenario B: SoftBreak exists but is KeepBefore
     let qmd = "> Hello\n> world.\n";
     let mut new_ast = parse_qmd(qmd);
-    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0] {
-        if let Block::Paragraph(ref mut p) = bq.content[0] {
-            if let Inline::Str(ref mut s) = p.content[0] {
-                s.text = "Goodbye".to_string();
-                s.source_info = SourceInfo::for_test();
-            }
-        }
+    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0]
+        && let Block::Paragraph(ref mut p) = bq.content[0]
+        && let Inline::Str(ref mut s) = p.content[0]
+    {
+        s.text = "Goodbye".to_string();
+        s.source_info = SourceInfo::for_test();
     }
 
     let original_ast = parse_qmd(qmd);
@@ -782,13 +776,12 @@ fn prop10_splice_equiv_strong() {
 fn prop10_splice_equiv_blockquote() {
     let qmd = "> Hello world.\n";
     let mut new_ast = parse_qmd(qmd);
-    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0] {
-        if let Block::Paragraph(ref mut p) = bq.content[0] {
-            if let Inline::Str(ref mut s) = p.content[0] {
-                s.text = "Goodbye".to_string();
-                s.source_info = SourceInfo::for_test();
-            }
-        }
+    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0]
+        && let Block::Paragraph(ref mut p) = bq.content[0]
+        && let Inline::Str(ref mut s) = p.content[0]
+    {
+        s.text = "Goodbye".to_string();
+        s.source_info = SourceInfo::for_test();
     }
     assert_splice_equivalent_to_full_writer(qmd, &new_ast);
 }
@@ -861,15 +854,13 @@ fn stress_deeply_nested_blockquote_list() {
     // BlockQuote > BulletList > Plain with Str change
     let qmd = "> * Hello world.\n";
     let mut new_ast = parse_qmd(qmd);
-    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0] {
-        if let Block::BulletList(ref mut bl) = bq.content[0] {
-            if let Block::Plain(ref mut p) = bl.content[0][0] {
-                if let Inline::Str(ref mut s) = p.content[0] {
-                    s.text = "Goodbye".to_string();
-                    s.source_info = SourceInfo::for_test();
-                }
-            }
-        }
+    if let Block::BlockQuote(ref mut bq) = new_ast.blocks[0]
+        && let Block::BulletList(ref mut bl) = bq.content[0]
+        && let Block::Plain(ref mut p) = bl.content[0][0]
+        && let Inline::Str(ref mut s) = p.content[0]
+    {
+        s.text = "Goodbye".to_string();
+        s.source_info = SourceInfo::for_test();
     }
     assert_inline_roundtrip(qmd, &new_ast);
     assert_splice_equivalent_to_full_writer(qmd, &new_ast);

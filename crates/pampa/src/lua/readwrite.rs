@@ -1097,6 +1097,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is config round-trip test data, not π
     fn test_config_value_to_lua_scalar_types() {
         use quarto_pandoc_types::{ConfigValueKind, MergeOp};
         use quarto_source_map::SourceInfo;
@@ -1279,6 +1280,7 @@ mod tests {
         ));
 
         // Number
+        #[allow(clippy::approx_constant)] // 3.14 is config round-trip test data, not π
         let result = lua_to_config_value(&lua, Value::Number(3.14)).unwrap();
         if let ConfigValueKind::Scalar(yaml_rust2::Yaml::Real(s)) = result.value {
             assert!(s.contains("3.14"));

@@ -42,10 +42,10 @@ pub fn store_html_dependencies(
 ) {
     for dep in deps {
         for stylesheet_path in &dep.stylesheets {
-            let filename = stylesheet_path
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| "style.css".to_string());
+            let filename = stylesheet_path.file_name().map_or_else(
+                || "style.css".to_string(),
+                |f| f.to_string_lossy().to_string(),
+            );
 
             let artifact_key = format!("css:{}:{}", dep.name, filename);
             let relative_path = format!("libs/{}/{}", dep.name, filename);
@@ -70,10 +70,10 @@ pub fn store_html_dependencies(
         }
 
         for script_path in &dep.scripts {
-            let filename = script_path
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| "script.js".to_string());
+            let filename = script_path.file_name().map_or_else(
+                || "script.js".to_string(),
+                |f| f.to_string_lossy().to_string(),
+            );
 
             let artifact_key = format!("js:{}:{}", dep.name, filename);
             let relative_path = format!("libs/{}/{}", dep.name, filename);

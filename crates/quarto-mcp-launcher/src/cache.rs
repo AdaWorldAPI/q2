@@ -237,7 +237,7 @@ fn dir_mtime(path: &Path) -> SystemTime {
 }
 
 fn older_than(t: &SystemTime, now: SystemTime, age: Duration) -> bool {
-    now.duration_since(*t).map(|d| d > age).unwrap_or(false)
+    now.duration_since(*t).is_ok_and(|d| d > age)
 }
 
 /// 0700 on the cache root: the extracted bundle is executed code; keep

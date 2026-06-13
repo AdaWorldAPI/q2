@@ -129,8 +129,7 @@ impl PipelineStage for IncludeResolveStage {
         let doc_dir = doc
             .path
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."));
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
 
         // Engine PandocIncludes haven't been produced yet at this
         // point in the pipeline (engine runs after the profile

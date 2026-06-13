@@ -80,7 +80,7 @@ pub fn derive_doc_scss_layer(meta: &ConfigValue) -> SassLayer {
             // to `(style == Docked)`. See `format-html-scss.ts:631-642`.
             let border = first
                 .border
-                .unwrap_or_else(|| matches!(first.style, SidebarStyle::Docked));
+                .unwrap_or(matches!(first.style, SidebarStyle::Docked));
             defaults.push_str(&format!("$sidebar-border: {};\n", border));
         }
     }
@@ -337,20 +337,18 @@ impl PipelineStage for CompileThemeCssStage {
         // with prior behavior for plain documents (no website / no sidebar).
         if !theme_config.has_themes() && doc_vars.is_empty() {
             // Try the runtime cache first (cross-session persistence).
-            if cache_ok {
-                if let Ok(Some(cached)) = cache_get_lru(
+            if cache_ok
+                && let Ok(Some(cached)) = cache_get_lru(
                     ctx.runtime.as_ref(),
                     SASS_CACHE_NAMESPACE,
                     default_cache_key(theme_config.minified),
                 )
                 .await
-                {
-                    if let Ok(css) = String::from_utf8(cached) {
-                        trace_event!(ctx, EventLevel::Debug, "cache hit for default CSS");
-                        store_css(ctx, css);
-                        return Ok(PipelineData::DocumentAst(doc));
-                    }
-                }
+                && let Ok(css) = String::from_utf8(cached)
+            {
+                trace_event!(ctx, EventLevel::Debug, "cache hit for default CSS");
+                store_css(ctx, css);
+                return Ok(PipelineData::DocumentAst(doc));
             }
 
             trace_event!(
@@ -391,8 +389,7 @@ impl PipelineStage for CompileThemeCssStage {
         let document_dir = doc
             .path
             .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
+            .map_or_else(|| PathBuf::from("."), |p| p.to_path_buf());
 
         // Resolve the brand (if any) before building the theme context.
         // I/O happens here. Failures are user-facing configuration
@@ -436,21 +433,20 @@ impl PipelineStage for CompileThemeCssStage {
         };
 
         // Check cache (best-effort — errors are non-fatal).
-        if cache_ok && !key.is_empty() {
-            if let Ok(Some(cached)) =
+        if cache_ok
+            && !key.is_empty()
+            && let Ok(Some(cached)) =
                 cache_get_lru(ctx.runtime.as_ref(), SASS_CACHE_NAMESPACE, &key).await
-            {
-                if let Ok(css) = String::from_utf8(cached) {
-                    trace_event!(
-                        ctx,
-                        EventLevel::Debug,
-                        "cache hit for theme CSS (key={})",
-                        key
-                    );
-                    store_css(ctx, css);
-                    return Ok(PipelineData::DocumentAst(doc));
-                }
-            }
+            && let Ok(css) = String::from_utf8(cached)
+        {
+            trace_event!(
+                ctx,
+                EventLevel::Debug,
+                "cache hit for theme CSS (key={})",
+                key
+            );
+            store_css(ctx, css);
+            return Ok(PipelineData::DocumentAst(doc));
         }
 
         trace_event!(

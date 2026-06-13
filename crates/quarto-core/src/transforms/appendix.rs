@@ -138,17 +138,17 @@ impl AstTransform for AppendixStructureTransform {
 
         // 2. Collect bibliography (if not margin mode)
         // For now, look for Div with id="refs" - CiteprocTransform will create this later
-        if reference_location != ReferenceLocation::Margin {
-            if let Some(bibliography) = extract_bibliography(&mut ast.blocks) {
-                appendix_sections.push(wrap_bibliography(bibliography));
-            }
+        if reference_location != ReferenceLocation::Margin
+            && let Some(bibliography) = extract_bibliography(&mut ast.blocks)
+        {
+            appendix_sections.push(wrap_bibliography(bibliography));
         }
 
         // 3. Collect footnotes section (if not margin mode)
-        if reference_location != ReferenceLocation::Margin {
-            if let Some(footnotes) = extract_footnotes(&mut ast.blocks) {
-                appendix_sections.push(footnotes);
-            }
+        if reference_location != ReferenceLocation::Margin
+            && let Some(footnotes) = extract_footnotes(&mut ast.blocks)
+        {
+            appendix_sections.push(footnotes);
         }
 
         // 4. Create metadata-driven sections
@@ -185,11 +185,11 @@ fn extract_appendix_divs(blocks: &mut Vec<Block>) -> Blocks {
     let mut appendix_divs = Vec::new();
 
     blocks.retain(|block| {
-        if let Block::Div(div) = block {
-            if div.attr.1.contains(&"appendix".to_string()) {
-                appendix_divs.push(block.clone());
-                return false; // Remove from original position
-            }
+        if let Block::Div(div) = block
+            && div.attr.1.contains(&"appendix".to_string())
+        {
+            appendix_divs.push(block.clone());
+            return false; // Remove from original position
         }
         true
     });
@@ -220,11 +220,11 @@ fn extract_footnotes(blocks: &mut Vec<Block>) -> Option<Block> {
     let mut footnotes = None;
 
     blocks.retain(|block| {
-        if let Block::Div(div) = block {
-            if div.attr.0 == "footnotes" {
-                footnotes = Some(block.clone());
-                return false; // Remove from original position
-            }
+        if let Block::Div(div) = block
+            && div.attr.0 == "footnotes"
+        {
+            footnotes = Some(block.clone());
+            return false; // Remove from original position
         }
         true
     });
@@ -425,10 +425,10 @@ fn create_citation_section(meta: &ConfigValue) -> Option<Block> {
             Inline::Link(Link {
                 attr: (String::new(), Vec::new(), LinkedHashMap::new()),
                 content: vec![Inline::Str(Str {
-                    text: url.to_string(),
+                    text: url.clone(),
                     source_info: source_info.clone(),
                 })],
-                target: (url.to_string(), String::new()),
+                target: (url.clone(), String::new()),
                 source_info: source_info.clone(),
                 attr_source: AttrSourceInfo::empty(),
                 target_source: quarto_pandoc_types::attr::TargetSourceInfo::empty(),

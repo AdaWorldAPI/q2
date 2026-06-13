@@ -30,8 +30,7 @@ fn unique_trace_root(label: &str) -> PathBuf {
     let pid = std::process::id();
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_nanos());
     let dir = std::env::temp_dir()
         .join(format!("quarto-trace-cli-{}-{}-{}", label, pid, ts))
         .join(".quarto")
@@ -107,7 +106,7 @@ fn test_trace_list_returns_discovered_traces() {
     let traces = value["traces"].as_array().unwrap();
     assert_eq!(traces.len(), 2);
     let mut stems: Vec<_> = traces.iter().map(|v| v["doc"].as_str().unwrap()).collect();
-    stems.sort();
+    stems.sort_unstable();
     assert_eq!(stems, vec!["doc-a", "doc-b"]);
 }
 

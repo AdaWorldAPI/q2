@@ -404,7 +404,7 @@ pub async fn read_capture_from_doc(
         doc.get(ROOT, "content")
             .ok()
             .flatten()
-            .and_then(|(v, _)| v.into_bytes().ok().map(|b| b.to_vec()))
+            .and_then(|(v, _)| v.into_bytes().ok())
             .ok_or_else(|| "binary doc missing 'content' field".to_string())
     })?;
 

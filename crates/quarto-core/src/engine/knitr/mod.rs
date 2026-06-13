@@ -292,22 +292,22 @@ fn convert_includes(includes: &Option<KnitrIncludes>) -> crate::stage::PandocInc
     let mut result = PandocIncludes::default();
 
     // Read include file contents
-    if let Some(ref path) = inc.include_in_header {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            result.header_includes.push(content);
-        }
+    if let Some(ref path) = inc.include_in_header
+        && let Ok(content) = std::fs::read_to_string(path)
+    {
+        result.header_includes.push(content);
     }
 
-    if let Some(ref path) = inc.include_before_body {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            result.include_before.push(content);
-        }
+    if let Some(ref path) = inc.include_before_body
+        && let Ok(content) = std::fs::read_to_string(path)
+    {
+        result.include_before.push(content);
     }
 
-    if let Some(ref path) = inc.include_after_body {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            result.include_after.push(content);
-        }
+    if let Some(ref path) = inc.include_after_body
+        && let Ok(content) = std::fs::read_to_string(path)
+    {
+        result.include_after.push(content);
     }
 
     result
@@ -663,7 +663,7 @@ mod tests {
             let result = engine.execute(markdown, &ctx).expect("Execution failed");
 
             assert!(
-                result.markdown.contains("4"),
+                result.markdown.contains('4'),
                 "Expected inline R result '4', got:\n{}",
                 result.markdown
             );
@@ -793,13 +793,11 @@ plot(1:10, 1:10)
             let files_dir = temp_dir.path().join("test_files");
             if files_dir.exists() {
                 // If files dir exists, it should contain PNG files
-                let has_png = std::fs::read_dir(&files_dir)
-                    .map(|entries| {
-                        entries
-                            .filter_map(|e| e.ok())
-                            .any(|e| e.path().extension().is_some_and(|ext| ext == "png"))
-                    })
-                    .unwrap_or(false);
+                let has_png = std::fs::read_dir(&files_dir).is_ok_and(|entries| {
+                    entries
+                        .filter_map(|e| e.ok())
+                        .any(|e| e.path().extension().is_some_and(|ext| ext == "png"))
+                });
 
                 if has_png {
                     assert!(

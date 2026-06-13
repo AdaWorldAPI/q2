@@ -257,10 +257,10 @@ fn mark_path_valued_keys(format_config: &mut ConfigValue) {
                     match &mut item.value {
                         // String form: mark as Path unless reserved
                         ConfigValueKind::Scalar(yaml) => {
-                            if let Some(s) = yaml.as_str() {
-                                if !FILTER_RESERVED_NAMES.contains(&s) {
-                                    item.value = ConfigValueKind::Path(s.to_string());
-                                }
+                            if let Some(s) = yaml.as_str()
+                                && !FILTER_RESERVED_NAMES.contains(&s)
+                            {
+                                item.value = ConfigValueKind::Path(s.to_string());
                             }
                         }
                         // Map form: {path: "filter.lua", at: "post-render"}
@@ -268,13 +268,10 @@ fn mark_path_valued_keys(format_config: &mut ConfigValue) {
                         ConfigValueKind::Map(map_entries) => {
                             if let Some(path_entry) =
                                 map_entries.iter_mut().find(|e| e.key == "path")
+                                && let ConfigValueKind::Scalar(yaml) = &path_entry.value.value
+                                && let Some(s) = yaml.as_str()
                             {
-                                if let ConfigValueKind::Scalar(yaml) = &path_entry.value.value {
-                                    if let Some(s) = yaml.as_str() {
-                                        path_entry.value.value =
-                                            ConfigValueKind::Path(s.to_string());
-                                    }
-                                }
+                                path_entry.value.value = ConfigValueKind::Path(s.to_string());
                             }
                         }
                         _ => {}
@@ -295,10 +292,10 @@ fn mark_path_valued_keys(format_config: &mut ConfigValue) {
             }
             ConfigValueKind::Array(items) => {
                 for item in items.iter_mut() {
-                    if let ConfigValueKind::Scalar(yaml) = &item.value {
-                        if let Some(s) = yaml.as_str() {
-                            item.value = ConfigValueKind::Path(s.to_string());
-                        }
+                    if let ConfigValueKind::Scalar(yaml) = &item.value
+                        && let Some(s) = yaml.as_str()
+                    {
+                        item.value = ConfigValueKind::Path(s.to_string());
                     }
                 }
             }
@@ -427,7 +424,7 @@ contributes:
         let ext = read_extension(&file, &runtime).unwrap();
 
         // HTML should have toc + number-sections + theme
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         assert_eq!(html_meta.get("toc").unwrap().as_bool(), Some(true));
         assert_eq!(
             html_meta.get("number-sections").unwrap().as_bool(),
@@ -436,7 +433,7 @@ contributes:
         assert_eq!(html_meta.get("theme").unwrap().as_str(), Some("cosmo"));
 
         // PDF should have toc + number-sections + documentclass
-        let pdf_meta = ext.contributes.formats.get("pdf").unwrap();
+        let pdf_meta = &ext.contributes.formats["pdf"];
         assert_eq!(pdf_meta.get("toc").unwrap().as_bool(), Some(true));
         assert_eq!(
             pdf_meta.get("number-sections").unwrap().as_bool(),
@@ -448,7 +445,7 @@ contributes:
         );
 
         // common key should not be present
-        assert!(ext.contributes.formats.get("common").is_none());
+        assert!(!ext.contributes.formats.contains_key("common"));
     }
 
     #[test]
@@ -472,7 +469,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         assert_eq!(html_meta.get("toc").unwrap().as_bool(), Some(false));
     }
 
@@ -640,7 +637,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
 
         // template should be ConfigValueKind::Path, not Scalar
         let template_cv = html_meta.get("template").unwrap();
@@ -675,7 +672,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         let partials = html_meta.get("template-partials").unwrap();
         let items = partials.as_array().unwrap();
         assert_eq!(items.len(), 2);
@@ -711,7 +708,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         let filters = html_meta.get("filters").unwrap();
         let items = filters.as_array().unwrap();
         assert_eq!(items.len(), 1);
@@ -743,7 +740,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         let filters = html_meta.get("filters").unwrap();
         let items = filters.as_array().unwrap();
         assert_eq!(items.len(), 1);
@@ -779,7 +776,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         let filters = html_meta.get("filters").unwrap();
         let items = filters.as_array().unwrap();
         assert_eq!(items.len(), 1);
@@ -810,7 +807,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         let filters = html_meta.get("filters").unwrap();
         let items = filters.as_array().unwrap();
         assert_eq!(items.len(), 1);
@@ -845,7 +842,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         let filters = html_meta.get("filters").unwrap();
         let items = filters.as_array().unwrap();
         assert_eq!(items.len(), 4);
@@ -898,7 +895,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         assert_eq!(html_meta.get("toc").unwrap().as_bool(), Some(true));
         assert_eq!(html_meta.get("theme").unwrap().as_str(), Some("cosmo"));
         assert_eq!(
@@ -927,7 +924,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         let shortcodes = html_meta.get("shortcodes").unwrap();
         let items = shortcodes.as_array().unwrap();
         assert_eq!(items.len(), 1);
@@ -960,7 +957,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         let shortcodes = html_meta.get("shortcodes").unwrap();
         let items = shortcodes.as_array().unwrap();
         assert_eq!(items.len(), 3);
@@ -999,7 +996,7 @@ contributes:
         let runtime = make_runtime();
         let ext = read_extension(&file, &runtime).unwrap();
 
-        let html_meta = ext.contributes.formats.get("html").unwrap();
+        let html_meta = &ext.contributes.formats["html"];
         // shortcodes should be marked
         let shortcodes = html_meta.get("shortcodes").unwrap();
         let items = shortcodes.as_array().unwrap();

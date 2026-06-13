@@ -112,11 +112,11 @@ fn dedup_document_ast(
     data: &mut serde_json::Value,
     asts: &mut BTreeMap<String, serde_json::Value>,
 ) {
-    if let serde_json::Value::Object(map) = data {
-        if map.contains_key("ast") {
-            dedup_wrapped_ast(data, asts);
-            return;
-        }
+    if let serde_json::Value::Object(map) = data
+        && map.contains_key("ast")
+    {
+        dedup_wrapped_ast(data, asts);
+        return;
     }
     // Bare AST: replace the whole `data` value with a $ref.
     replace_with_ref(data, asts);
@@ -125,10 +125,10 @@ fn dedup_document_ast(
 /// Wrapped shape (`AtProfile`, or wrapped `DocumentAst`): replace
 /// `data["ast"]` (if present) with a `$ref` sentinel.
 fn dedup_wrapped_ast(data: &mut serde_json::Value, asts: &mut BTreeMap<String, serde_json::Value>) {
-    if let serde_json::Value::Object(map) = data {
-        if let Some(ast_value) = map.get_mut("ast") {
-            replace_with_ref(ast_value, asts);
-        }
+    if let serde_json::Value::Object(map) = data
+        && let Some(ast_value) = map.get_mut("ast")
+    {
+        replace_with_ref(ast_value, asts);
     }
 }
 

@@ -106,12 +106,11 @@ fn extract_string_value(value: &ConfigValue) -> Option<&str> {
     use quarto_pandoc_types::Inline;
     use quarto_pandoc_types::config_value::ConfigValueKind;
 
-    if let ConfigValueKind::PandocInlines(inlines) = &value.value {
-        if inlines.len() == 1 {
-            if let Inline::Str(str_node) = &inlines[0] {
-                return Some(&str_node.text);
-            }
-        }
+    if let ConfigValueKind::PandocInlines(inlines) = &value.value
+        && inlines.len() == 1
+        && let Inline::Str(str_node) = &inlines[0]
+    {
+        return Some(&str_node.text);
     }
 
     None
@@ -176,13 +175,13 @@ fn detected_from_value(value: &ConfigValue) -> Option<DetectedEngine> {
         return Some(DetectedEngine::new(name));
     }
     // Single-key map form: `name: config`.
-    if let Some(entries) = value.as_map_entries() {
-        if let Some(first_entry) = entries.first() {
-            return Some(DetectedEngine::with_config(
-                first_entry.key.clone(),
-                first_entry.value.clone(),
-            ));
-        }
+    if let Some(entries) = value.as_map_entries()
+        && let Some(first_entry) = entries.first()
+    {
+        return Some(DetectedEngine::with_config(
+            first_entry.key.clone(),
+            first_entry.value.clone(),
+        ));
     }
     None
 }

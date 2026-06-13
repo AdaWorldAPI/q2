@@ -1233,7 +1233,7 @@ fn gen_plain_data() -> impl Strategy<Value = serde_json::Value> {
         Just(serde_json::Value::Null),
         proptest::bool::ANY.prop_map(serde_json::Value::Bool),
         (-100i64..100i64).prop_map(|n| serde_json::Value::Number(n.into())),
-        "[a-z]{0,10}".prop_map(|s| serde_json::Value::String(s)),
+        "[a-z]{0,10}".prop_map(serde_json::Value::String),
         // Simple object with one key
         ("[a-z]{1,8}", "[a-z]{0,10}").prop_map(|(k, v)| { serde_json::json!({ k: v }) }),
     ]

@@ -1832,10 +1832,9 @@ pub fn filter_source_info(lua: &Lua) -> SourceInfo {
                 });
             }
             None
-        }) {
-            if let Some(info) = result {
-                return info;
-            }
+        }) && let Some(info) = result
+        {
+            return info;
         }
     }
 

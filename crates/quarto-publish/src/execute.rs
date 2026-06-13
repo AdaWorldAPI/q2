@@ -314,8 +314,10 @@ mod tests {
             base_dir: PathBuf::from("/tmp"),
         };
         let (host, _captured) = NativeHost::recording();
-        let mut ux = PublishUx::default();
-        ux.render = false;
+        let ux = PublishUx {
+            render: false,
+            ..Default::default()
+        };
         let err = pollster::block_on(execute(ExecuteArgs {
             provider_name: "fake".to_string(),
             input: fake_input(),
@@ -337,9 +339,11 @@ mod tests {
             base_dir: PathBuf::from("/tmp"),
         };
         let (host, captured) = NativeHost::recording();
-        let mut ux = PublishUx::default();
-        ux.dry_run = true;
-        ux.browser = false; // dry-run already forces this, but be explicit
+        let ux = PublishUx {
+            dry_run: true,
+            browser: false, // dry-run already forces this, but be explicit
+            ..Default::default()
+        };
         let outcome = pollster::block_on(execute(ExecuteArgs {
             provider_name: "fake".to_string(),
             input: fake_input(),

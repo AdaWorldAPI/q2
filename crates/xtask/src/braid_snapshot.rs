@@ -57,6 +57,8 @@ pub fn run() -> Result<()> {
     // `braid export` writes one strand per line; count lines for a friendly
     // confirmation (trailing newline means the last line is empty, so count
     // newline bytes — that equals the strand count for well-formed JSONL).
+    // Not worth a `bytecount` dependency for a one-shot dev-tool message.
+    #[allow(clippy::naive_bytecount)]
     let strands = output.stdout.iter().filter(|&&b| b == b'\n').count();
     println!("wrote {} ({strands} strands)", out_path.display());
     println!(

@@ -78,7 +78,7 @@ fn describe_blocks(input: &str, blocks: &[Block]) -> Vec<(String, usize, usize, 
 /// Describe the gap between consecutive block spans.
 /// Returns Vec of (gap_start, gap_end, gap_text) for the spaces between blocks.
 fn describe_gaps(input: &str, blocks: &[Block]) -> Vec<(usize, usize, String)> {
-    let spans: Vec<(usize, usize)> = blocks.iter().map(|b| block_span(b)).collect();
+    let spans: Vec<(usize, usize)> = blocks.iter().map(block_span).collect();
     let mut gaps = Vec::new();
     for i in 0..spans.len() - 1 {
         let gap_start = spans[i].1;
@@ -248,7 +248,7 @@ fn span_block_quote_single() {
 
     // Block quote span should include the > markers
     assert!(
-        descs[1].3.contains(">"),
+        descs[1].3.contains('>'),
         "BlockQuote span should include > markers, got: {:?}",
         descs[1].3
     );
@@ -334,7 +334,7 @@ fn span_bullet_list() {
 
     // BulletList span should include the * markers
     assert!(
-        descs[1].3.contains("*"),
+        descs[1].3.contains('*'),
         "BulletList span should include * markers"
     );
 
@@ -588,7 +588,6 @@ fn span_inner_metadata() {
 
 #[test]
 fn span_horizontal_rule() {
-    let _input = "Before.\n\n---\n\nAfter.\n";
     // Note: --- at the start of a doc is YAML front matter, but between blocks
     // it could be a horizontal rule. Let's use *** to be unambiguous.
     let input2 = "Before.\n\n***\n\nAfter.\n";

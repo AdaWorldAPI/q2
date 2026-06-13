@@ -89,19 +89,19 @@ pub fn resolve_format_config(metadata: &ConfigValue, target_format: &str) -> Con
         match &format_entry.value.value {
             // Handle format: { html: { ... }, pdf: { ... } }
             ConfigValueKind::Map(format_map) => {
-                if let Some(target_entry) = format_map.iter().find(|e| e.key == target_format) {
-                    if let ConfigValueKind::Map(target_settings) = &target_entry.value.value {
-                        // Merge target settings (override existing keys)
-                        for setting in target_settings {
-                            // Remove existing entry with same key
-                            result_entries.retain(|e| e.key != setting.key);
-                            // Add the format-specific entry
-                            result_entries.push(setting.clone());
-                        }
+                if let Some(target_entry) = format_map.iter().find(|e| e.key == target_format)
+                    && let ConfigValueKind::Map(target_settings) = &target_entry.value.value
+                {
+                    // Merge target settings (override existing keys)
+                    for setting in target_settings {
+                        // Remove existing entry with same key
+                        result_entries.retain(|e| e.key != setting.key);
+                        // Add the format-specific entry
+                        result_entries.push(setting.clone());
                     }
-                    // If target_entry exists but isn't a map (e.g., format: { html: true }),
-                    // we don't extract any settings from it
                 }
+                // If target_entry exists but isn't a map (e.g., format: { html: true }),
+                // we don't extract any settings from it
             }
             // Handle format: "html" shorthand
             ConfigValueKind::Scalar(Yaml::String(s)) if s == target_format => {

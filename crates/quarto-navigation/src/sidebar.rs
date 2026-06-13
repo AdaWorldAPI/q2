@@ -64,6 +64,9 @@ impl SidebarStyle {
         }
     }
 
+    // Deliberate Option-returning parser; `FromStr` would force a `Result`/`Err`
+    // type this lightweight enum doesn't need.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "docked" => Some(Self::Docked),
@@ -228,8 +231,10 @@ impl SidebarEntry {
                     cv.get("file")
                         .and_then(|v| v.as_plain_text().map(|s| (s, v.source_info.clone())))
                 })
-                .map(|(s, info)| (Some(s), info))
-                .unwrap_or_else(|| (None, SourceInfo::generated(By::programmatic_config())));
+                .map_or_else(
+                    || (None, SourceInfo::generated(By::programmatic_config())),
+                    |(s, info)| (Some(s), info),
+                );
             let id = cv.get("id").and_then(|v| v.as_plain_text());
             let contents = parse_contents(cv.get("contents"));
             let expanded = cv
@@ -429,10 +434,10 @@ impl Sidebar {
         {
             sb.style = style;
         }
-        if let Some(level) = cv.get("collapse-level").and_then(|v| v.as_int()) {
-            if let Ok(u) = u32::try_from(level.max(0)) {
-                sb.collapse_level = u;
-            }
+        if let Some(level) = cv.get("collapse-level").and_then(|v| v.as_int())
+            && let Ok(u) = u32::try_from(level.max(0))
+        {
+            sb.collapse_level = u;
         }
         sb.contents = parse_contents(cv.get("contents"));
         sb
@@ -610,13 +615,13 @@ pub fn sidebar_for_page<'a>(
             meta.get_path(&["website", "sidebar-id"])
                 .and_then(|v| v.as_plain_text())
         });
-    if let Some(ref id) = explicit_id {
-        if let Some(found) = sidebars.iter().find(|sb| sb.id.as_deref() == Some(id)) {
-            return Some(found);
-        }
-        // The user asked for an id that doesn't exist. Fall through
-        // rather than silently applying the wrong sidebar.
+    if let Some(ref id) = explicit_id
+        && let Some(found) = sidebars.iter().find(|sb| sb.id.as_deref() == Some(id))
+    {
+        return Some(found);
     }
+    // The user asked for an id that doesn't exist. Fall through
+    // rather than silently applying the wrong sidebar.
 
     // Rule 2 — wildcard single sidebar.
     if sidebars.len() == 1 && sidebars[0].id.is_none() {
@@ -759,10 +764,10 @@ fn walk_for_page_nav(entries: &[SidebarEntry], out: &mut Vec<FlatEntry>) {
     for entry in entries {
         match entry {
             SidebarEntry::Link { item } => {
-                if let Some(href) = item.href.as_deref() {
-                    if !is_external_href(href) {
-                        out.push(FlatEntry::Item(item.clone()));
-                    }
+                if let Some(href) = item.href.as_deref()
+                    && !is_external_href(href)
+                {
+                    out.push(FlatEntry::Item(item.clone()));
                 }
             }
             SidebarEntry::Section {
@@ -771,18 +776,18 @@ fn walk_for_page_nav(entries: &[SidebarEntry], out: &mut Vec<FlatEntry>) {
                 text,
                 ..
             } => {
-                if let Some(h) = href.as_deref() {
-                    if !is_external_href(h) {
-                        // The section header is a navigable position
-                        // — synthesize a NavigationItem from the
-                        // section's href + text.
-                        let item = NavigationItem {
-                            href: Some(h.to_string()),
-                            text: text.clone(),
-                            ..NavigationItem::default()
-                        };
-                        out.push(FlatEntry::Item(item));
-                    }
+                if let Some(h) = href.as_deref()
+                    && !is_external_href(h)
+                {
+                    // The section header is a navigable position
+                    // — synthesize a NavigationItem from the
+                    // section's href + text.
+                    let item = NavigationItem {
+                        href: Some(h.to_string()),
+                        text: text.clone(),
+                        ..NavigationItem::default()
+                    };
+                    out.push(FlatEntry::Item(item));
                 }
                 walk_for_page_nav(contents, out);
             }

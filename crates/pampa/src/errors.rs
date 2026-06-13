@@ -260,7 +260,7 @@ mod tests {
             let mut cursor = find_error_cursor(&tree, &errors).unwrap();
             let msg = error_message(&mut cursor, input);
             // Error messages should include position (row:column)
-            assert!(msg.contains(":"), "Error message should include position");
+            assert!(msg.contains(':'), "Error message should include position");
         }
     }
 

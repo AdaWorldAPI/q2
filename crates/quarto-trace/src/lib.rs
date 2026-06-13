@@ -145,10 +145,10 @@ impl From<TraceDocumentDe> for TraceDocument {
         let mut engine_captures = de.engine_captures;
         // Fold the legacy single capture in when the new field is absent.
         // (If both are somehow present, the new field wins.)
-        if engine_captures.is_empty() {
-            if let Some(capture) = de.engine_capture {
-                engine_captures.push(capture);
-            }
+        if engine_captures.is_empty()
+            && let Some(capture) = de.engine_capture
+        {
+            engine_captures.push(capture);
         }
         TraceDocument {
             schema_version: de.schema_version,

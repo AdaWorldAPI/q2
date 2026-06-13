@@ -124,7 +124,7 @@ mod tests {
         let filter_path = dir.path().join("filter.lua");
         fs::write(
             &filter_path,
-            &format!(
+            format!(
                 r#"
 local val = dofile("{}")
 function Str(elem)
@@ -168,7 +168,7 @@ end
         let filter_path = dir.path().join("filter.lua");
         fs::write(
             &filter_path,
-            &format!(
+            format!(
                 r#"
 local chunk = loadfile("{}")
 local val = chunk()

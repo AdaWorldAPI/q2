@@ -108,9 +108,10 @@ pub async fn re_execute_handler(
     // calling the handler directly), fall back to a temp dir under
     // `data_dir/captures` — but production routes through `set_cache_dir`
     // in `run_with_on_ready`, so this branch is unusual.
-    let cache_dir = handler_cache_dir()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| std::env::temp_dir().join("q2-preview-captures-unset"));
+    let cache_dir = handler_cache_dir().map_or_else(
+        || std::env::temp_dir().join("q2-preview-captures-unset"),
+        Path::to_path_buf,
+    );
     re_execute_with_registry_and_cache(ctx, body, None, &cache_dir).await
 }
 
@@ -250,7 +251,7 @@ fn claim_and_spawn(
             .remove(&rel_path_for_task);
 
         if let Err(e) = result {
-            let msg = format!("{e}");
+            let msg = e.clone();
             if let Some(existing) = ctx_for_task.index().get_capture(&rel_path_for_task) {
                 let errored = CaptureRef {
                     capture_doc_id: existing.capture_doc_id.clone(),

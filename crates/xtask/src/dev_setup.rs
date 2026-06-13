@@ -83,8 +83,7 @@ fn install(tool: &Tool, use_binstall: bool) -> Result<()> {
     // Build the versioned package spec, e.g. "wasm-bindgen-cli@0.2.108"
     let versioned = tool
         .required_version
-        .map(|v| format!("{package}@{v}"))
-        .unwrap_or_else(|| package.to_string());
+        .map_or_else(|| package.to_string(), |v| format!("{package}@{v}"));
 
     if use_binstall {
         println!("  Installing {versioned} via cargo binstall...");

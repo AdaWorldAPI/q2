@@ -83,10 +83,10 @@ impl SassError {
     pub fn with_location(mut self, loc: SourceInfo) -> Self {
         match &mut self {
             SassError::UnknownTheme { location, .. }
-            | SassError::InvalidThemeConfig { location, .. } => {
-                if location.is_none() {
-                    *location = Some(loc);
-                }
+            | SassError::InvalidThemeConfig { location, .. }
+                if location.is_none() =>
+            {
+                *location = Some(loc);
             }
             _ => {}
         }

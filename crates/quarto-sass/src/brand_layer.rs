@@ -350,16 +350,16 @@ fn quote_family_name(family: &str) -> String {
 fn font_weight_to_scss(w: &BrandFontWeight) -> String {
     match w {
         BrandFontWeight::Number(n) => n.to_string(),
-        BrandFontWeight::Name(s) => weight_name_to_number(s)
-            .map(|n| n.to_string())
-            .unwrap_or_else(|| s.clone()),
+        BrandFontWeight::Name(s) => {
+            weight_name_to_number(s).map_or_else(|| s.clone(), |n| n.to_string())
+        }
         BrandFontWeight::List(items) => items
             .iter()
             .map(|a| match a {
                 BrandFontWeightAtom::Number(n) => n.to_string(),
-                BrandFontWeightAtom::Name(s) => weight_name_to_number(s)
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(|| s.clone()),
+                BrandFontWeightAtom::Name(s) => {
+                    weight_name_to_number(s).map_or_else(|| s.clone(), |n| n.to_string())
+                }
             })
             .collect::<Vec<_>>()
             .join(", "),
@@ -468,8 +468,7 @@ fn google_font_import_string(font: &BrandFontGoogle) -> String {
     let display = font.display.as_deref().unwrap_or("swap");
 
     let mut style_string = String::new();
-    let weights_string;
-    if styles.iter().any(|s| s == "italic") {
+    let weights_string = if styles.iter().any(|s| s == "italic") {
         style_string.push_str("ital,");
         let normal_part = weights
             .iter()
@@ -481,14 +480,14 @@ fn google_font_import_string(font: &BrandFontGoogle) -> String {
             .map(|w| format!("1,{w}"))
             .collect::<Vec<_>>()
             .join(";");
-        weights_string = format!("{normal_part};{italic_part}");
+        format!("{normal_part};{italic_part}")
     } else {
-        weights_string = weights
+        weights
             .iter()
             .map(u32::to_string)
             .collect::<Vec<_>>()
-            .join(";");
-    }
+            .join(";")
+    };
 
     format!(
         "@import url('https://fonts.googleapis.com/css2?family={family_url}:{style_string}wght@{weights_string}&display={display}');"
@@ -569,12 +568,10 @@ fn file_font_face_block(font: &BrandFontFile, font_path_prefix: &Path) -> String
 
         let weight_str = weight
             .as_ref()
-            .map(font_weight_to_scss)
-            .unwrap_or_else(|| "normal".to_string());
+            .map_or_else(|| "normal".to_string(), font_weight_to_scss);
         let style_str = style
             .as_ref()
-            .map(font_style_to_scss)
-            .unwrap_or_else(|| "normal".to_string());
+            .map_or_else(|| "normal".to_string(), font_style_to_scss);
 
         parts.push(format!(
             "@font-face {{\n    font-family: {family};\n    src: url('{font_url}');\n    font-weight: {weight_str};\n    font-style: {style_str};\n}}",

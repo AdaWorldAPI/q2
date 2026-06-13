@@ -208,10 +208,10 @@ fn await_initial_capture(
 fn await_staleness_flip(ctx: &Arc<HubContext>, rel_path: &str, budget: Duration) -> bool {
     let deadline = Instant::now() + budget;
     loop {
-        if let Some(entry) = ctx.index().get_capture(rel_path) {
-            if entry.staleness == Some(true) {
-                return true;
-            }
+        if let Some(entry) = ctx.index().get_capture(rel_path)
+            && entry.staleness == Some(true)
+        {
+            return true;
         }
         if Instant::now() >= deadline {
             return false;

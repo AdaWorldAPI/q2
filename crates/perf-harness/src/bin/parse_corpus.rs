@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut paths: Vec<PathBuf> = std::fs::read_dir(&dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().map(|x| x == "qmd").unwrap_or(false))
+        .filter(|p| p.extension().is_some_and(|x| x == "qmd"))
         .collect();
     paths.sort();
     let contents: Vec<Vec<u8>> = paths.iter().filter_map(|p| std::fs::read(p).ok()).collect();

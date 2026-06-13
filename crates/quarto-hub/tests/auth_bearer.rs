@@ -1158,7 +1158,7 @@ async fn audit_event_on_auth_fail() {
             e.fields.get("action").map(|s| s.as_str()) == Some("auth_fail")
                 && e.fields.get("outcome").map(|s| s.as_str()) == Some("deny")
                 && e.fields.get("credential_kind").map(|s| s.as_str()) == Some("bearer")
-                && e.fields.get("detail").is_some()
+                && e.fields.contains_key("detail")
         }),
         "expected auth_fail event for bad credentials"
     );

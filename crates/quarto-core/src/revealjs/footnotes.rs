@@ -182,11 +182,11 @@ fn coalesce_one_slide(slide: &mut Div, defs: &HashMap<String, Blocks>) {
     // 1. Lift `.aside` Divs out of the slide content (keep their inner blocks).
     let mut asides: Vec<Blocks> = Vec::new();
     slide.content.retain_mut(|b| {
-        if let Block::Div(d) = b {
-            if d.attr.1.iter().any(|c| c == "aside") {
-                asides.push(std::mem::take(&mut d.content));
-                return false;
-            }
+        if let Block::Div(d) = b
+            && d.attr.1.iter().any(|c| c == "aside")
+        {
+            asides.push(std::mem::take(&mut d.content));
+            return false;
         }
         true
     });
@@ -343,29 +343,29 @@ fn renumber_refs_inlines(
         // A footnote ref is a `Span#fnrefN` (FootnotesTransform output). Only
         // treat it as one if the matching definition exists — leaves broken
         // refs (and margin-mode spans with no section) untouched.
-        if let Inline::Span(span) = inline {
-            if let Some(suffix) = span.attr.0.strip_prefix("fnref") {
-                let fn_id = format!("fn{suffix}");
-                if defs.contains_key(&fn_id) {
-                    let n = match numbering.get(&fn_id) {
-                        Some(n) => *n,
-                        None => {
-                            let n = order.len() + 1;
-                            order.push(fn_id.clone());
-                            numbering.insert(fn_id, n);
-                            n
-                        }
-                    };
-                    let si = span.source_info.clone();
-                    *inline = Inline::Superscript(Superscript {
-                        content: vec![Inline::Str(Str {
-                            text: n.to_string(),
-                            source_info: si.clone(),
-                        })],
-                        source_info: si,
-                    });
-                    continue;
-                }
+        if let Inline::Span(span) = inline
+            && let Some(suffix) = span.attr.0.strip_prefix("fnref")
+        {
+            let fn_id = format!("fn{suffix}");
+            if defs.contains_key(&fn_id) {
+                let n = match numbering.get(&fn_id) {
+                    Some(n) => *n,
+                    None => {
+                        let n = order.len() + 1;
+                        order.push(fn_id.clone());
+                        numbering.insert(fn_id, n);
+                        n
+                    }
+                };
+                let si = span.source_info.clone();
+                *inline = Inline::Superscript(Superscript {
+                    content: vec![Inline::Str(Str {
+                        text: n.to_string(),
+                        source_info: si.clone(),
+                    })],
+                    source_info: si,
+                });
+                continue;
             }
         }
         // Otherwise recurse into container inlines (a ref may sit inside emph,

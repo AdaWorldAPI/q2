@@ -52,7 +52,7 @@ fn modify_str_text(ast: &Pandoc, block_idx: usize, inline_idx: usize, new_text: 
             "Expected Str at block[{}].inlines[{}], got {:?}",
             block_idx,
             inline_idx,
-            inlines.get(inline_idx).map(|i| std::mem::discriminant(i))
+            inlines.get(inline_idx).map(std::mem::discriminant)
         );
     }
     new_ast
@@ -352,13 +352,12 @@ fn splice_str_change_inside_emphasis() {
     let mut new_ast = parse_qmd(original_qmd);
 
     // Navigate into Emph → Str and change the text
-    if let Block::Paragraph(ref mut p) = new_ast.blocks[0] {
-        if let Inline::Emph(ref mut emph) = p.content[0] {
-            if let Inline::Str(ref mut s) = emph.content[0] {
-                s.text = "Goodbye".to_string();
-                s.source_info = SourceInfo::for_test();
-            }
-        }
+    if let Block::Paragraph(ref mut p) = new_ast.blocks[0]
+        && let Inline::Emph(ref mut emph) = p.content[0]
+        && let Inline::Str(ref mut s) = emph.content[0]
+    {
+        s.text = "Goodbye".to_string();
+        s.source_info = SourceInfo::for_test();
     }
 
     assert_incremental_write_correct(original_qmd, &new_ast);
@@ -377,13 +376,12 @@ fn splice_str_change_inside_strong() {
     let original_qmd = "**Hello** world.\n";
     let mut new_ast = parse_qmd(original_qmd);
 
-    if let Block::Paragraph(ref mut p) = new_ast.blocks[0] {
-        if let Inline::Strong(ref mut strong) = p.content[0] {
-            if let Inline::Str(ref mut s) = strong.content[0] {
-                s.text = "Goodbye".to_string();
-                s.source_info = SourceInfo::for_test();
-            }
-        }
+    if let Block::Paragraph(ref mut p) = new_ast.blocks[0]
+        && let Inline::Strong(ref mut strong) = p.content[0]
+        && let Inline::Str(ref mut s) = strong.content[0]
+    {
+        s.text = "Goodbye".to_string();
+        s.source_info = SourceInfo::for_test();
     }
 
     assert_incremental_write_correct(original_qmd, &new_ast);

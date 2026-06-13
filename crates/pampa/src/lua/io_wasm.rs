@@ -547,6 +547,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is round-trip test data, not π
     fn test_io_open_read_number() {
         let (lua, _) = test_lua();
         let dir = TempDir::new().unwrap();

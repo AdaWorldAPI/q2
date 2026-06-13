@@ -209,10 +209,10 @@ impl KernelSession {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), self.process.wait()).await;
 
         // Clean up connection file
-        if self.connection_file.exists() {
-            if let Err(e) = tokio::fs::remove_file(&self.connection_file).await {
-                tracing::warn!("Failed to remove connection file: {}", e);
-            }
+        if self.connection_file.exists()
+            && let Err(e) = tokio::fs::remove_file(&self.connection_file).await
+        {
+            tracing::warn!("Failed to remove connection file: {}", e);
         }
 
         Ok(())

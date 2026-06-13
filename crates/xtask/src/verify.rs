@@ -29,6 +29,7 @@ use crate::test;
 const TOTAL_STEPS: u32 = 14;
 
 /// Configuration for the verify command.
+#[derive(Default)]
 pub struct VerifyConfig {
     /// Skip Rust build step.
     pub skip_rust_build: bool,
@@ -60,27 +61,6 @@ pub struct VerifyConfig {
     pub no_deny_warnings: bool,
 }
 
-impl Default for VerifyConfig {
-    fn default() -> Self {
-        Self {
-            skip_rust_build: false,
-            skip_rust_tests: false,
-            skip_ts_packages_build: false,
-            skip_hub_build: false,
-            skip_hub_tests: false,
-            skip_trace_viewer_build: false,
-            skip_trace_viewer_tests: false,
-            skip_treesitter_tests: false,
-            skip_treesitter_crlf_tests: false,
-            skip_shared_package_tests: false,
-            skip_q2_preview_spa_build: false,
-            skip_hub_mcp_tests: false,
-            include_e2e: false,
-            no_deny_warnings: false,
-        }
-    }
-}
-
 /// Run the verify command.
 pub fn run(config: &VerifyConfig) -> Result<()> {
     let project_root = find_project_root()?;
@@ -91,10 +71,10 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         Some("-D warnings")
     };
 
-    // Step 1: Custom lint checks
+    // Step 1: Custom lint checks + clippy gate
     {
         println!(
-            "\n━━━ Step 1/{}: Running custom lint checks ━━━\n",
+            "\n━━━ Step 1/{}: Running custom lints + clippy ━━━\n",
             TOTAL_STEPS
         );
         let lint_config = lint::LintConfig {
@@ -102,7 +82,26 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
             quiet: false,
         };
         lint::run_check(&lint_config)?;
-        println!("✓ Custom lint checks complete");
+
+        // Clippy gate (matches the CI step in test-suite.yml). The workspace
+        // policy lives in the root Cargo.toml `[workspace.lints.clippy]` table;
+        // `-D warnings` (unless --no-deny-warnings) makes any lint a failure.
+        // Skipped together with the Rust build, since it is a compile pass.
+        if !config.skip_rust_build {
+            let mut clippy_args = vec!["clippy", "--workspace", "--all-targets"];
+            if rustflags.is_some() {
+                // Deny at the clippy level too (RUSTFLAGS alone covers rustc).
+                clippy_args.extend_from_slice(&["--", "-D", "warnings"]);
+            }
+            run_command(
+                "cargo",
+                &clippy_args,
+                &project_root,
+                rustflags,
+                "Clippy found issues (fix them or add a justified #[allow])",
+            )?;
+        }
+        println!("✓ Custom lints + clippy complete");
     }
 
     // Step 2: Check Rust formatting

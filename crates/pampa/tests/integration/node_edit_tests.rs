@@ -78,9 +78,10 @@ Hello world.
 /// Parse a QMD string into a Pandoc AST.
 /// Uses the same reader as qmd_to_pandoc (the WASM / pipeline entry point).
 pub(crate) fn parse_qmd(content: &str) -> Pandoc {
-    qmd_to_pandoc(content.as_bytes())
-        .map(|(pandoc, _ctx)| pandoc)
-        .unwrap_or_else(|errs| panic!("Failed to parse QMD: {:?}", errs))
+    qmd_to_pandoc(content.as_bytes()).map_or_else(
+        |errs| panic!("Failed to parse QMD: {:?}", errs),
+        |(pandoc, _ctx)| pandoc,
+    )
 }
 
 /// Parse a QMD string and return its top-level blocks — a "pure subtree"

@@ -267,10 +267,10 @@ pub fn validate_azp_and_iat<'a, I>(
 where
     I: IntoIterator<Item = &'a String>,
 {
-    if let Some(iat) = claims.iat {
-        if iat > now.saturating_add(leeway) {
-            return Err(StatusCode::UNAUTHORIZED);
-        }
+    if let Some(iat) = claims.iat
+        && iat > now.saturating_add(leeway)
+    {
+        return Err(StatusCode::UNAUTHORIZED);
     }
 
     let aud_is_multi = claims.aud.len() > 1;
@@ -524,12 +524,11 @@ fn extract_algorithms_from_jwks(
 ) -> Vec<Algorithm> {
     let mut algorithms = Vec::new();
     for jwk in &jwks.keys {
-        if let Some(ref ka) = jwk.common.key_algorithm {
-            if let Some(algo) = signing_algorithm(ka) {
-                if !algorithms.contains(&algo) {
-                    algorithms.push(algo);
-                }
-            }
+        if let Some(ref ka) = jwk.common.key_algorithm
+            && let Some(algo) = signing_algorithm(ka)
+            && !algorithms.contains(&algo)
+        {
+            algorithms.push(algo);
         }
     }
 
@@ -941,7 +940,7 @@ mod tests {
         }"#;
         let claims: OidcClaims = serde_json::from_str(json).unwrap();
         assert_eq!(claims.aud, vec!["client-a".to_string()]);
-        assert_eq!(claims.iat, Some(1779177814));
+        assert_eq!(claims.iat, Some(1_779_177_814));
         assert!(claims.azp.is_none());
     }
 

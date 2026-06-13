@@ -1384,7 +1384,7 @@ fn evaluate_text(
                     // Mark variable as substituted if we're in substitute context
                     // This prevents the variable from being rendered again
                     if ctx.in_substitute {
-                        ctx.substituted_variables.insert(name.to_string());
+                        ctx.substituted_variables.insert(name.clone());
                         // Also mark the short form variant if we used it
                         if *form == quarto_csl::VariableForm::Short {
                             ctx.substituted_variables.insert(format!("{}-short", name));

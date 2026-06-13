@@ -64,6 +64,9 @@ impl ServerConfig {
 
 /// Shared server state.
 #[derive(Clone)]
+// Holds owned `PathBuf`s behind `Arc` for cheap cloning into each request
+// handler; `Arc<Path>` would save nothing here and complicate construction.
+#[allow(clippy::rc_buffer)]
 struct AppState {
     trace_dir: Arc<PathBuf>,
     spa_dir_override: Option<Arc<PathBuf>>,
@@ -283,8 +286,7 @@ mod tests {
     fn fixture_dir(label: &str) -> PathBuf {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         let dir = std::env::temp_dir()
             .join(format!("qts-test-{}-{}-{}", label, std::process::id(), ts))
             .join("trace");
@@ -481,8 +483,7 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+                .map_or(0, |d| d.as_nanos())
         ));
         let _ = std::fs::remove_dir_all(&spa_dir);
         std::fs::create_dir_all(&spa_dir).unwrap();

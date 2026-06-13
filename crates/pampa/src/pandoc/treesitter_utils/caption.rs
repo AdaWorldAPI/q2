@@ -33,12 +33,11 @@ pub fn process_caption(
             PandocNativeIntermediate::IntermediateInlines(inlines) => {
                 caption_inlines.extend(inlines);
             }
-            PandocNativeIntermediate::IntermediateAttr(attr, attr_source, attr_si) => {
+            PandocNativeIntermediate::IntermediateAttr(attr, attr_source, attr_si)
                 // Attributes from attribute_specifier nodes
-                if node_name == "attribute_specifier" {
+                if node_name == "attribute_specifier" => {
                     caption_attr = Some((attr, attr_source, attr_si));
                 }
-            }
             _ => {
                 // Skip other nodes (colon marker, whitespace markers, etc.)
             }

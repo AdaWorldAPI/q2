@@ -165,10 +165,10 @@ fn extract_kernel_from_metadata(metadata: &ConfigValue) -> Option<String> {
     }
 
     // Map format: `jupyter: { kernel: python3 }`
-    if let Some(kernel) = jupyter.get("kernel") {
-        if let Some(s) = kernel.as_str() {
-            return Some(s.to_string());
-        }
+    if let Some(kernel) = jupyter.get("kernel")
+        && let Some(s) = kernel.as_str()
+    {
+        return Some(s.to_string());
     }
 
     None

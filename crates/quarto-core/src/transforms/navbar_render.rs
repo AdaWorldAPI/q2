@@ -115,8 +115,7 @@ impl AstTransform for NavbarRenderTransform {
         let home_url = ctx
             .resource_resolver
             .as_ref()
-            .map(|r| r.page_url_for_site_root_dir())
-            .unwrap_or_else(|| "./".to_string());
+            .map_or_else(|| "./".to_string(), |r| r.page_url_for_site_root_dir());
         let html = navbar_to_html(&navbar, fallback.as_deref(), &home_url);
 
         ast.meta.insert_path(
@@ -439,8 +438,7 @@ mod tests {
         assert!(
             d.problem
                 .as_ref()
-                .map(|p| p.as_str().contains("missing.qmd"))
-                .unwrap_or(false),
+                .is_some_and(|p| p.as_str().contains("missing.qmd")),
             "Q-13-2 problem must mention missing.qmd; got {:?}",
             d.problem
         );

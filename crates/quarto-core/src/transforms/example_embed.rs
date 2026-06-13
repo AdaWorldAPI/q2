@@ -513,8 +513,7 @@ fn recurse_blocks(block: &mut Block, f: &mut impl FnMut(&mut Vec<Block>)) {
 /// True if `id` is a `demo-…` crossref id (the numbered-example prefix).
 fn is_demo_id(id: &str) -> bool {
     id.split_once('-')
-        .map(|(prefix, rest)| prefix == EXAMPLE_REF_TYPE && !rest.is_empty())
-        .unwrap_or(false)
+        .is_some_and(|(prefix, rest)| prefix == EXAMPLE_REF_TYPE && !rest.is_empty())
 }
 
 /// True if `file` names a source document that would need dynamic

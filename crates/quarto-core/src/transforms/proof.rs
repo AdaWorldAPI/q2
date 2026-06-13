@@ -105,19 +105,19 @@ fn transform_block(block: &mut Block) {
     }
 
     // Convert this node.
-    if let Block::Div(div) = block {
-        if has_proof_class(&div.attr) {
-            let converted = convert_div(std::mem::replace(
-                div,
-                Div {
-                    attr: empty_attr(),
-                    content: Vec::new(),
-                    source_info: div.source_info.clone(),
-                    attr_source: AttrSourceInfo::empty(),
-                },
-            ));
-            *block = Block::Custom(converted);
-        }
+    if let Block::Div(div) = block
+        && has_proof_class(&div.attr)
+    {
+        let converted = convert_div(std::mem::replace(
+            div,
+            Div {
+                attr: empty_attr(),
+                content: Vec::new(),
+                source_info: div.source_info.clone(),
+                attr_source: AttrSourceInfo::empty(),
+            },
+        ));
+        *block = Block::Custom(converted);
     }
 }
 
@@ -148,10 +148,10 @@ fn convert_div(mut div: Div) -> CustomNode {
     });
     node.slots
         .insert("content".into(), Slot::Blocks(div.content));
-    if let Some(inlines) = title {
-        if !inlines.is_empty() {
-            node.slots.insert("title".into(), Slot::Inlines(inlines));
-        }
+    if let Some(inlines) = title
+        && !inlines.is_empty()
+    {
+        node.slots.insert("title".into(), Slot::Inlines(inlines));
     }
     node
 }
@@ -278,7 +278,7 @@ mod tests {
         let mut kvs = LinkedHashMap::new();
         kvs.insert("name".into(), "Custom proof title".into());
         let div = Block::Div(Div {
-            attr: ("".into(), vec!["proof".into()], kvs),
+            attr: (String::new(), vec!["proof".into()], kvs),
             content: vec![para("body")],
             source_info: si(),
             attr_source: AttrSourceInfo::empty(),

@@ -413,8 +413,7 @@ mod orchestrator_engine_channel {
             let stem = doc_info
                 .input
                 .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "doc".into());
+                .map_or_else(|| "doc".into(), |s| s.to_string_lossy().into_owned());
             let output_path = out_dir.join(format!("{stem}.html"));
             runtime
                 .file_write(&output_path, b"<html><body>mock</body></html>")

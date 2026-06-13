@@ -39,7 +39,7 @@ fn si() -> quarto_source_map::SourceInfo {
 fn code_block_with(class: &str, text: &str) -> Block {
     Block::CodeBlock(CodeBlock {
         attr: (
-            "".to_string(),
+            String::new(),
             vec![class.to_string()],
             hashlink::LinkedHashMap::new(),
         ),
@@ -53,7 +53,7 @@ fn para_with_inline_code(class: &str, text: &str) -> Block {
     Block::Paragraph(Paragraph {
         content: vec![Inline::Code(Code {
             attr: (
-                "".to_string(),
+                String::new(),
                 vec![class.to_string()],
                 hashlink::LinkedHashMap::new(),
             ),

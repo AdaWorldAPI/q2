@@ -123,8 +123,7 @@ fn yaml_to_json(yaml: &Yaml) -> Value {
             .parse::<f64>()
             .ok()
             .and_then(serde_json::Number::from_f64)
-            .map(Value::Number)
-            .unwrap_or_else(|| Value::String(s.clone())),
+            .map_or_else(|| Value::String(s.clone()), Value::Number),
         Yaml::Boolean(b) => Value::Bool(*b),
         Yaml::Null => Value::Null,
         Yaml::Array(arr) => Value::Array(arr.iter().map(yaml_to_json).collect()),

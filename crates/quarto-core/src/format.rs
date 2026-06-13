@@ -436,10 +436,10 @@ pub fn is_minimal_html(meta: &ConfigValue) -> bool {
     // which `as_str` returns `None`, so minimal mode was silently not applied.
     // A theme *list* or *map* still yields `None` (correct — not "none"/"pandoc").
     // (bd-y89ihf0i)
-    if let Some(theme) = meta.get("theme").and_then(|v| v.as_plain_text()) {
-        if theme == "none" || theme == "pandoc" {
-            return true;
-        }
+    if let Some(theme) = meta.get("theme").and_then(|v| v.as_plain_text())
+        && (theme == "none" || theme == "pandoc")
+    {
+        return true;
     }
 
     false
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn test_format_identifier_clone_copy() {
         let original = FormatIdentifier::Html;
-        let cloned = original.clone();
+        let cloned = original;
         let copied = original; // Copy trait
 
         assert_eq!(original, cloned);

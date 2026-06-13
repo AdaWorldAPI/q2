@@ -169,14 +169,16 @@ pub fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
     let minor = parts.next().unwrap_or("0").parse().ok()?;
     let patch = parts
         .next()
-        .map(|p| {
-            // tolerate suffixes like "0-nightly..."
-            p.split(|c: char| !c.is_ascii_digit())
-                .next()
-                .unwrap_or("0")
-                .to_string()
-        })
-        .unwrap_or_else(|| "0".to_string())
+        .map_or_else(
+            || "0".to_string(),
+            |p| {
+                // tolerate suffixes like "0-nightly..."
+                p.split(|c: char| !c.is_ascii_digit())
+                    .next()
+                    .unwrap_or("0")
+                    .to_string()
+            },
+        )
         .parse()
         .ok()?;
     Some((major, minor, patch))

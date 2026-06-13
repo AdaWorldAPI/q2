@@ -531,10 +531,7 @@ fn create_footnotes_section(footnotes: &[CollectedFootnote]) -> Block {
     };
 
     // Create list items for each footnote
-    let list_items: Vec<Blocks> = footnotes
-        .iter()
-        .map(|footnote| create_footnote_item(footnote))
-        .collect();
+    let list_items: Vec<Blocks> = footnotes.iter().map(create_footnote_item).collect();
 
     // Create the ordered list
     let ordered_list = Block::OrderedList(OrderedList {

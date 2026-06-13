@@ -56,11 +56,11 @@ pub fn process_language_specifier(
                     // Extract text from language_specifier start to commonmark_specifier start
                     let lang_start = node.start_byte();
                     let lang_end = cm_node.start_byte();
-                    let lang_text = std::str::from_utf8(&input_bytes[lang_start..lang_end])
+
+                    std::str::from_utf8(&input_bytes[lang_start..lang_end])
                         .unwrap()
                         .trim()
-                        .to_string();
-                    lang_text
+                        .to_string()
                 }
                 None => {
                     // Fallback: shouldn't happen, but handle gracefully
@@ -137,10 +137,10 @@ pub fn process_language_specifier(
 fn find_named_child<'a>(node: &'a tree_sitter::Node, name: &str) -> Option<tree_sitter::Node<'a>> {
     let child_count = u32::try_from(node.named_child_count()).unwrap();
     for i in 0..child_count {
-        if let Some(child) = node.named_child(i) {
-            if child.kind() == name {
-                return Some(child);
-            }
+        if let Some(child) = node.named_child(i)
+            && child.kind() == name
+        {
+            return Some(child);
         }
     }
     None

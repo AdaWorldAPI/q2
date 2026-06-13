@@ -1330,7 +1330,7 @@ mod tests {
                 text: "link text".to_string(),
                 source_info: dummy_source_info(),
             })],
-            target: ("https://example.com".to_string(), "".to_string()),
+            target: ("https://example.com".to_string(), String::new()),
             source_info: dummy_source_info(),
             attr_source: quarto_pandoc_types::attr::AttrSourceInfo::empty(),
             target_source: quarto_pandoc_types::attr::TargetSourceInfo::empty(),

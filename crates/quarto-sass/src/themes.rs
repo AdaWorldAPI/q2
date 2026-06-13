@@ -581,12 +581,7 @@ pub fn load_custom_theme(
     let exists = context
         .runtime()
         .path_exists(&resolved_path, Some(PathKind::File))
-        .map_err(|e| {
-            SassError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            ))
-        })?;
+        .map_err(|e| SassError::Io(std::io::Error::other(e.to_string())))?;
 
     if !exists {
         return Err(SassError::CustomThemeNotFound {
@@ -598,12 +593,7 @@ pub fn load_custom_theme(
     let content = context
         .runtime()
         .file_read_string(&resolved_path)
-        .map_err(|e| {
-            SassError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            ))
-        })?;
+        .map_err(|e| SassError::Io(std::io::Error::other(e.to_string())))?;
 
     // Parse the layer
     let layer = parse_layer(&content, Some(&resolved_path.to_string_lossy())).map_err(|e| {
@@ -619,8 +609,7 @@ pub fn load_custom_theme(
     // Get the directory containing the theme file for @import resolution
     let theme_dir = resolved_path
         .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
+        .map_or_else(|| PathBuf::from("."), |p| p.to_path_buf());
 
     Ok((layer, theme_dir))
 }

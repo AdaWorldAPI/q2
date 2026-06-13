@@ -96,8 +96,10 @@ impl NavigationItem {
                 cv.get("file")
                     .and_then(|v| v.as_plain_text().map(|s| (s, v.source_info.clone())))
             })
-            .map(|(s, info)| (Some(s), info))
-            .unwrap_or_else(|| (None, SourceInfo::generated(By::programmatic_config())));
+            .map_or_else(
+                || (None, SourceInfo::generated(By::programmatic_config())),
+                |(s, info)| (Some(s), info),
+            );
 
         let text = cv.get("text").cloned();
         let icon = cv.get("icon").and_then(|v| v.as_plain_text());

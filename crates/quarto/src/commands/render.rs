@@ -719,11 +719,10 @@ fn execute_single_doc(
     // augment, so the error/warning counts get their own line — printed
     // only when there is something to report (clean runs stay silent)
     // and never under the machine-readable `--json-errors` path.
-    if !args.json_errors {
-        if let Some(clause) = format_counts_clause(&summary.diagnostic_counts(), stderr_use_color())
-        {
-            quarto_util::user_status!(args.quiet, "{}", clause);
-        }
+    if !args.json_errors
+        && let Some(clause) = format_counts_clause(&summary.diagnostic_counts(), stderr_use_color())
+    {
+        quarto_util::user_status!(args.quiet, "{}", clause);
     }
 
     if should_exit_nonzero(&summary) {
@@ -800,12 +799,11 @@ fn execute_project(
         // error/warning counts when there is something to report.
         // Suppressed under `--json-errors` (machine consumers tally for
         // themselves); the clean-run case drops the clause entirely.
-        if !args.json_errors {
-            if let Some(clause) =
+        if !args.json_errors
+            && let Some(clause) =
                 format_counts_clause(&summary.diagnostic_counts(), stderr_use_color())
-            {
-                line = format!("{line} — {clause}");
-            }
+        {
+            line = format!("{line} — {clause}");
         }
         quarto_util::user_status!(args.quiet, "{}", line);
     }
@@ -893,12 +891,12 @@ fn print_render_diagnostics_text(
         let entries = summary
             .pass2_failures
             .iter()
-            .filter_map(|f| {
+            .filter(|f| {
                 if f.diagnostics.is_empty() {
-                    legacy_failures.push(f);
-                    None
+                    legacy_failures.push(*f);
+                    false
                 } else {
-                    Some(f)
+                    true
                 }
             })
             .flat_map(|f| {

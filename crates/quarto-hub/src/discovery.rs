@@ -118,13 +118,12 @@ impl ProjectFiles {
                 }
 
                 // Check for binary resource files (images, PDFs, etc.)
-                if let Some(ext_str) = ext {
-                    if is_binary_extension(ext_str) {
-                        if let Ok(relative) = path.strip_prefix(project_root) {
-                            debug!(?relative, "Discovered binary file");
-                            files.binary_files.push(relative.to_path_buf());
-                        }
-                    }
+                if let Some(ext_str) = ext
+                    && is_binary_extension(ext_str)
+                    && let Ok(relative) = path.strip_prefix(project_root)
+                {
+                    debug!(?relative, "Discovered binary file");
+                    files.binary_files.push(relative.to_path_buf());
                 }
             }
         }
@@ -381,8 +380,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
 
         // Create some binary files
-        fs::write(temp.path().join("logo.png"), &[0x89, 0x50, 0x4E, 0x47]).unwrap();
-        fs::write(temp.path().join("photo.jpg"), &[0xFF, 0xD8, 0xFF]).unwrap();
+        fs::write(temp.path().join("logo.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
+        fs::write(temp.path().join("photo.jpg"), [0xFF, 0xD8, 0xFF]).unwrap();
         fs::write(temp.path().join("document.pdf"), b"PDF content").unwrap();
 
         // Create a subdirectory with more binary files
@@ -425,7 +424,7 @@ mod tests {
 
         fs::write(temp.path().join("_quarto.yml"), "project:\n  type: website").unwrap();
         fs::write(temp.path().join("index.qmd"), "# Hello").unwrap();
-        fs::write(temp.path().join("logo.png"), &[0x89, 0x50, 0x4E, 0x47]).unwrap();
+        fs::write(temp.path().join("logo.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
 
         let files = ProjectFiles::discover(temp.path());
 
@@ -601,7 +600,7 @@ mod tests {
         fs::write(ext_dir.join("_extension.yml"), "title: Lipsum").unwrap();
         fs::write(ext_dir.join("lipsum.lua"), "function Str(el) end").unwrap();
         fs::write(ext_dir.join("data.json"), "{}").unwrap();
-        fs::write(ext_dir.join("logo.png"), &[0x89, 0x50, 0x4E, 0x47]).unwrap();
+        fs::write(ext_dir.join("logo.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
 
         let files = ProjectFiles::discover(temp.path());
 

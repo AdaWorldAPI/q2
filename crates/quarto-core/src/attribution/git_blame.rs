@@ -157,7 +157,7 @@ pub fn build_blame_runs(blame: &[BlameLine], text: &str) -> Result<Vec<BlameRun>
     let mut out = Vec::with_capacity(lines.len());
     let mut offset = 0usize;
     for (i, line) in lines.iter().enumerate() {
-        let line_bytes = line.as_bytes().len();
+        let line_bytes = line.len();
         let mut byte_end = offset + line_bytes;
         // text.lines() consumes the trailing newline; restore it in
         // the run extent so concatenated runs equal the source bytes.
@@ -205,8 +205,7 @@ impl AttributionSourceProvider for GitBlameProvider {
 
         let working_dir = input_path
             .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
+            .map_or_else(|| std::path::PathBuf::from("."), |p| p.to_path_buf());
 
         let output = match Command::new(git_bin)
             .current_dir(&working_dir)
@@ -289,8 +288,7 @@ pub fn attribution_from_porcelain(porcelain: &str, source: &str) -> Result<Attri
 fn display_name_from_email(email: &str) -> String {
     email
         .split_once('@')
-        .map(|(local, _)| local.to_string())
-        .unwrap_or_else(|| email.to_string())
+        .map_or_else(|| email.to_string(), |(local, _)| local.to_string())
 }
 
 /// Public alias so the transform layer can warn when graceful

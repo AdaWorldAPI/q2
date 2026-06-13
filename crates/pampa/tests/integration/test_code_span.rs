@@ -290,7 +290,7 @@ fn test_code_span_with_backtick_inside() {
     assert_eq!(inlines.len(), 1);
     match &inlines[0] {
         Inline::Code(code) => {
-            assert!(code.text.contains("`"));
+            assert!(code.text.contains('`'));
         }
         _ => panic!("Expected Code inline, got {:?}", inlines[0]),
     }

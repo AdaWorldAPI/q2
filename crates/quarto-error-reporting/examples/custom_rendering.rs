@@ -76,7 +76,7 @@ fn main() {
         .add_hint("Add an 'author' field to your configuration")
         .build();
 
-    let errors = vec![error, error2, error3];
+    let errors = [error, error2, error3];
 
     // Render all with consistent options
     let no_hyperlinks = TextRenderOptions {

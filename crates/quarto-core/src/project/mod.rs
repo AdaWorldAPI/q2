@@ -729,7 +729,7 @@ mod tests {
     #[test]
     fn test_project_kind_clone_and_copy() {
         let original = ProjectKind::Website;
-        let cloned = original.clone();
+        let cloned = original;
         let copied = original; // Copy trait
         assert_eq!(original, cloned);
         assert_eq!(original, copied);
