@@ -86,7 +86,12 @@ Enforcement points to add once green:
 - [x] Phase 5 — CI gate added (`.github/workflows/test-suite.yml`
       "Clippy (deny warnings)" step) + `cargo xtask verify` Step 1 now
       runs `cargo clippy --workspace --all-targets -- -D warnings`.
-- [ ] Phase 6 — final `cargo xtask verify --skip-hub-build`
+- [x] Phase 6 — `cargo xtask verify --skip-hub-build`: Steps 1–6 green
+      (clippy gate fired in Step 1 ✓, build ✓, 10036 tests ✓, ts-packages
+      ✓). Step 8 hub-client `test:ci` fails on `vitest.config.ts` load —
+      the pre-existing missing-WASM-build environmental issue, unrelated
+      to this Rust-only change (`--skip-hub-build` skips the build but
+      still runs the tests).
 
 ## Verification record
 
