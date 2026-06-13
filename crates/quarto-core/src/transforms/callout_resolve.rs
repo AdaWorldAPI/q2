@@ -477,11 +477,12 @@ fn build_titled_content(
 /// Untitled callouts are flat: a single `<div class="callout-body d-flex">`
 /// wrapping the icon container and the body-container.
 fn build_untitled_content(source_info: &SourceInfo, icon: bool, body_inner_div: Div) -> Vec<Block> {
-    let mut body_content = Vec::new();
     // Always emit the icon container (Q1-parity); icon=false adds
     // the `no-icon` co-class to the inner `<i>`.
-    body_content.push(Block::Div(icon_container_div(source_info, icon)));
-    body_content.push(Block::Div(body_inner_div));
+    let body_content = vec![
+        Block::Div(icon_container_div(source_info, icon)),
+        Block::Div(body_inner_div),
+    ];
 
     let body_outer = Div {
         attr: make_attr(&["callout-body", "d-flex"]),
@@ -1398,11 +1399,10 @@ mod tests {
         let title_container = header
             .content
             .iter()
-            .filter_map(|b| match b {
+            .find_map(|b| match b {
                 Block::Div(d) if d.attr.1.iter().any(|c| c == "callout-title-container") => Some(d),
                 _ => None,
             })
-            .next()
             .expect("title-container Div");
         let title_inlines = match &title_container.content[0] {
             Block::Plain(p) => &p.content,
@@ -1458,11 +1458,10 @@ mod tests {
         let title_container = header
             .content
             .iter()
-            .filter_map(|b| match b {
+            .find_map(|b| match b {
                 Block::Div(d) if d.attr.1.iter().any(|c| c == "callout-title-container") => Some(d),
                 _ => None,
             })
-            .next()
             .unwrap();
         let title_inlines = match &title_container.content[0] {
             Block::Plain(p) => &p.content,
@@ -1509,11 +1508,10 @@ mod tests {
         let title_container = header
             .content
             .iter()
-            .filter_map(|b| match b {
+            .find_map(|b| match b {
                 Block::Div(d) if d.attr.1.iter().any(|c| c == "callout-title-container") => Some(d),
                 _ => None,
             })
-            .next()
             .unwrap();
         let title_inlines = match &title_container.content[0] {
             Block::Plain(p) => &p.content,

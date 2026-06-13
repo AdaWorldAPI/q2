@@ -765,7 +765,7 @@ fn inline_spans_mixed_containers() {
     }
 
     // Check total coverage: do inline spans + gaps tile the paragraph content?
-    let _para_inlines = inlines;
+    let _ = inlines;
     let total_inline_bytes: usize = descs.iter().map(|d| d.2 - d.1).sum();
     let total_gap_bytes: usize = gaps.iter().map(|g| g.1 - g.0).sum();
     let first_start = descs.first().map_or(0, |d| d.1);

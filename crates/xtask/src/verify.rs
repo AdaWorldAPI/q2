@@ -71,10 +71,10 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
         Some("-D warnings")
     };
 
-    // Step 1: Custom lint checks
+    // Step 1: Custom lint checks + clippy gate
     {
         println!(
-            "\n━━━ Step 1/{}: Running custom lint checks ━━━\n",
+            "\n━━━ Step 1/{}: Running custom lints + clippy ━━━\n",
             TOTAL_STEPS
         );
         let lint_config = lint::LintConfig {
@@ -82,7 +82,26 @@ pub fn run(config: &VerifyConfig) -> Result<()> {
             quiet: false,
         };
         lint::run_check(&lint_config)?;
-        println!("✓ Custom lint checks complete");
+
+        // Clippy gate (matches the CI step in test-suite.yml). The workspace
+        // policy lives in the root Cargo.toml `[workspace.lints.clippy]` table;
+        // `-D warnings` (unless --no-deny-warnings) makes any lint a failure.
+        // Skipped together with the Rust build, since it is a compile pass.
+        if !config.skip_rust_build {
+            let mut clippy_args = vec!["clippy", "--workspace", "--all-targets"];
+            if rustflags.is_some() {
+                // Deny at the clippy level too (RUSTFLAGS alone covers rustc).
+                clippy_args.extend_from_slice(&["--", "-D", "warnings"]);
+            }
+            run_command(
+                "cargo",
+                &clippy_args,
+                &project_root,
+                rustflags,
+                "Clippy found issues (fix them or add a justified #[allow])",
+            )?;
+        }
+        println!("✓ Custom lints + clippy complete");
     }
 
     // Step 2: Check Rust formatting

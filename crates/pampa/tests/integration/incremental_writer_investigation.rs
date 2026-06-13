@@ -588,7 +588,6 @@ fn span_inner_metadata() {
 
 #[test]
 fn span_horizontal_rule() {
-    let _input = "Before.\n\n---\n\nAfter.\n";
     // Note: --- at the start of a doc is YAML front matter, but between blocks
     // it could be a horizontal rule. Let's use *** to be unambiguous.
     let input2 = "Before.\n\n***\n\nAfter.\n";

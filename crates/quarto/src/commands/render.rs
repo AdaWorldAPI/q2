@@ -891,12 +891,12 @@ fn print_render_diagnostics_text(
         let entries = summary
             .pass2_failures
             .iter()
-            .filter_map(|f| {
+            .filter(|f| {
                 if f.diagnostics.is_empty() {
-                    legacy_failures.push(f);
-                    None
+                    legacy_failures.push(*f);
+                    false
                 } else {
-                    Some(f)
+                    true
                 }
             })
             .flat_map(|f| {

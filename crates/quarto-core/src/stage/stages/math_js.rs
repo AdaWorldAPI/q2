@@ -599,11 +599,7 @@ mod tests {
     fn doc_with_blocks(blocks: Vec<Block>, meta: ConfigValue) -> PipelineData {
         PipelineData::DocumentAst(DocumentAst {
             path: PathBuf::from("/project/test.qmd"),
-            ast: Pandoc {
-                meta,
-                blocks,
-                ..Default::default()
-            },
+            ast: Pandoc { meta, blocks },
             ast_context: pampa::pandoc::ASTContext::default(),
             source_context: SourceContext::new(),
             warnings: vec![],

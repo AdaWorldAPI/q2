@@ -143,6 +143,16 @@ jobs:
         shell: bash
         run: cargo xtask lint
 
+      # Clippy gate: the workspace clippy policy lives in the root Cargo.toml
+      # `[workspace.lints.clippy]` table (architectural lints allowed, the rest
+      # warned); `-D warnings` makes any remaining lint a hard failure. Keep
+      # this green by fixing lints or adding a justified `#[allow]`.
+      - name: Clippy (deny warnings)
+        shell: bash
+        run: cargo clippy --workspace --all-targets --profile ci -- -D warnings
+        env:
+          RUSTFLAGS: "-D warnings"
+
       - name: Test block tree-sitter grammar
         shell: bash
         run: |

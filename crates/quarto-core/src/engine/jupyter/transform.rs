@@ -136,7 +136,7 @@ impl JupyterTransform {
     fn replace_with_outputs(ast: &mut Pandoc, outputs: Vec<(usize, Vec<Block>)>) {
         // Process in reverse order to maintain correct indices
         let mut sorted_outputs = outputs;
-        sorted_outputs.sort_by(|a, b| b.0.cmp(&a.0));
+        sorted_outputs.sort_by_key(|a| std::cmp::Reverse(a.0));
 
         for (idx, output_blocks) in sorted_outputs {
             if idx < ast.blocks.len() {

@@ -64,6 +64,9 @@ pub enum ReferenceLocation {
 
 impl ReferenceLocation {
     /// Parse from string value.
+    // Infallible parser with a default fallback; `FromStr` would force a
+    // `Result`/`Err` this enum doesn't need.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "section" => Self::Section,
@@ -101,6 +104,9 @@ pub enum AppendixStyle {
 
 impl AppendixStyle {
     /// Parse from string or bool value.
+    // Infallible parser with a default fallback; `FromStr` would force a
+    // `Result`/`Err` this enum doesn't need.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "plain" => Self::Plain,

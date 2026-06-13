@@ -445,7 +445,7 @@ contributes:
         );
 
         // common key should not be present
-        assert!(ext.contributes.formats.get("common").is_none());
+        assert!(!ext.contributes.formats.contains_key("common"));
     }
 
     #[test]

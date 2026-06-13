@@ -262,8 +262,7 @@ fn aside_div_renders_as_aside_element() {
 /// `aside-footnotes`, etc. and would otherwise pollute substring counts).
 fn body_markup(html: &str) -> String {
     fn drop_blocks(mut s: String, open: &str, close: &str) -> String {
-        loop {
-            let Some(start) = s.find(open) else { break };
+        while let Some(start) = s.find(open) {
             let Some(rel_end) = s[start..].find(close) else {
                 break;
             };

@@ -1630,6 +1630,7 @@ Body.
     /// Test #12 — round-trip serialization preserves a non-empty
     /// `listing_content_globs`.
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // default-then-set keeps the test readable
     fn profile_v5_listing_content_globs_round_trip() {
         let mut p = DocumentProfile::default();
         p.source_path = PathBuf::from("idx.qmd");

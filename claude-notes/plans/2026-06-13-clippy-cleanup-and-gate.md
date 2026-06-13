@@ -73,18 +73,43 @@ Enforcement points to add once green:
 ## Work items
 
 - [x] Measure true scope; strand + plan (bd-3zst4hwy)
-- [ ] Phase 1 — `cargo clippy --fix --workspace --all-targets` (auto-fix
-      the mechanical bulk); inspect the diff
-- [ ] Phase 2 — hand-fix / `#[allow]` the remainder (judgment lints above)
-- [ ] Phase 3 — confirm `cargo clippy --workspace --all-targets --
-      -D warnings` reports **zero**
-- [ ] Phase 4 — full regression: `cargo nextest run --workspace`
-      (clippy --fix can subtly change behavior; must stay green) +
-      `cargo build --workspace`
-- [ ] Phase 5 — add the CI step + xtask leg (the gate)
-- [ ] Phase 6 — `cargo xtask verify --skip-hub-build` (or full if WASM
-      buildable here)
+- [x] Phase 1 — `cargo clippy --fix` auto-fixed the mechanical bulk.
+      Checkpoint commit `25c1e187` (revert point).
+- [x] Phase 2 — hand-fixed / `#[allow]`-ed the remainder (28 + a later
+      cascade-revealed layer in quarto-publish/quarto leaf crates).
+- [x] Phase 3 — `cargo clippy --workspace --all-targets -- -D warnings`
+      reports **zero** (exit 0). Renamed the stale `empty_enum` table
+      entry to `empty_enums` so the run is notice-free.
+- [x] Phase 4 — `cargo nextest run --workspace` → **10036 passed**,
+      twice (post-auto-fix and post-hand-fix). `cargo check --workspace
+      --all-targets` green; `cargo fmt --check` clean.
+- [x] Phase 5 — CI gate added (`.github/workflows/test-suite.yml`
+      "Clippy (deny warnings)" step) + `cargo xtask verify` Step 1 now
+      runs `cargo clippy --workspace --all-targets -- -D warnings`.
+- [ ] Phase 6 — final `cargo xtask verify --skip-hub-build`
 
 ## Verification record
 
-_(filled in as phases complete)_
+- **True scope**: the deny-cascade (each crate aborts on its first lint,
+  masking the rest and all downstream crates) hid the real count.
+  Successive fix-and-remeasure passes peeled back layers:
+  69 → 250 → 28 → +9 (quarto-publish/quarto leaf crates). Net cleanup
+  ≈ 525 violations.
+- **Auto-fix friction**: `quarto-core` fixes wouldn't apply via normal
+  `cargo fix` (it reverts a whole crate when any fix breaks compilation).
+  `--broken-code` forced them and exposed a clippy bug that expanded a
+  `matches!()` macro into its raw `$expression`/`$pattern` template in
+  `compile_theme_css.rs`, cascading into a dropped `SidebarStyle` import.
+  Both hand-corrected; a workspace `cargo check` then confirmed compile.
+- **Lessons**: (1) measure clippy scope WITHOUT `-D warnings` (use the
+  table levels) so the cascade doesn't mask crates; (2) avoid
+  `--broken-code` — prefer per-crate `cargo clippy --fix` after the crate
+  compiles clean; (3) a statement-level `#[allow]` on an `assert!`/macro
+  invocation is **ignored** (and trips `unused_attributes` under
+  `-D warnings`) — put the allow on the enclosing fn/`let` instead.
+- **Behavior-sensitive fixes validated by the full suite**: shortcode
+  let-chain, render `filter_map`→`filter`, orchestrator cache `if let`,
+  github always-https collapse, capture_splice `never_loop` allow,
+  revealjs `while let`.
+- **Final gate**: `cargo clippy --workspace --all-targets -- -D warnings`
+  → exit 0; `cargo nextest run --workspace` → 10036 passed.

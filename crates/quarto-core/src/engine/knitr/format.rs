@@ -343,6 +343,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // config is reused across echo true/false cases
     fn test_execute_config_echo_values() {
         // echo: true
         let mut config = ExecuteConfig::default();

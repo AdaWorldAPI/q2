@@ -72,16 +72,13 @@ fn build_filter_command(filter_path: &Path) -> Command {
             .and_then(|e| e.to_str())
             .map(|e| e.to_ascii_lowercase())
     {
-        match ext.as_str() {
-            "py" => {
-                let mut cmd = Command::new(find_python());
-                cmd.arg(filter_path);
-                return cmd;
-            }
-            // .sh/.bash filters are not dispatched to bash on Windows — path
-            // translation varies across bash variants (WSL, Git Bash, Cygwin).
-            // On Unix, the shebang line handles dispatch via Command::new().
-            _ => {}
+        // .sh/.bash filters are not dispatched to bash on Windows — path
+        // translation varies across bash variants (WSL, Git Bash, Cygwin).
+        // On Unix, the shebang line handles dispatch via Command::new().
+        if ext.as_str() == "py" {
+            let mut cmd = Command::new(find_python());
+            cmd.arg(filter_path);
+            return cmd;
         }
     }
     Command::new(filter_path)

@@ -395,8 +395,10 @@ fn parse_one_listing(
         }
     };
 
-    let mut l = Listing::default();
-    l.id = fallback_id.to_string();
+    let mut l = Listing {
+        id: fallback_id.to_string(),
+        ..Default::default()
+    };
 
     for entry in map {
         match entry.key.as_str() {

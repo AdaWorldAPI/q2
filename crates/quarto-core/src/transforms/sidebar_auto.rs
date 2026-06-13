@@ -283,7 +283,6 @@ fn group_with_subdirs(candidates: &[&DocumentProfile], index: &ProjectIndex) -> 
 
     let mut out = Vec::<SidebarEntry>::new();
     // Top-level links first, sorted.
-    let mut top_level = top_level;
     sort_profiles(&mut top_level);
     for p in top_level {
         out.push(link_entry(p));

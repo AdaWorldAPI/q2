@@ -167,6 +167,12 @@ pub fn derive_cell_outputs(a1: &Pandoc, b1: &Pandoc) -> CellOutputMap {
             // Look ahead for the next cell wrapper in B1.
             // Walks forward over non-cell B1 blocks until it lands on
             // a cell wrapper. Stops if B1 ends.
+            //
+            // The body intentionally breaks on the first non-wrapper block
+            // (see the conservative-divergence note below) rather than
+            // advancing `j`, so this never iterates more than once — but the
+            // loop shape mirrors the intended walk and is kept deliberately.
+            #[allow(clippy::never_loop)]
             while j < b_blocks.len() && !is_cell_wrapper(&b_blocks[j]) {
                 // A B1 block that isn't a cell wrapper sitting where
                 // we expected one means the walk has diverged

@@ -842,9 +842,9 @@ impl AstTransform for ShortcodeResolveTransform {
         // The engine is !Send + !Sync so it cannot be stored as a field.
         let mut lua_engine = if (!self.lua_shortcode_paths.is_empty()
             || !self.extensions.is_empty())
-            && self.runtime.is_some()
+            && let Some(runtime) = self.runtime.as_ref()
         {
-            let runtime = self.runtime.as_ref().unwrap().clone();
+            let runtime = runtime.clone();
             match pampa::lua::LuaShortcodeEngine::new(&self.target_format, runtime) {
                 Ok(mut engine) => {
                     // Load scripts from metadata-specified paths

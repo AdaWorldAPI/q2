@@ -274,14 +274,14 @@ mod tests {
             parse_cell_options("#| label: fig-plot\n#| fig-cap: \"My caption\"\nprint('hi')\n");
         assert_eq!(&opts["label"], "fig-plot");
         assert!(opts["fig-cap"].contains("My caption"));
-        assert!(opts.get("print('hi')").is_none());
+        assert!(!opts.contains_key("print('hi')"));
     }
 
     #[test]
     fn stops_at_first_non_pipe_line() {
         let opts = parse_cell_options("#| label: fig-one\nprint('hi')\n#| fig-cap: Too late");
         assert_eq!(&opts["label"], "fig-one");
-        assert!(opts.get("fig-cap").is_none());
+        assert!(!opts.contains_key("fig-cap"));
     }
 
     #[test]

@@ -196,13 +196,9 @@ fn parse_path(host: &str, path: &str) -> Option<OriginInfo> {
     if repo.is_empty() {
         return None;
     }
-    let scheme = if host.contains("github") {
-        "https"
-    } else {
-        "https"
-    };
+    // Always https — GitHub and GitHub Enterprise hosts are served over TLS.
     Some(OriginInfo {
-        repo_url: format!("{scheme}://{host}/{org}/{repo}/"),
+        repo_url: format!("https://{host}/{org}/{repo}/"),
         organization: org.to_string(),
         repository: repo.to_string(),
     })

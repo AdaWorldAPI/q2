@@ -1645,13 +1645,13 @@ async fn pass1_profile_with_cache(
         Ok(crate::document_profile::IncludeEntry::hash_bytes(&bytes))
     };
 
-    match crate::project::profile_cache::load(runtime.as_ref(), &key_hex, include_resolver).await {
-        Ok(Some(profile)) => return Ok(profile),
-        // Cache miss / verification failure / runtime error: degrade
-        // to a live extraction. We don't surface the error because the
-        // orchestrator never wants a cache hiccup to abort an
-        // otherwise-fine render.
-        Ok(None) | Err(_) => {}
+    // A cache miss / verification failure / runtime error (Ok(None) | Err(_))
+    // degrades to a live extraction. We don't surface the error because the
+    // orchestrator never wants a cache hiccup to abort an otherwise-fine render.
+    if let Ok(Some(profile)) =
+        crate::project::profile_cache::load(runtime.as_ref(), &key_hex, include_resolver).await
+    {
+        return Ok(profile);
     }
 
     let profile =

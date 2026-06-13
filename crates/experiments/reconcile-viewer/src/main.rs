@@ -158,6 +158,9 @@ fn inline_type_name(inline: &Inline) -> &'static str {
 }
 
 /// Build readable inline operations from a plan
+// `snippet_len` is threaded through the recursion for a planned feature; allow
+// until it's wired up (experiments-only scratch binary).
+#[allow(clippy::only_used_in_recursion)]
 fn build_inline_ops(
     plan: &InlineReconciliationPlan,
     before_inlines: &Inlines,

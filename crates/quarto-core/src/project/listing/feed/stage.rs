@@ -971,16 +971,13 @@ mod tests {
                 .map(|e| e.file_name().to_string_lossy().into_owned())
                 .collect::<Vec<_>>()
         });
-        match entries {
-            Ok(names) => {
-                assert!(
-                    !names.iter().any(|n| n.contains(".feed-")),
-                    "no staged feeds expected; got entries: {:?}",
-                    names
-                );
-            }
-            // OK if the output dir doesn't even exist yet (no-op transform).
-            Err(_) => {}
+        // Err is OK if the output dir doesn't even exist yet (no-op transform).
+        if let Ok(names) = entries {
+            assert!(
+                !names.iter().any(|n| n.contains(".feed-")),
+                "no staged feeds expected; got entries: {:?}",
+                names
+            );
         }
     }
 
