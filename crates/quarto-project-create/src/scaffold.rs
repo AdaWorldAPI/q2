@@ -7,7 +7,7 @@
  * This module provides a data-driven approach to defining project files,
  * ported from TypeScript Quarto's ScaffoldFile pattern. It supports:
  *
- * - **Template files**: EJS templates that are rendered with project data
+ * - **Template files**: doctemplate (Pandoc template syntax) files rendered with project data
  * - **Supporting files**: Static resources (binary or text) that are copied as-is
  *
  * # Binary File Handling
@@ -27,7 +27,7 @@ use std::path::PathBuf;
 /// Content type for a scaffold file definition.
 #[derive(Debug, Clone)]
 pub enum ScaffoldContent {
-    /// EJS template to be rendered with project data
+    /// Doctemplate source to be rendered with project data
     Template(&'static str),
 
     /// Static text file to be copied as-is

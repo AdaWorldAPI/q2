@@ -1,6 +1,6 @@
 project:
   type: website
-  title: "<%= title %>"
+  title: "$title$"
 
 website:
   navbar:

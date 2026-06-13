@@ -1,0 +1,123 @@
+/**
+ * WASM Tests for project creation (create_project / get_project_choices)
+ *
+ * Verifies the project-scaffolding WASM exports after the EJS →
+ * quarto-doctemplate migration (bd-kuxzj8su): template rendering is pure
+ * Rust, synchronous, and requires no JS template bridge.
+ *
+ * Run with: npm run test:wasm
+ */
+
+import { describe, it, expect, beforeAll } from 'vitest';
+import { readFile } from 'fs/promises';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+// Type for the WASM module
+interface WasmModule {
+  default: (input?: BufferSource) => Promise<void>;
+  get_project_choices: () => string;
+  create_project: (choiceId: string, title: string) => string;
+}
+
+interface ProjectChoicesResponse {
+  success: boolean;
+  choices: Array<{ id: string; name: string; description: string }>;
+}
+
+interface CreateProjectResponse {
+  success: boolean;
+  error?: string;
+  files?: Array<{
+    path: string;
+    content_type: 'text' | 'binary';
+    content: string;
+    mime_type?: string;
+  }>;
+}
+
+let wasm: WasmModule;
+
+beforeAll(async () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+
+  const wasmDir = join(__dirname, '../../wasm-quarto-hub-client');
+  const wasmPath = join(wasmDir, 'wasm_quarto_hub_client_bg.wasm');
+  const wasmBytes = await readFile(wasmPath);
+
+  wasm = (await import('wasm-quarto-hub-client')) as unknown as WasmModule;
+  await wasm.default(wasmBytes);
+});
+
+describe('get_project_choices', () => {
+  it('returns implemented choices including default and website', () => {
+    const response = JSON.parse(wasm.get_project_choices()) as ProjectChoicesResponse;
+    expect(response.success).toBe(true);
+
+    const ids = response.choices.map((c) => c.id);
+    expect(ids).toContain('default');
+    expect(ids).toContain('website');
+  });
+});
+
+describe('create_project', () => {
+  it('returns a string synchronously (no Promise — rendering is pure Rust)', () => {
+    const result = wasm.create_project('default', 'Sync Check');
+    expect(typeof result).toBe('string');
+  });
+
+  it('creates a website project with rendered titles', () => {
+    const response = JSON.parse(
+      wasm.create_project('website', 'My Website'),
+    ) as CreateProjectResponse;
+    expect(response.success).toBe(true);
+
+    const byPath = new Map(response.files!.map((f) => [f.path, f]));
+    expect([...byPath.keys()].sort()).toEqual(['_quarto.yml', 'index.qmd']);
+
+    const quartoYml = byPath.get('_quarto.yml')!.content;
+    expect(quartoYml).toContain('title: "My Website"');
+    expect(quartoYml).toContain('type: website');
+
+    const indexQmd = byPath.get('index.qmd')!.content;
+    expect(indexQmd).toContain('title: "My Website"');
+
+    // No template-syntax residue of either engine
+    for (const file of response.files!) {
+      expect(file.content).not.toContain('$title$');
+      expect(file.content).not.toContain('<%');
+    }
+  });
+
+  it('creates a default project', () => {
+    const response = JSON.parse(
+      wasm.create_project('default', 'Test Project'),
+    ) as CreateProjectResponse;
+    expect(response.success).toBe(true);
+    expect(response.files).toHaveLength(1);
+    expect(response.files![0].path).toBe('_quarto.yml');
+    expect(response.files![0].content).toContain('title: "Test Project"');
+  });
+
+  it('YAML-escapes special characters without HTML-escaping', () => {
+    const response = JSON.parse(
+      wasm.create_project('default', 'R & D "quoted" \\ backslash'),
+    ) as CreateProjectResponse;
+    expect(response.success).toBe(true);
+
+    const content = response.files![0].content;
+    // `&` passes through raw. (The old EJS path HTML-escaped it to `&amp;`
+    // — a latent bug for YAML output.)
+    expect(content).not.toContain('&amp;');
+    // `"` and `\` are escaped for the YAML double-quoted context.
+    expect(content).toContain('title: "R & D \\"quoted\\" \\\\ backslash"');
+  });
+
+  it('fails cleanly on an unknown choice id', () => {
+    const response = JSON.parse(
+      wasm.create_project('nonexistent', 'X'),
+    ) as CreateProjectResponse;
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('nonexistent');
+  });
+});
