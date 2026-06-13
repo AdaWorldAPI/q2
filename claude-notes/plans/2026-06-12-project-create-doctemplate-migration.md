@@ -171,8 +171,9 @@ workspace-wide (`deprecated(since = "0.x")` in `quarto-source-map`).
 
 ### Phase 5: Handoff
 
-- [ ] `braid comment bd-kuxzj8su` with results; close with reason.
-- [ ] `braid comment bd-3e3sam51` noting the blocker is cleared and listing
+- [x] bd-kuxzj8su closed with results (commits `3a35de43` + `67b61ef3`
+      on branch `beads/bd-kuxzj8su-migrate-quarto-project-create`).
+- [x] `braid comment bd-3e3sam51` noting the blocker is cleared and listing
       the now-dead machinery enumerated under "Scope boundary" above.
 
 ## Follow-on (not in this strand)

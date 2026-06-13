@@ -1,8 +1,13 @@
 # JavaScript Execution Performance Considerations
 
 **Created**: 2026-01-12
-**Status**: Active design document
-**Related code**: `crates/quarto-system-runtime/src/js_native.rs`
+**Status**: OBSOLETE (2026-06-12) — the JS execution surface this document
+describes was removed in bd-3e3sam51 (see
+`claude-notes/plans/2026-06-12-remove-deno-core-rusty-v8.md`). Project
+scaffolding renders with quarto-doctemplate (pure Rust) since bd-kuxzj8su;
+`js_native.rs` and the deno_core/rusty_v8 dependency no longer exist.
+Kept for historical context only.
+**Related code**: `crates/quarto-system-runtime/src/js_native.rs` (deleted)
 
 ## Overview
 

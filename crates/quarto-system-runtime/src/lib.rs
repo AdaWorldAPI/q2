@@ -30,10 +30,6 @@ mod vfs;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 
-// JavaScript execution for native targets
-#[cfg(not(target_arch = "wasm32"))]
-mod js_native;
-
 // SASS compilation for native targets
 #[cfg(not(target_arch = "wasm32"))]
 pub mod sass_native;
@@ -115,5 +111,33 @@ mod tests {
         assert!(!rt.os_name().is_empty());
         let cwd = rt.cwd().unwrap();
         assert!(cwd.is_absolute());
+    }
+
+    /// Guard: the V8/deno_core dependency must not reappear in the
+    /// workspace graph.
+    ///
+    /// This crate once embedded deno_core (→ rusty_v8) for EJS template
+    /// rendering. The JS template path was removed in bd-3e3sam51 after
+    /// bd-kuxzj8su migrated project scaffolding to quarto-doctemplate:
+    /// v8 prebuilt archives are ~100MB build-time downloads, and rusty_v8
+    /// publishes no musl prebuilts, which blocked static-musl release
+    /// targets (PR #280). Anyone reintroducing a JS engine dependency
+    /// should do so deliberately — behind a cargo feature, with the
+    /// release-target implications worked through — not by accident.
+    #[test]
+    fn test_no_v8_in_workspace_lockfile() {
+        let lockfile = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock");
+        let contents = std::fs::read_to_string(&lockfile)
+            .unwrap_or_else(|e| panic!("read {}: {e}", lockfile.display()));
+
+        for banned in ["v8", "deno_core", "serde_v8"] {
+            let needle = format!("name = \"{banned}\"");
+            assert!(
+                !contents.contains(&needle),
+                "workspace Cargo.lock contains package `{banned}` — \
+                 the V8/deno_core dependency was removed in bd-3e3sam51 \
+                 and must not be reintroduced accidentally"
+            );
+        }
     }
 }

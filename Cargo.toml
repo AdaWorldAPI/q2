@@ -63,12 +63,6 @@ base64 = "0.22"
 walkdir = "2"
 syn = { version = "2", features = ["full", "visit", "parsing"] }
 
-# JavaScript runtime (native only, for EJS template rendering)
-# Note: deno_core version must match what deno_web depends on
-deno_core = "0.376"
-deno_web = "0.257"
-deno_webidl = "0.226"
-serde_v8 = "0.285"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 # LSP server dependencies (native only)

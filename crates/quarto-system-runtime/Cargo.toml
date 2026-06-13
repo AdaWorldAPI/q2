@@ -28,15 +28,6 @@ tempfile = "3.24"
 # SASS compilation (pure Rust, ~2x faster than dart-sass)
 grass.workspace = true
 
-# JavaScript runtime (for EJS template rendering)
-# Note: These types MUST NOT leak into the public trait API
-deno_core.workspace = true
-# deno_web and deno_webidl have yanked dependencies, using minimal setup for now
-# deno_web.workspace = true
-# deno_webidl.workspace = true
-serde_v8.workspace = true
-tokio.workspace = true
-
 # WASM-only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # JavaScript interop for browser JS calls.

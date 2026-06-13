@@ -25,9 +25,8 @@ cargo-fuzz = true
 default = ["terminal-support", "json-filter", "lua-filter", "template-fs"]
 terminal-support = ["dep:crossterm", "dep:supports-hyperlinks"]
 terminal-hyperlinks = ["dep:supports-hyperlinks"]
-# Enable filter pipeline support (pulls in quarto-system-runtime / deno_core / v8).
-# Parser-only consumers can disable this with `default-features = false` to avoid
-# the v8 link dependency, which is problematic in shared-library builds on Linux.
+# Enable filter pipeline support (pulls in quarto-system-runtime).
+# Parser-only consumers can disable this with `default-features = false`.
 filters = ["dep:quarto-system-runtime"]
 # Enable JSON filter support (requires subprocess spawning, disable for WASM)
 json-filter = ["filters"]
