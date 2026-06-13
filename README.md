@@ -48,6 +48,25 @@ point elsewhere via the `QUARTO_HUB_MCP_CLIENT_ID`,
 `QUARTO_HUB_MCP_CLIENT_SECRET`, and `QUARTO_HUB_SERVER` environment
 variables, which always win over the built-in defaults.
 
+To register it with an MCP client, add an entry that launches `q2 mcp`
+(run `q2 mcp --print-config` to print this snippet):
+
+```json
+{
+  "mcpServers": {
+    "quarto-hub": {
+      "command": "q2",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+For a non-canonical hub, append the server flag:
+`"args": ["mcp", "--server", "wss://your-hub/ws"]`. Run `q2 mcp --help`
+for the full launcher + server option list, and `q2 mcp --launcher-info`
+to diagnose the embedded bundle and Node.js discovery.
+
 ## Building
 
 Requires Rust nightly (edition 2024).

@@ -31,15 +31,104 @@ pub use node::{Discovery, MIN_NODE_MAJOR, NodeError, NodeInfo, find_node, parse_
 use anyhow::{Result, bail};
 use std::path::PathBuf;
 
+/// What `run` should do with the args, decided up front by
+/// [`classify_args`] before any I/O. `q2 mcp` is a verbatim passthrough
+/// to the embedded TS server; this enumerates the few launcher-level
+/// flags we intercept before delegating.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LauncherAction {
+    /// `--launcher-info` (sole arg): print embed/cache/node diagnostics
+    /// and exit.
+    LauncherInfo,
+    /// `--print-config` (sole arg): print a ready-to-paste `.mcp.json`
+    /// entry and exit.
+    PrintConfig,
+    /// `--help`/`-h` (anywhere): print the launcher-options preamble,
+    /// then delegate `--help` to the server so its own usage shows too.
+    HelpPreambleThenDelegate,
+    /// Everything else: pass through to the server verbatim.
+    Delegate,
+}
+
+/// Decide how to handle `q2 mcp` args. Pure (no I/O) so the
+/// interception rules are unit-testable.
+///
+/// Precedence: `--help`/`-h` anywhere wins (so `q2 mcp --server x
+/// --help` still helps); otherwise the sole-arg launcher queries
+/// (`--launcher-info`, `--print-config`) match only when they are the
+/// single argument — combined with anything else they flow through to
+/// the server (which rejects the unknown flag). They are always invoked
+/// alone in practice.
+pub fn classify_args(args: &[String]) -> LauncherAction {
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        return LauncherAction::HelpPreambleThenDelegate;
+    }
+    if args.len() == 1 {
+        match args[0].as_str() {
+            "--launcher-info" => return LauncherAction::LauncherInfo,
+            "--print-config" => return LauncherAction::PrintConfig,
+            _ => {}
+        }
+    }
+    LauncherAction::Delegate
+}
+
+/// A ready-to-paste `.mcp.json` entry that drives this binary as the
+/// MCP server. Pure JSON on stdout so it pipes
+/// (`q2 mcp --print-config > .mcp.json`). For a non-canonical hub,
+/// append `"--server", "wss://your-hub/ws"` to `args`.
+pub fn config_snippet() -> String {
+    // A fixed literal (not serialized) so the formatting is stable and
+    // matches the repo's own .mcp.json exactly.
+    "{\n  \"mcpServers\": {\n    \"quarto-hub\": {\n      \"command\": \"q2\",\n      \"args\": [\"mcp\"]\n    }\n  }\n}\n"
+        .to_string()
+}
+
+/// The launcher-options section printed ahead of the server's own
+/// `--help`. These controls live in the launcher and never reach the TS
+/// server, so they are invisible in its usage block — this preamble is
+/// where they are discoverable.
+pub fn help_preamble() -> String {
+    "\
+q2 mcp — launch the Quarto Hub MCP server (embedded; needs Node.js).
+
+Launcher options (handled by q2 before the server starts):
+  --launcher-info       Print embed/cache/node diagnostics and exit
+  --print-config        Print a .mcp.json entry for this server and exit
+  --help, -h            Show this help (launcher options, then server options)
+
+Launcher environment variables:
+  QUARTO_NODE           Path to the Node.js binary (when PATH discovery fails)
+  QUARTO_MCP_CACHE_DIR  Override the extracted-bundle cache location
+
+Embedded MCP server options:
+"
+    .to_string()
+}
+
 /// Entry point for `q2 mcp [args…]`. Returns the exit code to use
 /// (Windows delegation path); on Unix a successful delegation never
 /// returns.
 pub fn run(args: &[String]) -> Result<i32> {
-    if args.len() == 1 && args[0] == "--launcher-info" {
-        // Human/tool-facing metadata query; this is not an MCP session,
-        // so stdout is correct here.
-        println!("{}", launcher_info()?);
-        return Ok(0);
+    // stdout in the next two branches is correct: these are explicit,
+    // pre-protocol queries, not a live MCP session (where stdout carries
+    // JSON-RPC). The help preamble is printed before delegation below.
+    match classify_args(args) {
+        LauncherAction::LauncherInfo => {
+            println!("{}", launcher_info()?);
+            return Ok(0);
+        }
+        LauncherAction::PrintConfig => {
+            print!("{}", config_snippet());
+            return Ok(0);
+        }
+        LauncherAction::HelpPreambleThenDelegate => {
+            // Launcher half first; the server's own `--help` follows via
+            // delegation (args still carry --help/-h). On Unix the exec
+            // below replaces this process, so this stdout flushes first.
+            print!("{}", help_preamble());
+        }
+        LauncherAction::Delegate => {}
     }
 
     if bundle::is_placeholder() {
