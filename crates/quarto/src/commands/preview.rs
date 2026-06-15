@@ -10,6 +10,7 @@
 
 use std::net::TcpListener as StdTcpListener;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use quarto_preview::{
@@ -142,7 +143,41 @@ async fn run(args: PreviewArgs) -> Result<()> {
     // Phase D.1 (bd-kw93.8): actually open a browser tab. Failure to
     // open is logged + non-fatal (the URL is already printed for
     // copy-paste). Suppressed by --no-browser.
-    open_browser_or_log(&url, args.no_browser);
+    //
+    // bd-a6dvrdg1: open only once the server is actually accepting
+    // connections. The server doesn't start until `quarto_preview::run`
+    // below (which then blocks until shutdown), so the open has to run
+    // on a spawned task that waits for readiness while the main task
+    // goes on to start the server. Opening eagerly here — as we used to
+    // — raced the server's startup: on larger projects the browser
+    // connected before `axum::serve` was live and showed "Unable to
+    // connect" until a manual reload. The probe (`wait_until_accepting`)
+    // closes that race by gating on the real accept condition. The port
+    // is the one we pre-probed; nothing is listening on it until the
+    // server binds, so the probe naturally retries across the gap.
+    if !args.no_browser {
+        let url_for_open = url.clone();
+        let host_for_open = host.clone();
+        tokio::spawn(async move {
+            const READY_TIMEOUT: Duration = Duration::from_secs(10);
+            if wait_until_accepting(&host_for_open, port, READY_TIMEOUT).await {
+                info!(host = %host_for_open, port, "preview server accepting connections; opening browser");
+            } else {
+                // We still consider a >10s startup a bug; opening anyway
+                // (rather than never) preserves the old behavior as a
+                // floor, and the warning gives the slow start visibility
+                // instead of leaving it silent.
+                tracing::warn!(
+                    host = %host_for_open,
+                    port,
+                    timeout_secs = READY_TIMEOUT.as_secs(),
+                    "preview server has not accepted a connection within the timeout; \
+                     opening the browser anyway (it may need a manual reload)"
+                );
+            }
+            open_browser_or_log(&url_for_open, false);
+        });
+    }
 
     // Phase C.6: read `preview.engine` from `_quarto.yml` so the
     // driver knows whether to skip eager execution (`off`) or auto-
@@ -232,6 +267,62 @@ fn open_browser_or_log(url: &str, suppress: bool) {
             error = %e,
             "could not auto-open browser; the URL is printed above"
         );
+    }
+}
+
+/// bd-a6dvrdg1: poll `host:port` with `TcpStream::connect` until the
+/// preview server is accepting connections, or `total_timeout` elapses.
+///
+/// Returns `true` as soon as a connection succeeds, `false` if the
+/// deadline passes first. A successful connect means the server's
+/// listener is bound and the kernel is completing TCP handshakes — the
+/// real readiness threshold. (Per the plan: `tokio`'s `TcpListener::bind`
+/// also `listen`s, so the kernel backlogs connections from bind onward,
+/// even before `axum::serve` runs its accept loop. So bind, not the
+/// accept loop, is the point past which the browser won't be refused.)
+///
+/// The backoff starts tight so the common ~250ms startup opens the
+/// browser with no perceptible delay, and decays to a 1s cap so a slow
+/// project adds at most ~1s of post-ready latency. Callers must treat a
+/// `false` return as "open anyway, but warn" — never a hard failure.
+///
+/// Why this is a spawned-task probe rather than a readiness signal
+/// threaded out of the server: it observes the externally-observable
+/// accept condition, so it stays correct regardless of how the server's
+/// internal startup phases are ordered, and it keeps browser-opening (a
+/// CLI concern) out of the `quarto-hub` / `quarto-preview` libraries.
+async fn wait_until_accepting(host: &str, port: u16, total_timeout: Duration) -> bool {
+    const INITIAL_BACKOFF: Duration = Duration::from_millis(20);
+    const MAX_BACKOFF: Duration = Duration::from_secs(1);
+
+    let deadline = tokio::time::Instant::now() + total_timeout;
+    let mut backoff = INITIAL_BACKOFF;
+
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        // Bound each attempt so a stuck connect can't outlive the
+        // deadline. Localhost connects resolve fast (refused or
+        // connected); this cap is belt-and-suspenders.
+        let attempt_timeout = remaining.min(MAX_BACKOFF);
+        if let Ok(Ok(_stream)) = tokio::time::timeout(
+            attempt_timeout,
+            tokio::net::TcpStream::connect((host, port)),
+        )
+        .await
+        {
+            return true;
+        }
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        tokio::time::sleep(backoff.min(remaining)).await;
+        // Grow ×1.6 per miss, capped: 20 → 32 → 51 → 81 → … → 1000ms.
+        backoff = (backoff * 8 / 5).min(MAX_BACKOFF);
     }
 }
 
@@ -573,5 +664,94 @@ mod tests {
         assert_eq!(percent_encode_path(" "), "%20");
         assert_eq!(percent_encode_path("a?b"), "a%3Fb");
         assert_eq!(percent_encode_path("a&b=c"), "a%26b%3Dc");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // bd-a6dvrdg1: wait_until_accepting — gate the browser-open on the
+    // preview server actually accepting connections (not on the
+    // throwaway port probe, which is dropped before the server binds).
+    // See claude-notes/plans/2026-06-15-q2-preview-browser-race.md.
+    // ──────────────────────────────────────────────────────────────
+
+    /// Bind on an OS-assigned port, read it, drop the listener.
+    /// Returns a port that was free a moment ago (a tiny TOCTOU window,
+    /// acceptable for these timing tests).
+    fn reserve_free_port() -> u16 {
+        let l = StdTcpListener::bind("127.0.0.1:0").expect("probe bind");
+        l.local_addr().expect("local_addr").port()
+        // listener drops here
+    }
+
+    #[tokio::test]
+    async fn wait_until_accepting_returns_true_when_listener_present() {
+        // A bound listener — even one that never calls accept() — is
+        // enough: the kernel completes the TCP handshake into the
+        // backlog, so connect() succeeds. This is the exact readiness
+        // threshold the fix relies on (bind, not the accept loop).
+        let listener = StdTcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("local_addr").port();
+
+        let start = std::time::Instant::now();
+        let ready =
+            wait_until_accepting("127.0.0.1", port, std::time::Duration::from_secs(5)).await;
+        let elapsed = start.elapsed();
+
+        assert!(ready, "a bound listener should be reported as accepting");
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "should connect on the first (fast) attempt; elapsed={elapsed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_until_accepting_times_out_when_nothing_listening() {
+        // Nothing is listening on a just-freed port → connect keeps
+        // failing → we return false only after the total timeout.
+        let port = reserve_free_port();
+
+        let timeout = std::time::Duration::from_millis(150);
+        let start = std::time::Instant::now();
+        let ready = wait_until_accepting("127.0.0.1", port, timeout).await;
+        let elapsed = start.elapsed();
+
+        assert!(!ready, "no listener → must report not-accepting");
+        assert!(
+            elapsed >= timeout,
+            "must wait out the full timeout before giving up; elapsed={elapsed:?}, timeout={timeout:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_until_accepting_unblocks_when_listener_appears_late() {
+        // The direct regression for the race: the server's listener
+        // shows up *after* we start waiting. We must keep polling and
+        // return true once it binds — not give up early, not return
+        // before it appears.
+        let port = reserve_free_port();
+
+        // Bind the "server" ~150ms from now and hold it open well past
+        // the expected connect so the handshake has something to land on.
+        let late = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            let listener = StdTcpListener::bind(("127.0.0.1", port)).expect("late bind");
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            drop(listener);
+        });
+
+        let start = std::time::Instant::now();
+        let ready =
+            wait_until_accepting("127.0.0.1", port, std::time::Duration::from_secs(5)).await;
+        let elapsed = start.elapsed();
+
+        assert!(ready, "should connect once the late listener binds");
+        assert!(
+            elapsed >= std::time::Duration::from_millis(120),
+            "should have waited for the late bind rather than returning instantly; elapsed={elapsed:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "should return well before the timeout once the listener is up; elapsed={elapsed:?}"
+        );
+        late.abort();
     }
 }
