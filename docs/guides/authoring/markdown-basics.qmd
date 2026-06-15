@@ -14,8 +14,8 @@ Markdown is a plain text format that is designed to be easy to write, and, even 
 This document provides an introduction to Quarto's Markdown dialect (`qmd`).
 Authors of Markdown will largely feel at home using `qmd` files.
 The biggest conceptual change in Quarto 2 is that it can detect typos and syntax errors in your documents.
-Unlike Markdown, this means that some `qmd` files are not valid Quarto Markdown syntax.
-Quarto 2 provides an error message system that gives rich contextual information on invalid documents.
+Unlike Markdown, some `qmd` files are not valid Quarto Markdown syntax and need to be fixed before your document will render.
+For these situations, Quarto 2 offers an error message system with rich contextual information.
 
 ### Text formatting
 
@@ -59,6 +59,31 @@ Quarto 2 provides an error message system that gives rich contextual information
     # Heading 1
     ```
   * # Heading 1
+
+* * ```qmd
+    ## Heading 2
+    ```
+  * ## Heading 2
+
+* * ```qmd
+    ### Heading 3
+    ```
+  * ### Heading 3
+
+* * ```qmd
+    #### Heading 4
+    ```
+  * #### Heading 4
+
+* * ```qmd
+    ##### Heading 5
+    ```
+  * ##### Heading 5
+
+* * ```qmd
+    ###### Heading 6
+    ```
+  * ###### Heading 6
 
 :::
 

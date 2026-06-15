@@ -2,4 +2,7 @@
 title: Guides
 ---
 
-TBD.
+## Authoring
+
+- [Markdown basics](./authoring/markdown-basics.qmd)
+- [Multiformat branding with `_brand.yml`](./authoring/brand.qmd)

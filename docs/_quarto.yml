@@ -14,7 +14,7 @@ website:
       - href: index.qmd
         text: Home
       - about.qmd
-      - guide/index.qmd
+      - guides/index.qmd
       - href: presentations/revealjs/index.qmd
         text: Presentations
       - href: errors/index.qmd

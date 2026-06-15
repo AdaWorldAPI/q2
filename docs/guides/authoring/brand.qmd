@@ -195,7 +195,7 @@ brand:
 ---
 ```
 
-This is similar to how [Themes](/docs/output-formats/html-themes.qmd#dark-mode) work.
+This is similar to how [Themes](/guides/formats/html/themes.qmd#dark-mode) work.
 
 This also works with brands specified directly in the document:
 
@@ -476,7 +476,7 @@ It is [not currently possible](https://github.com/quarto-dev/quarto-cli/issues/1
 
 :::
 
-When using `format: typst` you can additionally [customize the logo position](../output-formats/typst.qmd#logo-position).
+When using `format: typst` you can additionally [customize the logo position](/guides/formats/typst/index.qmd#logo-position).
 
 #### Disabling the logo
 
@@ -739,7 +739,7 @@ Some values from the `_brand.yml` configuration file can be accessed via the `br
 `VARIANT` is optional:
 
 - For the `brand color` shortcode, the default is `light`. To return the color from the [dark brand](#dark-brand) use `dark`.
-- For the `brand logo` shortcode, the default is `both`, which will expand to both light and dark logos with the appropriate [classes for mode-specific content](../output-formats/html-themes.qmd#mode-specific-content) so that the light logo shows in light mode and the dark logo shows in dark mode.
+- For the `brand logo` shortcode, the default is `both`, which will expand to both light and dark logos with the appropriate [classes for mode-specific content](/guides/formats/html/themes.qmd#mode-specific-content) so that the light logo shows in light mode and the dark logo shows in dark mode.
 
 ::: {.callout-note}
 
@@ -881,8 +881,6 @@ In most cases, these assets should be committed to source control.
 :::
 
 ### `quarto use brand`
-
-{{< prerelease-callout 1.9 >}}
 
 The `quarto use brand` command copies brand files from an external source into your project's `_brand/` directory. To use it, navigate to your project directory and run:
 
