@@ -1,9 +1,22 @@
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use quarto_yaml_validation::{Schema, SchemaRegistry, ValidationDiagnostic, validate};
 use std::fs;
 use std::path::PathBuf;
 use std::process;
+
+/// How to render validation output
+#[derive(Clone, Debug, Default, PartialEq, Eq, ValueEnum)]
+enum OutputFormat {
+    /// Rich ariadne-style diagnostics with source snippets (default)
+    #[default]
+    Human,
+    /// Structured JSON, one object per error
+    Json,
+    /// One compact line per error: `file:line:col [CODE] path: message (hint: ...)`.
+    /// Optimized for token-efficient consumption, e.g. feeding errors to an LLM.
+    Compact,
+}
 
 /// Validate a YAML document against a schema
 #[derive(Parser, Debug)]
@@ -18,7 +31,11 @@ struct Args {
     #[arg(long, value_name = "FILE")]
     schema: PathBuf,
 
-    /// Output errors as JSON instead of text
+    /// Output format
+    #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
+    format: OutputFormat,
+
+    /// Deprecated alias for `--format json`
     #[arg(long)]
     json: bool,
 }
@@ -103,17 +120,24 @@ fn run() -> Result<()> {
     // Create a schema registry (empty for now, but needed for $ref resolution)
     let registry = SchemaRegistry::new();
 
+    // `--json` is a deprecated alias for `--format json`.
+    let format = if args.json {
+        OutputFormat::Json
+    } else {
+        args.format.clone()
+    };
+
     // Validate the document against the schema
     match validate(&input_yaml, &schema, &registry, &source_ctx) {
         Ok(()) => {
-            if args.json {
-                // JSON success output
-                println!(r#"{{"success": true}}"#);
-            } else {
-                // Human-readable success output
-                println!("✓ Validation successful");
-                println!("  Input: {}", args.input.display());
-                println!("  Schema: {}", args.schema.display());
+            match format {
+                OutputFormat::Json => println!(r#"{{"success": true}}"#),
+                OutputFormat::Compact => println!("ok"),
+                OutputFormat::Human => {
+                    println!("✓ Validation successful");
+                    println!("  Input: {}", args.input.display());
+                    println!("  Schema: {}", args.schema.display());
+                }
             }
             Ok(())
         }
@@ -121,16 +145,23 @@ fn run() -> Result<()> {
             // Convert ValidationError to ValidationDiagnostic
             let diagnostic = ValidationDiagnostic::from_validation_error(&error, &source_ctx);
 
-            if args.json {
-                // JSON error output with structured paths and source ranges
-                let json = serde_json::json!({
-                    "success": false,
-                    "errors": [diagnostic.to_json()]
-                });
-                println!("{}", serde_json::to_string_pretty(&json)?);
-            } else {
-                // Human-readable error output with ariadne-style rendering
-                eprint!("{}", diagnostic.to_text(&source_ctx));
+            match format {
+                OutputFormat::Json => {
+                    // JSON error output with structured paths and source ranges
+                    let json = serde_json::json!({
+                        "success": false,
+                        "errors": [diagnostic.to_json()]
+                    });
+                    println!("{}", serde_json::to_string_pretty(&json)?);
+                }
+                OutputFormat::Compact => {
+                    // One compact line, optimized for LLM consumption
+                    eprintln!("{}", diagnostic.to_compact());
+                }
+                OutputFormat::Human => {
+                    // Human-readable error output with ariadne-style rendering
+                    eprint!("{}", diagnostic.to_text(&source_ctx));
+                }
             }
             process::exit(1);
         }

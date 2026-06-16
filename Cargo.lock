@@ -3991,6 +3991,7 @@ name = "quarto-yaml-validation"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "insta",
  "quarto-error-reporting",
  "quarto-source-map",
  "quarto-yaml",
