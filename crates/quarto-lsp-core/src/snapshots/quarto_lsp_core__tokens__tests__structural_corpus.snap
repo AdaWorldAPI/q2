@@ -26,17 +26,13 @@ expression: rendered
 9:55-57 qmd.punctuation.special
 9:57-68 qmd.markup.raw.inline
 9:68-69 qmd.punctuation.special
-11:2-3 qmd.punctuation.bracket
 11:3-7 qmd.markup.link.label
 11:9-28 qmd.markup.link.url
 11:29-36 qmd.markup.link.title
-11:36-37 qmd.punctuation.bracket
 11:45-47 qmd.punctuation.special.image
 11:47-52 qmd.markup.image.label
 11:54-62 qmd.markup.image.url
-11:62-63 qmd.punctuation.bracket
 11:63-81 qmd.attribute.specifier
-13:2-3 qmd.punctuation.bracket
 13:15-22 qmd.attribute.specifier
 13:28-51 qmd.markup.shortcode
 15:12-19 qmd.markup.math

@@ -470,7 +470,10 @@ mod tests {
         let toks = tokens("[label](https://example.com)");
         assert!(has_type(&toks, "qmd.markup.link.label"), "got {toks:?}");
         assert!(has_type(&toks, "qmd.markup.link.url"), "got {toks:?}");
-        assert!(has_type(&toks, "qmd.punctuation.bracket"), "got {toks:?}");
+        // Bracket punctuation is intentionally uncoloured (uniform default):
+        // the closing `]` is unreachable by the query, so colouring only `[`
+        // looked mismatched. See highlights.scm.
+        assert!(!has_type(&toks, "qmd.punctuation.bracket"), "got {toks:?}");
     }
 
     #[test]
@@ -581,12 +584,13 @@ mod tests {
         // A 4-byte emoji before a link: the link label must start at the
         // correct UTF-16 column (emoji is 2 UTF-16 code units), not byte col.
         let toks = tokens("😀 [x](y)");
-        // "😀 " is 2 (emoji, surrogate pair) + 1 (space) = 3 UTF-16 units, so
-        // the `[` bracket sits at character 3.
+        // "😀 [" is 2 (emoji surrogate pair) + 1 (space) + 1 (`[`) = 4 UTF-16
+        // units, so the link label `x` sits at character 4 (byte offset would
+        // be 6 — emoji is 4 bytes).
         assert!(
             toks.iter()
-                .any(|t| type_name(t) == "qmd.punctuation.bracket" && t.character == 3),
-            "expected a bracket at UTF-16 char 3, got {toks:?}"
+                .any(|t| type_name(t) == "qmd.markup.link.label" && t.character == 4),
+            "expected a link label at UTF-16 char 4, got {toks:?}"
         );
     }
 

@@ -47,18 +47,20 @@
 (code_span_delimiter) @punctuation.special
 
 ; --- Links (a pandoc_span is a link only when it has a `target` child) --------
+; Bracket punctuation is left uncoloured (default foreground): of `[ ] ( )`
+; only `[` and `)` are queryable — the `](` between label and url is one fused
+; anonymous token inside `target`, so `]` and `(` cannot be reached by the
+; query. Colouring only `[`/`)` made the closing `]` a different colour from
+; the opening `[`; uniform default avoids that mismatch (splitting `](` in the
+; grammar is out of scope).
 (pandoc_span (content) @markup.link.label (target))
 (pandoc_span (target (url) @markup.link.url))
 (pandoc_span (target (title) @markup.link.title))
-(pandoc_span "[" @punctuation.bracket)
 
 ; --- Images (reuse `target`; the `![` opener is one fused token) --------------
 (pandoc_image "![" @punctuation.special.image)
 (pandoc_image (content) @markup.image.label)
 (pandoc_image (target (url) @markup.image.url))
-
-; The queryable closing bracket of a link/image target.
-(target ")" @punctuation.bracket)
 
 ; --- Attribute specifiers ({#id .cls key="v"}, and code-cell {r}) -------------
 (attribute_specifier) @attribute.specifier

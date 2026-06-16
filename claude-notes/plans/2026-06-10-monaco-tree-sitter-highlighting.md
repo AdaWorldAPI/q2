@@ -109,11 +109,21 @@ Braid epic: **bd-t4ezufyg**. Sub-strands: Phase 0 `bd-mawltv3x`, Phase 1
   to gain the same innermost-wins flatten as the native path, or browser and
   native render user-grammar code blocks differently — now true parity (bd-98k6
   fixed on the browser render path too).
-  - **Not verified headlessly (flagged):** the Phase-8 *manual browser check*
-    (open a `.qmd`, eyeball the three zones, code-cell↔preview colour parity, no
-    flash/flicker, `.ts` colours unchanged) needs a running hub + browser. The
-    Monarch base's runtime tokenization and the theme's visual colours are only
-    validated by that check; everything mechanically testable is green.
+  - **Manual browser check — PASSED (2026-06-16).** Confirmed in a real
+    hub-client + local hub server session: `.qmd` editor shows the tree-sitter
+    semantic highlighting, "definitely an improvement" over the old markdown
+    mapping. (Gotcha hit en route: the **browser** was serving a cached old WASM
+    — a hard refresh / cache clear after `npm run build:wasm` was needed, on top
+    of `npm run dev:fresh`.) Minor visual **tweaks** noted by the user as
+    follow-up (palette / specific scopes), not blockers.
+  - **Tweak (2026-06-16): link/image brackets uniform.** The opening `[` was
+    coloured grey (`punctuation.bracket`) but the closing `]` was not (it is
+    fused into the anonymous `](` token inside `target`, unreachable by the
+    query), so the brackets clashed. Dropped the `[`/`)` bracket captures from
+    `highlights.scm`; all link/image bracket punctuation now renders in the
+    uniform default foreground. (`qmd.punctuation.bracket` stays a reserved
+    legend entry / theme rule for when the grammar can split `](`.) Requires a
+    WASM rebuild + browser hard-refresh.
   - **Pre-existing, unrelated failure:** `@quarto/hub-mcp`'s `hub-mcp.test.ts`
     (19/22) fails in this sandbox — `live:` tests needing an automerge server +
     MCP child-process spawn. Untouched package; orthogonal to this work.
