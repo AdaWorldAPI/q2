@@ -164,6 +164,30 @@ impl ProjectFiles {
         }
     }
 
+    /// In single-file mode, additionally sync well-known project-config
+    /// siblings that physically sit next to the target file — currently
+    /// `_brand.yml` / `_brand.yaml`, which a deck references via `brand:` for
+    /// theme/brand resolution (bd-ggvq1j68).
+    ///
+    /// This stays deliberately narrow: only these specific, conventionally-named
+    /// config files, and only when they exist on disk. It does NOT walk the
+    /// directory, so it preserves the bd-tnm3k safety property (don't pull in
+    /// arbitrary siblings like `~/Downloads/*.qmd`). A deck whose `brand:` points
+    /// somewhere non-conventional (e.g. `brand: ../shared/foo.yml`) is still
+    /// unsupported in single-file mode — author it inside a project instead.
+    pub fn with_config_siblings(mut self, project_root: &Path, relative: &Path) -> Self {
+        let dir = relative.parent().unwrap_or_else(|| Path::new(""));
+        for name in ["_brand.yml", "_brand.yaml"] {
+            let rel = dir.join(name);
+            if project_root.join(&rel).is_file() {
+                self.config_files.push(rel);
+            }
+        }
+        self.config_files.sort();
+        self.config_files.dedup();
+        self
+    }
+
     /// Attach resources-scoped `.html` files (resolved by the caller
     /// from `project.resources:`) to be synced into the VFS as text.
     /// Deduplicates and sorts for deterministic ordering. See
@@ -341,6 +365,50 @@ mod tests {
         assert!(
             files.config_files.contains(&PathBuf::from("_brand.yml")),
             "_brand.yml must be discovered as a config file so the preview VFS syncs it"
+        );
+    }
+
+    #[test]
+    fn test_single_file_picks_up_brand_sibling() {
+        // bd-ggvq1j68: `q2 preview deck.qmd` (single-file mode, no `_quarto.yml`)
+        // with `brand: _brand.yml` should still resolve the brand. Single-file
+        // mode never walks the directory, but a conventionally-named `_brand.yml`
+        // sitting next to the deck is exactly the file the deck references — sync
+        // it so the preview VFS can read it.
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("deck.qmd"), "# Hi").unwrap();
+        fs::write(
+            temp.path().join("_brand.yml"),
+            "color:\n  palette:\n    p: \"#6f42c1\"\n  primary: p\n",
+        )
+        .unwrap();
+
+        let files = ProjectFiles::single_file(PathBuf::from("deck.qmd"))
+            .with_config_siblings(temp.path(), Path::new("deck.qmd"));
+
+        assert_eq!(files.qmd_files, vec![PathBuf::from("deck.qmd")]);
+        assert!(
+            files.config_files.contains(&PathBuf::from("_brand.yml")),
+            "single-file mode must sync a sibling _brand.yml the deck references"
+        );
+    }
+
+    #[test]
+    fn test_single_file_no_brand_sibling_stays_narrow() {
+        // Without a `_brand.yml` next to the deck, single-file mode must NOT
+        // pull in any siblings — the safety property of bd-tnm3k.
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("deck.qmd"), "# Hi").unwrap();
+        fs::write(temp.path().join("unrelated.qmd"), "# Other").unwrap();
+        fs::write(temp.path().join("notes.txt"), "stuff").unwrap();
+
+        let files = ProjectFiles::single_file(PathBuf::from("deck.qmd"))
+            .with_config_siblings(temp.path(), Path::new("deck.qmd"));
+
+        assert_eq!(files.qmd_files, vec![PathBuf::from("deck.qmd")]);
+        assert!(
+            files.config_files.is_empty(),
+            "no _brand.yml → no siblings synced (must not walk the dir)"
         );
     }
 

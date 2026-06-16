@@ -209,7 +209,13 @@ impl HubContext {
         // would index sibling files the user didn't ask for.
         let project_files = if let Some(ref project_root) = project_root {
             let files = match config.single_file.as_ref() {
-                Some(rel) => ProjectFiles::single_file(rel.clone()),
+                // bd-ggvq1j68: single-file mode skips the WalkDir, but a deck
+                // that references `brand: _brand.yml` needs that sibling in the
+                // VFS. Pick up the conventionally-named brand file next to the
+                // target without walking the directory (stays narrow).
+                Some(rel) => {
+                    ProjectFiles::single_file(rel.clone()).with_config_siblings(project_root, rel)
+                }
                 // bd-kjrpya2d: the bare walk can't see resources-scoped
                 // `.html` (it falls through every category), so the
                 // caller-resolved set is injected here to ride the text
