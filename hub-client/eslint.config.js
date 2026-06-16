@@ -19,5 +19,18 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // `_`-prefixed args/vars are an intentional "unused" marker (e.g. Monaco
+      // provider callbacks with fixed positional signatures like
+      // `(_model, _token) => …`). Align the rule with that convention.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
   },
 ])

@@ -14,16 +14,80 @@ import type {
   Diagnostic,
   FoldingRange,
   DocumentAnalysis,
+  SemanticToken,
   LspAnalyzeResponse,
   LspSymbolsResponse,
   LspFoldingRangesResponse,
   LspDiagnosticsResponse,
+  LspSemanticTokensResponse,
 } from '@quarto/preview-renderer/types/intelligence';
 import { initWasm } from '@quarto/preview-runtime';
 import { isQmdFile } from '@quarto/preview-renderer/types/project';
 
 // Re-export types for convenience
-export type { Symbol, Diagnostic, FoldingRange, DocumentAnalysis } from '@quarto/preview-renderer/types/intelligence';
+export type { Symbol, Diagnostic, FoldingRange, DocumentAnalysis, SemanticToken } from '@quarto/preview-renderer/types/intelligence';
+
+/**
+ * The Monaco semantic-token legend: token-type names, indexed by a token's
+ * `tokenType`. Theme rules (quarto-{light,dark}) target these names.
+ *
+ * **The Rust `quarto_lsp_core::QMD_TOKEN_LEGEND` is the source of truth.** This
+ * is a checked-in mirror so the semantic-tokens provider can supply the legend
+ * synchronously at registration (the WASM module is initialised lazily, after
+ * the provider registers, so a sync WASM legend call there would throw). The
+ * `semanticTokens.wasm.test.ts` drift guard asserts this deep-equals
+ * `JSON.parse(lsp_get_token_legend())`; if it ever fails, copy the Rust array.
+ */
+export const QMD_TOKEN_LEGEND: readonly string[] = [
+  // structural (qmd highlights.scm)
+  'qmd.markup.heading',
+  'qmd.markup.emphasis',
+  'qmd.markup.strong',
+  'qmd.markup.strikethrough',
+  'qmd.markup.link.label',
+  'qmd.markup.link.url',
+  'qmd.markup.link.title',
+  'qmd.markup.image.label',
+  'qmd.markup.image.url',
+  'qmd.markup.raw.inline',
+  'qmd.markup.raw',
+  'qmd.markup.raw.info',
+  'qmd.markup.math',
+  'qmd.markup.shortcode',
+  'qmd.markup.list',
+  'qmd.markup.quote',
+  'qmd.punctuation.special',
+  'qmd.punctuation.special.image',
+  'qmd.punctuation.bracket',
+  'qmd.punctuation.delimiter.fence',
+  'qmd.punctuation.delimiter.frontmatter',
+  'qmd.attribute.specifier',
+  // embedded code (the 24 hl-* roots in highlight.scss)
+  'qmd.code.attribute',
+  'qmd.code.boolean',
+  'qmd.code.character',
+  'qmd.code.comment',
+  'qmd.code.constant',
+  'qmd.code.constructor',
+  'qmd.code.embedded',
+  'qmd.code.error',
+  'qmd.code.escape',
+  'qmd.code.function',
+  'qmd.code.keyword',
+  'qmd.code.label',
+  'qmd.code.markup',
+  'qmd.code.module',
+  'qmd.code.namespace',
+  'qmd.code.number',
+  'qmd.code.operator',
+  'qmd.code.property',
+  'qmd.code.punctuation',
+  'qmd.code.special',
+  'qmd.code.string',
+  'qmd.code.tag',
+  'qmd.code.type',
+  'qmd.code.variable',
+];
 
 // ============================================================================
 // Internal Helpers
@@ -151,4 +215,37 @@ export async function getDiagnostics(path: string): Promise<Diagnostic[]> {
 
   console.warn('Failed to get diagnostics:', result.error);
   return [];
+}
+
+/**
+ * Get semantic tokens for a file — drives Monaco syntax highlighting for
+ * `.qmd` (qmd structure + frontmatter YAML + code-cell interiors).
+ *
+ * Graceful by design: a non-qmd path, a `{ success: false }` envelope, or a
+ * JSON-decode failure all resolve to `[]` (never a rejection), so the provider
+ * needs no try/catch on the normal path and treats "no tokens" uniformly as
+ * "fall back to the Monarch base layer".
+ *
+ * @param path - File path in VFS
+ * @returns Semantic tokens, sorted and non-overlapping
+ */
+export async function getSemanticTokens(path: string): Promise<SemanticToken[]> {
+  if (!isQmdFile(path)) {
+    return [];
+  }
+
+  try {
+    const wasm = await getWasm();
+    const result: LspSemanticTokensResponse = JSON.parse(wasm.lsp_get_semantic_tokens(path));
+
+    if (result.success) {
+      return result.tokens ?? [];
+    }
+
+    console.warn('Failed to get semantic tokens:', result.error);
+    return [];
+  } catch (e) {
+    console.warn('Failed to get semantic tokens:', e);
+    return [];
+  }
 }

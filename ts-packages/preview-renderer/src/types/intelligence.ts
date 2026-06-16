@@ -180,6 +180,31 @@ export interface Diagnostic {
 }
 
 // ============================================================================
+// Semantic Token Types (for Monaco DocumentSemanticTokensProvider)
+// ============================================================================
+
+/**
+ * One semantic token: a single-line range plus a type index into the
+ * semantic-token legend (QMD_TOKEN_LEGEND).
+ *
+ * `line`/`character`/`length` are absolute (not delta-encoded) and in UTF-16
+ * code units on a single line; the provider delta-encodes them into Monaco's
+ * 5-tuple Uint32Array. A token never spans a newline.
+ */
+export interface SemanticToken {
+  /** Zero-based line. */
+  line: number;
+  /** Zero-based start character (UTF-16 code units). */
+  character: number;
+  /** Token length in UTF-16 code units, on this one line. */
+  length: number;
+  /** Index into the legend (QMD_TOKEN_LEGEND). */
+  tokenType: number;
+  /** Token modifier bitset (unused — always 0). */
+  modifiers: number;
+}
+
+// ============================================================================
 // Analysis Result Types
 // ============================================================================
 
@@ -235,4 +260,13 @@ export interface LspDiagnosticsResponse {
   success: boolean;
   error?: string;
   diagnostics?: Diagnostic[];
+}
+
+/**
+ * Response from lsp_get_semantic_tokens().
+ */
+export interface LspSemanticTokensResponse {
+  success: boolean;
+  error?: string;
+  tokens?: SemanticToken[];
 }

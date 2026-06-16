@@ -2003,7 +2003,10 @@ pub fn create_project(choice_id: &str, title: &str) -> String {
 // They use quarto-lsp-core which is transport-agnostic and compiles to both
 // native and WASM targets.
 
-use quarto_lsp_core::{Document, DocumentAnalysisJson, analyze_document};
+use quarto_lsp_core::{
+    Document, DocumentAnalysisJson, QMD_TOKEN_LEGEND, SemanticToken, analyze_document,
+    get_semantic_tokens,
+};
 
 /// Response for LSP analyze_document().
 #[derive(Serialize)]
@@ -2132,6 +2135,37 @@ impl LspDiagnosticsResponse {
             success: false,
             error: Some(msg.to_string()),
             diagnostics: None,
+        })
+        .unwrap()
+    }
+}
+
+/// Response for LSP get_semantic_tokens().
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LspSemanticTokensResponse {
+    success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tokens: Option<Vec<SemanticToken>>,
+}
+
+impl LspSemanticTokensResponse {
+    fn ok(tokens: Vec<SemanticToken>) -> String {
+        serde_json::to_string(&LspSemanticTokensResponse {
+            success: true,
+            error: None,
+            tokens: Some(tokens),
+        })
+        .unwrap()
+    }
+
+    fn error(msg: &str) -> String {
+        serde_json::to_string(&LspSemanticTokensResponse {
+            success: false,
+            error: Some(msg.to_string()),
+            tokens: None,
         })
         .unwrap()
     }
@@ -2308,6 +2342,50 @@ pub fn lsp_get_diagnostics(path: &str) -> String {
     let analysis = analyze_document(&doc);
 
     LspDiagnosticsResponse::ok(analysis.diagnostics)
+}
+
+/// Get semantic tokens for a file in the VFS — drives Monaco's
+/// `DocumentSemanticTokensProvider` for `.qmd` syntax highlighting (qmd
+/// structure + frontmatter YAML + code-cell interiors).
+///
+/// Tokens are absolute `{ line, character, length, tokenType, modifiers }`
+/// (UTF-16 code units); the client delta-encodes them into Monaco's 5-tuple
+/// form. `tokenType` indexes [`lsp_get_token_legend`].
+///
+/// # Arguments
+/// * `path` - Path to the file in VFS (e.g., "index.qmd")
+///
+/// # Returns
+/// JSON: `{ "success": true, "tokens": [...] }` or `{ "success": false, "error": "..." }`.
+/// An empty document yields `{ "success": true, "tokens": [] }`. Never panics
+/// across the boundary and never returns a partial/garbage list.
+#[wasm_bindgen]
+pub fn lsp_get_semantic_tokens(path: &str) -> String {
+    let runtime = get_runtime();
+    let file_path = Path::new(path);
+
+    let content = match runtime.file_read(file_path) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => return LspSemanticTokensResponse::error("File is not valid UTF-8"),
+        },
+        Err(e) => return LspSemanticTokensResponse::error(&format!("Failed to read file: {}", e)),
+    };
+
+    let doc = Document::new(path, &content);
+    LspSemanticTokensResponse::ok(get_semantic_tokens(&doc))
+}
+
+/// Return the Monaco token-type legend (`QMD_TOKEN_LEGEND`) as a JSON array.
+///
+/// Rust is the source of truth. This export is the **drift-guard test oracle**,
+/// not what the provider's `getLegend()` calls — that reads a checked-in TS
+/// constant synchronously (the WASM module is initialised lazily, after the
+/// provider is registered). A hub-client test asserts the TS constant
+/// deep-equals this.
+#[wasm_bindgen]
+pub fn lsp_get_token_legend() -> String {
+    serde_json::to_string(QMD_TOKEN_LEGEND).unwrap()
 }
 
 // ============================================================================

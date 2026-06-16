@@ -16,6 +16,7 @@ import {
 import { vfsAddFile, isWasmReady } from '@quarto/preview-runtime';
 import type { Diagnostic } from '@quarto/preview-renderer/types/diagnostic';
 import { registerIntelligenceProviders, disposeIntelligenceProviders } from '../services/monacoProviders';
+import { registerQmdLanguage } from './quartoTheme';
 import { processFileForUpload } from '../services/resourceService';
 import { usePresence } from '../hooks/usePresence';
 import { usePreference } from '../hooks/usePreference';
@@ -81,8 +82,9 @@ function getLanguageForFile(filePath: string): string {
     case 'yaml':
     case 'yml':
       return 'yaml';
-    case 'md':
     case 'qmd':
+      return 'qmd';
+    case 'md':
       return 'markdown';
     default:
       return 'markdown';
@@ -112,6 +114,9 @@ const editorOptions = {
   acceptSuggestionOnCommitCharacter: false,
   suggest: { showWords: false, showSnippets: false },
   inlineSuggest: { enabled: false },
+  // Enable the semantic-tokens layer (the quarto-{light,dark} themes also set
+  // `semanticHighlighting: true`; setting both is the reliable combination).
+  'semanticHighlighting.enabled': true as const,
 };
 
 // Select the best default file: prefer index.qmd, then first .qmd, then first file
@@ -514,6 +519,11 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
 
   // Configure Monaco before mount (for TypeScript diagnostics)
   const handleBeforeMount = (monaco: typeof Monaco) => {
+    // Register the dedicated `qmd` language: Monarch base (Hybrid-A instant
+    // paint + nextEmbedded routing of code/frontmatter) + quarto-{light,dark}
+    // themes. The semantic-tokens provider is the authoritative colour source.
+    registerQmdLanguage(monaco);
+
     // Disable TypeScript diagnostics to avoid noisy errors in TSX/TS files
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const languages = (monaco.languages as any);
@@ -1017,7 +1027,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
                 key={currentFile?.path ?? ''}
                 height="100%"
                 language={getLanguageForFile(currentFile?.path ?? '')}
-                theme={effectiveTheme === 'dark' ? 'vs-dark' : 'vs'}
+                theme={effectiveTheme === 'dark' ? 'quarto-dark' : 'quarto-light'}
                 // Use defaultValue instead of value to make Monaco uncontrolled.
                 // This prevents the wrapper from calling setValue() on re-renders,
                 // which would reset cursor position. We manage content via executeEdits().

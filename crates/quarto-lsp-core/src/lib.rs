@@ -43,6 +43,7 @@ pub mod analysis;
 pub mod diagnostics;
 pub mod document;
 pub mod symbols;
+pub mod tokens;
 pub mod types;
 
 // Re-export main types and functions for convenience
@@ -50,7 +51,9 @@ pub use analysis::analyze_document;
 pub use diagnostics::get_diagnostics;
 pub use document::Document;
 pub use symbols::{get_folding_ranges, get_symbols};
+pub use tokens::get_semantic_tokens;
 pub use types::{
     Diagnostic, DiagnosticSeverity, DocumentAnalysis, DocumentAnalysisJson, FoldingRange,
-    FoldingRangeKind, Position, Range, Symbol, SymbolKind,
+    FoldingRangeKind, Position, QMD_TOKEN_LEGEND, Range, SemanticToken, SemanticTokensJson, Symbol,
+    SymbolKind, capture_to_token_type,
 };

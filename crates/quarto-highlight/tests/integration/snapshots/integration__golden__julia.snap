@@ -1,5 +1,5 @@
 ---
-source: crates/quarto-highlight/tests/golden.rs
+source: crates/quarto-highlight/tests/integration/golden.rs
 description: "function greet(name)\n  println(\"hi, $name\")\nend\n"
 ---
 [
@@ -39,6 +39,11 @@ description: "function greet(name)\n  println(\"hi, $name\")\nend\n"
     "punctuation.bracket"
   ],
   [
+    31,
+    36,
+    "string"
+  ],
+  [
     36,
     37,
     "punctuation.special"
@@ -49,7 +54,7 @@ description: "function greet(name)\n  println(\"hi, $name\")\nend\n"
     "variable"
   ],
   [
-    31,
+    41,
     42,
     "string"
   ],

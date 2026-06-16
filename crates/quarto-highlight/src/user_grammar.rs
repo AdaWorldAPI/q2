@@ -22,10 +22,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
+use tree_sitter::Parser;
 use tree_sitter::WasmStore;
 use tree_sitter::wasmtime;
-use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
+use tree_sitter_highlight::HighlightConfiguration;
 
+use crate::captures::{captures_from_tree, flatten_spans};
 use crate::encoding::{self, HighlightSpan};
 use crate::error::HighlightError;
 
@@ -66,17 +68,18 @@ pub enum UserGrammarError {
 }
 
 /// A single loaded user grammar. `HighlightConfiguration` already
-/// embeds the `Language` so we don't need to store it separately.
+/// embeds the `Language` and the compiled `Query` (whose
+/// `capture_names()` the captures walk indexes into), so we don't need
+/// to store anything else.
 struct LoadedGrammar {
     config: HighlightConfiguration,
-    capture_names: Vec<String>,
 }
 
 /// A set of user-loaded tree-sitter grammars. Owns the wasmtime engine
 /// and the WasmStore that compiled the grammars.
 ///
-/// **Not `Sync`**. The `WasmStore` needs to be moved in and out of the
-/// `Highlighter`'s internal `Parser` during a highlight call (see
+/// **Not `Sync`**. The `WasmStore` needs to be moved in and out of a
+/// `tree_sitter::Parser` during a highlight call (see
 /// [`UserGrammars::highlight`]), which mutates this struct. Hold one
 /// `UserGrammars` per thread, or wrap in a `Mutex`.
 pub struct UserGrammars {
@@ -84,8 +87,7 @@ pub struct UserGrammars {
     engine: wasmtime::Engine,
     /// The WasmStore that loaded every `LoadedGrammar::language` below.
     /// Held in an `Option` because we momentarily move it into the
-    /// Highlighter's parser during a highlight call and restore it
-    /// afterward.
+    /// parser during a highlight call and restore it afterward.
     store: Option<WasmStore>,
     grammars: HashMap<String, LoadedGrammar>,
 }
@@ -153,16 +155,13 @@ impl UserGrammars {
                 name: name.clone(),
                 source,
             })?;
+        // Configure the identity name mapping. The captures walk indexes
+        // `config.query.capture_names()` directly, so this is only here to keep
+        // the configuration well-formed for any tree-sitter-highlight use.
         let capture_names: Vec<String> = config.names().iter().map(|n| n.to_string()).collect();
         config.configure(&capture_names);
 
-        self.grammars.insert(
-            name.clone(),
-            LoadedGrammar {
-                config,
-                capture_names,
-            },
-        );
+        self.grammars.insert(name.clone(), LoadedGrammar { config });
 
         Ok(name)
     }
@@ -218,44 +217,64 @@ impl UserGrammars {
         class: &str,
         source: &str,
     ) -> Result<Option<String>, HighlightError> {
-        let Some(grammar) = self.grammars.get(class) else {
-            return Ok(None);
-        };
+        match self.highlight_captures(class, source)? {
+            Some(spans) => Ok(Some(encoding::encode(&flatten_spans(spans))?)),
+            None => Ok(None),
+        }
+    }
 
-        let mut highlighter = Highlighter::new();
-        // Move the store into the highlighter's parser for the duration
-        // of this call. After `highlight()` returns we take it back out
-        // so subsequent grammar loads + highlight calls still work.
+    /// Extract node-exact, **unflattened** capture spans for `class` using a
+    /// loaded user grammar, or `None` if the class isn't registered.
+    ///
+    /// Mirrors [`Registry::highlight_captures`](crate::registry::Registry) for
+    /// built-ins: the user-grammar render path converges onto the same
+    /// `Query.captures()` + [`flatten_spans`] resolver rather than the lossy
+    /// `tree-sitter-highlight` event stream, so built-in and user-grammar code
+    /// cells flatten identically (and bd-98k6's over-wrap is fixed for both).
+    pub(crate) fn highlight_captures(
+        &mut self,
+        class: &str,
+        source: &str,
+    ) -> Result<Option<Vec<HighlightSpan>>, HighlightError> {
+        if !self.grammars.contains_key(class) {
+            return Ok(None);
+        }
+
+        // Move the store into the parser for the duration of the parse. The
+        // grammar's `Language` is wasm-backed, so parsing needs the store; once
+        // the `Tree` exists, the captures walk is pure C over tree + query, so
+        // we take the store back before flattening/returning.
+        let mut parser = Parser::new();
         let store = self
             .store
             .take()
             .expect("WasmStore must be held when highlight is called");
-        highlighter
-            .parser
+        parser
             .set_wasm_store(store)
             .expect("Parser accepts a WasmStore");
 
-        // Borrow check: we need &self.grammars for the duration of the
-        // highlight events, which immutably borrows self. We've already
-        // taken the store; grammars stays borrowed as &grammar.config and
-        // &grammar.capture_names below. That's fine — only `self.store`
-        // needs to be put back after iteration completes.
-        let result = collect_spans(
-            &mut highlighter,
-            &grammar.config,
-            &grammar.capture_names,
-            source,
-        );
+        let result = (|| {
+            let grammar = self.grammars.get(class).expect("checked above");
+            parser
+                .set_language(&grammar.config.language)
+                .map_err(|e| HighlightError::Parse(e.to_string()))?;
+            let tree = parser
+                .parse(source.as_bytes(), None)
+                .ok_or_else(|| HighlightError::Parse("parser returned no tree".to_string()))?;
+            Ok(captures_from_tree(
+                &grammar.config.query,
+                tree.root_node(),
+                source.as_bytes(),
+            ))
+        })();
 
         // Always restore the store, even on error.
-        let returned_store = highlighter
-            .parser
+        let returned_store = parser
             .take_wasm_store()
             .expect("Parser still holds the WasmStore we just set on it");
         self.store = Some(returned_store);
 
-        let spans = result?;
-        Ok(Some(encoding::encode(&spans)?))
+        result.map(Some)
     }
 }
 
@@ -267,44 +286,6 @@ impl crate::provider::UserGrammarProvider for UserGrammars {
     fn highlight(&mut self, class: &str, source: &str) -> Result<Option<String>, HighlightError> {
         UserGrammars::highlight(self, class, source)
     }
-}
-
-/// Walk the HighlightEvent stream and collect `[start, end, capture]`
-/// triples. Shared between the built-in and user-grammar paths.
-pub(crate) fn collect_spans(
-    highlighter: &mut Highlighter,
-    config: &HighlightConfiguration,
-    capture_names: &[String],
-    source: &str,
-) -> Result<Vec<HighlightSpan>, HighlightError> {
-    let events = highlighter.highlight(config, source.as_bytes(), None, |_| None)?;
-    let mut spans: Vec<HighlightSpan> = Vec::new();
-    let mut stack: Vec<(usize, usize)> = Vec::new();
-    let mut cursor: usize = 0;
-    for event in events {
-        match event? {
-            HighlightEvent::Source { end, .. } => {
-                cursor = end;
-            }
-            HighlightEvent::HighlightStart(h) => {
-                stack.push((cursor, h.0));
-            }
-            HighlightEvent::HighlightEnd => {
-                if let Some((start_byte, name_idx)) = stack.pop() {
-                    let capture = capture_names
-                        .get(name_idx)
-                        .cloned()
-                        .unwrap_or_else(|| String::from("unknown"));
-                    spans.push(HighlightSpan {
-                        start: start_byte,
-                        end: cursor,
-                        capture,
-                    });
-                }
-            }
-        }
-    }
-    Ok(spans)
 }
 
 fn find_wasm_in_dir(dir: &Path) -> Result<(PathBuf, String), UserGrammarError> {
@@ -336,4 +317,62 @@ fn find_wasm_in_dir(dir: &Path) -> Result<(PathBuf, String), UserGrammarError> {
         found = Some((path, stem));
     }
     found.ok_or_else(|| UserGrammarError::WasmMissing(dir.to_path_buf()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// The one case `flatten_spans`'s tie-break must decide that the corpus
+    /// goldens never exercise: two captures at the IDENTICAL byte range (the
+    /// synthetic `user-grammar-equal-extent` fixture double-captures one
+    /// `bare_key` node as both `@type` and `@property`). Drive it through the
+    /// real `highlight_captures` + `flatten_spans` path and assert the
+    /// collision collapses to exactly one surviving span, flanking spans
+    /// untouched.
+    #[test]
+    fn flatten_resolves_equal_extent_collision() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/user-grammar-equal-extent");
+        let mut user = UserGrammars::new();
+        let class = user
+            .load_from_directory(&dir)
+            .expect("equal-extent fixture loads");
+        // The wasm exports `tree_sitter_toml`, so the loader (which resolves
+        // `tree_sitter_<stem>`) requires the stem `toml`. The grammar identity
+        // is incidental — only the double-capturing highlights.scm matters.
+        assert_eq!(class, "toml");
+
+        let source = "name = 1";
+        let raw = user
+            .highlight_captures(&class, source)
+            .expect("highlight succeeds")
+            .expect("class resolves");
+        // Two captures at the identical [0,4] range before flattening.
+        let equal_extent: Vec<_> = raw.iter().filter(|s| s.start == 0 && s.end == 4).collect();
+        assert_eq!(
+            equal_extent.len(),
+            2,
+            "fixture should double-capture `name` at [0,4], got {raw:?}"
+        );
+
+        let flat = flatten_spans(raw);
+        let over_name: Vec<_> = flat.iter().filter(|s| s.start == 0 && s.end == 4).collect();
+        assert_eq!(
+            over_name.len(),
+            1,
+            "the equal-extent collision must collapse to one span, got {flat:?}"
+        );
+        // Documented tie-break: later capture in the stream wins → `property`.
+        assert_eq!(over_name[0].capture, "property");
+
+        // Flanking disjoint spans are untouched, and the result is sorted and
+        // non-overlapping.
+        assert!(flat.iter().any(|s| s.start == 5 && s.capture == "operator"));
+        assert!(flat.iter().any(|s| s.start == 7 && s.capture == "number"));
+        for pair in flat.windows(2) {
+            assert!(pair[0].end <= pair[1].start, "overlap in {flat:?}");
+        }
+    }
 }

@@ -3725,6 +3725,7 @@ dependencies = [
  "quarto-analysis",
  "quarto-core",
  "quarto-error-reporting",
+ "quarto-highlight",
  "quarto-pandoc-types",
  "quarto-source-map",
  "quarto-system-runtime",
@@ -3733,6 +3734,8 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tree-sitter",
+ "tree-sitter-qmd",
 ]
 
 [[package]]

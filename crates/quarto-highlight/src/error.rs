@@ -8,6 +8,11 @@ pub enum HighlightError {
     #[error("invalid highlight query file: {0}")]
     QueryParse(#[from] tree_sitter::QueryError),
 
+    /// The `Query.captures()` resolver could not parse the source with the
+    /// resolved grammar (set-language failure or a `None` parse tree).
+    #[error("tree-sitter parsing failed: {0}")]
+    Parse(String),
+
     #[error("failed to serialize highlight spans to JSON: {0}")]
     Json(#[from] serde_json::Error),
 

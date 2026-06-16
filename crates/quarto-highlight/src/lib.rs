@@ -12,6 +12,7 @@
 //!   grammar + query registered.
 
 pub mod annotate;
+pub mod captures;
 pub mod encoding;
 pub mod error;
 mod langs;
@@ -22,6 +23,7 @@ pub mod registry;
 pub mod user_grammar;
 
 pub use annotate::annotate_pandoc;
+pub use captures::flatten_spans;
 
 pub use encoding::{HighlightSpan, SPANS_ATTR_KEY};
 pub use error::HighlightError;
@@ -43,6 +45,24 @@ use crate::registry::Registry;
 /// `CodeBlock.attr`'s key-value list under [`SPANS_ATTR_KEY`].
 pub fn highlight(language_class: &str, source: &str) -> Result<Option<String>, HighlightError> {
     Registry::global().highlight(language_class, source)
+}
+
+/// Extract node-exact highlight spans for `source` as `language_class` using
+/// the built-in grammar set, or `None` if the class has no registered grammar.
+///
+/// The returned spans are **unflattened** — nested/overlapping captures as
+/// `tree_sitter::Query::captures()` produces them. Run them through
+/// [`flatten_spans`] to collapse to a non-overlapping, innermost-wins run.
+///
+/// This is the editor half of the shared resolver: the render producer
+/// ([`highlight`]) calls the same `Query.captures()` extraction + `flatten_spans`
+/// pair, so a code cell decodes to the same per-byte capture in both the editor
+/// and the rendered HTML.
+pub fn highlight_captures(
+    language_class: &str,
+    source: &str,
+) -> Result<Option<Vec<HighlightSpan>>, HighlightError> {
+    Registry::global().highlight_captures(language_class, source)
 }
 
 /// Like [`highlight`] but also consults an optional [`UserGrammars`]

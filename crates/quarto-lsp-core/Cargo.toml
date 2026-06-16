@@ -25,6 +25,14 @@ quarto-yaml = { workspace = true }
 quarto-source-map = { workspace = true }
 quarto-error-reporting = { workspace = true }
 
+# Semantic tokens: parse with the qmd grammar and reuse the shared
+# highlight resolver (Query.captures() + flatten_spans) for embedded regions.
+# All WASM-safe (built-in grammars are statically linked; the wasmtime
+# user-grammar loader in quarto-highlight is cfg(not(wasm32))).
+tree-sitter = { workspace = true }
+tree-sitter-qmd = { workspace = true }
+quarto-highlight = { workspace = true }
+
 # Analysis pipeline is async; the LSP wraps it to stay compatible with
 # the sync entry points expected by WASM bindings.
 pollster = { workspace = true }
