@@ -356,6 +356,35 @@ pub fn compile_default_css(
     Ok(css)
 }
 
+/// Compile Quarto's reveal.js theme CSS (native).
+///
+/// Assembles the reveal framework + Quarto reveal layers (see
+/// [`crate::assemble_reveal_scss`]) into a single SCSS bundle and compiles it in
+/// one `grass` pass (decision D1 — unified compilation). The result is a
+/// self-contained reveal theme stylesheet: reveal's base rules driven by
+/// `--r-*` custom properties carrying Quarto's overridden values, plus Quarto's
+/// look-fixing rule overrides.
+///
+/// `theme_layers` are the resolved built-in/user theme layers (empty = the
+/// white-equivalent default). `load_paths` are extra directories for resolving
+/// `@use`/`@import` inside *user* theme files (built-in reveal SCSS needs none —
+/// it only uses the built-in `sass:color` / `sass:meta` modules and is otherwise
+/// self-contained).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn compile_reveal_theme_css(
+    runtime: &dyn SystemRuntime,
+    minified: bool,
+    theme_layers: &[crate::SassLayer],
+    load_paths: &[PathBuf],
+) -> Result<String, SassError> {
+    use quarto_system_runtime::sass_native::compile_scss;
+
+    let scss = crate::bundle::assemble_reveal_scss(theme_layers)?;
+    compile_scss(runtime, &scss, load_paths, minified).map_err(|e| SassError::CompilationFailed {
+        message: e.to_string(),
+    })
+}
+
 /// Clear the default CSS cache.
 ///
 /// This is primarily useful for testing. In production, the cache persists
@@ -536,6 +565,27 @@ pub async fn compile_default_css(
     }
 
     Ok(css)
+}
+
+/// Compile Quarto's reveal.js theme CSS (WASM mirror of the native entry).
+///
+/// See the native [`compile_reveal_theme_css`] for the architecture. Compiles
+/// via the dart-sass JS bridge. `load_paths` resolve `@use`/`@import` inside
+/// user theme files; built-in reveal SCSS needs none.
+#[cfg(target_arch = "wasm32")]
+pub async fn compile_reveal_theme_css(
+    runtime: &dyn SystemRuntime,
+    minified: bool,
+    theme_layers: &[crate::SassLayer],
+    load_paths: &[PathBuf],
+) -> Result<String, SassError> {
+    let scss = crate::bundle::assemble_reveal_scss(theme_layers)?;
+    runtime
+        .compile_sass(&scss, load_paths, minified)
+        .await
+        .map_err(|e| SassError::CompilationFailed {
+            message: e.to_string(),
+        })
 }
 
 #[cfg(test)]

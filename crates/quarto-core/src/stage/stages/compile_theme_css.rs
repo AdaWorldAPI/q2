@@ -265,13 +265,57 @@ impl PipelineStage for CompileThemeCssStage {
         // one copy across decks via `site_libs` (bd-jij5gge2), then skip the
         // Bootstrap compilation.
         if ctx.format.identifier == crate::format::FormatIdentifier::Revealjs {
-            let theme = doc
-                .ast
-                .meta
-                .get("theme")
-                .and_then(|v| v.as_plain_text())
-                .unwrap_or_else(|| crate::revealjs::DEFAULT_THEME.to_string());
-            crate::revealjs::register_reveal_assets(&mut ctx.artifacts, &theme);
+            // Resolve `theme:` into SCSS theme layers (built-in reveal themes
+            // and/or user `.scss` files). An unresolvable theme (unknown name /
+            // missing file) is a user configuration error — fail loudly rather
+            // than silently render the wrong theme.
+            let document_dir = ctx.document.input.parent().map_or_else(
+                || std::path::PathBuf::from("."),
+                std::path::Path::to_path_buf,
+            );
+            let mut resolution = crate::revealjs::resolve_reveal_theme(
+                &doc.ast.meta,
+                &document_dir,
+                ctx.runtime.as_ref(),
+            )
+            .map_err(|e| PipelineError::stage_error(self.name(), e.to_string()))?;
+
+            // `_brand.yml` integration: resolve the brand into SCSS layers and
+            // append them LAST (highest priority) so brand colors/typography
+            // override the built-in theme. Relative `brand:` paths resolve
+            // against the project dir, mirroring the HTML path. Reveal resolves
+            // brand on its own because the Bootstrap `ThemeConfig` theme path
+            // rejects reveal theme names.
+            let brand_layers = quarto_sass::resolve_brand_layers(
+                &doc.ast.meta,
+                ctx.runtime.as_ref(),
+                &ctx.project.dir,
+                std::path::Path::new(""),
+            )
+            .map_err(|e| {
+                PipelineError::stage_error(self.name(), format!("brand resolution: {e}"))
+            })?;
+            resolution.layers.extend(brand_layers);
+
+            // Compile Quarto's reveal theme (single unified SCSS pass, D1) and
+            // register it as the theme-slot artifact (keyed by content
+            // fingerprint). On a *compile* failure we fall back to the vendored
+            // stock theme CSS so the deck still renders (mirrors the Bootstrap
+            // path's graceful fallback).
+            let compiled =
+                match compile_reveal(ctx, true, &resolution.layers, &resolution.load_paths).await {
+                    Ok(css) => Some(css),
+                    Err(e) => {
+                        trace_event!(
+                            ctx,
+                            EventLevel::Warn,
+                            "reveal theme compilation failed: {}, using vendored stock theme",
+                            e
+                        );
+                        None
+                    }
+                };
+            crate::revealjs::register_reveal_assets(&mut ctx.artifacts, compiled.as_deref());
             return Ok(PipelineData::DocumentAst(doc));
         }
 
@@ -578,6 +622,32 @@ async fn compile_default(ctx: &StageContext, minified: bool) -> Result<String, S
 #[cfg(target_arch = "wasm32")]
 async fn compile_default(ctx: &StageContext, minified: bool) -> Result<String, String> {
     compile_default_css(ctx.runtime.as_ref(), minified)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Compile Quarto's reveal.js theme CSS. Native uses `grass` in-process (sync);
+/// WASM uses the dart-sass JS bridge (async). This wrapper gives the reveal
+/// branch one call site. See `quarto_sass::compile_reveal_theme_css`.
+#[cfg(not(target_arch = "wasm32"))]
+async fn compile_reveal(
+    ctx: &StageContext,
+    minified: bool,
+    theme_layers: &[SassLayer],
+    load_paths: &[PathBuf],
+) -> Result<String, String> {
+    quarto_sass::compile_reveal_theme_css(ctx.runtime.as_ref(), minified, theme_layers, load_paths)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn compile_reveal(
+    ctx: &StageContext,
+    minified: bool,
+    theme_layers: &[SassLayer],
+    load_paths: &[PathBuf],
+) -> Result<String, String> {
+    quarto_sass::compile_reveal_theme_css(ctx.runtime.as_ref(), minified, theme_layers, load_paths)
         .await
         .map_err(|e| e.to_string())
 }

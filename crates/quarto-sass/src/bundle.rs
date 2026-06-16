@@ -252,6 +252,146 @@ pub fn load_embed_example_layer() -> Result<SassLayer, SassError> {
     parse_layer(content, Some("embed-example.scss"))
 }
 
+/// Load the reveal.js framework layer.
+///
+/// This is the reveal analogue of [`load_bootstrap_framework`]: it provides the
+/// low-priority framework layer for a reveal deck's theme compilation. It is
+/// assembled from the vendored reveal.js 6 theme template
+/// (`resources/scss/revealjs/reveal-template/`):
+///
+/// - `uses`     — `@use 'sass:color'` / `@use 'sass:meta'` (needed by the
+///   `color.scale(...)` calls in the settings declarations).
+/// - `defaults` — `_settings-vars.scss`: reveal's `$kebab: … !default;`
+///   declarations (the reveal-native fallbacks). Quarto's reveal layer
+///   overrides these via its own higher-priority `!default` assignments.
+/// - `mixins`   — `_mixins.scss`: `light/dark-bg-text-color`.
+/// - `rules`    — `_expose.scss` (the `:root { --r-*: … }` emitter, which must
+///   run *after* defaults collapse) followed by `_theme.scss` (the `var(--r-*)`
+///   rule set). Quarto's reveal rules are assembled after these and override them.
+///
+/// See `resources/scss/revealjs/README.md` for why settings is split this way
+/// (the `@use ... with (...)` authoring API fights the layered-`!default` model).
+pub fn load_reveal_framework() -> Result<SassLayer, SassError> {
+    use crate::resources::REVEALJS_RESOURCES;
+
+    let read = |rel: &str| -> Result<&'static str, SassError> {
+        REVEALJS_RESOURCES
+            .read_str(Path::new(rel))
+            .ok_or_else(|| SassError::CompilationFailed {
+                message: format!("reveal template SCSS not found: {rel}"),
+            })
+    };
+
+    let settings_vars = read("reveal-template/_settings-vars.scss")?;
+    let expose = read("reveal-template/_expose.scss")?;
+    let theme = read("reveal-template/_theme.scss")?;
+    let mixins = read("reveal-template/_mixins.scss")?;
+
+    Ok(SassLayer {
+        uses: "@use 'sass:color';\n@use 'sass:meta';\n".to_string(),
+        functions: String::new(),
+        defaults: settings_vars.to_string(),
+        mixins: mixins.to_string(),
+        // `_expose.scss` first so the `--r-*` custom properties are defined
+        // before `_theme.scss` consumes them via `var(--r-*)`.
+        rules: format!("{expose}\n\n{theme}"),
+    })
+}
+
+/// Load Quarto's reveal layer (`quarto-revealjs.scss`).
+///
+/// The reveal analogue of [`load_quarto_layer`]: the Quarto-owned layer that
+/// defines the `$presentation-*` / `$body-*` vocabulary, maps it onto reveal-6's
+/// kebab variables, and adds the rule overrides that make a deck feel native to
+/// Quarto (left-aligned slides, non-uppercase headings, Quarto title slide).
+pub fn load_quarto_reveal_layer() -> Result<SassLayer, SassError> {
+    use crate::resources::REVEALJS_RESOURCES;
+
+    let content = REVEALJS_RESOURCES
+        .read_str(Path::new("quarto-revealjs.scss"))
+        .ok_or_else(|| SassError::CompilationFailed {
+            message: "quarto-revealjs.scss not found in revealjs resources".to_string(),
+        })?;
+
+    parse_layer(content, Some("quarto-revealjs.scss"))
+}
+
+/// Canonical built-in reveal theme names — the file stems under
+/// `resources/scss/revealjs/themes/`. `white`/`black` are accepted as aliases
+/// for `default`/`dark` (see [`resolve_reveal_theme_name`]) and are not listed.
+pub const REVEAL_BUILTIN_THEMES: &[&str] = &[
+    "beige",
+    "blood",
+    "dark",
+    "default",
+    "dracula",
+    "league",
+    "moon",
+    "night",
+    "serif",
+    "simple",
+    "sky",
+    "solarized",
+];
+
+/// Resolve a requested reveal theme name to its canonical file stem, applying
+/// the Quarto-1 aliases `white`→`default` and `black`→`dark`. Returns `None`
+/// for an unknown name (the caller turns that into a user-facing error).
+pub fn resolve_reveal_theme_name(name: &str) -> Option<&'static str> {
+    match name {
+        "white" | "default" => Some("default"),
+        "black" | "dark" => Some("dark"),
+        other => REVEAL_BUILTIN_THEMES.iter().copied().find(|t| *t == other),
+    }
+}
+
+/// Load a built-in reveal theme as a [`SassLayer`].
+///
+/// `name` may be a canonical stem ([`REVEAL_BUILTIN_THEMES`]) or an alias
+/// (`white`/`black`). Returns [`SassError::ThemeNotFound`] for unknown names.
+/// The theme layer's `defaults` set the Quarto vocabulary (`$body-bg`,
+/// `$link-color`, `$presentation-*`, …); since theme layers are assembled ahead
+/// of the Quarto reveal layer, those `!default` assignments win.
+pub fn load_reveal_theme_layer(name: &str) -> Result<SassLayer, SassError> {
+    use crate::resources::REVEALJS_RESOURCES;
+
+    let resolved = resolve_reveal_theme_name(name)
+        .ok_or_else(|| SassError::ThemeNotFound(name.to_string()))?;
+    let rel = format!("themes/{resolved}.scss");
+    let content = REVEALJS_RESOURCES
+        .read_str(Path::new(&rel))
+        .ok_or_else(|| SassError::CompilationFailed {
+            message: format!("reveal theme SCSS not found: {rel}"),
+        })?;
+    parse_layer(content, Some(&rel))
+}
+
+/// Assemble a complete SCSS string for a reveal.js deck.
+///
+/// The reveal analogue of [`assemble_with_theme`] / [`assemble_bootstrap`]: it
+/// loads the reveal framework + Quarto reveal layers and assembles them (with
+/// zero or more theme layers) using the shared [`assemble_scss`] ordering. The
+/// result is a single SCSS string compiled in **one** pass (decision D1 —
+/// unified compilation), producing a self-contained reveal theme stylesheet.
+///
+/// `theme_layers` are the resolved built-in/user theme layers in declaration
+/// order (e.g. `[dracula, custom.scss]`). They are merged via [`merge_layers`]
+/// (which reverses `defaults` so a later layer's `!default` wins) and slotted in
+/// as the single high-priority theme layer. An empty slice yields the
+/// white-equivalent default (Quarto defaults only).
+pub fn assemble_reveal_scss(theme_layers: &[SassLayer]) -> Result<String, SassError> {
+    use crate::layer::merge_layers;
+
+    let framework = load_reveal_framework()?;
+    let quarto = load_quarto_reveal_layer()?;
+    let merged = if theme_layers.is_empty() {
+        None
+    } else {
+        Some(merge_layers(theme_layers))
+    };
+    Ok(assemble_scss(&framework, &quarto, merged.as_ref()))
+}
+
 /// Assemble a complete SCSS string for compilation.
 ///
 /// This function implements the correct assembly order from TypeScript Quarto:

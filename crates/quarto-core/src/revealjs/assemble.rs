@@ -19,6 +19,8 @@
 //! Tier-1 scope: linked (non-inlined) assets, additional themes, and plugins
 //! are later phases of the revealjs epic.
 
+use std::borrow::Cow;
+
 use quarto_pandoc_types::ConfigValue;
 
 use crate::artifact::{Artifact, ArtifactScope, ArtifactStore};
@@ -32,28 +34,9 @@ const THEME_WHITE_CSS: &str = include_str!("../../../../resources/revealjs/theme
 /// the same file. Keep render/preview in sync by editing only the one file.
 const QUARTO_REVEAL_CSS: &str = include_str!("../../../../resources/revealjs/quarto-reveal.css");
 
-/// Default reveal theme when `theme:` is absent. Consumed by
-/// `RevealAssetsStage` to pick the theme artifact.
-pub const DEFAULT_THEME: &str = "white";
-
-/// Resolve a requested theme name to the canonical name we actually ship.
-/// Tier-1 ships only `white`; unknown themes fall back to it. Returning the
-/// **resolved** name (not the requested one) keeps the artifact key/filename
-/// stable so two decks that both fall back to `white` dedup to one copy.
-fn resolve_theme_name(theme: &str) -> &'static str {
-    match theme {
-        "white" => "white",
-        _ => "white",
-    }
-}
-
-/// Theme CSS bytes for a *resolved* theme name (see [`resolve_theme_name`]).
-fn theme_css(resolved: &str) -> &'static str {
-    match resolved {
-        "white" => THEME_WHITE_CSS,
-        _ => THEME_WHITE_CSS,
-    }
-}
+/// Default reveal theme when `theme:` is absent. The reveal theme *resolver*
+/// (`crate::revealjs::theme`) defaults to this; `white` aliases to it.
+pub const DEFAULT_THEME: &str = "default";
 
 /// Kind of a vendored reveal asset (decides the `css:` / `js:` artifact key
 /// prefix and the emitted tag).
@@ -76,8 +59,10 @@ pub struct RevealAsset {
     pub key_suffix: String,
     /// Output filename under the `revealjs/` lib dir.
     pub filename: String,
-    /// Embedded byte content.
-    pub content: &'static str,
+    /// Asset content: `Borrowed` for the vendored static assets (reset, core
+    /// reveal CSS/JS, quarto-reveal overrides); `Owned` for the theme slot when
+    /// it carries a freshly-compiled Quarto reveal theme.
+    pub content: Cow<'static, str>,
     /// MIME type for the artifact.
     pub content_type: &'static str,
     pub kind: RevealAssetKind,
@@ -89,41 +74,57 @@ pub struct RevealAsset {
 /// `Artifact` (key `css:revealjs:<suffix>` / `js:revealjs:<suffix>`, path
 /// `revealjs/<filename>`) so they flow through the same `site_libs` flush +
 /// dedup as `format: html`'s bootstrap/theme deps.
-pub fn reveal_assets(theme: &str) -> Vec<RevealAsset> {
-    let resolved = resolve_theme_name(theme);
+///
+/// `compiled_theme_css` supplies the **theme slot** (`3-theme-<fingerprint>`):
+/// `Some(css)` uses a freshly-compiled Quarto reveal theme (the normal path);
+/// `None` falls back to the vendored stock reveal theme CSS — used if
+/// reveal-theme compilation fails so a deck still renders.
+///
+/// The theme slot's key/filename carry a **content fingerprint** of the theme
+/// CSS (like `format: html`'s `css:theme:<hash>`). This makes per-deck themes in
+/// a website work correctly: identical themes dedup to one shared file; distinct
+/// themes get distinct files and each deck links its own (collected per-document
+/// from that deck's `StageContext.artifacts`). The `3-theme-` prefix keeps the
+/// CSS cascade order (between `2-reveal` and `4-quarto-reveal`).
+pub fn reveal_assets(compiled_theme_css: Option<&str>) -> Vec<RevealAsset> {
+    let theme_content: Cow<'static, str> = match compiled_theme_css {
+        Some(css) => Cow::Owned(css.to_string()),
+        None => Cow::Borrowed(THEME_WHITE_CSS),
+    };
+    let fingerprint = crate::stage::stages::theme_fingerprint(&theme_content);
     vec![
         RevealAsset {
             key_suffix: "1-reset".to_string(),
             filename: "reset.css".to_string(),
-            content: REVEAL_RESET_CSS,
+            content: Cow::Borrowed(REVEAL_RESET_CSS),
             content_type: "text/css",
             kind: RevealAssetKind::Css,
         },
         RevealAsset {
             key_suffix: "2-reveal".to_string(),
             filename: "reveal.css".to_string(),
-            content: REVEAL_CSS,
+            content: Cow::Borrowed(REVEAL_CSS),
             content_type: "text/css",
             kind: RevealAssetKind::Css,
         },
         RevealAsset {
-            key_suffix: format!("3-theme-{resolved}"),
-            filename: format!("theme-{resolved}.css"),
-            content: theme_css(resolved),
+            key_suffix: format!("3-theme-{fingerprint}"),
+            filename: format!("theme-{fingerprint}.css"),
+            content: theme_content,
             content_type: "text/css",
             kind: RevealAssetKind::Css,
         },
         RevealAsset {
             key_suffix: "4-quarto-reveal".to_string(),
             filename: "quarto-reveal.css".to_string(),
-            content: QUARTO_REVEAL_CSS,
+            content: Cow::Borrowed(QUARTO_REVEAL_CSS),
             content_type: "text/css",
             kind: RevealAssetKind::Css,
         },
         RevealAsset {
             key_suffix: "reveal".to_string(),
             filename: "reveal.js".to_string(),
-            content: REVEAL_JS,
+            content: Cow::Borrowed(REVEAL_JS),
             content_type: "application/javascript",
             kind: RevealAssetKind::Js,
         },
@@ -139,8 +140,12 @@ pub fn reveal_assets(theme: &str) -> Vec<RevealAsset> {
 /// Called from `CompileThemeCssStage`'s reveal branch — the pipeline point that
 /// already establishes a document's CSS-framework artifacts (and where the
 /// Bootstrap theme path is skipped for reveal).
-pub fn register_reveal_assets(artifacts: &mut ArtifactStore, theme: &str) {
-    for asset in reveal_assets(theme) {
+///
+/// `compiled_theme_css` is the freshly-compiled Quarto reveal theme for the
+/// theme slot; pass `None` to fall back to the vendored stock theme CSS (see
+/// [`reveal_assets`]).
+pub fn register_reveal_assets(artifacts: &mut ArtifactStore, compiled_theme_css: Option<&str>) {
+    for asset in reveal_assets(compiled_theme_css) {
         let prefix = match asset.kind {
             RevealAssetKind::Css => "css",
             RevealAssetKind::Js => "js",
@@ -165,9 +170,12 @@ fn escape_html(s: &str) -> String {
 
 /// Build the `Reveal.initialize(...)` config object from merged metadata.
 ///
-/// Maps Quarto/Pandoc option names to reveal.js config keys (camelCase). Only
-/// Tier-1 options are wired; unknown keys are ignored. Defaults match Quarto 1
-/// (controls/progress/center/hash on, `slide` transition).
+/// Maps Quarto/Pandoc option names to reveal.js config keys (camelCase) and
+/// seeds Quarto 1's **opinionated default block** (`format-reveal.ts:343-361`),
+/// which differs from reveal's own defaults in user-visible ways: no slide
+/// transition, top-aligned slides (`center:false`), a 1050×700 deck with a 0.1
+/// margin, linear navigation, edge controls, no controls tutorial. Each option
+/// is overridable from front-matter (kebab-case keys, e.g. `controls-layout`).
 fn reveal_config_json(meta: &ConfigValue) -> String {
     let mut map = serde_json::Map::new();
 
@@ -182,23 +190,46 @@ fn reveal_config_json(meta: &ConfigValue) -> String {
     fn int_opt(meta: &ConfigValue, key: &str) -> Option<i64> {
         meta.get(key).and_then(|v| v.as_int())
     }
+    // No `as_f64` on ConfigValue; accept an int or a parseable numeric string.
+    fn float_opt(meta: &ConfigValue, key: &str) -> Option<f64> {
+        let v = meta.get(key)?;
+        if let Some(i) = v.as_int() {
+            return Some(i as f64);
+        }
+        v.as_plain_text().and_then(|s| s.trim().parse::<f64>().ok())
+    }
 
-    // Booleans with Quarto-1 defaults.
+    // Booleans — Quarto-1 opinionated defaults. `center: false` top-aligns
+    // slides (reveal's own default is true); the title slide is re-centered via
+    // a per-slide `.center` class (see `build_title_slide`).
     for (key, reveal_key, default) in [
         ("controls", "controls", true),
         ("progress", "progress", true),
-        ("center", "center", true),
+        ("center", "center", false),
         ("hash", "hash", true),
+        ("history", "history", true),
+        ("controls-tutorial", "controlsTutorial", false),
+        ("hash-one-based-index", "hashOneBasedIndex", false),
+        ("fragment-in-url", "fragmentInURL", false),
+        ("pdf-separate-fragments", "pdfSeparateFragments", false),
     ] {
         let value = bool_opt(meta, key).unwrap_or(default);
         map.insert(reveal_key.to_string(), serde_json::Value::Bool(value));
     }
 
-    // Transition (string), default "slide".
-    let transition = str_opt(meta, "transition").unwrap_or_else(|| "slide".to_string());
+    // Strings — Quarto-1 opinionated defaults (no transition, edge controls).
+    let navigation_mode = str_opt(meta, "navigation-mode").unwrap_or_else(|| "linear".to_string());
+    for (key, reveal_key, default) in [
+        ("transition", "transition", "none"),
+        ("background-transition", "backgroundTransition", "none"),
+        ("controls-layout", "controlsLayout", "edges"),
+    ] {
+        let value = str_opt(meta, key).unwrap_or_else(|| default.to_string());
+        map.insert(reveal_key.to_string(), serde_json::Value::String(value));
+    }
     map.insert(
-        "transition".to_string(),
-        serde_json::Value::String(transition),
+        "navigationMode".to_string(),
+        serde_json::Value::String(navigation_mode.clone()),
     );
     if let Some(speed) = str_opt(meta, "transition-speed") {
         map.insert(
@@ -207,25 +238,74 @@ fn reveal_config_json(meta: &ConfigValue) -> String {
         );
     }
 
-    // slide-number: either a bool or a format string (e.g. "c/t").
+    // Deck dimensions + margin — Quarto-1 opinionated defaults (1050×700, 0.1).
+    // width/height accept an int or a percentage string (e.g. "100%").
+    for (key, reveal_key, default) in [("width", "width", 1050), ("height", "height", 700)] {
+        let value = int_opt(meta, key).map(serde_json::Value::from).or_else(|| {
+            str_opt(meta, key)
+                .filter(|s| s.ends_with('%'))
+                .map(serde_json::Value::String)
+        });
+        map.insert(
+            reveal_key.to_string(),
+            value.unwrap_or_else(|| serde_json::Value::from(default)),
+        );
+    }
+    map.insert(
+        "margin".to_string(),
+        serde_json::Value::from(float_opt(meta, "margin").unwrap_or(0.1)),
+    );
+
+    // slide-number: Quarto 1 rewrites `true` → "c/t" (linear navigation) or
+    // "h.v" (vertical), and passes a format string through. Default: off.
     if let Some(v) = meta.get("slide-number") {
         if let Some(b) = v.as_bool() {
-            map.insert("slideNumber".to_string(), serde_json::Value::Bool(b));
+            if b {
+                let vertical = matches!(navigation_mode.as_str(), "default" | "grid");
+                let fmt = if vertical { "h.v" } else { "c/t" };
+                map.insert(
+                    "slideNumber".to_string(),
+                    serde_json::Value::String(fmt.to_string()),
+                );
+            } else {
+                map.insert("slideNumber".to_string(), serde_json::Value::Bool(false));
+            }
         } else if let Some(s) = v.as_plain_text() {
             map.insert("slideNumber".to_string(), serde_json::Value::String(s));
         }
     }
 
-    // Explicit deck dimensions.
-    if let Some(w) = int_opt(meta, "width") {
-        map.insert("width".to_string(), serde_json::Value::from(w));
-    }
-    if let Some(h) = int_opt(meta, "height") {
-        map.insert("height".to_string(), serde_json::Value::from(h));
-    }
-
     serde_json::to_string_pretty(&serde_json::Value::Object(map))
         .unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Collect the deck-level footer + logo markup to place as **direct children of
+/// `.reveal`** (outside `.slides`).
+///
+/// The markup is *pre-rendered* by [`RevealFooterLogoTransform`](super::RevealFooterLogoTransform)
+/// into the `rendered.reveal.footer` / `rendered.reveal.logo` metadata slots
+/// (footer routed through the format-agnostic `FooterGenerateTransform`; logo
+/// from `logo:`). The scaffold only *places* it: footer/logo must be direct
+/// children of `.reveal`, outside `.slides`, because reveal.js applies CSS
+/// `transform` to `.slides`/`<section>`, under which a `position: fixed` element
+/// resolves against the transformed ancestor rather than the viewport. Quarto 1
+/// relocates the markup at runtime with its quarto-support reveal *plugin*;
+/// Quarto 2 ships no plugin, so we place the single deck-level elements
+/// statically here.
+///
+/// Returns `(markup, has_logo)`. `markup` is empty when neither slot is set;
+/// `has_logo` drives the `.reveal.has-logo` class (slide-number repositioning).
+fn footer_logo_html(meta: &ConfigValue) -> (String, bool) {
+    let logo = meta
+        .get_path(&["rendered", "reveal", "logo"])
+        .and_then(|v| v.as_str());
+    let footer = meta
+        .get_path(&["rendered", "reveal", "footer"])
+        .and_then(|v| v.as_str());
+
+    // Logo first, then footer (matches Quarto 1's after-body order).
+    let parts: Vec<&str> = [logo, footer].into_iter().flatten().collect();
+    (parts.join("\n"), logo.is_some())
 }
 
 /// Assemble the reveal.js HTML document, **linking** its CSS/JS assets.
@@ -254,6 +334,20 @@ pub fn render_revealjs_document(
         .unwrap_or_default();
     let config = reveal_config_json(meta);
 
+    // Deck-level footer/logo live OUTSIDE `.slides` (see `footer_logo_html`).
+    let (footer_logo, has_logo) = footer_logo_html(meta);
+    let reveal_class = if has_logo {
+        "reveal has-logo"
+    } else {
+        "reveal"
+    };
+    // Emit on its own line only when present, so an empty deck stays clean.
+    let footer_logo_block = if footer_logo.is_empty() {
+        String::new()
+    } else {
+        format!("\n{footer_logo}")
+    };
+
     let links = css_urls
         .iter()
         .map(|url| format!(r#"<link rel="stylesheet" href="{}">"#, attr_escape(url)))
@@ -275,10 +369,10 @@ pub fn render_revealjs_document(
 {links}
 </head>
 <body>
-<div class="reveal">
+<div class="{reveal_class}">
 <div class="slides">
 {body}
-</div>
+</div>{footer_logo_block}
 </div>
 {scripts}
 <script>
@@ -288,8 +382,10 @@ Reveal.initialize({config});
 </html>
 "#,
         title = escape_html(&title),
+        reveal_class = reveal_class,
         links = links,
         body = body,
+        footer_logo_block = footer_logo_block,
         scripts = scripts,
         config = config,
     )
@@ -337,9 +433,24 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&cfg).unwrap();
         assert_eq!(v["controls"], serde_json::json!(true));
         assert_eq!(v["progress"], serde_json::json!(true));
-        assert_eq!(v["center"], serde_json::json!(true));
+        // Quarto 1 defaults center:false — body slides top-align vertically
+        // (reveal's own default is true; the title slide is re-centered via a
+        // per-slide `.center` class, see build_title_slide).
+        assert_eq!(v["center"], serde_json::json!(false));
         assert_eq!(v["hash"], serde_json::json!(true));
-        assert_eq!(v["transition"], serde_json::json!("slide"));
+        // Quarto 1's opinionated block: no transition, 1050x700 / margin 0.1,
+        // linear navigation, edge controls, no controls tutorial.
+        assert_eq!(v["transition"], serde_json::json!("none"));
+        assert_eq!(v["backgroundTransition"], serde_json::json!("none"));
+        assert_eq!(v["width"], serde_json::json!(1050));
+        assert_eq!(v["height"], serde_json::json!(700));
+        assert_eq!(v["margin"], serde_json::json!(0.1));
+        assert_eq!(v["navigationMode"], serde_json::json!("linear"));
+        assert_eq!(v["controlsLayout"], serde_json::json!("edges"));
+        assert_eq!(v["controlsTutorial"], serde_json::json!(false));
+        assert_eq!(v["history"], serde_json::json!(true));
+        assert_eq!(v["fragmentInURL"], serde_json::json!(false));
+        assert_eq!(v["pdfSeparateFragments"], serde_json::json!(false));
     }
 
     #[test]
@@ -347,8 +458,36 @@ mod tests {
         let m = meta(vec![("transition", s("fade")), ("slide-number", b(true))]);
         let cfg = reveal_config_json(&m);
         let compact: String = cfg.chars().filter(|c| !c.is_whitespace()).collect();
+        // Front-matter overrides the opinionated default.
         assert!(compact.contains("\"transition\":\"fade\""));
-        assert!(compact.contains("\"slideNumber\":true"));
+        // slide-number: true → Quarto's "c/t" format (linear navigation default).
+        assert!(compact.contains("\"slideNumber\":\"c/t\""));
+    }
+
+    #[test]
+    fn config_slide_number_vertical_navigation_uses_h_dot_v() {
+        let m = meta(vec![
+            ("slide-number", b(true)),
+            ("navigation-mode", s("grid")),
+        ]);
+        let cfg = reveal_config_json(&m);
+        let compact: String = cfg.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(compact.contains("\"slideNumber\":\"h.v\""));
+        assert!(compact.contains("\"navigationMode\":\"grid\""));
+    }
+
+    #[test]
+    fn config_front_matter_overrides_opinionated_defaults() {
+        let m = meta(vec![
+            ("transition", s("slide")),
+            ("controls-layout", s("bottom-right")),
+            ("history", b(false)),
+        ]);
+        let cfg = reveal_config_json(&m);
+        let v: serde_json::Value = serde_json::from_str(&cfg).unwrap();
+        assert_eq!(v["transition"], serde_json::json!("slide"));
+        assert_eq!(v["controlsLayout"], serde_json::json!("bottom-right"));
+        assert_eq!(v["history"], serde_json::json!(false));
     }
 
     /// CSS/JS URLs as the stage + resolver would hand them to the
@@ -409,9 +548,15 @@ mod tests {
         use std::path::Path;
 
         let mut store = ArtifactStore::new();
-        register_reveal_assets(&mut store, "white");
+        // None → stock vendored theme CSS in the theme slot (the fallback path).
+        register_reveal_assets(&mut store, None);
 
-        // CSS artifacts, keyed so sorted order == cascade order.
+        // The theme slot is keyed by a content fingerprint of the stock theme.
+        let theme_fp = crate::stage::stages::theme_fingerprint(THEME_WHITE_CSS);
+        let theme_key = format!("css:revealjs:3-theme-{theme_fp}");
+
+        // CSS artifacts, keyed so sorted order == cascade order
+        // (1-reset < 2-reveal < 3-theme-<fp> < 4-quarto-reveal).
         let mut css: Vec<&str> = store
             .get_by_prefix("css:revealjs:")
             .into_iter()
@@ -423,7 +568,7 @@ mod tests {
             vec![
                 "css:revealjs:1-reset",
                 "css:revealjs:2-reveal",
-                "css:revealjs:3-theme-white",
+                theme_key.as_str(),
                 "css:revealjs:4-quarto-reveal",
             ]
         );
@@ -445,11 +590,11 @@ mod tests {
         );
         assert_eq!(reveal.as_str(), Some(REVEAL_CSS));
 
-        // theme artifact carries the resolved theme name + the theme bytes.
-        let theme = store.get("css:revealjs:3-theme-white").unwrap();
+        // theme artifact: fingerprinted path + the (fallback stock) theme bytes.
+        let theme = store.get(&theme_key).unwrap();
         assert_eq!(
             theme.path.as_deref(),
-            Some(Path::new("revealjs/theme-white.css"))
+            Some(Path::new(&*format!("revealjs/theme-{theme_fp}.css")))
         );
         assert_eq!(theme.as_str(), Some(THEME_WHITE_CSS));
 
@@ -460,15 +605,100 @@ mod tests {
         assert_eq!(core.as_str(), Some(REVEAL_JS));
     }
 
-    /// An unknown theme falls back to `white` for both content AND
-    /// key/filename, so two decks requesting unknown themes still dedup.
+    /// Distinct theme CSS → distinct fingerprinted keys (so per-deck themes in a
+    /// website don't collide); identical theme CSS → identical key (dedups).
     #[test]
-    fn register_reveal_assets_unknown_theme_falls_back_to_white() {
+    fn register_reveal_assets_keys_theme_by_content_fingerprint() {
         use crate::artifact::ArtifactStore;
-        let mut store = ArtifactStore::new();
-        register_reveal_assets(&mut store, "no-such-theme");
-        assert!(store.get("css:revealjs:3-theme-white").is_some());
-        assert!(store.get("css:revealjs:3-theme-no-such-theme").is_none());
+
+        let mut a = ArtifactStore::new();
+        register_reveal_assets(&mut a, Some(".reveal{color:red}"));
+        let mut b = ArtifactStore::new();
+        register_reveal_assets(&mut b, Some(".reveal{color:blue}"));
+        let mut b2 = ArtifactStore::new();
+        register_reveal_assets(&mut b2, Some(".reveal{color:blue}"));
+
+        let theme_key = |s: &ArtifactStore| {
+            s.get_by_prefix("css:revealjs:3-theme-")
+                .into_iter()
+                .map(|(k, _)| k.to_string())
+                .next()
+                .unwrap()
+        };
+        assert_ne!(
+            theme_key(&a),
+            theme_key(&b),
+            "different CSS → different keys"
+        );
+        assert_eq!(
+            theme_key(&b),
+            theme_key(&b2),
+            "identical CSS → identical key (dedup)"
+        );
+    }
+
+    /// A metadata map carrying a pre-rendered `rendered.reveal.<key>` slot, as
+    /// `RevealFooterLogoTransform` would have populated it.
+    fn meta_with_slot(slot: &str, html: &str) -> ConfigValue {
+        let mut m = meta(vec![("title", s("T"))]);
+        m.insert_path(&["rendered", "reveal", slot], s(html));
+        m
+    }
+
+    /// The index where `.slides` closes — everything the deck-level footer/logo
+    /// places must come *after* this (outside `.slides`) but before `.reveal`
+    /// closes, so reveal's slide transforms don't break their fixed positioning.
+    fn slides_close_idx(html: &str) -> usize {
+        let slides_open = html.find(r#"<div class="slides">"#).expect("slides open");
+        // the first `</div>` after the slides open closes `.slides`
+        slides_open + html[slides_open..].find("</div>").expect("slides close")
+    }
+
+    #[test]
+    fn footer_slot_placed_outside_slides() {
+        let m = meta_with_slot(
+            "footer",
+            r#"<div class="footer footer-default">© 2026</div>"#,
+        );
+        let html = render_revealjs_document("<section></section>", &m, &sample_css(), &sample_js());
+        let footer_at = html
+            .find(r#"<div class="footer footer-default">"#)
+            .expect("footer placed");
+        assert!(
+            footer_at > slides_close_idx(&html),
+            "footer must be placed after `.slides` closes (outside it)"
+        );
+    }
+
+    #[test]
+    fn logo_slot_placed_outside_slides_and_marks_reveal() {
+        let m = meta_with_slot("logo", r#"<img class="slide-logo" src="logo.png">"#);
+        let html = render_revealjs_document("<section></section>", &m, &sample_css(), &sample_js());
+        let logo_at = html.find(r#"class="slide-logo""#).expect("logo placed");
+        assert!(
+            logo_at > slides_close_idx(&html),
+            "logo must be placed after `.slides` closes (outside it)"
+        );
+        // `.reveal` gains `has-logo` so slide-number repositioning kicks in.
+        assert!(
+            html.contains(r#"<div class="reveal has-logo">"#),
+            "reveal element should carry `has-logo` when the logo slot is set"
+        );
+    }
+
+    #[test]
+    fn no_slots_emits_no_markup_and_no_has_logo() {
+        let m = meta(vec![("title", s("T"))]);
+        let html = render_revealjs_document("<section></section>", &m, &sample_css(), &sample_js());
+        assert!(!html.contains("slide-logo"), "no logo markup expected");
+        assert!(
+            !html.contains("footer-default"),
+            "no footer markup expected"
+        );
+        assert!(
+            html.contains(r#"<div class="reveal">"#),
+            "reveal element has no has-logo class without a logo slot"
+        );
     }
 
     #[test]

@@ -1,0 +1,875 @@
+/*-- scss:uses --*/
+
+// Namespaced Sass modules for the helper functions/mixins below. Two `@use`s of
+// `sass:color` (here as quarto-color, and the framework's unprefixed `color`)
+// coexist fine — different namespaces.
+@use "sass:color" as quarto-color;
+@use "sass:math" as quarto-math;
+@use "sass:map" as quarto-map;
+
+/*-- scss:defaults --*/
+
+// =============================================================================
+// Quarto's reveal.js layer (the Quarto-2 analogue of Quarto 1's quarto.scss).
+//
+// Ported from external-sources/quarto-cli .../formats/revealjs/quarto.scss,
+// adapted to reveal.js 6 (kebab-case Sass variables + the stable --r-* runtime
+// contract). This is the layer that makes a deck "feel at home" for Quarto
+// users; without it a deck inherits reveal's centered slides + uppercase
+// headings (see claude-notes/plans/2026-06-16-revealjs-themes-q1-to-q2.md).
+//
+// User-facing vocabulary is the Quarto `$presentation-*` / `$body-*` /
+// `$font-*` names (decision D2 — shared with HTML/Bootstrap theming so
+// _brand.yml and cross-format themes "just work"). This layer maps that
+// vocabulary onto reveal-6's own kebab variables, which reveal's _expose.scss
+// then publishes as `--r-*` custom properties.
+//
+// Stage A subset: fonts, colors, headings, spacing, slide/title alignment,
+// lists, and basic code blocks. Callouts, panels, tabsets, kbd, the `.smaller`
+// system, and per-background (light/dark) recoloring are Stage C.
+// =============================================================================
+
+// --- fonts -------------------------------------------------------------------
+$font-family-sans-serif: "Source Sans Pro", Helvetica, sans-serif !default;
+$font-family-monospace: SFMono-Regular, Menlo, Monaco, Consolas,
+  "Liberation Mono", "Courier New", monospace !default;
+$presentation-font-size-root: 40px !default;
+$presentation-font-smaller: 0.7 !default;
+$presentation-line-height: 1.3 !default;
+$font-weight-base: 400 !default;
+$code-font-size: 1em !default;
+
+// --- main colors -------------------------------------------------------------
+$body-bg: #fff !default;
+$body-color: #222 !default;
+
+// --- link colors -------------------------------------------------------------
+// NOTE: in reveal 6 `$link-color` / `$link-color-hover` are *also* reveal's own
+// variable names, so setting the Quarto default here directly feeds reveal's
+// :root emitter — no separate mapping line is needed (see mapping section).
+$primary: #2a76dd !default;
+$link-color: $primary !default;
+$link-color-hover: lighten($link-color, 10%) !default;
+
+// --- selection colors --------------------------------------------------------
+// `$selection-color` likewise coincides with reveal's own variable name.
+$selection-bg: lighten($link-color, 25%) !default;
+$selection-color: $body-bg !default;
+
+// --- headings ----------------------------------------------------------------
+$presentation-heading-font: $font-family-sans-serif !default;
+$presentation-heading-color: $body-color !default;
+$presentation-heading-line-height: 1.2 !default;
+$presentation-heading-letter-spacing: normal !default;
+$presentation-heading-text-transform: none !default; // reveal defaults to uppercase
+$presentation-heading-text-shadow: none !default;
+$presentation-h1-text-shadow: none !default;
+$presentation-heading-font-weight: 600 !default;
+$presentation-h1-font-size: 2.5em !default;
+$presentation-h2-font-size: 1.6em !default;
+$presentation-h3-font-size: 1.3em !default;
+$presentation-h4-font-size: 1em !default;
+
+// --- margins -----------------------------------------------------------------
+$presentation-block-margin: 12px !default;
+
+// --- text alignment ----------------------------------------------------------
+$presentation-slide-text-align: left !default; // reveal centers by default
+$presentation-title-slide-text-align: center !default;
+$reveal-slide-text-align: $presentation-slide-text-align !default;
+$reveal-title-slide-text-align: $presentation-title-slide-text-align !default;
+
+// --- lists -------------------------------------------------------------------
+$presentation-list-bullet-color: $body-color !default;
+
+// --- code blocks -------------------------------------------------------------
+$code-block-bg: $body-bg !default;
+$code-block-border-color: lighten($body-color, 60%) !default;
+$code-block-font-size: $code-font-size * 0.55 !default;
+$code-block-color: $body-color !default;
+$code-block-height: 500px !default;
+// Blackness threshold (0–100%) above which a slide background counts as "dark"
+// for `shift_to_dark` (e.g. picking dark vs light code styling).
+$code-block-theme-dark-threshhold: 40% !default;
+
+// --- inline code -------------------------------------------------------------
+$code-inline-font-size: $code-font-size * 0.875 !default;
+$code-bg: transparent !default;
+// Inline code color: the syntax-highlight function color when present (Quarto's
+// CodeHighlightStage emits `--quarto-hl-*`), else the body color.
+$code-color: var(--quarto-hl-fu-color, #{$body-color}) !default;
+
+// --- monospace font split (shared with HTML/brand vocabulary) ----------------
+$font-weight-base: 400 !default;
+$font-family-monospace-block: $font-family-monospace !default;
+$font-family-monospace-inline: $font-family-monospace !default;
+
+// --- borders -----------------------------------------------------------------
+$text-muted: lighten($body-color, 30%) !default;
+$border-color: lighten($body-color, 30%) !default;
+$border-width: 1px !default;
+$border-radius: 4px !default;
+$gray-100: #f8f9fa !default;
+
+// --- per-background (light/dark slide) text colors ---------------------------
+$light-bg-text-color: #222 !default;
+$dark-bg-text-color: #fff !default;
+$light-bg-link-color: #2a76dd !default;
+$dark-bg-link-color: #42affa !default;
+$light-bg-code-color: #4758ab !default;
+$dark-bg-code-color: #ffa07a !default;
+
+// --- kbd ---------------------------------------------------------------------
+$kbd-padding-y: 0.4rem !default;
+$kbd-padding-x: 0.4rem !default;
+$kbd-font-size: $presentation-font-size-root !default;
+$kbd-color: $body-color !default;
+$kbd-bg: $gray-100 !default;
+
+// --- link / brand ------------------------------------------------------------
+$link-weight: $font-weight-base !default;
+$link-color-bg: transparent !default;
+$link-decoration: inherit !default;
+
+// --- tables / callouts -------------------------------------------------------
+$table-border-color: $code-block-border-color !default;
+$callout-border-width: 0.3rem !default;
+$callout-border-scale: 0% !default;
+$callout-icon-scale: 10% !default;
+$callout-margin-top: 1rem !default;
+$callout-margin-bottom: 1rem !default;
+$callout-color-note: #0d6efd !default;
+$callout-color-tip: #198754 !default;
+$callout-color-important: #dc3545 !default;
+$callout-color-caution: #fd7e14 !default;
+$callout-color-warning: #ffc107 !default;
+
+// --- derive reveal-tuned versions of presentation variables ------------------
+// (a second indirection so a user can override the reveal-specific value
+// without disturbing the shared, cross-format `$presentation-*` name.)
+$revealjs-font-size-root: $presentation-font-size-root !default;
+$revealjs-h1-font-size: $presentation-h1-font-size !default;
+$revealjs-h2-font-size: $presentation-h2-font-size !default;
+$revealjs-h3-font-size: $presentation-h3-font-size !default;
+$revealjs-h4-font-size: $presentation-h4-font-size !default;
+$revealjs-heading-font: $presentation-heading-font !default;
+$revealjs-heading-color: $presentation-heading-color !default;
+$revealjs-heading-line-height: $presentation-heading-line-height !default;
+$revealjs-heading-letter-spacing: $presentation-heading-letter-spacing !default;
+$revealjs-heading-text-transform: $presentation-heading-text-transform !default;
+$revealjs-heading-text-shadow: $presentation-heading-text-shadow !default;
+$revealjs-h1-text-shadow: $presentation-h1-text-shadow !default;
+$revealjs-heading-font-weight: $presentation-heading-font-weight !default;
+$revealjs-block-margin: $presentation-block-margin !default;
+$revealjs-line-height: $presentation-line-height !default;
+$revealjs-list-bullet-color: $presentation-list-bullet-color !default;
+$revealjs-code-block-font-size: $code-block-font-size !default;
+$revealjs-code-inline-font-size: $code-inline-font-size !default;
+$code-block-line-height: $presentation-line-height !default;
+
+// --- map Quarto vocabulary onto reveal-6 kebab variables ---------------------
+// These reveal variables have names distinct from the Quarto vocabulary, so an
+// explicit mapping is required. reveal's `_expose.scss` reads these to emit the
+// `--r-*` custom properties that `_theme.scss` consumes at runtime.
+$background: $body-bg !default;
+$background-color: $body-bg !default;
+$main-font: $font-family-sans-serif !default;
+$main-font-size: $revealjs-font-size-root !default;
+$main-color: $body-color !default;
+$block-margin: $revealjs-block-margin !default;
+$heading-margin: 0 0 $revealjs-block-margin 0 !default;
+$heading-font: $revealjs-heading-font !default;
+$heading-color: $revealjs-heading-color !default;
+$heading-line-height: $revealjs-heading-line-height !default;
+$heading-letter-spacing: $revealjs-heading-letter-spacing !default;
+$heading-text-transform: $revealjs-heading-text-transform !default;
+$heading-text-shadow: $revealjs-heading-text-shadow !default;
+$heading1-text-shadow: $revealjs-h1-text-shadow !default;
+$heading-font-weight: $revealjs-heading-font-weight !default;
+$heading1-size: $revealjs-h1-font-size !default;
+$heading2-size: $revealjs-h2-font-size !default;
+$heading3-size: $revealjs-h3-font-size !default;
+$heading4-size: $revealjs-h4-font-size !default;
+$code-font: $font-family-monospace !default;
+$selection-background-color: $selection-bg !default;
+
+/*-- scss:functions --*/
+
+// Color helpers ported from Quarto 1 quarto.scss (used by callouts, kbd, code
+// styling, …). `tint`/`shade`/`shift` mirror Bootstrap's color math.
+@function colorToRGB($color) {
+  @return "rgb(" + red($color) + ", " + green($color) + ", " + blue($color) +
+    ")";
+}
+
+@function tint-color($color, $weight) {
+  @return mix(white, $color, $weight);
+}
+
+@function shade-color($color, $weight) {
+  @return mix(black, $color, $weight);
+}
+
+@function shift-color($color, $weight) {
+  @return if(
+    $weight > 0,
+    shade-color($color, $weight),
+    tint-color($color, -$weight)
+  );
+}
+
+// Recursively replace all `$search` with `$replace` in `$string`. Quarto 1 gets
+// this from Bootstrap's functions; the reveal layer has no Bootstrap, so define
+// it here (used to URL-encode the callout icon SVGs).
+@function str-replace($string, $search, $replace: "") {
+  $index: str-index($string, $search);
+  @if $index {
+    @return str-slice($string, 1, $index - 1) + $replace +
+      str-replace(
+        str-slice($string, $index + str-length($search)),
+        $search,
+        $replace
+      );
+  }
+  @return $string;
+}
+
+/*-- scss:mixins --*/
+
+// Choose a value depending on whether the *slide background* is dark or light
+// (ported from Quarto 1). reveal 6's background var is kebab `$background-color`.
+@mixin shift_to_dark($property, $colorDark, $colorLight) {
+  @if (
+    quarto-color.blackness($background-color) > $code-block-theme-dark-threshhold
+  ) {
+    #{$property}: $colorDark;
+  } @else {
+    #{$property}: $colorLight;
+  }
+}
+
+// Scale a px font-size down by the `.smaller` factor `$times` times. Useful for
+// px sizes nested inside an em-based smaller context (they wouldn't otherwise
+// shrink). Ported from Quarto 1.
+@mixin make-smaller-font-size($element, $times: 1) {
+  font-size: calc(
+    #{$element} * #{quarto-math.pow($presentation-font-smaller, $times)}
+  );
+}
+
+// Undo the `.smaller` scaling for an em size that should not shrink.
+@mixin undo-smaller-font-size($element) {
+  font-size: calc(#{$element} / #{$presentation-font-smaller});
+}
+
+/*-- scss:rules --*/
+
+// Quarto aligns slide body content to the left; reveal centers it by default.
+.reveal .slides {
+  text-align: $reveal-slide-text-align;
+}
+
+// The title slide is centered (overriding the left body alignment), and its
+// title is sized like an h2 rather than a full-size h1 — the Quarto 1 look.
+#title-slide,
+div.reveal div.slides section.title-slide {
+  text-align: $reveal-title-slide-text-align;
+
+  .subtitle {
+    margin-bottom: 2.5rem;
+  }
+}
+
+.reveal #title-slide h1,
+.reveal .title-slide h1.title {
+  font-size: $revealjs-h2-font-size;
+}
+
+// In linear navigation mode (no vertical stacks) the title returns to h1 size.
+.reveal[data-navigation-mode="linear"] #title-slide h1,
+.reveal[data-navigation-mode="linear"] .title-slide h1.title {
+  font-size: $revealjs-h1-font-size;
+}
+
+// Bullet/marker color follows the configured list bullet color.
+.reveal ul,
+.reveal ol {
+  li::marker {
+    color: $revealjs-list-bullet-color;
+  }
+}
+
+// =============================================================================
+// Stage C quick-wins — ported from Quarto 1 quarto.scss (bd-jxyqjf15).
+// =============================================================================
+
+// --- per-background (light/dark slide) text recoloring -----------------------
+// Keeps text/links/code legible when a slide overrides its background.
+section.has-light-background {
+  &,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: $light-bg-text-color;
+  }
+  a,
+  a:hover {
+    color: $light-bg-link-color;
+  }
+  code {
+    color: $light-bg-code-color;
+  }
+}
+
+section.has-dark-background {
+  &,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: $dark-bg-text-color;
+  }
+  a,
+  a:hover {
+    color: $dark-bg-link-color;
+  }
+  code {
+    color: $dark-bg-code-color;
+  }
+}
+
+// --- code blocks: bordered, full-width, scrollable ---------------------------
+.reveal div.sourceCode {
+  border: $border-width solid $code-block-border-color;
+  border-radius: $border-radius;
+}
+
+.reveal pre {
+  width: 100%;
+  box-shadow: none;
+  background-color: $code-block-bg;
+  border: none;
+  margin: 0;
+  font-size: $revealjs-code-block-font-size;
+  line-height: $code-block-line-height;
+  font-family: $font-family-monospace-block;
+
+  code {
+    background-color: $body-bg; // distinguish output vs code cells
+    font-size: inherit;
+    color: $code-block-color;
+    font-family: inherit;
+  }
+
+  &.sourceCode code {
+    color: $code-block-color;
+    font-size: inherit;
+    background-color: inherit;
+    white-space: pre;
+    font-family: inherit;
+    padding: 6px 9px;
+    max-height: $code-block-height;
+  }
+}
+
+// The code-with-filename header uses its own background (not the pre's).
+.reveal .code-with-filename .code-with-filename-file pre {
+  background-color: unset;
+}
+
+.reveal code {
+  color: $code-color;
+  font-size: $revealjs-code-inline-font-size;
+  background-color: $code-bg;
+  white-space: pre-wrap;
+  font-family: $font-family-monospace-inline;
+}
+
+// --- blockquote: left accent border, muted, not italic-centered --------------
+.reveal blockquote {
+  display: block;
+  position: relative;
+  color: $border-color;
+  width: unset;
+  margin: var(--r-block-margin) auto;
+  padding: 0.625rem 1.75rem;
+  border-left: 0.25rem solid $text-muted;
+  font-style: normal;
+  background: none;
+  box-shadow: none;
+}
+.reveal blockquote p:first-child,
+.reveal blockquote p:last-child {
+  display: block;
+}
+
+// --- line height -------------------------------------------------------------
+.reveal p,
+.reveal .slides section,
+.reveal .slides section > section {
+  line-height: $revealjs-line-height;
+}
+
+// --- `.smaller` font-scaling (global + per-slide), headers keep their size ---
+.reveal {
+  &.smaller .slides section {
+    font-size: #{$presentation-font-smaller}em;
+    // avoid doubling the reduction on nested (vertical) sections
+    section {
+      font-size: inherit;
+    }
+  }
+
+  &.smaller .slides h1 {
+    @include undo-smaller-font-size($revealjs-h1-font-size);
+  }
+  &.smaller .slides h2 {
+    @include undo-smaller-font-size($revealjs-h2-font-size);
+  }
+  &.smaller .slides h3 {
+    @include undo-smaller-font-size($revealjs-h3-font-size);
+  }
+
+  .slides section.smaller {
+    font-size: #{$presentation-font-smaller}em;
+    h1 {
+      @include undo-smaller-font-size($revealjs-h1-font-size);
+    }
+    h2 {
+      @include undo-smaller-font-size($revealjs-h2-font-size);
+    }
+    h3 {
+      @include undo-smaller-font-size($revealjs-h3-font-size);
+    }
+  }
+}
+
+// --- multi-column gutters ----------------------------------------------------
+.reveal .columns > .column > :not(ul, ol) {
+  margin-left: 0.25rem;
+  margin-right: 0.25rem;
+}
+.reveal .columns > .column:first-child > :not(ul, ol) {
+  margin-right: 0.5rem;
+  margin-left: 0;
+}
+.reveal .columns > .column:last-child > :not(ul, ol) {
+  margin-right: 0;
+  margin-left: 0.5rem;
+}
+
+// --- slide number (muted, background-aware) ----------------------------------
+.reveal .slide-number {
+  color: $text-muted;
+
+  &.has-dark-background {
+    color: quarto-color.scale($dark-bg-text-color, $whiteness: 30%);
+  }
+  &.has-light-background {
+    color: quarto-color.scale($light-bg-text-color, $whiteness: 30%);
+  }
+}
+
+// --- deck-level footer + logo ------------------------------------------------
+// Quarto 1 places footer/logo on every slide via its quarto-support reveal
+// *plugin*, which relocates the markup to be a direct child of `.reveal` at
+// runtime. Quarto 2 ships no plugins, so the assembler emits a single
+// deck-level `.footer .footer-default` + `<img class="slide-logo">` as direct
+// children of `.reveal`, OUTSIDE `.slides` (see assemble.rs `footer_logo_html`).
+// They must live outside `.slides` because reveal applies CSS transforms to
+// `.slides`/`<section>`, under which `position: fixed` resolves against the
+// transformed ancestor rather than the viewport. Colors port quarto.scss:
+// 570-592; positioning ports plugins/support/footer.css.
+.reveal .slide-logo {
+  display: block;
+  position: fixed;
+  bottom: 0;
+  right: 12px;
+  max-height: 2.2rem;
+  height: 100%;
+  width: auto;
+  z-index: 2;
+}
+
+.reveal .footer {
+  display: block;
+  position: fixed;
+  bottom: 18px;
+  width: 100%;
+  margin: 0 auto;
+  text-align: center;
+  font-size: 18px;
+  z-index: 2;
+  color: $text-muted;
+
+  a {
+    color: $link-color;
+  }
+
+  &.has-dark-background {
+    color: quarto-color.scale($dark-bg-text-color, $whiteness: 30%);
+
+    a {
+      color: quarto-color.scale($dark-bg-link-color, $whiteness: 30%);
+    }
+  }
+
+  &.has-light-background {
+    color: quarto-color.scale($light-bg-text-color, $whiteness: 30%);
+
+    a {
+      color: quarto-color.scale($light-bg-link-color, $whiteness: 30%);
+    }
+  }
+}
+
+.reveal .footer > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+// Defensive: an in-slide `::: {.footer}` would be mis-positioned by reveal's
+// slide transforms; hide it so only the deck-level footer shows (matches Q1).
+.reveal .slide .footer {
+  display: none;
+}
+
+// When a logo sits bottom-right, move the slide number out of its way (Q1).
+.reveal.has-logo .slide-number {
+  bottom: initial;
+  top: 8px;
+  right: 8px;
+}
+
+@media screen and (max-width: 800px) {
+  .reveal .slide-logo {
+    max-height: 1.1rem;
+    bottom: -2px;
+    right: 10px;
+  }
+  .reveal .footer {
+    font-size: 14px;
+    bottom: 12px;
+  }
+}
+
+// --- figure captions ---------------------------------------------------------
+.reveal .slide {
+  figure > figcaption,
+  img.stretch + p.caption,
+  img.r-stretch + p.caption {
+    font-size: #{$presentation-font-smaller}em;
+  }
+}
+
+// --- edge navigation-control spacing (we default controlsLayout: edges) ------
+@media screen and (min-width: 500px) {
+  $arrow-spacing: 0.2em;
+  $control-arrow-spacing: 1.4em;
+
+  .reveal .controls[data-controls-layout="edges"] .navigate-left {
+    left: $arrow-spacing;
+  }
+  .reveal .controls[data-controls-layout="edges"] .navigate-right {
+    right: $arrow-spacing;
+  }
+  .reveal .controls[data-controls-layout="edges"] .navigate-up {
+    top: $arrow-spacing * 2;
+  }
+  .reveal .controls[data-controls-layout="edges"] .navigate-down {
+    bottom: $arrow-spacing - $control-arrow-spacing + 3.5em;
+  }
+}
+
+// --- ordered-list `type=` + task-list checkboxes -----------------------------
+// Both case-sensitive and case-oblivious selectors (Chrome/Safari workaround,
+// quarto-cli#1902).
+.reveal ol[type="a"],
+.reveal ol[type="a" s] {
+  list-style-type: lower-alpha;
+}
+.reveal ol[type="A" s] {
+  list-style-type: upper-alpha;
+}
+.reveal ol[type="i"],
+.reveal ol[type="i" s] {
+  list-style-type: lower-roman;
+}
+.reveal ol[type="I" s] {
+  list-style-type: upper-roman;
+}
+.reveal ol[type="1"] {
+  list-style-type: decimal;
+}
+
+.reveal ul.task-list {
+  list-style: none;
+}
+.reveal ul.task-list li input[type="checkbox"] {
+  width: 2em;
+  height: 2em;
+  margin: 0 1em 0.5em -1.6em;
+  vertical-align: middle;
+}
+
+// --- kbd ---------------------------------------------------------------------
+kbd {
+  font-family: $font-family-monospace;
+  font-size: $kbd-font-size;
+  color: $kbd-color;
+  @include shift_to_dark("background-color", shift-color($kbd-bg, 70%), $kbd-bg);
+  border: 1px solid;
+  border-color: $code-block-border-color;
+  border-radius: 5px;
+  padding: $kbd-padding-y $kbd-padding-x;
+}
+
+// --- expose code fonts as reveal-style custom properties ---------------------
+:root {
+  --r-inline-code-font: #{$font-family-monospace-inline};
+  --r-block-code-font: #{$font-family-monospace-block};
+  --r-inline-code-font-size: #{$revealjs-code-inline-font-size};
+  --r-block-code-font-size: #{$revealjs-code-block-font-size};
+}
+
+// --- link styling (cross-format / brand vocabulary) -------------------------
+.reveal a {
+  font-weight: $link-weight;
+  background-color: $link-color-bg;
+  text-decoration: $link-decoration;
+}
+
+// =============================================================================
+// Callouts — ported from Quarto 1 quarto.scss:873-1116 (bd-j8qoyc0s / D1).
+// Q2 emits the same `.callout callout-{type} callout-style-{simple,default}`
+// markup for reveal as for HTML (CalloutTransform + CalloutResolveTransform run
+// before the reveal branch), so this is a pure-SCSS port.
+// =============================================================================
+
+.reveal div.callout {
+  margin-top: $callout-margin-top;
+  margin-bottom: $callout-margin-bottom;
+  border-radius: $border-radius;
+  overflow-wrap: break-word;
+
+  // Rules for both styles
+  &.callout-style-simple,
+  &.callout-style-default {
+    border-left: $callout-border-width solid #acacac;
+    border-right: solid 1px $table-border-color;
+    border-top: solid 1px $table-border-color;
+    border-bottom: solid 1px $table-border-color;
+
+    div {
+      &.callout-body,
+      &.callout-title {
+        // Font size is inherited from the parent div.callout, which is scaled
+        // down like .smaller.
+        font-size: inherit;
+        border-bottom: none;
+        font-weight: 600;
+      }
+
+      &.callout-title {
+        display: flex;
+        align-items: center;
+
+        p {
+          margin-top: 0.5em;
+          margin-bottom: 0.5em;
+          color: var(--r-main-color);
+        }
+      }
+    }
+
+    .callout-icon::before {
+      height: 1.25em;
+      width: 1.25em;
+      background-size: 1.25em 1.25em;
+    }
+
+    &.callout-titled {
+      .callout-body {
+        > .callout-content {
+          > :last-child {
+            margin-bottom: var(--r-block-margin);
+          }
+          > :last-child:not(div.sourceCode) {
+            padding-bottom: 0.5rem;
+            margin-bottom: 0;
+          }
+        }
+      }
+      .callout-icon::before {
+        margin-top: 0.25em;
+        padding-right: 0.25em;
+      }
+    }
+
+    &.no-icon::before {
+      display: none !important;
+    }
+  }
+
+  // Simple style: title-or-not, icon-or-not.
+  &.callout-style-simple {
+    padding: 0em 0.5em;
+    display: flex;
+
+    &.callout-titled {
+      .callout-body {
+        margin-top: 0.2em;
+      }
+      &:not(.no-icon) {
+        .callout-content {
+          padding-left: 1.6em;
+        }
+      }
+      .callout-content {
+        p {
+          margin-top: 0;
+        }
+      }
+    }
+
+    &:not(.callout-titled) {
+      .callout-body {
+        display: flex;
+      }
+      .callout-icon::before {
+        margin-top: var(--r-block-margin);
+        padding-right: 0.5em;
+      }
+      .callout-body {
+        > .callout-content {
+          // Margin when last child is div.sourceCode (else code-cell border
+          // mixes with the callout border).
+          > div.sourceCode:last-child {
+            margin-bottom: 1rem;
+          }
+          > :first-child {
+            margin-top: var(--r-block-margin);
+          }
+        }
+      }
+    }
+
+    .callout-icon::before {
+      display: inline-block;
+      content: "";
+      background-repeat: no-repeat;
+    }
+
+    div {
+      &.callout-title {
+        opacity: 75%;
+      }
+      &.callout-body {
+        font-weight: 400;
+      }
+    }
+  }
+
+  // Default style: always titled, icon-or-not.
+  &.callout-style-default {
+    &.callout-titled {
+      .callout-content {
+        p {
+          margin-top: 0.7em;
+        }
+      }
+    }
+
+    .callout-icon::before {
+      display: inline-block;
+      content: "";
+      background-repeat: no-repeat;
+    }
+
+    div {
+      &.callout-body {
+        font-weight: 400;
+      }
+      &.callout-title {
+        opacity: 85%;
+        padding-left: 0.5em;
+        padding-right: 0.5em;
+      }
+      &.callout-content {
+        padding-left: 0.5em;
+        padding-right: 0.5em;
+      }
+    }
+  }
+
+  .callout-body-container {
+    flex-grow: 1;
+  }
+}
+
+// Per-type callout colors + icons. The icon SVGs are inlined (URL-encoded) with
+// a per-type accent color; `shift_to_dark` adapts the default-style title
+// background to light/dark slide backgrounds.
+$callouts: (
+  "note": (
+    "color": $callout-color-note,
+    "icon":
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg>',
+  ),
+  "tip": (
+    "color": $callout-color-tip,
+    "icon":
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-lightbulb" viewBox="0 0 16 16"><path d="M2 6a6 6 0 1 1 10.174 4.31c-.203.196-.359.4-.453.619l-.762 1.769A.5.5 0 0 1 10.5 13a.5.5 0 0 1 0 1 .5.5 0 0 1 0 1l-.224.447a1 1 0 0 1-.894.553H6.618a1 1 0 0 1-.894-.553L5.5 15a.5.5 0 0 1 0-1 .5.5 0 0 1 0-1 .5.5 0 0 1-.46-.302l-.761-1.77a1.964 1.964 0 0 0-.453-.618A5.984 5.984 0 0 1 2 6zm6-5a5 5 0 0 0-3.479 8.592c.263.254.514.564.676.941L5.83 12h4.342l.632-1.467c.162-.377.413-.687.676-.941A5 5 0 0 0 8 1z"/></svg>',
+  ),
+  "warning": (
+    "color": $callout-color-warning,
+    "icon":
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-exclamation-triangle" viewBox="0 0 16 16"><path d="M7.938 2.016A.13.13 0 0 1 8.002 2a.13.13 0 0 1 .063.016.146.146 0 0 1 .054.057l6.857 11.667c.036.06.035.124.002.183a.163.163 0 0 1-.054.06.116.116 0 0 1-.066.017H1.146a.115.115 0 0 1-.066-.017.163.163 0 0 1-.054-.06.176.176 0 0 1 .002-.183L7.884 2.073a.147.147 0 0 1 .054-.057zm1.044-.45a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566z"/><path d="M7.002 12a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 5.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995z"/></svg>',
+  ),
+  "caution": (
+    "color": $callout-color-caution,
+    "icon":
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-cone-striped" viewBox="0 0 16 16"><path d="M9.97 4.88l.953 3.811C10.158 8.878 9.14 9 8 9c-1.14 0-2.159-.122-2.923-.309L6.03 4.88C6.635 4.957 7.3 5 8 5s1.365-.043 1.97-.12zm-.245-.978L8.97.88C8.718-.13 7.282-.13 7.03.88L6.274 3.9C6.8 3.965 7.382 4 8 4c.618 0 1.2-.036 1.725-.098zm4.396 8.613a.5.5 0 0 1 .037.96l-6 2a.5.5 0 0 1-.316 0l-6-2a.5.5 0 0 1 .037-.96l2.391-.598.565-2.257c.862.212 1.964.339 3.165.339s2.303-.127 3.165-.339l.565 2.257 2.391.598z"/></svg>',
+  ),
+  "important": (
+    "color": $callout-color-important,
+    "icon":
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-exclamation-circle" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z"/></svg>',
+  ),
+);
+
+@each $name, $info in $callouts {
+  $shifted-color: #{shift-color(quarto-map.get($info, "color"), $callout-icon-scale)};
+  $shifted-color-svg: str-replace($shifted-color, "#", "%23");
+
+  .reveal div.callout {
+    &.callout-#{$name} {
+      border-left-color: shift-color(
+        quarto-map.get($info, "color"),
+        $callout-border-scale
+      );
+      &.callout-style-default {
+        .callout-title {
+          @include shift_to_dark(
+            "background-color",
+            shift-color(quarto-map.get($info, "color"), 70%),
+            shift-color(quarto-map.get($info, "color"), -90%)
+          );
+        }
+      }
+      .callout-icon::before {
+        background-image: #{"url('data:image/svg+xml," +
+          str-replace(
+            quarto-map.get($info, "icon"),
+            'fill="currentColor"',
+            'style="fill: #{$shifted-color-svg}"'
+          ) + "');"};
+      }
+    }
+  }
+}
