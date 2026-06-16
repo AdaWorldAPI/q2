@@ -9,6 +9,17 @@
 
 /*-- scss:defaults --*/
 
+// Default body/heading font. Quarto 1's default reveal theme ships Source Sans
+// Pro; we load it from the Google Fonts CDN (a foundry @import, like the named
+// themes and `_brand.yml` fonts) rather than bundling the binaries — so the
+// render is not self-contained for fonts by design, matching Quarto 1's
+// import-based font model. A theme or `_brand.yml` that sets a different
+// `$font-family-sans-serif` supplies (and loads) its own font; this import is
+// then unused (harmless), exactly as in Quarto 1's `quarto.scss`. Sass hoists
+// the CSS `@import url(...)` to the top of the compiled output (CSS requires it
+// first), so its placement here in `scss:defaults` is fine.
+@import url(https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,400i,600,600i);
+
 // =============================================================================
 // Quarto's reveal.js layer (the Quarto-2 analogue of Quarto 1's quarto.scss).
 //

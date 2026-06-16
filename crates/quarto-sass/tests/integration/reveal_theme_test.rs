@@ -87,6 +87,26 @@ fn quarto_values_flow_into_custom_properties() {
 }
 
 #[test]
+fn default_theme_imports_source_sans_pro_from_google() {
+    let css = compile(&assemble_reveal_scss(&[]).unwrap());
+    // The default theme loads its named font (Source Sans Pro) via a Google
+    // Fonts @import (Q1-style foundry import; no local bundling).
+    assert!(
+        css.contains("@import url(") && css.contains("Source+Sans+Pro"),
+        "default theme should @import Source Sans Pro from Google Fonts\n{css}"
+    );
+    // CSS requires @import to precede normal rules — confirm it is hoisted
+    // ahead of the first `.reveal` rule.
+    let imp = css.find("@import").expect("@import present");
+    if let Some(rule) = css.find(".reveal") {
+        assert!(
+            imp < rule,
+            "@import must come before CSS rules (CSS requires @import first)"
+        );
+    }
+}
+
+#[test]
 fn headings_are_not_uppercased() {
     let css = compile(&assemble_reveal_scss(&[]).unwrap());
     // Quarto turns OFF reveal's default uppercase headings.
