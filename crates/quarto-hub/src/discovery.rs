@@ -188,6 +188,18 @@ impl ProjectFiles {
         self
     }
 
+    /// Attach binary asset files (project-root-relative) to be synced into the
+    /// VFS, in addition to whatever discovery found. Used by single-file mode
+    /// (bd-kpuweafo) to add the sibling images a deck references — resolved
+    /// upstream in `quarto-preview` — without walking the directory. Sorted +
+    /// deduped against any already-present binaries for deterministic ordering.
+    pub fn with_binary_files(mut self, mut binary_files: Vec<PathBuf>) -> Self {
+        self.binary_files.append(&mut binary_files);
+        self.binary_files.sort();
+        self.binary_files.dedup();
+        self
+    }
+
     /// Attach resources-scoped `.html` files (resolved by the caller
     /// from `project.resources:`) to be synced into the VFS as text.
     /// Deduplicates and sorts for deterministic ordering. See
@@ -390,6 +402,25 @@ mod tests {
         assert!(
             files.config_files.contains(&PathBuf::from("_brand.yml")),
             "single-file mode must sync a sibling _brand.yml the deck references"
+        );
+    }
+
+    #[test]
+    fn test_single_file_with_binary_files_adds_referenced_assets() {
+        // bd-kpuweafo: single-file mode syncs the deck's referenced image
+        // siblings (resolved upstream) via `with_binary_files`, keeping the
+        // qmd as the only text file (no directory walk).
+        let files = ProjectFiles::single_file(PathBuf::from("deck.qmd")).with_binary_files(vec![
+            PathBuf::from("img.png"),
+            PathBuf::from("sub/diagram.svg"),
+        ]);
+
+        assert_eq!(files.qmd_files, vec![PathBuf::from("deck.qmd")]);
+        let mut bins = files.binary_files.clone();
+        bins.sort();
+        assert_eq!(
+            bins,
+            vec![PathBuf::from("img.png"), PathBuf::from("sub/diagram.svg")]
         );
     }
 

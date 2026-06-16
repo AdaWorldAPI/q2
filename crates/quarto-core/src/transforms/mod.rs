@@ -107,7 +107,7 @@ pub use navbar_render::NavbarRenderTransform;
 pub use page_nav_generate::PageNavGenerateTransform;
 pub use page_nav_render::PageNavRenderTransform;
 pub use proof::ProofSugarTransform;
-pub use resource_collector::ResourceCollectorTransform;
+pub use resource_collector::{ResourceCollectorTransform, collect_referenced_asset_urls};
 pub use sectionize::SectionizeTransform;
 pub use shortcode_resolve::{ShortcodeResolveTransform, extract_shortcode_paths};
 pub use sidebar_generate::SidebarGenerateTransform;

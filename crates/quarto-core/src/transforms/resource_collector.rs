@@ -424,6 +424,35 @@ impl<'a> ResourceVisitor<'a> {
     }
 }
 
+/// Collect the relative URLs of on-disk assets a document references
+/// (currently `Image` targets), in document order and deduplicated.
+///
+/// External (`http://`, `https://`, `//`, `data:`) and filesystem-root
+/// (`/...`) URLs are skipped — only document-relative paths the caller can
+/// resolve against the source directory are returned. This reuses the same
+/// AST traversal as [`ResourceCollectorTransform`] (so nested images — in
+/// lists, `Div`s, figures, tables — are found) but without the copy-intent /
+/// resolver machinery.
+///
+/// `q2 preview`'s single-file mode uses this to sync exactly the assets a deck
+/// references into the VFS, without walking the deck's directory (which the
+/// `bd-tnm3k` safety property forbids). See bd-kpuweafo.
+pub fn collect_referenced_asset_urls(blocks: &[Block]) -> Vec<String> {
+    // Empty source/dest anchors: `collect_resource` does the external/absolute
+    // filtering and dedup we want, and stores `Path::new("").join(url)` (== the
+    // relative URL) as the copy source. We read those back as the raw URLs.
+    let anchor = Path::new("");
+    let mut visitor = ResourceVisitor::new(anchor, anchor);
+    for block in blocks {
+        visitor.visit_block(block);
+    }
+    visitor
+        .copies
+        .into_iter()
+        .map(|(src, _dest)| src.to_string_lossy().into_owned())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,6 +504,58 @@ mod tests {
             "site_libs",
             "doc",
         )
+    }
+
+    /// Build an `Image` inline with the given target URL.
+    fn image(url: &str) -> Inline {
+        Inline::Image(Image {
+            attr: (String::new(), vec![], hashlink::LinkedHashMap::new()),
+            content: vec![],
+            target: (url.to_string(), String::new()),
+            source_info: dummy_source_info(),
+            attr_source: AttrSourceInfo::empty(),
+            target_source: TargetSourceInfo::empty(),
+        })
+    }
+
+    fn para(inlines: Vec<Inline>) -> Block {
+        Block::Paragraph(Paragraph {
+            content: inlines,
+            source_info: dummy_source_info(),
+        })
+    }
+
+    /// bd-kpuweafo: `collect_referenced_asset_urls` returns document-relative
+    /// image URLs (including nested ones), in order, deduped; external and
+    /// absolute URLs are dropped. The single-file preview uses this to sync
+    /// exactly the assets a deck references into the VFS.
+    #[test]
+    fn collect_referenced_asset_urls_returns_relative_images_only() {
+        let blocks = vec![
+            para(vec![image("./sibling-image.png")]),
+            // Nested in a bullet list — must still be found.
+            Block::BulletList(quarto_pandoc_types::block::BulletList {
+                content: vec![vec![para(vec![image("sub/diagram.svg")])]],
+                source_info: dummy_source_info(),
+            }),
+            // External / absolute / duplicate — all dropped or deduped.
+            para(vec![
+                image("https://example.com/remote.png"),
+                image("/etc/passwd"),
+                image("data:image/png;base64,AAAA"),
+                image("./sibling-image.png"),
+            ]),
+        ];
+
+        let urls = collect_referenced_asset_urls(&blocks);
+        assert_eq!(
+            urls,
+            vec![
+                "./sibling-image.png".to_string(),
+                "sub/diagram.svg".to_string()
+            ],
+            "only relative image URLs, in order, deduped; external/absolute dropped"
+        );
     }
 
     /// R5 (bd-cfl67): the collector pushes a `(src, dest)` pair

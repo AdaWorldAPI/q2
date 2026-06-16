@@ -314,6 +314,19 @@ fn build_hub_config(config: &PreviewConfig) -> HubConfig {
         // resolved at session start, carried into the VFS as text so the
         // preview iframe post-processor can inline them via `srcdoc`.
         resource_files: config.resource_html_files.clone(),
+        // bd-kpuweafo: in single-file mode (no `_quarto.yml`), the deck's
+        // sibling images aren't discovered by the dir walk. Parse the deck and
+        // resolve exactly the assets it references so they sync into the VFS
+        // like project mode (resolved here — quarto-preview has the qmd parser).
+        single_file_assets: match (
+            config.project_root.as_deref(),
+            config.single_file.as_deref(),
+        ) {
+            (Some(root), Some(rel)) => {
+                config::resolve_single_file_assets(root, rel, &NativeRuntime::new())
+            }
+            _ => Vec::new(),
+        },
         // Light periodic sync — the user can Ctrl-C any time, and
         // shutdown does a final sync anyway. 5 seconds is a reasonable
         // crash-resilience window for a *preview* invocation.

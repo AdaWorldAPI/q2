@@ -222,6 +222,8 @@ async fn main() -> anyhow::Result<()> {
         // Standalone `hub` server: resources-scoped `.html` sync is a
         // preview-only concern (bd-kjrpya2d).
         resource_files: Vec::new(),
+        // Single-file asset sync is a preview-only concern (bd-kpuweafo).
+        single_file_assets: Vec::new(),
         auth_config,
         allow_insecure_auth: args.allow_insecure_auth,
         register_root_ws: true,

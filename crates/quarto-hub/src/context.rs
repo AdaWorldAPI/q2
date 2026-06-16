@@ -83,6 +83,18 @@ pub struct HubConfig {
     /// Empty for the standalone `quarto hub` server.
     pub resource_files: Vec<PathBuf>,
 
+    /// Single-file mode (bd-kpuweafo): binary **asset** siblings the deck
+    /// references (project-root-relative paths), e.g. `![](./img.png)`.
+    ///
+    /// Single-file mode does not walk the directory (the `bd-tnm3k` safety
+    /// property), so the bare `single_file` discovery never finds these.
+    /// `q2 preview` resolves them upstream in `quarto-preview` (which has the
+    /// qmd parser) via `config::resolve_single_file_assets` and injects them
+    /// here so they reach [`ProjectFiles::with_binary_files`] and flow through
+    /// the same automerge → VFS → blob-URL path project mode uses. Empty for
+    /// project mode (the dir walk finds binaries) and the `quarto hub` server.
+    pub single_file_assets: Vec<PathBuf>,
+
     /// OAuth2 auth configuration. None = auth disabled.
     pub auth_config: Option<AuthConfig>,
 
@@ -121,6 +133,7 @@ impl Default for HubConfig {
             watch_filter: WatchFilter::default(),
             single_file: None,
             resource_files: Vec::new(),
+            single_file_assets: Vec::new(),
             auth_config: None,
             allow_insecure_auth: false,
             register_root_ws: true,
@@ -213,9 +226,12 @@ impl HubContext {
                 // that references `brand: _brand.yml` needs that sibling in the
                 // VFS. Pick up the conventionally-named brand file next to the
                 // target without walking the directory (stays narrow).
-                Some(rel) => {
-                    ProjectFiles::single_file(rel.clone()).with_config_siblings(project_root, rel)
-                }
+                Some(rel) => ProjectFiles::single_file(rel.clone())
+                    .with_config_siblings(project_root, rel)
+                    // bd-kpuweafo: sync the sibling images the deck references
+                    // (resolved upstream by quarto-preview) so they reach the
+                    // VFS like project mode, without walking the directory.
+                    .with_binary_files(config.single_file_assets.clone()),
                 // bd-kjrpya2d: the bare walk can't see resources-scoped
                 // `.html` (it falls through every category), so the
                 // caller-resolved set is injected here to ride the text

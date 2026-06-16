@@ -214,6 +214,83 @@ pub fn resolve_project_resource_files(
         .collect()
 }
 
+/// Resolve the on-disk sibling **assets** a single-file deck references, so
+/// `q2 preview deck.qmd` (no `_quarto.yml` ancestor) can sync exactly those
+/// into the preview VFS — without walking the deck's directory, which the
+/// `bd-tnm3k` safety property forbids (bd-kpuweafo).
+///
+/// Parses the deck, collects the relative `Image` URLs it references
+/// (`quarto_core::transforms::collect_referenced_asset_urls`), and keeps the
+/// ones that (a) are binary assets (`is_binary_extension`), (b) resolve to an
+/// existing file, and (c) stay **under** `project_root` once canonicalized (no
+/// `../` escape). Returns project-root-relative paths matching the form
+/// `ProjectFiles::discover` produces in project mode, so the same reconcile +
+/// VFS sync + asset-manifest path applies and the image resolves identically.
+///
+/// `single_file_rel` is the deck path relative to `project_root` (its parent
+/// directory in single-file mode). On any parse / IO error this returns an
+/// empty vec — a missing asset just renders broken, exactly as before.
+pub fn resolve_single_file_assets(
+    project_root: &std::path::Path,
+    single_file_rel: &std::path::Path,
+    runtime: &dyn SystemRuntime,
+) -> Vec<std::path::PathBuf> {
+    use std::path::{Path, PathBuf};
+
+    let abs_deck = project_root.join(single_file_rel);
+    let Ok(source) = runtime.file_read(&abs_deck) else {
+        return Vec::new();
+    };
+
+    // Parse for asset references only; commentary + source spans are unneeded
+    // (mirrors `deps::extract_include_deps`).
+    let mut sink = std::io::sink();
+    let Ok((pandoc, _ctx, _warnings)) = pampa::readers::qmd::read(
+        &source,
+        false, // loose
+        &single_file_rel.to_string_lossy(),
+        &mut sink,
+        false, // track_source_locations
+        None,  // parent SourceInfo
+    ) else {
+        return Vec::new();
+    };
+
+    let deck_dir = single_file_rel.parent().unwrap_or_else(|| Path::new(""));
+    let canonical_root = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.to_path_buf());
+
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for url in quarto_core::transforms::collect_referenced_asset_urls(&pandoc.blocks) {
+        let ext = Path::new(&url)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if !quarto_hub::resource::is_binary_extension(ext) {
+            continue;
+        }
+        let abs = project_root.join(deck_dir).join(&url);
+        let Ok(canon) = abs.canonicalize() else {
+            continue; // missing file → nothing to sync (renders broken, as before)
+        };
+        if !canon.is_file() || !canon.starts_with(&canonical_root) {
+            continue; // directories and `../` escapes are out of scope
+        }
+        // Re-express as a project-root-relative path (normalizes `./`), matching
+        // the form `ProjectFiles::discover` yields in project mode.
+        let rel = match canon.strip_prefix(&canonical_root) {
+            Ok(r) => r.to_path_buf(),
+            Err(_) => continue,
+        };
+        if seen.insert(rel.clone()) {
+            out.push(rel);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +301,63 @@ mod tests {
     fn meta_with_preview_engine(value: &str) -> ConfigValue {
         // `from_path(&["preview", "engine"], v)` builds: `preview: { engine: v }`.
         ConfigValue::from_path(&["preview", "engine"], value)
+    }
+
+    #[test]
+    fn single_file_assets_resolves_referenced_image_siblings_only() {
+        // bd-kpuweafo: a single-file deck referencing `./sibling.png` should
+        // resolve that one sibling — not a missing one, not an external URL,
+        // and (safety) nothing outside the deck's directory.
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::write(root.join("sibling.png"), b"\x89PNG\r\n").unwrap();
+        std::fs::write(root.join("unused.png"), b"\x89PNG\r\n").unwrap();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/nested.svg"), b"<svg/>").unwrap();
+        std::fs::write(
+            root.join("deck.qmd"),
+            "---\ntitle: T\n---\n\n\
+             ![ok](./sibling.png)\n\n\
+             - ![nested](sub/nested.svg)\n\n\
+             ![missing](./missing.png)\n\n\
+             ![remote](https://example.com/r.png)\n",
+        )
+        .unwrap();
+
+        let runtime = NativeRuntime::new();
+        let mut assets =
+            resolve_single_file_assets(root, std::path::Path::new("deck.qmd"), &runtime);
+        assets.sort();
+        assert_eq!(
+            assets,
+            vec![
+                std::path::PathBuf::from("sibling.png"),
+                std::path::PathBuf::from("sub/nested.svg"),
+            ],
+            "only existing, relative, in-tree image siblings; missing + external dropped; \
+             `unused.png` (not referenced) not synced"
+        );
+    }
+
+    #[test]
+    fn single_file_assets_rejects_parent_escape() {
+        // `![](../secret.png)` must NOT be synced even if the file exists —
+        // it's outside the deck's directory (canonicalized-under-root guard).
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::write(root.join("secret.png"), b"\x89PNG\r\n").unwrap();
+        let deck_dir = root.join("deck");
+        std::fs::create_dir(&deck_dir).unwrap();
+        std::fs::write(deck_dir.join("deck.qmd"), "![x](../secret.png)\n").unwrap();
+
+        let runtime = NativeRuntime::new();
+        // project_root is the deck's dir in single-file mode.
+        let assets =
+            resolve_single_file_assets(&deck_dir, std::path::Path::new("deck.qmd"), &runtime);
+        assert!(
+            assets.is_empty(),
+            "a `../` reference escaping the deck directory must not be synced; got {assets:?}"
+        );
     }
 
     #[test]
