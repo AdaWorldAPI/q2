@@ -20,16 +20,25 @@
 import React, { useContext } from 'react';
 import { Deck, Slide, Stack } from '@revealjs/react';
 // Reveal CSS from the SAME vendored copy `q2 render` links — `resources/
-// revealjs/` — in the SAME cascade order (reset → reveal → theme → quarto
-// overrides), so render and preview cannot disagree on reveal styling
-// (bd-ibqkf9ry). The `vendored_reveal_assets_match_npm_package` test keeps
-// that copy byte-identical to the npm `reveal.js` `@revealjs/react` drives;
-// importing the vendored files (not `reveal.js/*.css`) makes `resources/
-// revealjs/` the single source of truth. `@revealjs/react` injects no CSS of
-// its own — styling is entirely these imports.
+// revealjs/` — in the SAME cascade order, so render and preview cannot disagree
+// on reveal styling (bd-ibqkf9ry). The `vendored_reveal_assets_match_npm_package`
+// test keeps that copy byte-identical to the npm `reveal.js` `@revealjs/react`
+// drives; importing the vendored files (not `reveal.js/*.css`) makes `resources/
+// revealjs/` the single source of truth. `@revealjs/react` injects no CSS of its
+// own — styling is entirely these imports plus the per-document theme below.
+//
+// The reveal *theme* slot is NOT a static import: bd-y259zb57 delivers the
+// document's compiled Quarto reveal theme (default / named / custom .scss /
+// `_brand.yml`) at runtime via the parent's `UPDATE_THEME` → `<link
+// data-q2-theme>` transport — the same `css:theme:<fp>` artifact `q2 render`
+// links in the theme slot. Statically importing `theme/white.css` here would
+// pin every deck to stock white (centered, uppercase headings) regardless of
+// `theme:`, the render↔preview divergence this strand fixes. `quarto-reveal.css`
+// stays static (it is theme-independent: columns/asides/footnotes) and is purely
+// additive, so the runtime theme link landing after it does not change the
+// cascade.
 import '../../../../resources/revealjs/reset.css';
 import '../../../../resources/revealjs/reveal.css';
-import '../../../../resources/revealjs/theme/white.css';
 import '../../../../resources/revealjs/quarto-reveal.css';
 
 import { extractMetaBool, Node, RegistryContext } from '../framework';

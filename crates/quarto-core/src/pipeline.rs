@@ -2514,6 +2514,163 @@ mod tests {
         );
     }
 
+    /// bd-y259zb57 (L2.1): the q2-preview pipeline — the exact path
+    /// `q2 preview` drives in WASM — must compile the deck's reveal theme and
+    /// expose it through the standard `css:theme:<fp>` artifact, so the SPA's
+    /// existing `theme_fingerprint` + styles.css transport delivers it. Before
+    /// the fix the `q2-slides` pseudo-format (identifier `Html`) took the
+    /// Bootstrap branch, so the preview shipped Bootstrap and reveal decks fell
+    /// back to stock `white.css` (centered, uppercase) instead of the Quarto
+    /// reveal theme (left-aligned, non-uppercase).
+    #[test]
+    fn q2_preview_pipeline_compiles_reveal_theme_for_slides() {
+        let content = b"---\ntitle: Slides Test\nformat: revealjs\n---\n\n\
+                        ## First\n\n- a\n- b\n";
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::from_format_string("q2-slides").unwrap();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        let runtime = make_test_runtime();
+        pollster::block_on(render_qmd_to_preview_ast(
+            content,
+            "test.qmd",
+            &mut ctx,
+            runtime,
+            None,
+            Vec::new(),
+        ))
+        .expect("q2-slides render");
+
+        // The compiled reveal theme is delivered via `css:theme:<fp>` (the same
+        // artifact key + styles.css path the SPA already reads), NOT the
+        // linkable `css:revealjs:*` set (that's the render path's site_libs
+        // delivery — the SPA bundles reset/reveal/quarto-reveal itself).
+        let theme_entries = ctx.artifacts.get_by_prefix("css:theme:");
+        assert_eq!(
+            theme_entries.len(),
+            1,
+            "q2-slides preview should produce exactly one css:theme artifact"
+        );
+        let css = theme_entries[0].1.as_str().expect("theme CSS is UTF-8");
+        assert!(
+            css.contains(".reveal"),
+            "preview must compile the reveal theme (scoped under .reveal), not Bootstrap"
+        );
+        assert!(
+            !css.contains(".navbar"),
+            "preview reveal theme must not be Bootstrap (.navbar present)"
+        );
+        assert!(
+            ctx.artifacts.get_by_prefix("css:revealjs:").is_empty(),
+            "preview should not register linkable css:revealjs:* assets"
+        );
+    }
+
+    /// bd-y259zb57 (L2.1): a *named* reveal theme nested under
+    /// `format.revealjs.theme` must reach the preview's compiled theme. This
+    /// guards the metadata-flattening half of the fix: the `q2-slides`
+    /// pseudo-format has identifier `Html`, so `MetadataMergeStage` would
+    /// flatten `format.html.*` (burying `theme:`) unless it maps the reveal
+    /// preview back to the `revealjs` base format. Before that fix the preview
+    /// silently compiled the *default* theme for every named theme/brand.
+    #[test]
+    fn q2_preview_pipeline_compiles_named_reveal_theme_for_slides() {
+        // `theme: dark` lives under `format.revealjs.theme`, exactly as a real
+        // deck authors it.
+        let content = b"---\ntitle: Dark\nformat:\n  revealjs:\n    theme: dark\n---\n\n\
+                        ## First\n\nBody.\n";
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::from_format_string("q2-slides").unwrap();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        let runtime = make_test_runtime();
+        pollster::block_on(render_qmd_to_preview_ast(
+            content,
+            "test.qmd",
+            &mut ctx,
+            runtime,
+            None,
+            Vec::new(),
+        ))
+        .expect("q2-slides render");
+
+        let theme_entries = ctx.artifacts.get_by_prefix("css:theme:");
+        assert_eq!(theme_entries.len(), 1, "expected one css:theme artifact");
+        let css = theme_entries[0].1.as_str().expect("theme CSS is UTF-8");
+        // The reveal `dark` theme sets a dark background; the default theme is
+        // white (`#fff`). Asserting the dark background proves the named theme
+        // was resolved (not silently defaulted).
+        assert!(
+            css.contains("#191919"),
+            "named theme `dark` must reach the compiled preview theme \
+             (expected dark background #191919); got default theme?"
+        );
+    }
+
+    /// bd-y259zb57 (L2.1): a `_brand.yml` reveal deck previewed as `q2-slides`
+    /// must fold the brand into the compiled theme — same as `q2 render`. This
+    /// exercises the reveal branch's brand resolution (`resolve_brand_layers`
+    /// against `ctx.project.dir`) through the preview pipeline, plus the
+    /// `format.revealjs.brand` metadata flattening. (E2E `q2 preview` of a brand
+    /// deck is additionally gated on the preview server syncing `_brand.yml`
+    /// into the VFS — a separate, pre-existing infra gap that affects HTML brand
+    /// previews identically; tracked in its own strand.)
+    #[test]
+    fn q2_preview_pipeline_compiles_brand_reveal_theme_for_slides() {
+        // Real tempdir so the NativeRuntime can read `_brand.yml` from disk,
+        // exactly as the reveal branch resolves it against the project dir.
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path().to_path_buf();
+        std::fs::write(
+            root.join("_brand.yml"),
+            "color:\n  palette:\n    purple: \"#6f42c1\"\n  primary: purple\n  \
+             background: \"#fdf6ff\"\n  foreground: \"#2a1a3a\"\n",
+        )
+        .unwrap();
+
+        let content = b"---\ntitle: Brand\nformat:\n  revealjs:\n    brand: _brand.yml\n---\n\n\
+                        ## First\n\nBody.\n";
+
+        let project = ProjectContext {
+            dir: root.clone(),
+            config: crate::project::ProjectConfig::default(),
+            is_single_file: true,
+            files: vec![DocumentInfo::from_path(root.join("deck.qmd"))],
+            output_dir: root.clone(),
+        };
+        let doc = DocumentInfo::from_path(root.join("deck.qmd"));
+        let format = Format::from_format_string("q2-slides").unwrap();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        let runtime = make_test_runtime();
+        pollster::block_on(render_qmd_to_preview_ast(
+            content,
+            root.join("deck.qmd").to_str().unwrap(),
+            &mut ctx,
+            runtime,
+            None,
+            Vec::new(),
+        ))
+        .expect("q2-slides brand render");
+
+        let theme_entries = ctx.artifacts.get_by_prefix("css:theme:");
+        assert_eq!(theme_entries.len(), 1, "expected one css:theme artifact");
+        let css = theme_entries[0].1.as_str().expect("theme CSS is UTF-8");
+        // Brand background colour folded into the reveal theme proves the brand
+        // reached the compiled output (default reveal background is `#fff`).
+        assert!(
+            css.contains("#fdf6ff"),
+            "brand background must reach the compiled preview theme; got default?"
+        );
+    }
+
     /// Phase 1 (target-incremental-writes): `render_qmd_to_preview_ast` must
     /// return *both* the transformed AST (`ast_json`) and the untransformed
     /// AST (`untransformed_ast_json`).  An unchanged paragraph must have

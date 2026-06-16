@@ -264,7 +264,15 @@ impl PipelineStage for CompileThemeCssStage {
         // vendored assets as linkable `Project`-scoped artifacts so they share
         // one copy across decks via `site_libs` (bd-jij5gge2), then skip the
         // Bootstrap compilation.
-        if ctx.format.identifier == crate::format::FormatIdentifier::Revealjs {
+        //
+        // The gate is `is_revealjs_target(target_format)`, NOT
+        // `identifier == Revealjs`: `q2 preview` of a reveal deck runs the
+        // `q2-slides` pseudo-format whose `FormatIdentifier` is `Html`
+        // (`format.rs`). Gating on the identifier would route the preview into
+        // the Bootstrap branch and never apply the reveal theme (bd-y259zb57).
+        // `is_revealjs_target` is true for both `revealjs` (render) and
+        // `q2-slides` (preview), so render output stays byte-identical.
+        if crate::format::is_revealjs_target(&ctx.format.target_format) {
             // Resolve `theme:` into SCSS theme layers (built-in reveal themes
             // and/or user `.scss` files). An unresolvable theme (unknown name /
             // missing file) is a user configuration error — fail loudly rather
@@ -315,7 +323,23 @@ impl PipelineStage for CompileThemeCssStage {
                         None
                     }
                 };
-            crate::revealjs::register_reveal_assets(&mut ctx.artifacts, compiled.as_deref());
+            // Render (`revealjs`) links the full vendored asset set
+            // (reset/reveal/theme/quarto-reveal + reveal.js) via `site_libs`;
+            // the assembler emits `<link>`s in cascade order. Preview
+            // (`q2-slides`) instead delivers ONLY the compiled theme through
+            // the standard `css:theme:<fp>` → styles.css artifact that the SPA
+            // already consumes (`Q2PreviewIframe` → `UPDATE_THEME`): the SPA
+            // bundles reset/reveal/quarto-reveal itself, so the linkable
+            // `css:revealjs:*` set is unnecessary there. This reuses the HTML
+            // preview's theme transport verbatim — no preview-specific WASM
+            // plumbing (bd-y259zb57).
+            if ctx.format.target_format == "q2-slides" {
+                let theme_css = compiled
+                    .unwrap_or_else(|| crate::revealjs::stock_reveal_theme_css().to_string());
+                store_css(ctx, theme_css);
+            } else {
+                crate::revealjs::register_reveal_assets(&mut ctx.artifacts, compiled.as_deref());
+            }
             return Ok(PipelineData::DocumentAst(doc));
         }
 
@@ -709,6 +733,25 @@ mod tests {
         StageContext::new(runtime, format, project, doc).unwrap()
     }
 
+    /// Stage context for the reveal **preview** pseudo-format (`q2-slides`).
+    /// Its `FormatIdentifier` is `Html` (see `format.rs`), so this exercises
+    /// the divergence the reveal-branch gate must handle via
+    /// `is_revealjs_target(target_format)` rather than the identifier.
+    fn make_q2_slides_stage_context(
+        runtime: Arc<dyn quarto_system_runtime::SystemRuntime>,
+    ) -> StageContext {
+        let project = ProjectContext {
+            dir: PathBuf::from("/project"),
+            config: crate::project::ProjectConfig::default(),
+            is_single_file: true,
+            files: vec![],
+            output_dir: PathBuf::from("/project"),
+        };
+        let doc = DocumentInfo::from_path("/project/test.qmd");
+        let format = Format::from_format_string("q2-slides").unwrap();
+        StageContext::new(runtime, format, project, doc).unwrap()
+    }
+
     fn make_doc_ast(meta: ConfigValue) -> PipelineData {
         PipelineData::DocumentAst(DocumentAst {
             path: PathBuf::from("/project/test.qmd"),
@@ -979,6 +1022,52 @@ mod tests {
         assert!(
             css.contains(".container"),
             "compiled CSS should contain .container"
+        );
+    }
+
+    #[tokio::test]
+    async fn reveal_preview_delivers_compiled_theme_via_css_theme_artifact() {
+        // L2.1 (bd-y259zb57): `q2 preview` of a `format: revealjs` deck runs the
+        // `q2-slides` pseudo-format, whose `FormatIdentifier` is `Html`. The old
+        // gate (`identifier == Revealjs`) therefore took the Bootstrap branch and
+        // shipped Bootstrap CSS — so the preview never applied the Quarto reveal
+        // theme (centered + uppercase stock defaults). The reveal branch must
+        // fire for `q2-slides` and deliver the compiled reveal theme through the
+        // standard `css:theme:<fp>` transport the SPA already consumes.
+        let runtime: Arc<dyn quarto_system_runtime::SystemRuntime> =
+            Arc::new(quarto_system_runtime::NativeRuntime::new());
+        let mut ctx = make_q2_slides_stage_context(runtime);
+        let stage = CompileThemeCssStage::new();
+
+        // Empty metadata → the default reveal theme.
+        let input = make_doc_ast(empty_meta());
+        let output = stage.run(input, &mut ctx).await.unwrap();
+        assert!(output.into_document_ast().is_some());
+
+        // The theme is delivered via `css:theme:<fp>` (→ styles.css), the same
+        // artifact + path the SPA's `Q2PreviewIframe`/`UPDATE_THEME` transport
+        // reads — no preview-specific WASM plumbing required.
+        let css = get_css_artifact(&ctx);
+        assert!(
+            css.contains(".reveal"),
+            "preview must compile the reveal theme (scoped under .reveal), got Bootstrap?"
+        );
+        assert!(
+            !css.contains(".navbar"),
+            "preview reveal theme must NOT be Bootstrap (.navbar present)"
+        );
+        // Bug 1: the default reveal theme @imports Source Sans Pro from Google.
+        assert!(
+            css.contains("Source Sans Pro"),
+            "compiled default reveal theme should reference Source Sans Pro"
+        );
+
+        // Preview ships ONLY the theme through `css:theme:` — it does not need
+        // the linkable `css:revealjs:*` asset set (the SPA bundles reset/reveal/
+        // quarto-reveal itself); that set is the render path's concern.
+        assert!(
+            ctx.artifacts.get_by_prefix("css:revealjs:").is_empty(),
+            "preview should not register linkable css:revealjs:* assets"
         );
     }
 

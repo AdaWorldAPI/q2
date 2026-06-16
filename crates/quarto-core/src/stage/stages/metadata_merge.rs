@@ -184,7 +184,22 @@ impl PipelineStage for MetadataMergeStage {
         let runtime_meta_json = ctx.runtime.runtime_metadata();
         // base_format is the Pandoc format name (e.g., "html") used to flatten
         // format-specific settings from project/directory/document YAML.
-        let base_format = ctx.format.identifier.as_str();
+        //
+        // bd-y259zb57: the reveal **preview** pseudo-format (`q2-slides`) has
+        // `FormatIdentifier::Html`, but the deck's options live under
+        // `format.revealjs.*` (the author writes `format: revealjs`, not
+        // `format: q2-slides`). Flattening on the raw identifier would bury
+        // `theme:`, `incremental:`, etc., so the preview silently fell back to
+        // the default reveal theme for every named theme / brand. Map the
+        // reveal preview back to the `revealjs` base format so its
+        // format-specific YAML is flattened the same way `q2 render` does it.
+        // (`q2 render` already flattens `revealjs` because its identifier is
+        // `Revealjs`; this only changes the `q2-slides` preview path.)
+        let base_format = if crate::format::is_revealjs_target(&ctx.format.target_format) {
+            crate::format::FormatIdentifier::Revealjs.as_str()
+        } else {
+            ctx.format.identifier.as_str()
+        };
         // target_format is the full format string (e.g., "acm-html") used
         // to look up extension metadata.
         let target_format = &ctx.format.target_format;

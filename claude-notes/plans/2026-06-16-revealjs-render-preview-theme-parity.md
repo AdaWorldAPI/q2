@@ -66,24 +66,75 @@ async). So the preview can compile the reveal theme on WASM.
 
 ### Work (each TDD; verify through real `q2 preview` + Chrome)
 
-- [ ] **L2.1 (Rust).** Make the preview pipeline compile the document's reveal
-      theme. The reveal branch must fire for the reveal-preview pseudo-format.
-      Decide the detection signal (target_format `q2-slides` /
-      `is_revealjs_target`, vs `ast.meta` `format: revealjs`) since
-      `format.identifier` is `Html` in preview. Register the compiled theme so
-      the WASM extractor + VFS flush find it (either reuse `css:theme:<fp>` +
-      the styles.css artifact path, or extend the extractor for the reveal key).
-- [ ] **L2.2 (WASM).** Ensure `render_page_for_preview` surfaces the reveal
-      theme (fingerprint + bytes flushed to the VFS artifact path the SPA reads).
-- [ ] **L2.3 (hub-client).** The preview reveal renderer must consume the theme
-      (UPDATE_THEME / prop), inject it as a stylesheet, and **drop the static
-      `white.css` import** (keep reset + reveal core + quarto-reveal). Bundle the
-      Source Sans Pro `@import` comes along via the compiled theme automatically.
-      Files: `ts-packages/preview-renderer/src/q2-preview/RevealDeck.tsx`,
-      `Q2PreviewIframe.tsx`, q2-preview-spa entry. **hub-client change → two-commit
-      changelog; WASM/SPA rebuild required.**
-- [ ] **L2.4.** Tests + E2E parity check (`q2 render` vs `q2 preview` on a deck
-      with default, a named theme, and `_brand.yml` — all should match).
+- [x] **L2.1 (Rust).** DONE. Gate changed from `identifier == Revealjs` to
+      `is_revealjs_target(&ctx.format.target_format)` in `CompileThemeCssStage`
+      (`compile_theme_css.rs`), so the reveal branch fires for the `q2-slides`
+      preview pseudo-format (identifier `Html`) as well as `revealjs` render.
+      **Delivery split**: render (`revealjs`) still calls
+      `register_reveal_assets` (linkable `css:revealjs:*` set via site_libs);
+      preview (`q2-slides`) calls `store_css` so the compiled reveal theme rides
+      the *existing* `css:theme:<fp>` → styles.css transport the SPA already
+      consumes. Compile-failure fallback → `stock_reveal_theme_css()` (vendored
+      white). Tests: `reveal_preview_delivers_compiled_theme_via_css_theme_artifact`
+      (compile_theme_css.rs), `q2_preview_pipeline_compiles_reveal_theme_for_slides`
+      (pipeline.rs, exercises the full preview pipeline). Render output unchanged
+      (all 2372 quarto-core tests pass).
+- [x] **L2.2 (WASM).** DONE — **no WASM code change required** for the single-doc
+      path (the `q2 preview` target use case). Because L2.1 routes the reveal
+      theme through `css:theme:<fp>`, `extract_theme_fingerprint` (looks for
+      `css:theme:`) and `flush_artifacts_to_vfs` (writes styles.css) already
+      surface it via `render_page_for_preview` → `RenderResponse.theme_fingerprint`.
+      (Project-of-decks path uses the multi-doc `quarto/quarto-theme-<fp>.css`
+      artifact path rather than styles.css — out of scope for the single-deck
+      "done" criteria; tracked as a follow-up if needed.)
+- [x] **L2.3 (hub-client).** DONE. `entry.tsx`: removed the slides theme-link
+      suppression (`currentDocIsSlides`/`setDocIsSlides`) — `reconcileThemeLink`
+      now always applies `lastThemeCssUrl` (for slides that URL is the compiled
+      reveal theme, not Bootstrap). `RevealDeck.tsx`: dropped the static
+      `theme/white.css` import (kept reset + reveal + quarto-reveal); the
+      per-document theme arrives via the `UPDATE_THEME` → `<link data-q2-theme>`
+      transport. quarto-reveal.css is theme-independent/additive, so the runtime
+      theme link landing after it does not change the cascade.
+      **hub-client change → two-commit changelog; WASM/SPA rebuild required.**
+- [x] **L2.4.** DONE. Tests + E2E parity check across **default, named (`dark`),
+      and `_brand.yml`** — all three match `q2 render`.
+  - **Rust tests** (`cargo nextest`, all green; full workspace 10147 pass):
+    - `compile_theme_css.rs`: `reveal_preview_delivers_compiled_theme_via_css_theme_artifact`.
+    - `pipeline.rs`: `q2_preview_pipeline_compiles_reveal_theme_for_slides`,
+      `…_compiles_named_reveal_theme_for_slides` (guards the metadata-flattening
+      fix), `…_compiles_brand_reveal_theme_for_slides` (real tempdir `_brand.yml`).
+    - `quarto-hub/discovery.rs`: `test_discover_brand_file`.
+  - **Two extra fixes surfaced during E2E** (both were silent before because the
+    default theme needs no `theme:`/brand lookup):
+    1. **Metadata flattening** (`metadata_merge.rs`): `q2-slides` flattened
+       `format.html.*`, burying `format.revealjs.{theme,brand,…}`. Now maps the
+       reveal preview to the `revealjs` base format. Without this, *named* themes
+       and brand silently fell back to the default theme in preview.
+    2. **`_brand.yml` VFS sync** (`quarto-hub/discovery.rs`): the preview server
+       never synced `_brand.yml` into the VFS (only `_quarto.yml`/`_metadata.yml`
+       were recognized as config), so brand resolution died with "Path not found:
+       /project/_brand.yml" — for HTML brand decks too, not just reveal. Added
+       `_brand.yml`/`_brand.yaml` to config-file discovery.
+  - **E2E evidence** (`cargo run --bin q2 -- preview <deck>`, computed styles read
+    from the live iframe via Chrome DevTools; compared to `q2 render`'s compiled
+    `theme-*.css`):
+    - **default** (`.e2e-reveal/default.qmd`): heading `text-transform: none`,
+      content `text-align: left`, `font-family: "Source Sans Pro"`, color `#222` —
+      matches render. `white.css` no longer statically imported; theme arrives via
+      `<link data-q2-theme>`.
+    - **dark** (`theme: dark`): `--r-background-color: #191919`, viewport bg
+      `rgb(25,25,25)`, `--r-main-color: #fff` — matches render `#191919`.
+    - **brand** (`_brand.yml`, run as a project): `--r-background-color: #fdf6ff`,
+      `--r-main-color: #2a1a3a`, `--r-heading-color: #6f42c1`, `--r-main-font:
+      Georgia`; h1 computed `rgb(111,66,193)` — all match render exactly.
+  - **Known limitations (out of scope / follow-ups):**
+    - **Single-file `q2 preview deck.qmd` + sibling `_brand.yml`**: the `bd-tnm3k`
+      single-file watcher deliberately does NOT pull in siblings, so brand only
+      resolves when the deck lives in a *project* (`_quarto.yml` present). Same
+      for HTML brand decks. Tracked separately.
+    - **`[Q-1-20] "Failed to parse metadata value as markdown"`** on `brand:
+      _brand.yml` — pre-existing, appears identically in render *and* preview (so
+      itself a parity success); unrelated to theming.
 
 ### Notes / gotchas
 

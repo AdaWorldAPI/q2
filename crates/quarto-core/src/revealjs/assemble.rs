@@ -38,6 +38,15 @@ const QUARTO_REVEAL_CSS: &str = include_str!("../../../../resources/revealjs/qua
 /// (`crate::revealjs::theme`) defaults to this; `white` aliases to it.
 pub const DEFAULT_THEME: &str = "default";
 
+/// The vendored stock reveal theme CSS (`white.css`), used as the theme-slot
+/// fallback when Quarto's reveal-theme SCSS compilation fails so a deck still
+/// renders. Exposed so the `q2 preview` path can deliver the same fallback
+/// through its `css:theme:` transport (see `CompileThemeCssStage`'s reveal
+/// branch).
+pub fn stock_reveal_theme_css() -> &'static str {
+    THEME_WHITE_CSS
+}
+
 /// Kind of a vendored reveal asset (decides the `css:` / `js:` artifact key
 /// prefix and the emitted tag).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

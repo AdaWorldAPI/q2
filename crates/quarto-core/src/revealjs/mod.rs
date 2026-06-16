@@ -26,7 +26,9 @@ mod slides;
 mod theme;
 mod transform;
 
-pub use assemble::{DEFAULT_THEME, register_reveal_assets, render_revealjs_document};
+pub use assemble::{
+    DEFAULT_THEME, register_reveal_assets, render_revealjs_document, stock_reveal_theme_css,
+};
 pub use auto_stretch::RevealAutoStretchTransform;
 pub use columns::RevealColumnsTransform;
 pub use footer_logo::{RevealFooterAliasTransform, RevealFooterLogoTransform};

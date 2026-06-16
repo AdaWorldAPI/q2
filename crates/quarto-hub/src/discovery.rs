@@ -82,12 +82,19 @@ impl ProjectFiles {
                     continue;
                 }
 
-                // Check for config files first (by name)
+                // Check for config files first (by name).
+                // `_brand.yml`/`_brand.yaml` are project-level config like
+                // `_quarto.yml` (they feed theme/brand resolution); syncing them
+                // into the preview VFS lets `q2 preview` read a deck's brand
+                // (bd-y259zb57) instead of failing with "Path not found:
+                // /project/_brand.yml".
                 if let Some(file_name) = path.file_name()
                     && (file_name == "_quarto.yml"
                         || file_name == "_quarto.yaml"
                         || file_name == "_metadata.yml"
-                        || file_name == "_metadata.yaml")
+                        || file_name == "_metadata.yaml"
+                        || file_name == "_brand.yml"
+                        || file_name == "_brand.yaml")
                 {
                     if let Ok(relative) = path.strip_prefix(project_root) {
                         debug!(?relative, "Discovered config file");
@@ -313,6 +320,28 @@ mod tests {
         );
         assert_eq!(files.qmd_files.len(), 1);
         assert_eq!(files.total_count(), 3);
+    }
+
+    #[test]
+    fn test_discover_brand_file() {
+        // bd-y259zb57: `_brand.yml` is a project-level config file (it feeds
+        // theme/brand resolution). The preview VFS must sync it like
+        // `_quarto.yml` so `q2 preview` of a brand deck can read it — otherwise
+        // brand resolution fails with "Path not found: /project/_brand.yml".
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("_quarto.yml"), "project:\n  type: default").unwrap();
+        fs::write(
+            temp.path().join("_brand.yml"),
+            "color:\n  palette:\n    p: \"#6f42c1\"\n  primary: p\n",
+        )
+        .unwrap();
+        fs::write(temp.path().join("deck.qmd"), "# Hi").unwrap();
+
+        let files = ProjectFiles::discover(temp.path());
+        assert!(
+            files.config_files.contains(&PathBuf::from("_brand.yml")),
+            "_brand.yml must be discovered as a config file so the preview VFS syncs it"
+        );
     }
 
     #[test]
