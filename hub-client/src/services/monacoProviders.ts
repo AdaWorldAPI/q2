@@ -179,6 +179,10 @@ let documentSymbolDisposable: Monaco.IDisposable | null = null;
 let foldingRangeDisposable: Monaco.IDisposable | null = null;
 let semanticTokensDisposable: Monaco.IDisposable | null = null;
 
+// Fired to make Monaco re-request semantic tokens immediately (it wires a
+// provider's `onDidChange` to `schedule(0)`, skipping the adaptive debounce).
+let semanticTokensChangeEmitter: Monaco.Emitter<void> | null = null;
+
 /**
  * Register intelligence providers with Monaco.
  *
@@ -201,8 +205,14 @@ export function registerIntelligenceProviders(
   monaco: typeof Monaco,
   getCurrentFilePath: () => string | null
 ): void {
-  // Clean up any existing registrations
-  disposeIntelligenceProviders();
+  // Register once: re-registering fires the registry's onDidChange, which
+  // reschedules tokenisation behind the adaptive debounce. Per-open refresh is
+  // refreshSemanticTokens()'s job, not a teardown's.
+  if (semanticTokensDisposable) {
+    return;
+  }
+
+  semanticTokensChangeEmitter = new monaco.Emitter<void>();
 
   // Register DocumentSymbolProvider for Cmd+Shift+O
   documentSymbolDisposable = monaco.languages.registerDocumentSymbolProvider(
@@ -265,6 +275,9 @@ export function registerIntelligenceProviders(
   semanticTokensDisposable = monaco.languages.registerDocumentSemanticTokensProvider(
     'qmd',
     {
+      // Lets refreshSemanticTokens() force an immediate re-tokenise.
+      onDidChange: semanticTokensChangeEmitter.event,
+
       // Synchronous, from the checked-in TS constant (the WASM module is not
       // initialised at registration). Fixed for the provider lifetime.
       getLegend: (): Monaco.languages.SemanticTokensLegend => ({
@@ -314,6 +327,11 @@ export function registerIntelligenceProviders(
   );
 }
 
+/** Re-request `.qmd` semantic tokens now, skipping the debounce. No-op if unregistered. */
+export function refreshSemanticTokens(): void {
+  semanticTokensChangeEmitter?.fire();
+}
+
 /**
  * Dispose of registered providers.
  *
@@ -332,5 +350,9 @@ export function disposeIntelligenceProviders(): void {
   if (semanticTokensDisposable) {
     semanticTokensDisposable.dispose();
     semanticTokensDisposable = null;
+  }
+  if (semanticTokensChangeEmitter) {
+    semanticTokensChangeEmitter.dispose();
+    semanticTokensChangeEmitter = null;
   }
 }
