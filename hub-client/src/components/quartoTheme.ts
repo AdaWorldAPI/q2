@@ -107,7 +107,7 @@ export const quartoThemeRules: Monaco.editor.ITokenThemeRule[] = [
  * frontmatter) to Monaco's stock tokenizers via `nextEmbedded` — Monaco's
  * stock markdown regex does NOT match the brace syntax, which is GH#10 bug #3.
  */
-const qmdMonarch: Monaco.languages.IMonarchLanguage = {
+export const qmdMonarch: Monaco.languages.IMonarchLanguage = {
   defaultToken: '',
   tokenPostfix: '.qmd',
   tokenizer: {
@@ -133,15 +133,18 @@ const qmdMonarch: Monaco.languages.IMonarchLanguage = {
       ],
       // Bare fence with no info string.
       [/^(\s*`{3,})\s*$/, { token: 'string', next: '@codeblockPlain' }],
-      // Headings, emphasis, inline code, links — basic structure so the base
-      // is not plain text before semantic settles.
+      // Headings, emphasis, inline code — basic structure so the base is not
+      // plain text before semantic settles. Link/image brackets are deliberately
+      // NOT coloured here: the semantic layer leaves `[`/`]` at the default
+      // foreground (only the image `![` opener is special), so a base rule that
+      // coloured the opening `[` (and not the closing `]`) made the brackets
+      // mismatch wherever the base shows through.
       [/^#{1,6}\s.*$/, 'keyword'],
       [/\*\*([^\\*]|\*(?!\*))+\*\*/, 'strong'],
       [/__([^\\_]|_(?!_))+__/, 'strong'],
       [/\*([^\\*]|\*\*)+\*/, 'emphasis'],
       [/~~[^~]+~~/, 'emphasis'],
       [/`[^`]+`/, 'string'],
-      [/!?\[/, 'string'],
     ],
     codeblock: [
       // Closing fence ends the embedded region.

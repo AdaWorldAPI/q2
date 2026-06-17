@@ -15,7 +15,7 @@ import type * as Monaco from 'monaco-editor';
 import {
   getSymbols,
   getFoldingRanges,
-  getSemanticTokens,
+  getSemanticTokensForContent,
   QMD_TOKEN_LEGEND,
   type Symbol,
   type FoldingRange,
@@ -282,12 +282,14 @@ export function registerIntelligenceProviders(
           return null;
         }
 
-        // Snapshot the version so we can drop a result computed against
-        // superseded content (Monaco fires a fresh request per debounced edit
-        // and cancels the in-flight one).
+        // Snapshot the version + content so we tokenise exactly what Monaco
+        // renders (not the VFS image, which can drift) and can drop a result
+        // computed against superseded content (Monaco fires a fresh request per
+        // debounced edit and cancels the in-flight one).
         const versionId = model.getVersionId();
+        const content = model.getValue();
         try {
-          const tokens = await getSemanticTokens(path);
+          const tokens = await getSemanticTokensForContent(path, content);
           if (token.isCancellationRequested || model.getVersionId() !== versionId) {
             // Stale/cancelled: discard and leave existing tokens in place. Do
             // NOT return empty data here — that would clear highlighting.
@@ -295,7 +297,7 @@ export function registerIntelligenceProviders(
           }
           // Resolved (any count, incl. zero). Zero → empty data clears semantic
           // styling so the Monarch base shows. A failed read collapses to [] in
-          // getSemanticTokens and lands here, degrading cleanly to the base.
+          // getSemanticTokensForContent and lands here, degrading to the base.
           return { data: encodeSemanticTokens(tokens), resultId: undefined };
         } catch (err) {
           // Never let the provider throw — that can disable semantic tokens for

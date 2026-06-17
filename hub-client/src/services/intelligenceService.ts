@@ -21,7 +21,7 @@ import type {
   LspDiagnosticsResponse,
   LspSemanticTokensResponse,
 } from '@quarto/preview-renderer/types/intelligence';
-import { initWasm } from '@quarto/preview-runtime';
+import { initWasm, vfsAddFile } from '@quarto/preview-runtime';
 import { isQmdFile } from '@quarto/preview-renderer/types/project';
 
 // Re-export types for convenience
@@ -237,16 +237,55 @@ export async function getSemanticTokens(path: string): Promise<SemanticToken[]> 
 
   try {
     const wasm = await getWasm();
-    const result: LspSemanticTokensResponse = JSON.parse(wasm.lsp_get_semantic_tokens(path));
-
-    if (result.success) {
-      return result.tokens ?? [];
-    }
-
-    console.warn('Failed to get semantic tokens:', result.error);
-    return [];
+    return parseSemanticTokensResponse(wasm.lsp_get_semantic_tokens(path));
   } catch (e) {
     console.warn('Failed to get semantic tokens:', e);
     return [];
   }
+}
+
+/**
+ * Get semantic tokens for the *given content* rather than the current VFS
+ * image of `path`.
+ *
+ * Monaco renders the editor model; the token positions must align with that
+ * model. Reading the VFS image (`getSemanticTokens`) can return tokens computed
+ * against transiently-drifted content — e.g. a remote edit deferred while the
+ * tab is hidden updates the VFS but not the model — so the positions land on
+ * the wrong characters and colours smear onto adjacent text (an image-opener
+ * token bleeding onto a link's `[`, etc.). Writing the model content to the VFS
+ * immediately before the synchronous tokenise call pins the two together.
+ *
+ * @param path - File path in VFS (used for language detection + tokenise)
+ * @param content - The exact content Monaco is rendering (`model.getValue()`)
+ * @returns Semantic tokens aligned to `content`
+ */
+export async function getSemanticTokensForContent(
+  path: string,
+  content: string
+): Promise<SemanticToken[]> {
+  if (!isQmdFile(path)) {
+    return [];
+  }
+
+  try {
+    const wasm = await getWasm();
+    // Synchronous from here: align the VFS image to the model, then tokenise it
+    // in the same macrotask so nothing can re-drift the two in between.
+    vfsAddFile(path, content);
+    return parseSemanticTokensResponse(wasm.lsp_get_semantic_tokens(path));
+  } catch (e) {
+    console.warn('Failed to get semantic tokens:', e);
+    return [];
+  }
+}
+
+/** Decode a `lsp_get_semantic_tokens` JSON envelope, collapsing errors to `[]`. */
+function parseSemanticTokensResponse(json: string): SemanticToken[] {
+  const result: LspSemanticTokensResponse = JSON.parse(json);
+  if (result.success) {
+    return result.tokens ?? [];
+  }
+  console.warn('Failed to get semantic tokens:', result.error);
+  return [];
 }

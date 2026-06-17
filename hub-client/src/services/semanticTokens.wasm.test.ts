@@ -15,7 +15,7 @@ import { readFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { initWasm, vfsAddFile, vfsClear } from '@quarto/preview-runtime';
-import { QMD_TOKEN_LEGEND } from './intelligenceService';
+import { QMD_TOKEN_LEGEND, getSemanticTokensForContent } from './intelligenceService';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -97,6 +97,26 @@ describe('lsp_get_semantic_tokens', () => {
     const result = tokensFor('');
     expect(result.success).toBe(true);
     expect(result.tokens).toEqual([]);
+  });
+
+  it('getSemanticTokensForContent tokenises the passed content, not a drifted VFS image', async () => {
+    // Reproduce the bracket-smear bug: the VFS holds an *image* (whose `![`
+    // opener emits the brown punctuation.special.image token) while Monaco is
+    // actually rendering a plain *link*. Tokenising the VFS by path smears the
+    // image-opener colour onto the link; tokenising the model content must not.
+    vfsAddFile(PATH, '![alt](img.png)\n');
+
+    // Old behaviour (read VFS by path) tokenises the stale image → brown opener.
+    const staleNames = (JSON.parse(wasm.lsp_get_semantic_tokens(PATH)).tokens ?? [])
+      .map((t: SemanticToken) => typeName(t));
+    expect(staleNames).toContain('qmd.punctuation.special.image');
+
+    // New behaviour: tokenise the content Monaco renders (a link) → link tokens,
+    // and crucially NO image-opener token bleeding onto the link's brackets.
+    const tokens = await getSemanticTokensForContent(PATH, '[label](url)\n');
+    const names = tokens.map((t) => QMD_TOKEN_LEGEND[t.tokenType]);
+    expect(names).toContain('qmd.markup.link.label');
+    expect(names).not.toContain('qmd.punctuation.special.image');
   });
 
   it('returns a failure envelope for a missing file', () => {

@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { quartoThemeRules } from './quartoTheme';
+import { quartoThemeRules, qmdMonarch } from './quartoTheme';
 
 describe('quartoThemeRules namespace invariant', () => {
   it('every theme rule token carries the qmd. sentinel prefix', () => {
@@ -25,5 +25,23 @@ describe('quartoThemeRules namespace invariant', () => {
   it('has no duplicate rule tokens', () => {
     const tokens = quartoThemeRules.map((r) => r.token);
     expect(new Set(tokens).size).toBe(tokens.length);
+  });
+});
+
+describe('qmd Monarch base — bracket symmetry', () => {
+  // Regression: a base `content` rule coloured the opening `[` (as `string`)
+  // but nothing coloured the closing `]`, so wherever the base shows through
+  // (semantic leaves link brackets uncoloured) the two brackets mismatched.
+  // The base must treat `[` and `]` identically.
+  it('no content rule matches "[" without also matching "]" (or vice versa)', () => {
+    const contentRules = qmdMonarch.tokenizer.content as Array<[RegExp, unknown]>;
+    for (const rule of contentRules) {
+      const re = rule[0];
+      expect(re).toBeInstanceOf(RegExp);
+      expect(
+        re.test('['),
+        `rule ${re} treats "[" and "]" asymmetrically — link brackets would mismatch`,
+      ).toBe(re.test(']'));
+    }
   });
 });

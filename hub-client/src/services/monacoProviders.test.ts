@@ -8,9 +8,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type * as Monaco from 'monaco-editor';
 
 // Mock the intelligence service so the provider's WASM call is controllable.
-const getSemanticTokensMock = vi.fn();
+const getSemanticTokensForContentMock = vi.fn();
 vi.mock('./intelligenceService', () => ({
-  getSemanticTokens: (...args: unknown[]) => getSemanticTokensMock(...args),
+  getSemanticTokensForContent: (...args: unknown[]) =>
+    getSemanticTokensForContentMock(...args),
   getSymbols: vi.fn(async () => []),
   getFoldingRanges: vi.fn(async () => []),
   QMD_TOKEN_LEGEND: ['qmd.markup.heading', 'qmd.code.keyword'],
@@ -75,21 +76,39 @@ function stubToken(cancelled: boolean): Monaco.CancellationToken {
   } as unknown as Monaco.CancellationToken;
 }
 
-function stubModel(versionIds: number[]): Monaco.editor.ITextModel {
+function stubModel(versionIds: number[], value = 'model text'): Monaco.editor.ITextModel {
   let i = 0;
   return {
     getVersionId: () => versionIds[Math.min(i++, versionIds.length - 1)],
+    getValue: () => value,
   } as unknown as Monaco.editor.ITextModel;
 }
 
 describe('provideDocumentSemanticTokens return shape', () => {
   beforeEach(() => {
-    getSemanticTokensMock.mockReset();
+    getSemanticTokensForContentMock.mockReset();
     disposeIntelligenceProviders();
   });
 
+  it('tokenises the model content, not the VFS image by path', async () => {
+    // Regression: tokens were computed from the VFS image while Monaco renders
+    // the model. When the two drift, every token shifts and smears colours onto
+    // adjacent characters (e.g. an image opener token landing on a link's `[`).
+    getSemanticTokensForContentMock.mockResolvedValue([]);
+    const provider = captureProvider('/project/a.qmd');
+    await provider.provideDocumentSemanticTokens(
+      stubModel([1], '[label](url)'),
+      null,
+      stubToken(false),
+    );
+    expect(getSemanticTokensForContentMock).toHaveBeenCalledWith(
+      '/project/a.qmd',
+      '[label](url)',
+    );
+  });
+
   it('returns null when the request is already cancelled', async () => {
-    getSemanticTokensMock.mockResolvedValue([]);
+    getSemanticTokensForContentMock.mockResolvedValue([]);
     const provider = captureProvider('/project/a.qmd');
     const result = await provider.provideDocumentSemanticTokens(
       stubModel([1]),
@@ -100,7 +119,7 @@ describe('provideDocumentSemanticTokens return shape', () => {
   });
 
   it('returns null when the model version changes across the await', async () => {
-    getSemanticTokensMock.mockResolvedValue([
+    getSemanticTokensForContentMock.mockResolvedValue([
       { line: 0, character: 0, length: 1, tokenType: 0, modifiers: 0 },
     ]);
     const provider = captureProvider('/project/a.qmd');
@@ -114,7 +133,7 @@ describe('provideDocumentSemanticTokens return shape', () => {
   });
 
   it('returns empty Uint32Array (not null) for a valid empty result', async () => {
-    getSemanticTokensMock.mockResolvedValue([]);
+    getSemanticTokensForContentMock.mockResolvedValue([]);
     const provider = captureProvider('/project/a.qmd');
     const result = await provider.provideDocumentSemanticTokens(
       stubModel([1]),
@@ -129,7 +148,7 @@ describe('provideDocumentSemanticTokens return shape', () => {
   });
 
   it('delta-encodes a non-empty result', async () => {
-    getSemanticTokensMock.mockResolvedValue([
+    getSemanticTokensForContentMock.mockResolvedValue([
       { line: 1, character: 2, length: 3, tokenType: 1, modifiers: 0 },
     ]);
     const provider = captureProvider('/project/a.qmd');
@@ -149,6 +168,6 @@ describe('provideDocumentSemanticTokens return shape', () => {
       stubToken(false),
     );
     expect(result).toBeNull();
-    expect(getSemanticTokensMock).not.toHaveBeenCalled();
+    expect(getSemanticTokensForContentMock).not.toHaveBeenCalled();
   });
 });
