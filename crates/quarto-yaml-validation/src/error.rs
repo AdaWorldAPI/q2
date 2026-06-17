@@ -311,6 +311,11 @@ pub struct ValidationError {
     pub yaml_node: Option<YamlWithSourceInfo>,
     /// Source location (file, line, column) for error reporting
     pub location: Option<SourceLocation>,
+    /// Author-supplied hint override, taken from the `errorMessage` annotation
+    /// on the schema node where the failure occurred. When present, this
+    /// replaces the auto-generated hint line; the factual primary message
+    /// (from [`ValidationErrorKind::message`]) is left intact.
+    pub custom_hint: Option<String>,
 }
 
 impl fmt::Display for ValidationError {
@@ -337,6 +342,7 @@ impl ValidationError {
             schema_path: SchemaPath::new(),
             yaml_node: None,
             location: None,
+            custom_hint: None,
         }
     }
 
