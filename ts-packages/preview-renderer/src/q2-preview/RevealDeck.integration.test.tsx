@@ -18,9 +18,15 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { isValidElement } from 'react';
 import { render } from '@testing-library/react';
-import { RevealContext } from '@revealjs/react';
-import { RevealChrome, revealChromeFromMeta } from './RevealDeck';
+import { RevealContext, Slide, Stack } from '@revealjs/react';
+import {
+    RevealChrome,
+    revealChromeFromMeta,
+    renderTopSection,
+    sectionAttrProps,
+} from './RevealDeck';
 
 const metaString = (c: string) => ({ t: 'MetaString', c });
 const metaMap = (entries: Record<string, unknown>) => ({
@@ -57,6 +63,60 @@ function renderChrome(props: { footerHtml?: string; logoHtml?: string }) {
     );
     return { reveal, slides, ...utils };
 }
+
+/** A `Div(.section)` block as `RevealSlidesTransform` emits it: Attr =
+ *  [id, classes, kvs], then the child blocks. */
+const sectionDiv = (
+    id: string,
+    classes: string[],
+    blocks: unknown[] = [],
+): never =>
+    ({ t: 'Div', c: [[id, classes, []], blocks] }) as never;
+
+const H1_TITLE = { t: 'Header', c: [1, ['', ['title'], []], [{ t: 'Str', c: 'T' }]] };
+
+describe('sectionAttrProps — forwards the section Div Attr (F1+F2, bd-vv8jft5n)', () => {
+    it('joins classes and keeps the id', () => {
+        const props = sectionAttrProps(
+            sectionDiv('title-slide', ['section', 'title-slide', 'center']),
+        );
+        expect(props.id).toBe('title-slide');
+        expect(props.className).toBe('section title-slide center');
+    });
+
+    it('omits an empty id and empty className (untitled / class-less slide)', () => {
+        const props = sectionAttrProps(sectionDiv('', []));
+        expect(props.id).toBeUndefined();
+        expect(props.className).toBeUndefined();
+    });
+});
+
+describe('renderTopSection — title slide keeps `center` so reveal centers it', () => {
+    it('leaf <Slide> carries the section id + classes (title-slide center)', () => {
+        const div = sectionDiv('title-slide', ['section', 'title-slide', 'center'], [
+            H1_TITLE,
+        ]);
+        const el = renderTopSection(div, 0);
+        expect(isValidElement(el)).toBe(true);
+        const node = el as React.ReactElement<Record<string, unknown>>;
+        expect(node.type).toBe(Slide);
+        expect(node.props.id).toBe('title-slide');
+        expect(node.props.className).toBe('section title-slide center');
+    });
+
+    it('<Stack> divider carries `section` class; inner <Slide>s carry their id+classes', () => {
+        const inner1 = sectionDiv('part-one', ['section']); // divider heading slide
+        const inner2 = sectionDiv('first-topic', ['section']);
+        const div = sectionDiv('part-one', ['section'], [inner1, inner2]);
+        const el = renderTopSection(div, 0) as React.ReactElement<Record<string, unknown>>;
+        expect(el.type).toBe(Stack);
+        expect(el.props.className).toContain('section');
+        const slides = el.props.children as React.ReactElement<Record<string, unknown>>[];
+        expect(slides[0].props.id).toBe('part-one');
+        expect(slides[1].props.id).toBe('first-topic');
+        expect(slides[1].props.className).toBe('section');
+    });
+});
 
 describe('revealChromeFromMeta — reads rendered.reveal.{footer,logo}', () => {
     it('extracts both slots', () => {

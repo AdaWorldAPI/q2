@@ -102,12 +102,39 @@ function SlideBody(props: {
 }
 
 /**
+ * Forward a section `Div`'s `Attr` (`[id, classes, kvs]`) onto the reveal
+ * `<section>` as `id` + `className`, mirroring the native writer — the same
+ * `id`/`class` `q2 render` puts on every `<section>`
+ * (`crates/quarto-core/src/revealjs/assemble.rs`). Without this, preview
+ * `<section>`s carry only reveal's runtime `present`/`future` classes: the
+ * title slide loses `center` (reveal's vertical centering) and `title-slide`
+ * (a theme-CSS hook), in-deck `#id` anchors break, and author per-slide classes
+ * (`## Slide {.smaller}`) are dropped. F1+F2 of bd-vv8jft5n.
+ *
+ * Empty id / empty class list collapse to `undefined` so we don't emit
+ * `id=""` / `class=""`.
+ */
+export function sectionAttrProps(div: DivBlock): { id?: string; className?: string } {
+    const [id, classes] = div.c[0];
+    return {
+        id: id || undefined,
+        className: classes.length > 0 ? classes.join(' ') : undefined,
+    };
+}
+
+/**
  * Map one top-level section Div to a `<Slide>` (leaf) or `<Stack>` of
  * vertical `<Slide>`s (a section divider whose children are themselves
  * section Divs — the shape `RevealSlidesTransform` emits for `# Section`
  * dividers and their `## ` sub-slides).
+ *
+ * Each `<section>` carries its Div's `id` + classes via [`sectionAttrProps`].
+ * Caveat: `@revealjs/react`'s `<Stack>` only accepts `className` (it drops
+ * `id`), so a section-divider stack's own `id` cannot round-trip through the
+ * component today — the inner vertical `<Slide>`s still get theirs. Tracked
+ * under bd-vv8jft5n.
  */
-function renderTopSection(
+export function renderTopSection(
     div: DivBlock,
     key: number,
     onNavigateToDocument?: (path: string, anchor: string | null) => void,
@@ -117,9 +144,9 @@ function renderTopSection(
 
     if (verticalSlides.length > 0) {
         return (
-            <Stack key={key}>
+            <Stack key={key} {...sectionAttrProps(div)}>
                 {verticalSlides.map((slide, j) => (
-                    <Slide key={j}>
+                    <Slide key={j} {...sectionAttrProps(slide as DivBlock)}>
                         <SlideBody
                             blocks={(slide as DivBlock).c[1]}
                             sectionClasses={(slide as DivBlock).c[0][1]}
@@ -132,7 +159,7 @@ function renderTopSection(
     }
 
     return (
-        <Slide key={key}>
+        <Slide key={key} {...sectionAttrProps(div)}>
             <SlideBody
                 blocks={children}
                 sectionClasses={div.c[0][1]}

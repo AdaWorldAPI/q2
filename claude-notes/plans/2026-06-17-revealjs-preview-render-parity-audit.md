@@ -98,26 +98,58 @@ a complete feature miss, not a style nudge. Tracked by **bd-n2w0sxgd**;
 `bd-ocxnva1f` covers *Lua filters* manipulating footer/logo, a different
 concern from this baseline "preview doesn't render them at all" gap.
 
-**Status (2026-06-17): DOM fixed.** `RevealDeck` now emits the chrome.
-`RevealChrome` reads `rendered.reveal.{footer,logo}` and injects the markup into
-the `.reveal` element (outside `.slides`) via `useReveal()` →
+**Status (2026-06-17): DOM fixed and styled.** `RevealDeck` now emits the
+chrome. `RevealChrome` reads `rendered.reveal.{footer,logo}` and injects the
+markup into the `.reveal` element (outside `.slides`) via `useReveal()` →
 `getRevealElement()`, plus `has-logo`. Verified in Chrome on `10-footer-logo`:
 `.reveal.has-logo`, `img.slide-logo` + `.footer.footer-default` are direct
-children of `.reveal`, not in `.slides`, footer link preserved. Tests:
-`RevealDeck.integration.test.tsx` (7 cases). **Caveat → F4.**
+children of `.reveal`, not in `.slides`, footer link preserved, footer
+`position: fixed; bottom: 18px` and logo `position: fixed; bottom: 0; right:
+12px` (theme styling applies — see F4). Tests: `RevealDeck.integration.test.tsx`.
+**Caveat:** the logo *image* still 404s — see F5.
 
-### F4 — Preview reveal theme omits the Quarto chrome CSS layer (discovered via F3, tracked: bd-d0f9xoa6)
+### F4 — (RETRACTED) "Preview reveal theme omits the chrome CSS layer" — was a stale-WASM artifact (bd-d0f9xoa6, closed)
 
-With F3's DOM in place, the footer/logo render **unstyled** (`position: static`)
-because the preview's runtime-delivered theme (`<link data-q2-theme>` blob, 1784
-rules) does **not** contain `.reveal .footer` / `.reveal .slide-logo`. Render
-positions them `fixed` via rules in the per-doc `theme-<fp>.css` (compiled from
-`resources/scss/revealjs/quarto-revealjs.scss`); the preview theme is missing
-that chrome layer. This is a theme-**content** parity gap (sibling of the
-theme-delivery work bd-y259zb57), independent of the DOM fix — fixing it likely
-means either compiling the same SCSS partials into the preview theme or moving
-the theme-independent chrome rules into the statically-imported
-`resources/revealjs/quarto-reveal.css`.
+Initially filed when the footer/logo measured `position: static` and the theme
+blob lacked `.reveal .footer`. **Not reproducible on a clean build.** That
+reading came from a binary whose embedded WASM theme artifact was stale (built
+via `cargo xtask build-q2-preview-spa` *without* a WASM rebuild — the
+stale-WASM-in-`q2 preview` trap in CLAUDE.md). After `cargo xtask verify`
+rebuilt the WASM, the runtime-delivered theme **does** contain the chrome rules
+and footer/logo are correctly `position: fixed`, stable across reloads and
+500 ms–5 s time samples. Lesson: always rebuild WASM (`npm run build:wasm` /
+`cargo xtask verify`) before judging a preview *styling* gap.
+
+### F5 — Logo image 404s in preview: asset walker misses meta-driven raw-HTML images (tracked: bd-k5rxujiy)
+
+_(Moved up from below — kept here with the other F-numbered findings.)_ See the
+detailed entry under "Findings" above.
+
+### F5 — Logo image 404s in preview: asset walker misses meta-driven raw-HTML images (tracked: bd-k5rxujiy)
+
+With F3's DOM in place, the logo `<img class="slide-logo" src="logo.svg">` fails
+to load in preview (`naturalWidth: 0`). Network: `GET /logo.svg` → **200
+`text/html`** (the SPA shell) — `logo.svg` is not in the preview's served VFS
+asset set, so the catch-all returns `index.html`.
+
+**Root cause (confirmed):** the parent-side asset walker
+(`ts-packages/preview-renderer/src/q2-preview/assetWalker.ts::collectImagePaths`)
+collects **only AST `Image` nodes** (`obj.t === 'Image'`). The logo comes from
+metadata (`logo: logo.svg`), rendered by `RevealFooterLogoTransform` into
+`rendered.reveal.logo` as a **raw HTML `<img>` string** that `RevealChrome`
+injects via `dangerouslySetInnerHTML`. It is never an `Image` node, so (1) no
+blob URL is minted for it, and (2) the raw `<img>` bypasses the `<Image>` React
+component that rewrites `src` against the manifest. `ResourceCollectorTransform`
+is likewise a no-op in `vfs_root` mode (`resource_collector.rs:96`) by design —
+the walker is the producer in preview. Native render works only because
+`logo.svg` sits next to `slides.html` on disk.
+
+**Fix options** (need a design call): (A) walker also collects `meta.logo` and
+`RevealChrome` rewrites the injected `src` via `AssetManifestContext` — targeted;
+(B) generalize the walker to scan `rendered.{reveal,navigation}.*` HTML strings
+for `src=`/`href=` asset refs and have the injecting slots rewrite — general
+(covers footer images, navbar logos); (C) represent the logo as a real `Image`
+AST node. Recommend (B) long-term, (A) as a quick win.
 
 ## Root cause (F1 + F2)
 
@@ -156,12 +188,24 @@ verify):
 
 ### Phase A — fix the two systemic + one chrome divergence (TDD per /preview-parity)
 
-- [ ] **F1+F2: forward section `Attr` onto `<Slide>`/`<Stack>`** (extend
-  bd-vv8jft5n; widen scope from "section-id" to "section `Attr`: id + classes +
-  kvs"). Failing test first in
-  `ts-packages/preview-renderer/src/q2-preview/q2-preview.integration.test.tsx`:
-  mount a deck AST, assert `<section id="…" class="section …">`. Mirror
-  `assemble.rs`. Verify in Chrome on `01`/`02`/`10`.
+- [x] **F1+F2: forward section `Attr` onto `<Slide>`/`<Stack>`** (bd-vv8jft5n).
+  DONE 2026-06-17 — `sectionAttrProps(div)` forwards `id` + joined classes;
+  `renderTopSection` spreads it onto each leaf/inner `<Slide>` and the `<Stack>`.
+  Verified in Chrome on `10-footer-logo`: title slide now
+  `id="title-slide" class="section title-slide center present"` and reveal
+  vertically centers it (`section top: 288.5px`, h1 `text-align: center`); other
+  sections gain ids + `section`. Tests in `RevealDeck.integration.test.tsx`.
+  **Known gap:** `@revealjs/react`'s `<Stack>` only accepts `className` (drops
+  `id`), so a `# Section`-divider stack's own `id` can't round-trip through the
+  component yet (inner vertical slides still get theirs). `kvs` (e.g.
+  `data-background-color`) not yet forwarded — defer to authoring features
+  (bd-bea550b0). Both noted on bd-vv8jft5n.
+- [x] ~~**F4: include the Quarto reveal chrome CSS layer in the preview
+  theme**~~ — RETRACTED (bd-d0f9xoa6 closed); was a stale-WASM artifact, the
+  theme is fine on a clean build.
+- [ ] **F5: collect meta-driven / raw-HTML images into the preview VFS**
+  (bd-k5rxujiy). Logo `<img src="logo.svg">` 404s because the asset walker only
+  sees AST `Image` nodes. Needs a design call (see F5 fix options).
 - [x] **F3: render deck footer/logo + `has-logo` in `RevealDeck`** (bd-n2w0sxgd).
   DONE 2026-06-17 — `RevealChrome` + `revealChromeFromMeta` in `RevealDeck.tsx`,
   7-case `RevealDeck.integration.test.tsx`, verified in Chrome. DOM-only;
