@@ -15,7 +15,7 @@ import {
 } from '@quarto/preview-runtime';
 import { vfsAddFile, isWasmReady } from '@quarto/preview-runtime';
 import type { Diagnostic } from '@quarto/preview-renderer/types/diagnostic';
-import { registerIntelligenceProviders, disposeIntelligenceProviders } from '../services/monacoProviders';
+import { useIntelligenceProviders } from '../hooks/useIntelligenceProviders';
 import { registerQmdLanguage } from './quartoTheme';
 import { processFileForUpload } from '../services/resourceService';
 import { usePresence } from '../hooks/usePresence';
@@ -172,6 +172,12 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
 
   // Track current file path in a ref for Monaco providers (they need stable callbacks)
   const currentFilePathRef = useRef<string | null>(currentFile?.path ?? null);
+
+  // Stable getter + lifecycle hook for the Monaco intelligence providers
+  // (symbols, folding, semantic tokens). Registered on editor mount, disposed
+  // only on unmount — must not be coupled to `currentFile`.
+  const getCurrentFilePath = useCallback(() => currentFilePathRef.current, []);
+  const registerIntelligenceProvidersOnMount = useIntelligenceProviders(getCurrentFilePath);
 
   // Presence for collaborative cursors
   const { remoteUsers, userCount, onEditorMount: onPresenceEditorMount } = usePresence(currentFile?.path ?? null);
@@ -567,9 +573,9 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
     onSyncEditorMount(editor);
     onPresenceEditorMount(editor);
 
-    // Register intelligence providers (DocumentSymbolProvider, FoldingRangeProvider)
-    // The callback uses a ref so it always returns the current file path
-    registerIntelligenceProviders(monaco, () => currentFilePathRef.current);
+    // Register intelligence providers (symbols, folding, semantic tokens).
+    // The getter uses a ref so it always returns the current file path.
+    registerIntelligenceProvidersOnMount(monaco);
 
     // Track editor focus state for scroll sync
     editor.onDidFocusEditorText(() => {
@@ -816,7 +822,9 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
     setShowNewAssetDialog(true);
   }, [currentFile]);
 
-  // Cleanup editor drag-drop listeners and Monaco providers on unmount
+  // Cleanup editor drag-drop listeners on unmount. Note: intelligence-provider
+  // disposal lives in useIntelligenceProviders (mount-only) — it must NOT be
+  // coupled to `handleEditorDrop`, whose identity changes with `currentFile`.
   useEffect(() => {
     return () => {
       const domNode = editorRef.current?.getDomNode();
@@ -825,8 +833,6 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
         domNode.removeEventListener('dragleave', handleEditorDragLeave);
         domNode.removeEventListener('drop', handleEditorDrop);
       }
-      // Clean up Monaco intelligence providers
-      disposeIntelligenceProviders();
     };
   }, [handleEditorDragOver, handleEditorDragLeave, handleEditorDrop]);
 
