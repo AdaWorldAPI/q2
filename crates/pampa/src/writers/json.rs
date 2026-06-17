@@ -3,7 +3,7 @@
  * Copyright (c) 2025 Posit, PBC
  */
 
-use crate::pandoc::attr::{AttrSourceInfo, TargetSourceInfo};
+use crate::pandoc::attr::{AttrSourceInfo, TargetSourceInfo, is_empty_attr};
 use crate::pandoc::shortcode::shortcode_to_span;
 use crate::pandoc::{
     ASTContext, Attr, Block, Caption, CitationMode, Inline, Inlines, ListAttributes, Pandoc,
@@ -3152,15 +3152,50 @@ fn stream_write_block<W: io::Write>(
                 Ok(())
             },
         ),
-        Block::Paragraph(p) => stream_write_simple_node(
-            w,
-            "Para",
-            &p.source_info,
-            ctx,
-            |w: &mut JsonStreamWriter<W>, ctx: &mut JsonWriterContext| {
-                stream_write_inlines(w, &p.content, ctx)
-            },
-        ),
+        Block::Paragraph(p) => {
+            // A `Paragraph` may carry a trailing standalone `Inline::Attr`
+            // injected by a filter (e.g. `<p class="caption">`). Pandoc's `Para`
+            // has no `Attr` field, so we collect that trailing run into a single
+            // block attr and emit it as an extra `attr` object key — the same
+            // "safe extra key" channel as `s`/`l`, which Pandoc ignores while
+            // our React preview renderer reads it. See bd-itqcfxc3.
+            let (content, attr) = super::block_attr::split_trailing_block_attr(&p.content);
+            if is_empty_attr(&attr) {
+                stream_write_simple_node(
+                    w,
+                    "Para",
+                    &p.source_info,
+                    ctx,
+                    |w: &mut JsonStreamWriter<W>, ctx: &mut JsonWriterContext| {
+                        stream_write_inlines(w, &p.content, ctx)
+                    },
+                )
+            } else {
+                // Inlined so we can emit the extra `attr` key in alphabetical
+                // wire order (attr, c, l?, s, t).
+                let s_id = ctx.serializer.intern(&p.source_info);
+                ctx.maybe_record_attribution_for(&p.source_info, s_id);
+                w.begin_object()?;
+                w.key("attr")?;
+                stream_write_attr(w, &attr)?;
+                w.key("c")?;
+                w.begin_array()?;
+                for inline in content {
+                    stream_write_inline(w, inline, ctx)?;
+                }
+                w.end_array()?;
+                if ctx.serializer.config.include_inline_locations {
+                    let ast_context = ctx.serializer.context;
+                    stream_write_location_key_if_mapped(w, "l", &p.source_info, ast_context)?;
+                }
+                w.key("s")?;
+                w.u64_value(s_id as u64)?;
+                w.key("t")?;
+                w.str_value("Para")?;
+                w.end_object()?;
+                Ok(())
+            }
+        }
         Block::Header(h) => stream_write_attrs_node(
             w,
             "Header",
@@ -4462,6 +4497,61 @@ mod tests {
             }
             _ => panic!("Expected Custom block"),
         }
+    }
+
+    #[test]
+    fn test_paragraph_trailing_attr_emits_attr_key() {
+        // A `Paragraph` ending in a trailing standalone `Inline::Attr` (as a
+        // filter would inject for `<p class="caption">`) must serialize to a
+        // Pandoc-valid `Para` node carrying an extra `attr` object key — the
+        // same "safe extra key" channel the `s`/`l` source-info keys use, which
+        // Pandoc ignores. The trailing `Inline::Attr` (and the `Space` before
+        // it) are stripped from `c`. See bd-itqcfxc3.
+        use crate::pandoc::inline::InlineAttr;
+        use crate::pandoc::{Block, Inline, Paragraph, Space, Str};
+
+        let attr: Attr = (
+            String::new(),
+            vec!["caption".to_string()],
+            LinkedHashMap::new(),
+        );
+        let para = Paragraph {
+            content: vec![
+                Inline::Str(Str {
+                    text: "This is a caption.".to_string(),
+                    source_info: SourceInfo::for_test(),
+                }),
+                Inline::Space(Space {
+                    source_info: SourceInfo::for_test(),
+                }),
+                Inline::Attr(InlineAttr::new(
+                    attr,
+                    AttrSourceInfo::empty(),
+                    SourceInfo::for_test(),
+                )),
+            ],
+            source_info: SourceInfo::for_test(),
+        };
+        let pandoc = crate::pandoc::Pandoc {
+            meta: quarto_pandoc_types::ConfigValue::default(),
+            blocks: vec![Block::Paragraph(para)],
+        };
+
+        let context = make_test_context();
+        let config = make_test_config();
+        let mut output = Vec::new();
+        write_with_config(&pandoc, &context, &mut output, &config).unwrap();
+
+        let v: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        let para_node = &v["blocks"][0];
+        assert_eq!(para_node["t"], "Para");
+        // The collected block attr rides as an extra `attr` key: [id, classes, kvs].
+        assert_eq!(para_node["attr"], json!(["", ["caption"], []]));
+        // The trailing `Inline::Attr` and its preceding `Space` are gone from `c`.
+        let c = para_node["c"].as_array().expect("c is an array");
+        assert_eq!(c.len(), 1, "expected only the Str to remain, got {:?}", c);
+        assert_eq!(c[0]["t"], "Str");
+        assert_eq!(c[0]["c"], "This is a caption.");
     }
 
     // ----------------------------------------------------------------
