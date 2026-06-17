@@ -17,8 +17,8 @@
  * See claude-notes/plans/2026-06-08-revealjs-presentations.md (Phase 1P).
  */
 
-import React, { useContext } from 'react';
-import { Deck, Slide, Stack } from '@revealjs/react';
+import React, { useContext, useEffect } from 'react';
+import { Deck, Slide, Stack, useReveal } from '@revealjs/react';
 // Reveal CSS from the SAME vendored copy `q2 render` links — `resources/
 // revealjs/` — in the SAME cascade order, so render and preview cannot disagree
 // on reveal styling (bd-ibqkf9ry). The `vendored_reveal_assets_match_npm_package`
@@ -41,7 +41,7 @@ import '../../../../resources/revealjs/reset.css';
 import '../../../../resources/revealjs/reveal.css';
 import '../../../../resources/revealjs/quarto-reveal.css';
 
-import { extractMetaBool, Node, RegistryContext } from '../framework';
+import { extractMetaBool, extractMetaString, getMetaPath, Node, RegistryContext } from '../framework';
 import type { BlockNode, DivBlock, FormatRegistry, PandocAST } from '../framework';
 import { IncrementalContext } from './IncrementalContext';
 
@@ -102,12 +102,39 @@ function SlideBody(props: {
 }
 
 /**
+ * Forward a section `Div`'s `Attr` (`[id, classes, kvs]`) onto the reveal
+ * `<section>` as `id` + `className`, mirroring the native writer — the same
+ * `id`/`class` `q2 render` puts on every `<section>`
+ * (`crates/quarto-core/src/revealjs/assemble.rs`). Without this, preview
+ * `<section>`s carry only reveal's runtime `present`/`future` classes: the
+ * title slide loses `center` (reveal's vertical centering) and `title-slide`
+ * (a theme-CSS hook), in-deck `#id` anchors break, and author per-slide classes
+ * (`## Slide {.smaller}`) are dropped. F1+F2 of bd-vv8jft5n.
+ *
+ * Empty id / empty class list collapse to `undefined` so we don't emit
+ * `id=""` / `class=""`.
+ */
+export function sectionAttrProps(div: DivBlock): { id?: string; className?: string } {
+    const [id, classes] = div.c[0];
+    return {
+        id: id || undefined,
+        className: classes.length > 0 ? classes.join(' ') : undefined,
+    };
+}
+
+/**
  * Map one top-level section Div to a `<Slide>` (leaf) or `<Stack>` of
  * vertical `<Slide>`s (a section divider whose children are themselves
  * section Divs — the shape `RevealSlidesTransform` emits for `# Section`
  * dividers and their `## ` sub-slides).
+ *
+ * Each `<section>` carries its Div's `id` + classes via [`sectionAttrProps`].
+ * Caveat: `@revealjs/react`'s `<Stack>` only accepts `className` (it drops
+ * `id`), so a section-divider stack's own `id` cannot round-trip through the
+ * component today — the inner vertical `<Slide>`s still get theirs. Tracked
+ * under bd-vv8jft5n.
  */
-function renderTopSection(
+export function renderTopSection(
     div: DivBlock,
     key: number,
     onNavigateToDocument?: (path: string, anchor: string | null) => void,
@@ -117,9 +144,9 @@ function renderTopSection(
 
     if (verticalSlides.length > 0) {
         return (
-            <Stack key={key}>
+            <Stack key={key} {...sectionAttrProps(div)}>
                 {verticalSlides.map((slide, j) => (
-                    <Slide key={j}>
+                    <Slide key={j} {...sectionAttrProps(slide as DivBlock)}>
                         <SlideBody
                             blocks={(slide as DivBlock).c[1]}
                             sectionClasses={(slide as DivBlock).c[0][1]}
@@ -132,7 +159,7 @@ function renderTopSection(
     }
 
     return (
-        <Slide key={key}>
+        <Slide key={key} {...sectionAttrProps(div)}>
             <SlideBody
                 blocks={children}
                 sectionClasses={div.c[0][1]}
@@ -142,7 +169,79 @@ function renderTopSection(
     );
 }
 
+/**
+ * Read the pre-rendered deck-level footer/logo markup from the
+ * `rendered.reveal.{footer,logo}` meta slots (populated by the
+ * `reveal-footer-logo` transform — `crates/quarto-core/src/revealjs/
+ * footer_logo.rs` — which runs in the q2-preview pipeline, so the markup
+ * is already present in the AST handed to preview). Each slot is a raw
+ * HTML string, byte-identical to what `q2 render` links.
+ */
+export function revealChromeFromMeta(meta: PandocAST['meta'] | undefined): {
+    footerHtml?: string;
+    logoHtml?: string;
+} {
+    return {
+        logoHtml: extractMetaString(getMetaPath(meta, ['rendered', 'reveal', 'logo'])),
+        footerHtml: extractMetaString(getMetaPath(meta, ['rendered', 'reveal', 'footer'])),
+    };
+}
+
+/**
+ * Place the deck-level footer/logo as **direct children of `.reveal`, OUTSIDE
+ * `.slides`**, and add `has-logo` to `.reveal` — mirroring the native scaffold
+ * (`crates/quarto-core/src/revealjs/assemble.rs::render_revealjs_document` +
+ * `footer_logo_html`). `position: fixed` only resolves against the viewport
+ * outside `.slides` (reveal applies a CSS `transform` to `.slides`/`<section>`).
+ *
+ * `@revealjs/react`'s `<Deck>` renders its children only *inside* `.slides`, so
+ * we cannot place this chrome declaratively. Instead we reach the `.reveal`
+ * element via `useReveal()` → `getRevealElement()` and inject the markup
+ * imperatively — the same escape hatch `HeaderIncludesEffect` uses for
+ * `document.head`. `RevealChrome` itself renders nothing in the React tree;
+ * mount it as a child of `<Deck>` so `useReveal()` sees the deck context.
+ *
+ * Order (logo then footer) matches `footer_logo_html`. Cleanup on unmount keeps
+ * test re-mounts and edit re-renders from accumulating nodes / the class.
+ */
+export function RevealChrome(props: { footerHtml?: string; logoHtml?: string }) {
+    const reveal = useReveal();
+    const { footerHtml, logoHtml } = props;
+    useEffect(() => {
+        if (!reveal) return;
+        // `useReveal()`'s `RevealApi` resolves loosely (the package's
+        // `../../dist/reveal` type import widens to `any`), so annotate the DOM
+        // node explicitly — otherwise `Array.from(wrapper.children)` below
+        // infers `unknown[]` under the SPA's stricter `tsc -b`.
+        const el = reveal.getRevealElement?.() as HTMLElement | null;
+        if (!el) return;
+
+        const inserted: Element[] = [];
+        const parts = [logoHtml, footerHtml].filter((s): s is string => !!s);
+        if (parts.length > 0) {
+            const wrapper = el.ownerDocument.createElement('div');
+            wrapper.innerHTML = parts.join('\n');
+            for (const node of Array.from(wrapper.children)) {
+                node.setAttribute('data-q2-reveal-chrome', '1');
+                el.appendChild(node);
+                inserted.push(node);
+            }
+        }
+        // `.reveal.has-logo` repositions the slide number (quarto-revealjs.scss);
+        // the native scaffold sets it iff the logo slot is present.
+        if (logoHtml) el.classList.add('has-logo');
+
+        return () => {
+            for (const node of inserted) node.remove();
+            if (logoHtml) el.classList.remove('has-logo');
+        };
+    }, [reveal, footerHtml, logoHtml]);
+
+    return null;
+}
+
 export function RevealDeck(props: RevealDeckProps) {
+    const chrome = revealChromeFromMeta(props.ast.meta);
     const slides = props.ast.blocks.map((block, i) => {
         if (isSectionDiv(block)) {
             return renderTopSection(block as DivBlock, i, props.onNavigateToDocument);
@@ -188,6 +287,9 @@ export function RevealDeck(props: RevealDeckProps) {
                     }}
                 >
                     {slides}
+                    {/* Deck-level footer/logo: injected into `.reveal` outside
+                        `.slides` (renders null in-tree). Mirrors assemble.rs. */}
+                    <RevealChrome footerHtml={chrome.footerHtml} logoHtml={chrome.logoHtml} />
                 </Deck>
             </IncrementalContext.Provider>
         </RegistryContext.Provider>
