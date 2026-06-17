@@ -612,9 +612,10 @@ fn validate_object(
             // message the user would have seen had it been present with a bad
             // value: enum values for an enum subschema, otherwise the type(s).
             let (allowed, expected_type) = match schema.properties.get(required) {
-                Some(Schema::Enum(e)) if !e.values.is_empty() => {
-                    (Some(e.values.iter().map(|v| format!("{}", v)).collect()), None)
-                }
+                Some(Schema::Enum(e)) if !e.values.is_empty() => (
+                    Some(e.values.iter().map(|v| format!("{}", v)).collect()),
+                    None,
+                ),
                 Some(prop) => (None, expected_type_description(prop)),
                 None => (None, None),
             };
@@ -730,11 +731,7 @@ fn expected_type_description(schema: &Schema) -> Option<String> {
                 Some(names.join(" or "))
             }
         }
-        Schema::Enum(_)
-        | Schema::AllOf(_)
-        | Schema::Any(_)
-        | Schema::True
-        | Schema::Ref(_) => None,
+        Schema::Enum(_) | Schema::AllOf(_) | Schema::Any(_) | Schema::True | Schema::Ref(_) => None,
     }
 }
 
@@ -903,7 +900,9 @@ mod tests {
             })
         };
 
-        for text in [".inf", "+.inf", "-.inf", ".Inf", ".INF", ".nan", ".NaN", ".NAN"] {
+        for text in [
+            ".inf", "+.inf", "-.inf", ".Inf", ".INF", ".nan", ".NaN", ".NAN",
+        ] {
             let yaml = quarto_yaml::parse(text).unwrap();
             assert!(
                 validate(&yaml, &number_schema(), &registry, &source_ctx).is_ok(),
@@ -1510,15 +1509,16 @@ mod tests {
                 assert_eq!(property, "version");
                 // Enum values render via `format!("{}", json)`, so strings keep
                 // their quotes — matching the `InvalidEnumValue` rendering.
-                assert_eq!(allowed.as_deref(), Some(["\"0.1.0\"".to_string()].as_slice()));
+                assert_eq!(
+                    allowed.as_deref(),
+                    Some(["\"0.1.0\"".to_string()].as_slice())
+                );
                 assert_eq!(*expected_type, None);
             }
             other => panic!("expected MissingRequiredProperty, got {:?}", other),
         }
         assert!(
-            err.kind
-                .message()
-                .contains("must be one of: \"0.1.0\""),
+            err.kind.message().contains("must be one of: \"0.1.0\""),
             "message was: {}",
             err.kind.message()
         );
