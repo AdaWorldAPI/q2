@@ -17,7 +17,7 @@
 //! That:
 //!   1. switches the current worktree to `feature/q2-preview-command`
 //!      and runs `git pull --ff-only` so it picks up siblings' merges,
-//!   2. creates a new topic branch `beads/<id>-<slug>` off the new
+//!   2. creates a new topic branch `braid/<id>-<slug>` off the new
 //!      tip,
 //!   3. marks the braid strand `in_progress`,
 //!   4. rewrites the `<!-- BEGIN/END WORKTREE CONTEXT -->` block in
@@ -33,7 +33,7 @@ use std::process::Command;
 
 use crate::create_worktree::{
     IssueMetadata, SectionKind, build_section, derive_slug, fetch_issue_metadata,
-    parse_external_ref_to_github_url, update_claude_local_md, validate_slug,
+    parse_external_ref_to_github_url, strand_branch, update_claude_local_md, validate_slug,
 };
 
 /// Find the *current worktree's* root via `git rev-parse --show-toplevel`.
@@ -84,7 +84,7 @@ pub fn run(args: Args) -> Result<()> {
         }
         None => derive_slug(&meta.title)?,
     };
-    let branch = format!("beads/{}-{}", args.beads_id, slug);
+    let branch = strand_branch(&format!("{}-{}", args.beads_id, slug));
 
     if let Some(from) = args.from.as_deref() {
         // Best-effort fetch so origin/<from> reflects the latest tip.
