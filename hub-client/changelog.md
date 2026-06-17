@@ -15,8 +15,14 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-17
+
+- [`744c6ed1`](https://github.com/quarto-dev/q2/commits/744c6ed1): Editor `.qmd` syntax highlighting now appears immediately on file open, instead of after a brief debounce.
+- [`13c5b98b`](https://github.com/quarto-dev/q2/commits/13c5b98b): The Monaco editor now syntax-highlights `.qmd` files via tree-sitter — qmd structure, frontmatter YAML, and code-cell interiors (comments and link/image brackets included) — driven by the same highlighter as the render path.
+
 ### 2026-06-16
 
+- [`ff31c8ea`](https://github.com/quarto-dev/q2/commits/ff31c8ea): RevealJS presentations now apply their configured theme through Quarto's SCSS theme system on reveal.js 6, instead of always rendering the white theme.
 - [`37061765`](https://github.com/quarto-dev/q2/commits/37061765): RevealJS preview now matches the render path's Quarto-1 defaults — slides top-align (no vertical centering), slide transitions are off by default, and the deck uses a 0.1 margin with linear navigation and edge controls.
 
 ### 2026-06-12
