@@ -36,7 +36,7 @@ the *shape* of the work, not on the strand boundary.
 
   That switches the current worktree to `feature/q2-preview-command`,
   fast-forward-pulls (so any sibling sub-tasks that merged in the
-  meantime show up), creates a fresh `beads/bd-yxqt-<slug>` topic
+  meantime show up), creates a fresh `braid/bd-yxqt-<slug>` topic
   branch off the new tip, marks the braid strand `in_progress` (via
   `braid update`), and rewrites the `CLAUDE.local.md` context block.
   Omit `--from` to branch off the current HEAD.
@@ -53,7 +53,7 @@ Each sub-task lives on its own topic branch. When a sub-task closes:
 
 ```bash
 git switch feature/q2-preview-command
-git merge --no-ff beads/<id>-<slug>
+git merge --no-ff braid/<id>-<slug>
 git push origin feature/q2-preview-command
 ```
 
@@ -70,17 +70,18 @@ All worktrees live in `.worktrees/` at the project root. This directory is git-i
 ## Branch naming
 
 - **GH issue triage worktree** → branch `issue-<N>` at `.worktrees/issue-<N>/`. Local branch stays bare; only the remote uses a prefix (see § Pushing for PR).
-- **Braid strand investigation worktree** → branch `beads/<id>-<slug>` at `.worktrees/<id>-<slug>/`, where `<slug>` is a short kebab-case form of the strand title (3–5 words, lowercase).
-- **In-place sub-task branch (via `switch-task`)** → branch `beads/<id>-<slug>` *without* a corresponding `.worktrees/` directory; the branch lives wherever the caller's worktree is checked out.
+- **Braid strand investigation worktree** → branch `braid/<id>-<slug>` at `.worktrees/<id>-<slug>/`, where `<slug>` is a short kebab-case form of the strand title (3–5 words, lowercase).
+- **In-place sub-task branch (via `switch-task`)** → branch `braid/<id>-<slug>` *without* a corresponding `.worktrees/` directory; the branch lives wherever the caller's worktree is checked out.
 
 The directory mirrors the leaf of the branch name. The conventions are stable so colleagues and tooling can recognize a worktree's origin from the path alone.
 
-> **Note on the `beads/` branch prefix.** It is a *historical* git
-> namespace, kept after the braid migration because the xtask code emits
-> it and tooling/muscle-memory recognize it. It does not imply beads is
-> involved — the strand lives in the braid skein. Renaming the prefix to
-> `braid/` is a separable future cleanup (it would touch
-> `create_worktree.rs`, `switch_task.rs`, and this convention together).
+> **Note on the `braid/` branch prefix.** It is a plain git namespace —
+> the strand lives in the braid skein, and the branch name just mirrors
+> its id. It was renamed from the historical `beads/` prefix (bd-yjh1y117)
+> after the beads→braid migration; the emitter is `strand_branch()` in
+> `create_worktree.rs`, shared by `create-worktree` and `switch-task`.
+> Pre-rename branches/worktrees may still carry `beads/` locally; that is
+> harmless.
 
 ## Fresh worktree bootstrap
 
@@ -170,14 +171,14 @@ which is regenerated from the skein and never hand-edited or re-imported.
 
 ## Pushing for PR
 
-Local branch names stay bare (`issue-<N>`, `beads/<id>-<slug>`). The remote branch name uses a prefix that reflects the work type — `bugfix/`, `feature/`, etc.:
+Local branch names stay bare (`issue-<N>`, `braid/<id>-<slug>`). The remote branch name uses a prefix that reflects the work type — `bugfix/`, `feature/`, etc.:
 
 ```bash
 # GH issue, bug fix
 git push -u origin issue-<N>:bugfix/issue-<N>
 
 # Braid strand, feature work
-git push -u origin beads/<id>-<slug>:feature/<id>-<slug>
+git push -u origin braid/<id>-<slug>:feature/<id>-<slug>
 ```
 
 This keeps local branches short and consistent while remote refs are self-describing in PR lists.
@@ -188,7 +189,7 @@ If `cargo xtask create-worktree` is unavailable (fresh clone before first build,
 the xtask binary is broken on the current branch), fall back to manual setup:
 
 ```bash
-git worktree add -b beads/<id>-<slug> .worktrees/<id>-<slug> main
+git worktree add -b braid/<id>-<slug> .worktrees/<id>-<slug> main
 ```
 
 No redirect step is needed (see § Braid skein resolution above). Verify with

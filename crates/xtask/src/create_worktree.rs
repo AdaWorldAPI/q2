@@ -107,6 +107,15 @@ pub fn validate_slug(slug: &str) -> Result<()> {
     Ok(())
 }
 
+/// Local git branch name for a braid strand's worktree / topic branch:
+/// `braid/<leaf>`, where `<leaf>` is `<id>-<slug>`. The `braid/` prefix is a
+/// plain git namespace (renamed from the historical `beads/` — bd-yjh1y117); it
+/// does not imply beads involvement. Remote refs use a work-type prefix
+/// (`bugfix/`, `feature/`) chosen at push time, not here.
+pub fn strand_branch(leaf: &str) -> String {
+    format!("braid/{leaf}")
+}
+
 #[derive(clap::Args)]
 #[command(group(clap::ArgGroup::new("mode").required(true).multiple(false)))]
 pub struct Args {
@@ -742,7 +751,7 @@ fn plan_braid(id: &str, slug_override: Option<&str>, base: &str, repo_root: &Pat
         eprintln!("note: external_ref {other:?} is not a `gh-` reference; omitting GitHub line");
     }
     Ok(Plan {
-        branch: format!("beads/{leaf}"),
+        branch: strand_branch(&leaf),
         dir: repo_root.join(".worktrees").join(&leaf),
         base: base.to_string(),
         kind: SectionKind::Braid {
@@ -1032,6 +1041,23 @@ mod tests {
         assert!(
             msg.contains("--base"),
             "warning names the flag to silence/override: {msg}"
+        );
+    }
+
+    #[test]
+    fn strand_branch_uses_the_braid_prefix() {
+        assert_eq!(
+            strand_branch("bd-abcd-some-slug"),
+            "braid/bd-abcd-some-slug"
+        );
+        let b = strand_branch("bd-x");
+        assert!(
+            b.starts_with("braid/"),
+            "strand branch must use the braid/ prefix: {b}"
+        );
+        assert!(
+            !b.starts_with("beads/"),
+            "historical beads/ prefix must be gone: {b}"
         );
     }
 

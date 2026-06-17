@@ -151,10 +151,10 @@ EOF
 )"
 # braid prints the new strand id on stdout. Capture it as <id>.
 braid update <id> --status in_progress
-git switch -c beads/<id>-<short-slug>
+git switch -c braid/<id>-<short-slug>
 ```
 
-bd-kw93 is the q2-preview epic; every parity sub-strand is parent-child to it. (The git branch prefix stays `beads/` — a stable historical namespace.)
+bd-kw93 is the q2-preview epic; every parity sub-strand is parent-child to it. (The git branch prefix is `braid/` — a plain git namespace, renamed from the historical `beads/` in bd-yjh1y117.)
 
 ### Write the failing test FIRST
 
@@ -222,7 +222,7 @@ git commit -m "...(bd-<id>)"
 
 # Merge --no-ff into the integration branch
 git switch feature/q2-preview-command
-git merge --no-ff beads/<id>-<slug> -m "Merge bd-<id>: <one-line>"
+git merge --no-ff braid/<id>-<slug> -m "Merge bd-<id>: <one-line>"
 
 # Push (only after explicit user OK, per CLAUDE.md GIT PUSH POLICY)
 git push origin feature/q2-preview-command
