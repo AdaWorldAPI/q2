@@ -362,6 +362,7 @@ impl TestHub {
             single_file: None,
             resource_files: Vec::new(),
             single_file_assets: Vec::new(),
+            single_file_text_deps: Vec::new(),
             auth_config: Some(auth_config),
             allow_insecure_auth: true,
             register_root_ws: false,
@@ -483,6 +484,7 @@ async fn allowlist_setup() -> &'static (MockOidcProvider, TestHub) {
                 single_file: None,
                 resource_files: Vec::new(),
                 single_file_assets: Vec::new(),
+                single_file_text_deps: Vec::new(),
                 auth_config: Some(auth_config),
                 allow_insecure_auth: true,
                 register_root_ws: false,
@@ -948,6 +950,7 @@ async fn secure_setup() -> &'static (MockOidcProvider, TestHub) {
                 single_file: None,
                 resource_files: Vec::new(),
                 single_file_assets: Vec::new(),
+                single_file_text_deps: Vec::new(),
                 auth_config: Some(auth_config),
                 allow_insecure_auth: false, // <-- the key difference
                 register_root_ws: false,

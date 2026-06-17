@@ -224,6 +224,7 @@ async fn main() -> anyhow::Result<()> {
         resource_files: Vec::new(),
         // Single-file asset sync is a preview-only concern (bd-kpuweafo).
         single_file_assets: Vec::new(),
+        single_file_text_deps: Vec::new(),
         auth_config,
         allow_insecure_auth: args.allow_insecure_auth,
         register_root_ws: true,

@@ -1242,10 +1242,31 @@ where
         // an absolute target path. The project_root is the file's
         // parent directory, so `project_root.join(rel)` is the file.
         let single_file_abs = watch_single_file.as_ref().map(|rel| project_root.join(rel));
+        // bd-9cyza5vy: also watch the deck's resolved dependency closure
+        // (included `.qmd`, referenced images, sibling `_brand.yml`) so editing
+        // any of them re-renders — matching project mode. The closure is
+        // exactly what discovery synced; take every synced file except the deck
+        // itself (which `single_file_abs` already covers) and absolutize it the
+        // same way. Only the closure is watched — unrelated siblings are not,
+        // preserving the bd-tnm3k safety property.
+        let single_file_deps: Vec<std::path::PathBuf> = if single_file_abs.is_some() {
+            ctx_for_watch
+                .project_files()
+                .map(|pf| {
+                    pf.all_files()
+                        .filter(|rel| Some(rel.as_path()) != watch_single_file.as_deref())
+                        .map(|rel| project_root.join(rel))
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let watch_config = WatchConfig {
             debounce_ms: watch_debounce_ms,
             filter: watch_filter,
             single_file: single_file_abs,
+            single_file_deps,
         };
         match FileWatcher::new(&project_root, watch_config) {
             Ok(watcher) => {

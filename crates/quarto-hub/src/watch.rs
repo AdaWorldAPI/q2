@@ -73,6 +73,22 @@ pub struct WatchConfig {
     /// observing or surfacing sibling-file edits. The path must be
     /// absolute / canonicalized to match the events `notify` produces.
     pub single_file: Option<PathBuf>,
+
+    /// Single-file mode (bd-9cyza5vy): the deck's *other* synced
+    /// dependency files — included `.qmd`, referenced images, a sibling
+    /// `_brand.yml` — as absolute paths. Only meaningful when
+    /// [`single_file`](Self::single_file) is `Some`.
+    ///
+    /// The watcher subscribes to each of these (in addition to the deck)
+    /// and accepts their events, so editing an included file or a
+    /// referenced image re-renders the preview — matching project mode's
+    /// dir-watch for the deck's closure. Crucially it does **not** widen
+    /// the watch to the whole directory: only the resolved closure is
+    /// watched, so an unrelated sibling (the `bd-tnm3k` concern) still
+    /// never surfaces. Built the same way as `single_file`
+    /// (`project_root.join(rel)`) so paths match the events `notify`
+    /// echoes back.
+    pub single_file_deps: Vec<PathBuf>,
 }
 
 impl Default for WatchConfig {
@@ -81,6 +97,7 @@ impl Default for WatchConfig {
             debounce_ms: DEFAULT_DEBOUNCE_MS,
             filter: WatchFilter::default(),
             single_file: None,
+            single_file_deps: Vec::new(),
         }
     }
 }
@@ -92,6 +109,7 @@ impl WatchConfig {
             debounce_ms: DEFAULT_DEBOUNCE_MS,
             filter,
             single_file: None,
+            single_file_deps: Vec::new(),
         }
     }
 }
@@ -117,11 +135,21 @@ impl FileWatcher {
         let project_root = project_root.to_path_buf();
         let filter = config.filter;
         let single_file = config.single_file.clone();
+        let single_file_deps = config.single_file_deps.clone();
 
-        // Pre-compute the closure's matcher so we don't capture
-        // `single_file` twice (once for the subscribe call below and
-        // once in the event-acceptance test).
-        let event_single_file = single_file.clone();
+        // In single-file mode, the watcher's allow-list is the deck plus its
+        // resolved dependency closure (bd-tnm3k + bd-9cyza5vy). An event
+        // surfaces only if its path is in this set, so `notify` directory-level
+        // events and unrelated siblings are both dropped. `None` ⇒ project mode
+        // (recursive walk, no allow-list).
+        let allowed: Option<std::collections::HashSet<PathBuf>> =
+            single_file.as_ref().map(|deck| {
+                let mut set = std::collections::HashSet::with_capacity(1 + single_file_deps.len());
+                set.insert(deck.clone());
+                set.extend(single_file_deps.iter().cloned());
+                set
+            });
+        let event_allowed = allowed.clone();
 
         // Create a debounced watcher
         let mut debouncer = new_debouncer(
@@ -130,13 +158,13 @@ impl FileWatcher {
                 match res {
                     Ok(events) => {
                         for event in events {
-                            // bd-tnm3k: in single-file mode, drop any
-                            // event whose path isn't the target file.
-                            // `notify` may report directory-level
-                            // events on some platforms even when only
-                            // a single file is watched.
-                            if let Some(ref target) = event_single_file
-                                && event.path != *target
+                            // bd-tnm3k / bd-9cyza5vy: in single-file mode, drop
+                            // any event whose path isn't in the deck's closure
+                            // allow-list. `notify` may report directory-level
+                            // events on some platforms even when only specific
+                            // files are watched.
+                            if let Some(ref allow) = event_allowed
+                                && !allow.contains(&event.path)
                             {
                                 continue;
                             }
@@ -158,23 +186,43 @@ impl FileWatcher {
         )
         .map_err(|e| Error::Sync(format!("failed to create filesystem watcher: {}", e)))?;
 
-        // bd-tnm3k: single-file mode subscribes to the file itself in
-        // NonRecursive mode. Project mode keeps the recursive walk of
-        // `project_root`.
-        let (subscribe_path, mode) = match single_file.as_deref() {
-            Some(file) => (file, RecursiveMode::NonRecursive),
-            None => (project_root.as_path(), RecursiveMode::Recursive),
-        };
-        debouncer
-            .watcher()
-            .watch(subscribe_path, mode)
-            .map_err(|e| Error::Sync(format!("failed to watch project root: {}", e)))?;
+        // bd-tnm3k / bd-9cyza5vy: single-file mode subscribes to the deck and
+        // each closure dependency individually (NonRecursive) — so a dep in a
+        // subdirectory is seen without widening the watch to the whole
+        // directory. Project mode keeps the recursive walk of `project_root`.
+        match single_file.as_deref() {
+            Some(deck) => {
+                // The deck is required: a failure here is fatal.
+                debouncer
+                    .watcher()
+                    .watch(deck, RecursiveMode::NonRecursive)
+                    .map_err(|e| Error::Sync(format!("failed to watch single file: {}", e)))?;
+                // Dependencies are best-effort: a missing/edge-case dep must not
+                // tank the whole watcher (the deck still re-renders on edit).
+                for dep in &single_file_deps {
+                    if let Err(e) = debouncer.watcher().watch(dep, RecursiveMode::NonRecursive) {
+                        warn!(
+                            path = %dep.display(),
+                            error = %e,
+                            "failed to watch single-file dependency; edits to it won't refresh the preview"
+                        );
+                    }
+                }
+            }
+            None => {
+                debouncer
+                    .watcher()
+                    .watch(project_root.as_path(), RecursiveMode::Recursive)
+                    .map_err(|e| Error::Sync(format!("failed to watch project root: {}", e)))?;
+            }
+        }
 
         info!(
             path = %project_root.display(),
             debounce_ms = config.debounce_ms,
             filter = ?filter,
             single_file = ?single_file,
+            single_file_dep_count = single_file_deps.len(),
             "Started filesystem watcher"
         );
 
@@ -353,6 +401,7 @@ mod tests {
                 debounce_ms: 100,
                 filter: WatchFilter::QmdOnly,
                 single_file: None,
+                single_file_deps: Vec::new(),
             },
         )
         .unwrap();
@@ -392,6 +441,7 @@ mod tests {
                 debounce_ms: 100,
                 filter: WatchFilter::QmdOnly,
                 single_file: None,
+                single_file_deps: Vec::new(),
             },
         )
         .unwrap();
@@ -434,6 +484,7 @@ mod tests {
                 debounce_ms: 100,
                 filter: WatchFilter::PreviewBroad,
                 single_file: None,
+                single_file_deps: Vec::new(),
             },
         )
         .unwrap();
@@ -468,6 +519,7 @@ mod tests {
                 debounce_ms: 100,
                 filter: WatchFilter::QmdOnly,
                 single_file: None,
+                single_file_deps: Vec::new(),
             },
         )
         .unwrap();
@@ -507,6 +559,7 @@ mod tests {
                 debounce_ms: 100,
                 filter: WatchFilter::PreviewBroad,
                 single_file: Some(target.clone()),
+                single_file_deps: Vec::new(),
             },
         )
         .unwrap();
@@ -521,6 +574,50 @@ mod tests {
             Ok(Some(WatchEvent::Modified(path))) => assert_eq!(path, target),
             Ok(None) => panic!("Watcher stopped unexpectedly"),
             Err(_) => panic!("Timeout waiting for target.qmd change event"),
+        }
+    }
+
+    /// bd-9cyza5vy: an edit to a file in the deck's resolved closure (here an
+    /// included `.qmd`) must surface so the preview re-renders — while an
+    /// unrelated sibling still must NOT (the bd-tnm3k safety property is
+    /// preserved: only the closure is watched, not the whole directory).
+    #[tokio::test]
+    async fn test_watcher_single_file_watches_closure_dep() {
+        let temp = TempDir::new().unwrap();
+        let temp_path = temp.path().canonicalize().unwrap();
+        let deck = temp_path.join("main.qmd");
+        let dep = temp_path.join("part.qmd");
+        let unrelated = temp_path.join("unrelated.qmd");
+
+        std::fs::write(&deck, "{{< include part.qmd >}}\n").unwrap();
+        std::fs::write(&dep, "initial").unwrap();
+        std::fs::write(&unrelated, "initial").unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut watcher = FileWatcher::new(
+            &temp_path,
+            WatchConfig {
+                debounce_ms: 100,
+                filter: WatchFilter::PreviewBroad,
+                single_file: Some(deck.clone()),
+                single_file_deps: vec![dep.clone()],
+            },
+        )
+        .unwrap();
+
+        // Edit the unrelated sibling first (must be filtered out)...
+        std::fs::write(&unrelated, "edited unrelated").unwrap();
+        // ...then the included dep (must surface).
+        std::fs::write(&dep, "edited dep").unwrap();
+
+        let event = tokio::time::timeout(Duration::from_secs(2), watcher.recv()).await;
+        match event {
+            Ok(Some(WatchEvent::Modified(path))) => assert_eq!(
+                path, dep,
+                "expected the included dep edit to surface, got {path:?}"
+            ),
+            Ok(None) => panic!("Watcher stopped unexpectedly"),
+            Err(_) => panic!("Timeout waiting for included-dep change event"),
         }
     }
 }
