@@ -295,6 +295,22 @@ fn build_storage(config: &PreviewConfig) -> Result<StorageManager> {
 }
 
 fn build_hub_config(config: &PreviewConfig) -> HubConfig {
+    // bd-9cyza5vy: in single-file mode (no `_quarto.yml`), the deck's
+    // transitive dependencies aren't found by a dir walk. Resolve the full
+    // closure once — included `.qmd` (text) + referenced images (binary) — by
+    // running the renderer's own include-expansion natively (quarto-preview has
+    // the qmd parser + quarto-core). Supersedes the old direct-image-only
+    // `resolve_single_file_assets`.
+    let single_file_deps = match (
+        config.project_root.as_deref(),
+        config.single_file.as_deref(),
+    ) {
+        (Some(root), Some(rel)) => {
+            config::resolve_single_file_deps(root, rel, std::sync::Arc::new(NativeRuntime::new()))
+        }
+        _ => config::SingleFileDeps::default(),
+    };
+
     HubConfig {
         port: config.port,
         host: config.host.clone(),
@@ -314,19 +330,13 @@ fn build_hub_config(config: &PreviewConfig) -> HubConfig {
         // resolved at session start, carried into the VFS as text so the
         // preview iframe post-processor can inline them via `srcdoc`.
         resource_files: config.resource_html_files.clone(),
-        // bd-kpuweafo: in single-file mode (no `_quarto.yml`), the deck's
-        // sibling images aren't discovered by the dir walk. Parse the deck and
-        // resolve exactly the assets it references so they sync into the VFS
-        // like project mode (resolved here — quarto-preview has the qmd parser).
-        single_file_assets: match (
-            config.project_root.as_deref(),
-            config.single_file.as_deref(),
-        ) {
-            (Some(root), Some(rel)) => {
-                config::resolve_single_file_assets(root, rel, &NativeRuntime::new())
-            }
-            _ => Vec::new(),
-        },
+        // bd-kpuweafo / bd-9cyza5vy: sibling images the deck references —
+        // including images inside `{{< include >}}`d files — sync into the VFS
+        // like project mode (resolved above via the real expansion pass).
+        single_file_assets: single_file_deps.binary_files,
+        // bd-9cyza5vy: the deck's transitive `{{< include >}}` closure, synced
+        // as invisible text deps so includes expand in the WASM pipeline.
+        single_file_text_deps: single_file_deps.qmd_files,
         // Light periodic sync — the user can Ctrl-C any time, and
         // shutdown does a final sync anyway. 5 seconds is a reasonable
         // crash-resilience window for a *preview* invocation.

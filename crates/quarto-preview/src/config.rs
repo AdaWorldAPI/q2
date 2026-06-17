@@ -214,56 +214,135 @@ pub fn resolve_project_resource_files(
         .collect()
 }
 
-/// Resolve the on-disk sibling **assets** a single-file deck references, so
-/// `q2 preview deck.qmd` (no `_quarto.yml` ancestor) can sync exactly those
-/// into the preview VFS — without walking the deck's directory, which the
-/// `bd-tnm3k` safety property forbids (bd-kpuweafo).
+/// The transitive static dependency closure of a single-file deck — the
+/// sibling files `q2 preview deck.qmd` must sync into the preview VFS so the
+/// deck renders like `q2 render` / project-mode preview, without walking the
+/// deck's directory (the `bd-tnm3k` safety property). Supersedes the earlier
+/// direct-image-only resolution (bd-kpuweafo): the closure now also includes
+/// `{{< include >}}`d `.qmd` files (transitively) and the images referenced
+/// *inside* them.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SingleFileDeps {
+    /// Included `.qmd` files (project-root-relative). Synced as **text**, kept
+    /// out of `qmd_files` so they are invisible VFS-only dependencies.
+    pub qmd_files: Vec<std::path::PathBuf>,
+    /// Referenced image assets (project-root-relative). Synced as **binary**.
+    pub binary_files: Vec<std::path::PathBuf>,
+}
+
+/// Resolve a single-file deck's full transitive static dependency closure
+/// (bd-9cyza5vy) by running the renderer's **own** `ParseDocumentStage` +
+/// `IncludeExpansionStage` natively against the real filesystem, then reading
+/// back the files the renderer actually consumed.
 ///
-/// Parses the deck, collects the relative `Image` URLs it references
-/// (`quarto_core::transforms::collect_referenced_asset_urls`), and keeps the
-/// ones that (a) are binary assets (`is_binary_extension`), (b) resolve to an
-/// existing file, and (c) stay **under** `project_root` once canonicalized (no
-/// `../` escape). Returns project-root-relative paths matching the form
-/// `ProjectFiles::discover` produces in project mode, so the same reconcile +
-/// VFS sync + asset-manifest path applies and the image resolves identically.
+/// Reusing the real stages (rather than re-deriving include resolution in a
+/// parallel walker) keeps the preview's path-resolution semantics in exact
+/// lock-step with render — including the un-retargeted image anchor *and* the
+/// nested-include anchor (a latent render bug, bd-udrn0q47, which this resolver
+/// will track automatically once it is fixed). See
+/// `claude-notes/research/2026-06-16-include-shortcode-path-resolution.md`.
+///
+/// - **Includes** come from `DocumentAst::recorded_includes` — the exact set of
+///   files the stage spliced, transitively, with the stage's own cycle
+///   detection. Each is canonical-absolute; we re-express it project-root-
+///   relative and drop anything that escapes the deck dir.
+/// - **Images** come from `collect_referenced_asset_urls` over the *expanded*
+///   AST, resolved relative to the **deck dir** (the same anchor
+///   `ResourceCollectorTransform` uses — render parity for free).
 ///
 /// `single_file_rel` is the deck path relative to `project_root` (its parent
 /// directory in single-file mode). On any parse / IO error this returns an
-/// empty vec — a missing asset just renders broken, exactly as before.
-pub fn resolve_single_file_assets(
+/// empty closure — a missing dependency just renders broken, exactly as before.
+pub fn resolve_single_file_deps(
     project_root: &std::path::Path,
     single_file_rel: &std::path::Path,
-    runtime: &dyn SystemRuntime,
-) -> Vec<std::path::PathBuf> {
+    runtime: std::sync::Arc<dyn SystemRuntime>,
+) -> SingleFileDeps {
     use std::path::{Path, PathBuf};
+
+    use quarto_core::project::{DocumentInfo, ProjectContext};
+    use quarto_core::stage::{
+        IncludeExpansionStage, LoadedSource, ParseDocumentStage, PipelineData, PipelineStage,
+        StageContext,
+    };
 
     let abs_deck = project_root.join(single_file_rel);
     let Ok(source) = runtime.file_read(&abs_deck) else {
-        return Vec::new();
+        return SingleFileDeps::default();
     };
 
-    // Parse for asset references only; commentary + source spans are unneeded
-    // (mirrors `deps::extract_include_deps`).
-    let mut sink = std::io::sink();
-    let Ok((pandoc, _ctx, _warnings)) = pampa::readers::qmd::read(
-        &source,
-        false, // loose
-        &single_file_rel.to_string_lossy(),
-        &mut sink,
-        false, // track_source_locations
-        None,  // parent SourceInfo
+    // Build a single-file render context and run the renderer's OWN parse +
+    // include-expansion stages natively. Reusing the real stages keeps path
+    // resolution identical to `q2 render` (see the module + research notes).
+    let Ok(project) = ProjectContext::single_file(&abs_deck, runtime.as_ref()) else {
+        return SingleFileDeps::default();
+    };
+    let document = DocumentInfo::from_path(&abs_deck);
+    let Ok(mut ctx) = StageContext::new(
+        runtime.clone(),
+        quarto_core::Format::html(),
+        project,
+        document,
     ) else {
-        return Vec::new();
+        return SingleFileDeps::default();
     };
 
-    let deck_dir = single_file_rel.parent().unwrap_or_else(|| Path::new(""));
+    // The stage `run` futures are `?Send`; drive them on this thread without a
+    // tokio runtime (the same pattern `quarto-preview` uses elsewhere). Include
+    // expansion reads included files through `ctx.runtime` (the native FS).
+    let parse = ParseDocumentStage;
+    let expand = IncludeExpansionStage::new();
+    let expanded = pollster::block_on(async {
+        let parsed = parse
+            .run(
+                PipelineData::LoadedSource(LoadedSource::new(abs_deck.clone(), source)),
+                &mut ctx,
+            )
+            .await?;
+        expand.run(parsed, &mut ctx).await
+    });
+    let Ok(PipelineData::DocumentAst(doc)) = expanded else {
+        return SingleFileDeps::default();
+    };
+
     let canonical_root = project_root
         .canonicalize()
         .unwrap_or_else(|_| project_root.to_path_buf());
 
-    let mut out: Vec<PathBuf> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for url in quarto_core::transforms::collect_referenced_asset_urls(&pandoc.blocks) {
+    // Re-express a canonical absolute path as project-root-relative, keeping
+    // only existing files that stay under the deck dir (no `../` escape).
+    let to_in_tree_rel = |canon: PathBuf| -> Option<PathBuf> {
+        if !canon.is_file() || !canon.starts_with(&canonical_root) {
+            return None;
+        }
+        canon
+            .strip_prefix(&canonical_root)
+            .ok()
+            .map(Path::to_path_buf)
+    };
+
+    // Text deps: the `.qmd` files the stage actually spliced (transitive,
+    // cycle-truncated). `IncludeEntry::path` is canonical-absolute.
+    let mut qmd_files: Vec<PathBuf> = Vec::new();
+    let mut seen_qmd = std::collections::HashSet::new();
+    for entry in &doc.recorded_includes {
+        let Ok(canon) = entry.path.canonicalize() else {
+            continue;
+        };
+        if let Some(rel) = to_in_tree_rel(canon)
+            && seen_qmd.insert(rel.clone())
+        {
+            qmd_files.push(rel);
+        }
+    }
+
+    // Binary deps: images referenced by the EXPANDED AST, resolved relative to
+    // the deck dir (matches `ResourceCollectorTransform`'s anchor — render
+    // parity, including images that came from included files).
+    let deck_dir = single_file_rel.parent().unwrap_or_else(|| Path::new(""));
+    let mut binary_files: Vec<PathBuf> = Vec::new();
+    let mut seen_bin = std::collections::HashSet::new();
+    for url in quarto_core::transforms::collect_referenced_asset_urls(&doc.ast.blocks) {
         let ext = Path::new(&url)
             .extension()
             .and_then(|e| e.to_str())
@@ -271,24 +350,22 @@ pub fn resolve_single_file_assets(
         if !quarto_hub::resource::is_binary_extension(ext) {
             continue;
         }
-        let abs = project_root.join(deck_dir).join(&url);
-        let Ok(canon) = abs.canonicalize() else {
-            continue; // missing file → nothing to sync (renders broken, as before)
+        let Ok(canon) = project_root.join(deck_dir).join(&url).canonicalize() else {
+            continue;
         };
-        if !canon.is_file() || !canon.starts_with(&canonical_root) {
-            continue; // directories and `../` escapes are out of scope
-        }
-        // Re-express as a project-root-relative path (normalizes `./`), matching
-        // the form `ProjectFiles::discover` yields in project mode.
-        let rel = match canon.strip_prefix(&canonical_root) {
-            Ok(r) => r.to_path_buf(),
-            Err(_) => continue,
-        };
-        if seen.insert(rel.clone()) {
-            out.push(rel);
+        if let Some(rel) = to_in_tree_rel(canon)
+            && seen_bin.insert(rel.clone())
+        {
+            binary_files.push(rel);
         }
     }
-    out
+
+    qmd_files.sort();
+    binary_files.sort();
+    SingleFileDeps {
+        qmd_files,
+        binary_files,
+    }
 }
 
 #[cfg(test)]
@@ -303,60 +380,159 @@ mod tests {
         ConfigValue::from_path(&["preview", "engine"], value)
     }
 
+    // ── resolve_single_file_deps (bd-9cyza5vy) ──────────────────────
+
+    use std::sync::Arc;
+
+    fn native_arc() -> Arc<dyn SystemRuntime> {
+        Arc::new(NativeRuntime::new())
+    }
+
+    /// An image referenced *inside* an included file is part of the closure —
+    /// the include `.qmd` is a text dep, the image is a binary dep. (This is
+    /// the exact gap the strand reported: in single-file preview, includes and
+    /// their images both used to be missing.)
     #[test]
-    fn single_file_assets_resolves_referenced_image_siblings_only() {
-        // bd-kpuweafo: a single-file deck referencing `./sibling.png` should
-        // resolve that one sibling — not a missing one, not an external URL,
-        // and (safety) nothing outside the deck's directory.
+    fn single_file_deps_include_and_image_inside_include() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
-        std::fs::write(root.join("sibling.png"), b"\x89PNG\r\n").unwrap();
-        std::fs::write(root.join("unused.png"), b"\x89PNG\r\n").unwrap();
-        std::fs::create_dir(root.join("sub")).unwrap();
-        std::fs::write(root.join("sub/nested.svg"), b"<svg/>").unwrap();
+        std::fs::write(root.join("inc.png"), b"\x89PNG\r\n").unwrap();
         std::fs::write(
-            root.join("deck.qmd"),
-            "---\ntitle: T\n---\n\n\
-             ![ok](./sibling.png)\n\n\
-             - ![nested](sub/nested.svg)\n\n\
-             ![missing](./missing.png)\n\n\
-             ![remote](https://example.com/r.png)\n",
+            root.join("part.qmd"),
+            "## Included Section\n\n![](inc.png)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("main.qmd"),
+            "---\ntitle: T\n---\n\n{{< include part.qmd >}}\n",
         )
         .unwrap();
 
-        let runtime = NativeRuntime::new();
-        let mut assets =
-            resolve_single_file_assets(root, std::path::Path::new("deck.qmd"), &runtime);
-        assets.sort();
+        let deps = resolve_single_file_deps(root, std::path::Path::new("main.qmd"), native_arc());
         assert_eq!(
-            assets,
-            vec![
-                std::path::PathBuf::from("sibling.png"),
-                std::path::PathBuf::from("sub/nested.svg"),
-            ],
-            "only existing, relative, in-tree image siblings; missing + external dropped; \
-             `unused.png` (not referenced) not synced"
+            deps,
+            SingleFileDeps {
+                qmd_files: vec![std::path::PathBuf::from("part.qmd")],
+                binary_files: vec![std::path::PathBuf::from("inc.png")],
+            }
         );
     }
 
+    /// Includes are followed transitively: `main → a → b`, and an image in `b`
+    /// is collected. All three deps (a.qmd, b.qmd, the image) appear.
     #[test]
-    fn single_file_assets_rejects_parent_escape() {
-        // `![](../secret.png)` must NOT be synced even if the file exists —
-        // it's outside the deck's directory (canonicalized-under-root guard).
+    fn single_file_deps_transitive_includes_and_images() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
+        std::fs::write(root.join("c.png"), b"\x89PNG\r\n").unwrap();
+        std::fs::write(root.join("b.qmd"), "From B\n\n![](c.png)\n").unwrap();
+        std::fs::write(root.join("a.qmd"), "From A\n\n{{< include b.qmd >}}\n").unwrap();
+        std::fs::write(root.join("main.qmd"), "{{< include a.qmd >}}\n").unwrap();
+
+        let mut deps =
+            resolve_single_file_deps(root, std::path::Path::new("main.qmd"), native_arc());
+        deps.qmd_files.sort();
+        assert_eq!(
+            deps,
+            SingleFileDeps {
+                qmd_files: vec![
+                    std::path::PathBuf::from("a.qmd"),
+                    std::path::PathBuf::from("b.qmd"),
+                ],
+                binary_files: vec![std::path::PathBuf::from("c.png")],
+            }
+        );
+    }
+
+    /// Render parity: an image written inside a *subdirectory* include resolves
+    /// relative to the **deck dir**, not the include's dir (the "no
+    /// retargeting" design — see the research note). Here `img.png` exists at
+    /// BOTH the deck root and `sub/`; the closure must pick the **root** one.
+    #[test]
+    fn single_file_deps_image_in_subdir_include_anchored_at_deck_dir() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("img.png"), b"ROOT").unwrap();
+        std::fs::write(root.join("sub/img.png"), b"SUB").unwrap();
+        std::fs::write(root.join("sub/part.qmd"), "Part\n\n![](img.png)\n").unwrap();
+        std::fs::write(root.join("main.qmd"), "{{< include sub/part.qmd >}}\n").unwrap();
+
+        let deps = resolve_single_file_deps(root, std::path::Path::new("main.qmd"), native_arc());
+        assert_eq!(
+            deps.binary_files,
+            vec![std::path::PathBuf::from("img.png")],
+            "image inside a subdir include must resolve to the DECK dir (img.png), \
+             not the include's dir (sub/img.png) — render parity / no retargeting"
+        );
+        assert_eq!(
+            deps.qmd_files,
+            vec![std::path::PathBuf::from("sub/part.qmd")]
+        );
+    }
+
+    /// A self-referential include terminates (the stage's own cycle detection)
+    /// and records the included file exactly once.
+    #[test]
+    fn single_file_deps_cycle_terminates() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        // a.qmd includes itself.
+        std::fs::write(root.join("a.qmd"), "From A\n\n{{< include a.qmd >}}\n").unwrap();
+        std::fs::write(root.join("main.qmd"), "{{< include a.qmd >}}\n").unwrap();
+
+        let deps = resolve_single_file_deps(root, std::path::Path::new("main.qmd"), native_arc());
+        assert_eq!(deps.qmd_files, vec![std::path::PathBuf::from("a.qmd")]);
+        assert!(deps.binary_files.is_empty());
+    }
+
+    /// The under-deck-dir guard drops `../` escapes (both include and image),
+    /// missing files, and external URLs — nothing outside the deck dir is
+    /// synced even if it exists.
+    #[test]
+    fn single_file_deps_guard_drops_escapes_missing_and_external() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        // Real files OUTSIDE the deck dir that must NOT be pulled in.
         std::fs::write(root.join("secret.png"), b"\x89PNG\r\n").unwrap();
+        std::fs::write(root.join("escape.qmd"), "secret include\n").unwrap();
         let deck_dir = root.join("deck");
         std::fs::create_dir(&deck_dir).unwrap();
-        std::fs::write(deck_dir.join("deck.qmd"), "![x](../secret.png)\n").unwrap();
+        std::fs::write(
+            deck_dir.join("main.qmd"),
+            "{{< include ../escape.qmd >}}\n\n\
+             ![a](../secret.png)\n\n\
+             ![b](./missing.png)\n\n\
+             ![c](https://example.com/r.png)\n",
+        )
+        .unwrap();
 
-        let runtime = NativeRuntime::new();
-        // project_root is the deck's dir in single-file mode.
-        let assets =
-            resolve_single_file_assets(&deck_dir, std::path::Path::new("deck.qmd"), &runtime);
-        assert!(
-            assets.is_empty(),
-            "a `../` reference escaping the deck directory must not be synced; got {assets:?}"
+        // project_root is the deck's own dir in single-file mode.
+        let deps =
+            resolve_single_file_deps(&deck_dir, std::path::Path::new("main.qmd"), native_arc());
+        assert_eq!(
+            deps,
+            SingleFileDeps::default(),
+            "escapes, missing, and external refs are all dropped; got {deps:?}"
+        );
+    }
+
+    /// The deck's own direct image (no include involved) is still collected —
+    /// `resolve_single_file_deps` is a superset of the old direct-image path.
+    #[test]
+    fn single_file_deps_collects_deck_own_direct_image() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::write(root.join("logo.png"), b"\x89PNG\r\n").unwrap();
+        std::fs::write(root.join("deck.qmd"), "![ok](logo.png)\n").unwrap();
+
+        let deps = resolve_single_file_deps(root, std::path::Path::new("deck.qmd"), native_arc());
+        assert_eq!(
+            deps,
+            SingleFileDeps {
+                qmd_files: vec![],
+                binary_files: vec![std::path::PathBuf::from("logo.png")],
+            }
         );
     }
 

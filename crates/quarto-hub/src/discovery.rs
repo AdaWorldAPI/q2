@@ -41,6 +41,21 @@ pub struct ProjectFiles {
     /// post-processor can read them via `vfsReadFile` and inline them
     /// as `srcdoc` — see `iframePostProcessor.ts`'s `readArtifactOrSource`.
     pub resource_files: Vec<PathBuf>,
+
+    /// Single-file mode (bd-9cyza5vy): included `.qmd` files the deck pulls in
+    /// via `{{< include >}}` (transitively), project-root-relative.
+    ///
+    /// These must be in the VFS for the WASM include-expansion stage to read
+    /// them, but they are **deliberately kept out of [`qmd_files`](Self::qmd_files)**
+    /// so they stay *invisible* VFS-only dependencies — single-file preview does
+    /// not surface included files as their own entries. Like
+    /// [`resource_files`](Self::resource_files), they ride the **text** sync path
+    /// ([`text_files`](Self::text_files)) into an automerge Text doc readable by
+    /// `vfsReadFile`. Resolved upstream in `quarto-preview` (which has the qmd
+    /// parser) via `config::resolve_single_file_deps` and injected through
+    /// [`with_text_deps`](Self::with_text_deps). Empty for project mode (the dir
+    /// walk finds them) and the `quarto hub` server.
+    pub text_dep_files: Vec<PathBuf>,
 }
 
 impl ProjectFiles {
@@ -211,6 +226,18 @@ impl ProjectFiles {
         self
     }
 
+    /// Attach included `.qmd` files (resolved by the caller from the deck's
+    /// transitive `{{< include >}}` closure) to be synced into the VFS as
+    /// **text**, without surfacing them in [`qmd_files`](Self::qmd_files).
+    /// Deduplicates and sorts for deterministic ordering. See
+    /// [`ProjectFiles::text_dep_files`]. (bd-9cyza5vy)
+    pub fn with_text_deps(mut self, mut text_dep_files: Vec<PathBuf>) -> Self {
+        text_dep_files.sort();
+        text_dep_files.dedup();
+        self.text_dep_files = text_dep_files;
+        self
+    }
+
     /// Returns the total number of discovered files.
     pub fn total_count(&self) -> usize {
         self.qmd_files.len()
@@ -219,16 +246,18 @@ impl ProjectFiles {
             + self.extension_files.len()
             + self.source_files.len()
             + self.resource_files.len()
+            + self.text_dep_files.len()
     }
 
     /// Returns the count of text files (config + qmd + extension text +
-    /// source files + resources-scoped `.html`).
+    /// source files + resources-scoped `.html` + single-file text deps).
     pub fn text_file_count(&self) -> usize {
         self.qmd_files.len()
             + self.config_files.len()
             + self.extension_files.len()
             + self.source_files.len()
             + self.resource_files.len()
+            + self.text_dep_files.len()
     }
 
     /// Returns an iterator over all discovered file paths.
@@ -239,13 +268,15 @@ impl ProjectFiles {
             .chain(self.extension_files.iter())
             .chain(self.source_files.iter())
             .chain(self.resource_files.iter())
+            .chain(self.text_dep_files.iter())
             .chain(self.binary_files.iter())
     }
 
     /// Returns an iterator over text files only (config + qmd +
-    /// extension text + source files + resources-scoped `.html`).
-    /// Resources-scoped `.html` is text so the reconcile loop stores it
-    /// as an automerge Text doc readable by the SPA's `vfsReadFile`.
+    /// extension text + source files + resources-scoped `.html` +
+    /// single-file text deps). All ride the text sync path so the
+    /// reconcile loop stores each as an automerge Text doc readable by
+    /// the SPA's `vfsReadFile`.
     pub fn text_files(&self) -> impl Iterator<Item = &PathBuf> {
         self.config_files
             .iter()
@@ -253,6 +284,7 @@ impl ProjectFiles {
             .chain(self.extension_files.iter())
             .chain(self.source_files.iter())
             .chain(self.resource_files.iter())
+            .chain(self.text_dep_files.iter())
     }
 }
 
@@ -701,6 +733,46 @@ mod tests {
         // Counted in both totals.
         assert_eq!(files.total_count(), 2); // index.qmd + slides.html
         assert_eq!(files.text_file_count(), 2);
+    }
+
+    #[test]
+    fn test_with_text_deps_syncs_as_text_but_not_in_qmd_files() {
+        // bd-9cyza5vy: included `.qmd` must reach the VFS via the TEXT sync path
+        // (so the WASM include-expansion stage can read them) but must NOT appear
+        // in `qmd_files` — they are invisible VFS-only dependencies.
+        let files = ProjectFiles::single_file(PathBuf::from("main.qmd")).with_text_deps(vec![
+            PathBuf::from("part.qmd"),
+            PathBuf::from("sub/inc.qmd"),
+        ]);
+
+        // Deck stays the only nav qmd; included files are NOT surfaced there.
+        assert_eq!(files.qmd_files, vec![PathBuf::from("main.qmd")]);
+        assert!(!files.qmd_files.contains(&PathBuf::from("part.qmd")));
+
+        // ...but they DO flow through the text sync path.
+        let text: Vec<_> = files.text_files().collect();
+        assert!(text.contains(&&PathBuf::from("part.qmd")));
+        assert!(text.contains(&&PathBuf::from("sub/inc.qmd")));
+        let all: Vec<_> = files.all_files().collect();
+        assert!(all.contains(&&PathBuf::from("part.qmd")));
+        assert!(all.contains(&&PathBuf::from("sub/inc.qmd")));
+
+        // Counted in both totals (1 deck qmd + 2 text deps).
+        assert_eq!(files.text_file_count(), 3);
+        assert_eq!(files.total_count(), 3);
+    }
+
+    #[test]
+    fn test_with_text_deps_dedups_and_sorts() {
+        let files = ProjectFiles::default().with_text_deps(vec![
+            PathBuf::from("b/two.qmd"),
+            PathBuf::from("a/one.qmd"),
+            PathBuf::from("b/two.qmd"), // duplicate (diamond include)
+        ]);
+        assert_eq!(
+            files.text_dep_files,
+            vec![PathBuf::from("a/one.qmd"), PathBuf::from("b/two.qmd")]
+        );
     }
 
     #[test]

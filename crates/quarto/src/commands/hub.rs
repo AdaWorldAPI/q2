@@ -145,6 +145,7 @@ async fn run_hub(args: HubArgs) -> Result<()> {
         resource_files: Vec::new(),
         // Single-file asset sync is a preview-only concern (bd-kpuweafo).
         single_file_assets: Vec::new(),
+        single_file_text_deps: Vec::new(),
         auth_config,
         allow_insecure_auth: args.allow_insecure_auth,
         // `quarto hub` keeps the sync.automerge.org-style `/` ws path
