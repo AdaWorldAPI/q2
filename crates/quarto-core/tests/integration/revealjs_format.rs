@@ -285,6 +285,52 @@ fn revealjs_auto_stretch_single_image_slides() {
     );
 }
 
+/// End-to-end: the stretched image must render as a *direct child* of the
+/// slide `<section>`, not wrapped in a `<p>`. reveal.js sizes `.r-stretch`
+/// only via the selector `section > .stretch, section > .r-stretch` (direct
+/// children); a `<p>` wrapper makes the class inert and the image renders at
+/// natural size. Regression guard for bd-zkstclhl.
+#[test]
+fn revealjs_auto_stretch_img_is_direct_section_child() {
+    const PNG: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
+        0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+    let temp = tempfile::TempDir::new().unwrap();
+    std::fs::write(temp.path().join("pic.png"), PNG).unwrap();
+    let qmd_path = temp.path().join("talk.qmd");
+    write_file(
+        &qmd_path,
+        "---\ntitle: T\nformat: revealjs\n---\n\n## Slide\n\n![](pic.png)\n",
+    );
+    let options = RenderToFileOptions {
+        quiet: true,
+        ..Default::default()
+    };
+    let result = render_to_file(&qmd_path, "revealjs", &options, runtime_arc())
+        .expect("revealjs render failed");
+    let html = read(&result.output_path);
+
+    assert!(
+        html.contains("r-stretch"),
+        "expected r-stretch; got:\n{html}"
+    );
+    // The `<img class="r-stretch">` must not be wrapped in a `<p>`.
+    let idx = html.find("r-stretch").unwrap();
+    let before = &html[..idx];
+    let img_start = before
+        .rfind("<img")
+        .expect("r-stretch should be on an <img>");
+    let preceding = before[..img_start].trim_end();
+    assert!(
+        !preceding.ends_with("<p>"),
+        "r-stretch img must be a direct child of <section>, not wrapped in <p>; got:\n{html}"
+    );
+}
+
 #[test]
 fn revealjs_render_emits_title_slide() {
     let html = render_revealjs(FLAT_DECK);

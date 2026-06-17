@@ -26,10 +26,22 @@
 //! stretches. An image nested in a `.column`/layout/fragment div, an image
 //! among inline text, or a multi-image slide is left untouched.
 //!
-//! We still **don't** do Q1's DOM hoisting (moving the `<img>` to be a direct
-//! child of `<section>` and re-inserting the figure caption); Chrome E2E
-//! confirmed reveal sizes the nested `<p><img class=r-stretch>` / figure image
-//! correctly without it.
+//! **Structure matters: the stretched `<img>` must be a *direct child* of the
+//! `<section>`.** reveal sizes `.r-stretch` only via the selector
+//! `section > .stretch, section > .r-stretch` (direct children), so a Pandoc
+//! `<p>` wrapper makes the class inert and the image renders at natural size
+//! (bd-zkstclhl). We therefore **unwrap** the standalone `Paragraph[Image]`
+//! into a `Plain[Image]` — the HTML writer renders `Plain` inlines bare (no
+//! `<p>`), yielding `section > img.r-stretch`.
+//!
+//! Quarto 1 achieves the same DOM with a *post-Pandoc DOM postprocessor*
+//! (`applyStretch` in `format-reveal.ts`) that detaches the `<img>` and
+//! re-inserts it at section level. **We deliberately do not port that pattern.**
+//! Q2 emits HTML directly from the AST and has no DOM-mutation stage; the
+//! structural fix belongs here, in the AST, not in a new postprocessor. (See
+//! the no-DOM-postprocessor rule in `CLAUDE.md` → Architecture Notes.) The
+//! captioned-`Figure` case still needs an analogous AST unwrap; that is tracked
+//! as a follow-up (bd-38ioql41) and currently only adds the class in place.
 //!
 //! Opt-outs (ported from Q1 `applyStretch`):
 //! - `auto-stretch: false` in metadata — disables the whole transform.
@@ -45,7 +57,7 @@
 //! after `RevealFootnotesTransform` (so a slide with a coalesced footnote/aside
 //! has >1 body block and is naturally skipped). WASM-safe (pure AST).
 
-use quarto_pandoc_types::block::{Block, Div, Figure};
+use quarto_pandoc_types::block::{Block, Div, Figure, Plain};
 use quarto_pandoc_types::inline::{Image, Inline};
 use quarto_pandoc_types::pandoc::Pandoc;
 
@@ -132,34 +144,91 @@ fn maybe_stretch_section(div: &mut Div, auto_stretch: bool) {
     // Figure). If the single image is nested in a custom/layout div, no
     // top-level block is eligible and we leave it alone.
     for block in &mut div.content {
-        let Some(image) = body_image_mut(block) else {
+        // Standalone `Paragraph[Image]` — the common case. When the image is
+        // (or becomes) stretched we must **unwrap** the paragraph into a
+        // `Plain` so the writer emits `<img class="r-stretch">` as a *direct
+        // child* of the `<section>`. reveal sizes `.r-stretch` only via
+        // `section > .r-stretch` (direct child); a `<p>` wrapper makes it inert.
+        if let Block::Paragraph(p) = block {
+            if p.content.len() == 1
+                && let Inline::Image(image) = &mut p.content[0]
+            {
+                match decide_stretch(image, auto_stretch) {
+                    StretchOutcome::LeaveWrapped => return,
+                    StretchOutcome::Unwrap => {
+                        // Move the (now `.r-stretch`) image into a `Plain`
+                        // in place of the `Paragraph`, preserving the block's
+                        // source info.
+                        let source_info = p.source_info.clone();
+                        let img = p.content.remove(0);
+                        *block = Block::Plain(Plain {
+                            content: vec![img],
+                            source_info,
+                        });
+                        return;
+                    }
+                }
+            }
             continue;
-        };
+        }
 
-        // Per-image opt-outs. `.nostretch` is consumed (removed) per Q1.
-        if let Some(pos) = image.attr.1.iter().position(|c| c == "nostretch") {
-            image.attr.1.remove(pos);
-            return;
+        // `Figure` (a captioned `![caption](x)`). For now we add `.r-stretch`
+        // in place; hoisting the figure's image to section level (and
+        // re-emitting its caption as a sibling) is tracked as a follow-up
+        // (bd-38ioql41), since Q2 has no `quarto-figure`/alignment story yet.
+        if let Block::Figure(f) = block {
+            if count_figure_images(f) == 1
+                && let Some(image) = figure_image_mut(f)
+            {
+                let _ = decide_stretch(image, auto_stretch);
+                return;
+            }
+            continue;
         }
-        if image.attr.1.iter().any(|c| c == "absolute") {
-            return;
-        }
-        if image
-            .attr
-            .1
-            .iter()
-            .any(|c| c == STRETCH_CLASS || c == "stretch")
-        {
-            return; // already stretched (explicit or idempotent re-run)
-        }
-        if has_explicit_size(image) {
-            return;
-        }
-        if auto_stretch {
-            image.attr.1.push(STRETCH_CLASS.to_string());
-        }
-        return;
     }
+}
+
+/// What to do with the standalone block holding the lone image.
+enum StretchOutcome {
+    /// The image carries (or just gained) a stretch class — its container
+    /// should be unwrapped so the image becomes a direct child of the section.
+    Unwrap,
+    /// An opt-out fired, or auto-stretch is off and the image had no stretch
+    /// class: leave the container untouched.
+    LeaveWrapped,
+}
+
+/// Apply the per-image opt-outs and, when eligible, add `.r-stretch`. Returns
+/// whether the container should be unwrapped (i.e. the image ends up stretched).
+///
+/// Opt-outs mirror Q1's `applyStretch`: `.nostretch` (consumed), `.absolute`,
+/// and explicit `width`/`height` sizing leave the image alone. An image that
+/// *already* carries `.stretch`/`.r-stretch` (author-supplied, or an idempotent
+/// re-run) is still unwrapped — Q1 hoists any stretched image that isn't yet a
+/// direct child of the section, independent of who added the class.
+fn decide_stretch(image: &mut Image, auto_stretch: bool) -> StretchOutcome {
+    if let Some(pos) = image.attr.1.iter().position(|c| c == "nostretch") {
+        image.attr.1.remove(pos);
+        return StretchOutcome::LeaveWrapped;
+    }
+    if image.attr.1.iter().any(|c| c == "absolute") {
+        return StretchOutcome::LeaveWrapped;
+    }
+    if has_explicit_size(image) {
+        return StretchOutcome::LeaveWrapped;
+    }
+    let already_stretched = image
+        .attr
+        .1
+        .iter()
+        .any(|c| c == STRETCH_CLASS || c == "stretch");
+    if !already_stretched {
+        if !auto_stretch {
+            return StretchOutcome::LeaveWrapped;
+        }
+        image.attr.1.push(STRETCH_CLASS.to_string());
+    }
+    StretchOutcome::Unwrap
 }
 
 /// Whether the block tree contains a peripheral `.aside` div (a coalesced
@@ -187,20 +256,6 @@ fn count_images(blocks: &[Block]) -> usize {
             _ => 0,
         })
         .sum()
-}
-
-/// A mutable reference to the slide's lone image, when the body block is a
-/// `Paragraph` whose only inline is an `Image`, or a `Figure` wrapping exactly
-/// one image. Otherwise `None`.
-fn body_image_mut(block: &mut Block) -> Option<&mut Image> {
-    match block {
-        Block::Paragraph(p) if p.content.len() == 1 => match &mut p.content[0] {
-            Inline::Image(img) => Some(img),
-            _ => None,
-        },
-        Block::Figure(f) if count_figure_images(f) == 1 => figure_image_mut(f),
-        _ => None,
-    }
 }
 
 /// Count `Image` inlines directly inside a figure's `Paragraph`/`Plain` blocks.
@@ -373,6 +428,47 @@ mod tests {
             None
         }
         find(&div.content).expect("image present").attr.1.clone()
+    }
+
+    /// The kind ("Plain"/"Paragraph"/"Figure"/"Div") of the first section's
+    /// top-level block that directly holds an `Image` inline, after the walk.
+    /// Used to assert the container is unwrapped to `Plain` when stretched so
+    /// the writer emits `section > img` (not `section > p > img`).
+    fn container_kind(mut blocks: Vec<Block>, auto_stretch: bool) -> String {
+        walk_sections(&mut blocks, auto_stretch);
+        let Block::Div(div) = &blocks[0] else {
+            panic!("expected section");
+        };
+        fn holds_image(inlines: &[Inline]) -> bool {
+            inlines.iter().any(|i| matches!(i, Inline::Image(_)))
+        }
+        for b in &div.content {
+            let kind = match b {
+                Block::Plain(p) if holds_image(&p.content) => "Plain",
+                Block::Paragraph(p) if holds_image(&p.content) => "Paragraph",
+                Block::Figure(_) => "Figure",
+                _ => continue,
+            };
+            return kind.to_string();
+        }
+        panic!("no top-level block holds an image");
+    }
+
+    #[test]
+    fn lone_paragraph_image_becomes_plain() {
+        // When the lone image is stretched, its `Paragraph` container is
+        // unwrapped to a `Plain` so the writer emits `section > img.r-stretch`
+        // (reveal's `section > .r-stretch` selector needs a direct child).
+        let blocks = vec![section(&[], vec![header(), para(vec![image(&[], &[])])])];
+        assert_eq!(container_kind(blocks, true), "Plain");
+    }
+
+    #[test]
+    fn non_stretched_image_keeps_paragraph() {
+        // With auto-stretch disabled the image is not stretched, so we must not
+        // disturb its container — it stays a `Paragraph` (renders as `<p>`).
+        let blocks = vec![section(&[], vec![header(), para(vec![image(&[], &[])])])];
+        assert_eq!(container_kind(blocks, false), "Paragraph");
     }
 
     #[test]

@@ -362,6 +362,10 @@ All VFS file paths use the `/project/` prefix. When resolving file paths in WASM
 
 The render pipeline has a **profile checkpoint** between `MetadataMergeStage` and `PreEngineSugaringStage`: `DocumentProfileStage` extracts a typed, serializable `DocumentProfile` (title, outline, authors, etc.) into a `PipelineData::AtProfile` variant, and `UnwrapProfileStage` immediately hands the AST back to downstream stages. Project-scoped features (sidebars, cross-document links, incremental rebuilds, eventual `freeze`) are meant to consume this profile without re-running engines or user filters. Profiles are **read-only** — any feature that needs state not yet in the profile should move its producer earlier in the pipeline and add a field (with a `profile_version` bump), not back-patch. See `claude-notes/designs/document-profile-contract.md` for the full contract and `claude-notes/plans/2026-04-23-website-project-epic.md` for the epic.
 
+### No DOM postprocessor — port Quarto 1 DOM postprocessors as AST transforms
+
+Q2 emits HTML **directly from the Pandoc AST** and has **no post-Pandoc DOM-mutation stage**. Quarto 1, by contrast, leans heavily on DOM postprocessors (functions that parse the rendered HTML into a `Document` and mutate it — e.g. reveal's `applyStretch`, which hoists a stretched `<img>` to be a direct child of its `<section>`). **When porting such a feature, re-express it as an AST transform** (operate on `Block`/`Inline` so the writer emits the right HTML the first time) rather than adding a DOM postprocessor. A DOM-postprocessor stage is a large new architectural surface with no current consumer; do not introduce one without an extremely strong, explicitly-discussed reason. Worked example: revealjs auto-stretch unwraps a `Paragraph[Image]` into a `Plain[Image]` in `crates/quarto-core/src/revealjs/auto_stretch.rs` to get `section > img.r-stretch`, instead of mutating the DOM after the fact (bd-zkstclhl).
+
 ## hub-client Commit Instructions
 
 **IMPORTANT**: When making commits that include changes to `hub-client/`, you MUST also update `hub-client/changelog.md`.
