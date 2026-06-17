@@ -6,48 +6,25 @@
  * the native golden
  * (`crates/quarto-highlight/tests/integration/snapshots/
  * integration__golden__user_grammar_toml.snap`) covers, and validates
- * that each side's spans cover the semantically-equivalent parts of
- * the source.
+ * that each side's spans cover the same parts of the source.
  *
- * ## Why bit-equality is not the assertion
+ * ## Both paths now flatten identically (exact parity)
  *
- * Native uses `tree-sitter-highlight`'s `HighlightEvent` stream. When
- * two captures open at the same start byte (e.g. `@type` for the key
- * and `@property` for the enclosing pair), tree-sitter-highlight emits
- * both `HighlightStart` events with no intervening `Source`, and
- * `collect_spans` records the outer-most end for *both* (because the
- * cursor only advances on `Source` events). So a `(bare_key) @type`
- * pattern that should cover bytes 0-4 ends up reported as 0-14 in
- * native output.
+ * As of the 2026-06-10 Monaco highlighting plan (Phase 0), the native
+ * render path no longer uses `tree-sitter-highlight`'s lossy
+ * `HighlightEvent` stream: it walks `Query.captures()` (node-exact) and
+ * flattens innermost-wins via `quarto_highlight::flatten_spans`. The JS
+ * side mirrors that exact flatten (`Highlight.ts`), so native and
+ * browser produce **identical** flattened spans — `@type` over the key
+ * (0-4), `@property` over the gap bytes around it. bd-98k6's same-start
+ * over-wrap (`@type` reported as 0-14) is gone on both paths.
  *
- * The JS side uses `web-tree-sitter`'s `Query.captures()`, which
- * returns one capture per matching node with that node's exact byte
- * range — so `@type` correctly reports 0-4.
+ * ## What this test checks
  *
- * Parent plan's Design decision 1 anticipated this: we deliberately
- * do not port `tree-sitter-highlight`'s event-stream semantics to JS
- * (Phase 4 scope). The consequence is that for HTML rendering:
- *
- * - **Native**: `<span class="hl-property"><span class="hl-type">
- *   name = "value"</span></span>` — the `.hl-type` class wraps the
- *   whole pair.
- * - **Browser**: `<span class="hl-property"><span class="hl-type">
- *   name</span> = "value"</span>` — the `.hl-type` class wraps just
- *   the key.
- *
- * Both are "highlighted TOML"; browser is arguably more
- * semantically accurate. This is acknowledged divergence, not a
- * regression.
- *
- * ## What this test does check
- *
- * For every native capture, a JS capture must exist with the same
- * `(start, captureName)` — i.e. the browser recognizes every span
- * the native path recognizes. The end byte may differ per the above
- * divergence.
- *
- * Conversely, for every JS capture, a native capture must exist with
- * the same `(start, captureName)` — no browser-unique captures.
+ * Every native capture identity `(start, captureName)` appears in the JS
+ * output and vice versa (no path-unique captures), and — now that both
+ * flatten — the native end byte equals the JS end byte for a shared
+ * identity (the `>=` invariant below holds with equality).
  *
  * Runs under `npm run test:wasm`.
  */

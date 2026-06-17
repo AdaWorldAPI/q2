@@ -56,6 +56,8 @@ declare module 'wasm-quarto-hub-client' {
   export function lsp_get_symbols(path: string): string;
   export function lsp_get_folding_ranges(path: string): string;
   export function lsp_get_diagnostics(path: string): string;
+  export function lsp_get_semantic_tokens(path: string): string;
+  export function lsp_get_token_legend(): string;
 
   // QMD parsing and AST conversion functions
   export function parse_qmd_content(content: string): string;

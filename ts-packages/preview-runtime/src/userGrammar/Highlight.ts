@@ -15,51 +15,33 @@
  * *not* port tree-sitter-highlight's capture-precedence / longest-match
  * resolution nor its locals/injections handling. The simplifications:
  *
- * - We walk `Query.captures()` directly and emit one span per capture.
- *   Capture resolution on overlaps is whatever web-tree-sitter's native
- *   pattern evaluator yields, not the longest-match-wins of
- *   tree-sitter-highlight.
- * - Injection queries (`injections.scm`) are ignored.
- * - Locals queries (`locals.scm`) are ignored. The native user-grammar
- *   path also passes empty locals/injections (see
- *   `quarto-highlight/src/user_grammar.rs:151`), so for user grammars
- *   the divergence is small; for built-ins it would matter more but
- *   built-ins don't flow through this code path at all.
+ * - We walk `Query.captures()` directly (node-exact byte ranges) and
+ *   then **flatten innermost-wins** — exactly mirroring the native
+ *   resolver `quarto_highlight::flatten_spans`. The native render path
+ *   switched off the lossy `collect_spans` event stream onto the same
+ *   `Query.captures()` + `flatten_spans` pair (see the 2026-06-10 Monaco
+ *   highlighting plan, Phase 0), so the browser and native render paths
+ *   now produce **identical** flattened spans for user grammars — true
+ *   parity by construction, and bd-98k6's same-start over-wrap is gone
+ *   on both. Injection (`injections.scm`) and locals (`locals.scm`)
+ *   queries are still ignored (the native user-grammar path also passes
+ *   empty locals/injections).
  *
- * ## Known divergence from native output: nested-capture end bytes
+ * ## Flatten: innermost (narrowest) wins each byte
  *
- * When the query has two captures that open at the same start byte
- * (e.g. `(bare_key) @type` on the inner key node + `(pair (bare_key))
- * @property` on the enclosing pair), `tree-sitter-highlight`'s
- * `HighlightEvent` stream emits both `HighlightStart`s back-to-back
- * with no intervening `Source`. The Rust `collect_spans` records
- * both spans with the outer capture's end byte (the cursor only
- * advances on `Source` events), so the inner span's reported range
- * stretches to match the outer.
+ * Captures from one query over one tree are nested-or-disjoint, so for
+ * any byte the covering captures form a strict nesting chain; the
+ * narrowest paints over the wider one, splitting the wider span around
+ * it. For `(bare_key) @type` nested in `(pair (bare_key)) @property`,
+ * the result is `type` over the key and `property` over the gap bytes
+ * around it — node-exact, non-overlapping. Equal-extent collisions (two
+ * patterns on one node) are tie-broken by "later in the capture stream
+ * wins"; no user-grammar fixture exercises that path.
  *
- * `Query.captures()` gives node-exact ranges, so this implementation
- * reports the inner capture with its actual node end. Rendered HTML
- * consequently differs for same-start nested captures:
- *
- * - Native: `<span class="hl-property"><span class="hl-type">
- *   name = "value"</span></span>` — outer-capture class wraps the
- *   whole pair and the inner-capture class wraps it too.
- * - Browser: `<span class="hl-property"><span class="hl-type">
- *   name</span> = "value"</span>` — the inner-capture class wraps
- *   only the key.
- *
- * The parity test at `userGrammarParity.wasm.test.ts` pins this down:
- * every native capture identity (start+name) appears in the JS
- * output and vice versa, and native end-byte is always >= JS
- * end-byte for the same identity. Anything tighter would require
- * porting tree-sitter-highlight's event-stream semantics to JS.
- *
- * Output is sorted canonically `(startIndex asc, endIndex desc)` so
- * identical (grammar, source) inputs produce identical strings — useful
- * for caching and for the parity test. The HTML writer treats span
- * order as immaterial (see `crates/pampa/src/writers/html.rs`'s
- * `write_highlighted_body`), so canonical ordering here doesn't change
- * what users see.
+ * Output is non-overlapping and sorted by start byte. The HTML writer
+ * treats span order as immaterial (see `crates/pampa/src/writers/html.rs`'s
+ * `write_highlighted_body`); fed flat disjoint spans it emits
+ * non-nested `<span>`s.
  */
 
 import { Language, Parser, Query, type Node as TsNode } from 'web-tree-sitter';
@@ -175,18 +157,63 @@ export async function loadUserGrammar(
 type SpanTriple = [number, number, string];
 
 /**
- * Walk `Query.captures()` over `root` and return the captures as
- * `[start, end, capture]` triples, sorted `(start asc, end desc)` so
- * outer ranges come before the inner ranges they enclose — the order
- * the HTML writer expects for nested opens.
+ * Walk `Query.captures()` over `root` (node-exact ranges) and flatten
+ * innermost-wins into a non-overlapping, start-sorted run.
  */
 function collectSpans(query: Query, root: TsNode): SpanTriple[] {
   const captures = query.captures(root);
-  const spans: SpanTriple[] = new Array(captures.length);
+  const raw: SpanTriple[] = new Array(captures.length);
   for (let i = 0; i < captures.length; i++) {
     const cap = captures[i];
-    spans[i] = [cap.node.startIndex, cap.node.endIndex, cap.name];
+    raw[i] = [cap.node.startIndex, cap.node.endIndex, cap.name];
   }
-  spans.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
-  return spans;
+  return flattenSpans(raw);
+}
+
+/**
+ * Innermost (narrowest) span wins each byte — the TS mirror of
+ * `quarto_highlight::flatten_spans`. Drops zero-width spans; on a genuine
+ * equal-extent collision the later span in the input order wins (the stable
+ * sort keeps capture-stream order and the paint buffer lets the last paint win).
+ */
+function flattenSpans(input: SpanTriple[]): SpanTriple[] {
+  const spans = input.filter((s) => s[1] > s[0]);
+  if (spans.length === 0) return [];
+
+  let min = Infinity;
+  let max = -Infinity;
+  for (const s of spans) {
+    if (s[0] < min) min = s[0];
+    if (s[1] > max) max = s[1];
+  }
+
+  // Stable sort: start ascending, then width descending so the wider span is
+  // painted first and the narrower overwrites it. (Array.prototype.sort is
+  // stable, so equal-extent spans keep capture-stream order.)
+  spans.sort((a, b) => a[0] - b[0] || b[1] - b[0] - (a[1] - a[0]));
+
+  const len = max - min;
+  const owner = new Int32Array(len).fill(-1);
+  for (let idx = 0; idx < spans.length; idx++) {
+    const s = spans[idx];
+    owner.fill(idx, s[0] - min, s[1] - min);
+  }
+
+  const out: SpanTriple[] = [];
+  let runOwner = -1;
+  let runStart = 0;
+  for (let off = 0; off < len; off++) {
+    const o = owner[off];
+    if (o !== runOwner) {
+      if (runOwner !== -1) {
+        out.push([runStart + min, off + min, spans[runOwner][2]]);
+      }
+      runOwner = o;
+      runStart = off;
+    }
+  }
+  if (runOwner !== -1) {
+    out.push([runStart + min, len + min, spans[runOwner][2]]);
+  }
+  return out;
 }

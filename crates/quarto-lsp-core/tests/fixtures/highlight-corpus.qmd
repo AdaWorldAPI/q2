@@ -1,0 +1,37 @@
+---
+title: Corpus
+author: Q
+---
+
+# Heading one
+
+## Heading two
+
+A paragraph with *emphasis*, **strong**, ~~strike~~ and `inline code`.
+
+A [link](https://example.com "title") and an ![image](logo.png){#fig width="4in"}.
+
+A [styled span]{.note} and a {{< video clip.mp4 >}} shortcode.
+
+Inline math $x + 1$ and display math:
+
+$$
+y = 2
+$$
+
+> A block quote.
+
+- list item one
+- list item two
+
+Some <span>raw</span> HTML.
+
+```{r}
+x <- 1
+```
+
+```python
+import os
+```
+
+An <!-- inline comment --> and a [>> editorial note].

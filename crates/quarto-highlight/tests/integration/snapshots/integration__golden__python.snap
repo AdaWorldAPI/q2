@@ -1,5 +1,5 @@
 ---
-source: crates/quarto-highlight/tests/golden.rs
+source: crates/quarto-highlight/tests/integration/golden.rs
 description: "def greet(name):\n    print(f\"hi, {name}\")\n"
 ---
 [
@@ -24,6 +24,11 @@ description: "def greet(name):\n    print(f\"hi, {name}\")\n"
     "function.builtin"
   ],
   [
+    27,
+    33,
+    "string"
+  ],
+  [
     33,
     34,
     "punctuation.special"
@@ -39,12 +44,7 @@ description: "def greet(name):\n    print(f\"hi, {name}\")\n"
     "punctuation.special"
   ],
   [
-    33,
     39,
-    "embedded"
-  ],
-  [
-    27,
     40,
     "string"
   ]

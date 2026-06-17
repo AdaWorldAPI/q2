@@ -15,10 +15,46 @@ import type * as Monaco from 'monaco-editor';
 import {
   getSymbols,
   getFoldingRanges,
+  getSemanticTokensForContent,
+  QMD_TOKEN_LEGEND,
   type Symbol,
   type FoldingRange,
 } from './intelligenceService';
-import type { SymbolKind, FoldingRangeKind, Range } from '@quarto/preview-renderer/types/intelligence';
+import type {
+  SymbolKind,
+  FoldingRangeKind,
+  Range,
+  SemanticToken,
+} from '@quarto/preview-renderer/types/intelligence';
+
+/**
+ * Delta-encode absolute semantic tokens into Monaco's flat `Uint32Array` of
+ * 5-tuples `[deltaLine, deltaStartChar, length, tokenType, tokenModifiers]`.
+ *
+ * `deltaLine` is relative to the previous token's line; `deltaStartChar` is
+ * relative to the previous token's start *only when on the same line*,
+ * otherwise absolute. Tokens must already be sorted by (line, character) —
+ * the Rust extractor guarantees this. Pure function (no Monaco runtime).
+ */
+export function encodeSemanticTokens(tokens: SemanticToken[]): Uint32Array {
+  const data = new Uint32Array(tokens.length * 5);
+  let prevLine = 0;
+  let prevChar = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    const deltaLine = t.line - prevLine;
+    const deltaChar = deltaLine === 0 ? t.character - prevChar : t.character;
+    const offset = i * 5;
+    data[offset] = deltaLine;
+    data[offset + 1] = deltaChar;
+    data[offset + 2] = t.length;
+    data[offset + 3] = t.tokenType;
+    data[offset + 4] = t.modifiers;
+    prevLine = t.line;
+    prevChar = t.character;
+  }
+  return data;
+}
 
 // ============================================================================
 // Type Conversion Utilities
@@ -141,6 +177,7 @@ function toMonacoFoldingRange(
  */
 let documentSymbolDisposable: Monaco.IDisposable | null = null;
 let foldingRangeDisposable: Monaco.IDisposable | null = null;
+let semanticTokensDisposable: Monaco.IDisposable | null = null;
 
 /**
  * Register intelligence providers with Monaco.
@@ -149,8 +186,9 @@ let foldingRangeDisposable: Monaco.IDisposable | null = null;
  * - DocumentSymbolProvider: Enables Cmd+Shift+O "Go to Symbol in Editor"
  * - FoldingRangeProvider: Enables code folding for frontmatter, code cells, sections
  *
- * Providers are registered for the 'markdown' language since Monaco treats .qmd
- * files as markdown. The providers filter internally to only process .qmd files.
+ * Providers are registered for the dedicated 'qmd' language (`.qmd` files map
+ * to it; see Editor.tsx). The symbol/folding providers also gate internally on
+ * the `.qmd` extension.
  *
  * Call this once when the editor mounts. The providers fetch fresh data from
  * the intelligence service on each request, so they automatically reflect
@@ -168,7 +206,7 @@ export function registerIntelligenceProviders(
 
   // Register DocumentSymbolProvider for Cmd+Shift+O
   documentSymbolDisposable = monaco.languages.registerDocumentSymbolProvider(
-    'markdown',
+    'qmd',
     {
       displayName: 'Quarto Document Symbols',
       provideDocumentSymbols: async (
@@ -195,7 +233,7 @@ export function registerIntelligenceProviders(
 
   // Register FoldingRangeProvider for code folding
   foldingRangeDisposable = monaco.languages.registerFoldingRangeProvider(
-    'markdown',
+    'qmd',
     {
       provideFoldingRanges: async (
         _model,
@@ -219,6 +257,61 @@ export function registerIntelligenceProviders(
       },
     }
   );
+
+  // Register DocumentSemanticTokensProvider — the authoritative colour source
+  // for .qmd (qmd structure + frontmatter YAML + code-cell interiors). The
+  // Monarch base (Editor.tsx) paints instantly and fills any byte semantic
+  // leaves uncaptured; semantic tokens override it where present.
+  semanticTokensDisposable = monaco.languages.registerDocumentSemanticTokensProvider(
+    'qmd',
+    {
+      // Synchronous, from the checked-in TS constant (the WASM module is not
+      // initialised at registration). Fixed for the provider lifetime.
+      getLegend: (): Monaco.languages.SemanticTokensLegend => ({
+        tokenTypes: [...QMD_TOKEN_LEGEND],
+        tokenModifiers: [],
+      }),
+
+      provideDocumentSemanticTokens: async (
+        model,
+        _lastResultId,
+        token
+      ): Promise<Monaco.languages.SemanticTokens | null> => {
+        const path = getCurrentFilePath();
+        if (!path?.endsWith('.qmd')) {
+          return null;
+        }
+
+        // Snapshot the version + content so we tokenise exactly what Monaco
+        // renders (not the VFS image, which can drift) and can drop a result
+        // computed against superseded content (Monaco fires a fresh request per
+        // debounced edit and cancels the in-flight one).
+        const versionId = model.getVersionId();
+        const content = model.getValue();
+        try {
+          const tokens = await getSemanticTokensForContent(path, content);
+          if (token.isCancellationRequested || model.getVersionId() !== versionId) {
+            // Stale/cancelled: discard and leave existing tokens in place. Do
+            // NOT return empty data here — that would clear highlighting.
+            return null;
+          }
+          // Resolved (any count, incl. zero). Zero → empty data clears semantic
+          // styling so the Monarch base shows. A failed read collapses to [] in
+          // getSemanticTokensForContent and lands here, degrading to the base.
+          return { data: encodeSemanticTokens(tokens), resultId: undefined };
+        } catch (err) {
+          // Never let the provider throw — that can disable semantic tokens for
+          // the whole session.
+          console.error('SemanticTokensProvider error:', err);
+          return null;
+        }
+      },
+
+      releaseDocumentSemanticTokens: (): void => {
+        // No-op: results are not cached server-side.
+      },
+    }
+  );
 }
 
 /**
@@ -235,5 +328,9 @@ export function disposeIntelligenceProviders(): void {
   if (foldingRangeDisposable) {
     foldingRangeDisposable.dispose();
     foldingRangeDisposable = null;
+  }
+  if (semanticTokensDisposable) {
+    semanticTokensDisposable.dispose();
+    semanticTokensDisposable = null;
   }
 }

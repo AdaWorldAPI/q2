@@ -577,6 +577,136 @@ impl From<DocumentAnalysis> for DocumentAnalysisJson {
     }
 }
 
+// ============================================================================
+// Semantic tokens (Monaco DocumentSemanticTokensProvider)
+// ============================================================================
+
+/// One semantic token in the LSP/Monaco model: a single-line range plus a
+/// type index into [`QMD_TOKEN_LEGEND`].
+///
+/// `line`/`character`/`length` are **absolute** (not delta-encoded) and in
+/// UTF-16 code units on a single line — the delta encoding into Monaco's
+/// 5-tuple `Uint32Array` happens client-side. A token never spans a newline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticToken {
+    /// Zero-based line.
+    pub line: u32,
+    /// Zero-based start character (UTF-16 code units).
+    pub character: u32,
+    /// Token length in UTF-16 code units, on this one line.
+    pub length: u32,
+    /// Index into [`QMD_TOKEN_LEGEND`].
+    pub token_type: u32,
+    /// Token modifier bitset (unused — always 0).
+    pub modifiers: u32,
+}
+
+/// Serializable envelope for the WASM boundary: a flat token list. The legend
+/// is **not** shipped per-response (it is a compile-time constant on both
+/// sides; see [`QMD_TOKEN_LEGEND`]).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensJson {
+    /// The document's semantic tokens, sorted and non-overlapping.
+    pub tokens: Vec<SemanticToken>,
+}
+
+/// The ordered Monaco token-type legend — the contract the editor theme
+/// targets. Index into this array is a token's `token_type`.
+///
+/// **Every entry carries a `qmd.` sentinel super-prefix** on top of its family
+/// namespace (`qmd.markup.*` / `qmd.punctuation.*` / `qmd.attribute.*` for
+/// structural, `qmd.code.*` for embedded). No other grammar emits anything
+/// under `qmd.`, so a theme rule keyed on a legend entry can never prefix-match
+/// a scope another language emits (Phase 7, Defence 1). The `.scm` capture
+/// names stay unprefixed; [`capture_to_token_type`] adds the prefix.
+///
+/// The `qmd.code.*` group **must** mirror the `.hl-*` roots in
+/// `resources/scss/html/templates/highlight.scss` (24 roots) so editor and
+/// render colour the same captures — pinned by the `code_legend_covers_render_css`
+/// test (Phase 7, Defence 3).
+pub static QMD_TOKEN_LEGEND: &[&str] = &[
+    // --- structural (qmd `highlights.scm`) ---
+    "qmd.markup.heading",
+    "qmd.markup.emphasis",
+    "qmd.markup.strong",
+    "qmd.markup.strikethrough",
+    "qmd.markup.link.label",
+    "qmd.markup.link.url",
+    "qmd.markup.link.title",
+    "qmd.markup.image.label",
+    "qmd.markup.image.url",
+    "qmd.markup.raw.inline",
+    "qmd.markup.raw",
+    "qmd.markup.raw.info",
+    "qmd.markup.math",
+    "qmd.markup.shortcode",
+    "qmd.markup.list",
+    "qmd.markup.quote",
+    "qmd.markup.comment",
+    "qmd.punctuation.special",
+    "qmd.punctuation.special.image",
+    "qmd.punctuation.bracket",
+    "qmd.punctuation.delimiter.fence",
+    "qmd.punctuation.delimiter.frontmatter",
+    "qmd.attribute.specifier",
+    // --- embedded code (the 24 `hl-*` roots in highlight.scss) ---
+    "qmd.code.attribute",
+    "qmd.code.boolean",
+    "qmd.code.character",
+    "qmd.code.comment",
+    "qmd.code.constant",
+    "qmd.code.constructor",
+    "qmd.code.embedded",
+    "qmd.code.error",
+    "qmd.code.escape",
+    "qmd.code.function",
+    "qmd.code.keyword",
+    "qmd.code.label",
+    "qmd.code.markup",
+    "qmd.code.module",
+    "qmd.code.namespace",
+    "qmd.code.number",
+    "qmd.code.operator",
+    "qmd.code.property",
+    "qmd.code.punctuation",
+    "qmd.code.special",
+    "qmd.code.string",
+    "qmd.code.tag",
+    "qmd.code.type",
+    "qmd.code.variable",
+];
+
+/// Translate a tree-sitter capture name to its [`QMD_TOKEN_LEGEND`] index.
+///
+/// The single point both capture families map through. Prepend the `qmd.`
+/// sentinel (always) and `code.` (embedded only — zones 2/3), then match by
+/// **longest dotted prefix** against the legend: try the full namespaced name,
+/// then drop trailing `.component`s until a legend entry matches. Returns
+/// `None` for an unrecognised capture (the caller skips it — never panics,
+/// never emits a garbage index).
+///
+/// - `markup.heading.3` (structural) → `qmd.markup.heading` (level suffix drops).
+/// - `function.builtin` (embedded) → `qmd.code.function`.
+/// - `punctuation.bracket` (embedded) → `qmd.code.punctuation` — never collides
+///   with the structural `qmd.punctuation.bracket` entry.
+pub fn capture_to_token_type(capture: &str, embedded: bool) -> Option<u32> {
+    let full = if embedded {
+        format!("qmd.code.{capture}")
+    } else {
+        format!("qmd.{capture}")
+    };
+    let mut candidate = full.as_str();
+    loop {
+        if let Some(idx) = QMD_TOKEN_LEGEND.iter().position(|&e| e == candidate) {
+            return Some(idx as u32);
+        }
+        let dot = candidate.rfind('.')?;
+        candidate = &candidate[..dot];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -694,6 +824,109 @@ mod tests {
         assert!(
             !json.contains("\"start_line\""),
             "FoldingRange should not use snake_case"
+        );
+    }
+
+    fn legend_name(idx: u32) -> &'static str {
+        QMD_TOKEN_LEGEND[idx as usize]
+    }
+
+    #[test]
+    fn translator_longest_prefix_collapses_suffixes() {
+        // Structural: heading level suffix drops.
+        assert_eq!(
+            legend_name(capture_to_token_type("markup.heading.3", false).unwrap()),
+            "qmd.markup.heading"
+        );
+        // Structural: exact match, no collapse.
+        assert_eq!(
+            legend_name(capture_to_token_type("markup.link.url", false).unwrap()),
+            "qmd.markup.link.url"
+        );
+        // Embedded: function.builtin → code.function.
+        assert_eq!(
+            legend_name(capture_to_token_type("function.builtin", true).unwrap()),
+            "qmd.code.function"
+        );
+        // Embedded: string.escape → code.string.
+        assert_eq!(
+            legend_name(capture_to_token_type("string.escape", true).unwrap()),
+            "qmd.code.string"
+        );
+    }
+
+    #[test]
+    fn translator_keeps_structural_and_embedded_disjoint() {
+        // A code-grammar `punctuation.bracket` lands in the code namespace,
+        // never colliding with the structural `qmd.punctuation.bracket`.
+        assert_eq!(
+            legend_name(capture_to_token_type("punctuation.bracket", true).unwrap()),
+            "qmd.code.punctuation"
+        );
+        assert_eq!(
+            legend_name(capture_to_token_type("punctuation.bracket", false).unwrap()),
+            "qmd.punctuation.bracket"
+        );
+    }
+
+    #[test]
+    fn translator_skips_unknown_captures() {
+        assert_eq!(capture_to_token_type("totally.unknown", false), None);
+        assert_eq!(capture_to_token_type("nonsense", true), None);
+    }
+
+    #[test]
+    fn code_legend_covers_render_css() {
+        // Parity-coverage invariant (Phase 7, Defence 3): the shared resolver
+        // unifies *which* capture wins each byte, but editor and render use
+        // different colour tables — render keys on `.hl-<root>` CSS classes,
+        // the editor on the `code.*` legend. A root present in one but not the
+        // other is a silent parity break, so lock them together: the set of
+        // `code.<root>` legend roots must equal the set of `.hl-<root>` roots.
+        const SCSS: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../resources/scss/html/templates/highlight.scss"
+        ));
+
+        // CSS roots: the first hyphen-segment after `.hl-` in each selector.
+        let mut css_roots: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let bytes = SCSS.as_bytes();
+        let needle = b".hl-";
+        let mut i = 0;
+        while i + needle.len() <= bytes.len() {
+            if &bytes[i..i + needle.len()] == needle {
+                let mut j = i + needle.len();
+                let start = j;
+                while j < bytes.len() && (bytes[j].is_ascii_lowercase() || bytes[j] == b'-') {
+                    j += 1;
+                }
+                if j > start {
+                    let ident = &SCSS[start..j];
+                    let root = ident.split('-').next().unwrap_or(ident);
+                    if !root.is_empty() {
+                        css_roots.insert(root.to_string());
+                    }
+                }
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+
+        // Legend code.* roots.
+        let legend_roots: std::collections::BTreeSet<String> = QMD_TOKEN_LEGEND
+            .iter()
+            .filter_map(|e| e.strip_prefix("qmd.code."))
+            .map(|s| s.to_string())
+            .collect();
+
+        assert_eq!(
+            legend_roots,
+            css_roots,
+            "code.* legend roots and .hl-* CSS roots diverged.\n\
+             only in legend: {:?}\nonly in CSS: {:?}",
+            legend_roots.difference(&css_roots).collect::<Vec<_>>(),
+            css_roots.difference(&legend_roots).collect::<Vec<_>>(),
         );
     }
 
