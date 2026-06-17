@@ -360,6 +360,50 @@ pub fn resolve_single_file_deps(
         }
     }
 
+    // Document-declared `resources:` (bd-k5rxujiy Layer 1). The AST image walk
+    // above can only see `Image` nodes; assets referenced through metadata or
+    // raw HTML — `logo:`, footer images, shortcode/CSS `url()` refs — are
+    // invisible to it. `resources:` is the author's explicit declaration of
+    // exactly those files (the same one `q2 render` / publish uses, and the
+    // sync upload trust boundary — see `resources_scoped_html_files` above), so
+    // we honor it here too: expand the patterns (globs included) against the
+    // deck dir, the same anchor as the image walk, and fold the matches into
+    // the binary closure so they sync into the preview VFS.
+    //
+    // Note: this gets the bytes into the VFS (Layer 1). A raw `<img src=…>`
+    // still needs its `src` rewritten to the minted blob URL to actually load
+    // (Layer 2 — `preview-renderer` asset manifest); see the plan.
+    {
+        use quarto_core::project_resources::{
+            ResourceOrigin, ResourceScope, expand_patterns, extract_resource_patterns,
+        };
+        let patterns = extract_resource_patterns(&doc.ast.meta, &["resources"]);
+        if !patterns.is_empty() {
+            // Anchor relative patterns at the deck dir (render parity with the
+            // image walk); contain + relativize against the canonical root, so
+            // the resulting keys match the VFS source keys produced above.
+            let anchor = canonical_root.join(deck_dir);
+            if let Ok(resolved) = expand_patterns(
+                &canonical_root,
+                &anchor,
+                &patterns,
+                || ResourceOrigin::DocumentMetadata {
+                    source: abs_deck.clone(),
+                },
+                ResourceScope::Page {
+                    source: abs_deck.clone(),
+                },
+            ) {
+                for r in resolved {
+                    let rel = PathBuf::from(&r.output_relative);
+                    if seen_bin.insert(rel.clone()) {
+                        binary_files.push(rel);
+                    }
+                }
+            }
+        }
+    }
+
     qmd_files.sort();
     binary_files.sort();
     SingleFileDeps {
@@ -415,6 +459,56 @@ mod tests {
                 qmd_files: vec![std::path::PathBuf::from("part.qmd")],
                 binary_files: vec![std::path::PathBuf::from("inc.png")],
             }
+        );
+    }
+
+    /// A document `resources:` declaration is honored in single-file preview
+    /// (bd-k5rxujiy Layer 1): declared files land in `binary_files` even when
+    /// nothing in the AST references them — the `logo:` / raw-HTML / shortcode
+    /// case the AST image walker can't see.
+    #[test]
+    fn single_file_deps_includes_declared_resources() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::write(root.join("logo.svg"), b"<svg/>").unwrap();
+        std::fs::write(
+            root.join("main.qmd"),
+            "---\ntitle: T\nlogo: logo.svg\nresources:\n  - logo.svg\n---\n\n# Hi\n",
+        )
+        .unwrap();
+
+        let deps = resolve_single_file_deps(root, std::path::Path::new("main.qmd"), native_arc());
+        assert!(
+            deps.binary_files
+                .contains(&std::path::PathBuf::from("logo.svg")),
+            "declared resource logo.svg should sync into the VFS; got {:?}",
+            deps.binary_files,
+        );
+    }
+
+    /// `resources:` accepts globs — reuses the publish-path `expand_patterns`,
+    /// so a `*.svg` pattern pulls every matching sibling into the closure.
+    #[test]
+    fn single_file_deps_resources_glob() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::write(root.join("a.svg"), b"<svg/>").unwrap();
+        std::fs::write(root.join("b.svg"), b"<svg/>").unwrap();
+        std::fs::write(
+            root.join("main.qmd"),
+            "---\ntitle: T\nresources:\n  - \"*.svg\"\n---\n\n# Hi\n",
+        )
+        .unwrap();
+
+        let mut deps =
+            resolve_single_file_deps(root, std::path::Path::new("main.qmd"), native_arc());
+        deps.binary_files.sort();
+        assert_eq!(
+            deps.binary_files,
+            vec![
+                std::path::PathBuf::from("a.svg"),
+                std::path::PathBuf::from("b.svg"),
+            ],
         );
     }
 

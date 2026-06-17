@@ -122,11 +122,6 @@ and footer/logo are correctly `position: fixed`, stable across reloads and
 
 ### F5 — Logo image 404s in preview: asset walker misses meta-driven raw-HTML images (tracked: bd-k5rxujiy)
 
-_(Moved up from below — kept here with the other F-numbered findings.)_ See the
-detailed entry under "Findings" above.
-
-### F5 — Logo image 404s in preview: asset walker misses meta-driven raw-HTML images (tracked: bd-k5rxujiy)
-
 With F3's DOM in place, the logo `<img class="slide-logo" src="logo.svg">` fails
 to load in preview (`naturalWidth: 0`). Network: `GET /logo.svg` → **200
 `text/html`** (the SPA shell) — `logo.svg` is not in the preview's served VFS
@@ -144,12 +139,62 @@ is likewise a no-op in `vfs_root` mode (`resource_collector.rs:96`) by design �
 the walker is the producer in preview. Native render works only because
 `logo.svg` sits next to `slides.html` on disk.
 
-**Fix options** (need a design call): (A) walker also collects `meta.logo` and
-`RevealChrome` rewrites the injected `src` via `AssetManifestContext` — targeted;
-(B) generalize the walker to scan `rendered.{reveal,navigation}.*` HTML strings
-for `src=`/`href=` asset refs and have the injecting slots rewrite — general
-(covers footer images, navbar logos); (C) represent the logo as a real `Image`
-AST node. Recommend (B) long-term, (A) as a quick win.
+#### The fix is two independent layers
+
+The problem decomposes into "are the bytes available?" and "does the element
+that wants them actually get them?". These are separable and must *both* hold.
+
+**Layer 1 — get the declared bytes into the preview VFS.** Honor a document's
+front-matter `resources:` in single-file preview, the same declaration used for
+publishing. `crates/quarto-preview/src/config.rs::resolve_single_file_deps`
+(bd-9cyza5vy) already runs the real parse + include stages and collects image
+deps via `collect_referenced_asset_urls(blocks)`; document `resources:` plugs in
+right beside that, reusing the existing publish machinery —
+`project_resources::extract_resource_patterns(&doc.ast.meta, ["resources"])` +
+`expand_patterns(canonical_root, deck_dir_anchor, …, DocumentMetadata, Page)`
+(the same `expand_patterns` already used in that file for *project* `resources:`)
+— folding the resolved files into `SingleFileDeps.binary_files`. Properties:
+reuses publish semantics (declare once → publish + preview), handles globs, is
+format-agnostic (helps any single-file doc referencing assets the AST walker
+can't see: `logo:`, raw HTML, shortcodes, CSS `url()`), and is on-policy
+(`config.rs:122` already treats `resources:` as the sync upload trust boundary).
+**This is the cheap, clearly-worthwhile piece and is implemented under
+bd-k5rxujiy.** Bytes-in-VFS is *necessary but not sufficient.*
+
+**Layer 2 — serve those bytes to the raw `<img>`.** The logo is a raw
+`<img src="logo.svg">` injected by `RevealChrome`; it fetches `/logo.svg`, hits
+the SPA catch-all, and never passes through the `<Image>` component that swaps in
+blob URLs. Two ways to close it:
+
+- **(a) per-asset rewrite (targeted, no infra changes).** Two small steps, both
+  in `preview-renderer` TS:
+  1. *Walker collects the non-Image paths.* `assetWalker.ts` already builds
+     `manifest: { origPath → blobUrl }` by reading VFS bytes via
+     `vfsReadBinaryFile` and minting blob URLs. Extend `collectImagePaths` (or
+     add a sibling collector) to also gather `meta.logo` and/or `meta.resources`
+     path strings, so the manifest gains `{ "logo.svg": "blob:…" }`. (Keyed by
+     the **same** string that appears in the injected HTML — both come from the
+     `logo:` value the Rust transform emits verbatim, so they match; a test
+     should pin that.)
+  2. *Injecting slot rewrites against the manifest.* `RevealChrome` builds a
+     detached `<div>` from the raw HTML before appending. Add a pass:
+     `wrapper.querySelectorAll('[src],[href]')`, and for each, look the current
+     attr value up in the manifest (via `AssetManifestContext`, the same source
+     the `<Image>` component already uses) and rewrite to the blob URL when
+     matched; external/`data:`/`blob:` pass through. Best factored as a reusable
+     `rewriteAssetRefs(root, lookupAssetUrl)` so footer images / navbar logos get
+     it too. **Stays entirely inside `preview-renderer` — no hub-client, sync
+     server, or quarto-hub.com involvement.**
+- **(b) service-worker VFS-by-path server (general, future-proof).** Serve
+  `/logo.svg` straight from the VFS so *any* path reference resolves with no
+  rewriting (`resources:` becomes the allow-list that gates it). This is the
+  bd-msp0 epic — it **touches hub-client and the quarto-hub.com deployment**, so
+  it is deferred until we're ready for that surface.
+
+**Decision:** Layer 1 lands now (bd-k5rxujiy). For Layer 2 we go with **(a)** —
+the per-asset rewrite, contained to `preview-renderer` — *or* defer Layer 2
+entirely, because **(b)** the service worker pulls in hub-client + the
+quarto-hub.com deployment, which we are not ready to take on yet.
 
 ## Root cause (F1 + F2)
 
@@ -203,9 +248,17 @@ verify):
 - [x] ~~**F4: include the Quarto reveal chrome CSS layer in the preview
   theme**~~ — RETRACTED (bd-d0f9xoa6 closed); was a stale-WASM artifact, the
   theme is fine on a clean build.
-- [ ] **F5: collect meta-driven / raw-HTML images into the preview VFS**
-  (bd-k5rxujiy). Logo `<img src="logo.svg">` 404s because the asset walker only
-  sees AST `Image` nodes. Needs a design call (see F5 fix options).
+- [x] **F5 Layer 1: honor document `resources:` in single-file preview VFS**
+  (bd-k5rxujiy). DONE 2026-06-17 — `resolve_single_file_deps` expands
+  `meta.resources` into `binary_files` (reuses `extract_resource_patterns` +
+  `expand_patterns`; globs supported). Tests `single_file_deps_includes_declared_resources`
+  + `_glob`; E2E A/B via real `q2 preview` (`binary_count` 1 vs 0). Bytes-in-VFS
+  only — the logo still 404s until Layer 2.
+- [ ] **F5 Layer 2: serve the bytes to the raw `<img>`** — option (a) per-asset
+  rewrite in `preview-renderer` (walker collects `meta.logo`/`meta.resources`;
+  `RevealChrome` rewrites `src`/`href` via `AssetManifestContext`), OR defer
+  until the (b) service-worker path-server (bd-msp0, touches hub-client +
+  quarto-hub.com) is on the table.
 - [x] **F3: render deck footer/logo + `has-logo` in `RevealDeck`** (bd-n2w0sxgd).
   DONE 2026-06-17 — `RevealChrome` + `revealChromeFromMeta` in `RevealDeck.tsx`,
   7-case `RevealDeck.integration.test.tsx`, verified in Chrome. DOM-only;
