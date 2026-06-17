@@ -30,21 +30,52 @@
     accumulate (dedup), kv last-wins. Easy to revisit — it's localized to the
     helper.
 
+- **2026-06-17 — `Paragraph` across all three renderers (done).**
+  - **html.rs** `Paragraph` writer collects via `split_trailing_block_attr`,
+    emits `write_attr` on the `<p>`, renders the retained content. The inline
+    writers (`write_inlines` / `find_attribution_run_end` / `write_inlines_as_text`)
+    were widened from `&Inlines` to `&[Inline]` so a content *prefix* can be
+    rendered. Test `paragraph_trailing_attr_becomes_p_class`.
+  - **React** `Para.tsx` reads the optional `attr` key (added to `ParaBlock` in
+    `framework/types.ts`) and applies id/classes/`data-*`/`role` to the `<p>`,
+    mirroring `Header.tsx`. Test in `q2-preview.integration.test.tsx`. Full
+    preview-renderer suite green (219 unit + 229 integration); `tsc` build clean.
+  - **End-to-end through the binary** (✅ inspected). The parser *already* emits a
+    trailing `Inline::Attr` for plain qmd `paragraph text {.caption}`, so the
+    capability is reachable by plain authoring — no consumer filter needed:
+    - `pampa -t html -i cap.qmd` → `<p class="caption">This is a caption.</p>`
+    - `pampa -t json -i cap.qmd | pandoc -f json -t html` → `<p>This is a caption.</p>`
+      (Pandoc ignores the `attr` key — graceful, no error)
+    - This was previously a `Q-3-32` *error* in JSON; it now works.
+  - **Behavior change worth noting:** plain qmd `paragraph {.class}` now yields
+    `<p class="class">` in html/json/preview (it errored/was dropped before).
+    Consistent with `## Heading {.class}`; arguably the intended qmd semantics.
+    Full `pampa` suite stayed green (3967), so no existing test relied on the old
+    drop/error.
+
+### `Plain` is out of scope (decided)
+
+A `Plain` emits **no wrapping element** — bare inlines in HTML, a bare fragment
+in React — so a block attr on a `Plain` has nowhere to land. The figure-caption
+that wants `<p class="caption">` must be a **`Paragraph`**. `Plain` is therefore
+intentionally *not* a block-attr carrier; the `json.rs`/`native.rs` `Plain`
+arms are left as-is.
+
 ### Remaining (next increments)
 
-- [ ] `Plain` streaming writer: same treatment (reveal caption may be a `Plain`).
-- [ ] **html.rs** `Paragraph`/`Plain` writers: call `split_trailing_block_attr`,
-      `write_attr` on the `<p>`, write the retained content. (`q2 render` path.)
-- [ ] **React** `Para.tsx`/`Plain.tsx` (`ts-packages/preview-renderer`): read the
-      `attr` key and apply to the wrapper. Dumb read — no merge logic in TS.
+- [ ] **`native.rs`** still errors `Q-3-32` on a `Para` trailing attr (pre-existing;
+      now reachable via plain qmd `paragraph {.attr}`). Decide its contract:
+      faithfully print the resolved attr, drop silently, or keep erroring as a
+      debug-only format. Deferred — needs a call on native's faithfulness intent.
 - [ ] JSON **reader** fold-back (optional): teach `readers/json.rs` to restore a
       trailing `Inline::Attr` from the `attr` key, so a json→AST→json round-trip
       doesn't silently drop the block attr. Not needed for preview (no read-back).
-- [ ] End-to-end parity test: reveal figure-caption fixture renders
-      `<p class="caption">` in both `q2 render` and `q2 preview` (q2-slides).
-- [ ] List items (`<li class>`) — distinct hoist mechanism; later sub-task.
-- [ ] Decide `native.rs` behavior (still errors `Q-3-32`): faithfully print the
-      resolved attr, or keep erroring as a debug-only format.
+- [ ] List items (`<li class>`) — distinct hoist mechanism (attr rides on the
+      item's child block; the `<li>` writer must hoist it, composing with the
+      incremental `fragment` class). Later sub-task.
+- [ ] Wire the actual consumer: bd-38ioql41 reveal figure caption emits a
+      `Paragraph[..caption.., Attr{.caption}]`; add the q2-slides preview parity
+      check there.
 
 
 

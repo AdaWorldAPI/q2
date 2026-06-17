@@ -100,6 +100,21 @@ describe('q2-preview registry — Pandoc base types render as real HTML', () => 
         expect(p!.textContent).toBe('hello');
     });
 
+    it('applies a Para `attr` key to the <p> (block-level attributes, bd-itqcfxc3)', () => {
+        // The Rust JSON writer carries a block-level attribute on a Para via an
+        // extra `attr` key (Pandoc ignores it; we read it). The preview must
+        // apply id/classes/kvs to the <p> so it matches `q2 render`.
+        const { container } = mount([
+            { t: 'Para', c: [STR('This is a caption.')], attr: ['cap1', ['caption'], [['data-foo', 'bar']]] },
+        ]);
+        const p = container.querySelector('p');
+        expect(p).not.toBeNull();
+        expect(p!.classList.contains('caption')).toBe(true);
+        expect(p!.id).toBe('cap1');
+        expect(p!.getAttribute('data-foo')).toBe('bar');
+        expect(p!.textContent).toBe('This is a caption.');
+    });
+
     it('renders Str inlines as text content (no placeholder)', () => {
         const { container } = mount([PARA(STR('hello'))]);
         // Use querySelector('p') to avoid picking up CSS text from useBlockEditHover's

@@ -16,7 +16,10 @@ export interface PandocAST {
  */
 export type Attr = [string, string[], [string, string][]];
 
-export type ParaBlock = { t: 'Para'; c: InlineNode[] };
+// `attr` is an optional Quarto extension: a block-level Pandoc attribute
+// carried on the Para node as an extra key the Rust JSON writer emits and
+// Pandoc ignores. Used for e.g. `<p class="caption">`. See bd-itqcfxc3.
+export type ParaBlock = { t: 'Para'; c: InlineNode[]; attr?: Attr };
 export type PlainBlock = { t: 'Plain'; c: InlineNode[] };
 export type HeaderBlock = { t: 'Header'; c: [number, [string, string[], [string, string][]], InlineNode[]] };
 export type CodeBlock = { t: 'CodeBlock'; c: [[string, string[], [string, string][]], string] };

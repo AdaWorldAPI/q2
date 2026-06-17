@@ -3,6 +3,7 @@
  * Copyright (c) 2025 Posit, PBC
  */
 
+use crate::pandoc::attr::is_empty_attr;
 use crate::pandoc::{ASTContext, Attr, Block, CitationMode, Inline, Inlines, Pandoc};
 use crate::writers::html_source::build_source_map;
 use crate::writers::json::{self, JsonConfig};
@@ -1095,7 +1096,7 @@ fn write_inline<W: Write>(
 
 /// Write a sequence of inlines
 fn write_inlines<W: Write>(
-    inlines: &Inlines,
+    inlines: &[Inline],
     ctx: &mut HtmlWriterContext<'_, W>,
 ) -> std::io::Result<()> {
     // Prose coalescing (Phase 4b): when contiguous prose inlines
@@ -1129,7 +1130,7 @@ fn write_inlines<W: Write>(
 /// the end of the run is trimmed so it isn't pulled into a wrapper
 /// that wouldn't otherwise extend that far.
 fn find_attribution_run_end<W: Write>(
-    inlines: &Inlines,
+    inlines: &[Inline],
     start: usize,
     ctx: &HtmlWriterContext<'_, W>,
 ) -> usize {
@@ -1239,7 +1240,7 @@ fn write_inline_locations_only_attrs<W: Write>(
 
 /// Write inlines as plain text (for alt attributes, etc.)
 fn write_inlines_as_text<W: Write>(
-    inlines: &Inlines,
+    inlines: &[Inline],
     ctx: &mut HtmlWriterContext<'_, W>,
 ) -> std::io::Result<()> {
     for inline in inlines {
@@ -1284,10 +1285,19 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
             writeln!(ctx)?;
         }
         Block::Paragraph(para) => {
+            // A filter may inject a trailing standalone `Inline::Attr` to give
+            // the paragraph block-level attributes Pandoc's `Para` can't carry
+            // (e.g. `<p class="caption">`). Collect that trailing run, apply the
+            // merged attr to the `<p>`, and render only the retained content.
+            // See bd-itqcfxc3.
+            let (content, attr) = super::block_attr::split_trailing_block_attr(&para.content);
             write!(ctx, "<p")?;
+            if !is_empty_attr(&attr) {
+                write_attr(&attr, ctx)?;
+            }
             write_block_source_attrs(block, ctx)?;
             write!(ctx, ">")?;
-            write_inlines(&para.content, ctx)?;
+            write_inlines(content, ctx)?;
             writeln!(ctx, "</p>")?;
         }
         Block::LineBlock(lineblock) => {
@@ -2337,6 +2347,45 @@ mod tests {
         }));
         assert!(html.contains("<span class=\"hl-keyword\">def</span>"));
         assert!(!html.contains("data-hl-spans="));
+    }
+
+    #[test]
+    fn paragraph_trailing_attr_becomes_p_class() {
+        // A `Paragraph` ending in a trailing standalone `Inline::Attr` (as a
+        // filter injects for a hoisted figure caption) renders as
+        // `<p class="caption">…</p>`, with the attr node and the preceding
+        // `Space` stripped from the text. See bd-itqcfxc3.
+        use crate::pandoc::block::Paragraph;
+        use crate::pandoc::inline::{InlineAttr, Space, Str};
+        use hashlink::LinkedHashMap;
+
+        let attr = (
+            String::new(),
+            vec!["caption".to_string()],
+            LinkedHashMap::new(),
+        );
+        let para = Block::Paragraph(Paragraph {
+            content: vec![
+                Inline::Str(Str {
+                    text: "This is a caption.".to_string(),
+                    source_info: dummy_source_info(),
+                }),
+                Inline::Space(Space {
+                    source_info: dummy_source_info(),
+                }),
+                Inline::Attr(InlineAttr::new(
+                    attr,
+                    AttrSourceInfo::empty(),
+                    dummy_source_info(),
+                )),
+            ],
+            source_info: dummy_source_info(),
+        });
+        let html = render_block_to_html(para);
+        assert!(
+            html.contains("<p class=\"caption\">This is a caption.</p>"),
+            "expected `<p class=\"caption\">This is a caption.</p>`, got:\n{html}",
+        );
     }
 
     #[test]

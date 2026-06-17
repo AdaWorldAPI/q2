@@ -13,9 +13,22 @@ export const Para = (args: NodeArgs<ParaBlock>) => {
         && poolId !== undefined
         && !ctx?.editingDisabled;
 
-    return (
-        <p {...(isEditable ? { 'data-block-pool-id': poolId } : {})}>
-            {renderChildren(args)}
-        </p>
-    );
+    // A block-level attribute (id/classes/key-values) may ride on the Para node
+    // via the optional `attr` key the Rust JSON writer emits (Pandoc ignores
+    // it). Apply it to the <p> like Header/Div do, so the preview matches
+    // `q2 render` (e.g. `<p class="caption">`). See bd-itqcfxc3.
+    const domProps: Record<string, string | number> = {};
+    if (args.node.attr) {
+        const [id, classes, kvs] = args.node.attr;
+        if (id) domProps.id = id;
+        if (classes.length) domProps.className = classes.join(' ');
+        for (const [k, v] of kvs) {
+            if (k.startsWith('data-') || k === 'role') domProps[k] = v;
+        }
+    }
+    if (isEditable && poolId !== undefined) {
+        domProps['data-block-pool-id'] = poolId;
+    }
+
+    return <p {...domProps}>{renderChildren(args)}</p>;
 };
