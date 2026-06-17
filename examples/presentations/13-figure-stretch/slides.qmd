@@ -1,0 +1,32 @@
+---
+title: "Figure auto-stretch"
+format: revealjs
+---
+
+## Captioned figure (markdown syntax)
+
+A figure written with the markdown image+caption syntax. It should fill the
+slide above its caption.
+
+![This is a caption.](diagram.svg)
+
+## Crossreferenceable figure (div syntax)
+
+A figure that can be cross-referenced. The image should stretch, the caption
+should read "Figure 1: …", and `@fig-diagram` should resolve to it.
+
+::: {#fig-diagram}
+
+![](diagram.svg)
+
+This is a caption.
+
+:::
+
+See @fig-diagram for the architecture.
+
+## Opting out (`.nostretch` figure)
+
+A captioned figure marked `.nostretch` keeps its natural size.
+
+![This is a caption.](diagram.svg){.nostretch}
