@@ -79,6 +79,20 @@ describe('lsp_get_semantic_tokens', () => {
     expect(codeOnBody.length).toBeGreaterThan(0);
   });
 
+  it('produces a comment token for an HTML comment', () => {
+    const result = tokensFor('Text <!-- hidden --> more\n');
+    expect(result.success, result.error).toBe(true);
+    const names = (result.tokens ?? []).map(typeName);
+    expect(names).toContain('qmd.markup.comment');
+  });
+
+  it('produces a comment token for an editorial `[>> ...]` comment', () => {
+    const result = tokensFor('Para [>> editorial note]\n');
+    expect(result.success, result.error).toBe(true);
+    const names = (result.tokens ?? []).map(typeName);
+    expect(names).toContain('qmd.markup.comment');
+  });
+
   it('returns an empty token list for an empty document', () => {
     const result = tokensFor('');
     expect(result.success).toBe(true);

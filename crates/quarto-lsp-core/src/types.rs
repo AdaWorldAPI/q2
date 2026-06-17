@@ -644,6 +644,7 @@ pub static QMD_TOKEN_LEGEND: &[&str] = &[
     "qmd.markup.shortcode",
     "qmd.markup.list",
     "qmd.markup.quote",
+    "qmd.markup.comment",
     "qmd.punctuation.special",
     "qmd.punctuation.special.image",
     "qmd.punctuation.bracket",

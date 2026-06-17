@@ -498,6 +498,47 @@ mod tests {
     }
 
     #[test]
+    fn tokens_for_html_comment() {
+        // `<!-- ... -->` parses to a `comment` node; the whole span is coloured.
+        // The grammar's comment token swallows the preceding space, so assert
+        // the meaningful edge: a comment token reaching the end of `-->` (col 20)
+        // and starting no later than the `<` (col 5).
+        let toks = tokens("Text <!-- hidden --> more\n");
+        assert!(
+            toks.iter().any(|t| type_name(t) == "qmd.markup.comment"
+                && t.line == 0
+                && t.character <= 5
+                && t.character + t.length == 20),
+            "expected a markup.comment over `<!-- hidden -->`, got {toks:?}"
+        );
+    }
+
+    #[test]
+    fn tokens_for_multiline_html_comment_split_at_lines() {
+        // A comment spanning lines must be split into per-line tokens.
+        let toks = tokens("<!--\nhidden\n-->\n");
+        let comments: Vec<_> = toks
+            .iter()
+            .filter(|t| type_name(t) == "qmd.markup.comment")
+            .collect();
+        assert_eq!(
+            comments.len(),
+            3,
+            "expected one comment token per line, got {toks:?}"
+        );
+    }
+
+    #[test]
+    fn tokens_for_edit_comment() {
+        // Quarto editorial comment `[>> ...]` parses to an `edit_comment` node.
+        let toks = tokens("Para [>> editorial note]\n");
+        assert!(
+            has_type(&toks, "qmd.markup.comment"),
+            "expected a markup.comment for `[>> ...]`, got {toks:?}"
+        );
+    }
+
+    #[test]
     fn tokens_are_non_overlapping_and_sorted() {
         // A link inside a heading deliberately nests, exercising the flatten.
         let toks = tokens("# heading with [**bold** link](https://x.test)\n");

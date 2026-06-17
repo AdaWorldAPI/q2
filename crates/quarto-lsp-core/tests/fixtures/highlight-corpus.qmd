@@ -33,3 +33,5 @@ x <- 1
 ```python
 import os
 ```
+
+An <!-- inline comment --> and a [>> editorial note].

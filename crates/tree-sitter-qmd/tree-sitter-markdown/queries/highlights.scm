@@ -80,6 +80,12 @@
 ; --- Raw inline/block HTML ---------------------------------------------------
 (html_element) @markup.raw
 
+; --- Comments (HTML `<!-- -->` and editorial `[>> ...]`) ---------------------
+[
+  (comment)
+  (edit_comment)
+] @markup.comment
+
 ; --- Fenced code: delimiter + info string (interior left to zone 3) ----------
 (fenced_code_block_delimiter) @punctuation.delimiter.fence
 (info_string) @markup.raw.info

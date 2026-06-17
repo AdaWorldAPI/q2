@@ -55,3 +55,5 @@ expression: rendered
 33:0-6 qmd.code.keyword
 33:7-9 qmd.code.variable
 34:0-3 qmd.punctuation.delimiter.fence
+36:2-26 qmd.markup.comment
+36:32-52 qmd.markup.comment

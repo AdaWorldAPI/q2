@@ -66,6 +66,7 @@ export const quartoThemeRules: Monaco.editor.ITokenThemeRule[] = [
   { token: 'qmd.markup.shortcode', foreground: FUNCTION },
   { token: 'qmd.markup.list', foreground: PUNCT },
   { token: 'qmd.markup.quote', foreground: COMMENT, fontStyle: 'italic' },
+  { token: 'qmd.markup.comment', foreground: COMMENT, fontStyle: 'italic' },
   { token: 'qmd.punctuation.special', foreground: PUNCT },
   { token: 'qmd.punctuation.special.image', foreground: IMAGE_ACCENT },
   { token: 'qmd.punctuation.bracket', foreground: BRACKET },
