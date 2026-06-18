@@ -326,3 +326,154 @@ object:
     // Verify the error has proper source_range pointing to same file
     assert_eq!(json["source_range"]["filename"], "user.yaml");
 }
+
+#[test]
+fn test_custom_error_message_overrides_pattern_hint() {
+    // A string schema with a non-obvious pattern plus an authored errorMessage.
+    let custom_hint = r#"Must be "naive" or a standard time zone in the form Area/Location"#;
+    let schema_yaml = quarto_yaml::parse(&format!(
+        r#"
+string:
+  pattern: "^(naive|UTC)$"
+  errorMessage: '{custom_hint}'
+"#
+    ))
+    .unwrap();
+    let schema = Schema::from_yaml(&schema_yaml).unwrap();
+
+    let doc_content = r#"PST"#;
+    let doc = quarto_yaml::parse_file(doc_content, "tz.yaml").unwrap();
+    let source_ctx = create_test_context("tz.yaml", doc_content);
+    let registry = quarto_yaml_validation::SchemaRegistry::new();
+
+    let result = validate(&doc, &schema, &registry, &source_ctx);
+    assert!(result.is_err(), "Validation should fail for pattern mismatch");
+
+    let error = result.unwrap_err();
+    assert_eq!(
+        error.custom_hint.as_deref(),
+        Some(custom_hint),
+        "custom_hint should be populated from the schema's errorMessage"
+    );
+
+    let diagnostic = ValidationDiagnostic::from_validation_error(&error, &source_ctx);
+
+    // The authored message replaces the generic pattern hint.
+    let hints = diagnostic.hints();
+    assert_eq!(
+        hints,
+        vec![custom_hint.to_string()],
+        "the authored errorMessage should be the only hint"
+    );
+    assert!(
+        !hints.iter().any(|h| h.contains("matches the expected format")),
+        "the generic pattern hint must not appear"
+    );
+
+    // The factual primary message is left intact.
+    assert!(
+        diagnostic.message().contains("does not match pattern"),
+        "primary message should still report the factual failure, got: {}",
+        diagnostic.message()
+    );
+
+    // JSON output carries the authored hint too.
+    let json = diagnostic.to_json();
+    assert_eq!(json["hints"][0], custom_hint);
+
+    // Text output includes the authored message.
+    let text = diagnostic.to_text(&source_ctx);
+    assert!(
+        text.contains(custom_hint),
+        "text output should include the authored errorMessage, got:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_custom_error_message_applies_to_any_failure_at_node() {
+    // The override should apply to whatever failure occurs at the annotated
+    // node, not just pattern mismatches. Here a type mismatch (number, not
+    // string) trips the same authored message.
+    let schema_yaml = quarto_yaml::parse(
+        r#"
+string:
+  pattern: "^[a-z]+$"
+  errorMessage: 'must be a lowercase identifier'
+"#,
+    )
+    .unwrap();
+    let schema = Schema::from_yaml(&schema_yaml).unwrap();
+
+    let doc_content = r#"42"#;
+    let doc = quarto_yaml::parse_file(doc_content, "id.yaml").unwrap();
+    let source_ctx = create_test_context("id.yaml", doc_content);
+    let registry = quarto_yaml_validation::SchemaRegistry::new();
+
+    let result = validate(&doc, &schema, &registry, &source_ctx);
+    assert!(result.is_err());
+
+    let error = result.unwrap_err();
+    assert_eq!(error.custom_hint.as_deref(), Some("must be a lowercase identifier"));
+
+    let diagnostic = ValidationDiagnostic::from_validation_error(&error, &source_ctx);
+    assert_eq!(
+        diagnostic.hints(),
+        vec!["must be a lowercase identifier".to_string()]
+    );
+}
+
+#[test]
+fn test_no_custom_error_message_uses_generic_hint() {
+    // Without errorMessage, the generic hint is still produced.
+    let schema_yaml = quarto_yaml::parse(
+        r#"
+string:
+  pattern: "^[0-9]+$"
+"#,
+    )
+    .unwrap();
+    let schema = Schema::from_yaml(&schema_yaml).unwrap();
+
+    let doc_content = r#"abc"#;
+    let doc = quarto_yaml::parse_file(doc_content, "p.yaml").unwrap();
+    let source_ctx = create_test_context("p.yaml", doc_content);
+    let registry = quarto_yaml_validation::SchemaRegistry::new();
+
+    let error = validate(&doc, &schema, &registry, &source_ctx).unwrap_err();
+    assert_eq!(error.custom_hint, None);
+
+    let diagnostic = ValidationDiagnostic::from_validation_error(&error, &source_ctx);
+    assert_eq!(
+        diagnostic.hints(),
+        vec!["Check that the string matches the expected format?".to_string()]
+    );
+}
+
+#[test]
+fn test_custom_error_message_innermost_node_wins() {
+    // An object property's own errorMessage should win over the outer
+    // object's — the override binds to the schema node where the failure
+    // occurs.
+    let schema_yaml = quarto_yaml::parse(
+        r#"
+object:
+  errorMessage: 'outer object message'
+  properties:
+    tz:
+      string:
+        pattern: "^UTC$"
+        errorMessage: 'inner tz message'
+"#,
+    )
+    .unwrap();
+    let schema = Schema::from_yaml(&schema_yaml).unwrap();
+
+    let doc_content = "tz: PST";
+    let doc = quarto_yaml::parse_file(doc_content, "doc.yaml").unwrap();
+    let source_ctx = create_test_context("doc.yaml", doc_content);
+    let registry = quarto_yaml_validation::SchemaRegistry::new();
+
+    let error = validate(&doc, &schema, &registry, &source_ctx).unwrap_err();
+    assert_eq!(error.custom_hint.as_deref(), Some("inner tz message"));
+}

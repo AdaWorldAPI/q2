@@ -45,6 +45,10 @@ pub struct ValidationDiagnostic {
     /// Source location with filename and byte offsets/line numbers
     pub source_range: Option<SourceRange>,
 
+    /// Author-supplied hint override from the schema's `errorMessage`
+    /// annotation. When present, it replaces the auto-generated hint.
+    pub custom_hint: Option<String>,
+
     /// Internal: DiagnosticMessage for text rendering
     diagnostic: DiagnosticMessage,
 }
@@ -90,9 +94,22 @@ impl ValidationDiagnostic {
         self.kind.message()
     }
 
-    /// Get hints (lazily generated from kind)
+    /// Get hints. An author-supplied `errorMessage` override (if any) replaces
+    /// the auto-generated hint; otherwise the hint is derived from the kind.
     pub fn hints(&self) -> Vec<String> {
-        Self::suggest_fixes_from_kind(&self.kind)
+        Self::effective_hints(&self.kind, self.custom_hint.as_deref())
+    }
+
+    /// Compute the effective hints: the authored override if present, else the
+    /// auto-generated hints for this error kind.
+    fn effective_hints(
+        kind: &crate::error::ValidationErrorKind,
+        custom_hint: Option<&str>,
+    ) -> Vec<String> {
+        match custom_hint {
+            Some(hint) => vec![hint.to_string()],
+            None => Self::suggest_fixes_from_kind(kind),
+        }
     }
 
     /// Create a new ValidationDiagnostic from a ValidationError
@@ -135,6 +152,7 @@ impl ValidationDiagnostic {
             instance_path,
             schema_path: error.schema_path.segments().to_vec(),
             source_range,
+            custom_hint: error.custom_hint.clone(),
             diagnostic,
         }
     }
@@ -164,7 +182,7 @@ impl ValidationDiagnostic {
         // Include human-readable fields for convenience
         obj["message"] = json!(self.kind.message());
 
-        let hints = Self::suggest_fixes_from_kind(&self.kind);
+        let hints = Self::effective_hints(&self.kind, self.custom_hint.as_deref());
         if !hints.is_empty() {
             obj["hints"] = json!(hints);
         }
@@ -209,8 +227,8 @@ impl ValidationDiagnostic {
             builder = builder.add_info(format!("Schema constraint: {}", error.schema_path));
         }
 
-        // Add hints
-        for hint in Self::suggest_fixes_from_kind(&error.kind) {
+        // Add hints (authored `errorMessage` override wins over generated ones)
+        for hint in Self::effective_hints(&error.kind, error.custom_hint.as_deref()) {
             builder = builder.add_hint(hint);
         }
 

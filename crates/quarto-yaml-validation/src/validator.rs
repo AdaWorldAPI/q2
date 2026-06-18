@@ -31,6 +31,13 @@ pub struct ValidationContext<'a> {
     instance_path: InstancePath,
     /// Current schema path (e.g., ["properties", "format"])
     schema_path: SchemaPath,
+    /// Stack of `errorMessage` overrides, one frame per schema node currently
+    /// being validated (innermost last). Each frame is the node's own
+    /// `errorMessage` (or `None`). `add_error` copies the top frame into the
+    /// produced error's `custom_hint`, so the override binds strictly to the
+    /// schema node where the failure occurs — a child node without its own
+    /// `errorMessage` masks (does not inherit) an enclosing one.
+    custom_hint_stack: Vec<Option<String>>,
     /// Collected validation errors
     errors: Vec<ValidationError>,
 }
@@ -43,16 +50,34 @@ impl<'a> ValidationContext<'a> {
             source_ctx,
             instance_path: InstancePath::new(),
             schema_path: SchemaPath::new(),
+            custom_hint_stack: Vec::new(),
             errors: Vec::new(),
         }
     }
 
     /// Add an error to the context
     pub fn add_error(&mut self, kind: ValidationErrorKind, node: &YamlWithSourceInfo) {
-        let error = ValidationError::new(kind, self.instance_path.clone())
+        let mut error = ValidationError::new(kind, self.instance_path.clone())
             .with_schema_path(self.schema_path.clone())
             .with_yaml_node(node.clone(), self.source_ctx);
+        // Bind the override of the schema node currently being validated (if
+        // any) to this error.
+        error.custom_hint = self.custom_hint_stack.last().cloned().flatten();
         self.errors.push(error);
+    }
+
+    /// Execute a function with the current schema node's `errorMessage` pushed
+    /// as a frame. A `None` frame is pushed when the node has no `errorMessage`,
+    /// which masks any enclosing override — overrides bind strictly to the node
+    /// that declares them.
+    pub fn with_custom_hint<F, R>(&mut self, hint: Option<&str>, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.custom_hint_stack.push(hint.map(str::to_string));
+        let result = f(self);
+        self.custom_hint_stack.pop();
+        result
     }
 
     /// Execute a function with a new instance path segment
@@ -160,6 +185,17 @@ pub fn navigate<'a>(
 
 /// Main validation dispatcher
 fn validate_generic(
+    value: &YamlWithSourceInfo,
+    schema: &Schema,
+    context: &mut ValidationContext,
+) -> ValidationResult<()> {
+    // Bind this schema node's `errorMessage` (if any) for the duration of its
+    // validation, so any failure raised here picks it up as a custom hint.
+    let hint = schema.annotations().error_message.as_deref();
+    context.with_custom_hint(hint, |context| validate_generic_inner(value, schema, context))
+}
+
+fn validate_generic_inner(
     value: &YamlWithSourceInfo,
     schema: &Schema,
     context: &mut ValidationContext,
