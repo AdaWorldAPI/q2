@@ -447,6 +447,34 @@ with no new registration.
       unresolved placeholders.
 - [x] 1.6 Full `cargo nextest run -p quarto-core` → **2386 passed**.
 
+## Part 3 outcome — interactive-preview crossref (bd-zecehtnc) — CLOSED (semantics done)
+
+Investigation (2026-06-18) found the interactive preview already renders crossrefs
+correctly, and Part 2 improved it:
+
+- The q2-preview React renderer (`ts-packages/preview-renderer/src/q2-preview/`)
+  has dedicated components for every crossref custom node — `custom/FloatRefTarget.tsx`,
+  `CrossrefResolvedRef.tsx`, `Theorem.tsx`, `Proof.tsx`, `Equation.tsx` — registered
+  in `registry.ts` and dispatched by `type_name` (`dispatchers.tsx:207`).
+  `FloatRefTarget` composes "Figure N:" captions; `CrossrefResolvedRef` renders
+  `<a class="quarto-xref" href="#id">{kind} {n}</a>`.
+- **Numbering, links, captions, figure-vs-div, theorems/proofs/equations all work**
+  — 53 `custom-components.integration.test.tsx` tests pass.
+- **Part 2 also fixed preview's attribute-form figure crossref**: the
+  `![cap](x){#fig-1}` figure is no longer destroyed by early auto-stretch, so it
+  becomes a proper numbered `FloatRefTarget` custom node in preview too.
+- **nbsp parity: already correct.** `CrossrefResolvedRef.tsx` already emits a
+  non-breaking space between kind and number (byte-confirmed: `…7d c2 a0 24…`);
+  the "regular space" I first reported was a terminal-rendering artifact. No fix.
+
+Decision (user): **close bd-zecehtnc as semantics-done.** The only remaining gap
+is *visual* revealjs auto-stretch parity for crossref figures in preview (a
+single-image crossref figure fills the slide in `render` but shows at natural size
+in `preview`, because the Rust auto-stretch transform skips `Block::Custom` and
+`FloatRefTarget.tsx` adds no `r-stretch`). Deferred to **bd-hbloemff** (recommended
+approach there: make `RevealAutoStretchTransform` CustomNode-aware + have
+`FloatRefTarget.tsx` honor the mark).
+
 ## Reference: key files
 
 - Pipeline order: `crates/quarto-core/src/pipeline.rs:1078-1309`
