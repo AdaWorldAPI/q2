@@ -29,7 +29,14 @@ function age(ts: number): string {
 }
 
 export function DiagnosticsBadge() {
-  const summary = useDiagnostics((s) => diagSummary(s));
+  // NOTE: subscribe to the stable `entries` array, NOT to `diagSummary(s)`.
+  // zustand v5 (on React's useSyncExternalStore) compares the selector result
+  // with Object.is after every render. `diagSummary` allocates a fresh object
+  // each call, so the comparison is always false → React thinks the store
+  // changed → re-render → re-select → new object → infinite loop (React #185,
+  // "Maximum update depth exceeded"). Derive the summary with useMemo instead.
+  const entries = useDiagnostics((s) => s.entries);
+  const summary = useMemo(() => diagSummary({ entries }), [entries]);
   const sse = useDiagnostics((s) => s.sse);
   const endpoints = useDiagnostics((s) => s.endpoints);
   const toggle = useDiagnostics((s) => s.toggleOverlay);

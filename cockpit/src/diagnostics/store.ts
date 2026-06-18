@@ -117,8 +117,12 @@ export const useDiagnostics = create<DiagnosticsState>((set) => ({
   setPaused: (v) => set({ paused: v }),
 }));
 
-// Convenience: derive a status summary
-export function diagSummary(state: DiagnosticsState): {
+// Convenience: derive a status summary.
+// Takes only the `entries` slice (not the whole state) so callers can subscribe
+// to the stable `entries` array and memoize the result — see DiagnosticsBadge.
+// Deriving inside a zustand selector would allocate a new object each call and
+// cause an infinite render loop (React #185).
+export function diagSummary(state: Pick<DiagnosticsState, 'entries'>): {
   level: 'good' | 'warn' | 'error';
   errorCount: number;
   warnCount: number;
