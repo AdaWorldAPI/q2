@@ -4,7 +4,7 @@ title: "Reveal.js presentations"
 
 ## Overview
 
-Like other documents, a reveal.js presentation in Quarto is a Markdown document. Add `format: revealjs` to the document's front matter to choose the slideshow format:
+Like other documents, a `revealjs` presentation in Quarto is a Markdown document that is compiled to an HTML presentation using the [`reveal.js` HTML presentation framework](https://github.com/hakimel/reveal.js/). Add `format: revealjs` to the document's front matter to choose the slideshow format:
 
 ```yaml
 ---

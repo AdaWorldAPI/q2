@@ -1,6 +1,7 @@
 ---
 title: "Auto-stretch"
 format: revealjs
+# brand: !str _brand.yml # !str forces Quarto to
 ---
 
 ## A single image fills the slide
@@ -14,13 +15,5 @@ so it never overflows. This happens by default.
 
 To opt out, set `auto-stretch: false` in the front matter (deck-wide), or give
 the image an explicit `width`/`height`, or mark it `.nostretch`:
-
-![](diagram.svg){.nostretch}
-
-## Standalone (with stretch)
-
-![](diagram.svg)
-
-## Standalone nostretch
 
 ![](diagram.svg){.nostretch}
