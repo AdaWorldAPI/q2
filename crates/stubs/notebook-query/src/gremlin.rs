@@ -101,6 +101,7 @@ pub fn gremlin_to_cypher(gremlin: &str) -> Option<String> {
     let mut edge_vars: Vec<String> = Vec::new();
     let mut pattern = format!("({cur}");
     let mut node_open = true; // the current node's `(var` is awaiting close
+    let mut cur_has_label = false; // did a hasLabel set the current node's label?
     let mut where_clauses: Vec<String> = Vec::new();
     let mut explicit_return: Option<Vec<String>> = None;
     let mut want_path = false;
@@ -114,10 +115,17 @@ pub fn gremlin_to_cypher(gremlin: &str) -> Option<String> {
     // pending edge between outE/inE and inV/outV
     let mut pending_edge: Option<(String, String)> = None; // (edge_var, "[:LABEL]")
 
-    let close_node = |pattern: &mut String, node_open: &mut bool| {
+    // Close the open node. An untyped node defaults to `:Entity` — the
+    // inheritance root — so the planner can bind it to a table. Without a label,
+    // an untyped traversal target fails projection ("No field named n1__id").
+    let close_node = |pattern: &mut String, node_open: &mut bool, has_label: &mut bool| {
         if *node_open {
+            if !*has_label {
+                pattern.push_str(":Entity");
+            }
             pattern.push(')');
             *node_open = false;
+            *has_label = false;
         }
     };
 
@@ -127,6 +135,7 @@ pub fn gremlin_to_cypher(gremlin: &str) -> Option<String> {
                 let label = step.args.first()?;
                 if node_open {
                     pattern.push_str(&format!(":{}", sanitize_label(label)));
+                    cur_has_label = true;
                 } else {
                     return None;
                 }
@@ -143,8 +152,12 @@ pub fn gremlin_to_cypher(gremlin: &str) -> Option<String> {
                 }
             }
             "out" | "in" | "both" => {
-                close_node(&mut pattern, &mut node_open);
-                let rel = step.args.first().map(|r| format!(":{}", sanitize_label(r))).unwrap_or_default();
+                close_node(&mut pattern, &mut node_open, &mut cur_has_label);
+                let rel = step
+                .args
+                .first()
+                .map(|r| format!(":{}", sanitize_label(r)))
+                .unwrap_or_else(|| ":Edge".to_string());
                 let nv = fresh(&mut var_idx);
                 let arrow = match step.name.as_str() {
                     "out" => format!("-[{rel}]->("),
@@ -158,9 +171,13 @@ pub fn gremlin_to_cypher(gremlin: &str) -> Option<String> {
                 node_vars.push(nv);
             }
             "outE" | "inE" | "bothE" => {
-                close_node(&mut pattern, &mut node_open);
+                close_node(&mut pattern, &mut node_open, &mut cur_has_label);
                 let ev = format!("e{}", edge_vars.len());
-                let rel = step.args.first().map(|r| format!(":{}", sanitize_label(r))).unwrap_or_default();
+                let rel = step
+                .args
+                .first()
+                .map(|r| format!(":{}", sanitize_label(r)))
+                .unwrap_or_else(|| ":Edge".to_string());
                 let dir = match step.name.as_str() {
                     "outE" => format!("-[{ev}{rel}]->("),
                     "inE" => format!("<-[{ev}{rel}]-("),
@@ -197,7 +214,7 @@ pub fn gremlin_to_cypher(gremlin: &str) -> Option<String> {
             _ => return None, // unknown step: bail to fallback
         }
     }
-    close_node(&mut pattern, &mut node_open);
+    close_node(&mut pattern, &mut node_open, &mut cur_has_label);
 
     // Build RETURN.
     let ret: Vec<String> = if let Some(r) = explicit_return {
@@ -255,7 +272,7 @@ mod tests {
         let c = gremlin_to_cypher("g.V().hasLabel('server').outE().inV().path()").unwrap();
         assert_eq!(
             c,
-            "MATCH (n0:server)-[e0]->(n1) RETURN n0.id, n0.name, n1.id, n1.name"
+            "MATCH (n0:server)-[e0:Edge]->(n1:Entity) RETURN n0.id, n0.name, n1.id, n1.name"
         );
     }
 
@@ -264,7 +281,7 @@ mod tests {
         let c = gremlin_to_cypher("g.V().hasLabel('System').out('DEVELOPED_BY').limit(10)").unwrap();
         assert_eq!(
             c,
-            "MATCH (n0:System)-[:DEVELOPED_BY]->(n1) RETURN n1.id, n1.name LIMIT 10"
+            "MATCH (n0:System)-[:DEVELOPED_BY]->(n1:Entity) RETURN n1.id, n1.name LIMIT 10"
         );
     }
 
@@ -294,7 +311,7 @@ mod tests {
         let c = gremlin_to_cypher("g.V('Maven').out()").unwrap();
         assert_eq!(
             c,
-            "MATCH (n0)-[]->(n1) WHERE n0.id = 'Maven' RETURN n1.id, n1.name"
+            "MATCH (n0:Entity)-[:Edge]->(n1:Entity) WHERE n0.id = 'Maven' RETURN n1.id, n1.name"
         );
     }
 

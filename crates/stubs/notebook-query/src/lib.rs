@@ -637,6 +637,12 @@ fn load_aiwar_datasets() -> Result<&'static (HashMap<String, RecordBatch>, Graph
             historical_to_batch(&data.historical)?,
         );
         datasets.insert("Person".to_string(), people_to_batch(&data.people)?);
+        // Inheritance root: every node IS an Entity, so untyped traversal
+        // targets bind to a table (fixes multi-hop "No field named n1__id").
+        datasets.insert("Entity".to_string(), entity_to_batch(&data)?);
+        // Relationship inheritance root: every edge IS an Edge, so untyped
+        // out()/outE() traversals bind to a table.
+        datasets.insert("Edge".to_string(), all_edges_to_batch(&data)?);
 
         // Edge tables
         datasets.insert(
@@ -693,6 +699,9 @@ fn aiwar_graph_config() -> Result<GraphConfig, String> {
         .with_node_label("Civic", "id")
         .with_node_label("Historical", "id")
         .with_node_label("Person", "id")
+        // Inheritance root — every subtype also resolves as Entity, the
+        // one-to-many / many-to-one join target for traversals.
+        .with_node_label("Entity", "id")
         // Edges
         .with_relationship("CONNECTED_TO", "source", "target")
         .with_relationship("DEVELOPED_BY", "source", "target")
@@ -700,6 +709,8 @@ fn aiwar_graph_config() -> Result<GraphConfig, String> {
         .with_relationship("USED_IN", "source", "target")
         .with_relationship("PERSON_LINK", "source", "target")
         .with_relationship("HIERARCHICAL", "source", "target")
+        // Relationship inheritance root — untyped traversals resolve as Edge.
+        .with_relationship("Edge", "source", "target")
         .build()
         .map_err(|e| format!("GraphConfig error: {e}"))
 }
@@ -974,6 +985,124 @@ fn people_to_batch(items: &[PersonJson]) -> Result<RecordBatch, String> {
         ],
     )
     .map_err(|e| format!("Arrow error (people): {e}"))
+}
+
+/// The inheritance root. Every aiwar node IS an `Entity`: one union table of
+/// `(id, name, label)` where `label` is the subtype codebook (System /
+/// Stakeholder / Civic / Historical / Person). This is what "use inherit" buys
+/// us — a base every node resolves to, so an untyped traversal target `(b)` can
+/// bind to a table. Without it, lance-graph's planner can't project the target
+/// of a multi-hop pattern ("No field named n1__id"). Subtype tables remain for
+/// specific `hasLabel(System)` scans; `Entity` is the one-to-many / many-to-one
+/// join target.
+fn entity_to_batch(data: &AiWarGraphJson) -> Result<RecordBatch, String> {
+    let total = data.systems.len()
+        + data.stakeholders.len()
+        + data.civic.len()
+        + data.historical.len()
+        + data.people.len();
+    let mut id = StringBuilder::with_capacity(total, total * 16);
+    let mut name = StringBuilder::with_capacity(total, total * 32);
+    let mut label = StringDictionaryBuilder::<UInt16Type>::new();
+
+    for s in &data.systems {
+        id.append_value(&s.id);
+        name.append_value(&s.name);
+        label.append_value("System");
+    }
+    for s in &data.stakeholders {
+        id.append_value(&s.id);
+        name.append_value(&s.name);
+        label.append_value("Stakeholder");
+    }
+    for s in &data.civic {
+        id.append_value(&s.id);
+        name.append_value(&s.name);
+        label.append_value("Civic");
+    }
+    for s in &data.historical {
+        id.append_value(&s.id);
+        name.append_value(&s.name);
+        label.append_value("Historical");
+    }
+    for s in &data.people {
+        id.append_value(&s.id);
+        name.append_value(&s.name);
+        label.append_value("Person");
+    }
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Utf8, false),
+        Field::new("name", DataType::Utf8, false),
+        Field::new(
+            "label",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
+    ]));
+    RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(id.finish()) as ArrayRef,
+            Arc::new(name.finish()),
+            Arc::new(label.finish()),
+        ],
+    )
+    .map_err(|e| format!("Arrow error (entity): {e}"))
+}
+
+/// The relationship inheritance root. Every edge IS an `Edge`: one union table
+/// of `(source, target, reltype)` across all six relation types. Lets an untyped
+/// Gremlin `out()` / `outE()` ("any outgoing edge") bind to a table — without it
+/// an untyped relationship fails planning the same way an untyped node does.
+fn all_edges_to_batch(data: &AiWarGraphJson) -> Result<RecordBatch, String> {
+    let total = data.edges_connection.len()
+        + data.edges_developed.len()
+        + data.edges_deployed.len()
+        + data.edges_place.len()
+        + data.edges_people.len()
+        + data.meta_edges.len();
+    let mut source = StringBuilder::with_capacity(total, total * 16);
+    let mut target = StringBuilder::with_capacity(total, total * 16);
+    let mut reltype = StringDictionaryBuilder::<UInt16Type>::new();
+
+    for (edges, label) in [
+        (&data.edges_connection, "CONNECTED_TO"),
+        (&data.edges_developed, "DEVELOPED_BY"),
+        (&data.edges_deployed, "DEPLOYED_BY"),
+        (&data.edges_place, "USED_IN"),
+        (&data.edges_people, "PERSON_LINK"),
+    ] {
+        for e in edges {
+            source.append_value(&e.source);
+            target.append_value(&e.target);
+            reltype.append_value(label);
+        }
+    }
+    for e in &data.meta_edges {
+        source.append_value(&e.source);
+        target.append_value(&e.target);
+        reltype.append_value("HIERARCHICAL");
+    }
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("source", DataType::Utf8, false),
+        Field::new("target", DataType::Utf8, false),
+        Field::new(
+            "reltype",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
+    ]));
+    RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(source.finish()) as ArrayRef,
+            Arc::new(target.finish()),
+            Arc::new(reltype.finish()),
+        ],
+    )
+    .map_err(|e| format!("Arrow error (all_edges): {e}"))
 }
 
 fn edges_to_batch(edges: &[EdgeJson]) -> Result<RecordBatch, String> {

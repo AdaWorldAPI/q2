@@ -54,10 +54,33 @@ fn gremlin_multihop_path_traversal_runs() {
     let res = execute(q, QueryLanguage::Gremlin).expect("execute returns Ok");
     eprintln!("--- multi-hop ---\nquery: {q}\nraw_output:\n{}", res.raw_output);
     assert!(res.graph_json.is_some(), "graph_json should be present");
-    // Either real multi-hop execution or a safe fall-back — never a panic/500.
-    eprintln!(
-        "multi-hop path: {}",
-        if res.raw_output.contains("→ Cypher") { "REAL execution" } else { "fallback" }
+    // With the Entity inheritance root, the untyped target binds and the
+    // multi-hop pattern reaches real execution (no "n1__id" projection failure).
+    assert!(
+        res.raw_output.contains("→ Cypher"),
+        "multi-hop traversal should reach real execution via the Entity base, got: {}",
+        res.raw_output
+    );
+}
+
+#[test]
+fn gremlin_inherited_one_to_many_returns_rows() {
+    let Some(data) = aiwar_data_path() else {
+        eprintln!("aiwar data not found; skipping");
+        return;
+    };
+    // SAFETY: single-threaded test.
+    unsafe { std::env::set_var("AIWAR_DATA_PATH", data) };
+
+    // Stakeholder -DEVELOPED_BY-> {System|Civic|Historical} (94 edges, 1:N).
+    // The heterogeneous target resolves through the Entity inheritance root.
+    let q = "g.V().hasLabel('Stakeholder').out('DEVELOPED_BY').limit(5)";
+    let res = execute(q, QueryLanguage::Gremlin).expect("execute returns Ok");
+    eprintln!("--- inherited 1:N traversal ---\n{}", res.raw_output);
+    assert!(
+        res.raw_output.contains("→ Cypher"),
+        "one-to-many traversal over the Entity base should execute, got: {}",
+        res.raw_output
     );
 }
 
@@ -100,4 +123,23 @@ fn gremlin_returns_dictionary_encoded_label_column() {
         resolved,
         "graph_json should carry a codebook-resolved 'type' property on at least one node"
     );
+}
+
+#[test]
+fn probe_typed_multihop_resolves() {
+    let Some(data) = aiwar_data_path() else {
+        eprintln!("aiwar data not found; skipping");
+        return;
+    };
+    // SAFETY: single-threaded test.
+    unsafe { std::env::set_var("AIWAR_DATA_PATH", data) };
+
+    // DEVELOPED_BY stores source=Stakeholder, target=System (dominant, 94×).
+    // Untyped target `(b)` previously failed planning ("No field named n1__id").
+    // Does typing BOTH ends let lance-graph's planner project the target node?
+    let q = "MATCH (a:Stakeholder)-[e:DEVELOPED_BY]->(b:System) RETURN a.id, b.id LIMIT 3";
+    match execute(q, QueryLanguage::Cypher) {
+        Ok(res) => eprintln!("=== TYPED MULTIHOP RESOLVED ===\n{}", res.raw_output),
+        Err(e) => panic!("typed-endpoint multi-hop should resolve, got: {e}"),
+    }
 }
