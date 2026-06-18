@@ -34,8 +34,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use lance_graph_contract::cognitive_shader::{
-    CognitiveShaderDriver, MetaSummary, ShaderBus, ShaderCrystal, ShaderDispatch, ShaderHit,
-    ShaderResonance, ShaderSink,
+    CognitiveShaderDriver, MaterializeProvenance, MetaSummary, ShaderBus, ShaderCrystal,
+    ShaderDispatch, ShaderHit, ShaderResonance, ShaderSink,
 };
 use lance_graph_contract::collapse_gate::GateDecision;
 
@@ -180,6 +180,7 @@ impl CognitiveShaderDriver for MockShaderDriver {
                 persisted_row: None,
                 meta: default_meta_summary(),
                 alpha_composite: None,
+                materialize: MaterializeProvenance::default(),
             };
             sink.on_crystal(&crystal);
             return crystal;
@@ -212,6 +213,7 @@ impl CognitiveShaderDriver for MockShaderDriver {
                 persisted_row: None,
                 meta: default_meta_summary(),
                 alpha_composite: None,
+                materialize: MaterializeProvenance::default(),
             };
             sink.on_crystal(&crystal);
             return crystal;
@@ -223,6 +225,7 @@ impl CognitiveShaderDriver for MockShaderDriver {
             persisted_row: None,
             meta: default_meta_summary(),
             alpha_composite: None,
+            materialize: MaterializeProvenance::default(),
         };
         sink.on_crystal(&crystal);
         crystal

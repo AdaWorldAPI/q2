@@ -290,6 +290,7 @@ mod tests {
             persisted_row: None,
             meta: MetaSummary::default(),
             alpha_composite: None,
+            materialize: lance_graph_contract::cognitive_shader::MaterializeProvenance::default(),
         };
         let wire: WireShaderCrystal = (&crystal).into();
         let j = serde_json::to_string(&wire).expect("serialize wire crystal");
@@ -379,6 +380,7 @@ mod tests {
             persisted_row: None,
             meta: MetaSummary::default(),
             alpha_composite: Some(AlphaComposite::default()),
+            materialize: lance_graph_contract::cognitive_shader::MaterializeProvenance::default(),
         };
 
         let j_dispatch =

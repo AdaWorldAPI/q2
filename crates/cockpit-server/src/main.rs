@@ -179,14 +179,26 @@ async fn main() {
     tracing::info!("  /mcp/*  → MCP endpoints (lance-graph)");
     tracing::info!("  /v1/*   → OpenAI-compatible API (gpt2, openchat_3.5, stable-diffusion)");
 
-    // Hydrate live graph from aiwar data (if available).
-    if let Ok(path) = std::env::var("AIWAR_DATA_PATH") {
+    // Hydrate the live graph from aiwar data. Honors AIWAR_DATA_PATH, else
+    // falls back to the in-repo vendored dataset (or a sibling harvest checkout)
+    // so the real lance-graph-backed /api/graph/* path works without setup.
+    let aiwar_path = std::env::var("AIWAR_DATA_PATH").ok().or_else(|| {
+        [
+            "cockpit/public/aiwar_graph.json",
+            "/home/user/aiwar-neo4j-harvest/data/aiwar_graph.json",
+            "../aiwar-neo4j-harvest/data/aiwar_graph.json",
+        ]
+        .iter()
+        .find(|p| std::path::Path::new(p).exists())
+        .map(|s| s.to_string())
+    });
+    if let Some(path) = aiwar_path {
         match graph_engine::hydrate_from_aiwar_json(&path).await {
-            Ok(()) => tracing::info!("  /api/graph/*     → live graph engine (neo4j-emulating, NARS-enabled)"),
+            Ok(()) => tracing::info!("  /api/graph/*     → live graph engine (lance-graph, NARS-enabled): {path}"),
             Err(e) => tracing::warn!("  /api/graph/*     → fallback mode (hydration failed: {e})"),
         }
     } else {
-        tracing::info!("  /api/graph/*     → fallback mode (AIWAR_DATA_PATH not set)");
+        tracing::info!("  /api/graph/*     → fallback mode (no aiwar data found)");
     }
 
     // Start background MRI pre-render (LazyLock double-buffer, 500ms refresh).

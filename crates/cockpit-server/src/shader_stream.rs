@@ -536,6 +536,7 @@ mod tests {
             persisted_row: None,
             meta: MetaSummary::default(),
             alpha_composite: None,
+            materialize: lance_graph_contract::cognitive_shader::MaterializeProvenance::default(),
         };
         WireShaderCrystal::from(&crystal)
     }

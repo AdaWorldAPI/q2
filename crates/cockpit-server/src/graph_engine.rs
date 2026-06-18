@@ -186,70 +186,34 @@ impl GraphSnapshot {
 /// Load aiwar graph data and populate the live graph.
 /// Called at startup from main().
 pub async fn hydrate_from_aiwar_json(path: &str) -> Result<(), String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read {path}: {e}"))?;
+    // Ingest via the canonical `aiwar-ingest` layer (single source of truth for
+    // the harvest schema → property-graph mapping). The graph API is lance-graph;
+    // this loader is engine-agnostic, and the cockpit applies NARS truth here.
+    let graph = aiwar_ingest::load_from_file(path).map_err(|e| e.to_string())?;
 
-    let data: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+    let nodes: Vec<GraphNode> = graph
+        .nodes
+        .into_iter()
+        .map(|n| GraphNode {
+            id: n.id,
+            label: n.label,
+            node_type: n.node_type,
+            properties: n.properties,
+        })
+        .collect();
 
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-
-    // Parse node arrays
-    for (key, type_name) in &[
-        ("N_Systems", "System"),
-        ("N_Stakeholders", "Stakeholder"),
-        ("N_Civic", "CivicSystem"),
-        ("N_Historical", "HistoricalSystem"),
-        ("N_People", "Person"),
-    ] {
-        if let Some(arr) = data.get(key).and_then(|v| v.as_array()) {
-            for item in arr {
-                let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or(&id).to_string();
-                let mut props = HashMap::new();
-                if let Some(obj) = item.as_object() {
-                    for (k, v) in obj {
-                        if k != "id" && k != "name" {
-                            props.insert(k.clone(), v.clone());
-                        }
-                    }
-                }
-                nodes.push(GraphNode {
-                    id: id.clone(),
-                    label: name,
-                    node_type: type_name.to_string(),
-                    properties: props,
-                });
-            }
-        }
-    }
-
-    // Parse edge arrays
-    for (key, rel_type) in &[
-        ("E_isDevelopedBy", "DEVELOPED_BY"),
-        ("E_isDeployedBy", "DEPLOYED_BY"),
-        ("E_connection", "CONNECTED_TO"),
-        ("E_place", "USED_IN"),
-        ("E_people", "PERSON_LINK"),
-        ("E_hierarchical", "HIERARCHICAL"),
-    ] {
-        if let Some(arr) = data.get(key).and_then(|v| v.as_array()) {
-            for item in arr {
-                let source = item.get("source").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let target = item.get("target").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                if !source.is_empty() && !target.is_empty() {
-                    let weight = item.get("weight").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
-                    edges.push(GraphEdge {
-                        source,
-                        target,
-                        label: rel_type.to_string(),
-                        truth: NarsTruth::new(weight.min(1.0), 0.8),
-                    });
-                }
-            }
-        }
-    }
+    let edges: Vec<GraphEdge> = graph
+        .edges
+        .into_iter()
+        .map(|e| GraphEdge {
+            source: e.source,
+            target: e.target,
+            label: e.rel_type,
+            // Base-graph edges carry a default NARS truth: the harvest `weight`
+            // maps to frequency (clamped to 1.0); confidence is the 0.8 prior.
+            truth: NarsTruth::new((e.weight as f32).min(1.0), 0.8),
+        })
+        .collect();
 
     let node_count = nodes.len();
     let edge_count = edges.len();
