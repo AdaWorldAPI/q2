@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Node, renderChildren } from '../../framework';
+import { Node, renderChildren, liItemAttrProps } from '../../framework';
 import type { NodeArgs, OrderedListBlock } from '../../framework';
 import { IncrementalContext } from '../IncrementalContext';
 import { PreviewContext } from '../PreviewContext';
@@ -47,11 +47,10 @@ export const OrderedList = (args: NodeArgs<OrderedListBlock>) => {
         if (isEditable) props['data-block-pool-id'] = poolId!;
         return <ol {...olProps}>{renderChildren(args)}</ol>;
     }
-    const liClass = incremental ? 'fragment' : undefined;
     return (
         <ol {...olProps}>
             {args.node.c[1].map((item, i) => (
-                <li key={i} className={liClass}>
+                <li key={i} {...liItemAttrProps(args.node.itemAttr?.[i], incremental)}>
                     {item.map((block, j) => (
                         <Node
                             key={`${i}:${j}`}

@@ -23,8 +23,12 @@ export type ParaBlock = { t: 'Para'; c: InlineNode[]; attr?: Attr };
 export type PlainBlock = { t: 'Plain'; c: InlineNode[] };
 export type HeaderBlock = { t: 'Header'; c: [number, [string, string[], [string, string][]], InlineNode[]] };
 export type CodeBlock = { t: 'CodeBlock'; c: [[string, string[], [string, string][]], string] };
-export type BulletListBlock = { t: 'BulletList'; c: BlockNode[][] };
-export type OrderedListBlock = { t: 'OrderedList'; c: [[number, { t: string }, { t: string }], BlockNode[][]] };
+// `itemAttr` is an optional Quarto extension: per-item block attributes hoisted
+// onto the `<li>`, carried as a sibling key parallel-indexed to the items array
+// (`null` for items without an attr). The Rust JSON writer emits it and Pandoc
+// ignores it. Used for e.g. `<li class="foo">`. See bd-aeyss6p5.
+export type BulletListBlock = { t: 'BulletList'; c: BlockNode[][]; itemAttr?: (Attr | null)[] };
+export type OrderedListBlock = { t: 'OrderedList'; c: [[number, { t: string }, { t: string }], BlockNode[][]]; itemAttr?: (Attr | null)[] };
 export type BlockQuoteBlock = { t: 'BlockQuote'; c: BlockNode[] };
 export type DivBlock = { t: 'Div'; c: [[string, string[], [string, string][]], BlockNode[]] };
 export type HorizontalRuleBlock = { t: 'HorizontalRule' };

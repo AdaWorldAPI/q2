@@ -9,7 +9,8 @@
  */
 
 use hashlink::LinkedHashMap;
-use quarto_pandoc_types::attr::{Attr, empty_attr};
+use quarto_pandoc_types::attr::{Attr, empty_attr, is_empty_attr};
+use quarto_pandoc_types::block::Block;
 use quarto_pandoc_types::inline::Inline;
 
 /// Split a block's inline content into `(retained_content, merged_attr)` by
@@ -76,6 +77,57 @@ pub(crate) fn split_trailing_block_attr(inlines: &[Inline]) -> (&[Inline], Attr)
     }
 
     (&inlines[..run_start], (id, classes, kvs))
+}
+
+/// Collect a block-level attribute for a **list item** (`&[Block]`) so a writer
+/// can hoist it onto the `<li>`.
+///
+/// A Pandoc list item is `Vec<Block>` with no per-item `Attr` field, so an
+/// authored `- item {.foo}` lands as a trailing [`Inline::Attr`] inside the
+/// item's **last block**. This collects that trailing run (via
+/// [`split_trailing_block_attr`]) **only when the last block is a `Paragraph` or
+/// `Plain`** — the blocks that carry inline content.
+///
+/// Returns `(attr, stripped_last)`:
+/// - When a non-empty attr is found, `attr` is the merged block attr and
+///   `stripped_last` is `Some(clone_of_last_block_with_the_trailing_run_removed)`.
+///   The caller renders `item[..last] ++ stripped_last`, so the inner
+///   `Para`/`Plain` writer never sees the trailing attr (the class lands on the
+///   `<li>`, not an inner `<p>` — avoiding the precedence trap).
+/// - Otherwise returns `(empty_attr(), None)` and the caller renders the item
+///   unchanged. This covers: no trailing attr; an empty trailing attr; or a last
+///   block that is not a `Paragraph`/`Plain`.
+///
+/// The clone is paid only on the (rare) attributed-item path, and only for the
+/// single last block.
+pub(crate) fn split_list_item_attr(item: &[Block]) -> (Attr, Option<Block>) {
+    let Some(last) = item.last() else {
+        return (empty_attr(), None);
+    };
+    let content = match last {
+        Block::Paragraph(p) => &p.content,
+        Block::Plain(p) => &p.content,
+        _ => return (empty_attr(), None),
+    };
+    let (retained, attr) = split_trailing_block_attr(content);
+    if is_empty_attr(&attr) {
+        return (empty_attr(), None);
+    }
+    let retained = retained.to_vec();
+    let stripped = match last {
+        Block::Paragraph(p) => {
+            let mut p = p.clone();
+            p.content = retained;
+            Block::Paragraph(p)
+        }
+        Block::Plain(p) => {
+            let mut p = p.clone();
+            p.content = retained;
+            Block::Plain(p)
+        }
+        _ => unreachable!("last block kind checked above"),
+    };
+    (attr, Some(stripped))
 }
 
 #[cfg(test)]
@@ -183,5 +235,122 @@ mod tests {
         let (content, attr) = split_trailing_block_attr(&inlines);
         assert_eq!(texts(content), vec!["Attr", "Str(x)"]);
         assert!(is_empty_attr(&attr));
+    }
+
+    // --- split_list_item_attr (list-item hoist) ---------------------------
+
+    use quarto_pandoc_types::block::{Paragraph, Plain};
+
+    fn para(inlines: Vec<Inline>) -> Block {
+        Block::Paragraph(Paragraph {
+            content: inlines,
+            source_info: si(),
+        })
+    }
+
+    fn plain(inlines: Vec<Inline>) -> Block {
+        Block::Plain(Plain {
+            content: inlines,
+            source_info: si(),
+        })
+    }
+
+    /// Extract the `(kind, inline-texts)` of a block for assertions.
+    fn block_content_texts(block: &Block) -> (&'static str, Vec<String>) {
+        match block {
+            Block::Paragraph(p) => ("Para", texts(&p.content)),
+            Block::Plain(p) => ("Plain", texts(&p.content)),
+            _ => ("?", vec![]),
+        }
+    }
+
+    #[test]
+    fn list_item_tight_plain_hoists_and_strips() {
+        // Tight item: a single `Plain` ending in a trailing attr.
+        let item = vec![plain(vec![
+            str_("item"),
+            space(),
+            attr_node("", &["foo"], &[]),
+        ])];
+        let (attr, stripped) = split_list_item_attr(&item);
+        assert_eq!(attr.1, vec!["foo".to_string()]);
+        let stripped = stripped.expect("attributed item yields a stripped last block");
+        assert_eq!(
+            block_content_texts(&stripped),
+            ("Plain", vec!["Str(item)".to_string()])
+        );
+    }
+
+    #[test]
+    fn list_item_loose_para_hoists_and_strips() {
+        // Loose item: a single `Para` ending in a trailing attr.
+        let item = vec![para(vec![
+            str_("item"),
+            attr_node("the-id", &["foo"], &[("k", "v")]),
+        ])];
+        let (attr, stripped) = split_list_item_attr(&item);
+        assert_eq!(attr.0, "the-id");
+        assert_eq!(attr.1, vec!["foo".to_string()]);
+        assert_eq!(attr.2.get("k"), Some(&"v".to_string()));
+        let stripped = stripped.expect("attributed item yields a stripped last block");
+        assert_eq!(
+            block_content_texts(&stripped),
+            ("Para", vec!["Str(item)".to_string()])
+        );
+    }
+
+    #[test]
+    fn list_item_hoists_from_last_block_only() {
+        // Multi-block item: the attr rides in the LAST block; earlier blocks
+        // are untouched and the stripped clone replaces only the last.
+        let item = vec![
+            para(vec![str_("first")]),
+            para(vec![str_("second"), attr_node("", &["foo"], &[])]),
+        ];
+        let (attr, stripped) = split_list_item_attr(&item);
+        assert_eq!(attr.1, vec!["foo".to_string()]);
+        let stripped = stripped.expect("attributed item yields a stripped last block");
+        assert_eq!(
+            block_content_texts(&stripped),
+            ("Para", vec!["Str(second)".to_string()])
+        );
+    }
+
+    #[test]
+    fn list_item_without_trailing_attr_is_noop() {
+        let item = vec![plain(vec![str_("item")])];
+        let (attr, stripped) = split_list_item_attr(&item);
+        assert!(is_empty_attr(&attr));
+        assert!(stripped.is_none());
+    }
+
+    #[test]
+    fn list_item_with_empty_trailing_attr_is_noop() {
+        let item = vec![plain(vec![str_("item"), attr_node("", &[], &[])])];
+        let (attr, stripped) = split_list_item_attr(&item);
+        assert!(is_empty_attr(&attr));
+        // No hoist: an empty attr means there is nothing to put on the `<li>`.
+        assert!(stripped.is_none());
+    }
+
+    #[test]
+    fn list_item_non_para_plain_last_block_is_noop() {
+        // Last block is a nested BulletList (no inline content to carry an attr).
+        let inner = Block::BulletList(quarto_pandoc_types::block::BulletList {
+            content: vec![vec![plain(vec![str_("nested")])]],
+            source_info: si(),
+        });
+        let item = vec![para(vec![str_("lead")]), inner];
+        let (attr, stripped) = split_list_item_attr(&item);
+        assert!(is_empty_attr(&attr));
+        assert!(stripped.is_none());
+    }
+
+    #[test]
+    fn list_item_empty_is_noop() {
+        let item: Vec<Block> = vec![];
+        let (attr, stripped) = split_list_item_attr(&item);
+        assert!(is_empty_attr(&attr));
+        assert!(stripped.is_none());
     }
 }

@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Node, renderChildren } from '../../framework';
+import { Node, renderChildren, liItemAttrProps } from '../../framework';
 import type { BulletListBlock, NodeArgs } from '../../framework';
 import { IncrementalContext } from '../IncrementalContext';
 import { PreviewContext } from '../PreviewContext';
@@ -11,17 +11,17 @@ const NOOP = () => {};
  * `setLocalAst` for editing). Inside an incremental revealjs context the
  * component renders the <li>s itself so each gets `class="fragment"` — list
  * items have no AST attr, so the class is attached here (mirrors the native
- * writer). */
+ * writer). A per-item block attr (`itemAttr[i]`, bd-aeyss6p5) composes with the
+ * `fragment` class. */
 export const BulletList = (args: NodeArgs<BulletListBlock>) => {
     const { enabled, incremental } = useContext(IncrementalContext);
     const ctx = useContext(PreviewContext);
     const poolId = (args.node as any).s as string | number | undefined;
     if (enabled) {
-        const liClass = incremental ? 'fragment' : undefined;
         return (
             <ul>
                 {args.node.c.map((item, i) => (
-                    <li key={i} className={liClass}>
+                    <li key={i} {...liItemAttrProps(args.node.itemAttr?.[i], incremental)}>
                         {item.map((block, j) => (
                             <Node
                                 key={`${i}:${j}`}
