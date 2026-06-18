@@ -1,0 +1,23 @@
+---
+title: "Crossrefs"
+format: revealjs
+---
+
+## Cross-references in revealjs
+
+When a slide holds just one image, Quarto sizes it to fill the available space
+so it never overflows. This happens by default. See @fig-1 and @fig-2.
+
+## Figure 1
+
+![A figure](logo.svg){#fig-1}
+
+## Figure 2
+
+::: {#fig-2}
+
+![](logo.svg)
+
+Another figure.
+
+:::
