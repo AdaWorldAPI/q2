@@ -287,7 +287,74 @@ fn code_cell_tokens(code_block: Node<'_>, content: &str) -> Vec<ByteToken> {
 
     let body_start = interior.start_byte();
     let body = node_text(interior, content);
-    embedded_body_tokens(&lang, body, body_start)
+
+    // A leading run of `#|` lines is a Quarto cell-option block — YAML, not
+    // code. Highlight it as yaml; hand only the remaining code to the cell grammar.
+    let mut out = Vec::new();
+    let directive_end = leading_directive_byte_len(body);
+    if directive_end > 0 {
+        out.extend(directive_tokens(&body[..directive_end], body_start));
+    }
+    if directive_end < body.len() {
+        out.extend(embedded_body_tokens(
+            &lang,
+            &body[directive_end..],
+            body_start + directive_end,
+        ));
+    }
+    out
+}
+
+/// Byte length of the leading contiguous run of `#|` option lines at the start
+/// of a cell body (each including its trailing newline). `0` if the first line
+/// is not an option line — Quarto only treats a leading run as cell options.
+fn leading_directive_byte_len(body: &str) -> usize {
+    let mut end = 0;
+    for line in body.split_inclusive('\n') {
+        if line.trim_start().starts_with("#|") {
+            end += line.len();
+        } else {
+            break;
+        }
+    }
+    end
+}
+
+/// Tokenize a cell-option block (`segment`, starting at byte `seg_start`): the
+/// `#|` marker on each line is a comment; the YAML after it is highlighted
+/// per line with the yaml grammar.
+fn directive_tokens(segment: &str, seg_start: usize) -> Vec<ByteToken> {
+    let comment_tt = capture_to_token_type("comment", true);
+    let mut out = Vec::new();
+    let mut pos = seg_start;
+    for line in segment.split_inclusive('\n') {
+        let mut line_body = line.strip_suffix('\n').unwrap_or(line);
+        line_body = line_body.strip_suffix('\r').unwrap_or(line_body);
+
+        let indent = line_body.len() - line_body.trim_start().len();
+        let marker_start = pos + indent;
+        if let Some(tt) = comment_tt {
+            out.push(ByteToken {
+                start: marker_start,
+                end: marker_start + 2, // `#|`
+                token_type: tt,
+            });
+        }
+        // YAML content begins after `#|` and an optional single space.
+        let mut content_col = indent + 2;
+        if line_body.as_bytes().get(content_col) == Some(&b' ') {
+            content_col += 1;
+        }
+        if content_col < line_body.len() {
+            out.extend(embedded_body_tokens(
+                "yaml",
+                &line_body[content_col..],
+                pos + content_col,
+            ));
+        }
+        pos += line.len();
+    }
+    out
 }
 
 /// Highlight `body` as `lang` with the shared resolver, flatten innermost-wins,
@@ -719,6 +786,61 @@ mod tests {
             toks.iter()
                 .any(|t| t.line == 1 && type_name(t) == "qmd.code.operator"),
             "expected r highlighting for `{{r .foo}}`, got {toks:?}"
+        );
+    }
+
+    #[test]
+    fn tokens_for_cell_option_directive_as_yaml() {
+        // A leading run of `#|` lines is Quarto cell options (YAML), not code
+        // comments: the `#|` marker stays a comment, the rest is highlighted yaml.
+        let toks = tokens("```{r}\n#| echo: true\n#| label: fig-1\nlibrary(ggplot2)\n```\n");
+        // The `#|` marker is a 2-char comment, not the whole line.
+        assert!(
+            toks.iter().any(|t| type_name(t) == "qmd.code.comment"
+                && t.line == 1
+                && t.character == 0
+                && t.length == 2),
+            "expected `#|` marker as code.comment of length 2 on line 1, got {toks:?}"
+        );
+        // The YAML key `echo` is a property, not swallowed into the comment.
+        assert!(
+            toks.iter()
+                .any(|t| t.line == 1 && type_name(t) == "qmd.code.property"),
+            "expected `echo` as code.property on line 1, got {toks:?}"
+        );
+        // The second option line is likewise YAML.
+        assert!(
+            toks.iter()
+                .any(|t| t.line == 2 && type_name(t) == "qmd.code.property"),
+            "expected `label` as code.property on line 2, got {toks:?}"
+        );
+        // The real code line is still highlighted as r.
+        assert!(
+            line_has_code_type(&toks, 3),
+            "expected r code tokens on line 3, got {toks:?}"
+        );
+        assert!(
+            !toks
+                .iter()
+                .any(|t| t.line == 3 && type_name(t) == "qmd.code.property"),
+            "code line must not be parsed as YAML, got {toks:?}"
+        );
+    }
+
+    #[test]
+    fn cell_option_yaml_only_for_leading_run() {
+        // A `#|` line *after* code is a normal comment, not a cell option.
+        let toks = tokens("```{r}\nx <- 1\n#| not an option\n```\n");
+        assert!(
+            toks.iter()
+                .any(|t| t.line == 2 && type_name(t) == "qmd.code.comment"),
+            "expected trailing `#|` line to stay a comment, got {toks:?}"
+        );
+        assert!(
+            !toks
+                .iter()
+                .any(|t| t.line == 2 && type_name(t) == "qmd.code.property"),
+            "non-leading `#|` must not be parsed as YAML, got {toks:?}"
         );
     }
 
