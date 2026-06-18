@@ -23,8 +23,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use arrow::array::{ArrayRef, Float64Builder, Int64Builder, RecordBatch, StringBuilder};
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::array::{
+    ArrayRef, Float64Builder, Int64Builder, RecordBatch, StringBuilder, StringDictionaryBuilder,
+};
+use arrow::datatypes::{DataType, Field, Schema, UInt16Type};
 use lance_graph::{CypherQuery, GraphConfig};
 use serde::Deserialize;
 
@@ -710,7 +712,7 @@ fn systems_to_batch(systems: &[SystemJson]) -> Result<RecordBatch, String> {
     let mut name = StringBuilder::with_capacity(len, len * 32);
     let mut year = Int64Builder::with_capacity(len);
     let mut current_status = StringBuilder::with_capacity(len, len * 16);
-    let mut system_type = StringBuilder::with_capacity(len, len * 16);
+    let mut system_type = StringDictionaryBuilder::<UInt16Type>::new();
     let mut ml_task = StringBuilder::with_capacity(len, len * 16);
     let mut military_use = StringBuilder::with_capacity(len, len * 16);
     let mut civic_use = StringBuilder::with_capacity(len, len * 16);
@@ -728,7 +730,7 @@ fn systems_to_batch(systems: &[SystemJson]) -> Result<RecordBatch, String> {
             None => year.append_null(),
         }
         append_opt(&mut current_status, &s.current_status);
-        append_opt(&mut system_type, &s.system_type);
+        append_opt_dict(&mut system_type, &s.system_type);
         append_opt(&mut ml_task, &s.ml_task);
         append_opt(&mut military_use, &s.military_use);
         append_opt(&mut civic_use, &s.civic_use);
@@ -744,7 +746,11 @@ fn systems_to_batch(systems: &[SystemJson]) -> Result<RecordBatch, String> {
         Field::new("name", DataType::Utf8, false),
         Field::new("year", DataType::Int64, true),
         Field::new("currentstatus", DataType::Utf8, true),
-        Field::new("type", DataType::Utf8, true),
+        Field::new(
+            "type",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
         Field::new("mltask", DataType::Utf8, true),
         Field::new("militaryuse", DataType::Utf8, true),
         Field::new("civicuse", DataType::Utf8, true),
@@ -780,23 +786,31 @@ fn stakeholders_to_batch(items: &[StakeholderJson]) -> Result<RecordBatch, Strin
     let len = items.len();
     let mut id = StringBuilder::with_capacity(len, len * 16);
     let mut name = StringBuilder::with_capacity(len, len * 32);
-    let mut stype = StringBuilder::with_capacity(len, len * 16);
-    let mut airo = StringBuilder::with_capacity(len, len * 16);
+    let mut stype = StringDictionaryBuilder::<UInt16Type>::new();
+    let mut airo = StringDictionaryBuilder::<UInt16Type>::new();
     let mut hover = StringBuilder::with_capacity(len, len * 64);
 
     for s in items {
         id.append_value(&s.id);
         name.append_value(&s.name);
-        append_opt(&mut stype, &s.stakeholder_type);
-        append_opt(&mut airo, &s.airo_type);
+        append_opt_dict(&mut stype, &s.stakeholder_type);
+        append_opt_dict(&mut airo, &s.airo_type);
         append_opt(&mut hover, &s.hover);
     }
 
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Utf8, false),
         Field::new("name", DataType::Utf8, false),
-        Field::new("type", DataType::Utf8, true),
-        Field::new("airotype", DataType::Utf8, true),
+        Field::new(
+            "type",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
+        Field::new(
+            "airotype",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
         Field::new("hover", DataType::Utf8, true),
     ]));
 
@@ -819,7 +833,7 @@ fn civic_to_batch(items: &[CivicJson]) -> Result<RecordBatch, String> {
     let mut name = StringBuilder::with_capacity(len, len * 32);
     let mut year = Int64Builder::with_capacity(len);
     let mut current_status = StringBuilder::with_capacity(len, len * 16);
-    let mut stype = StringBuilder::with_capacity(len, len * 16);
+    let mut stype = StringDictionaryBuilder::<UInt16Type>::new();
     let mut hover = StringBuilder::with_capacity(len, len * 64);
 
     for c in items {
@@ -830,7 +844,7 @@ fn civic_to_batch(items: &[CivicJson]) -> Result<RecordBatch, String> {
             None => year.append_null(),
         }
         append_opt(&mut current_status, &c.current_status);
-        append_opt(&mut stype, &c.system_type);
+        append_opt_dict(&mut stype, &c.system_type);
         append_opt(&mut hover, &c.hover);
     }
 
@@ -839,7 +853,11 @@ fn civic_to_batch(items: &[CivicJson]) -> Result<RecordBatch, String> {
         Field::new("name", DataType::Utf8, false),
         Field::new("year", DataType::Int64, true),
         Field::new("currentstatus", DataType::Utf8, true),
-        Field::new("type", DataType::Utf8, true),
+        Field::new(
+            "type",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
         Field::new("hover", DataType::Utf8, true),
     ]));
 
@@ -863,7 +881,7 @@ fn historical_to_batch(items: &[HistoricalJson]) -> Result<RecordBatch, String> 
     let mut name = StringBuilder::with_capacity(len, len * 32);
     let mut year = Int64Builder::with_capacity(len);
     let mut current_status = StringBuilder::with_capacity(len, len * 16);
-    let mut stype = StringBuilder::with_capacity(len, len * 16);
+    let mut stype = StringDictionaryBuilder::<UInt16Type>::new();
     let mut military_use = StringBuilder::with_capacity(len, len * 16);
     let mut civic_use = StringBuilder::with_capacity(len, len * 16);
     let mut hover = StringBuilder::with_capacity(len, len * 64);
@@ -876,7 +894,7 @@ fn historical_to_batch(items: &[HistoricalJson]) -> Result<RecordBatch, String> 
             None => year.append_null(),
         }
         append_opt(&mut current_status, &h.current_status);
-        append_opt(&mut stype, &h.system_type);
+        append_opt_dict(&mut stype, &h.system_type);
         append_opt(&mut military_use, &h.military_use);
         append_opt(&mut civic_use, &h.civic_use);
         append_opt(&mut hover, &h.hover);
@@ -887,7 +905,11 @@ fn historical_to_batch(items: &[HistoricalJson]) -> Result<RecordBatch, String> 
         Field::new("name", DataType::Utf8, false),
         Field::new("year", DataType::Int64, true),
         Field::new("currentstatus", DataType::Utf8, true),
-        Field::new("type", DataType::Utf8, true),
+        Field::new(
+            "type",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
         Field::new("militaryuse", DataType::Utf8, true),
         Field::new("civicuse", DataType::Utf8, true),
         Field::new("hover", DataType::Utf8, true),
@@ -913,23 +935,31 @@ fn people_to_batch(items: &[PersonJson]) -> Result<RecordBatch, String> {
     let len = items.len();
     let mut id = StringBuilder::with_capacity(len, len * 16);
     let mut name = StringBuilder::with_capacity(len, len * 32);
-    let mut ptype = StringBuilder::with_capacity(len, len * 16);
-    let mut airo = StringBuilder::with_capacity(len, len * 16);
+    let mut ptype = StringDictionaryBuilder::<UInt16Type>::new();
+    let mut airo = StringDictionaryBuilder::<UInt16Type>::new();
     let mut hover = StringBuilder::with_capacity(len, len * 64);
 
     for p in items {
         id.append_value(&p.id);
         name.append_value(&p.name);
-        append_opt(&mut ptype, &p.person_type);
-        append_opt(&mut airo, &p.airo_type);
+        append_opt_dict(&mut ptype, &p.person_type);
+        append_opt_dict(&mut airo, &p.airo_type);
         append_opt(&mut hover, &p.hover);
     }
 
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Utf8, false),
         Field::new("name", DataType::Utf8, false),
-        Field::new("type", DataType::Utf8, true),
-        Field::new("airotype", DataType::Utf8, true),
+        Field::new(
+            "type",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
+        Field::new(
+            "airotype",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
         Field::new("hover", DataType::Utf8, true),
     ]));
 
@@ -950,7 +980,7 @@ fn edges_to_batch(edges: &[EdgeJson]) -> Result<RecordBatch, String> {
     let len = edges.len();
     let mut source = StringBuilder::with_capacity(len, len * 16);
     let mut target = StringBuilder::with_capacity(len, len * 16);
-    let mut label = StringBuilder::with_capacity(len, len * 32);
+    let mut label = StringDictionaryBuilder::<UInt16Type>::new();
     let mut weight = Float64Builder::with_capacity(len);
     let mut hover = StringBuilder::with_capacity(len, len * 64);
     let mut reference = StringBuilder::with_capacity(len, len * 64);
@@ -958,7 +988,7 @@ fn edges_to_batch(edges: &[EdgeJson]) -> Result<RecordBatch, String> {
     for e in edges {
         source.append_value(&e.source);
         target.append_value(&e.target);
-        append_opt(&mut label, &e.label);
+        append_opt_dict(&mut label, &e.label);
         match e.weight {
             Some(w) => weight.append_value(w),
             None => weight.append_null(),
@@ -970,7 +1000,11 @@ fn edges_to_batch(edges: &[EdgeJson]) -> Result<RecordBatch, String> {
     let schema = Arc::new(Schema::new(vec![
         Field::new("source", DataType::Utf8, false),
         Field::new("target", DataType::Utf8, false),
-        Field::new("label", DataType::Utf8, true),
+        Field::new(
+            "label",
+            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
+            true,
+        ),
         Field::new("weight", DataType::Float64, true),
         Field::new("hover", DataType::Utf8, true),
         Field::new("reference", DataType::Utf8, true),
@@ -1016,6 +1050,18 @@ fn meta_edges_to_batch(edges: &[MetaEdgeJson]) -> Result<RecordBatch, String> {
 }
 
 fn append_opt(builder: &mut StringBuilder, val: &Option<String>) {
+    match val {
+        Some(v) => builder.append_value(v),
+        None => builder.append_null(),
+    }
+}
+
+/// Append into a dictionary (codebook) column: distinct strings are interned
+/// once into the dictionary, and each row stores a compact u16 index. This is
+/// the "labels → codebook + binary index table" pattern via Arrow's native
+/// dictionary encoding (the same idea as classid / Base17 / CAM-PQ). Robust to
+/// loosely-typed input since values arrive already coerced to `Option<String>`.
+fn append_opt_dict(builder: &mut StringDictionaryBuilder<UInt16Type>, val: &Option<String>) {
     match val {
         Some(v) => builder.append_value(v),
         None => builder.append_null(),
@@ -1144,7 +1190,7 @@ fn batch_to_html(batch: &RecordBatch) -> String {
 }
 
 fn get_string_value(batch: &RecordBatch, col: usize, row: usize) -> Option<String> {
-    use arrow::array::{Float64Array, Int64Array, StringArray};
+    use arrow::array::{DictionaryArray, Float64Array, Int64Array, StringArray};
     let col_data = batch.column(col);
     if col_data.is_null(row) {
         return None;
@@ -1162,12 +1208,19 @@ fn get_string_value(batch: &RecordBatch, col: usize, row: usize) -> Option<Strin
             let arr = col_data.as_any().downcast_ref::<Float64Array>()?;
             Some(arr.value(row).to_string())
         }
+        DataType::Dictionary(_, _) => {
+            // codebook column: resolve the u16 index back to its string value.
+            let dict = col_data.as_any().downcast_ref::<DictionaryArray<UInt16Type>>()?;
+            let values = dict.values().as_any().downcast_ref::<StringArray>()?;
+            let key = dict.keys().value(row) as usize;
+            Some(values.value(key).to_string())
+        }
         _ => Some(format!("{:?}", col_data.as_ref())),
     }
 }
 
 fn get_json_value(batch: &RecordBatch, col: usize, row: usize) -> Option<serde_json::Value> {
-    use arrow::array::{Float64Array, Int64Array, StringArray};
+    use arrow::array::{DictionaryArray, Float64Array, Int64Array, StringArray};
     let col_data = batch.column(col);
     if col_data.is_null(row) {
         return None;
@@ -1184,6 +1237,13 @@ fn get_json_value(batch: &RecordBatch, col: usize, row: usize) -> Option<serde_j
         DataType::Float64 => {
             let arr = col_data.as_any().downcast_ref::<Float64Array>()?;
             Some(serde_json::json!(arr.value(row)))
+        }
+        DataType::Dictionary(_, _) => {
+            // codebook column: resolve the u16 index back to its string value.
+            let dict = col_data.as_any().downcast_ref::<DictionaryArray<UInt16Type>>()?;
+            let values = dict.values().as_any().downcast_ref::<StringArray>()?;
+            let key = dict.keys().value(row) as usize;
+            Some(serde_json::Value::String(values.value(key).to_string()))
         }
         _ => None,
     }

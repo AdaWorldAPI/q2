@@ -60,3 +60,44 @@ fn gremlin_multihop_path_traversal_runs() {
         if res.raw_output.contains("→ Cypher") { "REAL execution" } else { "fallback" }
     );
 }
+
+#[test]
+fn gremlin_returns_dictionary_encoded_label_column() {
+    let Some(data) = aiwar_data_path() else {
+        eprintln!("aiwar data not found; skipping e2e");
+        return;
+    };
+    // SAFETY: single-threaded test.
+    unsafe { std::env::set_var("AIWAR_DATA_PATH", data) };
+
+    // `type` is stored as a dictionary (codebook + u16 index) column. Confirm
+    // lance-graph executes a RETURN over it — DataFusion resolves the dictionary
+    // back to its string value transparently, so the codebook table is queryable.
+    let q = "g.V().hasLabel('System').values('type')";
+    let res = execute(q, QueryLanguage::Gremlin).expect("execute returns Ok");
+    eprintln!("--- dict column ---\nquery: {q}\nraw_output:\n{}", res.raw_output);
+    assert!(
+        res.raw_output.contains("→ Cypher"),
+        "RETURN over a dictionary-encoded codebook column should reach real lance-graph execution, got: {}",
+        res.raw_output
+    );
+
+    // The codebook must also resolve in the vis-network JSON (get_json_value's
+    // Dictionary arm): at least one System node carries a non-empty `type`.
+    let gj = res.graph_json.expect("graph_json present");
+    let v: serde_json::Value = serde_json::from_str(&gj).expect("graph_json is valid JSON");
+    let resolved = v["nodes"]
+        .as_array()
+        .map(|ns| {
+            ns.iter().any(|n| {
+                n["properties"]["type"]
+                    .as_str()
+                    .is_some_and(|s| !s.is_empty())
+            })
+        })
+        .unwrap_or(false);
+    assert!(
+        resolved,
+        "graph_json should carry a codebook-resolved 'type' property on at least one node"
+    );
+}
