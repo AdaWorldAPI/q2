@@ -386,6 +386,86 @@ fn revealjs_auto_stretch_figure_hoists_image_and_caption() {
     );
 }
 
+/// End-to-end regression (bd-w0c6d38k): cross-references must resolve and
+/// number correctly under `format: revealjs`, including the attribute-figure
+/// form `![cap](x){#fig-1}` on a single-image (auto-stretch) slide.
+///
+/// Before the fix, `RevealAutoStretchTransform` ran in the Normalization phase —
+/// before float-sugaring and the crossref phase — so it hoisted the `![cap]{#fig-1}`
+/// `Figure` to a bare `<img>` before it was ever registered as a crossref float.
+/// Result: `@fig-1` rendered unresolved (`?fig-1?`) and the sibling `{#fig-2}`
+/// div became "Figure 1" instead of "Figure 2". Auto-stretch now runs in the
+/// Finalization phase, after `CrossrefRenderTransform`, so the figure is
+/// numbered/resolved first and stretched second.
+#[test]
+fn revealjs_crossref_attribute_figure_resolves_and_stretches() {
+    const PNG: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
+        0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+    let temp = tempfile::TempDir::new().unwrap();
+    std::fs::write(temp.path().join("pic.png"), PNG).unwrap();
+    let qmd_path = temp.path().join("talk.qmd");
+    write_file(
+        &qmd_path,
+        "---\ntitle: T\nformat: revealjs\n---\n\n\
+         ## Refs\n\nSee @fig-1 and @fig-2.\n\n\
+         ## Figure 1\n\n![A figure](pic.png){#fig-1}\n\n\
+         ## Figure 2\n\n::: {#fig-2}\n\n![](pic.png)\n\nAnother figure.\n\n:::\n",
+    );
+    let options = RenderToFileOptions {
+        quiet: true,
+        ..Default::default()
+    };
+    let result = render_to_file(&qmd_path, "revealjs", &options, runtime_arc())
+        .expect("revealjs render failed");
+    let html = read(&result.output_path);
+
+    // Both refs resolve — no unresolved `?fig-…?` placeholders.
+    assert!(
+        !html.contains("?fig-1?") && !html.contains("?fig-2?"),
+        "crossrefs must resolve; found an unresolved placeholder in:\n{html}"
+    );
+    // The body refs render as numbered xref links, in document order. Quarto
+    // joins "Figure" and the number with a non-breaking space (U+00A0).
+    assert!(
+        html.contains(">Figure\u{a0}1</a>"),
+        "`@fig-1` must resolve to a `Figure 1` xref link; got:\n{html}"
+    );
+    assert!(
+        html.contains(">Figure\u{a0}2</a>"),
+        "`@fig-2` must resolve to `Figure 2` (not `Figure 1`); got:\n{html}"
+    );
+    // fig-1 (attribute form, single-image slide) is still auto-stretched, and
+    // its `<img class=\"r-stretch\">` is a direct child of the `<section>`.
+    assert!(
+        html.contains("r-stretch"),
+        "fig-1 on a single-image slide must still auto-stretch; got:\n{html}"
+    );
+    let idx = html.find("r-stretch").unwrap();
+    let before = &html[..idx];
+    let img_start = before
+        .rfind("<img")
+        .expect("r-stretch should be on an <img>");
+    let preceding = before[..img_start].trim_end();
+    assert!(
+        !preceding.ends_with("<p>"),
+        "stretched fig-1 img must be a direct child of <section>, not wrapped in <p>; got:\n{html}"
+    );
+    // fig-1's caption text survives the hoist as a sibling `<p class="caption">`.
+    // (The numbered "Figure 1:" *prefix* is NOT asserted here: the attribute-form
+    // `![cap](x){#fig-…}` figure does not get a caption-number prefix even in
+    // plain HTML — a pre-existing crossref-render gap tracked separately. The
+    // *reference* numbering above already proves fig-1 entered the float pass.)
+    assert!(
+        html.contains("class=\"caption\">A figure"),
+        "fig-1 caption text must survive the hoist; got:\n{html}"
+    );
+}
+
 #[test]
 fn revealjs_render_emits_title_slide() {
     let html = render_revealjs(FLAT_DECK);

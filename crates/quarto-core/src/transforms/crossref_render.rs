@@ -48,7 +48,7 @@ use quarto_source_map::SourceInfo;
 use crate::Result;
 use crate::crossref::{CROSSREF_RESOLVED_REF, EQUATION, FLOAT_REF_TARGET, PROOF, THEOREM};
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that converts FloatRefTarget / CrossrefResolvedRef custom
 /// nodes into writer-visible shapes.
@@ -70,6 +70,10 @@ impl Default for CrossrefRenderTransform {
 impl AstTransform for CrossrefRenderTransform {
     fn name(&self) -> &str {
         "crossref-render"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

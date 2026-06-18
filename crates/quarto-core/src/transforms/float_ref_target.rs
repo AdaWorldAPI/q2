@@ -70,7 +70,7 @@ use serde_json::json;
 use crate::Result;
 use crate::crossref::{FLOAT_REF_TARGET, RefTypeRegistry};
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that sugars float crossref targets into
 /// `CustomNode("FloatRefTarget")`.
@@ -92,6 +92,10 @@ impl Default for FloatRefTargetSugarTransform {
 impl AstTransform for FloatRefTargetSugarTransform {
     fn name(&self) -> &str {
         "float-ref-target-sugar"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

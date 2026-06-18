@@ -56,7 +56,7 @@ use quarto_pandoc_types::ConfigValue;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::{AppendixStyle, ReferenceLocation};
 
 /// Transform that consolidates appendix content into a single container.
@@ -117,6 +117,10 @@ impl Default for AppendixStructureTransform {
 impl AstTransform for AppendixStructureTransform {
     fn name(&self) -> &str {
         "appendix-structure"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

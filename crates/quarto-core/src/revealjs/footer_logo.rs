@@ -51,7 +51,7 @@ use quarto_source_map::{By, SourceInfo};
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 // --- config alias: footer: → page-footer: -----------------------------------
 
@@ -76,6 +76,10 @@ impl Default for RevealFooterAliasTransform {
 impl AstTransform for RevealFooterAliasTransform {
     fn name(&self) -> &str {
         "reveal-footer-alias"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {
@@ -114,6 +118,10 @@ impl Default for RevealFooterLogoTransform {
 impl AstTransform for RevealFooterLogoTransform {
     fn name(&self) -> &str {
         "reveal-footer-logo"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

@@ -43,7 +43,7 @@ use quarto_source_map::SourceInfo;
 use crate::Result;
 use crate::project::website_config::website_title;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Pandoc-style en-dash separator between page title and site title.
 ///
@@ -70,6 +70,10 @@ impl Default for WebsiteTitlePrefixTransform {
 impl AstTransform for WebsiteTitlePrefixTransform {
     fn name(&self) -> &str {
         "website-title-prefix"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

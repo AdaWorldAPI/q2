@@ -18,7 +18,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that wraps headers in section Divs.
 ///
@@ -46,6 +46,10 @@ impl Default for SectionizeTransform {
 impl AstTransform for SectionizeTransform {
     fn name(&self) -> &str {
         "sectionize"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

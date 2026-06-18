@@ -70,7 +70,7 @@ use crate::attribution::{
     attribution_viewer_enabled_from_meta, resolve_byte_range,
 };
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 pub struct AttributionRenderTransform;
 
@@ -90,6 +90,10 @@ impl Default for AttributionRenderTransform {
 impl AstTransform for AttributionRenderTransform {
     fn name(&self) -> &str {
         "attribution-render"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

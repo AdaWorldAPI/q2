@@ -38,7 +38,7 @@ use crate::Result;
 use crate::project::website_config::{normalize_favicon_path, website_favicon};
 use crate::render::RenderContext;
 use crate::resource_resolver::ResourceResolverContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// AST transform: append a `<link rel="icon">` to `header-includes`
 /// for website projects with a configured favicon.
@@ -60,6 +60,10 @@ impl Default for WebsiteFaviconTransform {
 impl AstTransform for WebsiteFaviconTransform {
     fn name(&self) -> &str {
         "website-favicon"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

@@ -26,7 +26,7 @@ use quarto_source_map::{By, SourceInfo};
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 use super::slides::{DEFAULT_SLIDE_LEVEL, build_reveal_slides};
 
@@ -49,6 +49,10 @@ impl Default for RevealSlidesTransform {
 impl AstTransform for RevealSlidesTransform {
     fn name(&self) -> &str {
         "reveal-slides"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

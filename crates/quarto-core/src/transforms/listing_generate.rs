@@ -36,7 +36,7 @@ use crate::project::listing::filter::apply_filters;
 use crate::project::listing::sort::apply_sort;
 use crate::project::listing::{ListingContents, ResolvedListing, hydrate_item, parse_listings};
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::is_feature_disabled;
 use crate::transforms::navigation_active::page_relative_source;
 
@@ -58,6 +58,10 @@ impl Default for ListingGenerateTransform {
 impl AstTransform for ListingGenerateTransform {
     fn name(&self) -> &str {
         "listing-generate"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

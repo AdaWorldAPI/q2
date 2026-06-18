@@ -22,7 +22,7 @@ use quarto_source_map::SourceInfo;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that normalizes document metadata.
 ///
@@ -50,6 +50,10 @@ impl Default for MetadataNormalizeTransform {
 impl AstTransform for MetadataNormalizeTransform {
     fn name(&self) -> &str {
         "metadata-normalize"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

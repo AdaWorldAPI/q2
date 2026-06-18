@@ -38,7 +38,7 @@ use smallvec::smallvec;
 use crate::Result;
 use crate::format::is_minimal_html;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that adds a title header from metadata if not present.
 ///
@@ -85,6 +85,10 @@ impl Default for TitleBlockTransform {
 impl AstTransform for TitleBlockTransform {
     fn name(&self) -> &str {
         "title-block"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

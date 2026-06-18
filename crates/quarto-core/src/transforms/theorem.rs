@@ -52,7 +52,7 @@ use serde_json::json;
 use crate::Result;
 use crate::crossref::{RefTypeRegistry, THEOREM};
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Map of theorem-like class name to `(ref_type_prefix, display_kind)`.
 ///
@@ -89,6 +89,10 @@ impl Default for TheoremSugarTransform {
 impl AstTransform for TheoremSugarTransform {
     fn name(&self) -> &str {
         "theorem-sugar"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

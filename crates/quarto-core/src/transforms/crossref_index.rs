@@ -46,7 +46,7 @@ use serde_json::json;
 use crate::Result;
 use crate::crossref::{CrossrefEntry, CrossrefIndex, Order, TRACE_KIND_CROSSREF_INDEX};
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that builds the per-document crossref index.
 pub struct CrossrefIndexTransform;
@@ -67,6 +67,10 @@ impl Default for CrossrefIndexTransform {
 impl AstTransform for CrossrefIndexTransform {
     fn name(&self) -> &str {
         "crossref-index"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Crossref
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {
