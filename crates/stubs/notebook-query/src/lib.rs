@@ -470,11 +470,40 @@ struct AiWarGraphJson {
     meta_edges: Vec<MetaEdgeJson>,
 }
 
+/// Lenient deserializer for the aiwar `year` field: usually an integer, but a
+/// couple of records carry `"n.d."` (no-date) as a string. Non-numeric → None,
+/// so the typed Arrow loader (and `aiwar_graph_json`) don't choke on real data.
+fn de_lenient_year<'de, D>(d: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Number(n) => Ok(n.as_i64()),
+        serde_json::Value::String(s) => Ok(s.trim().parse::<i64>().ok()),
+        _ => Ok(None),
+    }
+}
+
+/// Lenient deserializer for optional string fields that the aiwar data sometimes
+/// encodes as a number (e.g. edge `hover` is `1` in ~95 records) or bool.
+/// Numbers/bools are stringified; null → None.
+fn de_lenient_string<'de, D>(d: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(s) => Some(s),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    })
+}
+
 #[derive(Debug, Deserialize)]
 struct SystemJson {
     id: String,
     name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_year")]
     year: Option<i64>,
     #[serde(rename = "currentStatus", default)]
     current_status: Option<String>,
@@ -494,7 +523,7 @@ struct SystemJson {
     output: Option<String>,
     #[serde(default)]
     impact: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_string")]
     hover: Option<String>,
 }
 
@@ -506,7 +535,7 @@ struct StakeholderJson {
     stakeholder_type: Option<String>,
     #[serde(rename = "airo:type", default)]
     airo_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_string")]
     hover: Option<String>,
 }
 
@@ -514,13 +543,13 @@ struct StakeholderJson {
 struct CivicJson {
     id: String,
     name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_year")]
     year: Option<i64>,
     #[serde(rename = "currentStatus", default)]
     current_status: Option<String>,
     #[serde(rename = "type", default)]
     system_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_string")]
     hover: Option<String>,
 }
 
@@ -528,7 +557,7 @@ struct CivicJson {
 struct HistoricalJson {
     id: String,
     name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_year")]
     year: Option<i64>,
     #[serde(rename = "currentStatus", default)]
     current_status: Option<String>,
@@ -538,7 +567,7 @@ struct HistoricalJson {
     military_use: Option<String>,
     #[serde(rename = "civicUse", default)]
     civic_use: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_string")]
     hover: Option<String>,
 }
 
@@ -550,7 +579,7 @@ struct PersonJson {
     person_type: Option<String>,
     #[serde(rename = "airo:type", default)]
     airo_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_string")]
     hover: Option<String>,
 }
 
@@ -562,7 +591,7 @@ struct EdgeJson {
     label: Option<String>,
     #[serde(default)]
     weight: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_string")]
     hover: Option<String>,
     #[serde(default)]
     reference: Option<String>,
