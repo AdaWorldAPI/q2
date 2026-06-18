@@ -187,6 +187,27 @@ Table caption.
 }
 
 #[tokio::test]
+async fn fixture_bare_table_caption_target() {
+    // The `: caption {#tbl-…}` pipe-table syntax puts the id on a *bare*
+    // `Block::Table` (no wrapping div). It must desugar into the canonical
+    // float Div and number identically to the `::: {#tbl-…}` form (bd-4ly7ne01).
+    let qmd = r#"---
+title: t
+---
+
+| a | b |
+|---|---|
+| 1 | 2 |
+
+: A table {#tbl-bare}
+"#;
+    let (_, idx, diags) = run_crossref(qmd).await;
+    assert!(diags.is_empty(), "diagnostics: {diags:?}");
+    let summary = entry_summary(idx.get("tbl-bare").unwrap());
+    assert_eq!(summary, ("tbl-bare".into(), "tbl".into(), vec![], 1));
+}
+
+#[tokio::test]
 async fn fixture_counts_per_ref_type() {
     let qmd = r#"---
 title: t
