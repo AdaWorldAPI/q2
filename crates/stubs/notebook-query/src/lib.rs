@@ -10,6 +10,7 @@
 
 pub mod analyst;
 pub mod diagnostics;
+pub mod gremlin;
 pub mod hydration;
 pub mod mri;
 pub mod orchestrator;
@@ -147,6 +148,22 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
 
 // ── Cypher hot path via lance-graph ──
 
+/// Execute a Cypher query against the aiwar Arrow datasets via lance-graph's
+/// real DataFusion path. Shared by the Cypher cell and the Gremlin transpiler.
+fn run_cypher_on_aiwar(source: &str) -> Result<RecordBatch, String> {
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async {
+        let (datasets, config) = load_aiwar_datasets()?;
+        let query = CypherQuery::new(source)
+            .map_err(|e| format!("Cypher parse error: {e}"))?
+            .with_config(config.clone());
+        query
+            .execute(datasets.clone(), None)
+            .await
+            .map_err(|e| format!("lance-graph execution error: {e}"))
+    })
+}
+
 fn execute_cypher(source: &str) -> Result<QueryResult, String> {
     // Run planner first (if feature enabled) to get strategy selection + thinking context
     #[cfg(feature = "planner")]
@@ -164,21 +181,8 @@ fn execute_cypher(source: &str) -> Result<QueryResult, String> {
     #[cfg(not(feature = "planner"))]
     let planner_info: Option<PlannerInfo> = None;
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     let t0 = Instant::now();
-
-    let result = rt.block_on(async {
-        let (datasets, config) = load_aiwar_datasets()?;
-        let query = CypherQuery::new(source)
-            .map_err(|e| format!("Cypher parse error: {e}"))?
-            .with_config(config.clone());
-        let batch = query
-            .execute(datasets.clone(), None)
-            .await
-            .map_err(|e| format!("lance-graph execution error: {e}"))?;
-        Ok::<RecordBatch, String>(batch)
-    })?;
-
+    let result = run_cypher_on_aiwar(source)?;
     let elapsed_ms = t0.elapsed().as_millis() as u64;
 
     // Tabular output
@@ -240,18 +244,50 @@ fn execute_graph_query(source: &str, language: QueryLanguage) -> Result<QueryRes
 
         let t0 = Instant::now();
 
-        // Try execution through lance-graph DataFusion.
-        // For Gremlin/SPARQL, the planner transpiles to the same IR as Cypher,
-        // so we can reuse the same execution path once the IR is built.
-        // For now, we load the aiwar graph and return it with planner metadata.
-        let graph_json = aiwar_graph_json().ok();
-        let elapsed_ms = t0.elapsed().as_millis() as u64;
-
         let lang_name = match language {
             QueryLanguage::Gremlin => "Gremlin",
             QueryLanguage::Sparql => "SPARQL",
             _ => "Unknown",
         };
+
+        // Real execution: transpile the supported Gremlin subset to Cypher and
+        // run it through lance-graph's DataFusion path. On any miss (unsupported
+        // shape or execution error) fall through to the graph echo below — the
+        // demo never breaks, and supported traversals return real rows.
+        if language == QueryLanguage::Gremlin {
+            if let Some(cypher) = gremlin::gremlin_to_cypher(source) {
+                match run_cypher_on_aiwar(&cypher) {
+                    Ok(batch) => {
+                        let elapsed_ms = t0.elapsed().as_millis() as u64;
+                        return Ok(QueryResult {
+                            language,
+                            raw_output: format!(
+                                "{lang_name} → Cypher: {cypher}\n\n{}",
+                                batch_to_text(&batch)
+                            ),
+                            html: Some(format!(
+                                "<div class=\"query-executed\">\
+                                 <div class=\"lang-badge\">{lang_name} → Cypher</div>\
+                                 <pre>{cypher}</pre>{}</div>",
+                                batch_to_html(&batch)
+                            )),
+                            graph_json: aiwar_graph_json().ok(),
+                            elapsed_ms,
+                            planner_info,
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[gremlin] transpiled `{cypher}` failed: {e} — falling back to graph echo"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Fallback: graph echo + planner metadata (unchanged behavior).
+        let graph_json = aiwar_graph_json().ok();
+        let elapsed_ms = t0.elapsed().as_millis() as u64;
 
         Ok(QueryResult {
             language,
