@@ -78,7 +78,66 @@ arms are left as-is.
       emitted — the docs/ page needs no "no longer emitted" note.
 - [ ] List items (`<li class>`) — distinct hoist mechanism (attr rides on the
       item's child block; the `<li>` writer must hoist it, composing with the
-      incremental `fragment` class). Later sub-task.
+      incremental `fragment` class). Later sub-task (**bd-aeyss6p5**). JSON
+      representation resolved below.
+
+## List-item JSON representation — study (for bd-aeyss6p5)
+
+The `Para` `attr`-key trick relies on a `Para` being a JSON **object**
+(`{t,c,…}`) onto which an extra key can hang. A list item is **not** an object:
+`BulletList`/`OrderedList` are `content: Vec<Blocks>` (`crates/quarto-pandoc-types/src/block.rs:138-148`),
+and in JSON each item is a bare `[Block,…]` **array** inside the list node's `c`.
+There is no per-item object to carry an `attr` key.
+
+**This exact problem is already solved in the source-location / attr-source
+work**, via a single reusable pattern:
+
+> When a Pandoc sub-structure is array-shaped (no object to hold an extra key),
+> carry the Quarto-only data in a **parallel sibling key on the nearest
+> enclosing object node**, shaped to mirror the array (parallel-indexed), and
+> read it back from that key. Pandoc ignores unknown object keys (proven for
+> `Para.attr`; `a`/`rowsS`/`captionS` already ship and round-trip).
+
+Concrete precedents (all in `crates/pampa/src/writers/json.rs` + reader):
+- **Attr source** — the attr triple `[id,[class],[[k,v]]]` is pure arrays/strings,
+  so its source rides in a sibling `a` key as `AttrSourceJson { classes:[…
+  parallel to classes…], id, kvs:[… parallel to kvs…] }` (`json.rs:137,676`,
+  stream `:2020`; reader `read_attr_source` at `readers/json.rs:635`).
+- **Tables** — rows/cells/heads/bodies/feet are all array-shaped; their
+  out-of-band data rides in sibling keys `a`, `rowsS`, `cellsS`, `headS`,
+  `bodyS`, `bodiesS`, `captionS`, each an array **parallel-indexed** to its data
+  array (writer `stream_write_table_head_source` `:2435`, `stream_write_row_source`
+  `:2399`; reader threads `obj.get("rowsS")` / `get("bodyS")` / `get("captionS")`
+  at `readers/json.rs:1668,1726,1787,2037`). This is the closest analog to a
+  list: a `TableHead` is `[attr,[rows]]` and per-row data lives in `rowsS`
+  parallel to the rows — *exactly* the "per-item data parallel to an item array"
+  shape we need.
+
+**Resulting design for list items (recommended):**
+- **AST (no type change):** the item attr stays a **trailing `Inline::Attr` in
+  the item's last block** — same canonical shape as `Para`, and what `- item
+  {.foo}` would naturally parse to.
+- **JSON writer:** per item, run `split_trailing_block_attr` on the item's last
+  block; hoist the merged `Attr` into a **parallel sibling key** on the list node
+  (mirroring `rowsS`; name e.g. `itemAttr`/`cAttr` — TBD), an array
+  parallel-indexed to `c`, each entry an `Attr` triple or `null`; emit the item's
+  blocks **without** the trailing attr. Stripping here also fixes the
+  precedence trap — the inner `Para`/`Plain` writer never sees the attr, so the
+  class lands on `<li>`, not an inner `<p>`.
+  ```json
+  {"t":"BulletList","c":[[…item0…],[…item1…]],"itemAttr":[["",["foo"],[]],null],"s":…}
+  ```
+- **JSON reader:** read the parallel key; fold each non-null entry back into a
+  trailing `Inline::Attr` on the matching item's last block — exactly like the
+  `Para` `attr` fold-back (`readers/json.rs` Para arm) and the table `rowsS`
+  threading.
+- **html.rs / React:** hoist to `<li class>`, composing with the incremental
+  `fragment` class (`list_item_open` at `html.rs:1272`; React BulletList/
+  OrderedList both paths).
+
+Net: item arrays stay Pandoc-valid (Pandoc ignores `itemAttr`), the preview
+reads the sibling key, and it round-trips — all consistent with the established
+table/attr-source machinery rather than a new ad-hoc channel.
 - [ ] Wire the actual consumer: bd-38ioql41 reveal figure caption emits a
       `Paragraph[..caption.., Attr{.caption}]`; add the q2-slides preview parity
       check there.
