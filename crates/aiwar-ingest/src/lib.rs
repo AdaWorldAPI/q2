@@ -1,453 +1,478 @@
-//! Load aiwar_graph.json into neo4j-rs MemoryBackend.
+//! Ingest aiwar-neo4j-harvest data into the lance-graph engine's data model.
 //!
-//! Hot path: 221 nodes + 356 edges, all in-memory. Zero network hops.
-//! Cypher queries execute against Arrow-speed in-process data.
+//! The graph **API/engine is lance-graph** (Cypher/Gremlin → DataFusion / SPO).
+//! This crate is the **ingest layer**: it parses the harvest sources into a
+//! plain, engine-agnostic property-graph model (`AiWarGraph`) that the
+//! lance-graph-backed consumers hydrate:
+//!
+//!   * `cockpit-server::graph_engine` — render snapshot (+ NARS truth) for the cockpit
+//!   * `notebook-query` — Arrow RecordBatches → lance-graph `CypherQuery` / planner
+//!
+//! Two sources, both from `AdaWorldAPI/aiwar-neo4j-harvest`:
+//!   * `/data/aiwar_graph.json` — the base 221-node / 326-edge property graph
+//!   * `/cypher/*.cypher` — 30 versioned enrichment rounds (parsed by
+//!     [`encounter_round`], applied via [`AiWarGraph::apply_round`])
+//!
+//! `neo4j-rs` is intentionally **not** a dependency: it was a Neo4j-flavored
+//! *GUI* experiment. Presentation (the neo4j-style cockpit) is the vis-network
+//! layer; the graph API is lance-graph. This crate carries no engine.
 
 pub mod encounter_round;
 
-use neo4j_rs::{Graph, PropertyMap, Value};
-use neo4j_rs::storage::MemoryBackend;
-use serde::Deserialize;
+use std::collections::HashMap;
+use std::path::Path;
 
-// ── JSON model (mirrors aiwar-neo4j-harvest/src/model.rs) ──
+use serde_json::Value;
 
-#[derive(Debug, Deserialize)]
-pub struct AiWarGraphJson {
-    #[serde(rename = "N_Systems", default)]
-    pub systems: Vec<SystemJson>,
-    #[serde(rename = "N_Stakeholders", default)]
-    pub stakeholders: Vec<StakeholderJson>,
-    #[serde(rename = "N_Civic", default)]
-    pub civic: Vec<CivicJson>,
-    #[serde(rename = "N_Historical", default)]
-    pub historical: Vec<HistoricalJson>,
-    #[serde(rename = "N_People", default)]
-    pub people: Vec<PersonJson>,
-    #[serde(rename = "E_isDevelopedBy", default)]
-    pub edges_developed: Vec<EdgeJson>,
-    #[serde(rename = "E_isDeployedBy", default)]
-    pub edges_deployed: Vec<EdgeJson>,
-    #[serde(rename = "E_connection", default)]
-    pub edges_connection: Vec<EdgeJson>,
-    #[serde(rename = "E_place", default)]
-    pub edges_place: Vec<EdgeJson>,
-    #[serde(rename = "E_people", default)]
-    pub edges_people: Vec<EdgeJson>,
-    #[serde(rename = "E_hierarchical", default)]
-    pub meta_edges: Vec<MetaEdgeJson>,
-    #[serde(rename = "Schema", default)]
-    pub schema: Vec<serde_json::Value>,
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Source schema mapping (aiwar_graph.json → property graph)
+//
+// Mirrors the node/edge array names in aiwar-neo4j-harvest/data/aiwar_graph.json
+// and the canonical type/relationship labels used by the cockpit legend
+// (System · Stakeholder · CivicSystem · HistoricalSystem · Person).
+// ─────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
-pub struct SystemJson {
+/// (`json key`, `node_type`) for each node array in `aiwar_graph.json`.
+pub const NODE_ARRAYS: &[(&str, &str)] = &[
+    ("N_Systems", "System"),
+    ("N_Stakeholders", "Stakeholder"),
+    ("N_Civic", "CivicSystem"),
+    ("N_Historical", "HistoricalSystem"),
+    ("N_People", "Person"),
+];
+
+/// (`json key`, `rel_type`) for each edge array in `aiwar_graph.json`.
+pub const EDGE_ARRAYS: &[(&str, &str)] = &[
+    ("E_isDevelopedBy", "DEVELOPED_BY"),
+    ("E_isDeployedBy", "DEPLOYED_BY"),
+    ("E_connection", "CONNECTED_TO"),
+    ("E_place", "USED_IN"),
+    ("E_people", "PERSON_LINK"),
+    ("E_hierarchical", "HIERARCHICAL"),
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Property-graph model (engine-agnostic)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A node in the AIWAR property graph.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphNode {
+    /// Stable identifier (the `id` field; falls back to `name`).
     pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub year: Option<i64>,
-    #[serde(rename = "currentStatus", default)]
-    pub current_status: Option<String>,
-    #[serde(rename = "type", default)]
-    pub system_type: Option<String>,
-    #[serde(rename = "MLTask", default)]
-    pub ml_task: Option<String>,
-    #[serde(rename = "militaryUse", default)]
-    pub military_use: Option<String>,
-    #[serde(rename = "civicUse", default)]
-    pub civic_use: Option<String>,
-    #[serde(default)]
-    pub purpose: Option<String>,
-    #[serde(default)]
-    pub capacity: Option<String>,
-    #[serde(default)]
-    pub output: Option<String>,
-    #[serde(default)]
-    pub impact: Option<String>,
-    #[serde(default)]
-    pub hover: Option<String>,
+    /// Human-readable display label (the `name` field; falls back to `id`).
+    pub label: String,
+    /// Node label / type — one of the canonical cockpit types
+    /// (`System`, `Stakeholder`, `CivicSystem`, `HistoricalSystem`, `Person`)
+    /// or an enrichment-derived label.
+    pub node_type: String,
+    /// All remaining fields, preserved verbatim for rendering / querying.
+    pub properties: HashMap<String, Value>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct StakeholderJson {
-    pub id: String,
-    pub name: String,
-    #[serde(rename = "type", default)]
-    pub stakeholder_type: Option<String>,
-    #[serde(rename = "airo:type", default)]
-    pub airo_type: Option<String>,
-    #[serde(default)]
-    pub hover: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CivicJson {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub year: Option<i64>,
-    #[serde(rename = "currentStatus", default)]
-    pub current_status: Option<String>,
-    #[serde(rename = "type", default)]
-    pub system_type: Option<String>,
-    #[serde(default)]
-    pub hover: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct HistoricalJson {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub year: Option<i64>,
-    #[serde(rename = "currentStatus", default)]
-    pub current_status: Option<String>,
-    #[serde(rename = "type", default)]
-    pub system_type: Option<String>,
-    #[serde(rename = "militaryUse", default)]
-    pub military_use: Option<String>,
-    #[serde(rename = "civicUse", default)]
-    pub civic_use: Option<String>,
-    #[serde(default)]
-    pub hover: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PersonJson {
-    pub id: String,
-    pub name: String,
-    #[serde(rename = "type", default)]
-    pub person_type: Option<String>,
-    #[serde(rename = "airo:type", default)]
-    pub airo_type: Option<String>,
-    #[serde(default)]
-    pub hover: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct EdgeJson {
+/// A directed edge in the AIWAR property graph.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphEdge {
+    /// Source node id.
     pub source: String,
+    /// Target node id.
     pub target: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    #[serde(default)]
-    pub weight: Option<f64>,
-    #[serde(default)]
-    pub hover: Option<String>,
-    #[serde(default)]
-    pub reference: Option<String>,
+    /// Relationship type (`DEVELOPED_BY`, `CONNECTED_TO`, …).
+    pub rel_type: String,
+    /// Edge weight (`weight` field; defaults to `1.0`).
+    pub weight: f64,
+    /// Remaining edge fields (`label`, `hover`, `reference`, …).
+    pub properties: HashMap<String, Value>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct MetaEdgeJson {
-    pub source: String,
-    pub target: String,
+/// The ingested AIWAR property graph: plain nodes + edges, ready for a
+/// lance-graph-backed consumer to hydrate.
+#[derive(Debug, Clone, Default)]
+pub struct AiWarGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
 }
 
-// ── Error ──
+impl AiWarGraph {
+    /// Number of nodes.
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Number of edges.
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    /// Whether a node id is already present.
+    pub fn has_node(&self, id: &str) -> bool {
+        self.nodes.iter().any(|n| n.id == id)
+    }
+
+    /// Render to the vis-network JSON shape the cockpit frontend expects:
+    /// `{ "nodes": [{id,label,type,properties}], "edges": [{source,target,label}] }`.
+    ///
+    /// Nodes are de-duplicated by `id`.
+    pub fn to_vis_json(&self) -> String {
+        let mut seen = std::collections::HashSet::new();
+        let nodes: Vec<Value> = self
+            .nodes
+            .iter()
+            .filter(|n| seen.insert(n.id.clone()))
+            .map(|n| {
+                let props: serde_json::Map<String, Value> =
+                    n.properties.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                serde_json::json!({
+                    "id": n.id,
+                    "label": n.label,
+                    "type": n.node_type,
+                    "properties": props,
+                })
+            })
+            .collect();
+        let edges: Vec<Value> = self
+            .edges
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "source": e.source,
+                    "target": e.target,
+                    "label": e.rel_type,
+                })
+            })
+            .collect();
+        serde_json::json!({ "nodes": nodes, "edges": edges }).to_string()
+    }
+
+    /// Merge an enrichment round (parsed from a `/cypher/*.cypher` file) into
+    /// this graph. New nodes are added by id; nodes already present keep their
+    /// existing properties but gain any new ones. All round edges are appended.
+    pub fn apply_round(&mut self, round: &encounter_round::EncounterRound) {
+        for cn in &round.nodes {
+            if let Some(existing) = self.nodes.iter_mut().find(|n| n.id == cn.id) {
+                for (k, v) in &cn.properties {
+                    existing
+                        .properties
+                        .entry(k.clone())
+                        .or_insert_with(|| Value::String(v.clone()));
+                }
+            } else {
+                let label = cn
+                    .properties
+                    .get("name")
+                    .cloned()
+                    .unwrap_or_else(|| cn.id.clone());
+                let node_type = cn.labels.first().cloned().unwrap_or_else(|| "Node".to_string());
+                let properties = cn
+                    .properties
+                    .iter()
+                    .filter(|(k, _)| k.as_str() != "id" && k.as_str() != "name")
+                    .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                    .collect();
+                self.nodes.push(GraphNode {
+                    id: cn.id.clone(),
+                    label,
+                    node_type,
+                    properties,
+                });
+            }
+        }
+        for ce in &round.edges {
+            let weight = ce
+                .properties
+                .get("weight")
+                .and_then(|w| w.parse::<f64>().ok())
+                .unwrap_or(1.0);
+            let properties = ce
+                .properties
+                .iter()
+                .filter(|(k, _)| k.as_str() != "weight")
+                .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                .collect();
+            self.edges.push(GraphEdge {
+                source: ce.source.clone(),
+                target: ce.target.clone(),
+                rel_type: ce.rel_type.clone(),
+                weight,
+                properties,
+            });
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Errors
+// ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
 pub enum IngestError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("IO error reading {path}: {source}")]
+    Io {
+        path: String,
+        source: std::io::Error,
+    },
     #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("Graph error: {0}")]
-    Graph(#[from] neo4j_rs::Error),
 }
 
-// ── Ingest ──
+// ─────────────────────────────────────────────────────────────────────────────
+// Ingest
+// ─────────────────────────────────────────────────────────────────────────────
 
-/// Load aiwar_graph.json from a file path into an in-memory neo4j-rs graph.
-pub async fn load_from_file(path: &str) -> Result<Graph<MemoryBackend>, IngestError> {
-    let content = std::fs::read_to_string(path)?;
-    let data: AiWarGraphJson = serde_json::from_str(&content)?;
-    load_from_json(data).await
+/// Load `aiwar_graph.json` from a file path into an [`AiWarGraph`].
+pub fn load_from_file(path: &str) -> Result<AiWarGraph, IngestError> {
+    let content = std::fs::read_to_string(path).map_err(|source| IngestError::Io {
+        path: path.to_string(),
+        source,
+    })?;
+    load_from_str(&content)
 }
 
-/// Load parsed JSON data into an in-memory neo4j-rs graph.
-pub async fn load_from_json(data: AiWarGraphJson) -> Result<Graph<MemoryBackend>, IngestError> {
-    let graph = Graph::open_memory().await?;
-
-    // ── Systems ──
-    for sys in &data.systems {
-        let mut props = PropertyMap::new();
-        props.insert("name".into(), Value::from(sys.name.as_str()));
-        props.insert("id".into(), Value::from(sys.id.as_str()));
-        if let Some(y) = sys.year { props.insert("year".into(), Value::from(y)); }
-        insert_opt(&mut props, "currentStatus", &sys.current_status);
-        insert_opt(&mut props, "type", &sys.system_type);
-        insert_opt(&mut props, "MLTask", &sys.ml_task);
-        insert_opt(&mut props, "militaryUse", &sys.military_use);
-        insert_opt(&mut props, "civicUse", &sys.civic_use);
-        insert_opt(&mut props, "purpose", &sys.purpose);
-        insert_opt(&mut props, "capacity", &sys.capacity);
-        insert_opt(&mut props, "output", &sys.output);
-        insert_opt(&mut props, "impact", &sys.impact);
-        insert_opt(&mut props, "hover", &sys.hover);
-        graph.mutate(
-            &format!("CREATE (n:System {{{}}})", props_to_cypher_map(&props)),
-            PropertyMap::new(),
-        ).await?;
-    }
-
-    // ── Stakeholders ──
-    for st in &data.stakeholders {
-        let mut props = PropertyMap::new();
-        props.insert("name".into(), Value::from(st.name.as_str()));
-        props.insert("id".into(), Value::from(st.id.as_str()));
-        insert_opt(&mut props, "type", &st.stakeholder_type);
-        insert_opt(&mut props, "airoType", &st.airo_type);
-        insert_opt(&mut props, "hover", &st.hover);
-        graph.mutate(
-            &format!("CREATE (n:Stakeholder {{{}}})", props_to_cypher_map(&props)),
-            PropertyMap::new(),
-        ).await?;
-    }
-
-    // ── Civic ──
-    for c in &data.civic {
-        let mut props = PropertyMap::new();
-        props.insert("name".into(), Value::from(c.name.as_str()));
-        props.insert("id".into(), Value::from(c.id.as_str()));
-        if let Some(y) = c.year { props.insert("year".into(), Value::from(y)); }
-        insert_opt(&mut props, "currentStatus", &c.current_status);
-        insert_opt(&mut props, "type", &c.system_type);
-        insert_opt(&mut props, "hover", &c.hover);
-        graph.mutate(
-            &format!("CREATE (n:Civic {{{}}})", props_to_cypher_map(&props)),
-            PropertyMap::new(),
-        ).await?;
-    }
-
-    // ── Historical ──
-    for h in &data.historical {
-        let mut props = PropertyMap::new();
-        props.insert("name".into(), Value::from(h.name.as_str()));
-        props.insert("id".into(), Value::from(h.id.as_str()));
-        if let Some(y) = h.year { props.insert("year".into(), Value::from(y)); }
-        insert_opt(&mut props, "currentStatus", &h.current_status);
-        insert_opt(&mut props, "type", &h.system_type);
-        insert_opt(&mut props, "militaryUse", &h.military_use);
-        insert_opt(&mut props, "civicUse", &h.civic_use);
-        insert_opt(&mut props, "hover", &h.hover);
-        graph.mutate(
-            &format!("CREATE (n:Historical {{{}}})", props_to_cypher_map(&props)),
-            PropertyMap::new(),
-        ).await?;
-    }
-
-    // ── People ──
-    for p in &data.people {
-        let mut props = PropertyMap::new();
-        props.insert("name".into(), Value::from(p.name.as_str()));
-        props.insert("id".into(), Value::from(p.id.as_str()));
-        insert_opt(&mut props, "type", &p.person_type);
-        insert_opt(&mut props, "airoType", &p.airo_type);
-        insert_opt(&mut props, "hover", &p.hover);
-        graph.mutate(
-            &format!("CREATE (n:Person {{{}}})", props_to_cypher_map(&props)),
-            PropertyMap::new(),
-        ).await?;
-    }
-
-    // ── Edges ──
-    // DEVELOPED_BY: System → Stakeholder
-    for e in &data.edges_developed {
-        create_edge(&graph, &e.source, &e.target, "DEVELOPED_BY", e).await?;
-    }
-    for e in &data.edges_deployed {
-        create_edge(&graph, &e.source, &e.target, "DEPLOYED_BY", e).await?;
-    }
-    for e in &data.edges_connection {
-        create_edge(&graph, &e.source, &e.target, "CONNECTED_TO", e).await?;
-    }
-    for e in &data.edges_place {
-        create_edge(&graph, &e.source, &e.target, "USED_IN", e).await?;
-    }
-    for e in &data.edges_people {
-        create_edge(&graph, &e.source, &e.target, "PERSON_LINK", e).await?;
-    }
-    for e in &data.meta_edges {
-        graph.mutate(
-            &format!(
-                "MATCH (a {{id: '{}'}}), (b {{id: '{}'}}) CREATE (a)-[:META_EDGE]->(b)",
-                escape_cypher(&e.source),
-                escape_cypher(&e.target),
-            ),
-            PropertyMap::new(),
-        ).await?;
-    }
-
-    let total_nodes = data.systems.len() + data.stakeholders.len()
-        + data.civic.len() + data.historical.len() + data.people.len();
-    let total_edges = data.edges_developed.len() + data.edges_deployed.len()
-        + data.edges_connection.len() + data.edges_place.len()
-        + data.edges_people.len() + data.meta_edges.len();
-    tracing::info!(
-        "aiwar-ingest: loaded {} nodes, {} edges into MemoryBackend",
-        total_nodes,
-        total_edges,
-    );
-
-    Ok(graph)
+/// Parse `aiwar_graph.json` text into an [`AiWarGraph`].
+pub fn load_from_str(text: &str) -> Result<AiWarGraph, IngestError> {
+    let value: Value = serde_json::from_str(text)?;
+    Ok(load_from_value(&value))
 }
 
-async fn create_edge(
-    graph: &Graph<MemoryBackend>,
-    source: &str,
-    target: &str,
-    rel_type: &str,
-    edge: &EdgeJson,
-) -> Result<(), IngestError> {
-    let mut prop_parts = Vec::new();
-    if let Some(ref label) = edge.label {
-        prop_parts.push(format!("label: '{}'", escape_cypher(label)));
-    }
-    if let Some(w) = edge.weight {
-        prop_parts.push(format!("weight: {}", w));
-    }
-    if let Some(ref hover) = edge.hover {
-        prop_parts.push(format!("hover: '{}'", escape_cypher(hover)));
-    }
-    let props_str = if prop_parts.is_empty() {
-        String::new()
-    } else {
-        format!(" {{{}}}", prop_parts.join(", "))
-    };
+/// Build an [`AiWarGraph`] from a parsed `aiwar_graph.json` value.
+///
+/// Generic walk that preserves every node/edge property field verbatim. Nodes
+/// and edges with empty source/target ids are skipped.
+pub fn load_from_value(data: &Value) -> AiWarGraph {
+    let mut graph = AiWarGraph::default();
 
-    graph.mutate(
-        &format!(
-            "MATCH (a {{id: '{}'}}), (b {{id: '{}'}}) CREATE (a)-[:{}{}]->(b)",
-            escape_cypher(source),
-            escape_cypher(target),
-            rel_type,
-            props_str,
-        ),
-        PropertyMap::new(),
-    ).await?;
-    Ok(())
-}
-
-fn insert_opt(props: &mut PropertyMap, key: &str, val: &Option<String>) {
-    if let Some(v) = val {
-        props.insert(key.into(), Value::from(v.as_str()));
-    }
-}
-
-fn escape_cypher(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('\'', "\\'")
-}
-
-fn props_to_cypher_map(props: &PropertyMap) -> String {
-    props.iter()
-        .map(|(k, v)| {
-            let val_str = match v {
-                Value::String(s) => format!("'{}'", escape_cypher(s)),
-                Value::Int(i) => i.to_string(),
-                Value::Float(f) => f.to_string(),
-                Value::Bool(b) => b.to_string(),
-                _ => format!("'{}'", escape_cypher(&format!("{:?}", v))),
-            };
-            format!("{}: {}", k, val_str)
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Convert a neo4j-rs QueryResult into the vis-network JSON format
-/// expected by the cockpit frontend.
-pub fn query_result_to_vis_json(
-    result: &neo4j_rs::QueryResult,
-) -> String {
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-
-    for row in &result.rows {
-        for (_col, val) in &row.values {
-            match val {
-                Value::Node(node) => {
-                    let label = node.labels.first().map(|s| s.as_str()).unwrap_or("Node");
-                    let name = node.properties.get("name")
-                        .and_then(|v| if let Value::String(s) = v { Some(s.as_str()) } else { None })
-                        .unwrap_or("unknown");
-                    let id_fallback = format!("n-{}", node.id.0);
-                    let id = node.properties.get("id")
-                        .and_then(|v| if let Value::String(s) = v { Some(s.as_str()) } else { None })
-                        .unwrap_or(&id_fallback);
-
-                    // Build properties object
-                    let mut prop_obj = serde_json::Map::new();
-                    for (k, v) in &node.properties {
-                        prop_obj.insert(k.clone(), value_to_json(v));
-                    }
-
-                    nodes.push(serde_json::json!({
-                        "id": id,
-                        "label": name,
-                        "type": label,
-                        "properties": prop_obj,
-                    }));
-                }
-                Value::Relationship(rel) => {
-                    edges.push(serde_json::json!({
-                        "source": format!("n-{}", rel.src.0),
-                        "target": format!("n-{}", rel.dst.0),
-                        "label": rel.rel_type,
-                    }));
-                }
-                Value::Path(path) => {
-                    for node in &path.nodes {
-                        let label = node.labels.first().map(|s| s.as_str()).unwrap_or("Node");
-                        let name = node.properties.get("name")
-                            .and_then(|v| if let Value::String(s) = v { Some(s.as_str()) } else { None })
-                            .unwrap_or("unknown");
-                        let id_str = node.properties.get("id")
-                            .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
-                            .unwrap_or_else(|| format!("n-{}", node.id.0));
-
-                        let mut prop_obj = serde_json::Map::new();
-                        for (k, v) in &node.properties {
-                            prop_obj.insert(k.clone(), value_to_json(v));
-                        }
-
-                        nodes.push(serde_json::json!({
-                            "id": id_str,
-                            "label": name,
-                            "type": label,
-                            "properties": prop_obj,
-                        }));
-                    }
-                    for rel in &path.relationships {
-                        edges.push(serde_json::json!({
-                            "source": format!("n-{}", rel.src.0),
-                            "target": format!("n-{}", rel.dst.0),
-                            "label": rel.rel_type,
-                        }));
-                    }
-                }
-                _ => {}
+    for (key, node_type) in NODE_ARRAYS {
+        let Some(arr) = data.get(*key).and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for item in arr {
+            let Some(obj) = item.as_object() else { continue };
+            let id = obj
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if id.is_empty() {
+                continue;
             }
+            let label = obj
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&id)
+                .to_string();
+            let properties: HashMap<String, Value> = obj
+                .iter()
+                .filter(|(k, _)| k.as_str() != "id" && k.as_str() != "name")
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            graph.nodes.push(GraphNode {
+                id,
+                label,
+                node_type: node_type.to_string(),
+                properties,
+            });
         }
     }
 
-    // Dedup nodes by id
-    let mut seen = std::collections::HashSet::new();
-    nodes.retain(|n| {
-        let id = n.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        seen.insert(id.to_string())
-    });
+    for (key, rel_type) in EDGE_ARRAYS {
+        let Some(arr) = data.get(*key).and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for item in arr {
+            let Some(obj) = item.as_object() else { continue };
+            let source = obj
+                .get("source")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let target = obj
+                .get("target")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if source.is_empty() || target.is_empty() {
+                continue;
+            }
+            let weight = obj.get("weight").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let properties: HashMap<String, Value> = obj
+                .iter()
+                .filter(|(k, _)| {
+                    !matches!(k.as_str(), "source" | "target" | "weight")
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            graph.edges.push(GraphEdge {
+                source,
+                target,
+                rel_type: rel_type.to_string(),
+                weight,
+                properties,
+            });
+        }
+    }
 
-    serde_json::json!({ "nodes": nodes, "edges": edges }).to_string()
+    graph
 }
 
-fn value_to_json(v: &Value) -> serde_json::Value {
-    match v {
-        Value::Null => serde_json::Value::Null,
-        Value::Bool(b) => serde_json::json!(b),
-        Value::Int(i) => serde_json::json!(i),
-        Value::Float(f) => serde_json::json!(f),
-        Value::String(s) => serde_json::json!(s),
-        Value::List(l) => serde_json::json!(l.iter().map(value_to_json).collect::<Vec<_>>()),
-        _ => serde_json::json!(format!("{:?}", v)),
+/// Load the base graph from `aiwar_graph.json` and apply every enrichment
+/// round found in `cypher_dir` (version-ordered). Missing `cypher_dir` is not
+/// an error — the base graph is returned unenriched.
+pub fn load_with_enrichment(
+    graph_json_path: &str,
+    cypher_dir: &Path,
+) -> Result<AiWarGraph, IngestError> {
+    let mut graph = load_from_file(graph_json_path)?;
+    if cypher_dir.is_dir() {
+        if let Ok(rounds) = encounter_round::load_encounter_rounds(cypher_dir) {
+            for round in &rounds {
+                graph.apply_round(round);
+            }
+            tracing::info!(
+                "aiwar-ingest: applied {} enrichment rounds from {}",
+                rounds.len(),
+                cypher_dir.display()
+            );
+        }
+    }
+    tracing::info!(
+        "aiwar-ingest: loaded {} nodes, {} edges",
+        graph.node_count(),
+        graph.edge_count()
+    );
+    Ok(graph)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FIXTURE: &str = r#"{
+        "N_Systems": [
+            {"id": "Maven", "name": "Project Maven", "year": 2017, "MLTask": "object-detection"},
+            {"id": "Lavender", "name": "Lavender"}
+        ],
+        "N_Stakeholders": [
+            {"id": "Palantir", "name": "Palantir Technologies", "type": "company"}
+        ],
+        "N_People": [
+            {"id": "Karp", "name": "Alex Karp"}
+        ],
+        "E_isDevelopedBy": [
+            {"source": "Maven", "target": "Palantir", "weight": 3, "label": "builds"}
+        ],
+        "E_people": [
+            {"source": "Karp", "target": "Palantir"},
+            {"source": "", "target": "Palantir"}
+        ]
+    }"#;
+
+    #[test]
+    fn parses_nodes_with_types_and_properties() {
+        let g = load_from_str(FIXTURE).expect("valid fixture");
+        // 2 systems + 1 stakeholder + 1 person
+        assert_eq!(g.node_count(), 4);
+
+        let maven = g.nodes.iter().find(|n| n.id == "Maven").unwrap();
+        assert_eq!(maven.node_type, "System");
+        assert_eq!(maven.label, "Project Maven");
+        // non id/name fields preserved verbatim
+        assert_eq!(maven.properties.get("year").unwrap(), &serde_json::json!(2017));
+        assert_eq!(
+            maven.properties.get("MLTask").unwrap(),
+            &serde_json::json!("object-detection")
+        );
+
+        let palantir = g.nodes.iter().find(|n| n.id == "Palantir").unwrap();
+        assert_eq!(palantir.node_type, "Stakeholder");
+    }
+
+    #[test]
+    fn parses_edges_with_rel_type_and_skips_empty_endpoints() {
+        let g = load_from_str(FIXTURE).expect("valid fixture");
+        // 1 developed_by + 1 valid people edge (the empty-source one is skipped)
+        assert_eq!(g.edge_count(), 2);
+
+        let dev = g.edges.iter().find(|e| e.rel_type == "DEVELOPED_BY").unwrap();
+        assert_eq!(dev.source, "Maven");
+        assert_eq!(dev.target, "Palantir");
+        assert_eq!(dev.weight, 3.0);
+        assert_eq!(dev.properties.get("label").unwrap(), &serde_json::json!("builds"));
+
+        assert!(g.edges.iter().all(|e| !e.source.is_empty() && !e.target.is_empty()));
+    }
+
+    #[test]
+    fn vis_json_has_expected_shape() {
+        let g = load_from_str(FIXTURE).expect("valid fixture");
+        let v: Value = serde_json::from_str(&g.to_vis_json()).expect("valid vis json");
+        let nodes = v.get("nodes").and_then(|x| x.as_array()).unwrap();
+        let edges = v.get("edges").and_then(|x| x.as_array()).unwrap();
+        assert_eq!(nodes.len(), 4);
+        assert_eq!(edges.len(), 2);
+        let n0 = &nodes[0];
+        for k in ["id", "label", "type", "properties"] {
+            assert!(n0.get(k).is_some(), "node missing key {k}");
+        }
+        let e0 = &edges[0];
+        for k in ["source", "target", "label"] {
+            assert!(e0.get(k).is_some(), "edge missing key {k}");
+        }
+    }
+
+    #[test]
+    fn apply_round_merges_new_nodes_and_edges() {
+        let mut g = load_from_str(FIXTURE).expect("valid fixture");
+        let before_nodes = g.node_count();
+        let before_edges = g.edge_count();
+
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), "Pete Hegseth".to_string());
+        let round = encounter_round::EncounterRound {
+            version: 31,
+            name: "patch".to_string(),
+            source_file: "p.cypher".to_string(),
+            confidence: 0.6,
+            nodes: vec![encounter_round::CypherNode {
+                id: "Hegseth".to_string(),
+                labels: vec!["Person".to_string()],
+                properties: props,
+            }],
+            edges: vec![encounter_round::CypherEdge {
+                source: "Hegseth".to_string(),
+                target: "Palantir".to_string(),
+                rel_type: "CONNECTED_TO".to_string(),
+                properties: HashMap::new(),
+            }],
+        };
+        g.apply_round(&round);
+
+        assert_eq!(g.node_count(), before_nodes + 1);
+        assert_eq!(g.edge_count(), before_edges + 1);
+        let h = g.nodes.iter().find(|n| n.id == "Hegseth").unwrap();
+        assert_eq!(h.node_type, "Person");
+        assert_eq!(h.label, "Pete Hegseth");
+    }
+
+    /// Integration: load the real aiwar_graph.json if present (vendored in the
+    /// repo or in the sibling harvest checkout). Skips cleanly when absent so
+    /// the unit suite stays hermetic.
+    #[test]
+    fn loads_real_aiwar_graph_when_available() {
+        let candidates = [
+            "cockpit/public/aiwar_graph.json",
+            "../../cockpit/public/aiwar_graph.json",
+            "/home/user/aiwar-neo4j-harvest/data/aiwar_graph.json",
+            "../aiwar-neo4j-harvest/data/aiwar_graph.json",
+        ];
+        let Some(path) = candidates.iter().find(|p| Path::new(p).exists()) else {
+            eprintln!("real aiwar_graph.json not found; skipping integration assertion");
+            return;
+        };
+        let g = load_from_file(path).expect("real graph loads");
+        // The canonical AIWAR dataset: 65+114+23+7+12 = 221 nodes.
+        assert_eq!(g.node_count(), 221, "expected 221 nodes from {path}");
+        assert!(g.edge_count() >= 300, "expected ~326+ edges, got {}", g.edge_count());
+        // vis json must round-trip.
+        let _: Value = serde_json::from_str(&g.to_vis_json()).expect("vis json round-trips");
     }
 }
