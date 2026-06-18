@@ -24,11 +24,11 @@ use crate::pandoc::location::{Location, Range};
 use crate::pandoc::{
     Alignment, Attr, AttrSourceInfo, Block, BlockQuote, BulletList, Caption, Cell, Citation,
     CitationMode, Cite, Code, CodeBlock, ColSpec, ColWidth, CustomNode, DefinitionList, Div, Emph,
-    Figure, Header, HorizontalRule, Image, Inline, Inlines, LineBlock, Link, ListAttributes,
-    ListNumberDelim, ListNumberStyle, Math, MathType, MetaBlock, Note, OrderedList, Pandoc,
-    Paragraph, Plain, QuoteType, Quoted, RawBlock, RawInline, Row, Slot, SmallCaps, SoftBreak,
-    Space, Span, Str, Strikeout, Strong, Subscript, Superscript, Table, TableBody, TableFoot,
-    TableHead, Underline,
+    Figure, Header, HorizontalRule, Image, Inline, InlineAttr, Inlines, LineBlock, Link,
+    ListAttributes, ListNumberDelim, ListNumberStyle, Math, MathType, MetaBlock, Note, OrderedList,
+    Pandoc, Paragraph, Plain, QuoteType, Quoted, RawBlock, RawInline, Row, Slot, SmallCaps,
+    SoftBreak, Space, Span, Str, Strikeout, Strong, Subscript, Superscript, Table, TableBody,
+    TableFoot, TableHead, Underline,
 };
 use hashlink::LinkedHashMap;
 use quarto_pandoc_types::{ConfigMapEntry, ConfigValue, ConfigValueKind};
@@ -1821,7 +1821,21 @@ fn read_block(value: &Value, deserializer: &SourceInfoDeserializer) -> Result<Bl
             let c = obj
                 .get("c")
                 .ok_or_else(|| JsonReadError::MissingField("c".to_string()))?;
-            let content = read_inlines(c, deserializer)?;
+            let mut content = read_inlines(c, deserializer)?;
+            // Fold a block-level `attr` key (Quarto extension; see bd-itqcfxc3)
+            // back into a trailing `Inline::Attr`, the canonical AST shape the
+            // writer collected it from. This keeps AST -> JSON -> AST round-trips
+            // from silently dropping the paragraph's block attribute.
+            if let Some(attr_val) = obj.get("attr") {
+                let attr = read_attr(attr_val)?;
+                if !crate::pandoc::attr::is_empty_attr(&attr) {
+                    content.push(Inline::Attr(InlineAttr::new(
+                        attr,
+                        AttrSourceInfo::empty(),
+                        source_info.clone(),
+                    )));
+                }
+            }
             Ok(Block::Paragraph(Paragraph {
                 content,
                 source_info,
