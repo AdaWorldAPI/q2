@@ -1266,16 +1266,61 @@ fn write_inlines_as_text<W: Write>(
     Ok(())
 }
 
-/// Write block elements
-/// The opening `<li>` tag for the current incremental state — gains
-/// `class="fragment"` inside an incremental context (revealjs), since Pandoc
-/// list items have no per-item `Attr` to carry it. See Pandoc HTML.hs:493-496.
-fn list_item_open<W: Write>(ctx: &HtmlWriterContext<'_, W>) -> &'static str {
-    if ctx.incremental && ctx.config.incremental_lists {
-        "<li class=\"fragment\">"
-    } else {
-        "<li>"
+/// Build the `<li>`'s composed `Attr` for the current incremental state and any
+/// hoisted item attribute.
+///
+/// Pandoc list items have no per-item `Attr`, so two sources of classes can land
+/// on the `<li>`:
+/// - `class="fragment"` inside an incremental revealjs context (Pandoc
+///   HTML.hs:493-496), and
+/// - a block attribute hoisted from a trailing `Inline::Attr` in the item's last
+///   block (bd-aeyss6p5).
+///
+/// They compose: `fragment` comes first (so themes keying off `.fragment` keep
+/// working), then the item's own classes; id and key-values come from the item
+/// attr. An empty result (`is_empty_attr`) means a bare `<li>`.
+fn composed_list_item_attr<W: Write>(item_attr: &Attr, ctx: &HtmlWriterContext<'_, W>) -> Attr {
+    let fragment = ctx.incremental && ctx.config.incremental_lists;
+    let (id, classes, kvs) = item_attr;
+    let mut out_classes: Vec<String> = Vec::with_capacity(classes.len() + 1);
+    if fragment {
+        out_classes.push("fragment".to_string());
     }
+    for c in classes {
+        if !out_classes.contains(c) {
+            out_classes.push(c.clone());
+        }
+    }
+    (id.clone(), out_classes, kvs.clone())
+}
+
+/// Write one list item as `<li …>…</li>`. Hoists a trailing block attribute from
+/// the item's last block onto the `<li>` (composing with the incremental
+/// `fragment` class), and renders the item with that trailing attr stripped so
+/// it never lands on an inner `<p>`. See bd-aeyss6p5.
+fn write_list_item<W: Write>(
+    item: &[Block],
+    ctx: &mut HtmlWriterContext<'_, W>,
+) -> std::io::Result<()> {
+    let (attr, stripped) = super::block_attr::split_list_item_attr(item);
+    let li_attr = composed_list_item_attr(&attr, ctx);
+    write!(ctx, "<li")?;
+    if !is_empty_attr(&li_attr) {
+        write_attr(&li_attr, ctx)?;
+    }
+    write!(ctx, ">")?;
+    match stripped {
+        Some(last) => {
+            // Render the earlier blocks verbatim, then the stripped last block,
+            // so the inner `Para`/`Plain` writer never sees the trailing attr.
+            let mut rendered: Vec<Block> = item[..item.len() - 1].to_vec();
+            rendered.push(last);
+            write_blocks_inline(&rendered, ctx)?;
+        }
+        None => write_blocks_inline(item, ctx)?,
+    }
+    writeln!(ctx, "</li>")?;
+    Ok(())
 }
 
 fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> std::io::Result<()> {
@@ -1356,11 +1401,8 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
             write!(ctx, " type=\"{}\"", list_type)?;
             write_block_source_attrs(block, ctx)?;
             writeln!(ctx, ">")?;
-            let li_open = list_item_open(ctx);
             for item in &list.content {
-                write!(ctx, "{}", li_open)?;
-                write_blocks_inline(item, ctx)?;
-                writeln!(ctx, "</li>")?;
+                write_list_item(item, ctx)?;
             }
             writeln!(ctx, "</ol>")?;
         }
@@ -1368,11 +1410,8 @@ fn write_block<W: Write>(block: &Block, ctx: &mut HtmlWriterContext<'_, W>) -> s
             write!(ctx, "<ul")?;
             write_block_source_attrs(block, ctx)?;
             writeln!(ctx, ">")?;
-            let li_open = list_item_open(ctx);
             for item in &list.content {
-                write!(ctx, "{}", li_open)?;
-                write_blocks_inline(item, ctx)?;
-                writeln!(ctx, "</li>")?;
+                write_list_item(item, ctx)?;
             }
             writeln!(ctx, "</ul>")?;
         }
@@ -2385,6 +2424,207 @@ mod tests {
         assert!(
             html.contains("<p class=\"caption\">This is a caption.</p>"),
             "expected `<p class=\"caption\">This is a caption.</p>`, got:\n{html}",
+        );
+    }
+
+    // --- list-item block attrs (<li class>) — bd-aeyss6p5 ----------------
+
+    fn render_block_with_config(block: Block, config: HtmlConfig) -> String {
+        let ctx = ASTContext::anonymous();
+        let pandoc = Pandoc {
+            meta: ConfigValue::default(),
+            blocks: vec![block],
+        };
+        let mut output = Vec::new();
+        write_with_options(&pandoc, &ctx, &mut output, config).unwrap();
+        String::from_utf8(output).unwrap()
+    }
+
+    fn li_str(text: &str) -> Inline {
+        Inline::Str(Str {
+            text: text.to_string(),
+            source_info: dummy_source_info(),
+        })
+    }
+
+    fn li_space() -> Inline {
+        use crate::pandoc::inline::Space;
+        Inline::Space(Space {
+            source_info: dummy_source_info(),
+        })
+    }
+
+    fn li_attr(id: &str, classes: &[&str], kvs: &[(&str, &str)]) -> Inline {
+        use crate::pandoc::inline::InlineAttr;
+        use hashlink::LinkedHashMap;
+        let mut m = LinkedHashMap::new();
+        for (k, v) in kvs {
+            m.insert(k.to_string(), v.to_string());
+        }
+        let attr = (
+            id.to_string(),
+            classes.iter().map(|s| s.to_string()).collect(),
+            m,
+        );
+        Inline::Attr(InlineAttr::new(
+            attr,
+            AttrSourceInfo::empty(),
+            dummy_source_info(),
+        ))
+    }
+
+    fn li_plain(inlines: Vec<Inline>) -> Block {
+        use crate::pandoc::block::Plain;
+        Block::Plain(Plain {
+            content: inlines,
+            source_info: dummy_source_info(),
+        })
+    }
+
+    fn li_para(inlines: Vec<Inline>) -> Block {
+        use crate::pandoc::block::Paragraph;
+        Block::Paragraph(Paragraph {
+            content: inlines,
+            source_info: dummy_source_info(),
+        })
+    }
+
+    fn bullet_list(items: Vec<Vec<Block>>) -> Block {
+        use crate::pandoc::block::BulletList;
+        Block::BulletList(BulletList {
+            content: items,
+            source_info: dummy_source_info(),
+        })
+    }
+
+    #[test]
+    fn bullet_list_item_trailing_attr_becomes_li_class() {
+        // Tight item `- item {.foo}` parses to a single `Plain` ending in a
+        // trailing standalone attr; it should hoist onto the `<li>`, strip the
+        // preceding space, and leave no inner `<p>`.
+        let list = bullet_list(vec![
+            vec![li_plain(vec![
+                li_str("item one"),
+                li_space(),
+                li_attr("", &["foo"], &[]),
+            ])],
+            vec![li_plain(vec![li_str("item two")])],
+        ]);
+        let html = render_block_to_html(list);
+        assert!(
+            html.contains("<li class=\"foo\">item one</li>"),
+            "expected `<li class=\"foo\">item one</li>`, got:\n{html}",
+        );
+        assert!(
+            html.contains("<li>item two</li>"),
+            "plain item should stay `<li>item two</li>`, got:\n{html}",
+        );
+        assert!(!html.contains("<p"), "no inner <p> expected, got:\n{html}");
+    }
+
+    #[test]
+    fn loose_list_item_attr_lands_on_li_not_inner_p() {
+        // A multi-block (loose) item whose LAST block is a `Para` ending in a
+        // trailing attr: the class must land on `<li>`, never on the inner
+        // `<p>` (the precedence trap the stripped clone prevents).
+        let list = bullet_list(vec![vec![
+            li_para(vec![li_str("first")]),
+            li_para(vec![
+                li_str("second"),
+                li_space(),
+                li_attr("", &["foo"], &[]),
+            ]),
+        ]]);
+        let html = render_block_to_html(list);
+        assert!(
+            html.contains("<li class=\"foo\">"),
+            "expected `<li class=\"foo\">`, got:\n{html}",
+        );
+        assert!(
+            html.contains("<p>first</p>"),
+            "earlier block should render as a plain `<p>`, got:\n{html}",
+        );
+        assert!(
+            html.contains("<p>second</p>"),
+            "inner `<p>` must NOT carry the class, got:\n{html}",
+        );
+        assert!(
+            !html.contains("<p class=\"foo\""),
+            "class must not leak onto the inner `<p>`, got:\n{html}",
+        );
+    }
+
+    #[test]
+    fn ordered_list_item_trailing_attr_becomes_li_class() {
+        let list = Block::OrderedList(crate::pandoc::block::OrderedList {
+            attr: (
+                1,
+                crate::pandoc::ListNumberStyle::Decimal,
+                crate::pandoc::ListNumberDelim::Period,
+            ),
+            content: vec![vec![li_plain(vec![
+                li_str("item"),
+                li_space(),
+                li_attr("", &["foo"], &[]),
+            ])]],
+            source_info: dummy_source_info(),
+        });
+        let html = render_block_to_html(list);
+        assert!(
+            html.contains("<li class=\"foo\">item</li>"),
+            "expected `<li class=\"foo\">item</li>`, got:\n{html}",
+        );
+    }
+
+    #[test]
+    fn list_item_attr_applies_id_and_kvs() {
+        let list = bullet_list(vec![vec![li_plain(vec![
+            li_str("item"),
+            li_attr("the-id", &["foo"], &[("data-x", "1")]),
+        ])]]);
+        let html = render_block_to_html(list);
+        assert!(
+            html.contains("<li id=\"the-id\" class=\"foo\" data-x=\"1\">item</li>"),
+            "expected id+class+kv on `<li>`, got:\n{html}",
+        );
+    }
+
+    #[test]
+    fn list_item_attr_composes_with_fragment_class() {
+        // Inside an incremental revealjs context each `<li>` gets
+        // `class="fragment"`; an item attr must compose: `fragment foo`.
+        let config = HtmlConfig {
+            incremental_lists: true,
+            incremental_default: true,
+            ..HtmlConfig::default()
+        };
+        let list = bullet_list(vec![
+            vec![li_plain(vec![li_str("a"), li_attr("", &["foo"], &[])])],
+            vec![li_plain(vec![li_str("b")])],
+        ]);
+        let html = render_block_with_config(list, config);
+        assert!(
+            html.contains("<li class=\"fragment foo\">a</li>"),
+            "expected `<li class=\"fragment foo\">`, got:\n{html}",
+        );
+        assert!(
+            html.contains("<li class=\"fragment\">b</li>"),
+            "plain item keeps just `fragment`, got:\n{html}",
+        );
+    }
+
+    #[test]
+    fn ordinary_list_is_unchanged() {
+        let list = bullet_list(vec![
+            vec![li_plain(vec![li_str("a")])],
+            vec![li_plain(vec![li_str("b")])],
+        ]);
+        let html = render_block_to_html(list);
+        assert!(html.contains("<li>a</li>"), "got:\n{html}");
+        assert!(html.contains("<li>b</li>"), "got:\n{html}");
+        assert!(
+            !html.contains("class="),
+            "no classes expected, got:\n{html}"
         );
     }
 

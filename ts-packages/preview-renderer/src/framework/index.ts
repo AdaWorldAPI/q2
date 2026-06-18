@@ -17,6 +17,7 @@ export {
     useAttributionHover,
 } from './attribution';
 export { Ast } from './Ast';
+export { liItemAttrProps } from './listItemAttr';
 export { Node, renderChildren, renderNode, blockTypes } from './dispatch';
 export * from './plainText';
 export * from './meta';

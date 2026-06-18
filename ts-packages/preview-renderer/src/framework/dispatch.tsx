@@ -1,5 +1,6 @@
 import React, { useContext } from 'react';
 import { RegistryContext } from './RegistryContext';
+import { liItemAttrProps } from './listItemAttr';
 import { isAtomicSourceInfo, ATOMIC_KINDS } from '../utils/sourceInfo';
 import { isAtomicCustomNode } from '../utils/atomicCustomNodes';
 
@@ -194,9 +195,14 @@ const renderChildrenRegistry: Record<string, (args: {
                 }}
             />
         )),
+    // Non-incremental (editable) list path. A per-item block attr
+    // (`itemAttr[i]`, bd-aeyss6p5) is applied to the <li> here; the incremental
+    // `fragment` class is never present on this path, so pass `false`. NOTE:
+    // `setLocalAst` rebuilds the list node without `itemAttr`, so an in-preview
+    // text edit drops the item's class — accepted for v1 (see plan).
     BulletList: ({ node, setLocalAst, onNavigateToDocument }) =>
         (node as BulletListBlock).c.map((item, i) => (
-            <li key={i}>{item.map((block, j) => (
+            <li key={i} {...liItemAttrProps((node as BulletListBlock).itemAttr?.[i], false)}>{item.map((block, j) => (
                 <Node key={JSON.stringify([i, j])} node={block} onNavigateToDocument={onNavigateToDocument}
                     setLocalAst={(newBlock: BlockNode | InlineNode) => {
                         const newItems = [...(node as BulletListBlock).c];
@@ -210,7 +216,7 @@ const renderChildrenRegistry: Record<string, (args: {
         )),
     OrderedList: ({ node, setLocalAst, onNavigateToDocument }) =>
         (node as OrderedListBlock).c[1].map((item, i) => (
-            <li key={i}>{item.map((block, j) => (
+            <li key={i} {...liItemAttrProps((node as OrderedListBlock).itemAttr?.[i], false)}>{item.map((block, j) => (
                 <Node key={JSON.stringify([i, j])} node={block} onNavigateToDocument={onNavigateToDocument}
                     setLocalAst={(newBlock: BlockNode | InlineNode) => {
                         const newItems = [...(node as OrderedListBlock).c[1]];

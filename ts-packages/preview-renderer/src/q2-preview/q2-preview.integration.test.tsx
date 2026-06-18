@@ -607,6 +607,60 @@ describe('q2-preview Pandoc base-type gap-fill components', () => {
         expect(container.querySelectorAll('li.fragment').length).toBe(0);
     });
 
+    // List-item block attrs (<li class>) — bd-aeyss6p5. `itemAttr` is a sibling
+    // key parallel to the items; the preview applies it to the <li>, composing
+    // with the incremental `fragment` class, mirroring the Rust html writer.
+    const BULLETS_WITH_ITEM_ATTR = {
+        t: 'BulletList',
+        c: [[PARA(STR('one'))], [PARA(STR('two'))]],
+        itemAttr: [['li-id', ['foo'], [['data-x', '1']]], null],
+    };
+
+    it('applies itemAttr to <li> in the non-incremental (registry) path', () => {
+        const { container } = mount([BULLETS_WITH_ITEM_ATTR]);
+        const items = container.querySelectorAll('li');
+        expect(items.length).toBe(2);
+        expect(items[0].classList.contains('foo')).toBe(true);
+        expect(items[0].id).toBe('li-id');
+        expect(items[0].getAttribute('data-x')).toBe('1');
+        // The second item (null) stays plain.
+        expect(items[1].classList.length).toBe(0);
+        expect(items[1].id).toBe('');
+    });
+
+    it('applies itemAttr to OrderedList <li> (registry path)', () => {
+        const ol = {
+            t: 'OrderedList',
+            c: [
+                [1, { t: 'Decimal' }, { t: 'Period' }],
+                [[PARA(STR('first'))], [PARA(STR('second'))]],
+            ],
+            itemAttr: [null, ['', ['bar'], []]],
+        };
+        const { container } = mount([ol]);
+        const items = container.querySelectorAll('li');
+        expect(items[0].classList.contains('bar')).toBe(false);
+        expect(items[1].classList.contains('bar')).toBe(true);
+    });
+
+    it('itemAttr composes with the incremental fragment class (deck path)', () => {
+        const { container } = mountInDeck([incrementalDiv(BULLETS_WITH_ITEM_ATTR)]);
+        const items = container.querySelectorAll('li');
+        // item 0: fragment + foo
+        expect(items[0].classList.contains('fragment')).toBe(true);
+        expect(items[0].classList.contains('foo')).toBe(true);
+        // item 1: fragment only
+        expect(items[1].classList.contains('fragment')).toBe(true);
+        expect(items[1].classList.contains('foo')).toBe(false);
+    });
+
+    it('itemAttr applies in the deck path with fragment off', () => {
+        const { container } = mountInDeck([BULLETS_WITH_ITEM_ATTR]);
+        const items = container.querySelectorAll('li');
+        expect(items[0].classList.contains('foo')).toBe(true);
+        expect(items[0].classList.contains('fragment')).toBe(false);
+    });
+
     it('Div with class="aside" renders as <aside> (revealjs aside)', () => {
         const ast = [{
             t: 'Div',

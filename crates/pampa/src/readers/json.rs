@@ -1370,6 +1370,42 @@ fn read_blockss(value: &Value, deserializer: &SourceInfoDeserializer) -> Result<
         .collect()
 }
 
+/// Fold a parallel `itemAttr` sibling key back into each list item's last block
+/// as a trailing `Inline::Attr` — the inverse of the JSON writer's hoist (the
+/// list-item analog of the `Para` `attr` fold-back and the table `rowsS`
+/// threading). See bd-aeyss6p5. Entries are parallel-indexed to `items`; a `null`
+/// (or empty) entry, or an item whose last block is not a `Para`/`Plain`, is
+/// skipped.
+fn fold_item_attrs(
+    items: &mut [Vec<Block>],
+    item_attr_val: Option<&Value>,
+    source_info: &quarto_source_map::SourceInfo,
+) -> Result<()> {
+    let Some(arr) = item_attr_val.and_then(|v| v.as_array()) else {
+        return Ok(());
+    };
+    for (item, entry) in items.iter_mut().zip(arr) {
+        if entry.is_null() {
+            continue;
+        }
+        let attr = read_attr(entry)?;
+        if crate::pandoc::attr::is_empty_attr(&attr) {
+            continue;
+        }
+        let node = Inline::Attr(InlineAttr::new(
+            attr,
+            AttrSourceInfo::empty(),
+            source_info.clone(),
+        ));
+        match item.last_mut() {
+            Some(Block::Paragraph(p)) => p.content.push(node),
+            Some(Block::Plain(p)) => p.content.push(node),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn read_list_attributes(value: &Value) -> Result<ListAttributes> {
     let arr = value.as_array().ok_or_else(|| {
         JsonReadError::InvalidType("Expected array for ListAttributes".to_string())
@@ -1947,7 +1983,8 @@ fn read_block(value: &Value, deserializer: &SourceInfoDeserializer) -> Result<Bl
                 ));
             }
             let attr = read_list_attributes(&arr[0])?;
-            let content = read_blockss(&arr[1], deserializer)?;
+            let mut content = read_blockss(&arr[1], deserializer)?;
+            fold_item_attrs(&mut content, obj.get("itemAttr"), &source_info)?;
             Ok(Block::OrderedList(OrderedList {
                 attr,
                 content,
@@ -1958,7 +1995,8 @@ fn read_block(value: &Value, deserializer: &SourceInfoDeserializer) -> Result<Bl
             let c = obj
                 .get("c")
                 .ok_or_else(|| JsonReadError::MissingField("c".to_string()))?;
-            let content = read_blockss(c, deserializer)?;
+            let mut content = read_blockss(c, deserializer)?;
+            fold_item_attrs(&mut content, obj.get("itemAttr"), &source_info)?;
             Ok(Block::BulletList(BulletList {
                 content,
                 source_info,

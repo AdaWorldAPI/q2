@@ -2321,6 +2321,80 @@ fn stream_write_blockss<W: io::Write>(
     Ok(())
 }
 
+// --- List-item block attrs (<li class>) — bd-aeyss6p5 --------------------
+//
+// A list item is a bare `[Block,…]` array with no object to hang an `attr` key
+// on (unlike `Para`). So a per-item block attr (an authored `- item {.foo}`,
+// which lands as a trailing `Inline::Attr` in the item's last block) is hoisted
+// into a parallel sibling key `itemAttr` on the list node, mirroring the table
+// `rowsS` precedent. `itemAttr` is parallel-indexed to the items array, each
+// entry an `Attr` triple or `null`, and emitted only when some item has a
+// non-empty attr (so ordinary lists are byte-for-byte unchanged).
+
+/// For each item, collect its hoisted block attr and (when non-empty) a stripped
+/// clone of its last block. See `block_attr::split_list_item_attr`.
+fn list_item_attrs(items: &[Vec<Block>]) -> Vec<(Attr, Option<Block>)> {
+    items
+        .iter()
+        .map(|item| super::block_attr::split_list_item_attr(item))
+        .collect()
+}
+
+/// Whether any item carries a non-empty hoisted attr.
+fn any_item_attr(strips: &[(Attr, Option<Block>)]) -> bool {
+    strips.iter().any(|(attr, _)| !is_empty_attr(attr))
+}
+
+/// Emit the `[[Block]…]` items array, substituting each item's stripped last
+/// block (trailing `Inline::Attr` removed) when one was hoisted — so the inner
+/// `Para`/`Plain` writer never re-emits the attr.
+fn stream_write_list_items<W: io::Write>(
+    w: &mut JsonStreamWriter<W>,
+    items: &[Vec<Block>],
+    strips: &[(Attr, Option<Block>)],
+    ctx: &mut JsonWriterContext,
+) -> io::Result<()> {
+    w.begin_array()?;
+    for (item, (_attr, stripped)) in items.iter().zip(strips) {
+        match stripped {
+            Some(last) => {
+                w.begin_array()?;
+                for b in &item[..item.len() - 1] {
+                    stream_write_block(w, b, ctx)?;
+                }
+                stream_write_block(w, last, ctx)?;
+                w.end_array()?;
+            }
+            None => stream_write_blocks(w, item, ctx)?,
+        }
+    }
+    w.end_array()?;
+    Ok(())
+}
+
+/// Emit the `itemAttr` sibling key (parallel to the items array) when any item
+/// carries a non-empty attr. Caller must be inside the list node's object and
+/// place this in alphabetical key order (after `c`, before `l`/`s`/`t`).
+fn stream_write_item_attr_key<W: io::Write>(
+    w: &mut JsonStreamWriter<W>,
+    strips: &[(Attr, Option<Block>)],
+) -> io::Result<()> {
+    if !any_item_attr(strips) {
+        return Ok(());
+    }
+    w.key("itemAttr")?;
+    w.begin_array()?;
+    for (attr, _) in strips {
+        if is_empty_attr(attr) {
+            w.null_value()?;
+        } else {
+            stream_write_attr(w, attr)?;
+        }
+    }
+    w.end_array()?;
+    Ok(())
+}
+
 /// Emit Caption as `[short?, long]` where long is `[]` if missing.
 fn stream_write_caption<W: io::Write>(
     w: &mut JsonStreamWriter<W>,
@@ -3040,19 +3114,47 @@ fn stream_write_block<W: io::Write>(
                 Ok(())
             },
         ),
-        Block::OrderedList(ol) => stream_write_simple_node(
-            w,
-            "OrderedList",
-            &ol.source_info,
-            ctx,
-            |w: &mut JsonStreamWriter<W>, ctx: &mut JsonWriterContext| {
+        Block::OrderedList(ol) => {
+            let strips = list_item_attrs(&ol.content);
+            if !any_item_attr(&strips) {
+                // Fast path: ordinary list, byte-for-byte unchanged.
+                stream_write_simple_node(
+                    w,
+                    "OrderedList",
+                    &ol.source_info,
+                    ctx,
+                    |w: &mut JsonStreamWriter<W>, ctx: &mut JsonWriterContext| {
+                        w.begin_array()?;
+                        stream_write_list_attributes(w, &ol.attr)?;
+                        stream_write_blockss(w, &ol.content, ctx)?;
+                        w.end_array()?;
+                        Ok(())
+                    },
+                )
+            } else {
+                // Inlined for alphabetical wire order (c, itemAttr, l?, s, t).
+                // `itemAttr` is parallel to the items array (`c[1]`).
+                let s_id = ctx.serializer.intern(&ol.source_info);
+                ctx.maybe_record_attribution_for(&ol.source_info, s_id);
+                w.begin_object()?;
+                w.key("c")?;
                 w.begin_array()?;
                 stream_write_list_attributes(w, &ol.attr)?;
-                stream_write_blockss(w, &ol.content, ctx)?;
+                stream_write_list_items(w, &ol.content, &strips, ctx)?;
                 w.end_array()?;
+                stream_write_item_attr_key(w, &strips)?;
+                if ctx.serializer.config.include_inline_locations {
+                    let ast_context = ctx.serializer.context;
+                    stream_write_location_key_if_mapped(w, "l", &ol.source_info, ast_context)?;
+                }
+                w.key("s")?;
+                w.u64_value(s_id as u64)?;
+                w.key("t")?;
+                w.str_value("OrderedList")?;
+                w.end_object()?;
                 Ok(())
-            },
-        ),
+            }
+        }
         Block::RawBlock(raw) => stream_write_simple_node(
             w,
             "RawBlock",
@@ -3234,15 +3336,40 @@ fn stream_write_block<W: io::Write>(
                 stream_write_inlines(w, &plain.content, ctx)
             },
         ),
-        Block::BulletList(bl) => stream_write_simple_node(
-            w,
-            "BulletList",
-            &bl.source_info,
-            ctx,
-            |w: &mut JsonStreamWriter<W>, ctx: &mut JsonWriterContext| {
-                stream_write_blockss(w, &bl.content, ctx)
-            },
-        ),
+        Block::BulletList(bl) => {
+            let strips = list_item_attrs(&bl.content);
+            if !any_item_attr(&strips) {
+                // Fast path: ordinary list, byte-for-byte unchanged.
+                stream_write_simple_node(
+                    w,
+                    "BulletList",
+                    &bl.source_info,
+                    ctx,
+                    |w: &mut JsonStreamWriter<W>, ctx: &mut JsonWriterContext| {
+                        stream_write_blockss(w, &bl.content, ctx)
+                    },
+                )
+            } else {
+                // Inlined so the extra `itemAttr` key lands in alphabetical wire
+                // order (c, itemAttr, l?, s, t).
+                let s_id = ctx.serializer.intern(&bl.source_info);
+                ctx.maybe_record_attribution_for(&bl.source_info, s_id);
+                w.begin_object()?;
+                w.key("c")?;
+                stream_write_list_items(w, &bl.content, &strips, ctx)?;
+                stream_write_item_attr_key(w, &strips)?;
+                if ctx.serializer.config.include_inline_locations {
+                    let ast_context = ctx.serializer.context;
+                    stream_write_location_key_if_mapped(w, "l", &bl.source_info, ast_context)?;
+                }
+                w.key("s")?;
+                w.u64_value(s_id as u64)?;
+                w.key("t")?;
+                w.str_value("BulletList")?;
+                w.end_object()?;
+                Ok(())
+            }
+        }
         Block::BlockMetadata(meta) => stream_write_simple_node(
             w,
             "BlockMetadata",
@@ -4609,6 +4736,173 @@ mod tests {
                 }
             }
             other => panic!("expected Paragraph, got {:?}", other),
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // List-item block attrs (<li class>) — bd-aeyss6p5
+    // ----------------------------------------------------------------
+
+    fn li_attr_plain(text: &str, attr: Option<Attr>) -> Block {
+        use crate::pandoc::inline::InlineAttr;
+        use crate::pandoc::{Inline, Plain, Space, Str};
+        let mut content = vec![Inline::Str(Str {
+            text: text.to_string(),
+            source_info: SourceInfo::for_test(),
+        })];
+        if let Some(attr) = attr {
+            content.push(Inline::Space(Space {
+                source_info: SourceInfo::for_test(),
+            }));
+            content.push(Inline::Attr(InlineAttr::new(
+                attr,
+                AttrSourceInfo::empty(),
+                SourceInfo::for_test(),
+            )));
+        }
+        Block::Plain(Plain {
+            content,
+            source_info: SourceInfo::for_test(),
+        })
+    }
+
+    fn write_blocks_to_json(blocks: Vec<Block>) -> serde_json::Value {
+        let pandoc = crate::pandoc::Pandoc {
+            meta: quarto_pandoc_types::ConfigValue::default(),
+            blocks,
+        };
+        let context = make_test_context();
+        let config = make_test_config();
+        let mut output = Vec::new();
+        write_with_config(&pandoc, &context, &mut output, &config).unwrap();
+        serde_json::from_slice(&output).unwrap()
+    }
+
+    #[test]
+    fn test_bullet_list_item_attr_emits_itemattr_key() {
+        use crate::pandoc::{Block, BulletList};
+
+        let foo: Attr = (String::new(), vec!["foo".to_string()], LinkedHashMap::new());
+        let list = Block::BulletList(BulletList {
+            content: vec![
+                vec![li_attr_plain("item one", Some(foo))],
+                vec![li_attr_plain("item two", None)],
+            ],
+            source_info: SourceInfo::for_test(),
+        });
+        let v = write_blocks_to_json(vec![list]);
+        let node = &v["blocks"][0];
+        assert_eq!(node["t"], "BulletList");
+        // Parallel-indexed sibling key: attr for item0, null for item1.
+        assert_eq!(node["itemAttr"], json!([["", ["foo"], []], null]));
+        // item0's inner Plain has the trailing attr + space stripped from `c`.
+        let item0 = node["c"][0].as_array().expect("item0 is an array");
+        let plain0 = &item0[0];
+        assert_eq!(plain0["t"], "Plain");
+        let plain0_c = plain0["c"].as_array().expect("Plain c is an array");
+        assert_eq!(
+            plain0_c.len(),
+            1,
+            "trailing attr+space stripped, got {:?}",
+            plain0_c
+        );
+        assert_eq!(plain0_c[0]["t"], "Str");
+    }
+
+    #[test]
+    fn test_ordinary_bullet_list_emits_no_itemattr_key() {
+        use crate::pandoc::{Block, BulletList};
+        let list = Block::BulletList(BulletList {
+            content: vec![
+                vec![li_attr_plain("a", None)],
+                vec![li_attr_plain("b", None)],
+            ],
+            source_info: SourceInfo::for_test(),
+        });
+        let v = write_blocks_to_json(vec![list]);
+        let node = &v["blocks"][0];
+        assert!(
+            node.get("itemAttr").is_none(),
+            "ordinary list must not carry itemAttr, got {:?}",
+            node
+        );
+    }
+
+    #[test]
+    fn test_ordered_list_item_attr_emits_itemattr_key() {
+        use crate::pandoc::{Block, ListNumberDelim, ListNumberStyle, OrderedList};
+        let foo: Attr = (String::new(), vec!["foo".to_string()], LinkedHashMap::new());
+        let list = Block::OrderedList(OrderedList {
+            attr: (1, ListNumberStyle::Decimal, ListNumberDelim::Period),
+            content: vec![
+                vec![li_attr_plain("first", None)],
+                vec![li_attr_plain("second", Some(foo))],
+            ],
+            source_info: SourceInfo::for_test(),
+        });
+        let v = write_blocks_to_json(vec![list]);
+        let node = &v["blocks"][0];
+        assert_eq!(node["t"], "OrderedList");
+        // itemAttr is parallel to the items array (c[1]).
+        assert_eq!(node["itemAttr"], json!([null, ["", ["foo"], []]]));
+        // The items still live at c[1]; list attributes at c[0].
+        let item1 = node["c"][1][1].as_array().expect("item1 is an array");
+        let plain1 = &item1[0];
+        assert_eq!(plain1["c"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_bullet_list_item_attr_roundtrips() {
+        use crate::pandoc::{Block, BulletList, Inline};
+        use crate::readers::json as json_reader;
+
+        let foo: Attr = (
+            "li-id".to_string(),
+            vec!["foo".to_string()],
+            LinkedHashMap::new(),
+        );
+        let list = Block::BulletList(BulletList {
+            content: vec![
+                vec![li_attr_plain("one", Some(foo))],
+                vec![li_attr_plain("two", None)],
+            ],
+            source_info: SourceInfo::for_test(),
+        });
+        let pandoc = crate::pandoc::Pandoc {
+            meta: quarto_pandoc_types::ConfigValue::default(),
+            blocks: vec![list],
+        };
+        let context = make_test_context();
+        let config = make_test_config();
+        let mut output = Vec::new();
+        write_with_config(&pandoc, &context, &mut output, &config).unwrap();
+        let (read_pandoc, _) = json_reader::read(&mut output.as_slice()).unwrap();
+
+        match &read_pandoc.blocks[0] {
+            Block::BulletList(bl) => {
+                // Item 0's last block regains a trailing Inline::Attr.
+                match bl.content[0].last().unwrap() {
+                    Block::Plain(p) => match p.content.last() {
+                        Some(Inline::Attr(a)) => {
+                            assert_eq!(a.attr.0, "li-id");
+                            assert_eq!(a.attr.1, vec!["foo".to_string()]);
+                        }
+                        other => panic!("expected trailing Inline::Attr, got {:?}", other),
+                    },
+                    other => panic!("expected Plain, got {:?}", other),
+                }
+                // Item 1 (no attr) is unchanged: just the Str.
+                match bl.content[1].last().unwrap() {
+                    Block::Plain(p) => {
+                        assert!(
+                            !matches!(p.content.last(), Some(Inline::Attr(_))),
+                            "item without attr must not gain one"
+                        );
+                    }
+                    other => panic!("expected Plain, got {:?}", other),
+                }
+            }
+            other => panic!("expected BulletList, got {:?}", other),
         }
     }
 
