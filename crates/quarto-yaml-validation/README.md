@@ -101,6 +101,10 @@ match validate(&doc, &schema, &registry, &source_ctx) {
         // Or get machine-readable JSON
         let json = diagnostic.to_json();
         println!("{}", serde_json::to_string_pretty(&json)?);
+
+        // Or get a single compact line, optimized for token-efficient
+        // consumption (e.g. feeding errors to an LLM):
+        eprintln!("{}", diagnostic.to_compact());
     }
 }
 ```
@@ -148,6 +152,16 @@ Error: [Q-1-16] YAML Validation Failed
     "end_column": 9
   }
 }
+```
+
+**Compact Output (`diagnostic.to_compact()`):**
+
+A single line per error — `file:line:col [CODE] path: message (hint: ...)` —
+with no box drawing or redundant structural fields. Designed for
+token-efficient consumption for LLMs.
+
+```
+user.yaml:1:6 [Q-1-16] age: Number 200 is out of range (max: 150) (Hint: Check the allowed value range in the schema?)
 ```
 
 ## Documentation

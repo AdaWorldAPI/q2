@@ -202,6 +202,77 @@ impl ValidationDiagnostic {
         self.diagnostic.to_text(Some(source_ctx))
     }
 
+    /// Render as a single compact line, optimized for token-efficient
+    /// consumption (e.g. feeding validation errors to an LLM).
+    ///
+    /// Format: `file:line:col [CODE] path: message (hint: ...)`
+    ///
+    /// The location prefix is omitted when no source range is available, and
+    /// the path renders as `(root)` for top-level errors. Unlike [`to_text`],
+    /// this drops the ariadne box drawing, source snippet, and the redundant
+    /// schema-constraint line; hints are kept because they materially help a
+    /// model propose a correct fix. Multiple hints are joined with `; `.
+    ///
+    /// [`to_text`]: Self::to_text
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// for d in diagnostics {
+    ///     println!("{}", d.to_compact());
+    /// }
+    /// ```
+    pub fn to_compact(&self) -> String {
+        let mut out = String::new();
+
+        if let Some(range) = &self.source_range {
+            out.push_str(&format!(
+                "{}:{}:{} ",
+                range.filename, range.start_line, range.start_column
+            ));
+        }
+
+        out.push_str(&format!("[{}] ", self.code));
+
+        let path = Self::instance_path_string(&self.instance_path);
+        if path.is_empty() {
+            out.push_str("(root): ");
+        } else {
+            out.push_str(&path);
+            out.push_str(": ");
+        }
+
+        out.push_str(&self.message());
+
+        let hints = self.hints();
+        if !hints.is_empty() {
+            out.push_str(&format!(" (Hint: {})", hints.join("; ")));
+        }
+
+        out
+    }
+
+    /// Render an instance path as a compact dotted/indexed string.
+    ///
+    /// e.g. `[Key("authors"), Index(0), Key("name")]` -> `authors[0].name`.
+    fn instance_path_string(segments: &[PathSegment]) -> String {
+        let mut out = String::new();
+        for seg in segments {
+            match seg {
+                PathSegment::Key(k) => {
+                    if !out.is_empty() {
+                        out.push('.');
+                    }
+                    out.push_str(k);
+                }
+                PathSegment::Index(i) => {
+                    out.push_str(&format!("[{}]", i));
+                }
+            }
+        }
+        out
+    }
+
     /// Helper: Build DiagnosticMessage for text rendering
     fn build_diagnostic_message(
         error: &ValidationError,
@@ -405,6 +476,159 @@ mod tests {
             InstancePath::new(),
         );
         assert_eq!(error.error_code(), "Q-1-18");
+    }
+
+    #[test]
+    fn test_instance_path_string() {
+        assert_eq!(ValidationDiagnostic::instance_path_string(&[]), "");
+        assert_eq!(
+            ValidationDiagnostic::instance_path_string(&[PathSegment::Key("format".to_string())]),
+            "format"
+        );
+        assert_eq!(
+            ValidationDiagnostic::instance_path_string(&[
+                PathSegment::Key("authors".to_string()),
+                PathSegment::Index(0),
+                PathSegment::Key("name".to_string()),
+            ]),
+            "authors[0].name"
+        );
+    }
+
+    /// Strip ANSI SGR color codes and OSC-8 hyperlink sequences so the human
+    /// (ariadne) rendering can be snapshotted in a clean, machine-independent
+    /// form. The OSC-8 hyperlink embeds an absolute `file://` path, which is
+    /// not portable across machines; stripping it leaves the visible
+    /// `filename:line:col` text untouched.
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != '\u{1b}' {
+                out.push(c);
+                continue;
+            }
+            match chars.peek() {
+                // CSI (e.g. color): ESC [ ... <final byte in @..~>
+                Some('[') => {
+                    chars.next();
+                    while let Some(&nc) = chars.peek() {
+                        chars.next();
+                        if ('@'..='~').contains(&nc) {
+                            break;
+                        }
+                    }
+                }
+                // OSC (e.g. hyperlink): ESC ] ... <BEL or ST (ESC \)>
+                Some(']') => {
+                    chars.next();
+                    while let Some(nc) = chars.next() {
+                        if nc == '\u{07}' {
+                            break;
+                        }
+                        if nc == '\u{1b}' {
+                            if let Some('\\') = chars.peek() {
+                                chars.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    fn test_source_context(filename: &str, content: &str) -> SourceContext {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut ctx = SourceContext::new();
+        let mut hasher = DefaultHasher::new();
+        filename.hash(&mut hasher);
+        let file_id = quarto_source_map::FileId(hasher.finish() as usize);
+        ctx.add_file_with_id(file_id, filename.to_string(), Some(content.to_string()));
+        ctx
+    }
+
+    /// Snapshot the three rendering variants (compact, JSON, human) for a
+    /// single validation error, so changes to any format's wording/structure
+    /// are caught in one place. The error is produced end-to-end through
+    /// `validate()` so the source range is real.
+    #[test]
+    fn test_all_three_formats_snapshot() {
+        use crate::{Schema, SchemaRegistry, validate};
+
+        let schema_yaml = quarto_yaml::parse(
+            r#"
+object:
+  properties:
+    age:
+      number:
+        minimum: 0
+        maximum: 100
+"#,
+        )
+        .unwrap();
+        let schema = Schema::from_yaml(&schema_yaml).unwrap();
+
+        let doc_content = r#"age: "not a number""#;
+        let doc = quarto_yaml::parse_file(doc_content, "test.yaml").unwrap();
+        let source_ctx = test_source_context("test.yaml", doc_content);
+
+        let registry = SchemaRegistry::new();
+        let error = validate(&doc, &schema, &registry, &source_ctx)
+            .expect_err("validation should fail for type mismatch");
+        let diagnostic = ValidationDiagnostic::from_validation_error(&error, &source_ctx);
+
+        let combined = format!(
+            "=== compact ===\n{}\n\n=== json ===\n{}\n\n=== human (ANSI stripped) ===\n{}",
+            diagnostic.to_compact(),
+            serde_json::to_string_pretty(&diagnostic.to_json()).unwrap(),
+            strip_ansi(&diagnostic.to_text(&source_ctx)),
+        );
+
+        insta::assert_snapshot!(combined);
+    }
+
+    #[test]
+    fn test_to_compact() {
+        use crate::error::ValidationErrorKind;
+
+        let source_ctx = SourceContext::new();
+
+        // Error at a nested path: location omitted (no yaml_node), code + path + message + hint.
+        let mut path = InstancePath::new();
+        path.push_key("format");
+        path.push_key("html");
+        let error = ValidationError::new(
+            ValidationErrorKind::TypeMismatch {
+                expected: "boolean".to_string(),
+                got: "string".to_string(),
+            },
+            path,
+        );
+        let vd = ValidationDiagnostic::from_validation_error(&error, &source_ctx);
+        let compact = vd.to_compact();
+        assert_eq!(
+            compact,
+            "[Q-1-11] format.html: Expected boolean, got string (Hint: Use `true` or `false` (YAML 1.2 standard)?)"
+        );
+
+        // Root-level error renders `(root)` rather than an empty path.
+        let error = ValidationError::new(
+            ValidationErrorKind::MissingRequiredProperty {
+                property: "version".to_string(),
+                allowed: None,
+                expected_type: None,
+            },
+            InstancePath::new(),
+        );
+        let vd = ValidationDiagnostic::from_validation_error(&error, &source_ctx);
+        let compact = vd.to_compact();
+        assert!(compact.starts_with("[Q-1-10] (root): Missing required property 'version'"));
+        assert!(!compact.contains('\n'), "compact output must be a single line");
     }
 
     #[test]
