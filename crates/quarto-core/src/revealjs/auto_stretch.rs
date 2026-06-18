@@ -39,9 +39,18 @@
 //! re-inserts it at section level. **We deliberately do not port that pattern.**
 //! Q2 emits HTML directly from the AST and has no DOM-mutation stage; the
 //! structural fix belongs here, in the AST, not in a new postprocessor. (See
-//! the no-DOM-postprocessor rule in `CLAUDE.md` → Architecture Notes.) The
-//! captioned-`Figure` case still needs an analogous AST unwrap; that is tracked
-//! as a follow-up (bd-38ioql41) and currently only adds the class in place.
+//! the no-DOM-postprocessor rule in `CLAUDE.md` → Architecture Notes.)
+//!
+//! A captioned `Figure` (markdown `![caption](x)`) is hoisted the same way: the
+//! `Figure` is replaced by a `Plain[Image]` (figure `id` transferred onto the
+//! img) followed by a caption `Paragraph` carrying a trailing
+//! `Inline::Attr{.caption}` (capability bd-itqcfxc3), so the writer emits
+//! `section > img.r-stretch` + a sibling `<p class="caption">` (bd-38ioql41).
+//! The *cross-referenceable* figure case (`::: {#fig-…}`) is still un-stretched
+//! on single-image slides: at auto-stretch time it is a plain `Block::Div`, and
+//! the crossref→`Figure` conversion runs later and is excluded from the preview
+//! pipeline (no single AST shape common to render and preview) — a documented
+//! divergence from Q1 deferred for a future figure-alignment milestone.
 //!
 //! Opt-outs (ported from Q1 `applyStretch`):
 //! - `auto-stretch: false` in metadata — disables the whole transform.
@@ -57,9 +66,12 @@
 //! after `RevealFootnotesTransform` (so a slide with a coalesced footnote/aside
 //! has >1 body block and is naturally skipped). WASM-safe (pure AST).
 
-use quarto_pandoc_types::block::{Block, Div, Figure, Plain};
-use quarto_pandoc_types::inline::{Image, Inline};
+use hashlink::LinkedHashMap;
+use quarto_pandoc_types::attr::{Attr, AttrSourceInfo};
+use quarto_pandoc_types::block::{Block, Div, Figure, Paragraph, Plain};
+use quarto_pandoc_types::inline::{Image, Inline, InlineAttr};
 use quarto_pandoc_types::pandoc::Pandoc;
+use quarto_source_map::{By, SourceInfo};
 
 use crate::Result;
 use crate::render::RenderContext;
@@ -143,49 +155,142 @@ fn maybe_stretch_section(div: &mut Div, auto_stretch: bool) {
     // The image must sit in a standalone top-level block (Paragraph[Image] or
     // Figure). If the single image is nested in a custom/layout div, no
     // top-level block is eligible and we leave it alone.
-    for block in &mut div.content {
-        // Standalone `Paragraph[Image]` — the common case. When the image is
-        // (or becomes) stretched we must **unwrap** the paragraph into a
-        // `Plain` so the writer emits `<img class="r-stretch">` as a *direct
-        // child* of the `<section>`. reveal sizes `.r-stretch` only via
-        // `section > .r-stretch` (direct child); a `<p>` wrapper makes it inert.
-        if let Block::Paragraph(p) = block {
-            if p.content.len() == 1
-                && let Inline::Image(image) = &mut p.content[0]
-            {
-                match decide_stretch(image, auto_stretch) {
-                    StretchOutcome::LeaveWrapped => return,
-                    StretchOutcome::Unwrap => {
-                        // Move the (now `.r-stretch`) image into a `Plain`
-                        // in place of the `Paragraph`, preserving the block's
-                        // source info.
-                        let source_info = p.source_info.clone();
-                        let img = p.content.remove(0);
-                        *block = Block::Plain(Plain {
-                            content: vec![img],
-                            source_info,
-                        });
-                        return;
-                    }
-                }
-            }
-            continue;
+    //
+    // We index by position so that, when we stretch, we can replace the holder
+    // block with the unwrapped form (a `Figure` expands to *two* blocks — image
+    // + caption). The mutable borrow used to decide/build is scoped to end
+    // before the structural `splice`.
+    for idx in 0..div.content.len() {
+        // What to do with the block at `idx`.
+        enum Plan {
+            /// Not the image holder — keep scanning.
+            Skip,
+            /// Holder found but left wrapped (an opt-out fired, or auto-stretch
+            /// is off) — nothing to do, and there is only one image, so stop.
+            LeaveWrapped,
+            /// Replace the holder block with these unwrapped blocks.
+            Replace(Vec<Block>),
         }
 
-        // `Figure` (a captioned `![caption](x)`). For now we add `.r-stretch`
-        // in place; hoisting the figure's image to section level (and
-        // re-emitting its caption as a sibling) is tracked as a follow-up
-        // (bd-38ioql41), since Q2 has no `quarto-figure`/alignment story yet.
-        if let Block::Figure(f) = block {
-            if count_figure_images(f) == 1
-                && let Some(image) = figure_image_mut(f)
-            {
-                let _ = decide_stretch(image, auto_stretch);
+        let plan = match &mut div.content[idx] {
+            // Standalone `Paragraph[Image]` — the common case. When the image
+            // is (or becomes) stretched we **unwrap** the paragraph into a
+            // `Plain` so the writer emits `<img class="r-stretch">` as a
+            // *direct child* of the `<section>`. reveal sizes `.r-stretch` only
+            // via `section > .r-stretch` (direct child); a `<p>` wrapper makes
+            // it inert.
+            Block::Paragraph(p) if p.content.len() == 1 => {
+                if let Inline::Image(image) = &mut p.content[0] {
+                    match decide_stretch(image, auto_stretch) {
+                        StretchOutcome::LeaveWrapped => Plan::LeaveWrapped,
+                        StretchOutcome::Unwrap => {
+                            let source_info = p.source_info.clone();
+                            let img = p.content.remove(0);
+                            Plan::Replace(vec![Block::Plain(Plain {
+                                content: vec![img],
+                                source_info,
+                            })])
+                        }
+                    }
+                } else {
+                    Plan::Skip
+                }
+            }
+
+            // `Figure` (a captioned `![caption](x)`). When stretched, hoist the
+            // image to section level (`Plain[Image]`, figure `id` transferred
+            // onto the img) and re-emit the caption as a sibling
+            // `Paragraph[…, Attr{.caption}]` → `<p class="caption">`. This is
+            // the AST equivalent of Q1's `applyStretch` figure branch — done in
+            // the AST, not a DOM postprocessor (bd-38ioql41).
+            Block::Figure(f) if count_figure_images(f) == 1 => {
+                let outcome = match figure_image_mut(f) {
+                    Some(image) => decide_stretch(image, auto_stretch),
+                    None => StretchOutcome::LeaveWrapped,
+                };
+                match outcome {
+                    StretchOutcome::LeaveWrapped => Plan::LeaveWrapped,
+                    StretchOutcome::Unwrap => Plan::Replace(hoist_figure(f)),
+                }
+            }
+
+            _ => Plan::Skip,
+        };
+
+        match plan {
+            Plan::Skip => continue,
+            Plan::LeaveWrapped => return,
+            Plan::Replace(blocks) => {
+                div.content.splice(idx..=idx, blocks);
                 return;
             }
-            continue;
         }
     }
+}
+
+/// Build the hoisted replacement for a stretched captioned `Figure`: a
+/// `Plain[Image]` (the figure's lone image — now carrying `.r-stretch` — with
+/// the figure `id` transferred onto it) followed, when the figure has a
+/// caption, by a `Paragraph` whose trailing inline is an `Inline::Attr{.caption}`
+/// so the HTML writer emits `<p class="caption">` (capability bd-itqcfxc3).
+///
+/// The `<figure>` element itself is discarded — its image becomes a direct
+/// child of the slide `<section>` so reveal's `section > .r-stretch` selector
+/// matches it.
+fn hoist_figure(f: &mut Figure) -> Vec<Block> {
+    let mut image = figure_image_mut(f)
+        .expect("figure has exactly one image (gated by count_figure_images)")
+        .clone();
+    // Q1 parity: move the figure id onto the image so an `@fig-id` anchor
+    // still resolves once the `<figure>` wrapper is gone.
+    if !f.attr.0.is_empty() {
+        image.attr.0 = f.attr.0.clone();
+    }
+    let img_source = image.source_info.clone();
+    let mut blocks = vec![Block::Plain(Plain {
+        content: vec![Inline::Image(image)],
+        source_info: img_source,
+    })];
+
+    if let Some(caption) = figure_caption_inlines(f) {
+        blocks.push(caption_paragraph(caption));
+    }
+    blocks
+}
+
+/// Flatten a figure's caption (`caption.long`, typically `[Plain|Para[inlines]]`)
+/// into one inline sequence. Returns `None` when the figure has no caption.
+fn figure_caption_inlines(f: &Figure) -> Option<Vec<Inline>> {
+    let blocks = f.caption.long.as_ref()?;
+    let mut out = Vec::new();
+    for b in blocks {
+        match b {
+            Block::Plain(p) => out.extend(p.content.iter().cloned()),
+            Block::Paragraph(p) => out.extend(p.content.iter().cloned()),
+            _ => {}
+        }
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
+/// Wrap caption inlines in a `Paragraph` carrying a trailing `Inline::Attr`
+/// with the `caption` class. The block writers collect that trailing attr and
+/// emit `<p class="caption">…</p>` (bd-itqcfxc3 / `block_attr.rs`).
+fn caption_paragraph(mut content: Vec<Inline>) -> Block {
+    let caption_attr: Attr = (
+        String::new(),
+        vec!["caption".to_string()],
+        LinkedHashMap::new(),
+    );
+    content.push(Inline::Attr(InlineAttr::new(
+        caption_attr,
+        AttrSourceInfo::empty(),
+        SourceInfo::generated(By::revealjs()),
+    )));
+    Block::Paragraph(Paragraph {
+        content,
+        source_info: SourceInfo::generated(By::revealjs()),
+    })
 }
 
 /// What to do with the standalone block holding the lone image.
@@ -388,6 +493,32 @@ mod tests {
         })
     }
 
+    /// A `Figure` with an `id` and a `caption.long` of `[Plain[caption]]`,
+    /// mirroring what `![caption](x)` parses to.
+    fn figure_with_caption(blocks: Vec<Block>, caption: Vec<Inline>, id: &str) -> Block {
+        Block::Figure(Figure {
+            attr: (id.to_string(), vec![], LinkedHashMap::new()),
+            caption: Caption {
+                short: None,
+                long: Some(vec![Block::Plain(Plain {
+                    content: caption,
+                    source_info: si(),
+                })]),
+                source_info: si(),
+            },
+            content: blocks,
+            source_info: si(),
+            attr_source: AttrSourceInfo::empty(),
+        })
+    }
+
+    fn caption_inlines() -> Vec<Inline> {
+        vec![Inline::Str(Str {
+            text: "Cap".to_string(),
+            source_info: si(),
+        })]
+    }
+
     /// Classes on the lone image of the first section, after running the walk.
     fn stretch_classes(mut blocks: Vec<Block>, auto_stretch: bool) -> Vec<String> {
         walk_sections(&mut blocks, auto_stretch);
@@ -484,6 +615,114 @@ mod tests {
             vec![header(), figure(vec![para(vec![image(&[], &[])])])],
         )];
         assert!(stretch_classes(blocks, true).contains(&"r-stretch".to_string()));
+    }
+
+    #[test]
+    fn lone_figure_becomes_plain_image_plus_caption() {
+        // A captioned single-image Figure is hoisted: the Figure is replaced
+        // by a `Plain[Image]` (with `.r-stretch`) followed by a caption
+        // `Paragraph` whose trailing inline is an `Inline::Attr{.caption}` —
+        // so the writer emits `section > img.r-stretch` + `<p class="caption">`.
+        let mut blocks = vec![section(
+            &[],
+            vec![
+                header(),
+                figure_with_caption(vec![para(vec![image(&[], &[])])], caption_inlines(), ""),
+            ],
+        )];
+        walk_sections(&mut blocks, true);
+        let Block::Div(div) = &blocks[0] else {
+            panic!("expected section");
+        };
+        // The Figure is gone.
+        assert!(
+            !div.content.iter().any(|b| matches!(b, Block::Figure(_))),
+            "figure should be unwrapped, got: {:?}",
+            div.content
+        );
+        // A `Plain` holds the stretched image.
+        let img = div
+            .content
+            .iter()
+            .find_map(|b| match b {
+                Block::Plain(p) => p.content.iter().find_map(|i| match i {
+                    Inline::Image(img) => Some(img),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .expect("Plain[Image] present");
+        assert!(
+            img.attr.1.iter().any(|c| c == "r-stretch"),
+            "hoisted image must be stretched"
+        );
+        // A caption `Paragraph` ends in `Inline::Attr{.caption}`.
+        let cap_para = div
+            .content
+            .iter()
+            .find_map(|b| match b {
+                Block::Paragraph(p) => Some(p),
+                _ => None,
+            })
+            .expect("caption Paragraph present");
+        match cap_para.content.last() {
+            Some(Inline::Attr(a)) => assert!(
+                a.attr.1.iter().any(|c| c == "caption"),
+                "trailing Inline::Attr must carry the `caption` class"
+            ),
+            other => panic!("expected trailing Inline::Attr, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn figure_id_transferred_onto_image() {
+        // Q1 parity: the figure `id` moves onto the hoisted `<img>` so an
+        // `@fig-id` anchor still resolves.
+        let mut blocks = vec![section(
+            &[],
+            vec![figure_with_caption(
+                vec![para(vec![image(&[], &[])])],
+                caption_inlines(),
+                "fig-x",
+            )],
+        )];
+        walk_sections(&mut blocks, true);
+        let Block::Div(div) = &blocks[0] else {
+            panic!("expected section");
+        };
+        let img = div
+            .content
+            .iter()
+            .find_map(|b| match b {
+                Block::Plain(p) => p.content.iter().find_map(|i| match i {
+                    Inline::Image(img) => Some(img),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .expect("image present");
+        assert_eq!(img.attr.0, "fig-x", "figure id must move onto the image");
+    }
+
+    #[test]
+    fn nostretch_figure_left_intact() {
+        // A `.nostretch` figure is not stretched, so it must not be unwrapped.
+        let mut blocks = vec![section(
+            &[],
+            vec![figure_with_caption(
+                vec![para(vec![image(&["nostretch"], &[])])],
+                caption_inlines(),
+                "",
+            )],
+        )];
+        walk_sections(&mut blocks, true);
+        let Block::Div(div) = &blocks[0] else {
+            panic!("expected section");
+        };
+        assert!(
+            div.content.iter().any(|b| matches!(b, Block::Figure(_))),
+            "a nostretch figure must stay a Figure"
+        );
     }
 
     #[test]

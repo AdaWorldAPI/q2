@@ -1,8 +1,10 @@
 # RevealJS auto-stretch — captioned & cross-referenceable figures
 
 **Strand:** bd-38ioql41 (follow-up to bd-zkstclhl)
-**Date:** 2026-06-17
-**Status:** investigation complete, design options open — **iterating, not yet implementing**
+**Date:** 2026-06-17 (Case 1 implemented 2026-06-18)
+**Status:** **Case 1 implemented** (markdown captioned figure hoist, with
+`<p class="caption">` via bd-itqcfxc3). Case 2 (crossref figures) deferred —
+Option 2A. Centering deferred (flush-left, consistent with the bare-image case).
 
 ## Overview
 
@@ -174,11 +176,59 @@ in a dedicated strand.
 
 ## Proposed scope for THIS strand (to confirm with user)
 
-- [ ] Implement **Case 1** (markdown captioned figure) — early AST unwrap.
-- [ ] Decide caption representation + centering (Open Questions).
-- [ ] **Case 2**: pick Option 2A / 2B / 2C. If 2A, file a new strand and
-      document the divergence (in README + a `log`/comment).
-- [ ] Example fixture `13-figure-stretch` (done — created).
+- [x] Implement **Case 1** (markdown captioned figure) — early AST unwrap.
+      `RevealAutoStretchTransform`'s Figure branch now replaces the `Block::Figure`
+      with `Plain[Image]` (`.r-stretch`, figure `id` transferred onto the img)
+      followed by `caption_paragraph(...)` — a `Paragraph` with a trailing
+      `Inline::Attr{.caption}`. See `hoist_figure` / `figure_caption_inlines` /
+      `caption_paragraph` in `auto_stretch.rs`.
+- [x] Decide caption representation + centering. **Caption:** option (c) —
+      `<p class="caption">` via the merged bd-itqcfxc3 capability (no longer a
+      plain `<p>`). **Centering:** deferred — bare stretched img is flush-left,
+      consistent with the shipped bare-image case; matches Q1 only when Q2 grows
+      a figure-alignment story (then revisit `quarto-figure-center`).
+- [x] **Case 2**: **Option 2A** (defer). Crossref figures stay un-stretched on
+      single-image slides — render≡preview (neither stretches them), so no *new*
+      divergence. Documented in the `auto_stretch.rs` module doc-comment and here.
+      A dedicated strand for 2B/2C can be filed when a figure-alignment milestone
+      arrives.
+- [x] Example fixture `13-figure-stretch` (done — created).
+
+## Implementation results (2026-06-18) — Case 1 PASS
+
+**Tests (TDD):** added 3 unit tests in `auto_stretch.rs`
+(`lone_figure_becomes_plain_image_plus_caption`, `figure_id_transferred_onto_image`,
+`nostretch_figure_left_intact`) + 1 render-path test in `revealjs_format.rs`
+(`revealjs_auto_stretch_figure_hoists_image_and_caption`). Confirmed the 3 new
+behavior tests failed first (`<figure>`/`<figcaption>` retained), then passed
+after the implementation. Full `quarto-core` + `pampa` suites green (6352
+tests); `cargo xtask verify` all 14 steps green (incl. lint + WASM/hub-client).
+
+**End-to-end (render path), inspected:**
+```bash
+cargo run --bin q2 -- render examples/presentations/13-figure-stretch/slides.qmd
+```
+Slide 1 (`![This is a caption.](diagram.svg)`) — the figure is hoisted exactly
+like Q1:
+```html
+<section id="captioned-figure-markdown-syntax" class="section">
+  <h2>Captioned figure (markdown syntax)</h2>
+  <p>A figure written with the markdown image+caption syntax. …</p>
+  <img src="diagram.svg" alt="This is a caption." class="r-stretch" />
+  <p class="caption">This is a caption.</p>
+</section>
+```
+Slide 3 (`{.nostretch}`) — left intact as `<figure>`, no `r-stretch` (opt-out
+honored). Slide 2 (crossref `::: {#fig-diagram}`) — unchanged, no `r-stretch`,
+`@fig-diagram` still resolves to "Figure 1" (Case 2 deferred as designed).
+
+**Preview transport (feeds the React reveal renderer), verified:** the caption
+`Paragraph[…, Attr{.caption}]` serializes through the JSON writer as a Para with
+the safe `attr` key `["",["caption"],[]]` and round-trips to `<p class="caption">`
+(the json.rs → React Para.tsx channel proven in #310). The structural hoist
+(`Plain[Image]`) uses only standard nodes. **Not run in a live browser** this
+session — the transport that feeds preview is verified, but a visual browser
+check of the q2-preview reveal renderer was not performed.
 
 ## Open questions for the user
 

@@ -331,6 +331,61 @@ fn revealjs_auto_stretch_img_is_direct_section_child() {
     );
 }
 
+/// End-to-end: a captioned markdown figure (`![cap](x)`) on a single-image
+/// slide is hoisted so the stretched `<img>` is a direct child of the slide
+/// `<section>` (no enclosing `<figure>`/`<p>`) and the caption is re-emitted as
+/// a sibling `<p class="caption">`. Q1-parity for the figure case (bd-38ioql41).
+#[test]
+fn revealjs_auto_stretch_figure_hoists_image_and_caption() {
+    const PNG: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
+        0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+    let temp = tempfile::TempDir::new().unwrap();
+    std::fs::write(temp.path().join("pic.png"), PNG).unwrap();
+    let qmd_path = temp.path().join("talk.qmd");
+    write_file(
+        &qmd_path,
+        "---\ntitle: T\nformat: revealjs\n---\n\n## Slide\n\n![This is a caption.](pic.png)\n",
+    );
+    let options = RenderToFileOptions {
+        quiet: true,
+        ..Default::default()
+    };
+    let result = render_to_file(&qmd_path, "revealjs", &options, runtime_arc())
+        .expect("revealjs render failed");
+    let html = read(&result.output_path);
+
+    assert!(
+        html.contains("r-stretch"),
+        "expected r-stretch; got:\n{html}"
+    );
+    // The figure must be unwrapped — no `<figure>` element remains.
+    assert!(
+        !html.contains("<figure"),
+        "captioned figure must be hoisted (no <figure>); got:\n{html}"
+    );
+    // The `<img class="r-stretch">` must be a direct child of <section>.
+    let idx = html.find("r-stretch").unwrap();
+    let before = &html[..idx];
+    let img_start = before
+        .rfind("<img")
+        .expect("r-stretch should be on an <img>");
+    let preceding = before[..img_start].trim_end();
+    assert!(
+        !preceding.ends_with("<p>"),
+        "r-stretch img must be a direct child of <section>, not wrapped in <p>; got:\n{html}"
+    );
+    // The caption is re-emitted as a sibling `<p class="caption">`.
+    assert!(
+        html.contains("class=\"caption\""),
+        "caption must render as <p class=\"caption\">; got:\n{html}"
+    );
+}
+
 #[test]
 fn revealjs_render_emits_title_slide() {
     let html = render_revealjs(FLAT_DECK);
