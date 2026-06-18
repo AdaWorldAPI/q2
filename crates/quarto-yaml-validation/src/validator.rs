@@ -192,7 +192,9 @@ fn validate_generic(
     // Bind this schema node's `errorMessage` (if any) for the duration of its
     // validation, so any failure raised here picks it up as a custom hint.
     let hint = schema.annotations().error_message.as_deref();
-    context.with_custom_hint(hint, |context| validate_generic_inner(value, schema, context))
+    context.with_custom_hint(hint, |context| {
+        validate_generic_inner(value, schema, context)
+    })
 }
 
 fn validate_generic_inner(

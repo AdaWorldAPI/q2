@@ -347,7 +347,10 @@ string:
     let registry = quarto_yaml_validation::SchemaRegistry::new();
 
     let result = validate(&doc, &schema, &registry, &source_ctx);
-    assert!(result.is_err(), "Validation should fail for pattern mismatch");
+    assert!(
+        result.is_err(),
+        "Validation should fail for pattern mismatch"
+    );
 
     let error = result.unwrap_err();
     assert_eq!(
@@ -366,7 +369,9 @@ string:
         "the authored errorMessage should be the only hint"
     );
     assert!(
-        !hints.iter().any(|h| h.contains("matches the expected format")),
+        !hints
+            .iter()
+            .any(|h| h.contains("matches the expected format")),
         "the generic pattern hint must not appear"
     );
 
@@ -414,7 +419,10 @@ string:
     assert!(result.is_err());
 
     let error = result.unwrap_err();
-    assert_eq!(error.custom_hint.as_deref(), Some("must be a lowercase identifier"));
+    assert_eq!(
+        error.custom_hint.as_deref(),
+        Some("must be a lowercase identifier")
+    );
 
     let diagnostic = ValidationDiagnostic::from_validation_error(&error, &source_ctx);
     assert_eq!(

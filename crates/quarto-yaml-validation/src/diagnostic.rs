@@ -628,7 +628,10 @@ object:
         let vd = ValidationDiagnostic::from_validation_error(&error, &source_ctx);
         let compact = vd.to_compact();
         assert!(compact.starts_with("[Q-1-10] (root): Missing required property 'version'"));
-        assert!(!compact.contains('\n'), "compact output must be a single line");
+        assert!(
+            !compact.contains('\n'),
+            "compact output must be a single line"
+        );
     }
 
     #[test]
