@@ -1,9 +1,11 @@
 # Transform pipeline phases & the format-agnostic-first invariant
 
-**Status:** Design — proposed under bd-w0c6d38k (2026-06-18). The `phase()` trait
-method and the ordering-invariant test are **not yet implemented**; this document
-is the target contract they will enforce. Until then, treat the "Invariant" and
-"Enforcement" sections as the intended state, not the current one.
+**Status:** Implemented under bd-w0c6d38k (2026-06-18). `TransformPhase` and the
+defaulted `phase()` method live on `AstTransform` (`crates/quarto-core/src/transform.rs`);
+all render-pipeline transforms are classified; the invariant is enforced by
+`test_build_transform_pipeline_phase_ordering` in `pipeline.rs`. The first
+consumer of the seam is the revealjs auto-stretch move (auto-stretch now runs in
+`Finalization`, after `crossref-render`).
 
 **Audience:** anyone adding or reordering an `AstTransform` in
 `build_transform_pipeline` (`crates/quarto-core/src/pipeline.rs`), and especially

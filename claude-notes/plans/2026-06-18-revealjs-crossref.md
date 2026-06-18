@@ -420,6 +420,33 @@ Invocation: `cargo run --bin q2 -- render examples/presentations/14-crossrefs/sl
   asymmetry; reproduces in plain HTML (`<figcaption>A figure</figcaption>`), so it
   is **not** caused by the reorder. Fix belongs in `crossref_render.rs`.
 
+## Part 1 sub-plan — bare-table caption desugar (bd-4ly7ne01) — DONE
+
+`: caption {#tbl-…}` parses to a **bare `Block::Table`** with the id on the
+table's own `attr` (verified via `pampa -t native`:
+`Table ("tbl-bare",[],[]) (Caption Nothing [Plain …])`). The uniform
+`classify_div`/`convert_div` path never saw it.
+
+Fix (matches "all syntaxes desugar into divs"): a `maybe_wrap_bare_table_into_div`
+step at the top of `FloatRefTargetSugarTransform::transform_block` wraps such a
+table into `Div(#tbl-…) > Table` — id (and classes/kvs) move onto the Div, the
+Table is left anonymous (no duplicate id) — so the existing `[Block::Table(_)]`
+arm of `convert_div` handles it. Integrating it inside the sugar transform means
+it runs everywhere the transform runs (full pipeline, analysis pipeline, fixtures)
+with no new registration.
+
+### Part 1 checklist
+
+- [x] 1.1 Confirm AST shape (`pampa -t native`): id on bare `Block::Table`.
+- [x] 1.2 Tests first: `fixture_bare_table_caption_target` in `crossref_fixtures.rs`
+      — confirmed **RED** (`idx.get("tbl-bare")` = None).
+- [x] 1.3 Implement `maybe_wrap_bare_table_into_div` in `float_ref_target.rs`.
+- [x] 1.4 Fixture **GREEN**; index entry `("tbl-bare","tbl",vec![],1)`.
+- [x] 1.5 End-to-end: rendered two bare-caption tables + `@tbl-data`/`@tbl-two`
+      in HTML **and** revealjs — both resolve to `Table 1`/`Table 2`, no
+      unresolved placeholders.
+- [x] 1.6 Full `cargo nextest run -p quarto-core` → **2386 passed**.
+
 ## Reference: key files
 
 - Pipeline order: `crates/quarto-core/src/pipeline.rs:1078-1309`
