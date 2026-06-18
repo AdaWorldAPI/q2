@@ -138,6 +138,17 @@ jobs:
           sudo docker image prune --all --force
           sudo docker builder prune -a --force
 
+      # Formatting gate (before build to fail fast). rustfmt and clippy are
+      # orthogonal — clippy can pass on code rustfmt would rewrite — so a fmt
+      # check is needed to stop external PRs landing unformatted code. No
+      # `rustfmt.toml` in-tree → nightly defaults (the toolchain set up above),
+      # matching the local `cargo fmt` post-edit hook. Linux-only: formatting is
+      # platform-independent, so running it once is enough.
+      - name: Rustfmt (check)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: cargo fmt --all -- --check
+
       # Custom lint checks (before build to fail fast)
       - name: Run custom lints
         shell: bash
