@@ -1004,49 +1004,55 @@ fn entity_to_batch(data: &AiWarGraphJson) -> Result<RecordBatch, String> {
         + data.people.len();
     let mut id = StringBuilder::with_capacity(total, total * 16);
     let mut name = StringBuilder::with_capacity(total, total * 32);
-    let mut label = StringDictionaryBuilder::<UInt16Type>::new();
+    // `entity_type` carries the canonical EntityTypeId — the contract's
+    // BindSpace Column-H u16, resolved once per type from the shared aiwar
+    // ontology. NOT a per-column Arrow dictionary (e43630f's duplicate u16).
+    let mut entity_type = arrow::array::UInt16Builder::with_capacity(total);
+
+    let sys_t = crate::ontology::label_type_id("System");
+    let stk_t = crate::ontology::label_type_id("Stakeholder");
+    let civ_t = crate::ontology::label_type_id("Civic");
+    let his_t = crate::ontology::label_type_id("Historical");
+    let per_t = crate::ontology::label_type_id("Person");
 
     for s in &data.systems {
         id.append_value(&s.id);
         name.append_value(&s.name);
-        label.append_value("System");
+        entity_type.append_value(sys_t);
     }
     for s in &data.stakeholders {
         id.append_value(&s.id);
         name.append_value(&s.name);
-        label.append_value("Stakeholder");
+        entity_type.append_value(stk_t);
     }
     for s in &data.civic {
         id.append_value(&s.id);
         name.append_value(&s.name);
-        label.append_value("Civic");
+        entity_type.append_value(civ_t);
     }
     for s in &data.historical {
         id.append_value(&s.id);
         name.append_value(&s.name);
-        label.append_value("Historical");
+        entity_type.append_value(his_t);
     }
     for s in &data.people {
         id.append_value(&s.id);
         name.append_value(&s.name);
-        label.append_value("Person");
+        entity_type.append_value(per_t);
     }
 
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Utf8, false),
         Field::new("name", DataType::Utf8, false),
-        Field::new(
-            "label",
-            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
-            true,
-        ),
+        // The canonical EntityTypeId codebook column (Foundry Column-H).
+        Field::new("entity_type", DataType::UInt16, false),
     ]));
     RecordBatch::try_new(
         schema,
         vec![
             Arc::new(id.finish()) as ArrayRef,
             Arc::new(name.finish()),
-            Arc::new(label.finish()),
+            Arc::new(entity_type.finish()),
         ],
     )
     .map_err(|e| format!("Arrow error (entity): {e}"))

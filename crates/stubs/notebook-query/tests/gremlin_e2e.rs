@@ -143,3 +143,22 @@ fn probe_typed_multihop_resolves() {
         Err(e) => panic!("typed-endpoint multi-hop should resolve, got: {e}"),
     }
 }
+
+#[test]
+fn entity_type_column_is_the_canonical_codebook() {
+    let Some(data) = aiwar_data_path() else {
+        eprintln!("aiwar data not found; skipping");
+        return;
+    };
+    // SAFETY: single-threaded test.
+    unsafe { std::env::set_var("AIWAR_DATA_PATH", data) };
+
+    // The Entity union's `entity_type` column = the contract's EntityTypeId
+    // (Column-H u16, resolved through the shared ontology), not a per-column
+    // Arrow dictionary. It must be queryable through the real engine.
+    let q = "MATCH (n:Entity) RETURN n.entity_type LIMIT 5";
+    match execute(q, QueryLanguage::Cypher) {
+        Ok(res) => eprintln!("--- entity_type (canonical EntityTypeId) ---\n{}", res.raw_output),
+        Err(e) => panic!("entity_type codebook column should be queryable, got: {e}"),
+    }
+}
