@@ -21,7 +21,7 @@ import {
   seedProjectInBrowser,
   getServerUrl,
 } from './helpers/projectFactory';
-import { waitForPreviewRender } from './helpers/previewExtraction';
+import { waitForPreviewRender, waitForVfsFiles } from './helpers/previewExtraction';
 import { runAssertions } from './helpers/smokeAllAssertions';
 
 // ---------------------------------------------------------------------------
@@ -104,6 +104,21 @@ test.describe('smoke-all E2E tests', () => {
         // Navigate to the fixture file
         await page.goto(
           `/#/p/${localId}/file/${encodeURIComponent(fixture.renderPath)}`,
+        );
+
+        // Barrier: wait until every project file has synced into the VFS
+        // before we wait on the render or run assertions. The files are
+        // pushed to the hub as separate Automerge docs and synced down
+        // concurrently; without this barrier a multi-file fixture can
+        // render (and assert) before its extension/filter/partial files
+        // arrive, so a {{< shortcode >}} silently fails to expand. This was
+        // the dominant cause of the concentrated hard-failures on the
+        // multi-file extension fixtures. Single-file fixtures clear it as
+        // soon as the QMD itself syncs.
+        await waitForVfsFiles(
+          page,
+          fixture.projectFiles.map((f) => f.path),
+          { timeout: 10000, consoleErrors },
         );
 
         // Format-driven dispatch: q2-debug uses the AstIframe,
