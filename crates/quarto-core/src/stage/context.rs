@@ -114,7 +114,7 @@ pub struct StageContext {
     /// holds only engine + filter contributions.
     pub resource_report: crate::project_resources::DocumentResourceReport,
 
-    /// User-resource copy intents (`(src_absolute, dest_absolute)`)
+    /// User-resource copy intents ([`crate::render::ResourceCopyIntent`])
     /// collected by AST transforms — currently
     /// [`crate::transforms::ResourceCollectorTransform`]. Bridged
     /// to/from the inner `RenderContext::resource_copies` by
@@ -125,7 +125,7 @@ pub struct StageContext {
     ///
     /// See bd-cfl67 for why this lives parallel to `artifacts`
     /// rather than inside it.
-    pub resource_copies: Vec<(std::path::PathBuf, std::path::PathBuf)>,
+    pub resource_copies: Vec<crate::render::ResourceCopyIntent>,
 
     // === Observation & Control ===
     /// Observer for tracing, progress reporting, and WASM callbacks

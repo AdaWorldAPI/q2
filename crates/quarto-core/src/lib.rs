@@ -55,6 +55,7 @@ pub mod project_resources;
 pub mod render;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod render_to_file;
+pub mod resource_copy_diagnostics;
 pub mod resource_resolver;
 pub mod resources;
 pub mod revealjs;

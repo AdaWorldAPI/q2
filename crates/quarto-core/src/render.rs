@@ -168,6 +168,31 @@ impl BinaryDependencies {
     }
 }
 
+/// A pending user-resource copy intent collected from the document AST.
+///
+/// Producers (e.g. [`crate::transforms::ResourceCollectorTransform`])
+/// emit one of these per referenced on-disk resource (an image, etc.)
+/// instead of copying directly. The drain sites
+/// (`render_document_to_file`, `pass2_renderer::flush_resource_copies`)
+/// validate existence and route the copy through the per-render
+/// [`crate::output_sink::OutputSink`].
+///
+/// `origin` carries the source location of the reference that produced
+/// the intent (the image's URL span, falling back to the whole-image
+/// span). It lets the drain site attach a precise diagnostic — e.g.
+/// `Q-5-6` underlining the offending `![](…)` — when the source file
+/// is missing or the copy fails. See bd-bxrkxblx.
+#[derive(Debug, Clone)]
+pub struct ResourceCopyIntent {
+    /// Absolute source path the resource is read from.
+    pub src: PathBuf,
+    /// Absolute destination path in the output tree.
+    pub dest: PathBuf,
+    /// Source location of the document reference that requested the
+    /// copy, used for diagnostics when the copy can't be satisfied.
+    pub origin: quarto_source_map::SourceInfo,
+}
+
 /// Context for a single document render operation.
 ///
 /// This is the mutable state passed through all pipeline stages.
@@ -287,11 +312,11 @@ pub struct RenderContext<'a> {
     /// AST that must be copied from the source tree to the output
     /// tree before the render is committed.
     ///
-    /// Each entry is `(src_absolute, dest_absolute)`. The destination
-    /// is computed by the producing transform from
-    /// [`ResourceResolverContext::page_dir`] joined with the URL the
-    /// document references — so the copied file lands at the same
-    /// relative location the rendered HTML expects.
+    /// Each entry is a [`ResourceCopyIntent`] (`src`, `dest`,
+    /// `origin` span). The destination is computed by the producing
+    /// transform from [`ResourceResolverContext::page_dir`] joined
+    /// with the URL the document references — so the copied file lands
+    /// at the same relative location the rendered HTML expects.
     ///
     /// Drained into the per-render [`crate::output_sink::OutputSink`]
     /// by `render_document_to_file` after the pipeline finishes.
@@ -300,7 +325,7 @@ pub struct RenderContext<'a> {
     /// this field rather than calling `runtime.file_copy` directly,
     /// so every destructive disk write in the render flows through
     /// the one validated sink — see bd-cfl67.
-    pub resource_copies: Vec<(PathBuf, PathBuf)>,
+    pub resource_copies: Vec<ResourceCopyIntent>,
 
     /// Resolved listings produced by `ListingGenerateTransform` and
     /// consumed by `ListingRenderTransform`. Populated only when the

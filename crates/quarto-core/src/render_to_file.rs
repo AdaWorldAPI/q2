@@ -70,7 +70,7 @@ use crate::Result;
 use crate::artifact::{ArtifactScope, ArtifactStore};
 use crate::error::QuartoError;
 use crate::format::Format;
-use crate::output_sink::OutputSink;
+use crate::output_sink::{OutputSink, OutputSinkError};
 use crate::pipeline::{HtmlRenderConfig, RenderOutput, render_qmd_to_html};
 use crate::project::index::ProjectIndex;
 use crate::project::orchestrator::project_type_for;
@@ -334,7 +334,7 @@ pub fn render_document_to_file(
     }
 
     // Run the render pipeline
-    let render_output = pollster::block_on(render_qmd_to_html(
+    let mut render_output = pollster::block_on(render_qmd_to_html(
         &input_bytes,
         &input_path.to_string_lossy(),
         &mut ctx,
@@ -390,17 +390,33 @@ pub fn render_document_to_file(
     // skip ops whose src and dest canonicalize equal — the common
     // single-doc case where output_dir == input_dir and the
     // resource is already where the HTML expects it.
+    //
+    // bd-bxrkxblx: a referenced resource whose *source* is missing is
+    // a user-content problem — emit a `Q-5-6` warning (located at the
+    // reference) and skip it, rather than aborting the render on the
+    // ENOENT at flush. Genuine flush-time copy faults (permission,
+    // disk full) become the `Q-5-7` error below.
     let resource_copies = std::mem::take(&mut ctx.resource_copies);
-    for (src, dest) in resource_copies {
-        sink.copy(src, dest).map_err(QuartoError::from)?;
-    }
+    let copy_warnings = crate::resource_copy_diagnostics::enqueue_resource_copies(
+        resource_copies,
+        &mut sink,
+        runtime.as_ref(),
+    )?;
+    render_output.diagnostics.extend(copy_warnings);
 
     // Output HTML also goes through the sink so the whole render's
     // destructive output is validated and committed atomically.
     sink.write(output_path.clone(), render_output.html.as_bytes().to_vec())
         .map_err(QuartoError::from)?;
 
-    sink.flush(runtime.as_ref()).map_err(QuartoError::from)?;
+    // Distinguish a resource-copy fault (the bytes the user referenced
+    // couldn't be placed — Q-5-7) from any other destructive write in
+    // the sink (HTML output, artifact dir creation), which keep their
+    // existing error path.
+    sink.flush(runtime.as_ref()).map_err(|e| match &e {
+        OutputSinkError::Copy { .. } => crate::resource_copy_diagnostics::copy_failure_error(&e),
+        _ => QuartoError::from(e),
+    })?;
 
     debug!("Output: {}", output_path.display());
 

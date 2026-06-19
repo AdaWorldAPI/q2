@@ -664,22 +664,30 @@ impl WasmPassTwoOutput {
 /// branch, so user-resource copies are committed alongside the
 /// rest of the render's destructive output, governed by the sink's
 /// `allowed_roots` and `src == dest` checks (bd-cfl67).
+/// Returns the `Q-5-6` warnings for any referenced resources whose
+/// source was missing (skipped, not copied); the caller merges these
+/// into the page's diagnostics. A genuine copy fault surfaces as the
+/// `Q-5-7` error (bd-bxrkxblx).
 fn flush_resource_copies(
-    copies: Vec<(std::path::PathBuf, std::path::PathBuf)>,
+    copies: Vec<crate::render::ResourceCopyIntent>,
     resolver: &ResourceResolverContext,
     runtime: &dyn quarto_system_runtime::SystemRuntime,
-) -> Result<()> {
+) -> Result<Vec<DiagnosticMessage>> {
     if copies.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let mut sink = crate::output_sink::OutputSink::new(resolver.allowed_output_roots());
-    for (src, dest) in copies {
-        sink.copy(src, dest)
-            .map_err(crate::error::QuartoError::from)?;
-    }
-    sink.flush(runtime)
-        .map_err(crate::error::QuartoError::from)?;
-    Ok(())
+    let warnings =
+        crate::resource_copy_diagnostics::enqueue_resource_copies(copies, &mut sink, runtime)?;
+    // This sink holds only resource copies, so any flush failure is
+    // unambiguously a resource-copy fault → Q-5-7.
+    sink.flush(runtime).map_err(|e| match &e {
+        crate::output_sink::OutputSinkError::Copy { .. } => {
+            crate::resource_copy_diagnostics::copy_failure_error(&e)
+        }
+        _ => crate::error::QuartoError::from(e),
+    })?;
+    Ok(warnings)
 }
 
 /// In-memory Pass-2 renderer used by the WASM hub-client live
@@ -814,7 +822,7 @@ impl Pass2Renderer for RenderToHtmlRenderer {
         let config = HtmlRenderConfig::with_resolver(resolver.clone());
         let source_name = doc_info.input.to_string_lossy().to_string();
 
-        let render_output = render_qmd_to_html(
+        let mut render_output = render_qmd_to_html(
             &input_bytes,
             &source_name,
             &mut ctx,
@@ -873,11 +881,12 @@ impl Pass2Renderer for RenderToHtmlRenderer {
         // rendered HTML's `<img src>` URL points to (in WASM
         // hub-client mode that's `{vfs_root}/<url>`; in a native
         // website that's `{output_dir}/<page_relative>/<url>`).
-        flush_resource_copies(
+        let copy_warnings = flush_resource_copies(
             std::mem::take(&mut ctx.resource_copies),
             &resolver,
             runtime.as_ref(),
         )?;
+        render_output.diagnostics.extend(copy_warnings);
 
         Ok(WasmPassTwoOutput {
             source_path: doc_info.input.clone(),
@@ -1074,7 +1083,7 @@ impl Pass2Renderer for RenderToPreviewAstRenderer {
 
         let source_name = doc_info.input.to_string_lossy().to_string();
 
-        let preview_output = render_qmd_to_preview_ast(
+        let mut preview_output = render_qmd_to_preview_ast(
             &input_bytes,
             &source_name,
             &mut ctx,
@@ -1154,11 +1163,12 @@ impl Pass2Renderer for RenderToPreviewAstRenderer {
         }
 
         // bd-cfl67: see the matching comment in the HTML renderer.
-        flush_resource_copies(
+        let copy_warnings = flush_resource_copies(
             std::mem::take(&mut ctx.resource_copies),
             &resolver,
             runtime.as_ref(),
         )?;
+        preview_output.diagnostics.extend(copy_warnings);
 
         Ok(WasmPassTwoOutput {
             source_path: doc_info.input.clone(),

@@ -234,4 +234,54 @@ mod tests {
             q16.message_template
         );
     }
+
+    // bd-bxrkxblx: Q-5-6 / Q-5-7 resource-copy diagnostics.
+    //
+    // Q-5-6 is the span-aware *warning* for a referenced resource
+    // whose source file is missing (detected before the copy is
+    // attempted). Q-5-7 is the hard *error* for a copy/write that
+    // fails at flush for an environment reason (permission denied,
+    // disk full). See
+    // `claude-notes/plans/2026-06-19-resource-copy-error-diagnostic.md`.
+    #[test]
+    fn error_catalog_has_q_5_6_and_q_5_7() {
+        let q6 = get_error_info("Q-5-6").expect("Q-5-6 must be in the catalog");
+        assert_eq!(q6.subsystem, "project");
+        assert!(
+            q6.title.to_lowercase().contains("resource"),
+            "Q-5-6 title must mention `resource`; got: {}",
+            q6.title
+        );
+        assert!(
+            q6.message_template.to_lowercase().contains("not exist")
+                || q6.message_template.to_lowercase().contains("missing")
+                || q6.message_template.to_lowercase().contains("not found"),
+            "Q-5-6 message must describe the missing source; got: {}",
+            q6.message_template
+        );
+        assert!(
+            q6.docs_url.as_deref().is_some_and(|u| u.ends_with("Q-5-6")),
+            "Q-5-6 docs_url must end with the code; got: {:?}",
+            q6.docs_url
+        );
+
+        let q7 = get_error_info("Q-5-7").expect("Q-5-7 must be in the catalog");
+        assert_eq!(q7.subsystem, "project");
+        assert!(
+            q7.title.to_lowercase().contains("copy")
+                || q7.title.to_lowercase().contains("resource"),
+            "Q-5-7 title must mention copy/resource; got: {}",
+            q7.title
+        );
+        assert!(
+            q7.message_template.to_lowercase().contains("copy"),
+            "Q-5-7 message must mention copying; got: {}",
+            q7.message_template
+        );
+        assert!(
+            q7.docs_url.as_deref().is_some_and(|u| u.ends_with("Q-5-7")),
+            "Q-5-7 docs_url must end with the code; got: {:?}",
+            q7.docs_url
+        );
+    }
 }

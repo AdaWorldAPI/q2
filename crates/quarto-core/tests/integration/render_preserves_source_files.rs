@@ -140,3 +140,77 @@ fn website_render_copies_image_to_output_and_preserves_source() {
         html
     );
 }
+
+/// Collect the `Q-X-Y` codes attached to a render result's diagnostics.
+fn diagnostic_codes(result: &quarto_core::render_to_file::RenderToFileResult) -> Vec<String> {
+    result
+        .render_output
+        .diagnostics
+        .iter()
+        .filter_map(|d| d.code.clone())
+        .collect()
+}
+
+/// bd-bxrkxblx (single-doc): referencing an image whose *source* is
+/// missing must NOT abort the render. The render succeeds and emits a
+/// `Q-5-6` warning rather than the legacy `failed to copy … (os error
+/// 2)` hard error.
+#[test]
+fn render_with_missing_referenced_image_warns_q_5_6_and_continues() {
+    let temp = TempDir::new().unwrap();
+    let project_dir = temp.path();
+
+    let qmd_path = project_dir.join("index.qmd");
+    write_text(
+        &qmd_path,
+        "---\ntitle: Test\n---\n\n![Caption](missing.png)\n",
+    );
+    // missing.png is intentionally never created.
+
+    let options = RenderToFileOptions::default();
+    let runtime = runtime_arc();
+    let result = render_to_file(&qmd_path, "html", &options, runtime)
+        .expect("render must succeed despite the missing image");
+
+    let codes = diagnostic_codes(&result);
+    assert!(
+        codes.iter().any(|c| c == "Q-5-6"),
+        "expected a Q-5-6 warning for the missing image; got codes: {codes:?}"
+    );
+}
+
+/// bd-bxrkxblx (website): same invariant when the output dir is
+/// distinct from the input dir (`_site/`). The render completes, the
+/// missing image yields a `Q-5-6` warning, and nothing is written at
+/// the would-be destination.
+#[test]
+fn website_render_with_missing_image_warns_q_5_6_and_continues() {
+    let temp = TempDir::new().unwrap();
+    let project_dir = temp.path();
+
+    write_text(
+        &project_dir.join("_quarto.yml"),
+        "project:\n  type: website\n",
+    );
+    write_text(
+        &project_dir.join("index.qmd"),
+        "---\ntitle: Test\n---\n\n![Caption](missing.png)\n",
+    );
+    // missing.png is intentionally never created.
+
+    let options = RenderToFileOptions::default();
+    let runtime = runtime_arc();
+    let result = render_to_file(&project_dir.join("index.qmd"), "html", &options, runtime)
+        .expect("website render must succeed despite the missing image");
+
+    let codes = diagnostic_codes(&result);
+    assert!(
+        codes.iter().any(|c| c == "Q-5-6"),
+        "expected a Q-5-6 warning for the missing image; got codes: {codes:?}"
+    );
+
+    assert!(
+        !project_dir.join("_site/missing.png").exists(),
+        "no file should be written at the missing image's destination"
+    );
+}
