@@ -9,7 +9,7 @@
 use std::sync::LazyLock;
 
 use lance_graph_contract::ontology::{entity_type_id, EntityTypeId, Ontology};
-use lance_graph_contract::property::Schema;
+use lance_graph_contract::property::{LinkSpec, Schema};
 
 /// The aiwar ontology: five node entity types. Schema **order fixes the
 /// `EntityTypeId`** (1-based; `entity_type_id` returns `position + 1`, with
@@ -56,6 +56,17 @@ pub static AIWAR_ONTOLOGY: LazyLock<Ontology> = LazyLock::new(|| {
                 .optional("type")
                 .build(),
         )
+        // The six relationship types — the canonical *link* codebook on the
+        // Edge union (`reltype` u16, the relationship analogue of `entity_type`).
+        // The union connects entities, so every link is `Entity → Entity`;
+        // `LinkSpec` order fixes the `rel_type_id` (1-based, mirroring how
+        // schema order fixes `EntityTypeId`). CONNECTED_TO=1 … HIERARCHICAL=6.
+        .link(LinkSpec::many_to_many("Entity", "CONNECTED_TO", "Entity"))
+        .link(LinkSpec::one_to_many("Entity", "DEVELOPED_BY", "Entity"))
+        .link(LinkSpec::one_to_many("Entity", "DEPLOYED_BY", "Entity"))
+        .link(LinkSpec::many_to_many("Entity", "USED_IN", "Entity"))
+        .link(LinkSpec::many_to_many("Entity", "PERSON_LINK", "Entity"))
+        .link(LinkSpec::one_to_many("Entity", "HIERARCHICAL", "Entity"))
         .build()
 });
 
@@ -65,6 +76,21 @@ pub static AIWAR_ONTOLOGY: LazyLock<Ontology> = LazyLock::new(|| {
 /// dictionary.
 pub fn label_type_id(label: &str) -> EntityTypeId {
     entity_type_id(&AIWAR_ONTOLOGY, label)
+}
+
+/// Resolve a relationship type (edge predicate) to its canonical `u16`
+/// link-type id, or `0` if unknown. The relationship analogue of
+/// [`label_type_id`]: 1-based position in `Ontology.links`, keyed by
+/// predicate. Predicates are unique in `AIWAR_ONTOLOGY`, so the position is
+/// well-defined. This is the codebook for the Edge union's `reltype` column —
+/// never a per-column Arrow dictionary.
+pub fn rel_type_id(rel: &str) -> EntityTypeId {
+    AIWAR_ONTOLOGY
+        .links
+        .iter()
+        .position(|l| l.predicate == rel)
+        .map(|idx| (idx + 1) as EntityTypeId)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -86,5 +112,23 @@ mod tests {
     #[test]
     fn ontology_has_the_five_aiwar_entity_types() {
         assert_eq!(AIWAR_ONTOLOGY.schemas.len(), 5);
+    }
+
+    #[test]
+    fn canonical_rel_type_ids_come_from_the_contract_links() {
+        // 1-based, contract convention; 0 = unknown. The same `u16` means
+        // the same relationship type everywhere — the link codebook, shared.
+        assert_eq!(rel_type_id("CONNECTED_TO"), 1);
+        assert_eq!(rel_type_id("DEVELOPED_BY"), 2);
+        assert_eq!(rel_type_id("DEPLOYED_BY"), 3);
+        assert_eq!(rel_type_id("USED_IN"), 4);
+        assert_eq!(rel_type_id("PERSON_LINK"), 5);
+        assert_eq!(rel_type_id("HIERARCHICAL"), 6);
+        assert_eq!(rel_type_id("NotARelType"), 0);
+    }
+
+    #[test]
+    fn ontology_has_the_six_aiwar_relationship_types() {
+        assert_eq!(AIWAR_ONTOLOGY.links.len(), 6);
     }
 }

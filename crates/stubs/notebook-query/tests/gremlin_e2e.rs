@@ -162,3 +162,24 @@ fn entity_type_column_is_the_canonical_codebook() {
         Err(e) => panic!("entity_type codebook column should be queryable, got: {e}"),
     }
 }
+
+#[test]
+fn reltype_column_is_the_canonical_link_codebook() {
+    let Some(data) = aiwar_data_path() else {
+        eprintln!("aiwar data not found; skipping");
+        return;
+    };
+    // SAFETY: single-threaded test.
+    unsafe { std::env::set_var("AIWAR_DATA_PATH", data) };
+
+    // The Edge union's `reltype` column = the contract's link-type id
+    // (`rel_type_id` over `Ontology.links`, the relationship analogue of
+    // `entity_type`), not a per-column Arrow dictionary. Query it through the
+    // Edge inheritance root, with both endpoints typed to the registered
+    // Entity root (anonymous `()` defaults to an unregistered `Node` label).
+    let q = "MATCH (a:Entity)-[r:Edge]->(b:Entity) RETURN r.reltype LIMIT 5";
+    match execute(q, QueryLanguage::Cypher) {
+        Ok(res) => eprintln!("--- reltype (canonical link codebook) ---\n{}", res.raw_output),
+        Err(e) => panic!("reltype codebook column should be queryable, got: {e}"),
+    }
+}

@@ -1071,7 +1071,10 @@ fn all_edges_to_batch(data: &AiWarGraphJson) -> Result<RecordBatch, String> {
         + data.meta_edges.len();
     let mut source = StringBuilder::with_capacity(total, total * 16);
     let mut target = StringBuilder::with_capacity(total, total * 16);
-    let mut reltype = StringDictionaryBuilder::<UInt16Type>::new();
+    // `reltype` is the canonical link-type codebook (the relationship analogue
+    // of the `entity_type` Column-H): a `u16` from `ontology::rel_type_id`, NOT
+    // a per-column Arrow dictionary. Same id means the same rel type everywhere.
+    let mut reltype = arrow::array::UInt16Builder::with_capacity(total);
 
     for (edges, label) in [
         (&data.edges_connection, "CONNECTED_TO"),
@@ -1080,26 +1083,25 @@ fn all_edges_to_batch(data: &AiWarGraphJson) -> Result<RecordBatch, String> {
         (&data.edges_place, "USED_IN"),
         (&data.edges_people, "PERSON_LINK"),
     ] {
+        let rt = crate::ontology::rel_type_id(label);
         for e in edges {
             source.append_value(&e.source);
             target.append_value(&e.target);
-            reltype.append_value(label);
+            reltype.append_value(rt);
         }
     }
+    let hier = crate::ontology::rel_type_id("HIERARCHICAL");
     for e in &data.meta_edges {
         source.append_value(&e.source);
         target.append_value(&e.target);
-        reltype.append_value("HIERARCHICAL");
+        reltype.append_value(hier);
     }
 
     let schema = Arc::new(Schema::new(vec![
         Field::new("source", DataType::Utf8, false),
         Field::new("target", DataType::Utf8, false),
-        Field::new(
-            "reltype",
-            DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8)),
-            true,
-        ),
+        // The canonical link-type codebook column (relationship Column-H).
+        Field::new("reltype", DataType::UInt16, false),
     ]));
     RecordBatch::try_new(
         schema,
@@ -1326,7 +1328,7 @@ fn batch_to_html(batch: &RecordBatch) -> String {
 }
 
 fn get_string_value(batch: &RecordBatch, col: usize, row: usize) -> Option<String> {
-    use arrow::array::{DictionaryArray, Float64Array, Int64Array, StringArray};
+    use arrow::array::{DictionaryArray, Float64Array, Int64Array, StringArray, UInt16Array};
     let col_data = batch.column(col);
     if col_data.is_null(row) {
         return None;
@@ -1344,6 +1346,11 @@ fn get_string_value(batch: &RecordBatch, col: usize, row: usize) -> Option<Strin
             let arr = col_data.as_any().downcast_ref::<Float64Array>()?;
             Some(arr.value(row).to_string())
         }
+        // Canonical codebook id (entity_type / reltype) — render the raw u16.
+        DataType::UInt16 => {
+            let arr = col_data.as_any().downcast_ref::<UInt16Array>()?;
+            Some(arr.value(row).to_string())
+        }
         DataType::Dictionary(_, _) => {
             // codebook column: resolve the u16 index back to its string value.
             let dict = col_data.as_any().downcast_ref::<DictionaryArray<UInt16Type>>()?;
@@ -1356,7 +1363,7 @@ fn get_string_value(batch: &RecordBatch, col: usize, row: usize) -> Option<Strin
 }
 
 fn get_json_value(batch: &RecordBatch, col: usize, row: usize) -> Option<serde_json::Value> {
-    use arrow::array::{DictionaryArray, Float64Array, Int64Array, StringArray};
+    use arrow::array::{DictionaryArray, Float64Array, Int64Array, StringArray, UInt16Array};
     let col_data = batch.column(col);
     if col_data.is_null(row) {
         return None;
@@ -1372,6 +1379,11 @@ fn get_json_value(batch: &RecordBatch, col: usize, row: usize) -> Option<serde_j
         }
         DataType::Float64 => {
             let arr = col_data.as_any().downcast_ref::<Float64Array>()?;
+            Some(serde_json::json!(arr.value(row)))
+        }
+        // Canonical codebook id (entity_type / reltype) — emit the raw u16.
+        DataType::UInt16 => {
+            let arr = col_data.as_any().downcast_ref::<UInt16Array>()?;
             Some(serde_json::json!(arr.value(row)))
         }
         DataType::Dictionary(_, _) => {
