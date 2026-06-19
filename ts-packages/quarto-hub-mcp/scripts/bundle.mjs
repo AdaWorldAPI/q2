@@ -87,6 +87,16 @@ await esbuild.build({
   outfile: join(outDir, 'index.mjs'),
   conditions: ['source'],
   external: ['@napi-rs/keyring'],
+  // Minify to shrink both the standalone tarball and the copy embedded
+  // in the q2 binary (include_dir!). `keepNames` preserves class/function
+  // .name through mangling — cheap insurance for libraries that key on
+  // it (error classes, automerge); `legalComments: 'eof'` keeps required
+  // license headers but moves them out of the code body. No sourcemap:
+  // it would get embedded into q2 and bloat the binary. Verified by the
+  // full-round-trip bundle smoke test (src/bundle.test.ts).
+  minify: true,
+  keepNames: true,
+  legalComments: 'eof',
   // NB: no shebang here — esbuild hoists the entry file's own shebang
   // above the banner.
   banner: {
