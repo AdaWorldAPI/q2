@@ -23,6 +23,28 @@ A GitHub Release at tag `vX.Y.Z` with, for five platforms
   (Unix only; the Windows `.zip` is checksum-only, matching `install.ps1`).
 - `checksums.sha256` — combined.
 
+Plus, once per release (not per platform), a standalone Quarto Hub MCP
+server bundle (bd-sca6g1tu):
+
+- `quarto-hub-mcp-<version>.tar.gz` — the same MCP server that's embedded
+  in `q2`, packaged as a self-contained Node bundle so it can be run
+  directly (`node index.mjs`) without installing `q2`. One *universal*
+  bundle (not per-platform): `index.mjs` is byte-identical everywhere and
+  every `@napi-rs/keyring` platform addon is co-staged, so it runs on any
+  OS/arch with Node 24+. Built by the `hub-mcp-bundle` job; includes a
+  `README.md` and `NOTICE`.
+- `quarto-hub-mcp-<version>.tar.gz.sha256` / `.minisig` — checksum +
+  signature (same minisign key as the binaries; its `.sha256` is also
+  folded into `checksums.sha256`).
+
+> **Temporary channel.** This tarball is a stopgap until the MCP server is
+> published to npm (`npx @quarto/hub-mcp`, bd-3tak0lyy). When that lands,
+> revisit whether to keep or drop the `hub-mcp-bundle` job. Plan:
+> `claude-notes/plans/2026-06-19-release-standalone-hub-mcp-bundle.md`.
+> Note this bundle does **not** carry the quarto-hub.com OAuth defaults
+> (those are embedded into the `q2` binary only) — its `README.md`
+> documents the OAuth env vars a direct user must set.
+
 Released binaries carry the bundled quarto-hub.com OAuth defaults, so
 `q2 mcp` connects with zero configuration. Users install with the
 one-liner in the README / release notes.
@@ -217,13 +239,16 @@ still matches.
 | `crates/quarto/tests/integration/bootstrap_sh.rs` | offline installer tests |
 | `crates/quarto/tests/integration/version_cli.rs` | `--version` output contract |
 | `crates/quarto-mcp-launcher/src/defaults.rs` | bundled hub defaults (`option_env!`) |
-| `ts-packages/quarto-hub-mcp/scripts/stage-keyring.mjs` | per-target keyring staging |
+| `ts-packages/quarto-hub-mcp/scripts/stage-keyring.mjs` | per-target keyring staging (and the universal co-stage for the standalone bundle) |
+| `ts-packages/quarto-hub-mcp/scripts/bundle.mjs` | esbuild bundler producing `dist-bundle/` |
 | `crates/quarto-util/src/version.rs` | version-string policy |
 
 ## Related
 
 - `claude-notes/plans/2026-06-12-q2-github-releases-bundled-mcp.md` — the
   design + full dry-run log (bd-c6l13j79).
+- `claude-notes/plans/2026-06-19-release-standalone-hub-mcp-bundle.md` — the
+  standalone MCP bundle artifact (bd-sca6g1tu; temporary, pre-npx).
 - `claude-notes/instructions/hub-mcp-operator-runbook.md` — running a
   *private* hub (the env-var path that bundled defaults replace for the
   canonical hub).

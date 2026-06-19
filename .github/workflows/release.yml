@@ -32,6 +32,15 @@
 #   its keyring native addons must match the *user's* platform
 #   (KEYRING_PLATFORMS; see ts-packages/quarto-hub-mcp/scripts/
 #   stage-keyring.mjs).
+# - The `hub-mcp-bundle` job ships the same MCP server as a standalone,
+#   downloadable tarball (quarto-hub-mcp-<version>.tar.gz) so people can
+#   run it directly (`node index.mjs`) without the q2 binary. ONE
+#   universal bundle: index.mjs is byte-identical across platforms and
+#   the keyring loader detects the platform at runtime, so every keyring
+#   addon co-stages in a single bundle. TEMPORARY/STOPGAP — the clean
+#   distribution is `npx @quarto/hub-mcp` (bd-3tak0lyy); this tarball
+#   exists only until the npm channel lands (bd-sca6g1tu; plan
+#   claude-notes/plans/2026-06-19-release-standalone-hub-mcp-bundle.md).
 # - The bundled quarto-hub.com OAuth defaults (QUARTO_HUB_BUNDLED_*)
 #   are injected from repo secrets/vars into the cargo build env —
 #   release builds only; see crates/quarto-mcp-launcher/src/defaults.rs
@@ -170,6 +179,152 @@ jobs:
           path: |
             trace-viewer/dist
             q2-preview-spa/dist
+          retention-days: 7
+          if-no-files-found: error
+
+  # Standalone hub MCP server bundle (bd-sca6g1tu): the same
+  # ts-packages/quarto-hub-mcp dist-bundle that gets embedded into q2,
+  # published as its own downloadable tarball so people can run the MCP
+  # server directly with an ambient Node.js instead of installing q2.
+  #
+  # TEMPORARY/STOPGAP: the clean distribution is `npx @quarto/hub-mcp`
+  # (bd-3tak0lyy); we ship this tarball only until the npm channel lands
+  # (we don't want to wire up npm publish credentials yet). Expected
+  # lifetime ~a couple of months — when bd-3tak0lyy ships, reassess
+  # whether to drop this job. Plan:
+  # claude-notes/plans/2026-06-19-release-standalone-hub-mcp-bundle.md.
+  #
+  # ONE universal bundle (vs. the per-target binaries): index.mjs is
+  # byte-identical across platforms; only the @napi-rs/keyring .node
+  # addons differ, and the keyring loader does runtime platform/arch/libc
+  # detection, so all platforms co-stage in one bundle. KEYRING_PLATFORMS
+  # carries every target; non-host addon packages are fetched via
+  # `npm pack` at the loader's locked version (the path the per-target
+  # build already relies on — see stage-keyring.mjs).
+  hub-mcp-bundle:
+    name: Build standalone hub MCP bundle
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Every keyring platform the q2 release matrix covers, co-staged
+      # into the one universal bundle. Keep in sync with the per-target
+      # `keyring:` matrix values in the `build` job below.
+      KEYRING_PLATFORMS: darwin-x64,darwin-arm64,linux-x64-gnu,linux-x64-musl,linux-arm64-gnu,linux-arm64-musl,win32-x64-msvc,win32-arm64-msvc
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: npm ci
+        run: npm ci
+
+      # esbuild compiles the @quarto/* workspace deps from TS source (the
+      # `source` condition in scripts/bundle.mjs), so no prior workspace
+      # build is needed here.
+      - name: Build universal hub MCP bundle
+        run: npm run bundle -w ts-packages/quarto-hub-mcp
+
+      # Fail closed: a real bundle (not the empty/placeholder case), every
+      # requested keyring addon staged, and the module graph actually
+      # loads under node (the linux-x64 addon resolves on this runner).
+      - name: Verify bundle
+        shell: bash
+        run: |
+          DIR=ts-packages/quarto-hub-mcp/dist-bundle
+          for f in index.mjs build-info.json; do
+            test -f "$DIR/$f" || { echo "::error::$DIR/$f missing"; exit 1; }
+          done
+          IFS=',' read -ra PLATFORMS <<< "$KEYRING_PLATFORMS"
+          for P in "${PLATFORMS[@]}"; do
+            test -d "$DIR/node_modules/@napi-rs/keyring-$P" \
+              || { echo "::error::keyring addon for $P not staged"; exit 1; }
+          done
+          node "$DIR/index.mjs" --help >/dev/null
+
+      # Build a copy named for the version so the tarball extracts into a
+      # self-describing directory, drop in README + NOTICE, then archive.
+      - name: Package standalone bundle (README + NOTICE + tarball)
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          PKG="quarto-hub-mcp-${VERSION}"
+          cp -r ts-packages/quarto-hub-mcp/dist-bundle "$PKG"
+          cat > "$PKG/README.md" <<EOF
+          # Quarto Hub MCP server — standalone bundle (v${VERSION})
+
+          The Quarto Hub MCP server (\`@quarto/hub-mcp\`), bundled as one
+          self-contained ES module. It gives an MCP-capable AI agent read/write
+          access to files in Quarto Hub projects over Automerge sync, speaking
+          the Model Context Protocol over stdio.
+
+          ## Requirements
+
+          - **Node.js 24 or newer.** This bundle targets node24 and is NOT
+            version-guarded (unlike \`q2 mcp\`, which enforces the floor before
+            launching); older Node may fail in non-obvious ways.
+
+          ## Run
+
+              node index.mjs --help
+              node index.mjs --server wss://quarto-hub.com/ws
+
+          Point your MCP client's server command at \`node /path/to/index.mjs\`.
+
+          ## Authentication
+
+          Unlike the \`q2 mcp\` launcher, this standalone bundle does **not**
+          embed quarto-hub.com OAuth client credentials. Supply your own via
+          the environment: \`QUARTO_HUB_MCP_CLIENT_ID\`,
+          \`QUARTO_HUB_MCP_CLIENT_SECRET\`, and (optionally)
+          \`QUARTO_HUB_MCP_ISSUER\`. The sync server defaults to
+          \`wss://quarto-hub.com/ws\` (override with \`--server\`).
+
+          ## Contents
+
+          - \`index.mjs\`               the bundled server
+          - \`build-info.json\`         source git commit + build timestamp
+          - \`node_modules/@napi-rs/\`  the OS-keyring native addon (all platforms)
+
+          ## Status
+
+          Experimental, and a temporary distribution channel: the intended
+          long-term path is \`npx @quarto/hub-mcp\`. See \`build-info.json\` for
+          the exact source commit this was built from.
+          EOF
+          cat > "$PKG/NOTICE" <<EOF
+          Quarto Hub MCP server — standalone bundle
+          Copyright (c) Posit, PBC. MIT licensed.
+
+          This bundle inlines code from the following third-party packages at
+          build time (esbuild). Each is distributed under its own license
+          (all MIT at the versions bundled); consult each project for full
+          terms:
+
+            - @modelcontextprotocol/sdk   (MIT)
+            - jose                        (MIT)
+            - oauth4webapi                (MIT)
+            - @automerge/automerge        (MIT)
+            - ws                          (MIT)
+            - @napi-rs/keyring            (MIT)  native addon, node_modules/@napi-rs/
+          EOF
+          tar -czf "$PKG.tar.gz" "$PKG"
+          sha256sum "$PKG.tar.gz" > "$PKG.tar.gz.sha256"
+          sha256sum -c "$PKG.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hub-mcp-bundle
+          path: |
+            quarto-hub-mcp-${{ needs.preflight.outputs.version }}.tar.gz
+            quarto-hub-mcp-${{ needs.preflight.outputs.version }}.tar.gz.sha256
           retention-days: 7
           if-no-files-found: error
 
@@ -400,7 +555,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [preflight, build]
+    needs: [preflight, build, hub-mcp-bundle]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -414,6 +569,13 @@ jobs:
           path: artifacts
           merge-multiple: true
           pattern: q2-*
+
+      # The standalone MCP bundle (its own artifact name, so it is not
+      # swept up by the q2-* platform-completeness check below).
+      - uses: actions/download-artifact@v8
+        with:
+          name: hub-mcp-bundle
+          path: artifacts
 
       - name: Validate all platforms present, combine and verify checksums
         run: |
@@ -460,7 +622,9 @@ jobs:
           # here instead of shipping artifacts no installer can verify.
           PUBKEY="$(sed -n 's/^MINISIGN_PUBKEY="\(.*\)"$/\1/p' install.sh)"
           test -n "$PUBKEY"
-          for ARCHIVE in artifacts/q2-*.tar.gz; do
+          # The q2 platform archives plus the standalone MCP bundle. Each
+          # gets a signature whose trusted comment is its own filename.
+          for ARCHIVE in artifacts/q2-*.tar.gz artifacts/quarto-hub-mcp-*.tar.gz; do
             NAME="$(basename "$ARCHIVE")"
             minisign -Sm "$ARCHIVE" -s "$key" -t "$NAME"
             minisign -Vm "$ARCHIVE" -P "$PUBKEY"
@@ -509,6 +673,16 @@ jobs:
             echo "The trusted comment should name exactly the file you downloaded."
             echo "Checksums (all platforms): \`sha256sum -c checksums.sha256 --ignore-missing\`"
             echo
+            echo "## Standalone Quarto Hub MCP server"
+            echo
+            echo "\`q2 mcp\` is also published on its own as a self-contained Node bundle for"
+            echo "running the MCP server **without** installing \`q2\` — e.g. embedding it in"
+            echo "another tool. Requires [Node.js](https://nodejs.org) **24+**. Download"
+            echo "\`quarto-hub-mcp-${VERSION}.tar.gz\`, extract, and run \`node index.mjs --help\`."
+            echo "Unlike \`q2 mcp\`, this bundle does not embed quarto-hub.com credentials — see"
+            echo "the bundled \`README.md\` for the OAuth env vars to set."
+            echo "_(Experimental, temporary channel — \`npx\` distribution is planned.)_"
+            echo
             echo "## Changes"
             echo
             if [ -n "$PREV_TAG" ]; then
@@ -534,4 +708,6 @@ jobs:
             artifacts/q2-*.tar.gz artifacts/q2-*.tar.gz.sha256 \
             artifacts/q2-*.tar.gz.minisig \
             artifacts/q2-*.zip artifacts/q2-*.zip.sha256 \
+            artifacts/quarto-hub-mcp-*.tar.gz artifacts/quarto-hub-mcp-*.tar.gz.sha256 \
+            artifacts/quarto-hub-mcp-*.tar.gz.minisig \
             artifacts/checksums.sha256
