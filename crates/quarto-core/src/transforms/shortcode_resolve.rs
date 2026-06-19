@@ -55,7 +55,7 @@ use crate::Result;
 use crate::extension::discover::find_extension;
 use crate::extension::types::Extension;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use quarto_system_runtime::SystemRuntime;
 
 /// Error information for shortcode resolution failures.
@@ -832,6 +832,10 @@ pub fn extract_shortcode_paths(meta: &ConfigValue, document_dir: &std::path::Pat
 impl AstTransform for ShortcodeResolveTransform {
     fn name(&self) -> &str {
         "shortcode-resolve"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

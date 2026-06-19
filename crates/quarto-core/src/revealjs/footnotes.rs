@@ -64,7 +64,7 @@ use quarto_source_map::{By, SourceInfo};
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that coalesces per-slide footnotes/asides for `format: revealjs`.
 pub struct RevealFootnotesTransform;
@@ -85,6 +85,10 @@ impl Default for RevealFootnotesTransform {
 impl AstTransform for RevealFootnotesTransform {
     fn name(&self) -> &str {
         "reveal-footnotes"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

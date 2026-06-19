@@ -26,7 +26,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 use crate::Result;
 use crate::project::website_config::website_site_url;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::navigation_active::page_relative_source;
 
 /// AST transform: set `canonical-url` from
@@ -49,6 +49,10 @@ impl Default for WebsiteCanonicalUrlTransform {
 impl AstTransform for WebsiteCanonicalUrlTransform {
     fn name(&self) -> &str {
         "website-canonical-url"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

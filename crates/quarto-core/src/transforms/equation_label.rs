@@ -30,7 +30,7 @@ use serde_json::json;
 use crate::Result;
 use crate::crossref::EQUATION;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// The CSS class pampa adds to `Span` nodes wrapping math with a trailing
 /// attribute specifier (e.g. `$$ ... $$ {#eq-foo}`).
@@ -56,6 +56,10 @@ impl Default for EquationLabelTransform {
 impl AstTransform for EquationLabelTransform {
     fn name(&self) -> &str {
         "equation-label"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

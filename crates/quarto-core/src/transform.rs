@@ -51,6 +51,47 @@
 use crate::Result;
 use crate::render::RenderContext;
 
+/// The phase a transform belongs to within the ordered render pipeline.
+///
+/// Phases are **totally ordered**; the declaration order *is* the contract.
+/// The render pipeline must visit transforms in non-decreasing phase rank —
+/// a presentation transform must never run before the semantic structure it
+/// consumes is established. See
+/// `claude-notes/designs/transform-pipeline-phases.md` for the full model,
+/// the author rule (which phase do I pick?), and the preview-pipeline shape
+/// contract. The invariant is enforced by `test_build_transform_pipeline_phase_ordering`
+/// in `pipeline.rs`.
+///
+/// `Unclassified` is the default for `AstTransform`s that are **not** members
+/// of the ordered multi-format render pipeline (engine-stage transforms,
+/// stage-level transforms, test doubles). The ordering test rejects
+/// `Unclassified` for any transform that actually appears in
+/// `build_transform_pipeline`, so every real pipeline member must override
+/// `phase()`. It is declared last so a leaked value sorts high.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TransformPhase {
+    /// Format-agnostic semantic normalization (callout/theorem/proof/float/
+    /// equation sugar, metadata normalize, footnotes, …) **and** format-specific
+    /// *structural scaffolding* that does not consume crossref semantics
+    /// (revealjs slide/column construction, footnote coalescing, metadata aliases).
+    Normalization,
+    /// Crossref numbering and `@ref` resolution (`crossref-index`,
+    /// `crossref-resolve`). Note: crossref *render* (custom node → `Figure`/
+    /// `Div`/`Span`/`Link`) is `Finalization`, not here.
+    Crossref,
+    /// Navigation chrome generate + render (TOC, navbar, sidebar, page-nav,
+    /// footer, listings).
+    Navigation,
+    /// Render custom nodes to writer-visible shapes (`crossref-render`,
+    /// `example-embed-render`, `code-block-render`), format presentation that
+    /// *consumes* those rendered shapes (revealjs auto-stretch), then
+    /// resource/attribution baking.
+    Finalization,
+    /// Not a member of the ordered render pipeline. Default; the ordering test
+    /// rejects this value for transforms that appear in `build_transform_pipeline`.
+    Unclassified,
+}
+
 /// Trait for AST transformations.
 ///
 /// Transforms modify the Pandoc AST during the render pipeline.
@@ -71,6 +112,16 @@ pub trait AstTransform: Send + Sync {
     ///
     /// Used for logging and debugging.
     fn name(&self) -> &str;
+
+    /// The pipeline phase this transform belongs to.
+    ///
+    /// Defaults to [`TransformPhase::Unclassified`]. Every transform that is a
+    /// member of `build_transform_pipeline` **must** override this with a real
+    /// phase; the ordering invariant test fails otherwise. See
+    /// [`TransformPhase`] and `claude-notes/designs/transform-pipeline-phases.md`.
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Unclassified
+    }
 
     /// Apply the transformation to the AST.
     ///

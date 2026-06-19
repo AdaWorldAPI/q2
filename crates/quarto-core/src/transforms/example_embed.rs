@@ -72,7 +72,7 @@ use serde_json::{Value, json};
 use crate::Result;
 use crate::render::RenderContext;
 use crate::resource_resolver::ResourceResolverContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::navigation_active::page_relative_source;
 use crate::transforms::navigation_href::resolve_static_resource_href;
 
@@ -124,6 +124,10 @@ impl Default for ExampleEmbedTransform {
 impl AstTransform for ExampleEmbedTransform {
     fn name(&self) -> &str {
         "example-embed"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {
@@ -268,6 +272,10 @@ impl Default for ExampleEmbedRenderTransform {
 impl AstTransform for ExampleEmbedRenderTransform {
     fn name(&self) -> &str {
         "example-embed-render"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

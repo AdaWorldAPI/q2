@@ -33,7 +33,7 @@ use serde_json::json;
 use crate::Result;
 use crate::crossref::PROOF;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Sugar transform that converts `Div(.proof)` into
 /// `CustomNode("Proof")`.
@@ -55,6 +55,10 @@ impl Default for ProofSugarTransform {
 impl AstTransform for ProofSugarTransform {
     fn name(&self) -> &str {
         "proof-sugar"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

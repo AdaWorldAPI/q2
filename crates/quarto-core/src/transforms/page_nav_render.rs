@@ -32,7 +32,7 @@ use quarto_source_map::{By, SourceInfo};
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::is_feature_disabled;
 use crate::transforms::navigation_href::{NavSurface, resolve_href_for_html};
 
@@ -54,6 +54,10 @@ impl Default for PageNavRenderTransform {
 impl AstTransform for PageNavRenderTransform {
     fn name(&self) -> &str {
         "page-nav-render"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

@@ -30,7 +30,7 @@ use crate::Result;
 use crate::artifact::{Artifact, ArtifactScope, ArtifactStore};
 use crate::project::ProjectKind;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Vendored Bootstrap Icons CSS. See `resources/bootstrap-icons/README.md`.
 const BOOTSTRAP_ICONS_CSS: &[u8] =
@@ -63,6 +63,10 @@ impl Default for WebsiteBootstrapIconsTransform {
 impl AstTransform for WebsiteBootstrapIconsTransform {
     fn name(&self) -> &str {
         "website-bootstrap-icons"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, _ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

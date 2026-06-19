@@ -24,7 +24,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that rewrites `.column` `width` attributes to `flex-basis`.
 pub struct RevealColumnsTransform;
@@ -45,6 +45,10 @@ impl Default for RevealColumnsTransform {
 impl AstTransform for RevealColumnsTransform {
     fn name(&self) -> &str {
         "reveal-columns"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

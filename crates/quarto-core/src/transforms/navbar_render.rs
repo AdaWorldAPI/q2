@@ -32,7 +32,7 @@ use crate::Result;
 use crate::project::index::ProjectIndex;
 use crate::render::RenderContext;
 use crate::resource_resolver::ResourceResolverContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::is_feature_disabled;
 use crate::transforms::navigation_href::{NavSurface, resolve_href_for_html};
 
@@ -54,6 +54,10 @@ impl Default for NavbarRenderTransform {
 impl AstTransform for NavbarRenderTransform {
     fn name(&self) -> &str {
         "navbar-render"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

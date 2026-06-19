@@ -45,7 +45,7 @@ use serde_json::json;
 use crate::Result;
 use crate::crossref::RefTypeRegistry;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Known callout types in Quarto.
 const CALLOUT_TYPES: &[&str] = &["note", "warning", "tip", "caution", "important"];
@@ -73,6 +73,10 @@ impl Default for CalloutTransform {
 impl AstTransform for CalloutTransform {
     fn name(&self) -> &str {
         "callout"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

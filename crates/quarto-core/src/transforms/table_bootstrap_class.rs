@@ -28,7 +28,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Bootstrap class added to every `<table>` so the Bootstrap stylesheet
 /// can theme it. Matches Quarto 1.
@@ -55,6 +55,10 @@ impl Default for TableBootstrapClassTransform {
 impl AstTransform for TableBootstrapClassTransform {
     fn name(&self) -> &str {
         "table-bootstrap-class"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

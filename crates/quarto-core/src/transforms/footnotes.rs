@@ -57,7 +57,7 @@ use quarto_pandoc_types::ConfigValue;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::ReferenceLocation;
 
 /// Transform that extracts footnotes and creates a footnotes section.
@@ -96,6 +96,10 @@ impl Default for FootnotesTransform {
 impl AstTransform for FootnotesTransform {
     fn name(&self) -> &str {
         "footnotes"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

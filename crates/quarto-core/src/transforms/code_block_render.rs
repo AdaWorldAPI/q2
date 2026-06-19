@@ -50,7 +50,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::code_block_generate::{
     CodeBlockDecoration, CodeBlockDecorationKey, decoration_has_any_field,
 };
@@ -74,6 +74,10 @@ impl Default for CodeBlockRenderTransform {
 impl AstTransform for CodeBlockRenderTransform {
     fn name(&self) -> &str {
         "code-block-render"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

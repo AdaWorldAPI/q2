@@ -67,7 +67,7 @@ use serde_json::Value;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that resolves Callout CustomNodes to standard Pandoc Div structure.
 ///
@@ -92,6 +92,10 @@ impl Default for CalloutResolveTransform {
 impl AstTransform for CalloutResolveTransform {
     fn name(&self) -> &str {
         "callout-resolve"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

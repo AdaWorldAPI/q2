@@ -33,7 +33,7 @@ use quarto_source_map::types::FileId;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Typed payload carrying everything format renderers need to wrap a
 /// `CodeBlock` in the right outer structure (filename header, copy
@@ -198,6 +198,10 @@ impl Default for CodeBlockGenerateTransform {
 impl AstTransform for CodeBlockGenerateTransform {
     fn name(&self) -> &str {
         "code-block-generate"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

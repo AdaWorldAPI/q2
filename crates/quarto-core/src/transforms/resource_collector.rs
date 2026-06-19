@@ -40,7 +40,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that collects user-authored resource dependencies
 /// (images, etc.) referenced from the AST and records them as
@@ -73,6 +73,10 @@ impl Default for ResourceCollectorTransform {
 impl AstTransform for ResourceCollectorTransform {
     fn name(&self) -> &str {
         "resource-collector"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

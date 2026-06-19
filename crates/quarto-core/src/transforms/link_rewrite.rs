@@ -51,7 +51,7 @@ use crate::Result;
 use crate::project::index::ProjectIndex;
 use crate::render::RenderContext;
 use crate::resource_resolver::ResourceResolverContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::navigation_active::page_relative_source;
 use crate::transforms::navigation_href::resolve_doc_relative_href;
 
@@ -74,6 +74,10 @@ impl Default for LinkRewriteTransform {
 impl AstTransform for LinkRewriteTransform {
     fn name(&self) -> &str {
         "link-rewrite"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

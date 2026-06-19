@@ -48,7 +48,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 use crate::Result;
 use crate::project::ProjectKind;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::navigation_active::page_relative_source;
 use crate::transforms::resolve_website_bool;
 
@@ -81,6 +81,10 @@ impl Default for PageNavGenerateTransform {
 impl AstTransform for PageNavGenerateTransform {
     fn name(&self) -> &str {
         "page-nav-generate"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

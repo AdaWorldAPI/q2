@@ -33,7 +33,7 @@ use crate::project::listing::config::{FeedType, ListingFeedOptions};
 use crate::project::listing::item::ListingItem;
 use crate::project::website_config::website_site_url;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::is_feature_disabled;
 
 use super::binding::{
@@ -92,6 +92,10 @@ impl Default for ListingFeedStageTransform {
 impl AstTransform for ListingFeedStageTransform {
     fn name(&self) -> &str {
         "listing-feed-stage"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

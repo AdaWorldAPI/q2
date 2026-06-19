@@ -34,7 +34,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::is_feature_disabled;
 use crate::transforms::navigation_active::{mark_active, page_relative_source};
 use crate::transforms::navigation_enrich::enrich_navigation_items;
@@ -60,6 +60,10 @@ impl Default for NavbarGenerateTransform {
 impl AstTransform for NavbarGenerateTransform {
     fn name(&self) -> &str {
         "navbar-generate"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

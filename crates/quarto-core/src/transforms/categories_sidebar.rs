@@ -47,7 +47,7 @@ use crate::Result;
 use crate::project::listing::ResolvedListing;
 use crate::project::listing::config::ListingCategoriesMode;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::is_feature_disabled;
 
 pub struct CategoriesSidebarTransform;
@@ -68,6 +68,10 @@ impl Default for CategoriesSidebarTransform {
 impl AstTransform for CategoriesSidebarTransform {
     fn name(&self) -> &str {
         "categories-sidebar"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

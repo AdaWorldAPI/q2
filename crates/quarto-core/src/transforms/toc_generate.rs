@@ -41,7 +41,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::is_feature_disabled;
 
 /// Transform that generates TOC from document headings.
@@ -73,6 +73,10 @@ impl Default for TocGenerateTransform {
 impl AstTransform for TocGenerateTransform {
     fn name(&self) -> &str {
         "toc-generate"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

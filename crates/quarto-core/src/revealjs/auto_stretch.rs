@@ -75,7 +75,7 @@ use quarto_source_map::{By, SourceInfo};
 
 use crate::Result;
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 const STRETCH_CLASS: &str = "r-stretch";
 
@@ -98,6 +98,10 @@ impl Default for RevealAutoStretchTransform {
 impl AstTransform for RevealAutoStretchTransform {
     fn name(&self) -> &str {
         "reveal-auto-stretch"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, _ctx: &mut RenderContext) -> Result<()> {

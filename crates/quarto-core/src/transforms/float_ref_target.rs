@@ -70,7 +70,7 @@ use serde_json::json;
 use crate::Result;
 use crate::crossref::{FLOAT_REF_TARGET, RefTypeRegistry};
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that sugars float crossref targets into
 /// `CustomNode("FloatRefTarget")`.
@@ -92,6 +92,10 @@ impl Default for FloatRefTargetSugarTransform {
 impl AstTransform for FloatRefTargetSugarTransform {
     fn name(&self) -> &str {
         "float-ref-target-sugar"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Normalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {
@@ -117,6 +121,11 @@ fn transform_blocks(blocks: &mut Vec<Block>, reg: &RefTypeRegistry) {
 /// for crossref-target shape. Bottom-up order matters for nested crossref
 /// targets (a figure inside a larger document region).
 fn transform_block(block: &mut Block, reg: &RefTypeRegistry) {
+    // Desugar the bare-table caption form into the canonical float Div first,
+    // so the uniform `Block::Div` classifier below handles it exactly like the
+    // `::: {#tbl-…}` authoring form (bd-4ly7ne01).
+    maybe_wrap_bare_table_into_div(block, reg);
+
     // Recurse into children first.
     match block {
         Block::BlockQuote(bq) => transform_blocks(&mut bq.content, reg),
@@ -220,6 +229,52 @@ fn classify_fig<'r>(
 fn empty_attr() -> Attr {
     use hashlink::LinkedHashMap;
     (String::new(), Vec::new(), LinkedHashMap::new())
+}
+
+/// Desugar the `: caption {#tbl-…}` pipe-table syntax into the canonical float
+/// Div shape `Div(#tbl-…) > Table`.
+///
+/// That syntax parses to a *bare* `Block::Table` carrying the crossref id on
+/// its own `attr` (the table also owns its caption). There is no wrapping Div,
+/// so the uniform `classify_div`/`convert_div` path never sees it. We wrap it:
+/// the id (and any classes/kvs) move onto a new `Div`, leaving the `Table`
+/// anonymous — exactly the shape the `::: {#tbl-…}` authoring form produces, and
+/// what `convert_div`'s `[Block::Table(_)]` arm already handles (it keeps the
+/// table as content and lifts its caption). Moving the id off the table avoids
+/// emitting a duplicate `id` in the output.
+///
+/// No-op unless `block` is a `Table` whose non-empty id classifies as a
+/// crossref ref-type (so plain captioned tables without a `#…` id are
+/// untouched). bd-4ly7ne01.
+fn maybe_wrap_bare_table_into_div(block: &mut Block, reg: &RefTypeRegistry) {
+    // Extract the Div attr while the `table` borrow is live; the match arm
+    // returns (ending the borrow) before we move the whole table.
+    let (div_attr, div_attr_source, source_info) = match block {
+        Block::Table(table)
+            if !table.attr.0.is_empty() && reg.classify_cite_id(&table.attr.0).is_some() =>
+        {
+            (
+                std::mem::replace(&mut table.attr, empty_attr()),
+                std::mem::replace(&mut table.attr_source, AttrSourceInfo::empty()),
+                table.source_info.clone(),
+            )
+        }
+        _ => return,
+    };
+    // Replace the block with a Div (consuming the now-anonymous Table), then
+    // move the Table into the Div's content.
+    let table_block = std::mem::replace(
+        block,
+        Block::Div(Div {
+            attr: div_attr,
+            content: Vec::new(),
+            source_info,
+            attr_source: div_attr_source,
+        }),
+    );
+    if let Block::Div(div) = block {
+        div.content.push(table_block);
+    }
 }
 
 /// Convert a `Div` that we already know is a crossref target into a

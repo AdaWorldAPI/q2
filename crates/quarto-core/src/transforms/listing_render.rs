@@ -50,7 +50,7 @@ use crate::project::listing::binding::build_listing_context;
 use crate::project::listing::config::ListingType;
 use crate::project::listing::templates::{builtins_resolver, top_level_template_source};
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::is_feature_disabled;
 
 pub struct ListingRenderTransform;
@@ -71,6 +71,10 @@ impl Default for ListingRenderTransform {
 impl AstTransform for ListingRenderTransform {
     fn name(&self) -> &str {
         "listing-render"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

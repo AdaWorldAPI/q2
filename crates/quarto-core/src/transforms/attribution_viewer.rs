@@ -50,7 +50,7 @@ use quarto_pandoc_types::pandoc::Pandoc;
 use crate::Result;
 use crate::attribution::{IdentityMap, VIEWER_CSS, VIEWER_JS};
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// HTML-comment sentinel embedded in the injected `<style>` block.
 /// Used by the dedup scan so a transform re-run is idempotent.
@@ -77,6 +77,10 @@ impl Default for AttributionViewerTransform {
 impl AstTransform for AttributionViewerTransform {
     fn name(&self) -> &str {
         "attribution-viewer"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Finalization
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

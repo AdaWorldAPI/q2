@@ -1075,6 +1075,32 @@ fn footer_render_stage(is_revealjs: bool) -> Box<dyn crate::transform::AstTransf
     }
 }
 
+/// The format-specific *presentation* transforms that run in the Finalization
+/// phase, after the crossref custom nodes have been rendered to writer-visible
+/// shapes (`CrossrefRenderTransform`).
+///
+/// This is the sibling of [`footer_render_stage`] for the *presentation* slot:
+/// the one named place that maps format → which late, semantics-consuming
+/// transforms run (and lets the call site keep its `is_revealjs` checks from
+/// scattering). Today the only member is revealjs auto-stretch, which must see
+/// the final `Figure` produced by crossref-render so a single-image crossref
+/// figure is numbered/resolved *before* it is hoisted to `section > img.r-stretch`
+/// (bd-w0c6d38k). A new format that needs late, float-aware reshaping (e.g.
+/// `dashboard`, `typst`) adds its transforms here rather than inline.
+///
+/// These are `TransformPhase::Finalization` transforms; the phase-ordering
+/// invariant (`test_build_transform_pipeline_phase_ordering`) keeps them after
+/// the `Crossref` phase.
+fn reveal_finalization_transforms(
+    is_revealjs: bool,
+) -> Vec<Box<dyn crate::transform::AstTransform>> {
+    if is_revealjs {
+        vec![Box::new(crate::revealjs::RevealAutoStretchTransform::new())]
+    } else {
+        Vec::new()
+    }
+}
+
 pub fn build_transform_pipeline(
     shortcode_paths: Vec<std::path::PathBuf>,
     extensions: Vec<crate::extension::types::Extension>,
@@ -1139,13 +1165,16 @@ pub fn build_transform_pipeline(
         // Per-slide footnote/aside coalescing consumes FootnotesTransform's
         // resolved output (refs = `Span#fnrefN`, defs in the trailing
         // `Div#footnotes`), so it must run *after* it. Pure AST → benefits
-        // render and preview alike. See `revealjs::footnotes`.
+        // render and preview alike. See `revealjs::footnotes`. This is a
+        // `Normalization`-phase transform: it builds slide scaffolding and does
+        // not consume crossref semantics.
         pipeline.push(Box::new(crate::revealjs::RevealFootnotesTransform::new()));
-        // Auto-stretch single-image slides (add reveal's `.r-stretch`). Runs
-        // *after* footnote/aside coalescing so a slide that gained a coalesced
-        // aside has >1 body block and is correctly skipped. Default-on, gated
-        // by `auto-stretch: false`. See `revealjs::auto_stretch`.
-        pipeline.push(Box::new(crate::revealjs::RevealAutoStretchTransform::new()));
+        // NOTE: revealjs auto-stretch is NOT here. It is a `Finalization`-phase
+        // transform — it consumes the *rendered* `Figure` shape that
+        // `CrossrefRenderTransform` produces, so running it this early would
+        // hoist a crossref figure to a bare `<img>` before the float is ever
+        // numbered (bd-w0c6d38k). It is spliced in after `CrossrefRenderTransform`
+        // via `reveal_finalization_transforms` below.
     }
     // Example-iframe embeds (bd-z1smhvuo / bd-t3cert81). Sugars
     // `Div.embed-example-iframe[file=…]` into a `CustomNode("ExampleEmbed")`.
@@ -1265,6 +1294,13 @@ pub fn build_transform_pipeline(
     // dispatches on FloatRefTarget/Theorem/Proof), so the node survives to
     // here untouched.
     pipeline.push(Box::new(ExampleEmbedRenderTransform::new()));
+    // Format-specific presentation that consumes rendered crossref shapes:
+    // revealjs auto-stretch. Runs *after* `CrossrefRenderTransform` (so a
+    // single-image `![cap]{#fig-…}` figure is numbered/resolved/rendered to a
+    // real `Figure` first) and *before* `ResourceCollectorTransform` (so the
+    // hoisted `<img>` is still visible to resource collection). See
+    // `reveal_finalization_transforms` and bd-w0c6d38k.
+    pipeline.extend(reveal_finalization_transforms(is_revealjs));
     // bd-1tl09 Phase 0: code-block decoration Render. Consumes the
     // typed payload produced by `code-block-generate` in the
     // Normalization Phase and emits the outer wrapping markup
@@ -2936,6 +2972,67 @@ mod tests {
              metadata={metadata_pos}, gen={:?} in {names:?}",
             gen_pos,
         );
+    }
+
+    /// Format-neutral pipeline phase-ordering invariant (bd-w0c6d38k).
+    ///
+    /// Every transform in `build_transform_pipeline` must (1) declare a real
+    /// phase — not the `Unclassified` default — and (2) appear in non-decreasing
+    /// phase-rank order. Together these forbid a format-specific *presentation*
+    /// transform (e.g. revealjs auto-stretch, a `Finalization` transform) from
+    /// running before the format-agnostic *semantic* structure it consumes (the
+    /// `Crossref` phase) is established.
+    ///
+    /// The test loops over every render format string — there is deliberately
+    /// **no `is_revealjs` branch** — so a new output format (`dashboard`,
+    /// `typst`, `pdf`, …) is covered the moment its transforms are classified,
+    /// without editing this test.
+    ///
+    /// See `claude-notes/designs/transform-pipeline-phases.md`.
+    #[test]
+    fn test_build_transform_pipeline_phase_ordering() {
+        use crate::transform::TransformPhase;
+
+        // Add new render format strings here as they land; the invariant then
+        // covers them automatically.
+        for format in ["html", "revealjs"] {
+            let runtime = make_test_runtime();
+            let pipeline = build_transform_pipeline(vec![], vec![], runtime, format.to_string());
+            let steps: Vec<(&str, TransformPhase)> =
+                pipeline.iter().map(|t| (t.name(), t.phase())).collect();
+
+            // (1) Exhaustiveness: every pipeline member must be classified.
+            let unclassified: Vec<&str> = steps
+                .iter()
+                .filter(|(_, p)| *p == TransformPhase::Unclassified)
+                .map(|(n, _)| *n)
+                .collect();
+            assert!(
+                unclassified.is_empty(),
+                "[{format}] these pipeline transforms have no phase() override \
+                 (still TransformPhase::Unclassified) — classify them per \
+                 claude-notes/designs/transform-pipeline-phases.md: {unclassified:?}",
+            );
+
+            // (2) Monotonicity: phase ranks must not decrease by position.
+            for win in steps.windows(2) {
+                let (prev_name, prev_phase) = win[0];
+                let (next_name, next_phase) = win[1];
+                assert!(
+                    prev_phase <= next_phase,
+                    "[{format}] phase ordering inversion: `{prev_name}` ({prev_phase:?}) \
+                     runs before `{next_name}` ({next_phase:?}), but {prev_phase:?} \
+                     ranks after {next_phase:?}. A transform that consumes semantic \
+                     structure must not precede the phase that produces it. \
+                     See claude-notes/designs/transform-pipeline-phases.md.\n\
+                     Full order: {:?}",
+                    steps
+                        .iter()
+                        .map(|(n, p)| format!("{n}:{p:?}"))
+                        .collect::<Vec<_>>(),
+                );
+            }
+        }
     }
 
     #[test]

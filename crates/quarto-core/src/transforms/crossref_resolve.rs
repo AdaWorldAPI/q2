@@ -50,7 +50,7 @@ use crate::crossref::{
     CROSSREF_RESOLVED_REF, CrossrefIndex, RefTypeDef, RefTypeRegistry, RefTypeSource,
 };
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 
 /// Transform that resolves crossref `Cite`s into
 /// `CustomNode("CrossrefResolvedRef")` inlines.
@@ -72,6 +72,10 @@ impl Default for CrossrefResolveTransform {
 impl AstTransform for CrossrefResolveTransform {
     fn name(&self) -> &str {
         "crossref-resolve"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Crossref
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {

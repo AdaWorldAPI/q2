@@ -31,7 +31,7 @@ use crate::Result;
 use crate::project::listing::ResolvedListing;
 use crate::project::website_config::{website_site_url, website_title};
 use crate::render::RenderContext;
-use crate::transform::AstTransform;
+use crate::transform::{AstTransform, TransformPhase};
 use crate::transforms::is_feature_disabled;
 
 /// Pass-2 transform: append a `<link rel="alternate">` to
@@ -58,6 +58,10 @@ impl Default for ListingFeedLinkTransform {
 impl AstTransform for ListingFeedLinkTransform {
     fn name(&self) -> &str {
         "listing-feed-link"
+    }
+
+    fn phase(&self) -> TransformPhase {
+        TransformPhase::Navigation
     }
 
     async fn transform(&self, ast: &mut Pandoc, ctx: &mut RenderContext) -> Result<()> {
