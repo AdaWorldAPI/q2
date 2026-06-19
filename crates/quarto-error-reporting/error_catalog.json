@@ -776,6 +776,20 @@
     "docs_url": "https://quarto.org/docs/errors/project/Q-5-5",
     "since_version": "99.9.9"
   },
+  "Q-5-6": {
+    "subsystem": "project",
+    "title": "Referenced Resource Not Found",
+    "message_template": "A document references a resource file (for example an image) whose source does not exist on disk, so it cannot be copied into the output. Check the path in the reference, or add the missing file. The render continues without it.",
+    "docs_url": "https://quarto.org/docs/errors/project/Q-5-6",
+    "since_version": "99.9.9"
+  },
+  "Q-5-7": {
+    "subsystem": "project",
+    "title": "Resource Copy Failed",
+    "message_template": "Quarto could not copy a referenced resource into the output directory because of a filesystem error, such as a permission problem or insufficient disk space. The render cannot complete until the underlying filesystem condition is resolved.",
+    "docs_url": "https://quarto.org/docs/errors/project/Q-5-7",
+    "since_version": "99.9.9"
+  },
   "Q-7-1": {
     "subsystem": "cli",
     "title": "Missing Newline at End of File",

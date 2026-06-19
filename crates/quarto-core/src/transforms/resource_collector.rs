@@ -31,7 +31,7 @@
 //! paths, and this producer no longer touches the artifact store
 //! at all.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use quarto_pandoc_types::Slot;
 use quarto_pandoc_types::block::Block;
@@ -128,10 +128,10 @@ impl AstTransform for ResourceCollectorTransform {
 struct ResourceVisitor<'a> {
     input_dir: &'a Path,
     output_dir: &'a Path,
-    /// `(source_absolute, destination_absolute)` pairs in
-    /// discovery order. The producer dedupes by URL — see
-    /// [`Self::collect_resource`].
-    copies: Vec<(PathBuf, PathBuf)>,
+    /// Copy intents in discovery order, each carrying the source span
+    /// of the reference that produced it. The producer dedupes by URL
+    /// — see [`Self::collect_resource`].
+    copies: Vec<crate::render::ResourceCopyIntent>,
     /// Set of URLs already added, for dedup within a single page.
     seen_urls: std::collections::HashSet<String>,
 }
@@ -278,8 +278,15 @@ impl<'a> ResourceVisitor<'a> {
     fn visit_inline(&mut self, inline: &Inline) {
         match inline {
             Inline::Image(img) => {
-                // Collect image resource - target is (url, title) tuple
-                self.collect_resource(&img.target.0);
+                // Collect image resource - target is (url, title) tuple.
+                // Prefer the URL's own span (underlines just the path);
+                // fall back to the whole-image span when absent.
+                let origin = img
+                    .target_source
+                    .url
+                    .clone()
+                    .unwrap_or_else(|| img.source_info.clone());
+                self.collect_resource(&img.target.0, origin);
             }
             Inline::Link(link) => {
                 // Visit link content
@@ -399,7 +406,7 @@ impl<'a> ResourceVisitor<'a> {
         }
     }
 
-    fn collect_resource(&mut self, url: &str) {
+    fn collect_resource(&mut self, url: &str, origin: quarto_source_map::SourceInfo) {
         // Skip external URLs and inlined data URIs — nothing on
         // disk to copy.
         if url.starts_with("http://")
@@ -424,7 +431,8 @@ impl<'a> ResourceVisitor<'a> {
 
         let src = self.input_dir.join(url);
         let dest = self.output_dir.join(url);
-        self.copies.push((src, dest));
+        self.copies
+            .push(crate::render::ResourceCopyIntent { src, dest, origin });
     }
 }
 
@@ -453,13 +461,15 @@ pub fn collect_referenced_asset_urls(blocks: &[Block]) -> Vec<String> {
     visitor
         .copies
         .into_iter()
-        .map(|(src, _dest)| src.to_string_lossy().into_owned())
+        .map(|intent| intent.src.to_string_lossy().into_owned())
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
     use quarto_pandoc_types::attr::{AttrSourceInfo, TargetSourceInfo};
     use quarto_pandoc_types::block::Paragraph;
     use quarto_pandoc_types::inline::{Image, Inline, Str};
@@ -600,12 +610,14 @@ mod tests {
 
         assert_eq!(ctx.resource_copies.len(), 1);
         assert_eq!(
-            ctx.resource_copies[0],
-            (
-                PathBuf::from("/project/images/photo.png"),
-                PathBuf::from("/project/_site/images/photo.png"),
-            ),
-            "src under input_dir, dest under page_dir, same relative position",
+            ctx.resource_copies[0].src,
+            PathBuf::from("/project/images/photo.png"),
+            "src under input_dir",
+        );
+        assert_eq!(
+            ctx.resource_copies[0].dest,
+            PathBuf::from("/project/_site/images/photo.png"),
+            "dest under page_dir, same relative position",
         );
         // The artifact store is untouched — the contract is that
         // user resources flow through `resource_copies`, not

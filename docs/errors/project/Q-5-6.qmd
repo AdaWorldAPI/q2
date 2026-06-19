@@ -1,0 +1,65 @@
+---
+title: "Referenced Resource Not Found"
+description: "A document references a resource file (such as an image) whose source does not exist, so it could not be copied into the output."
+code: Q-5-6
+subsystem: project
+status: stub
+since: "99.9.9"
+categories:
+  - project
+---
+
+# `Q-5-6` — Referenced Resource Not Found
+
+> A document references a resource file (such as an image)
+> whose source does not exist, so it could not be copied into
+> the output.
+
+## What this means
+
+When a document references a local file — most commonly an
+image, e.g. `![](images/diagram.png)` — Quarto copies that
+file into the rendered output so the link resolves in the
+published site. This warning fires when the referenced source
+file does not exist on disk: there is nothing to copy.
+
+This is a **warning**, not an error. The render continues and
+produces output; the missing file is simply left out. The
+diagnostic points at the reference in your source document so
+you can see exactly which link is affected.
+
+## Why this happens
+
+Common causes:
+
+- **A typo in the path** — wrong directory, wrong extension,
+  or a misspelled filename.
+- **A file that was moved or deleted** but whose reference was
+  left behind.
+- **A path that is relative to the wrong directory** — a
+  document-relative path resolves against the directory
+  containing the document, not the project root. (A leading
+  `/` makes it project-root-relative.)
+- **A generated file that was expected from a code cell or an
+  earlier build step** that did not actually produce it.
+
+## How to fix
+
+Check the path in the reported reference against what is on
+disk:
+
+- Correct the path if it is a typo.
+- Add the missing file if it should exist.
+- If the reference is intentional but the file is produced
+  later (e.g. by a separate build step), make sure that step
+  runs before the render.
+
+If the file genuinely should not be referenced, remove the
+reference.
+
+## Related
+
+- `Q-5-7` — the source file existed, but the copy itself
+  failed (for example, a permission or disk-space problem).
+- `Q-5-1` — a `resources:` pattern resolves outside the
+  project root.

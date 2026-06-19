@@ -1,0 +1,62 @@
+---
+title: "Resource Copy Failed"
+description: "A referenced resource exists but could not be copied into the output directory because of a filesystem error."
+code: Q-5-7
+subsystem: project
+status: stub
+since: "99.9.9"
+categories:
+  - project
+---
+
+# `Q-5-7` — Resource Copy Failed
+
+> A referenced resource exists but could not be copied into
+> the output directory because of a filesystem error.
+
+## What this means
+
+When a document references a local file (such as an image),
+Quarto copies that file into the rendered output. This error
+fires when the source file *does* exist but the copy itself
+fails partway through — the filesystem refused or could not
+complete the write.
+
+Unlike a missing source file (`Q-5-6`, a warning the render
+recovers from), a failed copy is a hard error: Quarto cannot
+produce a complete, self-contained output, so the render
+stops. The diagnostic includes the underlying filesystem
+condition as an advisory.
+
+## Why this happens
+
+Common causes:
+
+- **Permission denied** — the output directory (or a file
+  inside it) is not writable by the user running Quarto.
+- **No space left on device** — the disk or volume holding the
+  output directory is full.
+- **A read-only filesystem** — the output location is mounted
+  read-only.
+- **A transient I/O error** — a network mount went away, or
+  the underlying storage reported an error mid-write.
+
+## How to fix
+
+Read the advisory in the message — it names the specific
+filesystem condition:
+
+- **Permission denied:** make the output directory writable,
+  or run the render as a user who can write there.
+- **No space left on device:** free up space, or point the
+  output at a volume with room.
+- **Read-only filesystem:** choose a writable output location.
+- **Transient errors:** retry, and consider whether the output
+  directory should live on a more reliable filesystem.
+
+## Related
+
+- `Q-5-6` — the reference pointed at a source file that does
+  not exist (a warning; the render continues).
+- `Q-5-3` — a `resources:` glob walk failed for a similar
+  class of filesystem reason.
