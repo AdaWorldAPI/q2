@@ -207,6 +207,38 @@ const DEFAULT_FIND_DOC_RETRY: Required<FindDocRetryOptions> = {
 };
 
 /**
+ * Per-attempt deadline for `repo.find()` inside {@link findDoc}.
+ *
+ * Without it, `repo.find()` waits out automerge-repo's *own* unavailable-doc
+ * timeout (~60s in v2.5.6) before rejecting. Because `loadFileDocuments` loads
+ * every project file doc serially, a single slow-to-serve doc — common when
+ * the sync server is CPU-starved, or in large projects — stalls the whole
+ * project open (and any caller awaiting it) for a full minute. That 60s serial
+ * stall was the dominant cause of the smoke-all E2E flakiness (the project
+ * never finished loading, so the Editor/preview never mounted within the test
+ * budget) and is a real user-facing hang on loaded machines.
+ *
+ * Bounding each attempt lets a genuinely-slow doc abort fast into the existing
+ * unavailable-retry path: with `attempts` retries it still gets several
+ * chances (≈17s total worst case at the default), and if it never arrives it
+ * degrades to the graceful `unavailable` marker instead of hanging the open.
+ * A truly-needed doc that loses the race re-loads when its index entry next
+ * changes (`syncWithFiles`); fully eager retry-on-peer-arrival is tracked
+ * separately (the "plan D2" gap noted in `syncWithFiles`).
+ */
+const FIND_DOC_ATTEMPT_TIMEOUT_MS = 5000;
+
+/** True for an AbortSignal.timeout / abort rejection from `repo.find()`. */
+function isAbortOrTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.name === 'TimeoutError' ||
+    err.name === 'AbortError' ||
+    /\baborted?\b|timed?\s*out/i.test(err.message)
+  );
+}
+
+/**
  * Default file filter: only parse .qmd files.
  */
 function defaultFileFilter(path: string): boolean {
@@ -429,14 +461,33 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     const repo = state.repo!;
     for (let attempt = 0; ; attempt++) {
       try {
-        const handle = await repo.find<T>(docId);
+        // Bound each attempt so a slow-to-serve doc aborts fast instead of
+        // hanging on automerge-repo's ~60s internal unavailable timeout (see
+        // FIND_DOC_ATTEMPT_TIMEOUT_MS). A timed-out attempt is treated like the
+        // cold-start "unavailable" race: retried while a peer is connected,
+        // then surfaced as unavailable.
+        const handle = await repo.find<T>(docId, {
+          signal: AbortSignal.timeout(FIND_DOC_ATTEMPT_TIMEOUT_MS),
+        });
         await handle.whenReady();
         applyActorId(handle, state.actorId);
         return handle;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        if (!/unavailable/i.test(message)) throw err;
-        if (attempt >= attempts) throw err;
+        const retriable = /unavailable/i.test(message) || isAbortOrTimeoutError(err);
+        if (!retriable) throw err;
+        if (attempt >= attempts) {
+          // Out of attempts. Normalize a timeout into the "unavailable" shape
+          // so callers (loadFileDocuments / syncWithFiles) degrade gracefully
+          // via markFileUnavailable instead of failing the whole connect.
+          if (isAbortOrTimeoutError(err)) {
+            throw new Error(
+              `document ${String(docId)} is unavailable: not served within ` +
+                `${FIND_DOC_ATTEMPT_TIMEOUT_MS}ms over ${attempts + 1} attempts`,
+            );
+          }
+          throw err;
+        }
         if (state.connectedPeers.size === 0) throw err;
         await new Promise((r) => setTimeout(r, baseDelayMs * 2 ** attempt));
         // The connection may have been torn down while we slept.
@@ -553,15 +604,24 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
   async function loadFileDocuments(files: FileEntry[]): Promise<void> {
     if (!state.repo) return;
 
-    for (const file of files) {
-      try {
-        const handle = await findDoc<FileDocument>(normalizeDocId(file.docId) as DocumentId);
-        await subscribeToFile(file.path, handle);
-      } catch (err) {
-        if (!isUnavailableError(err)) throw err;
-        markFileUnavailable(file.path, String(file.docId));
-      }
-    }
+    // Load file docs CONCURRENTLY. Serial loading made the whole connect
+    // wait out each slow doc end-to-end — with the per-attempt findDoc cap
+    // that is still attempts×timeout *per slow doc, summed*, which on a
+    // contended sync server (or a large project) blows past any caller's
+    // budget. Concurrent loading bounds the wait to the single slowest doc.
+    // Each file's own unavailable handling is preserved; a non-unavailable
+    // error still rejects (propagating out of connect) exactly as before.
+    await Promise.all(
+      files.map(async (file) => {
+        try {
+          const handle = await findDoc<FileDocument>(normalizeDocId(file.docId) as DocumentId);
+          await subscribeToFile(file.path, handle);
+        } catch (err) {
+          if (!isUnavailableError(err)) throw err;
+          markFileUnavailable(file.path, String(file.docId));
+        }
+      }),
+    );
   }
 
   // Helper: sync files with index changes

@@ -8,13 +8,23 @@
 import { expect, type Page } from '@playwright/test';
 import type { AssertionSpec } from './smokeAllDiscovery';
 import {
-  getPreviewHtml,
   getPreviewCss,
-  getRenderDiagnostics,
+  renderForAssertions,
   previewIframeSelector,
   type PreviewIframeKind,
   type RenderDiagnostic,
 } from './previewExtraction';
+
+// Live-iframe element assertions (ensureHtmlElements) read the *running*
+// Preview iframe, not a fresh WASM re-render. After late-arriving sibling
+// files sync into the VFS, the Preview re-renders (20ms-debounced) and the
+// iframe DOM catches up — but on a contended CI runner that re-render can
+// take well over Playwright's 5s default expect timeout. Give these
+// assertions real headroom so a slow-but-correct catch-up isn't reported as
+// a failure. (Negative `toHaveCount(0)` checks return immediately when the
+// element is correctly absent, so this only costs wall-clock on a genuine
+// failure.)
+const ELEMENT_WAIT_TIMEOUT = 30000;
 
 // ---------------------------------------------------------------------------
 // HTML normalization
@@ -91,19 +101,21 @@ export async function runAssertions(
   const iframeSel = previewIframeSelector(kind);
 
   // q2-debug doesn't go through the WASM html render path, so skip the
-  // diagnostic fetch (it would re-render as html and report unrelated noise).
-  const diag =
+  // render entirely (it would re-render as html and report unrelated noise).
+  // For every other kind, render ONCE and reuse the result for both the HTML
+  // pattern matching and the diagnostics — see renderForAssertions for why
+  // the previous two-render approach amplified the slow-render flakiness.
+  const render =
     kind === 'q2-debug'
-      ? { success: true, error: undefined, diagnostics: [], warnings: [] }
-      : await getRenderDiagnostics(page, documentPath);
-  const allMsgs = collectMessages(diag.diagnostics, diag.warnings);
+      ? { success: true, error: undefined, html: '', diagnostics: [], warnings: [] }
+      : await renderForAssertions(page, documentPath);
+  const allMsgs = collectMessages(render.diagnostics, render.warnings);
 
   for (const spec of assertions) {
     switch (spec.type) {
       case 'ensureFileRegexMatches': {
-        expect(diag.success, `Render failed: ${diag.error}`).toBe(true);
-        const rawHtml = await getPreviewHtml(page, documentPath);
-        const html = stripSourceTrackingSpans(rawHtml);
+        expect(render.success, `Render failed: ${render.error}`).toBe(true);
+        const html = stripSourceTrackingSpans(render.html);
         for (const pattern of spec.matches) {
           expect(
             new RegExp(pattern, 'm').test(html),
@@ -120,25 +132,25 @@ export async function runAssertions(
       }
 
       case 'ensureHtmlElements': {
-        expect(diag.success, `Render failed: ${diag.error}`).toBe(true);
+        expect(render.success, `Render failed: ${render.error}`).toBe(true);
         const previewFrame = page.frameLocator(iframeSel);
         for (const selector of spec.selectors) {
           await expect(
             previewFrame.locator(selector).first(),
             `ensureHtmlElements: expected selector "${selector}" to match`,
-          ).toBeAttached();
+          ).toBeAttached({ timeout: ELEMENT_WAIT_TIMEOUT });
         }
         for (const selector of spec.noMatchSelectors) {
           await expect(
             previewFrame.locator(selector),
             `ensureHtmlElements: expected selector "${selector}" NOT to match`,
-          ).toHaveCount(0);
+          ).toHaveCount(0, { timeout: ELEMENT_WAIT_TIMEOUT });
         }
         break;
       }
 
       case 'ensureCssRegexMatches': {
-        expect(diag.success, `Render failed: ${diag.error}`).toBe(true);
+        expect(render.success, `Render failed: ${render.error}`).toBe(true);
         const css = await getPreviewCss(page);
         expect(
           css.length,
@@ -162,8 +174,8 @@ export async function runAssertions(
       case 'noErrors': {
         const errors = allMsgs.filter((m) => m.level === 'ERROR');
         expect(
-          diag.success,
-          `noErrors: render failed: ${diag.error}${errors.length ? '\n  Diagnostics: ' + errors.map((e) => e.message).join(', ') : ''}`,
+          render.success,
+          `noErrors: render failed: ${render.error}${errors.length ? '\n  Diagnostics: ' + errors.map((e) => e.message).join(', ') : ''}`,
         ).toBe(true);
         break;
       }
@@ -171,8 +183,8 @@ export async function runAssertions(
       case 'noErrorsOrWarnings': {
         const errors = allMsgs.filter((m) => m.level === 'ERROR');
         expect(
-          diag.success,
-          `noErrorsOrWarnings: render failed: ${diag.error}${errors.length ? '\n  Diagnostics: ' + errors.map((e) => e.message).join(', ') : ''}`,
+          render.success,
+          `noErrorsOrWarnings: render failed: ${render.error}${errors.length ? '\n  Diagnostics: ' + errors.map((e) => e.message).join(', ') : ''}`,
         ).toBe(true);
         const warnings = allMsgs.filter((m) => m.level === 'WARN');
         expect(
@@ -184,7 +196,7 @@ export async function runAssertions(
 
       case 'shouldError': {
         expect(
-          diag.success,
+          render.success,
           'shouldError: expected render to fail but it succeeded',
         ).toBe(false);
         break;
