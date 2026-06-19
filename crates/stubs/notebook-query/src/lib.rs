@@ -13,6 +13,7 @@ pub mod diagnostics;
 pub mod gremlin;
 pub mod hydration;
 pub mod mri;
+pub mod ontology;
 pub mod orchestrator;
 pub mod osint_audit;
 pub mod reasoning;

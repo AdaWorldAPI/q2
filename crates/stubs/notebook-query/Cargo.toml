@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 lance-graph.workspace = true
+lance-graph-contract.workspace = true
 bgz17.workspace = true
 # Arrow + DataFusion versions MUST track lance-graph (arrow 58, datafusion 53),
 # else `CypherQuery::execute` returns an arrow-58 `RecordBatch` that won't unify

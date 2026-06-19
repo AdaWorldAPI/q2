@@ -6242,6 +6242,7 @@ dependencies = [
  "datafusion",
  "graph-flow",
  "lance-graph",
+ "lance-graph-contract",
  "lance-graph-planner",
  "neo4rs",
  "serde",
