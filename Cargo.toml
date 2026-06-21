@@ -237,13 +237,19 @@ version = "0.3"
 [workspace.dependencies.futures-core]
 version = "0.3"
 
-# deno JS runtime — cockpit-server executes .qmd JS/TS cells via deno_core.
-# Upstream carries no deno dependency, so these are conflict-free additions.
+# deno JS runtime — cockpit-server executes .qmd JS/TS cells via deno_core (the
+# deliberate "better than neo4j" live-cell engine; q2 upstream carries no deno).
+# crates.io deno_core 0.376 is ARCHIVED and its stale temporal_rs won't build
+# against current icu_calendar. Repoint to the AdaWorldAPI/deno fork (deno_core
+# 0.404 at libs/core, current V8). Per .claude/rules/architectural-compliance.md
+# + the workspace fork rule: the fork, NEVER crates.io.
 [workspace.dependencies.deno_core]
-version = "0.376"
+git = "https://github.com/AdaWorldAPI/deno"
+branch = "main"
 
 [workspace.dependencies.serde_v8]
-version = "0.285"
+git = "https://github.com/AdaWorldAPI/deno"
+branch = "main"
 
 [workspace.lints.rust]
 # coverage_nightly is used by pampa for code coverage instrumentation on nightly Rust
