@@ -34,6 +34,10 @@ lance-graph.workspace = true
 # zero-dep contract is the canonical surface; cockpit-server impls
 # `CognitiveShaderDriver` itself (see `mock_driver.rs`).
 lance-graph-contract.workspace = true
+# OGAR Active-Record: OgarClassView (the concrete `impl lance_graph_contract::
+# ClassView`) is the DISPLAY resolver for OSINT nodes — held as `&dyn ClassView`.
+# Contract owns the trait; OGAR owns the value (the #585 SoC split).
+lance-graph-ogar.workspace = true
 # NARS truth-revision algebra (canonical TruthValue::deduction).
 lance-graph-planner.workspace = true
 # Causal edge protocol (CausalEdge64 wire format).

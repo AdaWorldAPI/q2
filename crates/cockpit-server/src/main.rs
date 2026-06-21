@@ -29,6 +29,7 @@ use tower_http::cors::CorsLayer;
 
 mod openai;
 mod graph_engine;
+mod osint_gotham;
 mod scene_player;
 mod shader_stream;
 mod style_state;
@@ -153,6 +154,9 @@ async fn main() {
         .route("/api/graph/snapshot", get(graph_engine::graph_snapshot_handler))
         .route("/api/graph/infer", post(graph_engine::nars_infer_handler))
         .route("/api/graph/health", get(graph_engine::graph_health_handler))
+        // OSINT domain (classid 0x0700): the harvest as a CANON family-basin graph
+        // (round→anchor basins, GUID-v2 tail), displayed via the OGAR ClassView.
+        .route("/api/graph/osint", get(osint_gotham::osint_graph_handler))
         // Health
         .route("/health", get(health_handler));
 
@@ -196,6 +200,12 @@ async fn main() {
         match graph_engine::hydrate_from_aiwar_json(&path).await {
             Ok(()) => tracing::info!("  /api/graph/*     → live graph engine (lance-graph, NARS-enabled): {path}"),
             Err(e) => tracing::warn!("  /api/graph/*     → fallback mode (hydration failed: {e})"),
+        }
+        // OSINT domain (classid 0x0700): same harvest as a CANON family-basin
+        // graph (round→anchor basins), displayed through the OGAR ClassView.
+        match osint_gotham::hydrate_osint_gotham(&path).await {
+            Ok(()) => tracing::info!("  /api/graph/osint → OSINT/Gotham family-basin view (classid 0x0700, OGAR ClassView)"),
+            Err(e) => tracing::warn!("  /api/graph/osint → fallback (OSINT hydration failed: {e})"),
         }
     } else {
         tracing::info!("  /api/graph/*     → fallback mode (no aiwar data found)");

@@ -213,6 +213,18 @@ path = "../lance-graph/crates/cognitive-shader-driver"
 
 [workspace.dependencies.lance-graph-contract]
 path = "../lance-graph/crates/lance-graph-contract"
+# guid-v2-tail: the OSINT/Gotham rows use the v2 tail (leaf·family·identity, all
+# u16). family(u16) is the deterministic basin (round→anchor), NOT a category and
+# NOT a Louvain cluster — location is permanent via the HHTL, the basin is an
+# interface the node adapts to.
+features = ["guid-v2-tail"]
+
+# OGAR Active-Record activation crate — the real `impl lance_graph_contract::
+# ClassView` (OgarClassView) used for DISPLAY only. default-features = light: the
+# emit() DDL formatter, NO surrealdb tree (the surrealql-parser feature is opt-in
+# and deliberately NOT enabled here).
+[workspace.dependencies.lance-graph-ogar]
+path = "../lance-graph/crates/lance-graph-ogar"
 
 [workspace.dependencies.causal-edge]
 path = "../lance-graph/crates/causal-edge"
@@ -354,6 +366,15 @@ runtimelib = { git = "https://github.com/cscheid/runtimed", rev = "fc58eb48139a3
 # so we must patch jupyter-protocol from the same SHA to avoid pulling
 # in two distinct `jupyter_protocol::JupyterMessage` types.
 jupyter-protocol = { git = "https://github.com/cscheid/runtimed", rev = "fc58eb48139a30cc559ac5973cb6debb00375b88" }
+
+# Fold ogar-class-view's transitive `lance-graph-contract` (git
+# AdaWorldAPI/lance-graph#main, pulled via lance-graph-ogar) onto q2's path copy
+# = exactly ONE contract crate, so `OgarClassView`'s `impl ClassView` is for the
+# SAME trait q2 names in `&dyn lance_graph_contract::ClassView`. Consumer
+# requirement repeated from lance-graph-ogar's own Cargo header (codex P2, #564):
+# the patch only takes effect in the workspace ROOT, so q2 must declare it here.
+[patch."https://github.com/AdaWorldAPI/lance-graph"]
+lance-graph-contract = { path = "../lance-graph/crates/lance-graph-contract" }
 
 # Profiles must be set at the workspace level
 [profile.dev]
