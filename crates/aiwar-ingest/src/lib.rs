@@ -120,8 +120,11 @@ impl AiWarGraph {
             .iter()
             .filter(|n| seen.insert(n.id.clone()))
             .map(|n| {
-                let props: serde_json::Map<String, Value> =
-                    n.properties.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                let props: serde_json::Map<String, Value> = n
+                    .properties
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
                 serde_json::json!({
                     "id": n.id,
                     "label": n.label,
@@ -162,7 +165,11 @@ impl AiWarGraph {
                     .get("name")
                     .cloned()
                     .unwrap_or_else(|| cn.id.clone());
-                let node_type = cn.labels.first().cloned().unwrap_or_else(|| "Node".to_string());
+                let node_type = cn
+                    .labels
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "Node".to_string());
                 let properties = cn
                     .properties
                     .iter()
@@ -246,7 +253,9 @@ pub fn load_from_value(data: &Value) -> AiWarGraph {
             continue;
         };
         for item in arr {
-            let Some(obj) = item.as_object() else { continue };
+            let Some(obj) = item.as_object() else {
+                continue;
+            };
             let id = obj
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -279,7 +288,9 @@ pub fn load_from_value(data: &Value) -> AiWarGraph {
             continue;
         };
         for item in arr {
-            let Some(obj) = item.as_object() else { continue };
+            let Some(obj) = item.as_object() else {
+                continue;
+            };
             let source = obj
                 .get("source")
                 .and_then(|v| v.as_str())
@@ -296,9 +307,7 @@ pub fn load_from_value(data: &Value) -> AiWarGraph {
             let weight = obj.get("weight").and_then(|v| v.as_f64()).unwrap_or(1.0);
             let properties: HashMap<String, Value> = obj
                 .iter()
-                .filter(|(k, _)| {
-                    !matches!(k.as_str(), "source" | "target" | "weight")
-                })
+                .filter(|(k, _)| !matches!(k.as_str(), "source" | "target" | "weight"))
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             graph.edges.push(GraphEdge {
@@ -376,7 +385,10 @@ mod tests {
         assert_eq!(maven.node_type, "System");
         assert_eq!(maven.label, "Project Maven");
         // non id/name fields preserved verbatim
-        assert_eq!(maven.properties.get("year").unwrap(), &serde_json::json!(2017));
+        assert_eq!(
+            maven.properties.get("year").unwrap(),
+            &serde_json::json!(2017)
+        );
         assert_eq!(
             maven.properties.get("MLTask").unwrap(),
             &serde_json::json!("object-detection")
@@ -392,13 +404,24 @@ mod tests {
         // 1 developed_by + 1 valid people edge (the empty-source one is skipped)
         assert_eq!(g.edge_count(), 2);
 
-        let dev = g.edges.iter().find(|e| e.rel_type == "DEVELOPED_BY").unwrap();
+        let dev = g
+            .edges
+            .iter()
+            .find(|e| e.rel_type == "DEVELOPED_BY")
+            .unwrap();
         assert_eq!(dev.source, "Maven");
         assert_eq!(dev.target, "Palantir");
         assert_eq!(dev.weight, 3.0);
-        assert_eq!(dev.properties.get("label").unwrap(), &serde_json::json!("builds"));
+        assert_eq!(
+            dev.properties.get("label").unwrap(),
+            &serde_json::json!("builds")
+        );
 
-        assert!(g.edges.iter().all(|e| !e.source.is_empty() && !e.target.is_empty()));
+        assert!(
+            g.edges
+                .iter()
+                .all(|e| !e.source.is_empty() && !e.target.is_empty())
+        );
     }
 
     #[test]
@@ -471,7 +494,11 @@ mod tests {
         let g = load_from_file(path).expect("real graph loads");
         // The canonical AIWAR dataset: 65+114+23+7+12 = 221 nodes.
         assert_eq!(g.node_count(), 221, "expected 221 nodes from {path}");
-        assert!(g.edge_count() >= 300, "expected ~326+ edges, got {}", g.edge_count());
+        assert!(
+            g.edge_count() >= 300,
+            "expected ~326+ edges, got {}",
+            g.edge_count()
+        );
         // vis json must round-trip.
         let _: Value = serde_json::from_str(&g.to_vis_json()).expect("vis json round-trips");
     }

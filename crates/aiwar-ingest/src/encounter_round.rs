@@ -60,8 +60,7 @@ pub fn confidence_for_file(filename: &str) -> f64 {
         0.95
     } else if filename.contains("epstein_v3") {
         0.60
-    } else if filename.contains("v40_") || filename.contains("v41_") || filename.contains("v42_")
-    {
+    } else if filename.contains("v40_") || filename.contains("v41_") || filename.contains("v42_") {
         0.70
     } else {
         0.80
@@ -105,10 +104,8 @@ fn parse_cypher(text: &str) -> (Vec<CypherNode>, Vec<CypherEdge>) {
     // Matches: CREATE (var:Label {props})  or  MERGE (var:Label {props})
     // Also handles multi-label like :Label1:Label2
     // The property block is optional.
-    let node_re = Regex::new(
-        r"(?i)(?:CREATE|MERGE)\s+\((\w+)((?::\w+)+)\s*(?:\{([^}]*)\})?\s*\)",
-    )
-    .expect("valid node regex");
+    let node_re = Regex::new(r"(?i)(?:CREATE|MERGE)\s+\((\w+)((?::\w+)+)\s*(?:\{([^}]*)\})?\s*\)")
+        .expect("valid node regex");
 
     for caps in node_re.captures_iter(text) {
         let var_name = caps[1].to_string();
@@ -194,8 +191,14 @@ fn parse_cypher(text: &str) -> (Vec<CypherNode>, Vec<CypherEdge>) {
             let rel_type = caps[2].to_string();
             let tgt_var = &caps[3];
 
-            let source = var_map.get(src_var).cloned().unwrap_or_else(|| src_var.to_string());
-            let target = var_map.get(tgt_var).cloned().unwrap_or_else(|| tgt_var.to_string());
+            let source = var_map
+                .get(src_var)
+                .cloned()
+                .unwrap_or_else(|| src_var.to_string());
+            let target = var_map
+                .get(tgt_var)
+                .cloned()
+                .unwrap_or_else(|| tgt_var.to_string());
 
             let properties = caps
                 .get(4)
@@ -273,19 +276,14 @@ fn parse_set_clause(clause: &str) -> HashMap<String, String> {
 pub fn load_encounter_rounds(cypher_dir: &Path) -> Result<Vec<EncounterRound>, std::io::Error> {
     let mut entries: Vec<_> = std::fs::read_dir(cypher_dir)?
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext == "cypher")
-        })
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "cypher"))
         .collect();
 
     // Sort by version, then by filename for stability.
     entries.sort_by(|a, b| {
         let va = version_for_file(&a.file_name().to_string_lossy());
         let vb = version_for_file(&b.file_name().to_string_lossy());
-        va.cmp(&vb)
-            .then_with(|| a.file_name().cmp(&b.file_name()))
+        va.cmp(&vb).then_with(|| a.file_name().cmp(&b.file_name()))
     });
 
     let mut rounds = Vec::new();
@@ -322,13 +320,34 @@ mod tests {
 
     #[test]
     fn test_confidence_mapping() {
-        assert_eq!(confidence_for_file("aiwar_enrichment_grok_verified.cypher"), 0.95);
-        assert_eq!(confidence_for_file("aiwar_v43_corrections_evidence_review.cypher"), 0.95);
-        assert_eq!(confidence_for_file("aiwar_enrichment_epstein_v31_patch.cypher"), 0.60);
-        assert_eq!(confidence_for_file("aiwar_enrichment_epstein_v39_patch.cypher"), 0.60);
-        assert_eq!(confidence_for_file("aiwar_enrichment_v40_surveillance_ecosystem.cypher"), 0.70);
-        assert_eq!(confidence_for_file("aiwar_enrichment_v41_anduril_europe.cypher"), 0.70);
-        assert_eq!(confidence_for_file("aiwar_enrichment_v42_bilderberg_doepfner.cypher"), 0.70);
+        assert_eq!(
+            confidence_for_file("aiwar_enrichment_grok_verified.cypher"),
+            0.95
+        );
+        assert_eq!(
+            confidence_for_file("aiwar_v43_corrections_evidence_review.cypher"),
+            0.95
+        );
+        assert_eq!(
+            confidence_for_file("aiwar_enrichment_epstein_v31_patch.cypher"),
+            0.60
+        );
+        assert_eq!(
+            confidence_for_file("aiwar_enrichment_epstein_v39_patch.cypher"),
+            0.60
+        );
+        assert_eq!(
+            confidence_for_file("aiwar_enrichment_v40_surveillance_ecosystem.cypher"),
+            0.70
+        );
+        assert_eq!(
+            confidence_for_file("aiwar_enrichment_v41_anduril_europe.cypher"),
+            0.70
+        );
+        assert_eq!(
+            confidence_for_file("aiwar_enrichment_v42_bilderberg_doepfner.cypher"),
+            0.70
+        );
         assert_eq!(confidence_for_file("aiwar_full.cypher"), 0.80);
         assert_eq!(confidence_for_file("aiwar_enriched.cypher"), 0.80);
     }
@@ -338,9 +357,18 @@ mod tests {
         assert_eq!(version_for_file("aiwar_full.cypher"), 0);
         assert_eq!(version_for_file("aiwar_enriched.cypher"), 1);
         assert_eq!(version_for_file("aiwar_enrichment_grok_verified.cypher"), 2);
-        assert_eq!(version_for_file("aiwar_enrichment_epstein_v31_patch.cypher"), 31);
-        assert_eq!(version_for_file("aiwar_enrichment_v40_surveillance_ecosystem.cypher"), 40);
-        assert_eq!(version_for_file("aiwar_v43_corrections_evidence_review.cypher"), 43);
+        assert_eq!(
+            version_for_file("aiwar_enrichment_epstein_v31_patch.cypher"),
+            31
+        );
+        assert_eq!(
+            version_for_file("aiwar_enrichment_v40_surveillance_ecosystem.cypher"),
+            40
+        );
+        assert_eq!(
+            version_for_file("aiwar_v43_corrections_evidence_review.cypher"),
+            43
+        );
     }
 
     #[test]
@@ -357,7 +385,8 @@ mod tests {
 
     #[test]
     fn test_parse_merge_node() {
-        let cypher = "MERGE (p:Person {id: 'Hegseth'}) SET p.name = 'Pete Hegseth', p.role = 'SecDef'";
+        let cypher =
+            "MERGE (p:Person {id: 'Hegseth'}) SET p.name = 'Pete Hegseth', p.role = 'SecDef'";
         let (nodes, _) = parse_cypher(cypher);
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].id, "Hegseth");
@@ -389,10 +418,16 @@ mod tests {
         let (_, edges) = parse_cypher(cypher);
         // The full-line regex should capture this
         let full_edges: Vec<_> = edges.iter().filter(|e| e.source == "Trump").collect();
-        assert!(!full_edges.is_empty(), "should parse MATCH-MATCH-MERGE pattern");
+        assert!(
+            !full_edges.is_empty(),
+            "should parse MATCH-MATCH-MERGE pattern"
+        );
         assert_eq!(full_edges[0].target, "Hegseth");
         assert_eq!(full_edges[0].rel_type, "PERSON_LINK");
-        assert_eq!(full_edges[0].properties.get("label").unwrap(), "appointed SecDef");
+        assert_eq!(
+            full_edges[0].properties.get("label").unwrap(),
+            "appointed SecDef"
+        );
     }
 
     #[test]
