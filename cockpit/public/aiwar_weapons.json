@@ -1,0 +1,512 @@
+[
+  {
+    "weapon": "Lattice",
+    "developed": "2025",
+    "usedBy": "US, Anduril",
+    "militaryPurpose": "\"Lattice accelerates complex kill chains by orchestrating machine-to-machine tasks at scales and speeds beyond human capacity\"; \"provides a way to link up and control different robots, sensors and other military equipment, a kind of operating system for war\"; combines with company's sensor towers, d",
+    "typeOfTech": "VR interface, computer vision, edge computing, natural language processing, autonomous data processing and analysis, \"detect, track, and classify\"",
+    "repurpose": "US Customs and Border Patrol",
+    "source": "Anduril",
+    "sourceType": "Corporate, Press"
+  },
+  {
+    "weapon": "Large Geospatial Models",
+    "developed": "2025",
+    "usedBy": "Niantic Labs",
+    "militaryPurpose": "(proposed)",
+    "typeOfTech": "Large generative model combined with 3D photogrammetry of public spaces for enhanced/predictive mapping capacities",
+    "repurpose": "Pokémon Go",
+    "source": "404 Media",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "Polygraph+",
+    "developed": "2024",
+    "usedBy": "US, Presage, Altec",
+    "militaryPurpose": "Credibility Assessment, updated polygraph, physiological tracking, biofeedback, AI analysis",
+    "typeOfTech": "\"standard consumer grade cameras for medical assessment\" \"research and clinical technologies that monitor biosignals\"",
+    "repurpose": "Interrogation, job interviews, \"vetting new hires, evaluating existing DoD personnel for access to classified information, assisting in determining source credibility, and supporting criminal investig",
+    "source": "DIU",
+    "sourceType": "Government"
+  },
+  {
+    "weapon": "Lavender",
+    "developed": "2023",
+    "usedBy": "Israel",
+    "militaryPurpose": "Creates kill lists. Ranks each person from 1-100 for their similarity to pre-existing targets, based on data found in WhatsApp groups, mobile phones, location targeting, network surveillance, face recognition, and other tracking techniques. collects \"Visual information, cellular information, social ",
+    "typeOfTech": "Ranking, classification, prediction, text analysis, image analysis",
+    "repurpose": "Works on similar principles to recommender systems: If you liked this reel, or behaved this way online, you are most like these other internet/mobile users. Uses the hypersurveillance of vast cyber in",
+    "source": "972 Mag",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "Where's Daddy",
+    "developed": "2023",
+    "usedBy": "Israel",
+    "militaryPurpose": "Determines when people are at home with their families in order to destroy them and their homes",
+    "typeOfTech": "Geolocation, computer vision (object detection), signal tracking",
+    "repurpose": "Package delivery, advertising, legal preceedings",
+    "source": "972 Mag",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "Legion X",
+    "developed": "2022",
+    "usedBy": "Israel, Elbit Systems",
+    "militaryPurpose": "Platform for identifying and targeting people carrying weapons or wearing uniforms, for controlling autonomous drone swarms, \"coordinated strike after human confirmation\"",
+    "typeOfTech": "Network, object identification, geolocation, weapon, pose estimation",
+    "repurpose": "Security, identify people in crowds, in shops",
+    "source": "Elbit Systems",
+    "sourceType": "Corporate"
+  },
+  {
+    "weapon": "Artificial Intelligence Platform (AIP)",
+    "developed": "2022",
+    "usedBy": "Palantir",
+    "militaryPurpose": "\"Artificial Intelligence Platform, which allows for the integration of large language models into the company's military products\" \"An Army of AI Agents that do what I say for me\"",
+    "typeOfTech": "Large language model, natural language processing, +",
+    "repurpose": "Supply chain management, contracts, infrastructure grid, \"LMNotebook\" dashboards",
+    "source": "Palantir",
+    "sourceType": "Corporate, Tenders, Video"
+  },
+  {
+    "weapon": "MetaConstellation",
+    "developed": "2022",
+    "usedBy": "Ukraine, Palantir, USA",
+    "militaryPurpose": "\"relies on intelligence gathered on enemy troop positions by commercial satellites, heat sensors and reconnaissance drones as well as spies working behind enemy lines and ordinary Ukrainians pin-pointing the locations of Russian troops on the country’s E-Enemy app. The software uses AI to transform ",
+    "typeOfTech": "Prediction, object detection, \"process imagery, detect, and geolocate objects, and determine any movement\"",
+    "repurpose": "\"monitor locations across the globe for indications of competitor activities\"",
+    "source": "Palantir",
+    "sourceType": "Corporate, Video"
+  },
+  {
+    "weapon": "Foundry",
+    "developed": "2022",
+    "usedBy": "Palantir, USA",
+    "militaryPurpose": "Data tools likely supporting Gotham and Palantir's other defense products",
+    "typeOfTech": "\"industry agnostic\" tools to create data structures and algorithms for combining and managing large amounts of information, with tools to perform data analysis and create applications.",
+    "repurpose": "Contracted by US Immigration and Customs Enforcement and other US government agencies to track migration and financial records, and also by UK NHS agencies to track pandemic health records",
+    "source": "Palantir",
+    "sourceType": "Academic, Press"
+  },
+  {
+    "weapon": "Clearview",
+    "developed": "2022",
+    "usedBy": "Ukraine, ClearviewAI",
+    "militaryPurpose": "Facial recognition to \"identify dead soldiers and to uncover Russian assailants and combat misinformation.\"",
+    "typeOfTech": "Facial recognition",
+    "repurpose": "Commercial/policing tool then used for warfare",
+    "source": "National Defense Magazine",
+    "sourceType": "Corporate, Video"
+  },
+  {
+    "weapon": "Wolly",
+    "developed": "2022",
+    "usedBy": "Ukraine, Roboneers, D3 (former Google employees, investors), Helsing (investors)",
+    "militaryPurpose": "Automated machine guns “We could sit in the trench drinking coffee and smoking cigarettes and shoot at the Russians”",
+    "typeOfTech": "Object identification, computer vision, repurposed video game controllers",
+    "repurpose": "Security systems, prisons, protests",
+    "source": "NYT",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "First-Person-View Drones",
+    "developed": "2022",
+    "usedBy": "Ukraine, Vyriy, PG Robotics, Skyeton, Swarmer, others",
+    "militaryPurpose": "Fully automated, weaponized drones, with automated targeting. Some can easily be built with hobby kit like materials.",
+    "typeOfTech": "Quads, computer vision, deep learning, classification and sorting algorithms",
+    "repurpose": "Personal drones, sports, already in use. Drones as local police first responders",
+    "source": "NYT",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "MAPLE",
+    "developed": "2022",
+    "usedBy": "United Kingdom",
+    "militaryPurpose": "Command and control platform for the UK Navy to control an automated fleet of unmanned air, ground, and water vehicles",
+    "typeOfTech": "Assign, task",
+    "repurpose": "Driver and delivery apps, logistics apps",
+    "source": "Breaking Defense",
+    "sourceType": "Corporate, Press"
+  },
+  {
+    "weapon": "Mantacus",
+    "developed": "2022",
+    "usedBy": "Mantacus, DIANA (NATO)",
+    "militaryPurpose": "AI software continuously scans and tracks people on CCTV for possible concealed weapons, using radar signals.",
+    "typeOfTech": "Signal analysis, object detection, classification",
+    "repurpose": "Private security, crowd control, covert surveillance",
+    "source": "Mantacus",
+    "sourceType": "Corporate"
+  },
+  {
+    "weapon": "The Alchemist",
+    "developed": "2021",
+    "usedBy": "Israel",
+    "militaryPurpose": "Sends real-time data to commanders in field about possible threats, using machine learning",
+    "typeOfTech": "Transmit, analyse",
+    "repurpose": "As-yet unknown",
+    "source": "Jerusalem Post",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "Project Nimbus",
+    "developed": "2021",
+    "usedBy": "Israel, Google, Amazon",
+    "militaryPurpose": "Provides cloud services (storage, compute) \"Nimbus is a flagship project and a key anchor in the implementation of the Israeli Government’s cloud policy, and is intended to provide a comprehensive and in-depth solution to the provision of public cloud services to the Government, the defense establis",
+    "typeOfTech": "Cloud compute and storage, edge computing",
+    "repurpose": "Cloud compute and storage, edge computing",
+    "source": "Tech Workers Coalition Newsletter",
+    "sourceType": "Press, Tenders"
+  },
+  {
+    "weapon": "Assault Rifle Combat Application System",
+    "developed": "2021",
+    "usedBy": "Israel, Elbit Systems",
+    "militaryPurpose": "a gunsight sold by the Israeli defense firm Elbit Systems. According to a company spec sheet, the “AI-powered” device is capable of “human target detection” at a range of more than 600 yards, and human target “identification” (presumably, discerning whether a person is someone who could be shot) at ",
+    "typeOfTech": "Pose estimation, object detection, AR",
+    "repurpose": "Video games: “We made it very intuitive so it looks like PlayStation’s Fortnite ; it shows range, wind and ammo left, etc.,” said Arie Chernobrov, general manager of Elbit Security Systems.",
+    "source": "Popular Science",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "Lethal autonomous weapons (LAW)",
+    "developed": "2021",
+    "usedBy": "Libya, Azerbaijan (US, Turkey, Israeli-made), Russia (aka Kub & Lancet)",
+    "militaryPurpose": "\"“loitering munitions” — drones that can autonomously patrol an area and automatically divebomb enemy radar signals. These weapons look like smaller versions of the remote-controlled drones that have been used extensively by the U.S. military in Iraq, Afghanistan and other conflicts. Instead of laun",
+    "typeOfTech": "Automated drones, hardware, geolocation",
+    "repurpose": "Consumer drones",
+    "source": "Washington Post",
+    "sourceType": "Government, Press"
+  },
+  {
+    "weapon": "Gotham",
+    "developed": "2021",
+    "usedBy": "USA, Palantir",
+    "militaryPurpose": "An \"AI-powered kill chain,\" this operating system identifies targets and pairs them with weapons. Its command center supports mixed reality and edge computing.",
+    "typeOfTech": "Sorting, identifying, data analysis, edge computing",
+    "repurpose": "Miscellaneous business to business applications, \"global project management\"",
+    "source": "Palantir",
+    "sourceType": "Corporate"
+  },
+  {
+    "weapon": "Joint Warfighting Cloud Capability, JEDI",
+    "developed": "2021",
+    "usedBy": "USA, Amazon, Microsoft, Google, Oracle, IBM",
+    "militaryPurpose": "Multi-cloud provider for military use, including Unclassified, Secret and Top Secret (2021, 2019)",
+    "typeOfTech": "Storage, compute (calculation), \"Commercial Cloud Enterprise\"",
+    "repurpose": "Cloud compute and storage, edge computing",
+    "source": "National Defense Magazine",
+    "sourceType": "Government, Press"
+  },
+  {
+    "weapon": "AI Verse",
+    "developed": "2021",
+    "usedBy": "DIANA (NATO), AI Verse",
+    "militaryPurpose": "Creates synthetic (generated) image datasets used for training AI to detect people, objects, and weapons",
+    "typeOfTech": "",
+    "repurpose": "",
+    "source": "",
+    "sourceType": "Corporate, Government"
+  },
+  {
+    "weapon": "The Gospel (Habsora)",
+    "developed": "2021",
+    "usedBy": "Israel",
+    "militaryPurpose": "Marks homes and public buildings as targets for destruction, for alleged military use, based on \"enormous amounts of data that “tens of thousands of intelligence officers could not process,” and recommends bombing sites in real time. Possible data includes: \"cell phone messages, satellite images, dr",
+    "typeOfTech": "Classification, data analysis, object recognition",
+    "repurpose": "Redlining, unequal or biased distribution of resources",
+    "source": "972 Mag",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "(Mobile) Fortify",
+    "developed": "2020",
+    "usedBy": "Corsight, Israel, US",
+    "militaryPurpose": "Israel's military tech division Unit 8200 uses this facial recognition technology, supplemented by Google Photos, to identify and detain people in Gaza. It runs in parallel to Israel's Blue Wolf program in the West Bank.",
+    "typeOfTech": "Facial recognition",
+    "repurpose": "US Immigration and Customs Enforcement (ICE) use Mobile Fortify app to indentify people using the nationwide IDENT biometric database (begun 1994, with data from customs, TSA, law enforcement, and els",
+    "source": "Corsight.AI",
+    "sourceType": "Corporate, Government, Press, NGO"
+  },
+  {
+    "weapon": "Fire Weaver",
+    "developed": "2020",
+    "usedBy": "Israel, Rafael",
+    "militaryPurpose": "Sensor-to-Shooter System. \"The system connects all battlefield elements in real time and instantly selects the most relevant shooter for each target – enabling comprehensive situational awareness and simultaneous, precision strikes. Collecting, filtering, and disseminating data from multiple sources",
+    "typeOfTech": "Analyzing, filtering, real-time data",
+    "repurpose": "As-yet unknown",
+    "source": "Rafael",
+    "sourceType": "Corporate, Press"
+  },
+  {
+    "weapon": "Fire Factory",
+    "developed": "2020",
+    "usedBy": "Israel, Rafael",
+    "militaryPurpose": "Calculates necessary bomb strength to destroy \"target\" and schedules aircraft to deliver it. \"uses data about military-approved targets to calculate munition loads, prioritize and assign thousands of targets to aircraft and drones, and propose a schedule.\"",
+    "typeOfTech": "Sorting, tasking, assign",
+    "repurpose": "As-yet unknown",
+    "source": "Bloomberg, Business Standard",
+    "sourceType": "Corporate, Press"
+  },
+  {
+    "weapon": "Vector",
+    "developed": "2020",
+    "usedBy": "DIANA (NATO), Quantum Systems",
+    "militaryPurpose": "Dual-use AI drone system (UAS)",
+    "typeOfTech": "Military surveillance, artillery fire, border patrol, mapping, and swarming",
+    "repurpose": "\"Public safety applications include search and rescue, disaster management, live situational awareness, law enforcement, disaster control, and area surveillance.\"",
+    "source": "Quantum Systems",
+    "sourceType": "Corporate, Government"
+  },
+  {
+    "weapon": "Dialect Recognition Software (DIAS)",
+    "developed": "2019",
+    "usedBy": "Germany",
+    "militaryPurpose": "Determines \"authenticity\" of migrants' claims to refugee status via computer voice analysis, used by the German Federal Asylum Agency. Claims to detect accent (\"language biometry\") despite high error rate.",
+    "typeOfTech": "Voice recognition, telephone audio datasets",
+    "repurpose": "Voice print for identification, verification, entry, and residency permit",
+    "source": "Algorithm Watch",
+    "sourceType": "Academic, NGO, Press"
+  },
+  {
+    "weapon": "Automated Facial Recognition System (AFRS)",
+    "developed": "2019",
+    "usedBy": "India",
+    "militaryPurpose": "Facial recognition used for missing children",
+    "typeOfTech": "Facial recognition",
+    "repurpose": "Repurposed for surveillance and crackdowns of peaceful protests",
+    "source": "Al Jazeera",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "Starshield, Starlink",
+    "developed": "2024, 2019",
+    "usedBy": "USA, Ukraine, SpaceX",
+    "militaryPurpose": "Swarming spy satellites, imaging, reconnaisance",
+    "typeOfTech": "Infrastructure",
+    "repurpose": "Commercially available internet access",
+    "source": "Reuters",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "Pantsir-SM",
+    "developed": "2019",
+    "usedBy": "Russia",
+    "militaryPurpose": "Modifications of existing air defense systems incorporate algorithms to orient, detect, and categorize targets by degree of danger, select a method for defense, \"then open fire without human intervention.\"",
+    "typeOfTech": "Classify, identify",
+    "repurpose": "As-yet unknown",
+    "source": "Hynek, Solovyeva (2022)",
+    "sourceType": "Academic"
+  },
+  {
+    "weapon": "Red Wolf",
+    "developed": "2018",
+    "usedBy": "Israel",
+    "militaryPurpose": "Monitors and controls people's movement using facial recognition, scanning all faces that pass through military checkpoints",
+    "typeOfTech": "Facial recognition, camera infrastructure",
+    "repurpose": "Dating apps, photo library search, local policing, traffic tickets (BBC), public event security",
+    "source": "Amnesty Int",
+    "sourceType": "NGO, Press"
+  },
+  {
+    "weapon": "Blue Wolf",
+    "developed": "2018",
+    "usedBy": "Israel",
+    "militaryPurpose": "Lets soldiers instantly access and add to face recognition human database (Wolf Pack) via app",
+    "typeOfTech": "App interface, facial recognition",
+    "repurpose": "Border patrol, security, restriction of movement",
+    "source": "Amnesty Int",
+    "sourceType": "NGO, Press"
+  },
+  {
+    "weapon": "Wolf Pack",
+    "developed": "2018",
+    "usedBy": "Israel",
+    "militaryPurpose": "\"Vast database containing all available information on Palestinians from the Occupied Palestinian Territories, including places of residence, family members and whether they are wanted for questioning by the Israeli authorities.\"",
+    "typeOfTech": "Database, data aggregation",
+    "repurpose": "Social credit systems, biased allocation of resources",
+    "source": "Amnesty Int",
+    "sourceType": "NGO, Press"
+  },
+  {
+    "weapon": "Mabat 2000",
+    "developed": "2018",
+    "usedBy": "Israel, TKH Security (Dutch), Hikvision (China)",
+    "militaryPurpose": "Infrastructure of surveillance cameras in occupied territories and illegally annexed areas that support the Wolf systems ~2 cameras every 5 meters",
+    "typeOfTech": "Cameras",
+    "repurpose": "Existing infrastructure to build AI systems on top of",
+    "source": "Amnesty Int",
+    "sourceType": "NGO, Press"
+  },
+  {
+    "weapon": "Urban Reconnaissance through Supervised Autonomy (URSA)",
+    "developed": "2018",
+    "usedBy": "USA",
+    "militaryPurpose": "\"enabled robots and drones to act as forward observers for platoons in urban operations. After input from the project's advisory group on ethical and legal issues, it was decided that the software would only ever designate people as \"persons of interest.\" \"DARPA program to enable improved techniques",
+    "typeOfTech": "Sorting, identifying, data analysis, behavior analysis",
+    "repurpose": "Suggested as drones to patrol cities",
+    "source": "DARPA",
+    "sourceType": "Government"
+  },
+  {
+    "weapon": "Sentry",
+    "developed": "2017",
+    "usedBy": "Anduril, USA, Israel",
+    "militaryPurpose": "\"Sentry Tower provides clear, long range surveillance of ground-based objects of interest day or night.\" \"Virtual border walls\"",
+    "typeOfTech": "Sensors, radar,Lidar, satellite signals, edge computing, AI analysis, infrastructure,",
+    "repurpose": "US Customs and Border Patrol",
+    "source": "LA Times",
+    "sourceType": "Corporate, Press"
+  },
+  {
+    "weapon": "TacNet",
+    "developed": "2017",
+    "usedBy": "Germany, Rheinmetall",
+    "militaryPurpose": "\"command and control application\" including digital  force deployment using AI to decide where and when to place troops. \"By analyzing geo data and the monitored situation on the battlefield, the system automatically provides positions to achieve the mission objective and to eliminate potential risk",
+    "typeOfTech": "Geolocation, object detection",
+    "repurpose": "Tasking and tracking gig workers",
+    "source": "Rheinmetall",
+    "sourceType": "Corporate"
+  },
+  {
+    "weapon": "Bylina",
+    "developed": "2017",
+    "usedBy": "Russia, Syria",
+    "militaryPurpose": "Reportedly tested in Ukraine and Syria, this system can independently evaluate the battlefield situation and calculate how to attack structures.",
+    "typeOfTech": "Info synthesis, predict, assign",
+    "repurpose": "As-yet unknown",
+    "source": "Penati and Nunes",
+    "sourceType": "Academic"
+  },
+  {
+    "weapon": "Maven Smart System",
+    "developed": "2017",
+    "usedBy": "USA, Google, Microsoft, Verizon, Facebook, Skype, YouTube, Apple, Yahoo, etc., later Palantir",
+    "militaryPurpose": "The results of the widely publicized PROJECT MAVEN, this platform automates target identification from satellite images, using AI image classification. Object detection from satellite images to destroy ground targets. \"a Pentagon program that developed target recognition algorithms for video footage",
+    "typeOfTech": "Object detection, computer vision, data processing",
+    "repurpose": "Mapping, location confirmation, surveillance",
+    "source": "MIT Tech Review",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "PackBot",
+    "developed": "2016",
+    "usedBy": "Arlington Capital Partners (iRobot)",
+    "militaryPurpose": "Search and rescue, and bomb disposal robot",
+    "typeOfTech": "Site mapping, sensors",
+    "repurpose": "Roomba",
+    "source": "New York Magazine",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "GIS Arta",
+    "developed": "2014",
+    "usedBy": "Ukraine",
+    "militaryPurpose": "Pairs a battlefield target to an artillery unit (\"like Uber rider to driver\"",
+    "typeOfTech": "Tasking, sorting",
+    "repurpose": "Driver and delivery apps, logistics apps",
+    "source": "MIT Tech Review",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "IrisGuard",
+    "developed": "2013",
+    "usedBy": "Jordan, UNHCR, IrisGuard Inc",
+    "militaryPurpose": "Iris scanning biometric hardware, software, and storage",
+    "typeOfTech": "Iris scanning biometric hardware, software, and storage",
+    "repurpose": "\"Blue-Collar Salary Assurance, Mobile Wallets, SIM Card Registration, Digital ID, Elections, Work Visa Validation, Notary Public, Document Delivery, Medical Education Exams, Electronic Medical Record,",
+    "source": "Ars Electronica",
+    "sourceType": "Academic, Press"
+  },
+  {
+    "weapon": "Skynet (US)",
+    "developed": "2012",
+    "usedBy": "USA",
+    "militaryPurpose": "\"uses phone location and call metadata from bulk phone call records to detect suspicious patterns in the physical movements of suspects and their communication habits, according to a 2012 government presentation The Intercept obtained from Edward Snowden. The presentation indicates that Skynet looks",
+    "typeOfTech": "Filtering, sorting, pattern matching",
+    "repurpose": "Leads to AI-DSS used above ^^",
+    "source": "WIRED",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "Robot Riot Control, Prison Guard",
+    "developed": "2011",
+    "usedBy": "China, South Korea",
+    "militaryPurpose": "\"3D depth cameras, a two-way wireless communication system, and software capable of recognizing certain human behavior patterns\"",
+    "typeOfTech": "Behavior pattern detection, motion tracking, pose detection",
+    "repurpose": "Private security robots (in use in US cities)",
+    "source": "PAX for Peace",
+    "sourceType": "Academic"
+  },
+  {
+    "weapon": "Pegasus",
+    "developed": "2011",
+    "usedBy": "Many countries",
+    "militaryPurpose": "Access mobile phones via spyware, targeted journalists, activists, dissidents, heads of state",
+    "typeOfTech": "Cyber weapon, spyware",
+    "repurpose": "Continued personal data surveillance",
+    "source": "Washington Post",
+    "sourceType": "Academic, Corporate, Press"
+  },
+  {
+    "weapon": "Sentry-Tech, Super Aegis III, Sentry Robot",
+    "developed": "2010",
+    "usedBy": "South Korea, Israel",
+    "militaryPurpose": "\"\"An automated gun turret that can be mounted with a 12.7 mm (.50 in) machine gun, automatic 40 mm grenade launcher, or portable surface-to-air missile. With a detection range of 2.2 km in total darkness, utilising IR thermal sensors, colour camera with 30x magnification, laser illuminator and laser",
+    "typeOfTech": "Optical sensors, thermal sensors, tracking, automated firing. Connected to gun turrets",
+    "repurpose": "Automatic security cameras and sensor activated tech",
+    "source": "Washington Post",
+    "sourceType": "Press"
+  },
+  {
+    "weapon": "PRISM/XKEYSCORE",
+    "developed": "2007",
+    "usedBy": "USA, Google, Microsoft, Verizon, Facebook, Skype, YouTube, Apple, Yahoo, etc.",
+    "militaryPurpose": "Used the US Foreign Intelligence Surveillance Act to collect and store massive amounts of internet data on citizens",
+    "typeOfTech": "Storage, data collection",
+    "repurpose": "Common data privacy breaches and personal surveillance in collaboration with private companies",
+    "source": "Washington Post",
+    "sourceType": "Government, Press"
+  },
+  {
+    "weapon": "DynaSpeak",
+    "developed": "2006",
+    "usedBy": "SRI, USA",
+    "militaryPurpose": "Speech recognition engine, used in IraqComm speech translation system, provides speech-to-speech machine translation of English–Arabic for US forces in Iraq.",
+    "typeOfTech": "Speech recognition, speech synthesis, machine translation \"trained to handle topics of tactical importance\"",
+    "repurpose": "They also offer the EduSpeak toolkit for developers of second-language learning tools.",
+    "source": "Sobh et al",
+    "sourceType": "Academic, Corporate"
+  },
+  {
+    "weapon": "CALO (Cognitive Agent that Learns and Organizes)",
+    "developed": "2003-2014",
+    "usedBy": "USA (DARPA), SRI, Swiss Institute of Technology",
+    "militaryPurpose": "Automates tasks, predicts and takes action on behalf of field commanders",
+    "typeOfTech": "Agent, natural language processing, voice regonition, voice synthesis, classification, clustering, information extraction, document classification, sorting, annotating text, entity extraction, semantic extraction",
+    "repurpose": "Siri (Apple) digital assistant",
+    "source": "Finn. What Algorithms Want. & pal.sri.com",
+    "sourceType": "Academic, Corporate"
+  },
+  {
+    "weapon": "Golden Shield",
+    "developed": "2003",
+    "usedBy": "China",
+    "militaryPurpose": "This part of China's widespread surveillance network combines detects, logs, and blocks online activities deemed illegal or sensitive, using AI to recognize patterns of “undesired” behavior in digital traffic.",
+    "typeOfTech": "Data collection and analysis",
+    "repurpose": "Commercial data mining",
+    "source": "Georgetown CSET",
+    "sourceType": "Academic"
+  },
+  {
+    "weapon": "Skynet (PRC), SharpEyes",
+    "developed": "2003",
+    "usedBy": "China",
+    "militaryPurpose": "\"The eyes that safeguard China\" is a network of 600 million surveillance cameras or one camera for every two adults, plus the social incentives built in to view and report on footage. As AI technologies have improved, the system has increased predictive policing and the databases it references. The ",
+    "typeOfTech": "Cameras, social incentives, reporting, predictive policing, databases",
+    "repurpose": "Used against Hong Kong protestors (2019); Proposed use as lunar surveillance (2024)",
+    "source": "Georgetown CSET",
+    "sourceType": "Academic"
+  }
+]

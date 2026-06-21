@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/*",
+    "crates/stubs/*",
     "crates/experiments/reconcile-viewer",
 ]
 default-members = ["crates/*", "crates/experiments/reconcile-viewer"]
@@ -180,6 +181,69 @@ path = "./crates/quarto-trace"
 
 [workspace.dependencies.quarto-trace-server]
 path = "./crates/quarto-trace-server"
+
+# ── AdaWorldAPI q2 fork additions: graph-notebook + Gotham GUI ──
+# Re-applied onto fresh upstream after the no-shared-history resync
+# (claude/q2-upstream-replant). Consumed by our additive crates
+# (cockpit-server, stubs/*, aiwar-ingest, neural-debug). Per
+# .claude/rules/architectural-compliance.md the lance-graph deps are the
+# REAL ../lance-graph/crates/* (sibling repo), never substitutes.
+[workspace.dependencies.notebook-query]
+path = "./crates/stubs/notebook-query"
+
+[workspace.dependencies.lance-graph]
+path = "../lance-graph/crates/lance-graph"
+default-features = false
+# ndarray-hpc required: lance-graph's vector_ops/fingerprint/hydrate call
+# ndarray::hpc::* unconditionally, so the feature must be on even with
+# default-features off.
+features = ["ndarray-hpc"]
+
+[workspace.dependencies.lance-graph-planner]
+path = "../lance-graph/crates/lance-graph-planner"
+
+[workspace.dependencies.bgz17]
+path = "../lance-graph/crates/bgz17"
+
+[workspace.dependencies.thinking-engine]
+path = "../lance-graph/crates/thinking-engine"
+
+[workspace.dependencies.cognitive-shader-driver]
+path = "../lance-graph/crates/cognitive-shader-driver"
+
+[workspace.dependencies.lance-graph-contract]
+path = "../lance-graph/crates/lance-graph-contract"
+
+[workspace.dependencies.causal-edge]
+path = "../lance-graph/crates/causal-edge"
+
+[workspace.dependencies.graph-flow]
+path = "./crates/stubs/graph-flow"
+
+[workspace.dependencies.q2-ndarray]
+path = "./crates/stubs/q2-ndarray"
+
+[workspace.dependencies.axum]
+version = "0.7"
+features = ["ws"]
+
+[workspace.dependencies.tower-http]
+version = "0.5"
+features = ["fs", "cors"]
+
+[workspace.dependencies.async-stream]
+version = "0.3"
+
+[workspace.dependencies.futures-core]
+version = "0.3"
+
+# deno JS runtime — cockpit-server executes .qmd JS/TS cells via deno_core.
+# Upstream carries no deno dependency, so these are conflict-free additions.
+[workspace.dependencies.deno_core]
+version = "0.376"
+
+[workspace.dependencies.serde_v8]
+version = "0.285"
 
 [workspace.lints.rust]
 # coverage_nightly is used by pampa for code coverage instrumentation on nightly Rust

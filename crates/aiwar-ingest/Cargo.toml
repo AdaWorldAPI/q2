@@ -1,0 +1,20 @@
+[package]
+name = "aiwar-ingest"
+version.workspace = true
+edition.workspace = true
+description = "Ingest aiwar-neo4j-harvest data (/data JSON + /cypher enrichment rounds) into the lance-graph engine's property-graph model"
+
+[dependencies]
+# Engine-agnostic ingest layer: parses the harvest data into a plain property
+# graph. The graph API/engine is lance-graph (used by the consumers:
+# cockpit-server::graph_engine for render, notebook-query for Cypher/DataFusion).
+# `neo4j-rs` was a Neo4j-flavored GUI experiment and is intentionally NOT used —
+# presentation is the cockpit vis layer; the API is lance-graph.
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
