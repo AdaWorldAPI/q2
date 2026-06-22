@@ -269,14 +269,14 @@ click-to-edit on slides; attribution on slides.
       `70f5cb4c`).
 - [x] `ReactRenderer`: route revealjs (+ q2-preview) → `Q2PreviewIframe` with
       `themeFingerprint` (commit `70f5cb4c`).
-- [ ] **Port cursor→slide sync** (`currentSlideIndex`/`onSlideChange`) onto the
-      iframe path — confirmed regressed: the q2-preview branch does not forward
-      these to `Q2PreviewIframe`. Needs a postMessage channel through
-      `Q2PreviewIframe`/`entry`/`PreviewRoot`/`RevealDeck`.
-- [ ] Remove `RevealjsSlideAst` + reveal branch of `ReactAstSlideRenderer` + the
-      hub-client `white.css` import once nothing references them.
-- [ ] File follow-up strands: reveal menu in iframe; revealjs thumbnails;
-      click-to-edit on slides; attribution on slides.
+- [→] **Port cursor→slide sync** — confirmed regressed; split out to **bd-mwbsdmel**
+      (P1 bug, discovered-from this). 5-file postMessage channel across two
+      packages, hard to e2e-verify via DevTools. Retiring `RevealjsSlideAst`
+      lands with it (deck is dead in the path but kept until slide-nav is
+      restored so no released state loses the feature).
+- [→] Reveal menu / thumbnails / click-to-edit / attribution on the shared
+      path → **bd-ktuojk26** (P2 task, discovered-from this).
+- [x] Filed follow-up strands (bd-mwbsdmel, bd-ktuojk26).
 
 ### Phase 3 — Verify end-to-end
 - [ ] `cd hub-client && npm run build:all` + `npm run test:ci`.
