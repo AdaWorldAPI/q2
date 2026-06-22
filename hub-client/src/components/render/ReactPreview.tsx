@@ -642,13 +642,26 @@ export default function ReactPreview({
     doRenderWithStateManagement(newContent, documentPath);
   }, [doRenderWithStateManagement]);
 
-  // Re-render when content changes, scroll sync is toggled, or a new
-  // attribution payload arrives.
+  // Re-render when the active page's content changes, a sibling file's
+  // content changes, scroll sync is toggled, or a new attribution payload
+  // arrives.
+  //
+  // `fileContents` (bd-4jjckvwt) gets a fresh Map identity on every
+  // Automerge edit (App.tsx), so depending on it makes a sibling edit —
+  // most importantly `_brand.yml` / `_quarto.yml` / `_metadata.yml`
+  // arriving via sync — re-render the active document. Without it, a
+  // brand/theme change underneath the deck never recompiled the theme CSS
+  // until a manual reload. This matches the HTML path's effect in
+  // `Preview.tsx` (Phase 9 Decision 6). `updatePreview` here is
+  // debounce-free, but `doRenderWithStateManagement`'s `lastContentRef`
+  // guard discards stale in-flight results, so a burst settles on the
+  // latest content.
   useEffect(() => {
     // Pass document path as-is from Automerge (e.g., "index.qmd" or "docs/index.qmd").
     updatePreview(content, currentFile?.path);
   }, [
     content,
+    fileContents,
     updatePreview,
     scrollSyncEnabled,
     currentFile?.path,
