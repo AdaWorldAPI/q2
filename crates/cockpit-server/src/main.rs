@@ -48,6 +48,20 @@ use include_dir::{include_dir, Dir};
 #[cfg(feature = "embed-cockpit")]
 static COCKPIT_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../cockpit/dist");
 
+/// Pre-baked enriched OSINT SoA wire buffer (`osint_gotham::osint_soa_bytes`,
+/// baked offline via the `bake_osint_soa` test). Served at `/osint.soa` and
+/// decoded to a 3D scene client-side — no cypher at runtime, no JSON.
+static OSINT_SOA: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/osint_scene.soa"));
+
+/// Serve the pre-baked OSINT SoA as raw bytes (octet-stream) for `/osint3d`.
+async fn osint_soa_handler() -> impl axum::response::IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        OSINT_SOA,
+    )
+}
+
 // ── Application state ────────────────────────────────────────────────────────
 
 struct AppState {
@@ -157,6 +171,9 @@ async fn main() {
         // OSINT domain (classid 0x0700): the harvest as a CANON family-basin graph
         // (round→anchor basins, GUID-v2 tail), displayed via the OGAR ClassView.
         .route("/api/graph/osint", get(osint_gotham::osint_graph_handler))
+        // Pre-baked enriched OSINT SoA bytes — the 3D view (/osint3d) fetches
+        // these and decodes each GUID → xyz client-side (no JSON).
+        .route("/osint.soa", get(osint_soa_handler))
         // Health
         .route("/health", get(health_handler));
 

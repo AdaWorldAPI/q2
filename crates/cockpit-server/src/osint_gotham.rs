@@ -568,6 +568,127 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
     }
 }
 
+// ── SoA binary wire format (no JSON; the bits feed the render) ──────────────
+//
+// Little-endian: `magic b"OSO1"(4) | node_count u32 | edge_count u32`, then
+//   node_count × [ guid: 16 B | class: u8 ]        (17 B/node)
+//   edge_count × [ src: u16 | tgt: u16 | rel: u8 ] (5 B/edge)
+// The client decodes each 16-byte GUID → xyz (the `position()` logic ported to
+// JS); `class` drives colour; edges are u16 indices into the node array.
+
+/// Magic header for the OSINT SoA wire buffer.
+pub const OSINT_SOA_MAGIC: [u8; 4] = *b"OSO1";
+/// Class sentinel marking a basin / family hub node.
+const SOA_HUB_CLASS: u8 = 0xFF;
+
+/// Edge-type → 1-byte code (the client colours by this).
+fn rel_code(label: &str) -> u8 {
+    match label {
+        "member-of" => 0,
+        "interfaces" => 1,
+        "CONNECTED_TO" => 2,
+        "DEVELOPED_BY" => 3,
+        "DEPLOYED_BY" => 4,
+        "PERSON_LINK" => 5,
+        "USED_IN" => 6,
+        "HIERARCHICAL" => 7,
+        "VALID_FOR" => 8,
+        _ => 9,
+    }
+}
+
+fn push_edge(buf: &mut Vec<u8>, s: usize, t: usize, rel: u8) {
+    buf.extend_from_slice(&(s as u16).to_le_bytes());
+    buf.extend_from_slice(&(t as u16).to_le_bytes());
+    buf.push(rel);
+}
+
+/// Serialize the enriched CAM SoA scene to the binary wire format above: node
+/// GUIDs (decoded to xyz on the client) + class byte, then the typed link chart
+/// and the member-of / interface structure as u16 index pairs. Members occupy
+/// indices `0..N`; one basin/family hub follows per distinct basin.
+pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8> {
+    let plan = plan_basins(graph, rounds);
+    let rows = osint_node_rows(graph, &plan);
+    let n_members = rows.len();
+
+    let mut basins: Vec<u8> = rows
+        .iter()
+        .map(|r| (r.key.family_v2() & 0xFF) as u8)
+        .collect::<std::collections::BTreeSet<u8>>()
+        .into_iter()
+        .collect();
+    basins.sort_unstable();
+    let hub_index: HashMap<u8, usize> = basins
+        .iter()
+        .enumerate()
+        .map(|(k, &b)| (b, n_members + k))
+        .collect();
+    let node_count = n_members + basins.len();
+
+    let mut nodes: Vec<u8> = Vec::with_capacity(node_count * 17);
+    for r in &rows {
+        nodes.extend_from_slice(r.key.as_bytes());
+        nodes.push(r.value[CLASS_ORDER_TENANT]);
+    }
+    for &b in &basins {
+        let hub = NodeGuid::new_v2(
+            NodeGuid::CLASSID_OSINT,
+            u16::from(b >> 4),
+            u16::from(b & 0x0F),
+            0,
+            0,
+            u16::from(b),
+            0,
+        );
+        nodes.extend_from_slice(hub.as_bytes());
+        nodes.push(SOA_HUB_CLASS);
+    }
+
+    let idx_of: HashMap<&str, usize> = graph
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.id.as_str(), i))
+        .collect();
+    let mut edges: Vec<u8> = Vec::new();
+    for e in &graph.edges {
+        if let (Some(&s), Some(&t)) =
+            (idx_of.get(e.source.as_str()), idx_of.get(e.target.as_str()))
+        {
+            push_edge(&mut edges, s, t, rel_code(&e.rel_type));
+        }
+    }
+    for (i, r) in rows.iter().enumerate() {
+        let basin = (r.key.family_v2() & 0xFF) as u8;
+        if let Some(&h) = hub_index.get(&basin) {
+            push_edge(&mut edges, i, h, rel_code("member-of"));
+        }
+        let ifaces: std::collections::BTreeSet<u8> = r
+            .edges
+            .in_family
+            .iter()
+            .chain(r.edges.out_family.iter())
+            .copied()
+            .filter(|&b| b != 0 && b != basin)
+            .collect();
+        for b in ifaces {
+            if let Some(&h) = hub_index.get(&b) {
+                push_edge(&mut edges, i, h, rel_code("interfaces"));
+            }
+        }
+    }
+    let edge_count = edges.len() / 5;
+
+    let mut out = Vec::with_capacity(12 + nodes.len() + edges.len());
+    out.extend_from_slice(&OSINT_SOA_MAGIC);
+    out.extend_from_slice(&(node_count as u32).to_le_bytes());
+    out.extend_from_slice(&(edge_count as u32).to_le_bytes());
+    out.extend_from_slice(&nodes);
+    out.extend_from_slice(&edges);
+    out
+}
+
 /// Hydrate the OSINT/Gotham live snapshot from aiwar data (base graph + cypher
 /// enrichment rounds when the sibling `cypher/` dir is present next to
 /// `data/aiwar_graph.json`).
@@ -973,5 +1094,62 @@ mod tests {
         eprintln!("══════════════════════════════════════════════\n");
 
         assert!(g.node_count() > 221, "enrichment grew the graph past base");
+    }
+
+    /// One-shot BAKE: pre-enrich the CAM SoA scene to the BINARY wire buffer
+    /// (`assets/osint_scene.soa`) so the deploy serves the full enriched view as
+    /// raw SoA bytes — no cypher at runtime, no JSON. The cypher harvest is used
+    /// only here, at bake time. Ignored; run once after enrichment changes:
+    /// `cargo test -p cockpit-server --bin q2-cockpit -- --ignored --nocapture bake_osint_soa`
+    #[test]
+    #[ignore = "bakes assets/osint_scene.soa from the on-disk harvest; run once"]
+    fn bake_osint_soa() {
+        let base_candidates = [
+            "/home/user/aiwar-neo4j-harvest/data/aiwar_graph.json",
+            "cockpit/public/aiwar_graph.json",
+            "../../cockpit/public/aiwar_graph.json",
+        ];
+        let Some(path) = base_candidates.iter().find(|p| Path::new(p).exists()) else {
+            eprintln!("harvest not found; cannot bake");
+            return;
+        };
+        let cypher_dir = Path::new(path)
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|r| r.join("cypher"));
+        let graph = match &cypher_dir {
+            Some(d) if d.is_dir() => {
+                aiwar_ingest::load_with_enrichment(path, d).expect("load+enrich")
+            }
+            _ => aiwar_ingest::load_from_file(path).expect("load base"),
+        };
+        let rounds = cypher_dir
+            .as_ref()
+            .and_then(|d| load_encounter_rounds(d).ok())
+            .unwrap_or_default();
+        let bytes = osint_soa_bytes(&graph, &rounds);
+        let dir = format!("{}/assets", env!("CARGO_MANIFEST_DIR"));
+        std::fs::create_dir_all(&dir).expect("mkdir assets");
+        let out = format!("{dir}/osint_scene.soa");
+        std::fs::write(&out, &bytes).expect("write osint_scene.soa");
+        let nodes = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let edges = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+        eprintln!(
+            "baked {out} → {nodes} nodes, {edges} edges, {} bytes",
+            bytes.len()
+        );
+        assert!(bytes.len() > 12 && nodes > 221, "baked the enriched SoA");
+    }
+
+    #[test]
+    fn soa_bytes_have_a_parseable_header() {
+        let g = sample();
+        let bytes = osint_soa_bytes(&g, &[]);
+        assert_eq!(&bytes[0..4], &OSINT_SOA_MAGIC);
+        let nodes = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
+        let edges = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+        // members + at least one basin hub; size matches the fixed records.
+        assert!(nodes > g.node_count());
+        assert_eq!(bytes.len(), 12 + nodes * 17 + edges * 5);
     }
 }

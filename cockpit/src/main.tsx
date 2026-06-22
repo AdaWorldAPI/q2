@@ -5,6 +5,7 @@ import { DemoApp } from './DemoApp';
 import { PalantirApp } from './PalantirApp';
 import { NeuralDebuggerPage } from './NeuralDebuggerPage';
 import { RenderPage, OrbitPage, FlightPage } from './RenderPage';
+import { OsintScene3D } from './OsintScene3D';
 import { ReasoningPage } from './ReasoningPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/cockpit.css';
@@ -67,6 +68,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/render" element={<RenderPage />} />
           <Route path="/orbit" element={<OrbitPage />} />
           <Route path="/flight" element={<FlightPage />} />
+          <Route path="/osint3d" element={<OsintScene3D />} />
           <Route path="/*" element={<PalantirApp />} />
         </Routes>
       </BrowserRouter>
