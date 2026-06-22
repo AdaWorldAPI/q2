@@ -284,6 +284,28 @@ Findings so far:
       selector (`section > .r-stretch`) misses it, and the preview doesn't run
       the global `window.Reveal` layout the way native render does.
 
+**Preview reveal-sizing fix (follow-up bd-xfw2omlt, now DONE):** RawBlock.tsx
+mirrors a root-level `r-stretch` onto its wrapper `<div>` (so reveal stretches
+the wrapper that React's `dangerouslySetInnerHTML` forces), and a
+`quarto-reveal.css` rule `.reveal .slides section > div.r-stretch > iframe { … }`
+makes the iframe fill it. TDD: `RawBlock.test.tsx`. Verified in the browser via
+the real `q2 preview` binary — slides-preview video now 778×452 (was 222×111).
+456 unit + 484 integration preview-renderer tests pass.
+
+**hub-client end-to-end verification (real product).** Ran the local stack —
+`q2 hub --no-project` (port 3000, anonymous: auth is opt-in via
+`--oidc-client-id`) + `npm run dev:fresh` (build shows commit `82dbb636`) — and
+drove it via Chrome DevTools: created a project, added a `format: revealjs`
+`slides.qmd` with `{{< video … >}}`. Observed in the live editor's preview pane:
+the video embeds as a YouTube `<iframe>` (Phase 1 fix) AND, on the active
+"Video" slide, auto-stretches to fill it (678×394; wrapper carries `r-stretch`,
+reveal sets `height:700px; width:1050px`). Note: reveal switches between
+**scroll view** (narrow/tall pane → r-stretch wrapper collapses to height 0)
+and **classic slide view** (wider pane → stretches correctly) based on pane
+size. Verified in classic mode. The scroll-view r-stretch-collapse is a
+reveal-scroll-mode trait, not specific to this fix — worth a separate look if
+scroll view becomes the hub-client default.
+
 **Scope outcome:** both originally-reported issues are fixed and verified —
 (1) preview/hub-client video was a plain link → now an embedded iframe;
 (2) `q2 render` revealjs video was tiny → now stretched (778×414). The
