@@ -80,6 +80,42 @@ Five non-coincidences:
 5. **Blender Geometry Nodes is literally typed-nodes + edges → geometry** — the
    substrate running in production.
 
+## Nodes + edges ARE a 3D representation (the GUID is a coordinate)
+
+The decisive reframe: the GUID is not a serial id, it is a **3D coordinate**.
+`position(&NodeGuid) -> [f32;3]` is a pure decode (no force-layout pass):
+`family` (basin) picks the region, `identity` places the node on a Vogel/φ-spiral
+disc inside it (the helix sub-position), `HEEL` (theme) lifts it on y. So:
+
+- a node is a **point**; an edge is a **3D line**; a family mixin is a **spatial
+  neighbour** (the EdgeBlock is the kNN you'd otherwise build a kd-tree for).
+- the helix is the **embedding**, not just a cache order.
+- OSINT graph, CAD model, splat scene are the **same 3D scene at the same
+  addresses** — only the value tenant (the payload at each coordinate) differs.
+
+Implemented in `osint_gotham::{position, basin_center}`; `/api/graph/osint`
+emits `x/y/z` on every node (members + basin hubs). Octree/Morton refinement of
+the decode is the natural next step (HHTL tiers = octree LOD path).
+
+## Edge storage: EdgeBlock + HHTL-prefix closure (not closure tables)
+
+Prior art for typed directed edges + reachability — `opf/typed_dag`,
+`NUARIG/dagnabit`, `jgnagy/connected`, `jackc/edge`, Gremlin traversals — all
+solve the same problem with **SQL closure tables** (precomputed
+ancestors/descendants) or a traversal VM. The substrate answers structurally:
+
+| these do | substrate |
+|---|---|
+| typed edge rows | `EdgeBlock` (16×8bit typed mixins) |
+| SQL closure tables | **HHTL prefix** = O(1) structural reachability/containment |
+| edge-type column | `classid` domain |
+| Gremlin `g.V().out()` traversal | EdgeBlock walk / HHTL descent |
+
+Note: `opf/typed_dag` is **OpenProject's** — already reserved as
+`CLASSID_PROJECT = 0x0100` ("OpenProject ↔ Redmine") in `canonical_node.rs`. So
+project-management DAGs are instantiation #2 waiting on the same node, not a
+new graft.
+
 ## Instantiation #1 — OSINT / Gotham (current, measured)
 
 aiwar-neo4j-harvest: base 221 + 30 cypher enrichment rounds.

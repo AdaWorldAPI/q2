@@ -90,6 +90,41 @@ fn label_of_order(order: u8) -> &'static str {
     OSINT_SCHEMA.get(order as usize).copied().unwrap_or("Other")
 }
 
+/// Golden angle (radians) — the φ-spiral / Vogel constant.
+const GOLDEN_ANGLE: f32 = 2.399_963_2;
+
+/// Basin cluster centre in 3D: basins spread on a golden-angle spiral so each
+/// compartment is its own region of space. This is the coarse tier of the
+/// address→coordinate decode (the HHTL `family` byte → a region).
+fn basin_center(basin: u8) -> [f32; 3] {
+    let b = basin as f32;
+    let r = 40.0 * (b + 1.0).sqrt();
+    let a = b * GOLDEN_ANGLE;
+    [r * a.cos(), 0.0, r * a.sin()]
+}
+
+/// **The GUID is a 3D coordinate.** Decode a node address to `[x,y,z]` — no
+/// separate layout pass: `family` (basin) picks the region (coarse octree-ish
+/// tier), `identity` places the node on a Vogel/φ-spiral disc inside it (the
+/// helix sub-position), and `HEEL` (theme) lifts it on the y axis. Nodes are
+/// points, edges are 3D lines, family mixins are spatial neighbours — the same
+/// decode that would place a CAD primitive or a Gaussian splat.
+fn position(key: &NodeGuid) -> [f32; 3] {
+    let c = basin_center((key.family_v2() & 0xFF) as u8);
+    let id = key.identity_v2() as f32;
+    let r = 6.0 * (id + 1.0).sqrt();
+    let a = id * GOLDEN_ANGLE;
+    let y = key.heel() as f32 * 0.5;
+    [c[0] + r * a.cos(), c[1] + y, c[2] + r * a.sin()]
+}
+
+/// Insert decoded `x`/`y`/`z` into a node's property bag (the 3D-scene emit).
+fn insert_xyz(props: &mut HashMap<String, Value>, p: [f32; 3]) {
+    props.insert("x".to_string(), Value::from(p[0] as f64));
+    props.insert("y".to_string(), Value::from(p[1] as f64));
+    props.insert("z".to_string(), Value::from(p[2] as f64));
+}
+
 /// The OSINT/Gotham live snapshot — a parallel buffer to
 /// [`graph_engine::live_graph`](crate::graph_engine::live_graph) holding the
 /// classid-`0x0700` family-basin projection.
@@ -402,6 +437,7 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
             props.insert("anchor".to_string(), Value::String(a));
         }
         props.insert("hub".to_string(), Value::Bool(true));
+        insert_xyz(&mut props, basin_center(b)); // hub sits at its basin's 3D centre
         nodes.push(GraphNode {
             id: format!("basin:{b:02x}"),
             label,
@@ -437,6 +473,8 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
             "display_class_fields".to_string(),
             Value::from(class_view.field_count(osint_class)),
         );
+        // the GUID decodes to a 3D coordinate — node = point in space.
+        insert_xyz(&mut props, position(&r.key));
         nodes.push(GraphNode {
             id: format!("osint:{}", r.key.identity_v2()),
             label: src.label.clone(),
@@ -720,6 +758,37 @@ mod tests {
             .iter()
             .filter(|n| n.node_type != "Basin")
             .all(|n| n.properties.contains_key("display_class_fields")));
+    }
+
+    #[test]
+    fn guid_decodes_to_a_3d_position() {
+        let g = sample();
+        let plan = plan_basins(&g, &[]);
+        let rows = osint_node_rows(&g, &plan);
+
+        // deterministic: the address alone fixes the coordinate (no layout pass).
+        assert_eq!(position(&rows[0].key), position(&rows[0].key));
+
+        // every address decodes to a DISTINCT point.
+        let pts: std::collections::BTreeSet<[u32; 3]> = rows
+            .iter()
+            .map(|r| {
+                let p = position(&r.key);
+                [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()]
+            })
+            .collect();
+        assert_eq!(pts.len(), rows.len(), "distinct addresses → distinct points");
+
+        // distinct basins occupy distinct regions of space.
+        assert_ne!(basin_center(1), basin_center(2));
+
+        // the projection emits x/y/z on every node — members AND basin hubs.
+        let snap = build_osint_gotham(&g, &[]);
+        assert!(snap.nodes.iter().all(|n| {
+            n.properties.contains_key("x")
+                && n.properties.contains_key("y")
+                && n.properties.contains_key("z")
+        }));
     }
 
     /// One-shot evaluation harness over the REAL aiwar harvest (base 221 + 30
