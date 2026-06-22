@@ -269,24 +269,30 @@ click-to-edit on slides; attribution on slides.
       `70f5cb4c`).
 - [x] `ReactRenderer`: route revealjs (+ q2-preview) → `Q2PreviewIframe` with
       `themeFingerprint` (commit `70f5cb4c`).
-- [→] **Port cursor→slide sync** — confirmed regressed; split out to **bd-mwbsdmel**
-      (P1 bug, discovered-from this). 5-file postMessage channel across two
-      packages, hard to e2e-verify via DevTools. Retiring `RevealjsSlideAst`
-      lands with it (deck is dead in the path but kept until slide-nav is
-      restored so no released state loses the feature).
+- [x] **Port cursor→slide sync** (bd-mwbsdmel) — DONE (commit `5b45e8be`).
+      Imperative two-way channel: `RevealNavSync` (useReveal escape-hatch) ↔
+      `SET_SLIDE`/`SLIDE_CHANGED` postMessage, deduped/echo-guarded. Browser-
+      verified inbound (SET_SLIDE moves `.present`); both directions unit-tested.
+- [x] Removed `RevealjsSlideAst` + its `white.css` import + the dead reveal
+      branch in `ReactRenderer` (commit `5b45e8be`). Generic `q2-slides` keeps
+      `SlideAst`.
 - [→] Reveal menu / thumbnails / click-to-edit / attribution on the shared
-      path → **bd-ktuojk26** (P2 task, discovered-from this).
-- [x] Filed follow-up strands (bd-mwbsdmel, bd-ktuojk26).
+      path → **bd-ktuojk26** (P2 task, discovered-from this). Out of scope here.
+- [x] Filed follow-up strands (bd-mwbsdmel [done], bd-ktuojk26 [open]).
 
 ### Phase 3 — Verify end-to-end
-- [ ] `cd hub-client && npm run build:all` + `npm run test:ci`.
-- [ ] Rebuild WASM if any Rust signature crossed (`npm run build:wasm`); core fix
-      expects **no** Rust change — confirm.
-- [ ] Browser check on running hub-client (share-link project): `<h2>`
-      `text-transform: none`, slides left-aligned, compiled theme applied —
-      record computed styles, same method as the live confirmation above.
-- [ ] Confirm cursor→slide nav still works in the editor.
-- [ ] Cross-check against `q2 preview` of the same deck for visual parity.
+- [x] Browser check (share-link project): `<h2>` `text-transform: none`, slides
+      `text-align: left`, top-aligned section, hand-rolled deck gone, rendered in
+      the shared iframe. Screenshot captured.
+- [x] No Rust change — pure TS (hub-client bundles ts-packages from source). WASM
+      untouched.
+- [x] `tsc -b` clean; hub-client 614 unit + 74 integration; preview-renderer 453
+      unit + 484 integration; hub-client `vite build` (production) clean;
+      preview-renderer `tsc` (dist) clean.
+- [x] Slide-nav verified in-browser (SET_SLIDE moves the deck) + unit-tested.
+- [ ] `npm run test:wasm` not run (no Rust/WASM change). `cargo xtask verify`
+      likewise unneeded for the core fix; run before final push if desired.
+- [ ] Optional: side-by-side visual cross-check vs `q2 preview` of the same deck.
 
 ## References
 - `650cbddc` fix(revealjs): apply the document's compiled reveal theme in q2
