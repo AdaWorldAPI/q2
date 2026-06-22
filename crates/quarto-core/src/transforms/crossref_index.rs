@@ -366,16 +366,29 @@ fn extract_caption_inlines(node: &CustomNode) -> Option<quarto_pandoc_types::inl
     None
 }
 
+/// Build the `Q-15-1` diagnostic for a crossref id defined more than
+/// once (bd-rr6qzcvu).
+///
+/// `first` is the occurrence already in the index; `second` is the
+/// duplicate the indexer is about to skip. The primary location points
+/// at `second` (the duplicate the user just added); a located detail
+/// points back at `first`, so the renderer underlines both sites.
 fn duplicate_id_diagnostic(
     id: &str,
-    _first: &quarto_source_map::SourceInfo,
-    _second: &quarto_source_map::SourceInfo,
+    first: &quarto_source_map::SourceInfo,
+    second: &quarto_source_map::SourceInfo,
 ) -> DiagnosticMessage {
-    // SourceInfo attachment to DiagnosticMessage would let ariadne render
-    // both occurrences; plumb that through when the broader source-context
-    // threading in transforms is sorted out (same TODO as the metadata
-    // diagnostics).
-    DiagnosticMessage::error(format!("duplicate crossref identifier `{id}`"))
+    quarto_error_reporting::DiagnosticMessageBuilder::error("Duplicate crossref identifier")
+        .with_code("Q-15-1")
+        .with_location(second.clone())
+        .problem(format!(
+            "The crossref identifier `{id}` is defined more than once. Each \
+             crossref id must be unique within a document so a reference like \
+             `@{id}` resolves to exactly one target."
+        ))
+        .add_detail_at("first defined here", first.clone())
+        .add_hint("Give one of the targets a different `label:` (or `#id`).")
+        .build()
 }
 
 #[cfg(test)]
@@ -538,6 +551,40 @@ mod tests {
         assert_eq!(diags.len(), 1);
         // Only the first entry is in the index.
         assert_eq!(idx.entries.len(), 1);
+    }
+
+    // bd-rr6qzcvu: the duplicate-id diagnostic must be a structured,
+    // coded, located diagnostic — not a bare string. It carries `Q-15-1`,
+    // a primary location (the duplicate occurrence), and a detail located
+    // at the first occurrence, so the renderer underlines both sites.
+    #[tokio::test]
+    async fn duplicate_id_diagnostic_is_coded_and_located() {
+        use quarto_error_reporting::DiagnosticKind;
+
+        let (_, _idx, diags) = run(vec![
+            fig_div("fig-dup", "first caption"),
+            fig_div("fig-dup", "second caption"),
+        ])
+        .await;
+        assert_eq!(diags.len(), 1);
+        let diag = &diags[0];
+
+        assert_eq!(diag.code.as_deref(), Some("Q-15-1"), "must carry the code");
+        assert_eq!(diag.kind, DiagnosticKind::Error, "duplicate ids are errors");
+        assert!(
+            diag.location.is_some(),
+            "must have a primary location (the duplicate occurrence)"
+        );
+        assert!(
+            diag.details.iter().any(|d| d.location.is_some()),
+            "must point at the first occurrence via a located detail"
+        );
+        // The offending id is still named, for users reading the bare text.
+        let text = diag.to_text(None);
+        assert!(
+            text.contains("fig-dup"),
+            "diagnostic text must name the duplicate id; got: {text}"
+        );
     }
 
     #[test]

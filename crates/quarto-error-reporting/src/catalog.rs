@@ -284,4 +284,34 @@ mod tests {
             q7.docs_url
         );
     }
+
+    // bd-rr6qzcvu: Q-15-1 — the new `crossref` subsystem's first code,
+    // for a duplicate crossref identifier.
+    #[test]
+    fn error_catalog_has_q_15_1_crossref() {
+        let info = get_error_info("Q-15-1").expect("Q-15-1 must be in the catalog");
+        assert_eq!(info.subsystem, "crossref");
+        assert!(
+            info.title.to_lowercase().contains("duplicate")
+                && info.title.to_lowercase().contains("crossref"),
+            "Q-15-1 title must mention a duplicate crossref; got: {}",
+            info.title
+        );
+        assert!(
+            info.message_template.to_lowercase().contains("unique")
+                || info
+                    .message_template
+                    .to_lowercase()
+                    .contains("more than once"),
+            "Q-15-1 message must explain the uniqueness requirement; got: {}",
+            info.message_template
+        );
+        assert!(
+            info.docs_url
+                .as_deref()
+                .is_some_and(|u| u.ends_with("Q-15-1")),
+            "Q-15-1 docs_url must end with the code; got: {:?}",
+            info.docs_url
+        );
+    }
 }

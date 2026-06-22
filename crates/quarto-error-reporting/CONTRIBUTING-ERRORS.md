@@ -96,7 +96,17 @@ Quarto uses TypeScript-style error codes: **`Q-<subsystem>-<number>`**
 | **9** | XML/CSL | Q-9-1 (XML syntax error) |
 | **10** | Templates | Q-10-1 (Template parse error) |
 | **11** | Lua Filters | Q-11-1 (Lua filter diagnostic) |
-| **12+** | Reserved | For future subsystems |
+| **12** | Listing (`listing`) | Q-12-1 (Listing diagnostics) |
+| **13** | Navigation (`navigation`) | Q-13-1 (Sidebar references missing document) |
+| **14** | Theme (`theme`) | Q-14-1 (Invalid theme config) |
+| **15** | Crossref (`crossref`) | Q-15-1 (Duplicate crossref identifier) |
+| **16+** | Reserved | For future subsystems |
+
+> New subsystems take the next free number with a descriptive
+> `subsystem` string (as `listing`/`navigation`/`theme`/`crossref`
+> did). The number is what appears in the code; the string is what
+> appears in the catalog entry and the `docs/errors/<subsystem>/`
+> directory.
 
 ### Finding the Next Error Code
 
