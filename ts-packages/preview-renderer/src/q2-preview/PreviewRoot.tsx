@@ -175,6 +175,16 @@ export interface PreviewRootProps {
      * Tests can ignore it (default no-op).
      */
     scrollToAnchor?: (anchor: string) => boolean;
+    /**
+     * Slide-navigation bridge for `format: revealjs` decks (bd-mwbsdmel),
+     * forwarded to `RevealDeck`. `registerSlideNavigator` lets the deck
+     * register an imperative `goTo(index)` the host drives via `SET_SLIDE`;
+     * `onSlideChange` reports in-deck navigation back to the host. Both are
+     * no-ops for non-slide previews. In production `entry.tsx` wires these
+     * to the parent postMessage channel; tests can omit them.
+     */
+    registerSlideNavigator?: (nav: ((index: number) => void) | null) => void;
+    onSlideChange?: (slideIndex: number) => void;
 }
 
 /**
@@ -1501,6 +1511,8 @@ export function PreviewRoot(props: PreviewRootProps) {
                                     registry={mergedPreviewRegistry}
                                     currentFilePath={props.currentFilePath}
                                     onNavigateToDocument={props.onNavigateToDocument}
+                                    registerSlideNavigator={props.registerSlideNavigator}
+                                    onSlideChange={props.onSlideChange}
                                 />
                             ) : (
                                 <Ast

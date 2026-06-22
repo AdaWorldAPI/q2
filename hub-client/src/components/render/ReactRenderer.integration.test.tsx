@@ -63,10 +63,6 @@ vi.mock('./ReactAstSlideRenderer', () => ({
   SlideAst: () => <div data-testid="slide-sentinel" />,
 }));
 
-vi.mock('./RevealjsReactAstSlideRenderer', () => ({
-  RevealjsSlideAst: () => <div data-testid="revealjs-sentinel" />,
-}));
-
 // Imported after vi.mock so the mocks are in place.
 import ReactRenderer from './ReactRenderer';
 
@@ -216,10 +212,34 @@ describe('ReactRenderer format routing', () => {
     // `white.css` — uppercase headings, centered content).
     const { queryByTestId } = mountForRouting('revealjs');
     expect(capturedPreviewIframeProps.length).toBeGreaterThan(0);
-    // No longer through the hand-rolled deck...
-    expect(queryByTestId('revealjs-sentinel')).toBeNull();
+    // Not through the generic slide path (the retired hand-rolled reveal
+    // deck is gone; revealjs no longer falls back to SlideAst either)...
+    expect(queryByTestId('slide-sentinel')).toBeNull();
     // ...and never through the q2-debug iframe.
     expect(capturedAstIframeProps.length).toBe(0);
+  });
+
+  it('forwards cursor→slide sync props to Q2PreviewIframe for revealjs (bd-mwbsdmel)', () => {
+    // The iframe path must receive the editor's controlled slide index
+    // and slide-change callback so cursor→slide navigation survives the
+    // move off the hand-rolled deck.
+    const onSlideChange = () => {};
+    render(
+      <ReactRenderer
+        astJson={EMPTY_AST}
+        currentFilePath="/project/index.qmd"
+        files={[]}
+        fileContents={new Map()}
+        onNavigateToDocument={() => {}}
+        setAst={() => {}}
+        format="revealjs"
+        currentSlideIndex={3}
+        onSlideChange={onSlideChange}
+      />,
+    );
+    const props = capturedPreviewIframeProps.at(-1);
+    expect(props?.currentSlideIndex).toBe(3);
+    expect(props?.onSlideChange).toBe(onSlideChange);
   });
 
   it('does not route q2-slides through any AST iframe', () => {
