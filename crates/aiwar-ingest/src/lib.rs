@@ -22,6 +22,7 @@ pub mod encounter_round;
 use std::collections::HashMap;
 use std::path::Path;
 
+use regex::Regex;
 use serde_json::Value;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -236,9 +237,28 @@ pub fn load_from_file(path: &str) -> Result<AiWarGraph, IngestError> {
 }
 
 /// Parse `aiwar_graph.json` text into an [`AiWarGraph`].
+///
+/// The harvest source carries bare `NaN` / `Infinity` literals in numeric
+/// property positions (1660 `NaN` in the canonical dump) — valid JavaScript,
+/// but the JSON spec forbids them and `serde_json` rejects them outright. They
+/// mean "missing / unknown", so they are mapped to `null` (dropped downstream)
+/// before parsing. Without this, the only harvest copy that carries the
+/// `cypher/` enrichment sibling fails to load and the graph silently falls
+/// back to the un-enriched 221-node base.
 pub fn load_from_str(text: &str) -> Result<AiWarGraph, IngestError> {
-    let value: Value = serde_json::from_str(text)?;
+    let sanitized = sanitize_non_finite(text);
+    let value: Value = serde_json::from_str(&sanitized)?;
     Ok(load_from_value(&value))
+}
+
+/// Replace bare non-finite JSON literals (`NaN`, `Infinity`, `-Infinity`) in
+/// value position with `null`. Anchored on a preceding `:` / `[` / `,` so that
+/// string *contents* are never rewritten (the harvest has zero quoted `NaN`).
+fn sanitize_non_finite(text: &str) -> std::borrow::Cow<'_, str> {
+    static NON_FINITE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"([:\[,]\s*)(?:NaN|-?Infinity)\b").expect("valid non-finite regex")
+    });
+    NON_FINITE.replace_all(text, "${1}null")
 }
 
 /// Build an [`AiWarGraph`] from a parsed `aiwar_graph.json` value.
@@ -501,5 +521,38 @@ mod tests {
         );
         // vis json must round-trip.
         let _: Value = serde_json::from_str(&g.to_vis_json()).expect("vis json round-trips");
+    }
+
+    #[test]
+    fn sanitizes_non_finite_literals_so_harvest_loads() {
+        // The harvest dump uses bare NaN / Infinity in numeric fields (1660 NaN
+        // in the canonical dump). Before the sanitizer these made serde_json
+        // reject the whole file; the enrichable copy never loaded.
+        let json = r#"{
+            "N_Systems": [
+                {"id": "X", "name": "Sys X", "score": NaN, "ratio": -Infinity, "cap": Infinity}
+            ],
+            "E_connection": [
+                {"source": "X", "target": "X", "weight": NaN}
+            ]
+        }"#;
+        let g = load_from_str(json).expect("non-finite literals sanitized to null");
+        assert_eq!(g.node_count(), 1);
+        let x = g.nodes.iter().find(|n| n.id == "X").expect("node X present");
+        assert_eq!(x.label, "Sys X");
+        // the non-finite numeric became JSON null (or was dropped) — not a parse error.
+        assert!(matches!(
+            x.properties.get("score"),
+            None | Some(serde_json::Value::Null)
+        ));
+    }
+
+    #[test]
+    fn sanitizer_leaves_normal_json_untouched() {
+        let g = load_from_str(FIXTURE).expect("valid fixture still parses");
+        assert_eq!(g.node_count(), 4);
+        let maven = g.nodes.iter().find(|n| n.id == "Maven").unwrap();
+        // a real number is preserved verbatim (sanitizer only touches non-finite).
+        assert_eq!(maven.properties.get("year").unwrap(), &serde_json::json!(2017));
     }
 }

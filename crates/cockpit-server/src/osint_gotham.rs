@@ -6,9 +6,12 @@
 //! * **Location is permanent + deterministic — no Louvain.** The HHTL radix trie
 //!   gives the address; the basin is *assigned*, not clustered.
 //! * **`family(u16)` is a basin = an interface, not a category.** Each node
-//!   carries **16 × 8-bit family adapters** (the [`EdgeBlock`]) = an attention
-//!   mask picking ≤16 of up to **256 basins** it adapts to. A node "implements"
-//!   the basins it points at, exactly like a type implementing interfaces.
+//!   carries **16 × 8-bit mixin-node adapters** (the [`EdgeBlock`], flat — the
+//!   old 12+4 in/out split is waived) = an attention mask picking ≤16 of up to
+//!   **256 mixin/relay nodes** it connects through. A node "implements" the
+//!   basins it points at, exactly like a type implementing interfaces.
+//!   (Separately, a 16×8bit / 32×4bit value tenant is available as a
+//!   label/function-by-masking option; here the label rides a single order byte.)
 //! * **Basin = two-tier `(round << 4) | anchor`** (operator choice). High nibble
 //!   = the enrichment-round theme (epstein / thiel_infrastructure /
 //!   palantir_surveillance / …); low nibble = the anchor figure/org the node is
@@ -19,6 +22,11 @@
 //! * **ClassView is DISPLAY only**, and it is the OGAR Active-Record value:
 //!   `&dyn lance_graph_contract::ClassView = &OgarClassView::new()`. The contract
 //!   owns the trait; OGAR owns the concrete AR implementation (the #585 SoC).
+//! * **One class, order-based labels.** Every node is the single OSINT class
+//!   `0x0700`; the entity labels (System / Stakeholder / Person / …) are an
+//!   order-based function/label row ([`OSINT_SCHEMA`]) — the class's schema. An
+//!   instance inherits its label by the order it carries in its value tenant.
+//!   No per-label classids (no sprinkling).
 //!
 //! The contract's `soa_graph::project_snapshot` reads the **v1** `family()` (u24
 //! @ bytes 10..13), so it cannot read a v2 row's `family_v2()` (@ 12..14). The
@@ -40,6 +48,47 @@ use lance_graph_contract::exploration::NarsTruth;
 use lance_graph_ogar::OgarClassView;
 
 use crate::graph_engine::{GraphEdge, GraphHealth, GraphNode, GraphSnapshot};
+
+/// The OSINT class's **order-based function/label row** — its schema, stored
+/// inside the one class (not sprinkled across classids). The function defined at
+/// order *i* carries label *i*; an instance inherits its label by the order it
+/// carries in its value tenant. This is the consumer-side home of the schema for
+/// the single OSINT class `0x0700`; the AR-native home is `ogar-vocab`'s `0x0700`
+/// `ObjectView` (an upstream OGAR change, out of this repo's push scope).
+/// The complete label↔order row: every label an item can carry has a slot, so
+/// no item falls through to "Other" (an item with a label but no order would be
+/// missing its label↔identity pairing). Orders 0-4 are the entity types; 5-6 are
+/// the ontology layer the enrichment surfaces (`SchemaValue`/`SchemaAxis` +
+/// `VALID_FOR`).
+const OSINT_SCHEMA: &[&str] = &[
+    "System",           // order 0  (N_Systems)
+    "Stakeholder",      // order 1  (N_Stakeholders)
+    "Person",           // order 2  (N_People)
+    "CivicSystem",      // order 3  (N_Civic)
+    "HistoricalSystem", // order 4  (N_Historical)
+    "SchemaValue",      // order 5  (ontology: a legal value on an axis)
+    "SchemaAxis",       // order 6  (ontology: a schema axis / dimension)
+];
+
+/// The value-slab byte that carries a node's class-label **order** (the per-
+/// instance function/label tenant). The rest of the slab stays zero — one fixed
+/// tenant byte, not serialized properties.
+const CLASS_ORDER_TENANT: usize = 0;
+
+/// Order index of a label in [`OSINT_SCHEMA`]; unknown types fall past the end
+/// (resolved to "Other"), never collide with a defined order.
+fn label_order(node_type: &str) -> u8 {
+    OSINT_SCHEMA
+        .iter()
+        .position(|&s| s == node_type)
+        .map(|i| i as u8)
+        .unwrap_or(OSINT_SCHEMA.len() as u8)
+}
+
+/// The label inherited at an order (the class schema resolved by order).
+fn label_of_order(order: u8) -> &'static str {
+    OSINT_SCHEMA.get(order as usize).copied().unwrap_or("Other")
+}
 
 /// The OSINT/Gotham live snapshot — a parallel buffer to
 /// [`graph_engine::live_graph`](crate::graph_engine::live_graph) holding the
@@ -230,8 +279,11 @@ fn plan_basins(graph: &AiWarGraph, rounds: &[EncounterRound]) -> BasinPlan {
 /// Build the classid-`0x0700` OSINT node rows (one per entity, in `graph.nodes`
 /// order so `identity == index`). The GUID-v2 tail is `leaf=0 | family=basin |
 /// identity=index`; HEEL/HIP carry the theme/anchor for deterministic HHTL
-/// routing; the [`EdgeBlock`] holds the ≤16 distinct basins this node adapts to
-/// (same-basin → `in_family`, cross-basin → `out_family`). Head-only.
+/// routing; the [`EdgeBlock`] is a FLAT 16×8bit array of mixin-node adapters —
+/// the ≤16 distinct relay basins this node connects through (the old 12+4
+/// in/out split is waived). The value slab carries a single tenant byte — the
+/// class-label order ([`OSINT_SCHEMA`]) the instance inherits its label by; the
+/// rest of the slab stays zero.
 pub fn osint_node_rows(graph: &AiWarGraph, plan: &BasinPlan) -> Vec<NodeRow> {
     let basin_of = |id: &str| plan.node_basin.get(id).copied().unwrap_or(0);
     // node id → its outgoing target ids (for the adapter mask).
@@ -249,43 +301,49 @@ pub fn osint_node_rows(graph: &AiWarGraph, plan: &BasinPlan) -> Vec<NodeRow> {
             let theme_hi = u16::from(basin >> 4);
             let anchor_lo = u16::from(basin & 0x0F);
 
-            // 16 family adapters: distinct target basins this node interfaces with.
-            let mut same: Vec<u8> = Vec::new();
-            let mut cross: Vec<u8> = Vec::new();
+            // 16×8bit mixin-node adapters (FLAT — the old 12+4 in/out split is
+            // waived). The distinct nonzero *other* basins this node connects
+            // through are its mixin/relay nodes; basin 0x00 is the CANON
+            // default/dormant compartment (and the empty-slot sentinel), so it
+            // is never an addressable mixin.
+            let mut mixins: Vec<u8> = Vec::new();
             if let Some(targets) = out.get(n.id.as_str()) {
                 for t in targets {
                     let tb = basin_of(t);
-                    if tb == basin {
-                        if !same.contains(&tb) {
-                            same.push(tb);
-                        }
-                    } else if !cross.contains(&tb) {
-                        cross.push(tb);
+                    if tb != 0 && tb != basin && !mixins.contains(&tb) {
+                        mixins.push(tb);
                     }
                 }
             }
-            same.sort_unstable();
-            cross.sort_unstable();
+            mixins.sort_unstable();
+            // Fill the 16-byte EdgeBlock as one flat array of mixin adapters.
             let mut edges = EdgeBlock::default();
-            for (k, &b) in same.iter().take(12).enumerate() {
-                edges.in_family[k] = b;
+            for (k, &b) in mixins.iter().take(16).enumerate() {
+                if k < edges.in_family.len() {
+                    edges.in_family[k] = b;
+                } else {
+                    edges.out_family[k - edges.in_family.len()] = b;
+                }
             }
-            for (k, &b) in cross.iter().take(4).enumerate() {
-                edges.out_family[k] = b;
-            }
+
+            // value tenant: the class-label ORDER. An instance inherits its
+            // label by the order it carries here, from the one class's schema
+            // (OSINT_SCHEMA). One fixed byte; the rest of the slab stays zero.
+            let mut value = [0u8; 480];
+            value[CLASS_ORDER_TENANT] = label_order(&n.node_type);
 
             NodeRow {
                 key: NodeGuid::new_v2(
-                    NodeGuid::CLASSID_OSINT, // classid 0x0700
+                    NodeGuid::CLASSID_OSINT, // classid 0x0700 — the ONE OSINT class
                     theme_hi,                // HEEL — coarse HHTL routing by theme
                     anchor_lo,               // HIP  — anchor tier
                     0,                       // TWIG
                     0,                       // LEAF (4th HHTL tier)
-                    u16::from(basin),        // family = basin byte
+                    u16::from(basin),        // family = basin relay (mixin)
                     i as u16,                // identity = node index
                 ),
                 edges,
-                value: [0u8; 480], // head-only
+                value,
             }
         })
         .collect()
@@ -358,15 +416,23 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
     for (i, r) in rows.iter().enumerate() {
         let src = &graph.nodes[i];
         let basin = (r.key.family_v2() & 0xFF) as u8;
+        // class label is inherited by ORDER from the one class's schema: the
+        // value tenant carries the order, OSINT_SCHEMA resolves the label.
+        let order = r.value[CLASS_ORDER_TENANT];
+        let class_label = label_of_order(order);
         let mut props: HashMap<String, Value> = src.properties.clone();
         props.insert("guid".to_string(), Value::String(r.key.to_hex_v2()));
         props.insert("classid".to_string(), Value::String("00000700".to_string()));
+        props.insert("class_order".to_string(), Value::from(order));
+        props.insert("class".to_string(), Value::String(class_label.to_string()));
         props.insert("basin".to_string(), Value::String(format!("{basin:02x}")));
         if let Some(t) = plan.node_theme.get(&src.id) {
             props.insert("theme".to_string(), Value::String(t.clone()));
         }
-        // ClassView display wiring (OGAR AR): record whether the OSINT class is
-        // known to the codebook yet. Empty today, lights up when 0x07XX lands.
+        // ClassView display wiring (OGAR AR): the display adapter is OgarClassView
+        // held as `&dyn ClassView`. 0x0700 is empty in OGAR's codebook today, so
+        // the label inherits by order from OSINT_SCHEMA (the class schema) until
+        // the 0x0700 ObjectView is defined upstream in ogar-vocab.
         props.insert(
             "display_class_fields".to_string(),
             Value::from(class_view.field_count(osint_class)),
@@ -374,7 +440,7 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
         nodes.push(GraphNode {
             id: format!("osint:{}", r.key.identity_v2()),
             label: src.label.clone(),
-            node_type: src.node_type.clone(),
+            node_type: class_label.to_string(), // inherited by order, not a free string
             properties: props,
         });
 
@@ -406,6 +472,34 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
                 truth: NarsTruth::new(1.0, 1.0),
             });
         }
+    }
+
+    // 3. typed entity→entity link chart — the actual Gotham/neo4j relationships
+    //    (CONNECTED_TO, DEVELOPED_BY, PERSON_LINK, VALID_FOR, …). identity == node
+    //    index, so each source edge maps to osint:{idx(src)} → osint:{idx(tgt)};
+    //    endpoints that don't resolve to a real node are skipped. This is the
+    //    link-analysis substance the basin overlay routes — without it the view
+    //    is a clustering diagram, not a link chart.
+    let id_to_idx: HashMap<&str, usize> = graph
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.id.as_str(), i))
+        .collect();
+    for e in &graph.edges {
+        let (Some(&si), Some(&ti)) = (
+            id_to_idx.get(e.source.as_str()),
+            id_to_idx.get(e.target.as_str()),
+        ) else {
+            continue;
+        };
+        let freq = (e.weight as f32).clamp(0.0, 1.0);
+        edges.push(GraphEdge {
+            source: format!("osint:{si}"),
+            target: format!("osint:{ti}"),
+            label: e.rel_type.clone(),
+            truth: NarsTruth::new(if freq > 0.0 { freq } else { 1.0 }, 0.8),
+        });
     }
 
     let node_count = nodes.len();
@@ -532,8 +626,35 @@ mod tests {
             // GUID-v2 tail: identity == index, family == basin byte (high byte 0)
             assert_eq!(row.key.identity_v2(), i as u16);
             assert_eq!(row.key.family_v2() >> 8, 0, "basin is an 8-bit byte");
-            // head-only: the 480-byte value slab stays zero
-            assert_eq!(row.value, [0u8; 480]);
+            // value tenant: one byte carries the class-label order; rest zero.
+            let order = row.value[CLASS_ORDER_TENANT];
+            assert!((order as usize) <= OSINT_SCHEMA.len(), "order in range");
+            assert!(
+                row.value[CLASS_ORDER_TENANT + 1..].iter().all(|&b| b == 0),
+                "only the class-order tenant byte is set"
+            );
+        }
+    }
+
+    #[test]
+    fn label_inherits_by_order_from_the_one_class_schema() {
+        // ONE class (0x0700); the label rides at the order the function is
+        // defined in the schema — no per-class sprinkling.
+        assert_eq!(label_order("System"), 0);
+        assert_eq!(label_order("Stakeholder"), 1);
+        assert_eq!(label_order("Person"), 2);
+        assert_eq!(label_of_order(0), "System");
+        assert_eq!(label_of_order(2), "Person");
+        // unknown types fall past the defined orders (never collide).
+        assert_eq!(label_order("Nation"), OSINT_SCHEMA.len() as u8);
+        assert_eq!(label_of_order(OSINT_SCHEMA.len() as u8), "Other");
+
+        // every row's value-tenant order resolves back to its source category.
+        let g = sample();
+        let plan = plan_basins(&g, &[]);
+        for (i, row) in osint_node_rows(&g, &plan).iter().enumerate() {
+            let order = row.value[CLASS_ORDER_TENANT];
+            assert_eq!(label_of_order(order), g.nodes[i].node_type);
         }
     }
 
@@ -565,17 +686,16 @@ mod tests {
         // OGAR AR is really linked: its codebook exposes the promoted classes
         // (project-mgmt / commerce / medcare). If this is 0, OGAR isn't wired.
         assert!(
-            class_view_known_count(class_view) > 0 || OgarClassView::new().known_class_ids().count() > 0,
+            ogar.known_class_ids().count() > 0,
             "OgarClassView must expose its promoted class ids (OGAR AR linked)"
         );
-        // OSINT (0x0700) is gracefully empty until OGAR's codebook defines 0x07XX.
+        // The trait object IS the display surface; OSINT (0x0700) resolves to
+        // zero rows until OGAR's codebook defines 0x07XX classes (graceful).
         assert_eq!(class_view.field_count(osint_class_id()), 0);
-    }
-
-    fn class_view_known_count(_cv: &dyn ClassView) -> usize {
-        // `known_class_ids` is on the concrete type, not the trait; this helper
-        // just documents that the trait object is the display surface.
-        0
+        assert_eq!(
+            class_view.render_rows(osint_class_id(), FieldMask::FULL).len(),
+            0
+        );
     }
 
     #[test]
@@ -600,5 +720,189 @@ mod tests {
             .iter()
             .filter(|n| n.node_type != "Basin")
             .all(|n| n.properties.contains_key("display_class_fields")));
+    }
+
+    /// One-shot evaluation harness over the REAL aiwar harvest (base 221 + 30
+    /// enrichment rounds → the ~650 set). Ignored by default; run explicitly:
+    /// `cargo test -p cockpit-server -- --ignored --nocapture eval_650`.
+    /// Skips cleanly when the harvest data is absent.
+    #[test]
+    #[ignore = "reads the on-disk aiwar harvest; run with --ignored --nocapture"]
+    fn eval_650_full_enrichment_report() {
+        use std::collections::BTreeMap;
+
+        let base_candidates = [
+            "/home/user/aiwar-neo4j-harvest/data/aiwar_graph.json",
+            "cockpit/public/aiwar_graph.json",
+            "../../cockpit/public/aiwar_graph.json",
+        ];
+        let Some(path) = base_candidates.iter().find(|p| Path::new(p).exists()) else {
+            eprintln!("aiwar harvest not found; skipping eval");
+            return;
+        };
+        let cypher_dir = Path::new(path)
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|r| r.join("cypher"));
+
+        // ── full enrichment ──
+        let g = match &cypher_dir {
+            Some(d) if d.is_dir() => {
+                aiwar_ingest::load_with_enrichment(path, d).expect("load+enrich")
+            }
+            _ => aiwar_ingest::load_from_file(path).expect("load base"),
+        };
+        let rounds = cypher_dir
+            .as_ref()
+            .and_then(|d| load_encounter_rounds(d).ok())
+            .unwrap_or_default();
+
+        eprintln!("\n══════════ OSINT 650-set evaluation ══════════");
+        eprintln!("source: {path}");
+        eprintln!("enrichment rounds applied: {}", rounds.len());
+        eprintln!("\n── enriched property graph ──");
+        eprintln!("nodes: {}", g.node_count());
+        eprintln!("edges: {}", g.edge_count());
+
+        let mut ntypes: BTreeMap<&str, usize> = BTreeMap::new();
+        for n in &g.nodes {
+            *ntypes.entry(n.node_type.as_str()).or_default() += 1;
+        }
+        eprintln!("node types:");
+        for (t, c) in &ntypes {
+            eprintln!("   {t:<18} {c}");
+        }
+        // label↔identity coverage: every item's type must have a slot in the
+        // class schema (else it resolves to "Other" — a missing label↔identity).
+        let missing: BTreeMap<&str, usize> = g
+            .nodes
+            .iter()
+            .filter(|n| label_order(&n.node_type) as usize >= OSINT_SCHEMA.len())
+            .fold(BTreeMap::new(), |mut m, n| {
+                *m.entry(n.node_type.as_str()).or_default() += 1;
+                m
+            });
+        eprintln!(
+            "items missing label↔identity (type ∉ OSINT_SCHEMA): {} {:?}",
+            missing.values().sum::<usize>(),
+            missing
+        );
+
+        // typed link structure = the Gotham richness
+        let mut rtypes: BTreeMap<&str, usize> = BTreeMap::new();
+        for e in &g.edges {
+            *rtypes.entry(e.rel_type.as_str()).or_default() += 1;
+        }
+        eprintln!("edge rel-types ({} distinct):", rtypes.len());
+        for (t, c) in &rtypes {
+            eprintln!("   {t:<18} {c}");
+        }
+
+        // property richness
+        let mut pkeys: BTreeMap<String, usize> = BTreeMap::new();
+        for n in &g.nodes {
+            for k in n.properties.keys() {
+                *pkeys.entry(k.clone()).or_default() += 1;
+            }
+        }
+        let avg_props = g.nodes.iter().map(|n| n.properties.len()).sum::<usize>() as f64
+            / g.node_count().max(1) as f64;
+        eprintln!(
+            "node property keys: {} distinct, avg {avg_props:.1} props/node",
+            pkeys.len()
+        );
+        let mut top_pk: Vec<_> = pkeys.iter().collect();
+        top_pk.sort_by(|a, b| b.1.cmp(a.1));
+        eprint!("   top keys:");
+        for (k, c) in top_pk.iter().take(12) {
+            eprint!(" {k}({c})");
+        }
+        eprintln!();
+
+        // degree distribution (link-analysis signal)
+        let mut deg: HashMap<&str, usize> = HashMap::new();
+        for e in &g.edges {
+            *deg.entry(e.source.as_str()).or_default() += 1;
+            *deg.entry(e.target.as_str()).or_default() += 1;
+        }
+        let mut degv: Vec<_> = deg.iter().collect();
+        degv.sort_by(|a, b| b.1.cmp(a.1));
+        eprintln!("highest-degree entities (link hubs):");
+        for (id, d) in degv.iter().take(10) {
+            let label = g
+                .nodes
+                .iter()
+                .find(|n| n.id.as_str() == **id)
+                .map_or(**id, |n| n.label.as_str());
+            eprintln!("   {d:>3}  {label}");
+        }
+        let isolated = g
+            .nodes
+            .iter()
+            .filter(|n| !deg.contains_key(n.id.as_str()))
+            .count();
+        eprintln!("isolated nodes (degree 0): {isolated}");
+
+        // ── OSINT/Gotham projection (current) ──
+        let snap = build_osint_gotham(&g, &rounds);
+        let plan = plan_basins(&g, &rounds);
+        let rows = osint_node_rows(&g, &plan);
+
+        eprintln!("\n── OSINT/Gotham projection (current) ──");
+        let hubs = snap.nodes.iter().filter(|n| n.node_type == "Basin").count();
+        eprintln!(
+            "projection nodes: {} ({hubs} basin hubs + {} members)",
+            snap.node_count,
+            snap.node_count - hubs
+        );
+        let mut elabels: BTreeMap<&str, usize> = BTreeMap::new();
+        for e in &snap.edges {
+            *elabels.entry(e.label.as_str()).or_default() += 1;
+        }
+        eprintln!("projection edges: {} (by label)", snap.edge_count);
+        for (l, c) in &elabels {
+            eprintln!("   {l:<14} {c}");
+        }
+
+        let mut bsizes: BTreeMap<u8, usize> = BTreeMap::new();
+        for r in &rows {
+            *bsizes.entry((r.key.family_v2() & 0xFF) as u8).or_default() += 1;
+        }
+        eprintln!("basins: {} compartments", bsizes.len());
+        let mut bv: Vec<_> = bsizes.iter().collect();
+        bv.sort_by(|a, b| b.1.cmp(a.1));
+        eprint!("   sizes (top): ");
+        for (b, c) in bv.iter().take(12) {
+            eprint!("{b:02x}:{c} ");
+        }
+        eprintln!();
+
+        let nonzero = |r: &NodeRow| {
+            r.edges
+                .in_family
+                .iter()
+                .chain(r.edges.out_family.iter())
+                .filter(|&&b| b != 0)
+                .count()
+        };
+        let total_adapters: usize = rows.iter().map(nonzero).sum();
+        let saturated = rows.iter().filter(|r| nonzero(r) == 16).count();
+        eprintln!(
+            "mixin adapters: {:.1} avg/node, {saturated} nodes saturated (16/16)",
+            total_adapters as f64 / rows.len().max(1) as f64
+        );
+
+        // ── the gap ──
+        let proj_entity_edges = snap
+            .edges
+            .iter()
+            .filter(|e| !e.target.starts_with("basin:"))
+            .count();
+        eprintln!("\n── link chart (entity→entity) ──");
+        eprintln!("typed edges in source    : {}", g.edge_count());
+        eprintln!("typed edges in OSINT view: {proj_entity_edges}");
+        eprintln!("══════════════════════════════════════════════\n");
+
+        assert!(g.node_count() > 221, "enrichment grew the graph past base");
     }
 }

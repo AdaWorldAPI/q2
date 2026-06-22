@@ -97,117 +97,96 @@ fn version_for_file(filename: &str) -> u32 {
 
 /// Parse a single Cypher file's text, returning extracted nodes and edges.
 fn parse_cypher(text: &str) -> (Vec<CypherNode>, Vec<CypherEdge>) {
+    // A node reference: `(var [:Label[:Label…]] [ {props} ])`. Used both to
+    // DECLARE a node (when a label is present) and to BIND a variable to a
+    // resolvable id so relationships can name real endpoints, not letters.
+    let node_ref_re =
+        Regex::new(r"(?i)\((\w+)((?::\w+)*)\s*(?:\{([^}]*)\})?\)").expect("valid node-ref regex");
+    // A relationship: `(svar […])-[ [relvar] :REL [ {props} ] ]->(tvar […])`.
+    // Endpoint labels/props are tolerated (inline-declared endpoints); only the
+    // variable name is captured — resolution happens via the per-statement map.
+    let rel_re = Regex::new(
+        r"(?i)\((\w+)(?::\w+)*\s*(?:\{[^}]*\})?\)\s*-\[(\w+)?:([\w|]+)\s*(?:\{([^}]*)\})?\]\s*->\s*\((\w+)(?::\w+)*\s*(?:\{[^}]*\})?\)",
+    )
+    .expect("valid rel regex");
+    // A statement-trailing `SET relvar.key = value` clause (edge properties).
+    let set_re = Regex::new(r"(?is)\bSET\b\s+(.*)").expect("valid set regex");
+
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
 
-    // ── Node patterns ──
-    // Matches: CREATE (var:Label {props})  or  MERGE (var:Label {props})
-    // Also handles multi-label like :Label1:Label2
-    // The property block is optional.
-    let node_re = Regex::new(r"(?i)(?:CREATE|MERGE)\s+\((\w+)((?::\w+)+)\s*(?:\{([^}]*)\})?\s*\)")
-        .expect("valid node regex");
-
-    for caps in node_re.captures_iter(text) {
-        let var_name = caps[1].to_string();
-        let labels_raw = &caps[2]; // e.g. ":Person" or ":SchemaValue"
-        let labels: Vec<String> = labels_raw
-            .split(':')
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect();
-
-        let properties = caps
-            .get(3)
-            .map(|m| parse_property_block(m.as_str()))
-            .unwrap_or_default();
-
-        // Use the `id` property if available, otherwise fall back to variable name.
-        let id = properties
-            .get("id")
-            .cloned()
-            .unwrap_or_else(|| var_name.clone());
-
-        nodes.push(CypherNode {
-            id,
-            labels,
-            properties,
-        });
-    }
-
-    // ── Relationship patterns ──
-    // Matches patterns like:
-    //   MERGE (a)-[r:REL_TYPE]->(b)
-    //   MERGE (a)-[:REL_TYPE {props}]->(b)
-    //   CREATE (a)-[:REL_TYPE]->(b)
-    // The variable on the relationship is optional.
-    let edge_re = Regex::new(
-        r"(?i)(?:CREATE|MERGE)\s+\((\w+)\)\s*-\[(?:\w+)?:([\w|]+)\s*(?:\{([^}]*)\})?\]\s*->\s*\((\w+)\)",
-    )
-    .expect("valid edge regex");
-
-    for caps in edge_re.captures_iter(text) {
-        let source = caps[1].to_string();
-        let rel_type = caps[2].to_string();
-        let properties = caps
-            .get(3)
-            .map(|m| parse_property_block(m.as_str()))
-            .unwrap_or_default();
-        let target = caps[4].to_string();
-
-        edges.push(CypherEdge {
-            source,
-            target,
-            rel_type,
-            properties,
-        });
-    }
-
-    // ── MATCH ... MERGE relationship patterns ──
-    // Many enrichment files use:
-    //   MATCH (a {id:'X'}) MATCH (b {id:'Y'}) MERGE (a)-[r:REL]->(b) SET r.prop = 'val';
-    // We resolve variable names to ids using a two-pass approach (Rust regex
-    // does not support backreferences).
-    //
-    // Step 1: For each line, extract all MATCH (var {id:'...'}) bindings.
-    let match_bind_re = Regex::new(r"(?i)MATCH\s+\((\w+)\s*\{[^}]*id\s*:\s*'([^']*)'[^}]*\}\)")
-        .expect("valid match-bind regex");
-    // Step 2: Find MERGE (var)-[r:REL]->(var) on the same line.
-    let merge_rel_re = Regex::new(
-        r"(?i)MERGE\s+\((\w+)\)\s*-\[(?:\w+)?:([\w|]+)\s*(?:\{[^}]*\})?\]\s*->\s*\((\w+)\)(?:\s*SET\s+(.*))?"
-    ).expect("valid merge-rel regex");
-
-    for line in text.lines() {
-        // Build var -> id map from MATCH clauses on this line.
-        let mut var_map: HashMap<String, String> = HashMap::new();
-        for caps in match_bind_re.captures_iter(line) {
-            var_map.insert(caps[1].to_string(), caps[2].to_string());
-        }
-        if var_map.is_empty() {
-            continue;
-        }
-        // Look for MERGE relationship on the same line.
-        if let Some(caps) = merge_rel_re.captures(line) {
-            let src_var = &caps[1];
-            let rel_type = caps[2].to_string();
-            let tgt_var = &caps[3];
-
-            let source = var_map
-                .get(src_var)
-                .cloned()
-                .unwrap_or_else(|| src_var.to_string());
-            let target = var_map
-                .get(tgt_var)
-                .cloned()
-                .unwrap_or_else(|| tgt_var.to_string());
-
+    // Cypher statements are ';'-terminated and variable bindings are
+    // statement-local. Resolving per statement (not over the whole file) is what
+    // stops a variable like `a` bound to different ids in different statements
+    // from cross-contaminating, and what prevents phantom `a`/`b`/`v` endpoints
+    // (the harvest's `MERGE (v:SchemaValue {value:…}) WITH v MATCH (a:SchemaAxis
+    // {name:…}) MERGE (v)-[:VALID_FOR]->(a)` pattern).
+    for stmt in text.split(';') {
+        // 1. Bind every variable in the statement to a resolvable id, and emit a
+        //    node for each ref that carries a label. Id resolution order:
+        //    `id` → `value` (SchemaValue) → `name` (SchemaAxis). A bare ref like
+        //    `(a)` carries nothing and binds nothing.
+        let mut var_id: HashMap<String, String> = HashMap::new();
+        for caps in node_ref_re.captures_iter(stmt) {
+            let var = caps[1].to_string();
+            let labels: Vec<String> = caps[2]
+                .split(':')
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect();
             let properties = caps
-                .get(4)
-                .map(|m| parse_set_clause(m.as_str()))
+                .get(3)
+                .map(|m| parse_property_block(m.as_str()))
                 .unwrap_or_default();
+            // Resolve the identity; treat empty and the pandas missing-data
+            // marker `nan` (444 `SchemaValue {value:'nan'}` lines in the harvest)
+            // as NO identity — skip, so they never become a phantom hub node.
+            let Some(id) = properties
+                .get("id")
+                .or_else(|| properties.get("value"))
+                .or_else(|| properties.get("name"))
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("nan"))
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            var_id.entry(var).or_insert_with(|| id.clone());
+            if !labels.is_empty() {
+                nodes.push(CypherNode {
+                    id,
+                    labels,
+                    properties,
+                });
+            }
+        }
 
+        // 2. Statement-trailing SET clause (edge properties via `SET r.k = v`).
+        let set_props = set_re
+            .captures(stmt)
+            .map(|c| parse_set_clause(&c[1]))
+            .unwrap_or_default();
+
+        // 3. Relationships — resolve BOTH endpoints through the binding map; an
+        //    edge whose endpoints don't resolve is SKIPPED (never emitted as a
+        //    phantom variable-name edge).
+        for caps in rel_re.captures_iter(stmt) {
+            let svar = &caps[1];
+            let rel_type = caps[3].to_string();
+            let mut properties = caps
+                .get(4)
+                .map(|m| parse_property_block(m.as_str()))
+                .unwrap_or_default();
+            let tvar = &caps[5];
+            let (Some(source), Some(target)) = (var_id.get(svar), var_id.get(tvar)) else {
+                continue;
+            };
+            for (k, v) in &set_props {
+                properties.entry(k.clone()).or_insert_with(|| v.clone());
+            }
             edges.push(CypherEdge {
-                source,
-                target,
+                source: source.clone(),
+                target: target.clone(),
                 rel_type,
                 properties,
             });
@@ -395,21 +374,59 @@ mod tests {
 
     #[test]
     fn test_parse_create_edge() {
-        let cypher = "CREATE (a)-[:DEVELOPED_BY {weight: 3}]->(b)";
-        let (_, edges) = parse_cypher(cypher);
+        // Inline-declared endpoints bind a→A, b→B, so the edge resolves to real
+        // ids (not the letters `a`/`b`).
+        let cypher =
+            "CREATE (a:System {id: 'A'})-[:DEVELOPED_BY {weight: 3}]->(b:Stakeholder {id: 'B'})";
+        let (nodes, edges) = parse_cypher(cypher);
         assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0].source, "a");
-        assert_eq!(edges[0].target, "b");
+        assert_eq!(edges[0].source, "A");
+        assert_eq!(edges[0].target, "B");
         assert_eq!(edges[0].rel_type, "DEVELOPED_BY");
         assert_eq!(edges[0].properties.get("weight").unwrap(), "3");
+        // both endpoints were also declared as nodes
+        assert_eq!(nodes.len(), 2);
     }
 
     #[test]
-    fn test_parse_merge_edge_with_variable() {
+    fn test_unbound_edge_is_skipped_not_phantom() {
+        // Bare variables with no binding must NOT become phantom `a`/`b`
+        // endpoints — the edge is skipped instead.
         let cypher = "MERGE (a)-[r:PERSON_LINK]->(b)";
         let (_, edges) = parse_cypher(cypher);
+        assert!(edges.is_empty(), "unbound endpoints are skipped, not emitted");
+    }
+
+    #[test]
+    fn test_schema_value_axis_with_clause_resolves() {
+        // The harvest's VALID_FOR pattern: `v` bound by {value}, `a` bound by
+        // {name}, across a WITH clause. Endpoints must resolve to the value/name
+        // ids — never to the letters `v`/`a`.
+        let cypher = "MERGE (v:SchemaValue {value: 'Development'}) WITH v MATCH (a:SchemaAxis {name: 'currentStatus_airo'}) MERGE (v)-[:VALID_FOR]->(a)";
+        let (nodes, edges) = parse_cypher(cypher);
         assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0].rel_type, "PERSON_LINK");
+        assert_eq!(edges[0].source, "Development");
+        assert_eq!(edges[0].target, "currentStatus_airo");
+        assert_eq!(edges[0].rel_type, "VALID_FOR");
+        assert!(nodes
+            .iter()
+            .any(|n| n.id == "Development" && n.labels == ["SchemaValue"]));
+        assert!(nodes.iter().any(|n| n.id == "currentStatus_airo"));
+        // no phantom single-letter node ids
+        assert!(!nodes.iter().any(|n| n.id == "v" || n.id == "a"));
+    }
+
+    #[test]
+    fn test_nan_and_empty_ids_are_skipped() {
+        // pandas exported missing cells as the string 'nan' (444 lines). These
+        // must not become a node, and edges to them must be skipped.
+        let cypher = "MERGE (v:SchemaValue {value: 'nan'}) WITH v MATCH (a:SchemaAxis {name: 'airo_type'}) MERGE (v)-[:VALID_FOR]->(a)";
+        let (nodes, edges) = parse_cypher(cypher);
+        assert!(!nodes.iter().any(|n| n.id.eq_ignore_ascii_case("nan")));
+        // the real axis still materializes…
+        assert!(nodes.iter().any(|n| n.id == "airo_type"));
+        // …but the VALID_FOR edge from the missing value is dropped (unresolved).
+        assert!(edges.is_empty(), "edge from a 'nan' value is skipped");
     }
 
     #[test]
