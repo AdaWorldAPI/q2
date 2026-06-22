@@ -131,7 +131,12 @@ impl PipelineStage for UserFiltersStage {
                 .join(", ")
         );
 
-        let target_format = ctx.format.identifier.as_str();
+        // The canonical Pandoc format Lua filters see as FORMAT. Using
+        // `Format::lua_format()` (not `identifier.as_str()`) makes the reveal
+        // *preview* pseudo-format `q2-slides` resolve to `revealjs` rather than
+        // its HTML output-writer base — so a user filter's `is_format("revealjs")`
+        // fires in preview exactly as in native reveal render (bd-5b21rbaq).
+        let target_format = ctx.format.lua_format();
 
         // Build the attribution lookup handle when a sidecar is
         // present. `AttributionGenerateStage` runs before this stage

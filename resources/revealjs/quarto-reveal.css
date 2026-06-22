@@ -42,3 +42,16 @@
 .reveal .slides aside .aside-footnotes li:first-of-type {
   margin-top: 0;
 }
+
+/* Stretched video in `q2 preview` (bd-xfw2omlt). The video shortcode emits
+   `<iframe class="r-stretch">`; `q2 render` makes it a direct child of the
+   `<section>` so reveal sizes it. The preview renderer must inject raw HTML
+   through a wrapper `<div>` (React `dangerouslySetInnerHTML`), so RawBlock
+   mirrors `r-stretch` onto that wrapper — reveal then stretches the wrapper,
+   and this rule makes the iframe fill it. Inert in `q2 render` (no such
+   `div.r-stretch > iframe` structure there). */
+.reveal .slides section > div.r-stretch > iframe {
+  width: 100%;
+  height: 100%;
+  display: block;
+}

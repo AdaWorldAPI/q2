@@ -234,7 +234,7 @@ local function asciidocVideo(src, height, width, title, start, _aspectRatio, ari
 
 end
 
-function htmlVideo(src, height, width, title, start, aspectRatio, ariaLabel)
+function htmlVideo(src, height, width, title, start, aspectRatio, ariaLabel, stretchReveal)
 
   -- https://github.com/quarto-dev/quarto-cli/issues/6833
   -- handle partially-specified width, height, and aspectRatio
@@ -302,6 +302,14 @@ function htmlVideo(src, height, width, title, start, aspectRatio, ariaLabel)
             aspectRatio,
             shouldAddResponsiveClasses
     )
+  elseif stretchReveal then
+    -- On reveal.js a bare <iframe> has no size and renders at the browser
+    -- default (~300x150). reveal sizes `section > iframe.r-stretch` to fill the
+    -- slide, so we add the reveal-core `r-stretch` class (no Quarto CSS needed).
+    -- Gated by the caller: only when auto-stretch is on AND the author gave no
+    -- explicit width/height, so explicit sizing always wins (bd-5b21rbaq).
+    -- Q2 has no DOM postprocessor, so we mark the class here at construction.
+    videoSnippet = videoSnippet:gsub('<iframe ', '<iframe class="r-stretch" ', 1)
   end
 
   -- inject the rendering code
@@ -311,7 +319,7 @@ end
 -- defining shortcodes this way allows us to create helper
 -- functions that are not themselves considered shortcodes
 return {
-  ["video"] = function(args, kwargs, _meta, raw_args)
+  ["video"] = function(args, kwargs, meta, raw_args)
     checkArg = function(toCheck, key)
       value = pandoc.utils.stringify(toCheck[key])
       if not isEmpty(value) then
@@ -339,13 +347,24 @@ return {
         srcValue = pandoc.utils.stringify(raw_args[1])
       else
         -- luacov: disable
-        fail("No video source specified for video shortcode")        
+        fail("No video source specified for video shortcode")
         -- luacov: enable
       end
     end
 
+    -- Decide whether a reveal video iframe should be auto-stretched to fill the
+    -- slide. Mirrors the gates of RevealAutoStretchTransform that a shortcode
+    -- can observe: on unless `auto-stretch: false` in metadata, and off when the
+    -- author gave an explicit width/height (their sizing wins). bd-5b21rbaq.
+    local autoStretch = true
+    if meta and meta['auto-stretch'] ~= nil then
+      autoStretch = pandoc.utils.stringify(meta['auto-stretch']) ~= 'false'
+    end
+    local hasExplicitSize = not isEmpty(widthValue) or not isEmpty(heightValue)
+    local stretchReveal = autoStretch and not hasExplicitSize
+
     if quarto.doc.is_format("html:js") then
-      return htmlVideo(srcValue, heightValue, widthValue, titleValue, startValue, aspectRatio, ariaLabelValue)
+      return htmlVideo(srcValue, heightValue, widthValue, titleValue, startValue, aspectRatio, ariaLabelValue, stretchReveal)
     elseif quarto.doc.is_format("asciidoc") then
       return asciidocVideo(srcValue, heightValue, widthValue, titleValue, startValue, aspectRatio, ariaLabelValue)
     elseif quarto.doc.is_format("markdown") then

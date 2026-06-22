@@ -444,3 +444,57 @@ fn fragment_data_index_passes_through() {
         &html[..html.len().min(1500)]
     );
 }
+
+// ── video shortcode auto-stretch on reveal (bd-5b21rbaq Phase 5) ──────────
+//
+// A `{{< video >}}` on a slide emits a bare `<iframe>` with no size, which
+// reveal renders at the browser default (~300×150). reveal sizes
+// `section > iframe.r-stretch` to fill the slide, so the video shortcode adds
+// `r-stretch` to the reveal iframe — but only when auto-stretch is on AND the
+// author gave no explicit width/height (so explicit sizing always wins).
+
+fn video_iframe_line(html: &str) -> String {
+    html.lines()
+        .find(|l| l.contains("<iframe") && l.contains("youtube.com/embed"))
+        .unwrap_or_else(|| panic!("no youtube iframe in reveal output:\n{html}"))
+        .to_string()
+}
+
+#[test]
+fn video_reveal_default_iframe_gets_r_stretch() {
+    let html = render_revealjs(
+        "---\nformat: revealjs\n---\n\n## Video\n\n{{< video https://youtu.be/sAWFsP0Bbbk >}}\n",
+    );
+    let iframe = video_iframe_line(&html);
+    assert!(
+        iframe.contains("r-stretch"),
+        "default reveal video iframe must carry `r-stretch` so reveal sizes it; iframe:\n{iframe}"
+    );
+}
+
+#[test]
+fn video_reveal_explicit_width_no_r_stretch() {
+    // Explicit author sizing must win — no auto-stretch.
+    let html = render_revealjs(
+        "---\nformat: revealjs\n---\n\n## Video\n\n{{< video https://youtu.be/sAWFsP0Bbbk width=\"640\" >}}\n",
+    );
+    let iframe = video_iframe_line(&html);
+    assert!(
+        !iframe.contains("r-stretch"),
+        "reveal video with explicit width must NOT be stretched; iframe:\n{iframe}"
+    );
+}
+
+#[test]
+fn video_reveal_auto_stretch_false_no_r_stretch() {
+    // The `auto-stretch: false` global opt-out must suppress the class —
+    // requires the Lua meta bridge to forward the boolean to the handler.
+    let html = render_revealjs(
+        "---\nformat: revealjs\nauto-stretch: false\n---\n\n## Video\n\n{{< video https://youtu.be/sAWFsP0Bbbk >}}\n",
+    );
+    let iframe = video_iframe_line(&html);
+    assert!(
+        !iframe.contains("r-stretch"),
+        "reveal video must NOT be stretched when `auto-stretch: false`; iframe:\n{iframe}"
+    );
+}

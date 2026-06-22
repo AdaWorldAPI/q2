@@ -1113,6 +1113,14 @@ pub fn build_transform_pipeline(
     // True for `revealjs` (native render) and `q2-slides` (preview).
     let is_revealjs = crate::format::is_revealjs_target(&target_format);
 
+    // The Lua engines (shortcodes, user filters) see the *canonical* Pandoc
+    // format as their `FORMAT` global, not q2's preview pseudo-format. Under
+    // preview, `target_format` is `q2-preview` / `q2-slides`, which Lua's
+    // `is_format("html:js")` / `is_format("revealjs")` don't recognize — so
+    // format-gated shortcodes degrade (the `{{< video >}}` → plain-link bug,
+    // bd-5b21rbaq). Normalizing here makes preview Lua behave like render.
+    let lua_format = crate::format::lua_format_for(&target_format).to_string();
+
     // === NORMALIZATION PHASE ===
     pipeline.push(Box::new(CalloutTransform::new()));
     pipeline.push(Box::new(CalloutResolveTransform::new()));
@@ -1120,7 +1128,7 @@ pub fn build_transform_pipeline(
         shortcode_paths,
         extensions,
         runtime,
-        target_format,
+        lua_format,
     )));
     pipeline.push(Box::new(MetadataNormalizeTransform::new()));
     // bd-1tl09 Phase 0: code-block decoration Generate runs after
