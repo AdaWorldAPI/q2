@@ -79,6 +79,21 @@ describe('MCP protocol', () => {
       required: ['project', 'path'],
     });
   });
+
+  // A share URL whose server= names a hub other than this server's configured
+  // one (--server wss://dummy.example.com) must error *before* connecting, so no
+  // network is needed here. (bd-m4slev7a)
+  it('should reject a share URL pointing at a different hub', async () => {
+    const result = await client.callTool('connect_project', {
+      project:
+        'https://quarto-hub.com/#/share/abc123?server=wss%3A%2F%2Fother.example.com%2Fws',
+    });
+    expect(result.isError).toBe(true);
+    const msg = result.content[0]!.text;
+    expect(msg).toContain('other.example.com');
+    expect(msg).toContain('dummy.example.com');
+    expect(msg).toContain('--server');
+  });
 });
 
 describe('MCP protocol (read-only mode)', () => {

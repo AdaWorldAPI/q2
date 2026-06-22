@@ -23,7 +23,7 @@ import {
   type AuthToolName,
 } from './auth/auth-tools.js';
 import { redactTokens } from './auth/redact.js';
-import { parseProjectRef } from './share-url.js';
+import { parseProjectRef, serversMatch } from './share-url.js';
 
 function text(msg: string): CallToolResult {
   return { content: [{ type: 'text', text: msg }] };
@@ -235,17 +235,34 @@ type ToolArgs = Record<string, unknown>;
  * share URL, replace it with the bare index doc id; and when the share URL
  * named a `file=` and the caller gave no explicit `path`, default `path` to it.
  * A bare id passes through unchanged, so existing callers are unaffected.
+ *
+ * If the share URL's `server=` names a hub different from the one this MCP is
+ * configured to use, returns an `error` instead: silently connecting to the
+ * configured hub would read/write the wrong documents. `configuredServer` is
+ * the manager's {@link ConnectionManager.configuredServerUrl}.
  */
-function normalizeArgs(args: ToolArgs): ToolArgs {
+function normalizeArgs(
+  args: ToolArgs,
+  configuredServer: string,
+): { args: ToolArgs } | { error: string } {
   if (typeof args.project !== 'string') {
-    return args;
+    return { args };
   }
   const ref = parseProjectRef(args.project);
+  if (ref.server && !serversMatch(ref.server, configuredServer)) {
+    return {
+      error:
+        `Error: this share URL targets Quarto Hub server ${ref.server}, but this MCP ` +
+        `server is connected to ${configuredServer}. Reading or writing would hit the ` +
+        `wrong hub. Restart quarto-hub-mcp with \`--server ${ref.server}\` (or set ` +
+        `QUARTO_HUB_SERVER=${ref.server}) to use the project this link points to.`,
+    };
+  }
   const next: ToolArgs = { ...args, project: ref.project };
   if (ref.file && (next.path === undefined || next.path === '')) {
     next.path = ref.file;
   }
-  return next;
+  return { args: next };
 }
 
 /**
@@ -294,7 +311,11 @@ async function handleTool(
   rawArgs: ToolArgs,
   manager: ConnectionManager
 ): Promise<CallToolResult> {
-  const args = normalizeArgs(rawArgs);
+  const normalized = normalizeArgs(rawArgs, manager.configuredServerUrl);
+  if ('error' in normalized) {
+    return error(normalized.error);
+  }
+  const args = normalized.args;
   switch (name) {
     case 'connect_project':
       return handleConnectProject(args, manager);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseProjectRef } from './share-url.js';
+import { parseProjectRef, serversMatch } from './share-url.js';
 
 // The canonical share link quarto-hub.com hands users. Note that file/server/
 // name live inside the URL *fragment* (after `#`), which `new URL().searchParams`
@@ -54,5 +54,40 @@ describe('parseProjectRef', () => {
     expect(ref).toEqual({ project: '3fA4nXRpYK1JPkeyef3KXFMEs4aN', name: 'Untitled' });
     expect('file' in ref).toBe(false);
     expect('server' in ref).toBe(false);
+  });
+});
+
+describe('serversMatch', () => {
+  it('matches identical URLs', () => {
+    expect(serversMatch('wss://quarto-hub.com/ws', 'wss://quarto-hub.com/ws')).toBe(true);
+  });
+
+  it('ignores a trailing slash difference', () => {
+    expect(serversMatch('wss://quarto-hub.com/ws', 'wss://quarto-hub.com/ws/')).toBe(true);
+  });
+
+  it('ignores host case', () => {
+    expect(serversMatch('wss://Quarto-Hub.com/ws', 'wss://quarto-hub.com/ws')).toBe(true);
+  });
+
+  it('ignores surrounding whitespace', () => {
+    expect(serversMatch('  wss://quarto-hub.com/ws ', 'wss://quarto-hub.com/ws')).toBe(true);
+  });
+
+  it('treats ws and wss as different (scheme matters)', () => {
+    expect(serversMatch('ws://quarto-hub.com/ws', 'wss://quarto-hub.com/ws')).toBe(false);
+  });
+
+  it('treats different hosts as different', () => {
+    expect(serversMatch('wss://sync.automerge.org', 'wss://quarto-hub.com/ws')).toBe(false);
+  });
+
+  it('treats different paths as different', () => {
+    expect(serversMatch('wss://quarto-hub.com/ws', 'wss://quarto-hub.com/other')).toBe(false);
+  });
+
+  it('falls back to a trimmed string compare for unparseable input', () => {
+    expect(serversMatch('not a url', 'not a url')).toBe(true);
+    expect(serversMatch('not a url', 'other')).toBe(false);
   });
 });

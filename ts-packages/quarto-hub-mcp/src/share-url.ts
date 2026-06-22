@@ -59,3 +59,31 @@ export function parseProjectRef(input: string): ProjectRef {
   if (name) ref.name = name;
   return ref;
 }
+
+/**
+ * Whether two hub server URLs refer to the same endpoint. Tolerant of trailing
+ * slashes, host case, and surrounding whitespace, but **scheme-sensitive**
+ * (`ws://` ≠ `wss://`) and path-sensitive. Used to reject a share URL whose
+ * `server=` names a different hub than the MCP is configured to talk to —
+ * connecting to the wrong hub would read/write the wrong documents.
+ *
+ * Falls back to a trimmed exact-string compare when either value is not a
+ * parseable URL, so a bad input never silently "matches".
+ */
+export function serversMatch(a: string, b: string): boolean {
+  const normalize = (s: string): string | null => {
+    try {
+      const u = new URL(s.trim());
+      const path = u.pathname.replace(/\/+$/, '');
+      return `${u.protocol}//${u.host.toLowerCase()}${path}`;
+    } catch {
+      return null;
+    }
+  };
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (na === null || nb === null) {
+    return a.trim() === b.trim();
+  }
+  return na === nb;
+}
