@@ -91,6 +91,23 @@ interface Q2PreviewIframeProps {
    * into `PreviewContext.nestedEditBuffers`.
    */
   nestedEditBuffers?: Record<string, string>;
+  /**
+   * Controlled current slide index for `format: revealjs` decks
+   * (bd-mwbsdmel). Driven by the editor's cursor→slide mapping. When it
+   * changes, the wrapper posts `SET_SLIDE` to the iframe, which navigates
+   * the reveal deck imperatively (no AST re-render — cursor moves are far
+   * more frequent than edits). Ignored by non-slide previews (the iframe
+   * has no slide navigator registered).
+   */
+  currentSlideIndex?: number;
+  /**
+   * Slide-change callback for revealjs decks (bd-mwbsdmel). Invoked with
+   * the new horizontal slide index when the deck navigates inside the
+   * iframe (arrow keys, controls), via a `SLIDE_CHANGED` message. Lets the
+   * editor keep its slide state (and thumbnail highlight) in sync with
+   * in-deck navigation.
+   */
+  onSlideChange?: (slideIndex: number) => void;
 }
 
 /**
@@ -127,9 +144,17 @@ export function Q2PreviewIframe({
   editingDisabled,
   unlockNestingCursor,
   nestedEditBuffers,
+  currentSlideIndex,
+  onSlideChange,
 }: Q2PreviewIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeReady, setIframeReady] = useState(false);
+
+  // Last slide index posted to the iframe, so we dedupe SET_SLIDE sends
+  // and don't echo a slide back to the deck it just reported (which would
+  // otherwise loop: cursor → SET_SLIDE → slidechanged → SLIDE_CHANGED →
+  // editor state → SET_SLIDE …). Reset on IFRAME_READY (fresh iframe).
+  const lastSentSlideRef = useRef<number | undefined>(undefined);
 
   // Track the last fingerprint we posted and the current outstanding
   // blob URL so we can dedupe re-sends and revoke replaced URLs.
@@ -179,6 +204,7 @@ export function Q2PreviewIframe({
         // Iframe restart — invalidate dedup state. Any prior blob URL
         // we held is no longer referenced by the new iframe; revoke it.
         lastSentThemeFingerprintRef.current = undefined;
+        lastSentSlideRef.current = undefined;
         if (currentThemeBlobUrlRef.current) {
           URL.revokeObjectURL(currentThemeBlobUrlRef.current);
           currentThemeBlobUrlRef.current = null;
@@ -187,12 +213,34 @@ export function Q2PreviewIframe({
         onNavigateToDocument?.(event.data.path, event.data.anchor);
       } else if (event.data.type === 'SET_AST') {
         setAst(event.data.ast);
+      } else if (event.data.type === 'SLIDE_CHANGED') {
+        // The deck navigated inside the iframe (arrows/controls). Record
+        // it as already-synced so the resulting editor state change does
+        // not bounce back as a redundant SET_SLIDE, then report it up.
+        lastSentSlideRef.current = event.data.index;
+        onSlideChange?.(event.data.index);
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onNavigateToDocument, setAst]);
+  }, [onNavigateToDocument, setAst, onSlideChange]);
+
+  // Post the controlled slide index to the iframe when it changes. The
+  // iframe navigates the reveal deck imperatively (RevealNavSync), so
+  // this never triggers an AST re-render. Deduped against the last sent
+  // value so an in-deck navigation echoed back through the editor's
+  // slide state does not re-post the same index.
+  useEffect(() => {
+    if (!iframeReady || !iframeRef.current?.contentWindow) return;
+    if (currentSlideIndex === undefined) return;
+    if (lastSentSlideRef.current === currentSlideIndex) return;
+    lastSentSlideRef.current = currentSlideIndex;
+    iframeRef.current.contentWindow.postMessage(
+      { type: 'SET_SLIDE', index: currentSlideIndex },
+      '*',
+    );
+  }, [iframeReady, currentSlideIndex]);
 
   // Send custom components code when iframe is ready (only once or when it changes)
   useEffect(() => {

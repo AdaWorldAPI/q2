@@ -129,6 +129,18 @@ let root: ReturnType<typeof createRoot> | null = null;
 let customRegistry: Record<string, React.ComponentType<any>> = {};
 let componentsLoading = false;
 
+// Slide-navigation bridge (bd-mwbsdmel). `RevealDeck`'s `RevealNavSync`
+// registers an imperative `goTo` here (and clears it on unmount); the
+// parent's `SET_SLIDE` message drives it. Stable so `PreviewRoot`
+// re-renders (one per UPDATE_AST) don't churn `RevealNavSync`'s effect.
+let revealSlideNavigator: ((index: number) => void) | null = null;
+const registerSlideNavigator = (nav: ((index: number) => void) | null) => {
+    revealSlideNavigator = nav;
+};
+const postSlideChanged = (index: number) => {
+    window.parent.postMessage({ type: 'SLIDE_CHANGED', index }, '*');
+};
+
 interface UpdateAstPayload {
     astJson: string;
     currentFilePath: string;
@@ -215,6 +227,10 @@ window.addEventListener('message', async (event) => {
     } else if (event.data.type === 'UPDATE_THEME') {
         lastThemeCssUrl = event.data.cssUrl;
         reconcileThemeLink();
+    } else if (event.data.type === 'SET_SLIDE') {
+        // Drive the reveal deck imperatively (no AST re-render). No-op when
+        // the current preview isn't a slide deck (no navigator registered).
+        revealSlideNavigator?.(event.data.index);
     }
 });
 
@@ -346,6 +362,8 @@ function updateAst(payload: UpdateAstPayload) {
                 nestedEditBuffers={nestedEditBuffers}
                 customRegistry={customRegistry}
                 scrollToAnchor={scrollToAnchorInDocument}
+                registerSlideNavigator={registerSlideNavigator}
+                onSlideChange={postSlideChanged}
                 onNavigateToDocument={(path, anchor) => {
                     window.parent.postMessage(
                         { type: 'NAVIGATE_TO_DOCUMENT', path, anchor },

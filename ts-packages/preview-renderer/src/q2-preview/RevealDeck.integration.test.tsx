@@ -23,6 +23,7 @@ import { render } from '@testing-library/react';
 import { RevealContext, Slide, Stack } from '@revealjs/react';
 import {
     RevealChrome,
+    RevealNavSync,
     revealChromeFromMeta,
     renderTopSection,
     sectionAttrProps,
@@ -194,5 +195,77 @@ describe('RevealChrome — places footer/logo outside .slides, adds has-logo', (
         expect(reveal.querySelector('.slide-logo')).toBeNull();
         expect(reveal.querySelector('.footer')).toBeNull();
         expect(reveal.classList.contains('has-logo')).toBe(false);
+    });
+});
+
+/** Fake reveal API exposing only the slice `RevealNavSync` uses, plus an
+ *  `emit` test hook to fire a registered event. `slideCalls` records every
+ *  imperative `slide(n)`; `state.h` tracks the current horizontal index. */
+function makeFakeReveal(initialH = 0) {
+    const listeners: Record<string, Array<() => void>> = {};
+    const state = { h: initialH };
+    const slideCalls: number[] = [];
+    const api = {
+        getIndices: () => ({ h: state.h }),
+        slide: (n: number) => {
+            slideCalls.push(n);
+            state.h = n;
+        },
+        on: (t: string, cb: () => void) => {
+            (listeners[t] ??= []).push(cb);
+        },
+        off: (t: string, cb: () => void) => {
+            listeners[t] = (listeners[t] ?? []).filter((c) => c !== cb);
+        },
+        emit: (t: string) => (listeners[t] ?? []).forEach((c) => c()),
+    };
+    return { api, state, slideCalls };
+}
+
+describe('RevealNavSync — cursor↔slide bridge (bd-mwbsdmel)', () => {
+    it('registers a goTo navigator that drives reveal.slide, no-op when already there', () => {
+        const fake = makeFakeReveal(0);
+        let nav: ((i: number) => void) | null = null;
+        render(
+            <RevealContext.Provider value={fake.api as never}>
+                <RevealNavSync registerSlideNavigator={(n) => { nav = n; }} />
+            </RevealContext.Provider>,
+        );
+        expect(typeof nav).toBe('function');
+
+        nav!(2);
+        expect(fake.slideCalls).toEqual([2]);
+        expect(fake.state.h).toBe(2);
+
+        // Already on slide 2 → no redundant slide() (so a host echo of the
+        // deck's own position can't fight a user mid-navigation).
+        nav!(2);
+        expect(fake.slideCalls).toEqual([2]);
+    });
+
+    it('reports in-deck navigation via onSlideChange with the horizontal index', () => {
+        const fake = makeFakeReveal(0);
+        const changes: number[] = [];
+        render(
+            <RevealContext.Provider value={fake.api as never}>
+                <RevealNavSync onSlideChange={(i) => changes.push(i)} />
+            </RevealContext.Provider>,
+        );
+        fake.state.h = 3;
+        fake.api.emit('slidechanged');
+        expect(changes).toEqual([3]);
+    });
+
+    it('clears the registered navigator on unmount', () => {
+        const fake = makeFakeReveal(0);
+        const registered: Array<((i: number) => void) | null> = [];
+        const { unmount } = render(
+            <RevealContext.Provider value={fake.api as never}>
+                <RevealNavSync registerSlideNavigator={(n) => { registered.push(n); }} />
+            </RevealContext.Provider>,
+        );
+        expect(typeof registered.at(-1)).toBe('function');
+        unmount();
+        expect(registered.at(-1)).toBeNull();
     });
 });

@@ -5,11 +5,9 @@ import { Q2DebugIframe } from './q2-debug/Q2DebugIframe';
 import { Q2PreviewIframe } from '@quarto/preview-renderer/iframe/Q2PreviewIframe';
 import { Q2RawIframe } from './q2-raw/Q2RawIframe';
 import { SlideAst } from './ReactAstSlideRenderer';
-import { RevealjsSlideAst } from './RevealjsReactAstSlideRenderer';
 import { transpileTSX } from '../../services/tsxTranspiler';
 import { resolveComponentPath } from '@quarto/preview-renderer/utils/componentPath';
 import type { PandocAST } from '@quarto/preview-renderer/framework';
-import { extractMetaString } from '@quarto/preview-renderer/framework';
 
 // Simple error boundary to catch errors in custom components
 class ErrorBoundary extends Component<
@@ -272,7 +270,15 @@ function ReactRenderer({
       </ErrorBoundary>
     );
   }
-  if (format === 'q2-preview') {
+  // Convergence (bd-vwp4y5ku): `format: revealjs` renders through the
+  // SAME shared q2-preview iframe as `q2 preview`. The iframe's
+  // `PreviewRoot` auto-detects slides (`isSlides` for revealjs/q2-slides)
+  // and mounts `RevealDeck`, which applies the document's compiled reveal
+  // theme via the `<style data-q2-theme>` transport — instead of the
+  // legacy hand-rolled `RevealjsSlideAst` deck that hardcoded reveal's
+  // stock `white.css`. `ReactPreview.doRender` feeds this branch the
+  // themed preview AST (from `renderPageForPreview`) + `themeFingerprint`.
+  if (format === 'q2-preview' || format === 'revealjs') {
     return (
       <ErrorBoundary>
         <div style={{
@@ -296,36 +302,27 @@ function ReactRenderer({
             currentActor={currentActor}
             unlockNestingCursor={unlockNestingCursor}
             nestedEditBuffers={nestedEditBuffers}
+            currentSlideIndex={currentSlideIndex}
+            onSlideChange={onSlideChange}
           />
         </div>
       </ErrorBoundary>
     );
   }
 
-  // q2-slides or revealjs format - check if it's revealjs
-  const ast = JSON.parse(astJson);
-  const isRevealjs =
-    format === 'revealjs' || extractMetaString(ast?.meta?.format) === 'revealjs';
-
+  // q2-slides: the generic (non-reveal) slide preview. `format: revealjs`
+  // is handled above through the shared q2-preview iframe (bd-vwp4y5ku);
+  // the hand-rolled `RevealjsSlideAst` deck was retired with that
+  // convergence, so there is no longer a reveal-specific branch here.
   return (
     <ErrorBoundary>
-      {isRevealjs ? (
-        <RevealjsSlideAst
-          astJson={astJson}
-          currentFilePath={currentFilePath}
-          onNavigateToDocument={onNavigateToDocument}
-          currentSlide={currentSlideIndex}
-          onSlideChange={onSlideChange}
-        />
-      ) : (
-        <SlideAst
-          astJson={astJson}
-          currentFilePath={currentFilePath}
-          onNavigateToDocument={onNavigateToDocument}
-          currentSlide={currentSlideIndex}
-          onSlideChange={onSlideChange}
-        />
-      )}
+      <SlideAst
+        astJson={astJson}
+        currentFilePath={currentFilePath}
+        onNavigateToDocument={onNavigateToDocument}
+        currentSlide={currentSlideIndex}
+        onSlideChange={onSlideChange}
+      />
     </ErrorBoundary>
   );
 }
