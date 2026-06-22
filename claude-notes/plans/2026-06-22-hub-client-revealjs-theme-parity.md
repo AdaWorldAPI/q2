@@ -252,22 +252,27 @@ click-to-edit on slides; attribution on slides.
 - [x] Audit `Q2PreviewIframe`/`PreviewRoot` vs `RevealjsSlideAst` (matrix above).
 
 ### Phase 1 — Tests first
-- [ ] Routing test: `ReactRenderer` with `format: revealjs` renders
-      `Q2PreviewIframe`, **not** `RevealjsSlideAst` (currently fails).
-- [ ] `doRender` dispatch test: revealjs calls `renderPageForPreview` (not
-      `parseQmdToAst`) and surfaces `themeFingerprint` (mock the wasmRenderer).
-- [ ] (If practical) parity/theme assertion: revealjs preview output carries the
-      compiled-theme transport (`<style data-q2-theme>` / non-uppercase `<h2>`)
-      rather than stock `white.css`. Reuse `parity.integration.test.tsx` shape.
+- [x] Routing test: `ReactRenderer` with `format: revealjs` renders
+      `Q2PreviewIframe`, **not** `RevealjsSlideAst`. Added to
+      `ReactRenderer.integration.test.tsx`; confirmed red, then green.
+- [~] `doRender` dispatch: `doRender` is module-private with no existing test
+      harness; covered instead by the routing test + the end-to-end browser
+      verification below (calling `renderPageForPreview` is what makes the iframe
+      receive a themed AST — observable as non-uppercase `<h2>`). A unit test
+      would require extracting/exporting the dispatch; deferred as low-value.
+- [x] Theme parity asserted **end-to-end in the browser** (computed styles), the
+      authoritative check per CLAUDE.md — see Phase 3 record below.
 
 ### Phase 2 — Implement (A)
-- [ ] `ReactPreview.doRender`: revealjs → `renderPageForPreview(documentPath,
-      userGrammars, undefined)`; thread `theme_fingerprint`/`is_slides` through.
-- [ ] `ReactRenderer`: route revealjs/`q2-slides` → `Q2PreviewIframe` with
-      `themeFingerprint`.
-- [ ] Port cursor→slide sync (`currentSlide`/`onSlideChange`) onto the iframe
-      path (postMessage channel through `Q2PreviewIframe`/`entry`/`PreviewRoot`/
-      `RevealDeck`).
+- [x] `ReactPreview.doRender`: revealjs → `renderPageForPreview(documentPath,
+      userGrammars, undefined)`; threads `theme_fingerprint` through (commit
+      `70f5cb4c`).
+- [x] `ReactRenderer`: route revealjs (+ q2-preview) → `Q2PreviewIframe` with
+      `themeFingerprint` (commit `70f5cb4c`).
+- [ ] **Port cursor→slide sync** (`currentSlideIndex`/`onSlideChange`) onto the
+      iframe path — confirmed regressed: the q2-preview branch does not forward
+      these to `Q2PreviewIframe`. Needs a postMessage channel through
+      `Q2PreviewIframe`/`entry`/`PreviewRoot`/`RevealDeck`.
 - [ ] Remove `RevealjsSlideAst` + reveal branch of `ReactAstSlideRenderer` + the
       hub-client `white.css` import once nothing references them.
 - [ ] File follow-up strands: reveal menu in iframe; revealjs thumbnails;
