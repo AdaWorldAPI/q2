@@ -470,15 +470,25 @@ fn shortcode_to_lua_args(
         })
         .collect();
 
-    // Extract top-level metadata as string key-value pairs for Lua
+    // Extract top-level metadata as string key-value pairs for Lua.
+    //
+    // Forward scalars of every stringifiable kind, not just strings: a handler
+    // that gates on a boolean/numeric flag (e.g. the `video` shortcode reading
+    // `auto-stretch: false` to decide reveal stretching — bd-5b21rbaq) needs to
+    // see it. Booleans/ints are stringified ("false", "16"); string and
+    // PandocInlines scalars come through `as_plain_text()`. Map/array values
+    // remain dropped (no flat string form).
     let meta_entries: Vec<(String, String)> = if let Some(entries) = metadata.as_map_entries() {
         entries
             .iter()
             .filter_map(|entry| {
-                entry
-                    .value
-                    .as_str()
-                    .map(|v| (entry.key.clone(), v.to_string()))
+                let v = &entry.value;
+                let s = v
+                    .as_bool()
+                    .map(|b| b.to_string())
+                    .or_else(|| v.as_int().map(|n| n.to_string()))
+                    .or_else(|| v.as_plain_text());
+                s.map(|s| (entry.key.clone(), s))
             })
             .collect()
     } else {
