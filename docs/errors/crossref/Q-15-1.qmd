@@ -1,0 +1,62 @@
+---
+title: "Duplicate Crossref Identifier"
+description: "A crossref identifier (such as a `fig-`/`tbl-` label or an explicit `#id`) is defined more than once in the same document."
+code: Q-15-1
+subsystem: crossref
+status: stub
+since: "99.9.9"
+categories:
+  - crossref
+---
+
+# `Q-15-1` — Duplicate Crossref Identifier
+
+> A crossref identifier (such as a `fig-`/`tbl-` label or an
+> explicit `#id`) is defined more than once in the same document.
+
+## What this means
+
+Cross-references resolve by identifier: when you write `@fig-plot`,
+Quarto looks up the one element whose id is `fig-plot` and links to
+it with the right number ("Figure 3"). For that to be unambiguous,
+each crossref id must be **unique within a document**.
+
+This error fires when the same id is assigned to two (or more)
+elements — two figures both labeled `#| label: fig-plot`, two divs
+both carrying `{#fig-plot}`, and so on. The diagnostic underlines
+**both** occurrences: the first definition and the duplicate.
+
+Quarto keeps the **first** occurrence in the crossref index and
+skips numbering the duplicate, so the render still completes — but
+any `@fig-plot` reference would be ambiguous, and the duplicated
+`id` produces invalid HTML (two elements sharing one `id`).
+
+## Why this happens
+
+Common causes:
+
+- **Copy-paste** — a figure or table block was duplicated and its
+  `label:` / `#id` was not changed.
+- **The same example shown twice** — e.g. the same figure presented
+  in two tabs of a `panel-tabset` (one per engine), both keeping the
+  original label.
+- **A generated label collides** — an auto-derived id happens to
+  match one you wrote by hand.
+
+## How to fix
+
+Give one of the targets a different identifier so each is unique:
+
+- For computational figures/tables, change the `#| label:` option
+  (e.g. `fig-plot-jupyter` and `fig-plot-knitr`).
+- For explicit ids, change the `{#fig-plot}` attribute.
+
+Then update any `@`-references to point at the id you intend. If the
+two elements really are the same figure shown two ways and you do
+not need to cross-reference one of them, you can remove the label
+from that one instead.
+
+## Related
+
+- `Q-12-4` — a duplicate **listing** id (the same uniqueness
+  requirement, in the listing subsystem).
