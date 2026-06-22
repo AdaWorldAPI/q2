@@ -1,0 +1,6 @@
+gravis
+numpy
+networkx
+odf
+odfpy
+pandas

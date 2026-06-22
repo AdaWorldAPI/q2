@@ -1,0 +1,125 @@
+---
+title: AI War Cloud
+subtitle: Battlefield to Desktop
+date: Mar 20 2025
+---
+
+```{python}
+# | echo: false
+# | column: page
+# | label: tbl-aiwartable
+# | tbl-cap: "AI War Cloud Database: A collection of techno-military-industrial projects that use machine learning tasks."
+## | tbl-colwidths: [3,1,3,3,3,3,1,5]
+
+
+from IPython.display import display, HTML, Markdown
+from tabulate import tabulate
+import pandas as pd
+from itables import show, options as opt, init_notebook_mode
+
+init_notebook_mode()
+
+df = pd.read_csv('data/aiwarcloud-table.csv', sep=',')
+
+df = df.drop(['Source', 'URL', 'Reference', 'Link'], axis=1)  
+
+data = df.head(43)
+# systems = df.count
+
+# options.buttons = [ 'copy', 'excel', 'pdf']
+opt.paging = False
+opt.scrollY="800px"
+opt.scrollCollapse=True
+opt.columnDefs=[{"width": "20%", "targets": [3,4,5]}, 
+        {"className": "dt-body-left", "targets": [0,1,2,3,4,5,6]}] 
+        #cell classes: https://datatables.net/manual/styling/classes#Cell-classes
+opt.textAlign='left'
+# opt.width='10%'
+opt.autoWidth = True
+# opt.classes = "cell"
+opt.layout = {  'topEnd': 'search', 
+                'topStart': 'paging',
+                'bottomStart': 'info',
+                'bottomEnd': 'pageLength' }
+# opt.lengthMenu = [20,50,100]
+# opt.column_filters = 'header'
+
+show(data, classes="display wrap compact")
+
+```
+
+
+<!-- ```{python}
+#| content: valuebox
+#| title: "Systems"
+#| icon: pencil
+#| color: primary
+
+dict(
+    value = systems
+)
+
+``` -->
+
+<!-- MARKDOWN TABLE VERSION -->
+<!-- ```{python}
+#| echo: false
+#| column: page
+#| label: tbl-aiwar
+#| tbl-cap-location: top
+#| tbl-cap-align: left
+#| tbl-cap: "AI War Cloud Database: A collection of techno-military-industrial projects that use machine learning tasks."
+#| tbl-colwidths: [30,10,30,125,125,125,125,75]
+#| class: cell
+
+from IPython.display import display, HTML, Markdown
+# from itables import show
+from tabulate import tabulate
+import pandas as pd
+
+df = pd.read_csv('data/aiwarcloud-table.csv', sep=',')
+
+dfDisp = df.drop(['Source', 'URL', 'Reference', 'Link'], axis=1)    
+
+md_table = dfDisp.head(43).to_markdown(
+        index=False, 
+        headers="keys", 
+        )
+
+# display(Markdown(md_table))
+display(dfDisp.head(43))
+``` -->
+
+
+
+
+<!--{.cell}-->
+<!-- ::: {.column-page}  -->
+
+<!-- ```{python}
+#| echo: false
+#| column: page
+#| label: tbl-aiwar
+#| tbl-cap-location: top
+#| tbl-cap-align: left
+#| tbl-cap: "AI War Cloud Database: A collection of techno-military-industrial projects that use machine learning tasks."
+#| tbl-colwidths: [30,10,30,125,125,125,125,75]
+#| class: cell
+
+from IPython.display import display, HTML, Markdown
+# from itables import show
+from tabulate import tabulate
+import pandas as pd
+
+df = pd.read_csv('data/aiwarcloud-table.csv', sep=',')
+
+dfDisp = df.drop(['Source', 'URL', 'Reference', 'Link'], axis=1)    
+
+md_table = dfDisp.head(43).to_markdown(
+        index=False, 
+        headers="keys", 
+        )
+
+# display(Markdown(md_table))
+display(dfDisp.head(43))
+``` -->

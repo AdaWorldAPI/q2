@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/*",
+    "crates/stubs/*",
     "crates/experiments/reconcile-viewer",
 ]
 default-members = ["crates/*", "crates/experiments/reconcile-viewer"]
@@ -181,6 +182,87 @@ path = "./crates/quarto-trace"
 [workspace.dependencies.quarto-trace-server]
 path = "./crates/quarto-trace-server"
 
+# ── AdaWorldAPI q2 fork additions: graph-notebook + Gotham GUI ──
+# Re-applied onto fresh upstream after the no-shared-history resync
+# (claude/q2-upstream-replant). Consumed by our additive crates
+# (cockpit-server, stubs/*, aiwar-ingest, neural-debug). Per
+# .claude/rules/architectural-compliance.md the lance-graph deps are the
+# REAL ../lance-graph/crates/* (sibling repo), never substitutes.
+[workspace.dependencies.notebook-query]
+path = "./crates/stubs/notebook-query"
+
+[workspace.dependencies.lance-graph]
+path = "../lance-graph/crates/lance-graph"
+default-features = false
+# ndarray-hpc required: lance-graph's vector_ops/fingerprint/hydrate call
+# ndarray::hpc::* unconditionally, so the feature must be on even with
+# default-features off.
+features = ["ndarray-hpc"]
+
+[workspace.dependencies.lance-graph-planner]
+path = "../lance-graph/crates/lance-graph-planner"
+
+[workspace.dependencies.bgz17]
+path = "../lance-graph/crates/bgz17"
+
+[workspace.dependencies.thinking-engine]
+path = "../lance-graph/crates/thinking-engine"
+
+[workspace.dependencies.cognitive-shader-driver]
+path = "../lance-graph/crates/cognitive-shader-driver"
+
+[workspace.dependencies.lance-graph-contract]
+path = "../lance-graph/crates/lance-graph-contract"
+# guid-v2-tail: the OSINT/Gotham rows use the v2 tail (leaf·family·identity, all
+# u16). family(u16) is the deterministic basin (round→anchor), NOT a category and
+# NOT a Louvain cluster — location is permanent via the HHTL, the basin is an
+# interface the node adapts to.
+features = ["guid-v2-tail"]
+
+# OGAR Active-Record activation crate — the real `impl lance_graph_contract::
+# ClassView` (OgarClassView) used for DISPLAY only. default-features = light: the
+# emit() DDL formatter, NO surrealdb tree (the surrealql-parser feature is opt-in
+# and deliberately NOT enabled here).
+[workspace.dependencies.lance-graph-ogar]
+path = "../lance-graph/crates/lance-graph-ogar"
+
+[workspace.dependencies.causal-edge]
+path = "../lance-graph/crates/causal-edge"
+
+[workspace.dependencies.graph-flow]
+path = "./crates/stubs/graph-flow"
+
+[workspace.dependencies.q2-ndarray]
+path = "./crates/stubs/q2-ndarray"
+
+[workspace.dependencies.axum]
+version = "0.7"
+features = ["ws"]
+
+[workspace.dependencies.tower-http]
+version = "0.5"
+features = ["fs", "cors"]
+
+[workspace.dependencies.async-stream]
+version = "0.3"
+
+[workspace.dependencies.futures-core]
+version = "0.3"
+
+# deno JS runtime — cockpit-server executes .qmd JS/TS cells via deno_core (the
+# deliberate "better than neo4j" live-cell engine; q2 upstream carries no deno).
+# crates.io deno_core 0.376 is ARCHIVED and its stale temporal_rs won't build
+# against current icu_calendar. Repoint to the AdaWorldAPI/deno fork (deno_core
+# 0.404 at libs/core, current V8). Per .claude/rules/architectural-compliance.md
+# + the workspace fork rule: the fork, NEVER crates.io.
+[workspace.dependencies.deno_core]
+git = "https://github.com/AdaWorldAPI/deno"
+branch = "main"
+
+[workspace.dependencies.serde_v8]
+git = "https://github.com/AdaWorldAPI/deno"
+branch = "main"
+
 [workspace.lints.rust]
 # coverage_nightly is used by pampa for code coverage instrumentation on nightly Rust
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
@@ -284,6 +366,15 @@ runtimelib = { git = "https://github.com/cscheid/runtimed", rev = "fc58eb48139a3
 # so we must patch jupyter-protocol from the same SHA to avoid pulling
 # in two distinct `jupyter_protocol::JupyterMessage` types.
 jupyter-protocol = { git = "https://github.com/cscheid/runtimed", rev = "fc58eb48139a30cc559ac5973cb6debb00375b88" }
+
+# Fold ogar-class-view's transitive `lance-graph-contract` (git
+# AdaWorldAPI/lance-graph#main, pulled via lance-graph-ogar) onto q2's path copy
+# = exactly ONE contract crate, so `OgarClassView`'s `impl ClassView` is for the
+# SAME trait q2 names in `&dyn lance_graph_contract::ClassView`. Consumer
+# requirement repeated from lance-graph-ogar's own Cargo header (codex P2, #564):
+# the patch only takes effect in the workspace ROOT, so q2 must declare it here.
+[patch."https://github.com/AdaWorldAPI/lance-graph"]
+lance-graph-contract = { path = "../lance-graph/crates/lance-graph-contract" }
 
 # Profiles must be set at the workspace level
 [profile.dev]

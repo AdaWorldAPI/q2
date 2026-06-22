@@ -1,0 +1,37 @@
+# Notebook query engine — routes Cypher/Gremlin/SPARQL through lance-graph DataFusion
+[package]
+name = "notebook-query"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lance-graph.workspace = true
+lance-graph-contract.workspace = true
+bgz17.workspace = true
+# Arrow + DataFusion versions MUST track lance-graph (arrow 58, datafusion 53),
+# else `CypherQuery::execute` returns an arrow-58 `RecordBatch` that won't unify
+# with a locally-built arrow-57 one (E0308). See lance-graph/crates/lance-graph.
+arrow = { version = "58", features = ["prettyprint"] }
+datafusion = { version = "53", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde.workspace = true
+serde_json = "1"
+
+# Cold path: Neo4j Aura fallback (opt-in)
+neo4rs = { version = "0.8", optional = true }
+
+# Unified query planner (opt-in)
+lance-graph-planner = { workspace = true, optional = true }
+
+# Thinking orchestrator (opt-in)
+graph-flow = { workspace = true, optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+
+[features]
+default = []
+neo4j-fallback = ["dep:neo4rs"]
+planner = ["dep:lance-graph-planner"]
+orchestrator = ["dep:graph-flow", "dep:uuid"]
+# bardioc: use lightweight stubs instead of lance-graph hot path.
+# Default (no bardioc) = lance-graph + DataFusion for all query languages.
+bardioc = []

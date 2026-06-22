@@ -1,0 +1,81 @@
+[package]
+name = "cockpit-server"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+description = "Single-binary graph notebook — live .qmd rendering via lance-graph + deno_core"
+
+[[bin]]
+name = "q2-cockpit"
+path = "src/main.rs"
+
+[dependencies]
+# Web server
+axum.workspace = true
+tower-http.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+
+# SSE streaming
+async-stream.workspace = true
+futures-core.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json = "1"
+
+# ── The engine: lance-graph ──────────────────────────────────────────
+# Parser, DataFusion planner, LanceDB storage, blasgraph columnar,
+# semiring algebra, HHTL cascade. ALL queries route through here.
+lance-graph.workspace = true
+
+# Canonical R1 cycle surface: ShaderDispatch → ShaderResonance → ShaderBus → ShaderCrystal.
+# Phase 2B dropped `thinking-engine` and `cognitive-shader-driver` — they're
+# THINK-1 spaghetti duplicates per the lance-graph entropy ledger. The
+# zero-dep contract is the canonical surface; cockpit-server impls
+# `CognitiveShaderDriver` itself (see `mock_driver.rs`).
+lance-graph-contract.workspace = true
+# OGAR Active-Record: OgarClassView (the concrete `impl lance_graph_contract::
+# ClassView`) is the DISPLAY resolver for OSINT nodes — held as `&dyn ClassView`.
+# Contract owns the trait; OGAR owns the value (the #585 SoC split).
+lance-graph-ogar.workspace = true
+# NARS truth-revision algebra (canonical TruthValue::deduction).
+lance-graph-planner.workspace = true
+# Causal edge protocol (CausalEdge64 wire format).
+causal-edge.workspace = true
+
+# Query routing layer — dispatches Cypher/Gremlin/SPARQL to lance-graph
+notebook-query.workspace = true
+
+# AIwar renderer — loads graph data into the engine
+aiwar-ingest = { path = "../aiwar-ingest" }
+
+# ── Quarto rendering pipeline ───────────────────────────────────────
+# pampa parses .qmd, quarto-core renders, deno_core executes JS/TS cells
+quarto-core.workspace = true
+quarto-system-runtime.workspace = true
+deno_core.workspace = true
+serde_v8.workspace = true
+
+# ── SIMD compute ────────────────────────────────────────────────────
+q2-ndarray.workspace = true
+
+# ── Embedded frontend ──────────────────────────────────────────
+# When embed-cockpit feature is on, the Vite React build (cockpit/dist/)
+# is compiled into the binary via include_dir!
+include_dir = { version = "0.7", optional = true }
+
+# Logging
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[features]
+default = ["planner"]
+# Embed the Vite React build into the binary. Requires cockpit/dist/ to exist.
+# Build with: cd cockpit && npm run build && cd .. && cargo build -p cockpit-server --features embed-cockpit
+# The Dockerfile handles this automatically (Stage 1 builds Vite, Stage 2 builds Rust).
+# Without this feature, the binary serves a fallback HTML shell with MCP/SSE connectivity.
+embed-cockpit = ["dep:include_dir"]
+planner = ["notebook-query/planner"]
+orchestrator = ["notebook-query/orchestrator"]
+# Neo4j Aura fallback — only for live demos when lance-graph is unreachable
+neo4j-fallback = ["notebook-query/neo4j-fallback"]

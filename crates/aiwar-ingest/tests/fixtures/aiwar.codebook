@@ -1,0 +1,1712 @@
+# aiwar.codebook  —  OSINT graph normalized to the CANON codebook model
+# mixin family-node inheritance · 4-nibble (u16) identity · label CAM · head-only (no serialization)
+#
+# A node is its HEAD only:  classid(OSINT=0x0700) | family(mixin ref) | identity(u16) | edge-adapters
+# The category is INHERITED by reference (family id), never copied. No properties are serialized.
+
+@meta
+  source          aiwar_graph.json + 30 cypher enrichments
+  classid         0x0700   OSINT / Palantir-Gotham
+  identity_width  16 bit (4 nibbles)
+  families        7
+  nodes           674   (entities 534 + schema 140)
+  edges           356
+  json_bytes      174274
+  codebook_bytes  ~5340   (head-only; rho = 0.031 of serialized JSON)
+
+@families            # the codebook CLASSES — entities inherit these by REFERENCE (mixin)
+  01  CivicSystem
+  02  HistoricalSystem
+  03  Person
+  04  SchemaAxis
+  05  SchemaValue
+  06  Stakeholder
+  07  System
+
+@edge_types
+  1  connection
+  2  hierarchical
+  3  isDeployedBy
+  4  isDevelopedBy
+  5  people
+  6  place
+
+@label_cam           # content-addressable labels:  u16 identity  <->  name (interned, deduped)
+  0001  201V
+  0002  AFRS
+  0003  AIP
+  0004  AIVerse
+  0005  ARCA
+  0006  ARPANET
+  0007  ARX
+  0008  AWS
+  0009  Accenture
+  000A  AdnanKhashoggi
+  000B  Airbus
+  000C  Alchemist
+  000D  AlexKarp
+  000E  AllInE263
+  000F  AllInEpsteinSpecial
+  0010  Allende
+  0011  Alphabet
+  0012  Altec
+  0013  Altman
+  0014  Altra
+  0015  Amazon
+  0016  Amesys
+  0017  AminA
+  0018  AmnestyLab
+  0019  Andrew
+  001A  AndrewArrest2026
+  001B  Anduril
+  001C  AndurilEurope
+  001D  AnshuJain
+  001E  Anthropic
+  001F  AnthropicBan
+  0020  AnthropicComplianceArc
+  0021  AnthropicControlPlane
+  0022  AnthropicMilitaryUse
+  0023  Apollo
+  0024  AppRegistration
+  0025  Apple
+  0026  ArcticWolf
+  0027  ArcticWolfMetrics
+  0028  Arlington
+  0029  AssafRappaport
+  002A  AsymmetricClassification
+  002B  Atlas
+  002C  AutocraticEnablement
+  002D  AutomatedKillChain
+  002E  AxelSpringer
+  002F  Axon
+  0030  Azerbaijan
+  0031  Azure
+  0032  BKA
+  0033  BabElMandeb
+  0034  BailleGifford
+  0035  BankOfAmerica
+  0036  Bannon
+  0037  Barak
+  0038  Barrack
+  0039  BearStearns
+  003A  BeccaBalint
+  003B  Bezos
+  003C  Bilderberg2024
+  003D  Bilderberg2025
+  003E  BlackRock
+  003F  BlueWolf
+  0040  BoazGorodissky
+  0041  Booz
+  0042  BradleyEdwards
+  0043  BrendanCarr
+  0044  BrianSchimpf
+  0045  Bridgewater
+  0046  BrigGenYS
+  0047  Brin
+  0048  ButterflyTrust
+  0049  Bylina
+  004A  ByteDance
+  004B  CALO
+  004C  CBP
+  004D  CameronStanley
+  004E  Campelli
+  004F  Candiru
+  0050  CarbynePipeline
+  0051  Catz
+  0052  CaymanEntity
+  0053  Cellebrite
+  0054  CellebriteMetrics
+  0055  Centaur
+  0056  CerberusCapital
+  0057  Chamath
+  0058  ChatGPT
+  0059  CheckPoint
+  005A  CheckPointMetrics
+  005B  China
+  005C  ChinaContainment
+  005D  ChinaGDPSignal
+  005E  Citizen
+  005F  CitizenLab
+  0060  Claude
+  0061  ClaudeAI
+  0062  Clearview
+  0063  ClearviewAI
+  0064  ComplianceAsValuation
+  0065  ConfirmedKillChain
+  0066  ContractualEthicsTrap
+  0067  Convergence2026
+  0068  Corsight
+  0069  CoworkMoment
+  006A  Cybereason
+  006B  D3
+  006C  DARPA
+  006D  DARPABioMineral
+  006E  DIANA
+  006F  DIAS
+  0070  DIU
+  0071  DOD
+  0072  DOJ
+  0073  DanCaine
+  0074  DanishNP
+  0075  DarioAmodei
+  0076  Databricks
+  0077  DavidBoies
+  0078  DavidEllison
+  0079  DavidFriedman
+  007A  DavidKimche
+  007B  DavidStern
+  007C  DefenseTechVC
+  007D  Dehomag
+  007E  Delian
+  007F  Deloitte
+  0080  Denmark
+  0081  Dershowitz
+  0082  DeutscheBank
+  0083  DianaDeathParis
+  0084  DiplomaticChoreography2026
+  0085  Discombobulator
+  0086  DoDAAM
+  0087  DodiFayed
+  0088  Doepfner
+  0089  DoepfnerCapital
+  008A  Donovan
+  008B  DoorDash
+  008C  DraftOneAI
+  008D  DroneRecordDeployment
+  008E  DualUseShell
+  008F  DynaSpeak
+  0090  ELIZA
+  0091  EagleEye
+  0092  EgyptSurveillanceState
+  0093  Ek
+  0094  Elbit
+  0095  Ellison
+  0096  EmilMichael
+  0097  Endeavor
+  0098  EpicFury
+  0099  Epstein
+  009A  EpsteinHinge
+  009B  EpsteinSettlementIndustry
+  009C  EraCommercial
+  009D  EraCovert
+  009E  EraOpenBazaar
+  009F  EthicsAsBrandStrategy
+  00A0  EuroCloudTenants
+  00A1  EuroEnterpriseCustomers
+  00A2  EuroGagOrderScope
+  00A3  EuropeanMSPs
+  00A4  FBI
+  00A5  FBIFieldOffices
+  00A6  FCBayern
+  00A7  FIDF
+  00A8  Facebook
+  00A9  Faeser
+  00AA  Fascitelli
+  00AB  Feinberg
+  00AC  Ferguson
+  00AD  FinFisher
+  00AE  Fink
+  00AF  FireFactory
+  00B0  FireWeaver
+  00B1  FirstPOVDrones
+  00B2  Fortify
+  00B3  Foundry
+  00B4  Fraunhofer
+  00B5  FreebergSelfExclusion
+  00B6  Friedberg
+  00B7  FriedrichMerz
+  00B8  GDIT
+  00B9  GISArta
+  00BA  GTR
+  00BB  Gates
+  00BC  GazaLavenderDeployment
+  00BD  GazaWar2012
+  00BE  Gemini
+  00BF  GermanDroneDeal
+  00C0  GermanGov
+  00C1  Germany
+  00C2  GhislaineMaxwell
+  00C3  GilShwed
+  00C4  Giuliani
+  00C5  GlobalCounsel
+  00C6  GoldenDomeDisclosure
+  00C7  GoldenShield
+  00C8  Google
+  00C9  GoogleCloud
+  00CA  GoogleMavenWithdrawal
+  00CB  GoogleWorkspaceAgents
+  00CC  GordonBrown
+  00CD  Gospel
+  00CE  Gotham
+  00CF  Greece
+  00D0  GreenlandLeverage
+  00D1  HamburgMeeting1985
+  00D2  HanwhaTechwin-Samsung
+  00D3  Hegseth
+  00D4  Helsing
+  00D5  Hikvision
+  00D6  HillaryClinton
+  00D7  Hivemind
+  00D8  Hoffman
+  00D9  HoffmanPartisanWeapon
+  00DA  Hololens
+  00DB  Horizon
+  00DC  Hyperoptic
+  00DD  IBM
+  00DE  ICE
+  00DF  IDF
+  00E0  IRGC
+  00E1  IlyaSutskever
+  00E2  InQTel
+  00E3  India
+  00E4  Instagram
+  00E5  InstitutionalRecurrence
+  00E6  Intellexa
+  00E7  IranContra
+  00E8  IranStrikes2026
+  00E9  IranWar2026
+  00EA  IrisGuard
+  00EB  Israel
+  00EC  IsraelCyberDirectorate
+  00ED  Italy
+  00EE  JEDI
+  00EF  JNF
+  00F0  JPMorgan
+  00F1  JamalKhashoggi
+  00F2  JanFord
+  00F3  JasonCalacanis
+  00F4  Jericho
+  00F5  Jordan
+  00F6  JulieKBrown
+  00F7  Junkermann
+  00F8  KKR
+  00F9  Karp
+  00FA  KevinBass
+  00FB  KhashoggiMurder
+  00FC  KimbalMusk
+  00FD  Koren
+  00FE  KyonggiUniversity
+  00FF  LAW
+  0100  Landeskriminalamt
+  0101  LargeGeospatialModels
+  0102  LarryEllison
+  0103  Lattice
+  0104  Lavender
+  0105  Lebanon
+  0106  LegionX
+  0107  Leidos
+  0108  LeonBlack
+  0109  Leonardo
+  010A  Libya
+  010B  LinkedIn
+  010C  LiorDiv
+  010D  LisaPhillips
+  010E  Llama
+  010F  Lockheed
+  0110  Luckey
+  0111  MAPLE
+  0112  MBS
+  0113  MGX
+  0114  MIT
+  0115  MITMediaLab
+  0116  Mabat2000
+  0117  MacquarieCapital
+  0118  Maduro
+  0119  MaduroCapture
+  011A  Mamram
+  011B  ManagedSpectrumPattern
+  011C  Mandelson
+  011D  Mantacus
+  011E  ManucherGhorbanifar
+  011F  MarALagoVideo1986
+  0120  MaritimeInsuranceCapture
+  0121  Maven
+  0122  MavenNATO
+  0123  Maxwell
+  0124  McKinsey
+  0125  MediaCapture2025
+  0126  Medicare
+  0127  MensClubToOpenBazaar
+  0128  Merz
+  0129  Meta
+  012A  MetaConstellation
+  012B  MichaelTracy
+  012C  Microsoft
+  012D  MicrosoftGraphAPI
+  012E  MidnightHammer
+  012F  Mithra
+  0130  MohamedAlFayed
+  0131  MojtabaKhamenei
+  0132  MorganStanley
+  0133  Mossad
+  0134  Mubarak
+  0135  MuhammadKhashoggi
+  0136  Musk
+  0137  NATO
+  0138  NATODIANA
+  0139  NHS
+  013A  NHSEngland
+  013B  NIF
+  013C  NSO
+  013D  NSOMetrics
+  013E  NYDFS
+  013F  NarcissismAsOpsec
+  0140  NasdaqVentures
+  0141  NegotiationsDesignedToFail
+  0142  Neko
+  0143  Netanyahu
+  0144  Niantic
+  0145  NightlineTranscript1986
+  0146  Nimbus
+  0147  NirZuk
+  0148  NoTechForApartheid
+  0149  NoamErez
+  014A  OSC
+  014B  OTCyberConsortium
+  014C  Oculus
+  014D  OfficeStrategicCapital
+  014E  Oldfield
+  014F  OliverNorth
+  0150  Onavo
+  0151  OpenAI
+  0152  OpenAIComplianceArc
+  0153  OpenAIDistraction
+  0154  OpenAIPentagonDeal
+  0155  OperationCondor
+  0156  OperationSouthernSpear
+  0157  Oracle
+  0158  Outlier
+  0159  PEGACommittee
+  015A  PG
+  015B  PLA-PRC
+  015C  PRISM
+  015D  PackBot
+  015E  Packard
+  015F  Palantir
+  0160  PalantirMetrics
+  0161  PalantirSublicense
+  0162  Palestine
+  0163  PalmerLuckey
+  0164  PaloAlto
+  0165  PaloAltoMetrics
+  0166  PamBondi
+  0167  Pantir-SM
+  0168  ParadigmCognitiveAccess
+  0169  ParadigmOSINT
+  016A  ParadigmSurveillance
+  016B  Parnas
+  016C  Patel
+  016D  PatternZero
+  016E  PaulMorris
+  016F  Paypal
+  0170  Pegasus
+  0171  PentagonComplex
+  0172  Petraeus
+  0173  Pezeshkian
+  0174  Pinochet
+  0175  PodcastAsDealRoom
+  0176  Pokemon
+  0177  PolygraphPlus
+  0178  Portugal
+  0179  PostInformationWar
+  017A  Predator
+  017B  Presage
+  017C  PrinceAndrew
+  017D  PrincessDiana
+  017E  PrisonGuard
+  017F  ProductizationPipeline
+  0180  QS
+  0181  QinetiQ
+  0182  Radiflow
+  0183  Rafael
+  0184  RafaelDefense
+  0185  Ramstein
+  0186  Rappaport
+  0187  ReasoningEngineProblem
+  0188  RedRiver
+  0189  RedWolf
+  018A  Reil
+  018B  Rheinmetall
+  018C  RichardSecord
+  018D  Ring
+  018E  RiyadhSummit2017
+  018F  RobertMaxwell
+  0190  RobertMcFarlane
+  0191  Roboneers
+  0192  RobotRiotControl
+  0193  RonKessler
+  0194  Roomba
+  0195  Rosen
+  0196  Rubio
+  0197  RulesOfEngagement
+  0198  Russia
+  0199  SRI
+  019A  STACKIT
+  019B  STIHL
+  019C  Sacks
+  019D  SacksWhoopsTweet
+  019E  SafariClub
+  019F  SagarEnjeti
+  01A0  SamiraKhashoggi
+  01A1  Sandvine
+  01A2  SankarShyam
+  01A3  Saudi
+  01A4  ScaleAI
+  01A5  Scherf
+  01A6  SchwarzDigits
+  01A7  SchwarzGroup
+  01A8  Scopley
+  01A9  ScottBessent
+  01AA  SelectiveEvidentiarism
+  01AB  SentinelOne
+  01AC  Sentry
+  01AD  SentryRobot
+  01AE  SentryTech
+  01AF  ShalevHulio
+  01B0  SharonChurcher
+  01B1  SharpEyes
+  01B2  ShieldAI
+  01B3  ShinBet
+  01B4  Shoebox
+  01B5  ShyamSankar
+  01B6  SignalChatIncident
+  01B7  SilverLake
+  01B8  Sinofsky
+  01B9  Siri
+  01BA  Sisi
+  01BB  Skyeton
+  01BC  Skynet-PRC
+  01BD  Skynet-US
+  01BE  Snowden
+  01BF  Snowflake
+  01C0  Sondland
+  01C1  SouthKorea
+  01C2  SouthernTrust
+  01C3  SpaceX
+  01C4  Spain
+  01C5  Spotify
+  01C6  Stanford
+  01C7  StarkDefence
+  01C8  Starlink
+  01C9  Starshield
+  01CA  StraitOfHormuz
+  01CB  SubCom
+  01CC  SubmarineTorpedoKill
+  01CD  SuezCanal
+  01CE  SuperAegis
+  01CF  Swarmer
+  01D0  SwarthGroup
+  01D1  SwissInstitute
+  01D2  Syria
+  01D3  TKH
+  01D4  TacNet
+  01D5  TalDilian
+  01D6  TamirPardo
+  01D7  TariffCourtDefiance
+  01D8  Tekever
+  01D9  Teledyne
+  01DA  ThamesValleyPolice
+  01DB  Thiel
+  01DC  ThielEpsteinTimeline
+  01DD  Thunderforge
+  01DE  TikTok
+  01DF  Toka
+  01E0  Translator
+  01E1  Trovicor
+  01E2  Trump
+  01E3  Turkey
+  01E4  Twitter
+  01E5  UK
+  01E6  UKDES
+  01E7  UKDSTL
+  01E8  UNHCR
+  01E9  URSA
+  01EA  US
+  01EB  USCongress
+  01EC  USPD
+  01ED  Ukraine
+  01EE  Unit8200
+  01EF  VRGRecantations
+  01F0  ValarVentures
+  01F1  Vance
+  01F2  Vanguard
+  01F3  Vannier
+  01F4  Vantage
+  01F5  Vector
+  01F6  VenezuelaCapture
+  01F7  VenezuelaOilReserves
+  01F8  VenezuelaRaidDetails
+  01F9  Vertex
+  01FA  VfBStuttgart
+  01FB  VictimDiscreditingFunction
+  01FC  VirginiaGiuffre
+  01FD  VirginiaRobertsGiuffre
+  01FE  Vyriy
+  01FF  WashingtonPostCapture
+  0200  WaterfallSecurity
+  0201  Watergate
+  0202  WebbSecretSociety
+  0203  WesternEnterpriseIT
+  0204  WesternGovAgencies
+  0205  WhatsApp
+  0206  WheresDaddy
+  0207  WhitneyWebb
+  0208  WilliamCasey
+  0209  WindsorCastle
+  020A  WithoutMeChaos
+  020B  Wiz
+  020C  WizMetrics
+  020D  WolfPack
+  020E  Wolly
+  020F  XMCyber
+  0210  XMCyberMetrics
+  0211  YaronRosen
+  0212  YuvalAbraham
+  0213  Zelenskyy
+  0214  ZorroRanch
+  0215  a16z
+  0216  axis:MLTask
+  0217  axis:MLType
+  0218  axis:airo_type
+  0219  axis:capacity_airo
+  021A  axis:civicUse
+  021B  axis:currentStatus_airo
+  021C  axis:impact_vair
+  021D  axis:militaryUse
+  021E  axis:output_airo
+  021F  axis:purpose_vair
+  0220  axis:stakeholder
+  0221  axis:type
+  0222  iRobot
+  0223  val:AIDeployer
+  0224  val:AIDeveloper
+  0225  val:AIProvider
+  0226  val:AISubject
+  0227  val:AR
+  0228  val:Action
+  0229  val:Advertising
+  022A  val:AssessingPeopleRelatedRisk
+  022B  val:AssessingRiskOfOffending
+  022C  val:Assign
+  022D  val:AudioProcessing
+  022E  val:Automate
+  022F  val:BehaviorEvaluation
+  0230  val:BehaviourAnalysis
+  0231  val:BiometricCategorisation
+  0232  val:BiometricIdentification
+  0233  val:BiometricsBasedEmotionRecognition
+  0234  val:BorderPatrol
+  0235  val:CEO
+  0236  val:Capture
+  0237  val:Classification
+  0238  val:Clustering
+  0239  val:Command
+  023A  val:CommonSenseReasoning
+  023B  val:Communications
+  023C  val:Company
+  023D  val:ComputerVision
+  023E  val:ConsumerTracking
+  023F  val:Content
+  0240  val:CrowdControl
+  0241  val:Dashboard
+  0242  val:Decision
+  0243  val:DecisionTree
+  0244  val:DefenseCompany
+  0245  val:Delivery
+  0246  val:Deployment
+  0247  val:DetectingCriminalOffences
+  0248  val:DetectingIndividuals
+  0249  val:DetectingLies
+  024A  val:Development
+  024B  val:DialectRecognition
+  024C  val:DistortionInHumanBehavior
+  024D  val:EmotionRecognition
+  024E  val:EvaluatingEmployeePerformance
+  024F  val:EvaluatingJobCandidates
+  0250  val:ExpertSystem
+  0251  val:FaceRecognition
+  0252  val:Games
+  0253  val:Generate
+  0254  val:GenerativeModel
+  0255  val:Geolocation
+  0256  val:GestureRecognition
+  0257  val:IdentifyingIndividuals
+  0258  val:ImageGeneration
+  0259  val:InformationRetrieval
+  025A  val:Institution
+  025B  val:Intel
+  025C  val:Intelligence
+  025D  val:IntelligentControlSystem
+  025E  val:Investor
+  025F  val:KnowledgeBase
+  0260  val:LieDetection
+  0261  val:Logistics
+  0262  val:Mapping
+  0263  val:Marketing
+  0264  val:Military
+  0265  val:Monitoring
+  0266  val:MultiAgentSystem
+  0267  val:NamedEntityRecognition
+  0268  val:NarrowAI
+  0269  val:Nation
+  026A  val:ObjectDetection
+  026B  val:ObjectRecognition
+  026C  val:Operation
+  026D  val:Operations
+  026E  val:Overreliance
+  026F  val:Owner
+  0270  val:PatternRecognition
+  0271  val:PerformingBackgroundChecks
+  0272  val:Personnel
+  0273  val:Photogrammetry
+  0274  val:PhysicalInjury
+  0275  val:Planning
+  0276  val:Police
+  0277  val:Policing
+  0278  val:PolicyReasoning
+  0279  val:Politician
+  027A  val:PoseEstimation
+  027B  val:Predict
+  027C  val:Prediction
+  027D  val:PredictiveMapping
+  027E  val:PrivateSecurity
+  027F  val:ProducingRecommendation
+  0280  val:Profiling
+  0281  val:PsychologicalHarm
+  0282  val:Ranking
+  0283  val:Recognize
+  0284  val:RecognizingIndividuals
+  0285  val:Recommendation
+  0286  val:RecommenderSystems
+  0287  val:RelationshipExtraction
+  0288  val:RemoteIdentification
+  0289  val:Retirement
+  028A  val:Robot
+  028B  val:Security
+  028C  val:SensitiveAttributeInference
+  028D  val:SentimentAnalysis
+  028E  val:ServiceRobot
+  028F  val:SignalAnalysis
+  0290  val:SignalTracking
+  0291  val:SocialWelfareSystems
+  0292  val:Sort
+  0293  val:SortingAlgorithm
+  0294  val:SpatialReasoning
+  0295  val:SpeechAnalysis
+  0296  val:SpeechSynthesis
+  0297  val:Store
+  0298  val:TechCompany
+  0299  val:TemporalReasoning
+  029A  val:TextAnalysis
+  029B  val:TextGeneration
+  029C  val:TrainingDatabase
+  029D  val:TransformerModel
+  029E  val:Untility
+  029F  val:Utility
+  02A0  val:VoiceRecognition
+  02A1  val:WellbeingImpact
+  02A2  val:nan
+
+@nodes               # identity  f=family(mixin)  l=label_cam  -> [out-of-family adapters = target families]
+  0001  f=06  l=0001  -> [06]
+  0002  f=07  l=0002  -> []
+  0003  f=07  l=0003  -> []
+  0004  f=07  l=0004  -> []
+  0005  f=07  l=0005  -> []
+  0006  f=02  l=0006  -> [06]
+  0007  f=06  l=0007  -> [07]
+  0008  f=06  l=0008  -> [06,07]
+  0009  f=06  l=0009  -> [01]
+  000A  f=03  l=000A  -> []
+  000B  f=06  l=000B  -> [06,07]
+  000C  f=07  l=000C  -> []
+  000D  f=03  l=000D  -> []
+  000E  f=02  l=000E  -> []
+  000F  f=02  l=000F  -> []
+  0010  f=03  l=0010  -> []
+  0011  f=06  l=0011  -> []
+  0012  f=06  l=0012  -> [07]
+  0013  f=03  l=0013  -> []
+  0014  f=07  l=0014  -> []
+  0015  f=06  l=0015  -> [01]
+  0016  f=06  l=0016  -> []
+  0017  f=03  l=0017  -> []
+  0018  f=06  l=0018  -> []
+  0019  f=03  l=0019  -> []
+  001A  f=02  l=001A  -> []
+  001B  f=06  l=001B  -> [01,07]
+  001C  f=06  l=001C  -> []
+  001D  f=03  l=001D  -> []
+  001E  f=06  l=001E  -> [01]
+  001F  f=02  l=001F  -> []
+  0020  f=02  l=0020  -> []
+  0021  f=02  l=0021  -> []
+  0022  f=02  l=0022  -> []
+  0023  f=06  l=0023  -> []
+  0024  f=06  l=0024  -> []
+  0025  f=06  l=0025  -> [01]
+  0026  f=06  l=0026  -> []
+  0027  f=06  l=0027  -> []
+  0028  f=06  l=0028  -> [07,06]
+  0029  f=03  l=0029  -> []
+  002A  f=02  l=002A  -> []
+  002B  f=07  l=002B  -> []
+  002C  f=02  l=002C  -> []
+  002D  f=02  l=002D  -> []
+  002E  f=06  l=002E  -> []
+  002F  f=06  l=002F  -> []
+  0030  f=06  l=0030  -> [07]
+  0031  f=06  l=0031  -> [06]
+  0032  f=06  l=0032  -> []
+  0033  f=02  l=0033  -> []
+  0034  f=06  l=0034  -> [06,01]
+  0035  f=06  l=0035  -> []
+  0036  f=03  l=0036  -> []
+  0037  f=03  l=0037  -> []
+  0038  f=03  l=0038  -> []
+  0039  f=06  l=0039  -> []
+  003A  f=03  l=003A  -> []
+  003B  f=03  l=003B  -> []
+  003C  f=06  l=003C  -> []
+  003D  f=06  l=003D  -> []
+  003E  f=06  l=003E  -> [07]
+  003F  f=07  l=003F  -> []
+  0040  f=03  l=0040  -> []
+  0041  f=06  l=0041  -> [01]
+  0042  f=03  l=0042  -> []
+  0043  f=03  l=0043  -> []
+  0044  f=03  l=0044  -> []
+  0045  f=06  l=0045  -> []
+  0046  f=03  l=0046  -> []
+  0047  f=03  l=0047  -> []
+  0048  f=06  l=0048  -> []
+  0049  f=07  l=0049  -> []
+  004A  f=06  l=004A  -> []
+  004B  f=07  l=004B  -> [01]
+  004C  f=06  l=004C  -> [07]
+  004D  f=03  l=004D  -> []
+  004E  f=03  l=004E  -> []
+  004F  f=06  l=004F  -> []
+  0050  f=02  l=0050  -> []
+  0051  f=03  l=0051  -> []
+  0052  f=06  l=0052  -> []
+  0053  f=06  l=0053  -> []
+  0054  f=06  l=0054  -> []
+  0055  f=07  l=0055  -> []
+  0056  f=06  l=0056  -> []
+  0057  f=03  l=0057  -> []
+  0058  f=01  l=0058  -> []
+  0059  f=06  l=0059  -> []
+  005A  f=06  l=005A  -> []
+  005B  f=06  l=005B  -> [06,07]
+  005C  f=02  l=005C  -> []
+  005D  f=02  l=005D  -> []
+  005E  f=01  l=005E  -> [06]
+  005F  f=06  l=005F  -> []
+  0060  f=01  l=0060  -> []
+  0061  f=06  l=0061  -> []
+  0062  f=07  l=0062  -> [07,06]
+  0063  f=06  l=0063  -> [07]
+  0064  f=02  l=0064  -> []
+  0065  f=02  l=0065  -> []
+  0066  f=02  l=0066  -> []
+  0067  f=02  l=0067  -> []
+  0068  f=06  l=0068  -> [07,06]
+  0069  f=02  l=0069  -> []
+  006A  f=06  l=006A  -> []
+  006B  f=06  l=006B  -> [07]
+  006C  f=06  l=006C  -> [06,07,02]
+  006D  f=02  l=006D  -> []
+  006E  f=06  l=006E  -> [07]
+  006F  f=07  l=006F  -> []
+  0070  f=06  l=0070  -> [07]
+  0071  f=06  l=0071  -> []
+  0072  f=06  l=0072  -> []
+  0073  f=03  l=0073  -> []
+  0074  f=06  l=0074  -> [07,06]
+  0075  f=03  l=0075  -> []
+  0076  f=06  l=0076  -> [01]
+  0077  f=03  l=0077  -> []
+  0078  f=03  l=0078  -> []
+  0079  f=06  l=0079  -> []
+  007A  f=03  l=007A  -> []
+  007B  f=03  l=007B  -> []
+  007C  f=02  l=007C  -> []
+  007D  f=02  l=007D  -> []
+  007E  f=06  l=007E  -> [07,06]
+  007F  f=06  l=007F  -> [01]
+  0080  f=06  l=0080  -> [06]
+  0081  f=03  l=0081  -> []
+  0082  f=06  l=0082  -> []
+  0083  f=02  l=0083  -> []
+  0084  f=02  l=0084  -> []
+  0085  f=02  l=0085  -> []
+  0086  f=06  l=0086  -> [07]
+  0087  f=03  l=0087  -> []
+  0088  f=03  l=0088  -> []
+  0089  f=06  l=0089  -> []
+  008A  f=07  l=008A  -> []
+  008B  f=01  l=008B  -> []
+  008C  f=02  l=008C  -> []
+  008D  f=02  l=008D  -> []
+  008E  f=02  l=008E  -> []
+  008F  f=07  l=008F  -> []
+  0090  f=02  l=0090  -> []
+  0091  f=07  l=0091  -> []
+  0092  f=02  l=0092  -> []
+  0093  f=03  l=0093  -> [06,01]
+  0094  f=06  l=0094  -> [07]
+  0095  f=03  l=0095  -> [06,01]
+  0096  f=03  l=0096  -> []
+  0097  f=06  l=0097  -> [07]
+  0098  f=06  l=0098  -> []
+  0099  f=03  l=0099  -> []
+  009A  f=02  l=009A  -> []
+  009B  f=02  l=009B  -> []
+  009C  f=02  l=009C  -> []
+  009D  f=02  l=009D  -> []
+  009E  f=02  l=009E  -> []
+  009F  f=02  l=009F  -> []
+  00A0  f=06  l=00A0  -> []
+  00A1  f=06  l=00A1  -> []
+  00A2  f=06  l=00A2  -> []
+  00A3  f=06  l=00A3  -> []
+  00A4  f=06  l=00A4  -> []
+  00A5  f=06  l=00A5  -> []
+  00A6  f=06  l=00A6  -> []
+  00A7  f=06  l=00A7  -> []
+  00A8  f=01  l=00A8  -> []
+  00A9  f=03  l=00A9  -> []
+  00AA  f=03  l=00AA  -> []
+  00AB  f=03  l=00AB  -> []
+  00AC  f=03  l=00AC  -> []
+  00AD  f=06  l=00AD  -> []
+  00AE  f=03  l=00AE  -> [06]
+  00AF  f=07  l=00AF  -> []
+  00B0  f=07  l=00B0  -> [06]
+  00B1  f=07  l=00B1  -> []
+  00B2  f=07  l=00B2  -> []
+  00B3  f=07  l=00B3  -> []
+  00B4  f=06  l=00B4  -> [06]
+  00B5  f=02  l=00B5  -> []
+  00B6  f=03  l=00B6  -> []
+  00B7  f=03  l=00B7  -> []
+  00B8  f=06  l=00B8  -> [06,01]
+  00B9  f=07  l=00B9  -> []
+  00BA  f=06  l=00BA  -> [06]
+  00BB  f=03  l=00BB  -> []
+  00BC  f=02  l=00BC  -> []
+  00BD  f=02  l=00BD  -> []
+  00BE  f=01  l=00BE  -> [01]
+  00BF  f=02  l=00BF  -> []
+  00C0  f=06  l=00C0  -> []
+  00C1  f=06  l=00C1  -> [06,07]
+  00C2  f=03  l=00C2  -> []
+  00C3  f=03  l=00C3  -> []
+  00C4  f=03  l=00C4  -> []
+  00C5  f=06  l=00C5  -> []
+  00C6  f=02  l=00C6  -> []
+  00C7  f=07  l=00C7  -> []
+  00C8  f=06  l=00C8  -> [06,02,07,01]
+  00C9  f=06  l=00C9  -> [06,07]
+  00CA  f=02  l=00CA  -> []
+  00CB  f=02  l=00CB  -> []
+  00CC  f=03  l=00CC  -> []
+  00CD  f=07  l=00CD  -> []
+  00CE  f=07  l=00CE  -> []
+  00CF  f=06  l=00CF  -> [06]
+  00D0  f=02  l=00D0  -> []
+  00D1  f=02  l=00D1  -> []
+  00D2  f=06  l=00D2  -> [07]
+  00D3  f=03  l=00D3  -> []
+  00D4  f=06  l=00D4  -> [07,06]
+  00D5  f=06  l=00D5  -> [07]
+  00D6  f=03  l=00D6  -> []
+  00D7  f=07  l=00D7  -> []
+  00D8  f=03  l=00D8  -> []
+  00D9  f=02  l=00D9  -> []
+  00DA  f=01  l=00DA  -> []
+  00DB  f=06  l=00DB  -> []
+  00DC  f=06  l=00DC  -> [06]
+  00DD  f=06  l=00DD  -> [01,06,07,02]
+  00DE  f=06  l=00DE  -> [07,06]
+  00DF  f=06  l=00DF  -> []
+  00E0  f=06  l=00E0  -> []
+  00E1  f=03  l=00E1  -> []
+  00E2  f=06  l=00E2  -> []
+  00E3  f=06  l=00E3  -> [07]
+  00E4  f=01  l=00E4  -> []
+  00E5  f=02  l=00E5  -> []
+  00E6  f=06  l=00E6  -> []
+  00E7  f=02  l=00E7  -> []
+  00E8  f=02  l=00E8  -> []
+  00E9  f=06  l=00E9  -> []
+  00EA  f=07  l=00EA  -> [06]
+  00EB  f=06  l=00EB  -> [06,07]
+  00EC  f=06  l=00EC  -> []
+  00ED  f=06  l=00ED  -> [06]
+  00EE  f=07  l=00EE  -> []
+  00EF  f=06  l=00EF  -> []
+  00F0  f=06  l=00F0  -> []
+  00F1  f=03  l=00F1  -> []
+  00F2  f=03  l=00F2  -> []
+  00F3  f=03  l=00F3  -> []
+  00F4  f=07  l=00F4  -> [06]
+  00F5  f=06  l=00F5  -> [06,07]
+  00F6  f=03  l=00F6  -> []
+  00F7  f=03  l=00F7  -> []
+  00F8  f=06  l=00F8  -> [01]
+  00F9  f=03  l=00F9  -> [06]
+  00FA  f=03  l=00FA  -> []
+  00FB  f=02  l=00FB  -> []
+  00FC  f=03  l=00FC  -> []
+  00FD  f=03  l=00FD  -> []
+  00FE  f=06  l=00FE  -> [07,06]
+  00FF  f=07  l=00FF  -> []
+  0100  f=06  l=0100  -> [07,06]
+  0101  f=07  l=0101  -> []
+  0102  f=03  l=0102  -> []
+  0103  f=07  l=0103  -> []
+  0104  f=07  l=0104  -> [06]
+  0105  f=06  l=0105  -> []
+  0106  f=07  l=0106  -> []
+  0107  f=06  l=0107  -> [01]
+  0108  f=03  l=0108  -> []
+  0109  f=06  l=0109  -> [06]
+  010A  f=06  l=010A  -> [07]
+  010B  f=06  l=010B  -> []
+  010C  f=03  l=010C  -> []
+  010D  f=03  l=010D  -> []
+  010E  f=01  l=010E  -> []
+  010F  f=06  l=010F  -> [01]
+  0110  f=03  l=0110  -> [01,06]
+  0111  f=07  l=0111  -> []
+  0112  f=03  l=0112  -> []
+  0113  f=06  l=0113  -> []
+  0114  f=06  l=0114  -> [02]
+  0115  f=06  l=0115  -> []
+  0116  f=07  l=0116  -> []
+  0117  f=06  l=0117  -> []
+  0118  f=03  l=0118  -> []
+  0119  f=02  l=0119  -> []
+  011A  f=06  l=011A  -> [06]
+  011B  f=02  l=011B  -> []
+  011C  f=03  l=011C  -> []
+  011D  f=07  l=011D  -> [06]
+  011E  f=03  l=011E  -> []
+  011F  f=02  l=011F  -> []
+  0120  f=02  l=0120  -> []
+  0121  f=07  l=0121  -> []
+  0122  f=06  l=0122  -> []
+  0123  f=03  l=0123  -> []
+  0124  f=06  l=0124  -> []
+  0125  f=02  l=0125  -> []
+  0126  f=01  l=0126  -> []
+  0127  f=02  l=0127  -> []
+  0128  f=03  l=0128  -> []
+  0129  f=06  l=0129  -> [02,01,07]
+  012A  f=07  l=012A  -> []
+  012B  f=03  l=012B  -> []
+  012C  f=06  l=012C  -> [06,07,01]
+  012D  f=06  l=012D  -> []
+  012E  f=02  l=012E  -> []
+  012F  f=07  l=012F  -> []
+  0130  f=03  l=0130  -> []
+  0131  f=03  l=0131  -> []
+  0132  f=06  l=0132  -> []
+  0133  f=06  l=0133  -> []
+  0134  f=03  l=0134  -> []
+  0135  f=03  l=0135  -> []
+  0136  f=03  l=0136  -> [06,01]
+  0137  f=06  l=0137  -> [06]
+  0138  f=06  l=0138  -> []
+  0139  f=06  l=0139  -> [07]
+  013A  f=06  l=013A  -> []
+  013B  f=06  l=013B  -> [06]
+  013C  f=06  l=013C  -> [07,06]
+  013D  f=06  l=013D  -> []
+  013E  f=06  l=013E  -> []
+  013F  f=02  l=013F  -> []
+  0140  f=06  l=0140  -> []
+  0141  f=02  l=0141  -> []
+  0142  f=01  l=0142  -> []
+  0143  f=03  l=0143  -> []
+  0144  f=06  l=0144  -> [07,01]
+  0145  f=02  l=0145  -> []
+  0146  f=07  l=0146  -> []
+  0147  f=03  l=0147  -> []
+  0148  f=06  l=0148  -> []
+  0149  f=03  l=0149  -> []
+  014A  f=06  l=014A  -> []
+  014B  f=06  l=014B  -> []
+  014C  f=01  l=014C  -> [06]
+  014D  f=02  l=014D  -> []
+  014E  f=03  l=014E  -> []
+  014F  f=03  l=014F  -> []
+  0150  f=02  l=0150  -> []
+  0151  f=06  l=0151  -> [07,01]
+  0152  f=02  l=0152  -> []
+  0153  f=02  l=0153  -> []
+  0154  f=02  l=0154  -> []
+  0155  f=02  l=0155  -> []
+  0156  f=02  l=0156  -> []
+  0157  f=06  l=0157  -> [01,07]
+  0158  f=01  l=0158  -> []
+  0159  f=06  l=0159  -> []
+  015A  f=06  l=015A  -> [07]
+  015B  f=06  l=015B  -> [01]
+  015C  f=07  l=015C  -> []
+  015D  f=07  l=015D  -> []
+  015E  f=03  l=015E  -> []
+  015F  f=06  l=015F  -> [06,07,01]
+  0160  f=06  l=0160  -> []
+  0161  f=02  l=0161  -> []
+  0162  f=06  l=0162  -> [06]
+  0163  f=03  l=0163  -> []
+  0164  f=06  l=0164  -> []
+  0165  f=06  l=0165  -> []
+  0166  f=03  l=0166  -> []
+  0167  f=07  l=0167  -> []
+  0168  f=02  l=0168  -> []
+  0169  f=02  l=0169  -> []
+  016A  f=02  l=016A  -> []
+  016B  f=03  l=016B  -> []
+  016C  f=03  l=016C  -> []
+  016D  f=02  l=016D  -> []
+  016E  f=03  l=016E  -> []
+  016F  f=01  l=016F  -> []
+  0170  f=07  l=0170  -> []
+  0171  f=06  l=0171  -> []
+  0172  f=03  l=0172  -> []
+  0173  f=03  l=0173  -> []
+  0174  f=03  l=0174  -> []
+  0175  f=02  l=0175  -> []
+  0176  f=01  l=0176  -> [06]
+  0177  f=07  l=0177  -> []
+  0178  f=06  l=0178  -> [06]
+  0179  f=02  l=0179  -> []
+  017A  f=06  l=017A  -> []
+  017B  f=06  l=017B  -> [07]
+  017C  f=03  l=017C  -> []
+  017D  f=03  l=017D  -> []
+  017E  f=07  l=017E  -> []
+  017F  f=02  l=017F  -> []
+  0180  f=06  l=0180  -> [07,06]
+  0181  f=06  l=0181  -> [07]
+  0182  f=06  l=0182  -> []
+  0183  f=06  l=0183  -> [07]
+  0184  f=06  l=0184  -> []
+  0185  f=02  l=0185  -> []
+  0186  f=03  l=0186  -> [02,06]
+  0187  f=02  l=0187  -> []
+  0188  f=06  l=0188  -> []
+  0189  f=07  l=0189  -> []
+  018A  f=03  l=018A  -> [06]
+  018B  f=06  l=018B  -> [07]
+  018C  f=03  l=018C  -> []
+  018D  f=01  l=018D  -> [06]
+  018E  f=02  l=018E  -> []
+  018F  f=03  l=018F  -> []
+  0190  f=03  l=0190  -> []
+  0191  f=06  l=0191  -> [07]
+  0192  f=07  l=0192  -> []
+  0193  f=03  l=0193  -> []
+  0194  f=01  l=0194  -> []
+  0195  f=03  l=0195  -> [06,02]
+  0196  f=03  l=0196  -> []
+  0197  f=02  l=0197  -> []
+  0198  f=06  l=0198  -> [07]
+  0199  f=06  l=0199  -> [07]
+  019A  f=06  l=019A  -> []
+  019B  f=06  l=019B  -> []
+  019C  f=03  l=019C  -> []
+  019D  f=02  l=019D  -> []
+  019E  f=02  l=019E  -> []
+  019F  f=03  l=019F  -> []
+  01A0  f=03  l=01A0  -> []
+  01A1  f=06  l=01A1  -> []
+  01A2  f=03  l=01A2  -> []
+  01A3  f=06  l=01A3  -> [07]
+  01A4  f=06  l=01A4  -> [01,06,07]
+  01A5  f=03  l=01A5  -> [06]
+  01A6  f=06  l=01A6  -> []
+  01A7  f=06  l=01A7  -> []
+  01A8  f=06  l=01A8  -> []
+  01A9  f=03  l=01A9  -> []
+  01AA  f=02  l=01AA  -> []
+  01AB  f=06  l=01AB  -> []
+  01AC  f=07  l=01AC  -> []
+  01AD  f=07  l=01AD  -> []
+  01AE  f=07  l=01AE  -> []
+  01AF  f=03  l=01AF  -> []
+  01B0  f=03  l=01B0  -> []
+  01B1  f=07  l=01B1  -> []
+  01B2  f=06  l=01B2  -> [07]
+  01B3  f=06  l=01B3  -> []
+  01B4  f=02  l=01B4  -> []
+  01B5  f=03  l=01B5  -> []
+  01B6  f=02  l=01B6  -> []
+  01B7  f=06  l=01B7  -> []
+  01B8  f=03  l=01B8  -> []
+  01B9  f=01  l=01B9  -> []
+  01BA  f=03  l=01BA  -> []
+  01BB  f=06  l=01BB  -> [07]
+  01BC  f=07  l=01BC  -> []
+  01BD  f=07  l=01BD  -> []
+  01BE  f=03  l=01BE  -> []
+  01BF  f=06  l=01BF  -> [01]
+  01C0  f=03  l=01C0  -> []
+  01C1  f=06  l=01C1  -> [07]
+  01C2  f=06  l=01C2  -> []
+  01C3  f=06  l=01C3  -> [07]
+  01C4  f=06  l=01C4  -> [06]
+  01C5  f=01  l=01C5  -> []
+  01C6  f=06  l=01C6  -> [06]
+  01C7  f=06  l=01C7  -> []
+  01C8  f=07  l=01C8  -> []
+  01C9  f=07  l=01C9  -> []
+  01CA  f=06  l=01CA  -> []
+  01CB  f=06  l=01CB  -> []
+  01CC  f=02  l=01CC  -> []
+  01CD  f=02  l=01CD  -> []
+  01CE  f=07  l=01CE  -> []
+  01CF  f=06  l=01CF  -> [07]
+  01D0  f=06  l=01D0  -> []
+  01D1  f=06  l=01D1  -> [07]
+  01D2  f=06  l=01D2  -> [06,07]
+  01D3  f=06  l=01D3  -> [07]
+  01D4  f=07  l=01D4  -> []
+  01D5  f=03  l=01D5  -> []
+  01D6  f=03  l=01D6  -> []
+  01D7  f=02  l=01D7  -> []
+  01D8  f=06  l=01D8  -> [07]
+  01D9  f=06  l=01D9  -> [06]
+  01DA  f=06  l=01DA  -> []
+  01DB  f=03  l=01DB  -> [01,06]
+  01DC  f=02  l=01DC  -> []
+  01DD  f=07  l=01DD  -> []
+  01DE  f=01  l=01DE  -> []
+  01DF  f=06  l=01DF  -> []
+  01E0  f=02  l=01E0  -> [06]
+  01E1  f=06  l=01E1  -> []
+  01E2  f=03  l=01E2  -> []
+  01E3  f=06  l=01E3  -> [07]
+  01E4  f=01  l=01E4  -> []
+  01E5  f=06  l=01E5  -> [06,07]
+  01E6  f=06  l=01E6  -> [06]
+  01E7  f=06  l=01E7  -> [06,07]
+  01E8  f=06  l=01E8  -> [07]
+  01E9  f=07  l=01E9  -> []
+  01EA  f=06  l=01EA  -> [06,07,01]
+  01EB  f=06  l=01EB  -> []
+  01EC  f=06  l=01EC  -> [06]
+  01ED  f=06  l=01ED  -> [07]
+  01EE  f=06  l=01EE  -> [06,07]
+  01EF  f=02  l=01EF  -> []
+  01F0  f=06  l=01F0  -> []
+  01F1  f=03  l=01F1  -> [06]
+  01F2  f=06  l=01F2  -> [06]
+  01F3  f=03  l=01F3  -> []
+  01F4  f=06  l=01F4  -> [06]
+  01F5  f=07  l=01F5  -> []
+  01F6  f=02  l=01F6  -> []
+  01F7  f=02  l=01F7  -> []
+  01F8  f=02  l=01F8  -> []
+  01F9  f=01  l=01F9  -> []
+  01FA  f=06  l=01FA  -> []
+  01FB  f=02  l=01FB  -> []
+  01FC  f=03  l=01FC  -> []
+  01FD  f=03  l=01FD  -> []
+  01FE  f=06  l=01FE  -> [07]
+  01FF  f=02  l=01FF  -> []
+  0200  f=06  l=0200  -> []
+  0201  f=02  l=0201  -> []
+  0202  f=02  l=0202  -> []
+  0203  f=06  l=0203  -> []
+  0204  f=06  l=0204  -> []
+  0205  f=01  l=0205  -> [07]
+  0206  f=07  l=0206  -> []
+  0207  f=03  l=0207  -> []
+  0208  f=03  l=0208  -> []
+  0209  f=06  l=0209  -> []
+  020A  f=02  l=020A  -> []
+  020B  f=02  l=020B  -> []
+  020C  f=06  l=020C  -> []
+  020D  f=07  l=020D  -> []
+  020E  f=07  l=020E  -> []
+  020F  f=06  l=020F  -> []
+  0210  f=06  l=0210  -> []
+  0211  f=03  l=0211  -> []
+  0212  f=03  l=0212  -> []
+  0213  f=03  l=0213  -> []
+  0214  f=06  l=0214  -> []
+  0215  f=06  l=0215  -> []
+  0216  f=04  l=0216  -> []
+  0217  f=04  l=0217  -> []
+  0218  f=04  l=0218  -> []
+  0219  f=04  l=0219  -> []
+  021A  f=04  l=021A  -> []
+  021B  f=04  l=021B  -> []
+  021C  f=04  l=021C  -> []
+  021D  f=04  l=021D  -> []
+  021E  f=04  l=021E  -> []
+  021F  f=04  l=021F  -> []
+  0220  f=04  l=0220  -> []
+  0221  f=04  l=0221  -> []
+  0222  f=06  l=0222  -> [06,01,07]
+  0223  f=05  l=0223  -> []
+  0224  f=05  l=0224  -> []
+  0225  f=05  l=0225  -> []
+  0226  f=05  l=0226  -> []
+  0227  f=05  l=0227  -> []
+  0228  f=05  l=0228  -> []
+  0229  f=05  l=0229  -> []
+  022A  f=05  l=022A  -> []
+  022B  f=05  l=022B  -> []
+  022C  f=05  l=022C  -> []
+  022D  f=05  l=022D  -> []
+  022E  f=05  l=022E  -> []
+  022F  f=05  l=022F  -> []
+  0230  f=05  l=0230  -> []
+  0231  f=05  l=0231  -> []
+  0232  f=05  l=0232  -> []
+  0233  f=05  l=0233  -> []
+  0234  f=05  l=0234  -> []
+  0235  f=05  l=0235  -> []
+  0236  f=05  l=0236  -> []
+  0237  f=05  l=0237  -> []
+  0238  f=05  l=0238  -> []
+  0239  f=05  l=0239  -> []
+  023A  f=05  l=023A  -> []
+  023B  f=05  l=023B  -> []
+  023C  f=05  l=023C  -> []
+  023D  f=05  l=023D  -> []
+  023E  f=05  l=023E  -> []
+  023F  f=05  l=023F  -> []
+  0240  f=05  l=0240  -> []
+  0241  f=05  l=0241  -> []
+  0242  f=05  l=0242  -> []
+  0243  f=05  l=0243  -> []
+  0244  f=05  l=0244  -> []
+  0245  f=05  l=0245  -> []
+  0246  f=05  l=0246  -> []
+  0247  f=05  l=0247  -> []
+  0248  f=05  l=0248  -> []
+  0249  f=05  l=0249  -> []
+  024A  f=05  l=024A  -> []
+  024B  f=05  l=024B  -> []
+  024C  f=05  l=024C  -> []
+  024D  f=05  l=024D  -> []
+  024E  f=05  l=024E  -> []
+  024F  f=05  l=024F  -> []
+  0250  f=05  l=0250  -> []
+  0251  f=05  l=0251  -> []
+  0252  f=05  l=0252  -> []
+  0253  f=05  l=0253  -> []
+  0254  f=05  l=0254  -> []
+  0255  f=05  l=0255  -> []
+  0256  f=05  l=0256  -> []
+  0257  f=05  l=0257  -> []
+  0258  f=05  l=0258  -> []
+  0259  f=05  l=0259  -> []
+  025A  f=05  l=025A  -> []
+  025B  f=05  l=025B  -> []
+  025C  f=05  l=025C  -> []
+  025D  f=05  l=025D  -> []
+  025E  f=05  l=025E  -> []
+  025F  f=05  l=025F  -> []
+  0260  f=05  l=0260  -> []
+  0261  f=05  l=0261  -> []
+  0262  f=05  l=0262  -> []
+  0263  f=05  l=0263  -> []
+  0264  f=05  l=0264  -> []
+  0265  f=05  l=0265  -> []
+  0266  f=05  l=0266  -> []
+  0267  f=05  l=0267  -> []
+  0268  f=05  l=0268  -> []
+  0269  f=05  l=0269  -> []
+  026A  f=05  l=026A  -> []
+  026B  f=05  l=026B  -> []
+  026C  f=05  l=026C  -> []
+  026D  f=05  l=026D  -> []
+  026E  f=05  l=026E  -> []
+  026F  f=05  l=026F  -> []
+  0270  f=05  l=0270  -> []
+  0271  f=05  l=0271  -> []
+  0272  f=05  l=0272  -> []
+  0273  f=05  l=0273  -> []
+  0274  f=05  l=0274  -> []
+  0275  f=05  l=0275  -> []
+  0276  f=05  l=0276  -> []
+  0277  f=05  l=0277  -> []
+  0278  f=05  l=0278  -> []
+  0279  f=05  l=0279  -> []
+  027A  f=05  l=027A  -> []
+  027B  f=05  l=027B  -> []
+  027C  f=05  l=027C  -> []
+  027D  f=05  l=027D  -> []
+  027E  f=05  l=027E  -> []
+  027F  f=05  l=027F  -> []
+  0280  f=05  l=0280  -> []
+  0281  f=05  l=0281  -> []
+  0282  f=05  l=0282  -> []
+  0283  f=05  l=0283  -> []
+  0284  f=05  l=0284  -> []
+  0285  f=05  l=0285  -> []
+  0286  f=05  l=0286  -> []
+  0287  f=05  l=0287  -> []
+  0288  f=05  l=0288  -> []
+  0289  f=05  l=0289  -> []
+  028A  f=05  l=028A  -> []
+  028B  f=05  l=028B  -> []
+  028C  f=05  l=028C  -> []
+  028D  f=05  l=028D  -> []
+  028E  f=05  l=028E  -> []
+  028F  f=05  l=028F  -> []
+  0290  f=05  l=0290  -> []
+  0291  f=05  l=0291  -> []
+  0292  f=05  l=0292  -> []
+  0293  f=05  l=0293  -> []
+  0294  f=05  l=0294  -> []
+  0295  f=05  l=0295  -> []
+  0296  f=05  l=0296  -> []
+  0297  f=05  l=0297  -> []
+  0298  f=05  l=0298  -> []
+  0299  f=05  l=0299  -> []
+  029A  f=05  l=029A  -> []
+  029B  f=05  l=029B  -> []
+  029C  f=05  l=029C  -> []
+  029D  f=05  l=029D  -> []
+  029E  f=05  l=029E  -> []
+  029F  f=05  l=029F  -> []
+  02A0  f=05  l=02A0  -> []
+  02A1  f=05  l=02A1  -> []
+  02A2  f=05  l=02A2  -> []
+
+@edges               # src.identity -[type]-> tgt.identity   (resolved to family adapters in the head)
+  006C -1-> 01EA
+  01EE -1-> 00EB
+  01E7 -1-> 01E5
+  01E6 -1-> 01E5
+  01C6 -1-> 003E
+  01C6 -1-> 0199
+  015F -1-> 00D4
+  005B -1-> 003E
+  0062 -1-> 0002
+  015F -1-> 001E
+  0008 -1-> 001E
+  01D2 -1-> 00F5
+  012C -1-> 0151
+  00EB -1-> 0157
+  00C9 -1-> 00C8
+  0008 -1-> 0015
+  00C8 -1-> 0011
+  0031 -1-> 012C
+  011A -1-> 00EB
+  010F -1-> 010E
+  0041 -1-> 010E
+  015B -1-> 010E
+  001B -1-> 010E
+  0009 -1-> 010E
+  0041 -1-> 010E
+  007F -1-> 010E
+  00DD -1-> 010E
+  0157 -1-> 010E
+  0076 -1-> 010E
+  0107 -1-> 010E
+  01A4 -1-> 010E
+  01BF -1-> 010E
+  00BE -1-> 01F9
+  00BA -1-> 00F8
+  01F4 -1-> 00F8
+  00DC -1-> 00F8
+  014C -1-> 001B
+  0031 -1-> 001B
+  015F -1-> 0100
+  0114 -1-> 0090
+  00F5 -1-> 01E8
+  01D2 -1-> 01E8
+  0162 -1-> 01E8
+  005B -1-> 015B
+  0137 -1-> 006E
+  01EA -1-> 00DE
+  01E5 -1-> 0139
+  01E5 -1-> 0137
+  01EA -1-> 0137
+  00C1 -1-> 0137
+  0080 -1-> 0137
+  01C4 -1-> 0137
+  0006 -1-> 01C6
+  0205 -1-> 0104
+  0222 -1-> 0097
+  0176 -1-> 01A8
+  004B -1-> 01B9
+  015F -1-> 00DE
+  015F -1-> 0074
+  015F -1-> 0139
+  015F -1-> 0041
+  00B8 -1-> 015F
+  01A4 -1-> 0129
+  01F2 -1-> 015F
+  00DD -1-> 00DB
+  006E -1-> 011D
+  006E -1-> 0004
+  006E -1-> 01F5
+  01EC -1-> 002F
+  005E -1-> 002F
+  018D -1-> 002F
+  0015 -1-> 018D
+  0001 -1-> 007E
+  0178 -1-> 01D8
+  013B -1-> 0007
+  0178 -1-> 0137
+  00CF -1-> 0137
+  013B -1-> 01D8
+  000B -1-> 0180
+  00B4 -1-> 0180
+  0034 -1-> 01D8
+  0034 -1-> 01C5
+  01D9 -1-> 0097
+  006C -1-> 0222
+  006C -1-> 0114
+  006C -1-> 01C6
+  0028 -1-> 015D
+  0129 -1-> 0150
+  00C8 -1-> 020B
+  00ED -1-> 0137
+  0144 -4-> 0101
+  01EA -4-> 0177
+  01EE -4-> 0104
+  01EE -4-> 0206
+  0094 -4-> 0106
+  01EE -4-> 020D
+  015F -4-> 0003
+  015F -4-> 012A
+  0063 -4-> 0062
+  0191 -4-> 020E
+  01FE -4-> 00B1
+  015A -4-> 00B1
+  01E7 -4-> 0111
+  01EE -4-> 00CD
+  01EE -4-> 000C
+  00C8 -4-> 0146
+  0008 -4-> 0146
+  0094 -4-> 0005
+  01EA -4-> 00FF
+  015F -4-> 00CE
+  006C -4-> 00EE
+  0183 -4-> 00B0
+  0183 -4-> 00AF
+  00C1 -4-> 006F
+  00E3 -4-> 0002
+  01C3 -4-> 01C9
+  01C3 -4-> 01C8
+  0198 -4-> 0167
+  00EB -4-> 0189
+  00EB -4-> 003F
+  01D3 -4-> 0116
+  006C -4-> 01E9
+  018B -4-> 01D4
+  01D2 -4-> 0049
+  00C8 -4-> 0121
+  0114 -4-> 0006
+  01ED -4-> 00B9
+  01EA -4-> 01BD
+  005B -4-> 0192
+  00FE -4-> 017E
+  013C -4-> 0170
+  0183 -4-> 01AE
+  0086 -4-> 01CE
+  00D2 -4-> 01AD
+  01EA -4-> 015C
+  0199 -4-> 008F
+  006C -4-> 004B
+  005B -4-> 00C7
+  005B -4-> 01B1
+  005B -4-> 01BC
+  0199 -4-> 004B
+  01D1 -4-> 004B
+  01C1 -4-> 0192
+  0198 -4-> 0049
+  00D5 -4-> 0116
+  01E3 -4-> 00FF
+  00EB -4-> 00FF
+  01BB -4-> 00B1
+  01CF -4-> 00B1
+  006B -4-> 020E
+  017B -4-> 0177
+  0012 -4-> 0177
+  0157 -4-> 00EE
+  00DD -4-> 00EE
+  00C9 -4-> 00EE
+  012C -4-> 00EE
+  0008 -4-> 00EE
+  00D4 -4-> 020E
+  0181 -4-> 0111
+  0097 -4-> 015D
+  003E -4-> 0116
+  0222 -4-> 0194
+  001E -4-> 0060
+  0129 -4-> 010E
+  0129 -4-> 00A8
+  0129 -4-> 0205
+  0222 -4-> 015D
+  001B -4-> 0103
+  0151 -4-> 0103
+  0151 -4-> 0058
+  00C8 -4-> 00BE
+  00F8 -4-> 008B
+  012C -4-> 00DA
+  01A3 -4-> 0101
+  0144 -4-> 0176
+  00DD -4-> 007D
+  00DD -4-> 01E0
+  00DD -4-> 01B4
+  015F -4-> 00B3
+  006C -4-> 0006
+  0025 -4-> 01B9
+  015F -4-> 0121
+  00B8 -4-> 0126
+  0068 -4-> 00B2
+  001B -4-> 01AC
+  011D -4-> 006E
+  0180 -4-> 01F5
+  001B -4-> 0091
+  01EA -4-> 0091
+  007E -4-> 00F4
+  01D8 -4-> 002B
+  0007 -4-> 012F
+  01A4 -4-> 008A
+  0070 -4-> 008A
+  01A4 -4-> 0158
+  01B2 -4-> 00D7
+  0070 -4-> 00D7
+  01A4 -4-> 01DD
+  012C -4-> 01DD
+  001B -4-> 01DD
+  00D4 -4-> 0055
+  00D4 -4-> 0014
+  0129 -4-> 00E4
+  0129 -4-> 0091
+  01EA -3-> 0101
+  01EA -3-> 0177
+  00EB -3-> 0104
+  00EB -3-> 0206
+  00EB -3-> 0106
+  00EB -3-> 020D
+  01EA -3-> 0003
+  01EA -3-> 012A
+  01EA -3-> 0062
+  01ED -3-> 020E
+  01ED -3-> 00B1
+  01E5 -3-> 0111
+  00EB -3-> 00CD
+  00EB -3-> 000C
+  00EB -3-> 0146
+  00EB -3-> 0005
+  010A -3-> 00FF
+  015F -3-> 00CE
+  01EA -3-> 00EE
+  00EB -3-> 00B0
+  00EB -3-> 00AF
+  00C1 -3-> 006F
+  00E3 -3-> 0002
+  01EA -3-> 01C9
+  01EA -3-> 01C8
+  0198 -3-> 0167
+  00EB -3-> 0189
+  00EB -3-> 003F
+  00EB -3-> 0116
+  01EA -3-> 01E9
+  00C1 -3-> 01D4
+  01D2 -3-> 0049
+  01EA -3-> 0121
+  01EA -3-> 015D
+  01ED -3-> 00B9
+  00F5 -3-> 00EA
+  01EA -3-> 01BD
+  005B -3-> 0192
+  01C1 -3-> 017E
+  01EA -3-> 0170
+  00EB -3-> 01AE
+  01C1 -3-> 01CE
+  01C1 -3-> 01AD
+  01EA -3-> 015C
+  01EA -3-> 008F
+  01EA -3-> 004B
+  005B -3-> 00C7
+  005B -3-> 01B1
+  005B -3-> 01BC
+  01ED -3-> 012A
+  01ED -3-> 0062
+  01E8 -3-> 00EA
+  0198 -3-> 0049
+  0198 -3-> 00FF
+  0030 -3-> 00FF
+  01ED -3-> 01C8
+  00EB -3-> 0170
+  0114 -3-> 0006
+  01EA -3-> 0103
+  010F -3-> 010E
+  015F -3-> 010E
+  0041 -3-> 010E
+  00DE -3-> 00B3
+  0139 -3-> 00B3
+  0074 -3-> 00CE
+  01EA -3-> 0126
+  00DE -3-> 00B2
+  00EB -3-> 00B2
+  01EE -3-> 00B2
+  004C -3-> 00B2
+  00F4 -3-> 01E5
+  01E5 -3-> 002B
+  000B -3-> 00D7
+  01EA -3-> 00D7
+  0100 -3-> 00CE
+  00DE -3-> 002F
+  004C -3-> 01AC
+  004C -3-> 0103
+  01EA -3-> 008A
+  0104 -6-> 0162
+  0062 -6-> 01EA
+  00EA -6-> 00F5
+  00FE -6-> 01C1
+  013C -6-> 00EB
+  0028 -6-> 01EA
+  00B0 -6-> 0105
+  00BA -6-> 01E5
+  00BA -6-> 00EB
+  00BA -6-> 01C4
+  01F4 -6-> 00C1
+  00DC -6-> 01E5
+  01F4 -6-> 01C4
+  01E0 -6-> 00C1
+  0100 -6-> 00C1
+  0074 -6-> 0080
+  0068 -6-> 00EB
+  007E -6-> 00CF
+  0180 -6-> 00C1
+  00D4 -6-> 00C1
+  0109 -6-> 00ED
+  0110 -5-> 014C
+  0110 -5-> 001B
+  0136 -5-> 01C3
+  01DB -5-> 016F
+  01DB -5-> 015F
+  0095 -5-> 0157
+  00AE -5-> 003E
+  01F1 -5-> 001B
+  0093 -5-> 00D4
+  0093 -5-> 01C5
+  0136 -5-> 01E4
+  01A5 -5-> 00D4
+  01A5 -5-> 0124
+  018A -5-> 00D4
+  0093 -5-> 0142
+  0095 -5-> 01DE
+  0195 -5-> 0129
+  0195 -5-> 01EE
+  0195 -5-> 0150
+  0186 -5-> 020B
+  0186 -5-> 01EE
+  00F9 -5-> 015F
