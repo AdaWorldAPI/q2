@@ -158,42 +158,130 @@ and we need the visual fix shipped sooner.
    load-bearing for anything beyond what `Q2PreviewIframe` already does? (I will
    audit, but a steer helps.)
 
-## Plan (TDD — to be refined after the A/B decision)
+## Phase 0 findings (audit complete, 2026-06-22)
+
+**Decision:** Option A (converge), confirmed by user. Work on branch
+`braid/bd-vwp4y5ku-hub-client-revealjs-theme-parity`.
+
+### The two WASM render entries (the real fork)
+
+- `render_page_in_project[_with_attribution]` (`crates/wasm-quarto-hub-client/src/lib.rs:1044/1101`)
+  — `prefer_preview_format = false`. **hub-client uses this.** No format
+  substitution; `format: revealjs` stays `revealjs` (a real format,
+  `pipeline_kind = None`).
+- `render_page_for_preview` (`lib.rs:1188`) — `prefer_preview_format = true`.
+  **The `q2 preview` CLI / q2-preview-spa use this**
+  (`q2-preview-spa/src/PreviewApp.tsx:1026` via
+  `ts-packages/preview-runtime/src/wasmRenderer.ts:521`
+  `renderPageForPreview(path, userGrammars, captureGzJson)`).
+  Runs `map_format_for_preview` (`lib.rs:662`) which maps `revealjs` →
+  `q2-slides`. `q2-slides` has base `html` + `pipeline_kind = Some("preview")`
+  and `is_revealjs_target("q2-slides")` is true, so the render goes through
+  `render_qmd_to_preview_ast` (full transform pipeline incl.
+  `CompileThemeCssStage` → compiled reveal theme) and returns
+  `RenderResponse { is_slides: true, theme_fingerprint, ast_json, … }`
+  (`lib.rs:1377-1452`).
+
+So the WASM already produces a correctly-themed slides AST — the editor just
+never calls the entry that asks for it.
+
+### JS-side fork
+
+- `getQ2Format.ts` → `'revealjs'`; `PreviewRouter` → `ReactPreview`.
+- `ReactPreview.doRender` (`hub-client/.../ReactPreview.tsx:189`) dispatches on
+  `pipelineKindForFormat(format)`: `'preview'` (q2-preview only) →
+  `renderPageInProjectWithAttribution`; **everything else (incl. revealjs) →
+  `parseQmdToAst`** (parse-only, no transforms, no theme).
+- `ReactRenderer.tsx:305-319`: `q2-preview` → `Q2PreviewIframe`; **revealjs →
+  `RevealjsSlideAst`** (hand-rolled, hardcoded `white.css`).
+
+### The iframe path is already correct
+
+`ts-packages/preview-renderer/src/q2-preview/RevealDeck.tsx` was fixed by
+bd-y259zb57 (commit `650cbddc`): it does **not** statically import `white.css`
+(lines 30-40), imports only theme-independent `reset.css`/`reveal.css`/
+`quarto-reveal.css`, sets `center: false` (line 278), and applies the
+per-document compiled theme via the `<style data-q2-theme>` / `css:theme:<fp>`
+transport. `PreviewRoot.tsx:1396` already treats `revealjs`/`q2-slides` as
+`isSlides`. Routing the editor's revealjs here resolves the theme parity with no
+change to the shared renderer's theme handling.
+
+### Affordance gap matrix (hand-rolled deck → iframe path)
+
+| Affordance | Hand-rolled (today, revealjs) | Iframe path | Action |
+|---|---|---|---|
+| Compiled theme | ✗ (white.css) | ✓ | **fixed by convergence** |
+| Full transform pipeline | ✗ (parse-only) | ✓ | **fixed by convergence** |
+| Cursor→slide nav (`currentSlide`/`onSlideChange`) | ✓ | ✗ (no editor sync) | **must port** (postMessage) — current feature, do not regress |
+| Reveal menu plugin | ✓ | ✗ | port (small) — follow-up |
+| Slide thumbnails | ✗ (gated on `q2-slides`, off for revealjs) | ✗ | not a regression — follow-up strand |
+| Click-to-edit | ✗ (read-only) | ✓ (disabled) | gain — follow-up strand |
+| Attribution overlay | ✗ | ✓ (needs identities threading) | gain — follow-up strand |
+
+## Design (Option A)
+
+Point the editor's revealjs at the same entry + surface the `q2 preview` SPA
+uses — the canonical preview path — and retire the hand-rolled deck.
+
+1. **`ReactPreview.doRender`** — for revealjs, call
+   `renderPageForPreview(documentPath, userGrammars, undefined)` (returns themed
+   `ast_json` + `theme_fingerprint` + `is_slides`). Requires `documentPath`
+   (editor always has it). `captureGzJson` is `undefined` in the live editor
+   (no engine-capture replay). This is the same call `q2-preview-spa` makes.
+2. **`ReactRenderer`** — route revealjs (and `q2-slides`) to `Q2PreviewIframe`
+   with `themeFingerprint`, not `RevealjsSlideAst`.
+3. **Slide-nav port** — add `currentSlide`/`onSlideChange` to the iframe path
+   (`Q2PreviewIframe` ↔ `entry.tsx` postMessage ↔ `PreviewRoot`/`RevealDeck`) so
+   cursor→slide sync survives the move. (Current feature; not a follow-up.)
+4. **Retire** `RevealjsSlideAst` + the reveal branch of `ReactAstSlideRenderer`
+   and the hub-client `white.css` import once unreferenced (the `q2-debug`
+   surface keeps its own import; out of scope).
+
+`pipelineKindForFormat` is documented as the JS mirror of Rust
+`Format::pipeline_kind`; rather than overload it (revealjs's *real* format is
+`None`; only the preview *substitution* makes it `preview`), `doRender` branches
+on the slides format explicitly. **No Rust change required** for the core fix.
+
+Follow-up strands to file: reveal menu in iframe; slide thumbnails for revealjs;
+click-to-edit on slides; attribution on slides.
+
+## Plan (TDD)
 
 ### Phase 0 — Decision & affordance audit
-- [ ] Confirm A vs B with the user.
-- [ ] (If A) Audit `Q2PreviewIframe`/`PreviewRoot` for slide navigation,
-      thumbnails, click-to-edit, presence — list any gaps vs `RevealjsSlideAst`.
+- [x] Confirm A vs B with the user. → **A**
+- [x] Audit `Q2PreviewIframe`/`PreviewRoot` vs `RevealjsSlideAst` (matrix above).
 
 ### Phase 1 — Tests first
-- [ ] Extend `hub-client/src/components/render/parity.integration.test.tsx` (or a
-      new test) to assert the editor's revealjs output uses the **compiled theme**
-      (non-uppercase `<h2>`, left-aligned slides) — i.e. a failing test that
-      reproduces the current uppercase/centered symptom.
-- [ ] (If A) Test that `format: revealjs` routes to the shared preview surface,
-      not `RevealjsSlideAst`.
+- [ ] Routing test: `ReactRenderer` with `format: revealjs` renders
+      `Q2PreviewIframe`, **not** `RevealjsSlideAst` (currently fails).
+- [ ] `doRender` dispatch test: revealjs calls `renderPageForPreview` (not
+      `parseQmdToAst`) and surfaces `themeFingerprint` (mock the wasmRenderer).
+- [ ] (If practical) parity/theme assertion: revealjs preview output carries the
+      compiled-theme transport (`<style data-q2-theme>` / non-uppercase `<h2>`)
+      rather than stock `white.css`. Reuse `parity.integration.test.tsx` shape.
 
 ### Phase 2 — Implement (A)
-- [ ] Route `revealjs`/`q2-slides` through `Q2PreviewIframe` in
-      `ReactRenderer.tsx`; classify accordingly in `getQ2Format`/`PreviewRouter`.
-- [ ] Port any missing affordances (slide nav, thumbnails) onto the shared path.
-- [ ] Remove `RevealjsSlideAst` + reveal branch of `ReactAstSlideRenderer` +
-      the `white.css` import once nothing references them.
-
-### Phase 2' — Implement (B, only if chosen)
-- [ ] Thread `themeFingerprint` from `ReactRenderer` into `RevealjsSlideAst`.
-- [ ] Remove the static `white.css` import; inject compiled theme via
-      `css:theme:<fp>` → styles.css.
-- [ ] Drive reveal config from metadata instead of the hardcoded object.
+- [ ] `ReactPreview.doRender`: revealjs → `renderPageForPreview(documentPath,
+      userGrammars, undefined)`; thread `theme_fingerprint`/`is_slides` through.
+- [ ] `ReactRenderer`: route revealjs/`q2-slides` → `Q2PreviewIframe` with
+      `themeFingerprint`.
+- [ ] Port cursor→slide sync (`currentSlide`/`onSlideChange`) onto the iframe
+      path (postMessage channel through `Q2PreviewIframe`/`entry`/`PreviewRoot`/
+      `RevealDeck`).
+- [ ] Remove `RevealjsSlideAst` + reveal branch of `ReactAstSlideRenderer` + the
+      hub-client `white.css` import once nothing references them.
+- [ ] File follow-up strands: reveal menu in iframe; revealjs thumbnails;
+      click-to-edit on slides; attribution on slides.
 
 ### Phase 3 — Verify end-to-end
-- [ ] `npm run build:all` (hub-client) + `npm run test:ci`.
-- [ ] Browser check on the running hub-client: heading `text-transform: none`,
-      slides left-aligned, compiled theme applied — record computed styles, same
-      method as the live confirmation above.
+- [ ] `cd hub-client && npm run build:all` + `npm run test:ci`.
+- [ ] Rebuild WASM if any Rust signature crossed (`npm run build:wasm`); core fix
+      expects **no** Rust change — confirm.
+- [ ] Browser check on running hub-client (share-link project): `<h2>`
+      `text-transform: none`, slides left-aligned, compiled theme applied —
+      record computed styles, same method as the live confirmation above.
+- [ ] Confirm cursor→slide nav still works in the editor.
 - [ ] Cross-check against `q2 preview` of the same deck for visual parity.
-- [ ] `cargo xtask verify` if any Rust/WASM leg is touched (Option A may not
-      touch Rust at all; confirm).
 
 ## References
 - `650cbddc` fix(revealjs): apply the document's compiled reveal theme in q2
