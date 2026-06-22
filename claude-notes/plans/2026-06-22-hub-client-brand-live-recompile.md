@@ -137,18 +137,21 @@ deliberately doesn't do it. **Recommend shipping the coarse fix first** (parity
 + correctness), and only pursuing fine-grained tracking if profiling shows the
 extra deck re-renders matter. File as a separate optimization strand if desired.
 
-## Verification plan (TDD)
+## Verification plan (TDD) — DONE
 
-- [ ] Component/integration test: rendering `ReactPreview` and changing the
-      `fileContents` Map identity (a sibling-file edit) triggers `updatePreview`
-      / a re-render — currently it does not. (Mirror any existing `Preview.tsx`
-      re-render test; mock the wasmRenderer.) Confirm red → green.
-- [ ] Manual two-window check on the running hub-client: A views `slides.qmd`
-      with `_brand.yml`; edit `_brand.yml` in B; confirm A's deck restyles
-      without reload. Record computed styles before/after.
-- [ ] Confirm no regression to the existing per-keystroke deck re-render
-      behavior / slide-nav.
-- [ ] hub-client `tsc -b` + `npm run test` + `test:integration`.
+- [x] Integration test `ReactPreview.rerender.integration.test.tsx`: rendering
+      `ReactPreview` (format: revealjs) and swapping `fileContents` to a new Map
+      identity (a `_brand.yml` edit) must re-invoke `renderPageForPreview`. Red
+      before the one-line fix, green after. (commit `f4e2c25e`)
+- [x] **Live two-window check** on the running hub-client (the user's own two
+      windows on project `8e957fe2`): edited `_brand.yml`'s `palette.blue`
+      `#447099`→`#00cc00` in window B; window A's deck headings recompiled
+      `rgb(68,112,153)`→`rgb(0,204,0)` with **no reload**, theme blob URL
+      refreshed (`69cec62d…`→`96bc445d…`); reverted → headings back to blue
+      immediately. Project restored to original.
+- [x] hub-client `tsc -b`, `npm run test` (614), `npm run test:integration`
+      (75), `npm run build` (production) — all green. No regressions.
+- [x] No Rust/WASM change — pure TS.
 
 ## References
 - Sibling-edit re-render pattern: `Preview.tsx:343-354`, `PreviewRouter.tsx`
