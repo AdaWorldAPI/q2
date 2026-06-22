@@ -23,6 +23,7 @@ import {
   type AuthToolName,
 } from './auth/auth-tools.js';
 import { redactTokens } from './auth/redact.js';
+import { parseProjectRef } from './share-url.js';
 
 function text(msg: string): CallToolResult {
   return { content: [{ type: 'text', text: msg }] };
@@ -31,6 +32,17 @@ function text(msg: string): CallToolResult {
 function error(msg: string): CallToolResult {
   return { content: [{ type: 'text', text: msg }], isError: true };
 }
+
+/**
+ * Shared description for every `project` parameter. Tells the model that a
+ * quarto-hub.com share URL is accepted in place of a bare id — the server
+ * extracts the id (and a default `path`) from it. See {@link parseProjectRef}.
+ */
+const PROJECT_PARAM_DESC =
+  "The project's automerge index document ID, OR a full quarto-hub.com share URL " +
+  'such as `https://quarto-hub.com/#/share/<id>?file=…&name=…` (the link users share ' +
+  'to grant access). Given a share URL, the `<id>` after `#/share/` is used as the ' +
+  'project and the `file=` query parameter, if present, supplies a default `path`.';
 
 // ============================================================================
 // Tool definitions
@@ -41,7 +53,9 @@ function getReadTools(): Tool[] {
     {
       name: 'connect_project',
       description:
-        'Connect to a Quarto Hub project by its automerge index document ID. ' +
+        'Connect to a Quarto Hub project by its automerge index document ID — ' +
+        'or by a quarto-hub.com share URL (`https://quarto-hub.com/#/share/<id>?…`), ' +
+        'from which the id is extracted automatically. ' +
         'Returns the list of files in the project. ' +
         'If the hub requires authentication and no valid credentials are cached, ' +
         'this throws an `AuthRequiredError` / `ReauthRequired` — call ' +
@@ -49,7 +63,7 @@ function getReadTools(): Tool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'The automerge index document ID of the project' },
+          project: { type: 'string', description: PROJECT_PARAM_DESC },
         },
         required: ['project'],
       },
@@ -61,7 +75,7 @@ function getReadTools(): Tool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'The automerge index document ID of the project' },
+          project: { type: 'string', description: PROJECT_PARAM_DESC },
         },
         required: ['project'],
       },
@@ -73,7 +87,7 @@ function getReadTools(): Tool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'The automerge index document ID of the project' },
+          project: { type: 'string', description: PROJECT_PARAM_DESC },
           path: { type: 'string', description: 'The file path within the project' },
         },
         required: ['project', 'path'],
@@ -91,7 +105,7 @@ function getReadTools(): Tool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'The automerge index document ID of the project' },
+          project: { type: 'string', description: PROJECT_PARAM_DESC },
           path: { type: 'string', description: 'The file path within the project to watch' },
           timeout_seconds: {
             type: 'number',
@@ -120,7 +134,7 @@ function getWriteTools(): Tool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'The automerge index document ID of the project' },
+          project: { type: 'string', description: PROJECT_PARAM_DESC },
           path: { type: 'string', description: 'The file path within the project' },
           content: { type: 'string', description: 'The new file content' },
         },
@@ -134,7 +148,7 @@ function getWriteTools(): Tool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'The automerge index document ID of the project' },
+          project: { type: 'string', description: PROJECT_PARAM_DESC },
           path: { type: 'string', description: 'The file path within the project' },
           old_string: { type: 'string', description: 'The exact string to find and replace' },
           new_string: { type: 'string', description: 'The replacement string' },
@@ -149,7 +163,7 @@ function getWriteTools(): Tool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'The automerge index document ID of the project' },
+          project: { type: 'string', description: PROJECT_PARAM_DESC },
           path: { type: 'string', description: 'The file path within the project' },
           content: { type: 'string', description: 'Initial file content (defaults to empty)', default: '' },
         },
@@ -163,7 +177,7 @@ function getWriteTools(): Tool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'The automerge index document ID of the project' },
+          project: { type: 'string', description: PROJECT_PARAM_DESC },
           path: { type: 'string', description: 'The file path to delete' },
         },
         required: ['project', 'path'],
@@ -176,7 +190,7 @@ function getWriteTools(): Tool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'The automerge index document ID of the project' },
+          project: { type: 'string', description: PROJECT_PARAM_DESC },
           old_path: { type: 'string', description: 'The current file path' },
           new_path: { type: 'string', description: 'The new file path' },
         },
@@ -215,6 +229,24 @@ function getWriteTools(): Tool[] {
 // ============================================================================
 
 type ToolArgs = Record<string, unknown>;
+
+/**
+ * Normalize tool arguments before dispatch. If `project` is a quarto-hub.com
+ * share URL, replace it with the bare index doc id; and when the share URL
+ * named a `file=` and the caller gave no explicit `path`, default `path` to it.
+ * A bare id passes through unchanged, so existing callers are unaffected.
+ */
+function normalizeArgs(args: ToolArgs): ToolArgs {
+  if (typeof args.project !== 'string') {
+    return args;
+  }
+  const ref = parseProjectRef(args.project);
+  const next: ToolArgs = { ...args, project: ref.project };
+  if (ref.file && (next.path === undefined || next.path === '')) {
+    next.path = ref.file;
+  }
+  return next;
+}
 
 /**
  * One listed file. `type` is present for loaded files; dangling index
@@ -259,9 +291,10 @@ function unavailableFileError(path: string, docId: string): CallToolResult {
 
 async function handleTool(
   name: string,
-  args: ToolArgs,
+  rawArgs: ToolArgs,
   manager: ConnectionManager
 ): Promise<CallToolResult> {
+  const args = normalizeArgs(rawArgs);
   switch (name) {
     case 'connect_project':
       return handleConnectProject(args, manager);
