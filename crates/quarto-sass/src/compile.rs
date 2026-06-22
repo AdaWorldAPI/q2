@@ -655,6 +655,27 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_reveal_theme_includes_highlight_rules() {
+        // bd-ehyyfpjj: `format: revealjs` code blocks receive `hl-*` span
+        // annotations from `CodeHighlightStage`, but render UNCOLORED unless
+        // the compiled reveal theme CSS also carries the `.hl-*` colour
+        // rules. Every HTML compile bundles `highlight.scss` via
+        // `load_highlight_layer`; the reveal path must include it too, or
+        // render/preview/hub-client all show plain (uncolored) code.
+        let runtime = NativeRuntime::new();
+        // Empty theme layers → the default (white-equivalent) reveal theme.
+        let css = compile_reveal_theme_css(&runtime, true, &[], &[]).unwrap();
+        assert!(
+            css.contains(".hl-keyword"),
+            "reveal theme CSS must contain .hl-keyword from highlight.scss"
+        );
+        assert!(
+            css.contains(".hl-function-builtin"),
+            "reveal theme CSS must contain the nested-capture .hl-function-builtin rule"
+        );
+    }
+
+    #[test]
     fn test_compile_default_css_expanded() {
         let runtime = NativeRuntime::new();
         let css = compile_default_css(&runtime, false).unwrap();

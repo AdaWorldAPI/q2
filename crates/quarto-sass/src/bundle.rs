@@ -384,12 +384,23 @@ pub fn assemble_reveal_scss(theme_layers: &[SassLayer]) -> Result<String, SassEr
 
     let framework = load_reveal_framework()?;
     let quarto = load_quarto_reveal_layer()?;
-    let merged = if theme_layers.is_empty() {
-        None
-    } else {
-        Some(merge_layers(theme_layers))
-    };
-    Ok(assemble_scss(&framework, &quarto, merged.as_ref()))
+
+    // Bundle the default syntax-highlight rules (`highlight.scss`, the same
+    // `.hl-*` colours the HTML path includes via `load_highlight_layer`) so
+    // revealjs code blocks — already annotated with `hl-*` spans by
+    // `CodeHighlightStage` — actually get coloured (bd-ehyyfpjj). The
+    // highlight layer is placed BEFORE the user theme layers so a deck's
+    // `theme:` can still override any `.hl-*` class in a later layer,
+    // matching the HTML layer order. It rides in the `theme` slot of
+    // `assemble_scss` (rules emitted after framework + quarto), so its
+    // colours win over reveal's generic code rules at equal specificity.
+    let highlight = load_highlight_layer()?;
+    let mut combined: Vec<SassLayer> = Vec::with_capacity(1 + theme_layers.len());
+    combined.push(highlight);
+    combined.extend_from_slice(theme_layers);
+    let merged = merge_layers(&combined);
+
+    Ok(assemble_scss(&framework, &quarto, Some(&merged)))
 }
 
 /// Assemble a complete SCSS string for compilation.
