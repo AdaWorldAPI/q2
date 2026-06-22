@@ -201,11 +201,15 @@ real-world instance B improves the reporting of).
 - [ ] `cargo nextest run --workspace` (10,289 passed) ✓; `cargo xtask verify`
       (full — `quarto-core` is in the WASM closure) — *running.*
 
-### Stage 2 — Facet A (relabel the docs cells) — NOT STARTED
+### Stage 2 — Facet A (relabel the docs cells) — DONE
 
-- [ ] **(A)** Relabel the two `fig-charts` cells in
+- [x] **(A)** Relabeled the two `fig-charts` cells in
       `docs/guides/authoring/figures.qmd` to `fig-charts-jupyter` /
-      `fig-charts-knitr`. Confirm `q2 render docs/` → **0 errors**.
+      `fig-charts-knitr`. *(2026-06-22)* `q2 render docs/` now reports
+      **`Rendered 169 of 169 files … — 27 warnings`** (was `1 error, 27
+      warnings`): no `Error:` lines, no `Q-15-1`. The 27 warnings are the
+      pre-existing `Q-5-6` (missing images) and `Q-13-4` (body links) — out of
+      scope here.
 
 ## Key references
 - `crates/quarto-core/src/transforms/crossref_index.rs:262-268` — call site

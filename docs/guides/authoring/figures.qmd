@@ -425,7 +425,7 @@ You can create subcaptions for computational output by combining the `fig-cap` a
 #### Jupyter
 
 ```{{python}}
-#| label: fig-charts
+#| label: fig-charts-jupyter
 #| fig-cap: "Charts"
 #| fig-subcap:
 #|   - "First"
@@ -445,7 +445,7 @@ plt.show()
 #### Knitr
 
 ```{{r}}
-#| label: fig-charts
+#| label: fig-charts-knitr
 #| fig-cap: "Charts"
 #| fig-subcap:
 #|   - "Cars"
