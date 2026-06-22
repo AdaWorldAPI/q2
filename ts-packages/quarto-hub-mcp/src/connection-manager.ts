@@ -214,6 +214,11 @@ export class ConnectionManager {
     this.probePath = opts.probePath ?? '/health';
   }
 
+  /** The hub server URL this manager connects to (from `--server` / `QUARTO_HUB_SERVER` / default). */
+  get configuredServerUrl(): string {
+    return this.serverUrl;
+  }
+
   /** Phase 7 hook — observed auth-mode of the last connect attempt. */
   lastObservedAuthMode(): ObservedAuthMode {
     return this.observedAuthMode;
