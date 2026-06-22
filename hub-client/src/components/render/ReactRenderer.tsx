@@ -272,7 +272,15 @@ function ReactRenderer({
       </ErrorBoundary>
     );
   }
-  if (format === 'q2-preview') {
+  // Convergence (bd-vwp4y5ku): `format: revealjs` renders through the
+  // SAME shared q2-preview iframe as `q2 preview`. The iframe's
+  // `PreviewRoot` auto-detects slides (`isSlides` for revealjs/q2-slides)
+  // and mounts `RevealDeck`, which applies the document's compiled reveal
+  // theme via the `<style data-q2-theme>` transport — instead of the
+  // legacy hand-rolled `RevealjsSlideAst` deck that hardcoded reveal's
+  // stock `white.css`. `ReactPreview.doRender` feeds this branch the
+  // themed preview AST (from `renderPageForPreview`) + `themeFingerprint`.
+  if (format === 'q2-preview' || format === 'revealjs') {
     return (
       <ErrorBoundary>
         <div style={{

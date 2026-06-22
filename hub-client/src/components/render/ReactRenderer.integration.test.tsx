@@ -207,6 +207,21 @@ describe('ReactRenderer format routing', () => {
     expect(capturedPreviewIframeProps.length).toBe(0);
   });
 
+  it('routes revealjs through Q2PreviewIframe, not the hand-rolled deck (bd-vwp4y5ku)', () => {
+    // Convergence: `format: revealjs` must render through the shared
+    // q2-preview iframe (which applies the document's compiled reveal
+    // theme via the `<style data-q2-theme>` transport, exactly as
+    // `q2 preview` does) instead of the legacy hand-rolled
+    // `RevealjsSlideAst` deck (which hardcodes reveal's stock
+    // `white.css` — uppercase headings, centered content).
+    const { queryByTestId } = mountForRouting('revealjs');
+    expect(capturedPreviewIframeProps.length).toBeGreaterThan(0);
+    // No longer through the hand-rolled deck...
+    expect(queryByTestId('revealjs-sentinel')).toBeNull();
+    // ...and never through the q2-debug iframe.
+    expect(capturedAstIframeProps.length).toBe(0);
+  });
+
   it('does not route q2-slides through any AST iframe', () => {
     const { queryByTestId } = mountForRouting('q2-slides');
     expect(capturedAstIframeProps.length).toBe(0);
