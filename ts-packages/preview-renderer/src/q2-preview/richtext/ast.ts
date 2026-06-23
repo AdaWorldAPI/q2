@@ -10,11 +10,18 @@ export interface PoolEntry {
   d?: unknown;
 }
 
-/** Loose annotated Pandoc node: `t` tag, `c` content, `s` pool index. */
+/** A node's literal source location (begin/end byte offset in `o`). */
+export interface NodeLoc {
+  b?: { o?: number };
+  e?: { o?: number };
+}
+
+/** Loose annotated Pandoc node: `t` tag, `c` content, `s` pool index, `l` loc. */
 export interface AstNode {
   t: string;
   c?: unknown;
   s?: number;
+  l?: NodeLoc;
   [k: string]: unknown;
 }
 
@@ -26,8 +33,21 @@ export function sliceBytes(src: string, start: number, end: number): string {
   return decoder.decode(encoder.encode(src).subarray(start, end));
 }
 
-/** Verbatim source text for a node via its pool entry; null if unavailable. */
+/**
+ * Verbatim source text for a node.
+ *
+ * Prefers the node's own literal location (`.l`) over the compact pool entry
+ * (`.s`). The pool range is reliable for leaf inlines (Math/Cite) but is
+ * mis-assigned for container inlines like shortcode spans — there the pool
+ * points at an adjacent space while `.l` points at the actual token
+ * (e.g. `{{< meta key >}}`). Falls back to the pool, then null.
+ */
 export function nodeSource(node: AstNode, pool: PoolEntry[], src: string): string | null {
+  const b = node.l?.b?.o;
+  const e = node.l?.e?.o;
+  if (typeof b === 'number' && typeof e === 'number' && e >= b) {
+    return sliceBytes(src, b, e);
+  }
   if (node.s == null) return null;
   const entry = pool[node.s];
   if (!entry || !entry.r) return null;

@@ -10,6 +10,24 @@
 let injected = false;
 
 const CSS = `
+.q2-richtext-editor { position: relative; }
+
+/* Faint "Editing…" label parked in the left margin, vertically aligned to the
+   first line. pointer-events:none + user-select:none so it never interferes with
+   text interaction. This is the first of the left-margin edit affordances. */
+.q2-richtext-editing-label {
+  position: absolute;
+  right: calc(100% + 0.6rem);
+  top: 0;
+  font-size: 0.72rem;
+  line-height: 1.7;
+  font-style: italic;
+  white-space: nowrap;
+  color: rgba(59, 130, 246, 0.65);
+  user-select: none;
+  pointer-events: none;
+}
+
 .q2-richtext-editor .ProseMirror {
   outline: none;
   white-space: pre-wrap;

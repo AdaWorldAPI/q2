@@ -143,5 +143,12 @@ export function RichTextEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
-  return <div className="q2-richtext-editor">{editor && <EditorContent editor={editor} />}</div>;
+  return (
+    <div className="q2-richtext-editor">
+      {/* Ancillary affordance parked in the LEFT MARGIN (not over the text) so it
+          never hijacks clicking/selecting. Future home for more edit affordances. */}
+      <span className="q2-richtext-editing-label" aria-hidden="true">Editing…</span>
+      {editor && <EditorContent editor={editor} />}
+    </div>
+  );
 }
