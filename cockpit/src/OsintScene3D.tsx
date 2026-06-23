@@ -261,15 +261,27 @@ function mount(
   cx /= n;
   cy /= n;
   cz /= n;
+  // Frame the BULK, not the farthest outlier. basin_center radius grows with
+  // basin index, so a handful of high-basin nodes sit far out on the rim while
+  // ~90 % of the cloud is a dense core — normalizing by the max shrinks that
+  // core into a speck with big empty margins. Normalize by the 93rd-percentile
+  // distance instead: the core fills the radius-R sphere and the sparse rim
+  // simply spills past the frame edge (acceptable — those nodes are few).
+  const dists = new Float64Array(s.nodeCount);
   let maxd = 1e-6;
   for (let i = 0; i < s.nodeCount; i++) {
-    maxd = Math.max(
-      maxd,
-      Math.hypot(s.pos[i * 3] - cx, s.pos[i * 3 + 1] - cy, s.pos[i * 3 + 2] - cz),
+    const d = Math.hypot(
+      s.pos[i * 3] - cx,
+      s.pos[i * 3 + 1] - cy,
+      s.pos[i * 3 + 2] - cz,
     );
+    dists[i] = d;
+    if (d > maxd) maxd = d;
   }
+  const sortedD = Array.from(dists).sort((a, b) => a - b);
+  const pctD = sortedD[Math.floor(sortedD.length * 0.93)] || maxd;
   const R = 100;
-  const scale = R / maxd;
+  const scale = R / Math.max(pctD, maxd * 1e-3);
   const p = new Float32Array(s.nodeCount * 3);
   for (let i = 0; i < s.nodeCount; i++) {
     p[i * 3] = (s.pos[i * 3] - cx) * scale;
