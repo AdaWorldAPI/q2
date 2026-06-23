@@ -4,6 +4,15 @@
 //   · its part-of position (basin-local: organ → chamber → wall → structure)
 //   · its leaf-limited global TYPE (the 0xFFFF ceiling pole — cross-cutting,
 //     the same "Cardiac muscle tissue" shared by every chamber).
+//
+// This is the `Cascade` (ontology / part-of) reading of OGAR PR #116's HhtlMode
+// FMA tier model: each node is a stack of 8:8 [container:identity] tiers —
+// HEEL=[Organ:Heart], HIP=[Chamber:id], TWIG=[Wall:id], LEAF=[Tissue:id] — where
+// the container byte is the KIND mixin node and the identity the instance, so the
+// partonomy IS the key and the layout reads straight off it. OGAR's
+// ogar-fma-skeleton is the `Located` (spatial) sibling (the same 8:8 tiers carry
+// coronal x:y / depth z Morton cells). classid 0x0A01 = anatomical_structure in
+// OGAR's ConceptDomain::Anatomy (0x0A).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Network, type Options } from 'vis-network';
 import { DataSet } from 'vis-data';
@@ -27,39 +36,42 @@ const classColor = (c: number) => FMA_CLASS[c]?.color ?? '#8899aa';
 const REL = ['member-of', 'interfaces', 'part-of', 'is-a'];
 const REL_COLOR = ['#223040', '#223040', '#7fa6c4', CEILING_COLOR];
 
-// ── Z-order (Morton) tile layout ─────────────────────────────────────────────
-// The bake stores each part-of node's Morton tile path in the GUID identity (one
-// 4×4 level per part-of step, coarsest in the high nibble). Depth == class
-// (Organ 0 → Cell 4), so position is fully recoverable from identity + class:
-// walk the nibbles, decode each 4×4 cell, accumulate base-2, and the node lands
-// at the centre of its nested tile — the address literally *is* the coordinate.
-const MAX_DEPTH = 4; // cells are the deepest tier → a 2^4 = 16×16 finest grid
-const CELL = 90; // px per finest grid cell
-const POLE_Y = -2.4 * CELL; // the ceiling pole hovers above the body
+// ── 8:8 [container:identity] HHTL-tier layout ────────────────────────────────
+// The bake addresses each node as a stack of 8:8 tiers (see src/bin/fma.rs):
+// HEEL=[Organ:Heart] HIP=[Chamber:id] TWIG=[Wall:id] LEAF=[Tissue:id]
+// family=[Cell:id]. The container (high byte) is the KIND mixin node, the
+// identity (low byte) is the instance. The non-zero tier identities ARE the
+// partonomy path — so position is read straight off the tiers, no Morton decode:
+// y = depth (class), x = a nested slot that subdivides under each parent.
+const COL = 1500; // total layout width in vis units
+const ROW = 210; // vertical gap per depth level
+const POLE_Y = -1.7 * ROW; // the cross-cutting global types hover above the body
 
-// inverse bit-interleave (gather even bits to the low half) — TS port of
-// `compact1by1` in osint-bake/src/morton.rs; decodes ONE 4×4 Morton cell.
-function compact1by1(n: number): number {
-  n &= 0x55555555;
-  n = (n | (n >> 1)) & 0x33333333;
-  n = (n | (n >> 2)) & 0x0f0f0f0f;
-  n = (n | (n >> 4)) & 0x00ff00ff;
-  n = (n | (n >> 8)) & 0x0000ffff;
-  return n >>> 0;
-}
+/// the instance (low) byte of an 8:8 tier.
+const inst = (t: number) => t & 0xff;
 
-// Reconstruct a node's tile centre by walking its Morton path nibble-by-nibble
-// (NOT a flat decode — a multi-level code spreads the axis bits across nibbles).
-function tilePos(code: number, depth: number): { x: number; y: number; span: number } {
-  let gx = 0;
-  let gy = 0;
-  for (let k = 0; k < depth; k++) {
-    const nib = (code >> (4 * (depth - 1 - k))) & 0xf; // coarsest level first
-    gx = gx * 2 + compact1by1(nib); // each FMA level is a 2×2 branch (quad 0..1)
-    gy = gy * 2 + compact1by1(nib >> 1);
+// Nested horizontal slot from the [Chamber][Wall][Tissue][Cell] instance path:
+// each level subdivides its parent's slot (max-siblings per level: 4/3/2/2), so
+// children cluster under their parent. y is the depth band (class).
+function tierPos(
+  soa: Soa,
+  i: number,
+): { x: number; y: number } {
+  const path: Array<[number, number]> = [
+    [inst(soa.hip[i]), 4], // chamber 1..4
+    [inst(soa.twig[i]), 3], // wall 1..3
+    [inst(soa.leaf[i]), 2], // tissue 1..2
+    [inst(soa.family[i]), 2], // cell 1..2
+  ];
+  let lo = 0;
+  let hi = 1;
+  for (const [id, n] of path) {
+    if (id <= 0) break;
+    const w = (hi - lo) / n;
+    lo += (id - 1) * w;
+    hi = lo + w;
   }
-  const span = 1 << (MAX_DEPTH - depth); // tile edge, in finest cells
-  return { x: (gx * span + span / 2) * CELL, y: (gy * span + span / 2) * CELL, span };
+  return { x: ((lo + hi) / 2) * COL, y: soa.cls[i] * ROW };
 }
 
 const OPTIONS: Options = {
@@ -71,7 +83,7 @@ const OPTIONS: Options = {
     smooth: { enabled: true, type: 'continuous', roundness: 0.2 },
     arrows: { to: { enabled: true, scaleFactor: 0.45 } },
   },
-  // positions are fixed Z-order tiles (see tilePos) — no force simulation.
+  // positions are fixed 8:8-tier slots (see tierPos) — no force simulation.
   physics: { enabled: false },
   interaction: { hover: true, tooltipDelay: 90, dragNodes: true },
   layout: { improvedLayout: false },
@@ -126,21 +138,19 @@ export function FmaGraph() {
     if (!hostRef.current || !soa || !rel) return;
     const ceiling = (i: number) => soa.ceiling[i] === 1 || soa.cls[i] === 5;
 
-    // Fixed Z-order position per node: part-of nodes deinterleave their Morton
-    // tile path (depth == class) into a nested tile centre; the cross-cutting
-    // global types line up along the pole above the body. The grid width spans
-    // 2^MAX_DEPTH finest cells, so the pole row is centred over that span.
+    // Fixed position per node, read straight off the 8:8 [container:identity]
+    // HHTL tiers: part-of nodes nest by their [Chamber][Wall][Tissue][Cell]
+    // instance path (y = depth = class); the cross-cutting global types line up
+    // along the pole above the body, spread across the same width.
     const poleNodes = Array.from({ length: soa.nodeCount }, (_, i) => i).filter(ceiling);
-    const gridSpan = (1 << MAX_DEPTH) * CELL;
     const posOf = (i: number): { x: number; y: number; size: number } => {
       if (ceiling(i)) {
         const k = poleNodes.indexOf(i);
-        const x = ((k + 0.5) / Math.max(poleNodes.length, 1)) * gridSpan;
+        const x = ((k + 0.5) / Math.max(poleNodes.length, 1)) * COL;
         return { x, y: POLE_Y, size: 22 };
       }
-      const depth = soa.cls[i]; // Organ 0 → Cell 4
-      const { x, y } = tilePos(soa.identity[i], depth);
-      return { x, y, size: 30 - depth * 4 }; // coarser tier → larger dot
+      const { x, y } = tierPos(soa, i);
+      return { x, y, size: 30 - soa.cls[i] * 4 }; // coarser tier → larger dot
     };
 
     const baseNode = (i: number) => {
@@ -173,7 +183,7 @@ export function FmaGraph() {
     const visNodes = new DataSet<any>(Array.from({ length: soa.nodeCount }, (_, i) => baseNode(i)));
     const visEdges = new DataSet<any>(soa.edges.map((e, id) => baseEdge(e, id)));
     const net = new Network(hostRef.current, { nodes: visNodes, edges: visEdges }, OPTIONS);
-    // fixed Z-order tiles, no simulation — just frame the nested pyramid.
+    // fixed 8:8-tier slots, no simulation — just frame the nested cascade.
     net.once('afterDrawing', () => net.fit({ animation: false }));
     setStatus(`${soa.nodeCount} nodes · ${soa.edgeCount} edges — Z-order tile pyramid; click a tissue for its dual membership`);
 
