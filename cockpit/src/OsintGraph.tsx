@@ -57,7 +57,7 @@ const REL_COLOR = [
   '#ff637d', '#35d07f', '#c792ea', '#7fd1ff', '#ffb547', '#9b8cff',
 ];
 // rel codes that make up the dimension layer: VALID_FOR (8) + the facets (10..15).
-const isFacetRel = (r: number) => r === 8 || r >= 10;
+const isFacetRel = (r: number) => r === 8 || (r >= 10 && r <= 15);
 
 const DIM_NODE = { background: 'rgba(10,14,23,0.55)', border: '#26323f' };
 const DIM_EDGE = 'rgba(50,66,84,0.12)';
@@ -611,6 +611,9 @@ export function OsintGraph() {
       visNodes.update(schemaNodeIds.map((id) => ({ id, hidden: !show })));
       visEdges.update(schemaEdgeIds.map((id) => ({ id, hidden: !show })));
     };
+    // apply the current toggle state on (re)build — covers a toggle that landed
+    // before the network (and apiRef) existed, so the button and graph never desync.
+    setDims(showDims);
 
     apiRef.current = {
       query: (text) => {
