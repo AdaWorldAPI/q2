@@ -36,9 +36,13 @@ pub fn register_wasm_io(lua: &Lua, runtime: Arc<dyn SystemRuntime>) -> Result<()
             let mode = mode.unwrap_or_else(|| "r".to_string());
             let mode_str = mode.as_str();
 
-            // Resolve path: absolute paths used as-is, relative paths
-            // resolve from CWD (which is /project/ in WASM VFS)
-            let resolved_path = if path.starts_with('/') {
+            // `is_rooted` (has_root), not `starts_with('/')`/`is_absolute`:
+            // correct on all targets incl. wasm32, where `is_absolute()` is
+            // false for `/foo`. Shared with dofile_wasm. In production WASM
+            // this site only sees `/`-rooted or relative paths, so behavior is
+            // unchanged; recognizing native `C:\` paths additionally lets the
+            // native test harness exercise this code. See bd-cfl67.
+            let resolved_path = if quarto_util::is_rooted(Path::new(&path)) {
                 path.clone()
             } else {
                 format!("/project/{}", path)
@@ -476,6 +480,7 @@ mod tests {
     use super::*;
     use crate::lua::runtime::NativeRuntime;
     use mlua::StdLib;
+    use quarto_util::to_forward_slashes;
     use std::fs;
     use tempfile::TempDir;
 
@@ -514,7 +519,7 @@ mod tests {
             f:close()
             return content
             "#,
-            file_path.display()
+            to_forward_slashes(&file_path)
         );
         let result: String = lua.load(&script).eval().unwrap();
         assert_eq!(result, "hello world");
@@ -537,7 +542,7 @@ mod tests {
             f:close()
             return l1, l2, l3, l4
             "#,
-            file_path.display()
+            to_forward_slashes(&file_path)
         );
         let result: (String, String, String, Value) = lua.load(&script).eval().unwrap();
         assert_eq!(result.0, "line1");
@@ -563,7 +568,7 @@ mod tests {
             f:close()
             return n1, n2, n3
             "#,
-            file_path.display()
+            to_forward_slashes(&file_path)
         );
         let result: (f64, f64, Value) = lua.load(&script).eval().unwrap();
         assert_eq!(result.0, 42.0);
@@ -590,7 +595,7 @@ mod tests {
             f:close()
             return b1, b2, b3
             "#,
-            file_path.display()
+            to_forward_slashes(&file_path)
         );
         let result: (String, String, Value) = lua.load(&script).eval().unwrap();
         assert_eq!(result.0, "abcde");
@@ -615,7 +620,7 @@ mod tests {
             local t4 = io.type(42)
             return t1, t2, t3, t4
             "#,
-            file_path.display()
+            to_forward_slashes(&file_path)
         );
         let result: (String, String, Value, Value) = lua.load(&script).eval().unwrap();
         assert_eq!(result.0, "file");
@@ -638,7 +643,7 @@ mod tests {
             f:write("hello")
             f:close()
             "#,
-            file_path.display()
+            to_forward_slashes(&file_path)
         );
         lua.load(&script).exec().unwrap();
         assert_eq!(fs::read_to_string(&file_path).unwrap(), "hello");
@@ -659,7 +664,7 @@ mod tests {
             f:flush()
             f:close()
             "#,
-            file_path.display()
+            to_forward_slashes(&file_path)
         );
         lua.load(&script).exec().unwrap();
         assert_eq!(fs::read_to_string(&file_path).unwrap(), "ab");
@@ -678,7 +683,7 @@ mod tests {
             f:write("-appended")
             f:close()
             "#,
-            file_path.display()
+            to_forward_slashes(&file_path)
         );
         lua.load(&script).exec().unwrap();
         assert_eq!(fs::read_to_string(&file_path).unwrap(), "existing-appended");
@@ -696,7 +701,7 @@ mod tests {
             f:write("a"):write("b"):write("c")
             f:close()
             "#,
-            file_path.display()
+            to_forward_slashes(&file_path)
         );
         lua.load(&script).exec().unwrap();
         assert_eq!(fs::read_to_string(&file_path).unwrap(), "abc");
