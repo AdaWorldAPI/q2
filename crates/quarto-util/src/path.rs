@@ -6,10 +6,11 @@ use std::path::Path;
 ///
 /// Use this, not [`std::path::Path::is_absolute`], for "should this path be
 /// used as-is, or resolved against a working directory?" decisions. On
-/// `wasm32-unknown-unknown` (no `target_family`) `is_absolute()` returns
-/// `false` even for rooted paths like `/foo`, whereas `has_root()` is correct
-/// on both native and WASM targets. Same rationale as `quarto-core`'s
-/// `artifact.rs` / `output_sink.rs` (bd-cfl67).
+/// `wasm32-unknown-unknown` — which std treats as neither `unix` nor `wasi`
+/// and which carries no path prefix — `is_absolute()` returns `false` even for
+/// rooted paths like `/foo` (it requires a unix/wasi target or a Windows-style
+/// prefix), whereas `has_root()` is correct on both native and WASM targets.
+/// Same rationale as `quarto-core`'s `artifact.rs` / `output_sink.rs` (bd-cfl67).
 pub fn is_rooted(path: &Path) -> bool {
     path.has_root()
 }
