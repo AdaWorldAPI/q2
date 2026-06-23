@@ -440,8 +440,19 @@ interactive structural-edit round-trip tests).
 - **Known limitation (Phase 2):** plain→rich re-seeds the rich editor from the
   original AST (it can't parse arbitrary edited markdown in-iframe). rich→plain
   preserves edits. Full bidirectional content handoff needs the parent parse.
-- [ ] **1b — Headings + inline-formatting polish** (toolbar-free; rely on standard
+- **1b — Headings + inline-formatting polish** (toolbar-free; rely on standard
       marks + theme styling). Tighten visual parity (margins, line-height).
+  - [x] `Header` added to `RICHTEXT_SUPPORTED_TYPES`; heading node enabled in the
+        tiptap StarterKit config. The bridge already mapped `Header → heading{level}`,
+        so the round-trip was ready (added a `heading-with-marks` fixture, 14/14).
+  - [x] `enableInputRules: false` / `enablePasteRules: false` — 1b edits existing
+        structure only; typing "## " must not convert a paragraph or change a
+        heading's level (structural edits are a later phase; Cmd-B/I still work).
+  - [x] `trailingNode: false` — a single non-paragraph block (a heading) was
+        getting a phantom empty trailing `<p>` (extra editor height + a stray blank
+        block on commit). Verified the heading box is now tight in `q2 preview`.
+        Evidence: `richtext-shots/12-heading-tight.png`.
+  - [ ] Further inline-formatting polish as needed (assess across more fixtures).
 - [ ] **1c — Lists / blockquotes, incl. interactive structural edits** (Enter
       split, new item, backspace-merge) with round-trip tests for *interactive*
       edits (new surface beyond the spike's static round-trip).

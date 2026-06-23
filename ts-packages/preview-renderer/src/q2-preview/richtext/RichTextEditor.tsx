@@ -68,20 +68,29 @@ export function RichTextEditor({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        // 1a: paragraph + inline marks only. Structural block types arrive in 1b/1c.
-        heading: false,
+        // 1a: paragraphs + inline marks. 1b: + headings. (1c: lists/quotes/code.)
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
         blockquote: false,
         bulletList: false,
         orderedList: false,
         listItem: false,
         codeBlock: false,
         horizontalRule: false,
+        // No phantom trailing paragraph: a single-heading (or any non-paragraph)
+        // block would otherwise get an empty trailing <p> — extra vertical space
+        // in the editor AND a stray blank block on commit.
+        trailingNode: false,
         link: { openOnClick: false },
       }),
       Chip,
     ],
     content: seedJSON,
     autofocus: 'end',
+    // 1b: edit existing structure only — no markdown auto-conversion (e.g. typing
+    // "## " must not turn a paragraph into a heading, or change a heading's level).
+    // Structural edits are a later phase; bold/italic via Cmd-B/I still work.
+    enableInputRules: false,
+    enablePasteRules: false,
     onCreate({ editor: ed }) {
       initialDocRef.current = ed.state.doc;
       // editDraftRef was seeded with the original markdown at activation; remember

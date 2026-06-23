@@ -506,10 +506,10 @@ function renderBlockTextarea(
 }
 
 /**
- * Phase 1a (bd-sjb4pzx8): block types the rich-text editor can handle in v1.
- * Everything else falls back to the textarea even when `richText` is on.
+ * Block types the rich-text editor can handle. Everything else falls back to the
+ * textarea even when `richText` is on. 1a: Para. 1b: + Header. (1c: lists/quotes.)
  */
-const RICHTEXT_SUPPORTED_TYPES = new Set<string>(['Para']);
+const RICHTEXT_SUPPORTED_TYPES = new Set<string>(['Para', 'Header']);
 
 /** True when the rich editor is available for this block (flag on + supported type). */
 function richTextAvailable(ctx: PreviewContextValue, sourceNodeType: string): boolean {

@@ -17,6 +17,7 @@ const FIXTURES: { name: string; qmd: string }[] = [
   { name: 'inline-formatting', qmd: 'A para with **bold**, *italic*, `code`, and a [link](https://example.com).\n' },
   { name: 'nested-emphasis', qmd: 'Text with **_bold italic_** and a [**bold link**](https://x.com).\n' },
   { name: 'atx-heading', qmd: '## A second-level heading\n' },
+  { name: 'heading-with-marks', qmd: '### A **bold** heading with `code` and a [link](https://x.com)\n' },
   { name: 'bullet-list', qmd: '- first item\n- second item\n- third item\n' },
   { name: 'ordered-list', qmd: '3. three\n4. four\n5. five\n' },
   { name: 'blockquote', qmd: '> a quoted line\n> still quoted\n' },
