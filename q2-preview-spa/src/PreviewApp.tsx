@@ -202,6 +202,12 @@ interface PreviewAppState {
    */
   nestingCursor: boolean;
   /**
+   * Phase 1a (bd-sjb4pzx8): opt-in rich-text (tiptap) block editor. Read once
+   * at boot from `?richText=1`. When true the SPA passes `richText` to the
+   * iframe so editable paragraphs render the WYSIWYG editor. Read-at-load only.
+   */
+  richText: boolean;
+  /**
    * IndexDocument V2 capture sidecar (Phase C.3) — path → CaptureRef
    * mapping. Populated by the server-side eager-capture driver (Phase
    * C.1) and read here by the render effect (Phase C.4) so the
@@ -282,6 +288,19 @@ function parseNestingCursorParam(search: string): boolean {
 }
 
 /**
+ * Phase 1a (bd-sjb4pzx8): parse `?richText=1` from the boot URL. Read-at-load;
+ * the SPA does not react to URL changes after mount.
+ */
+function parseRichTextParam(search: string): boolean {
+  if (!search) return false;
+  try {
+    return new URLSearchParams(search).get('richText') === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * P3.2: module-level empty object returned by the nestedEditBuffers memo
  * when nestingCursor is off. Referentially stable so the iframe effect dep
  * never churns on an off-render.
@@ -348,6 +367,9 @@ function buildInitialState(): PreviewAppState {
     allowEdit: false,
     nestingCursor: typeof window !== 'undefined'
       ? parseNestingCursorParam(window.location.search)
+      : false,
+    richText: typeof window !== 'undefined'
+      ? parseRichTextParam(window.location.search)
       : false,
     bootAttempt: 1,
     bootLastError: null,
@@ -1249,6 +1271,8 @@ export default function PreviewApp() {
         editingDisabled={!state.allowEdit}
         // P3.2: nesting-cursor mode + per-key nested buffers.
         unlockNestingCursor={state.nestingCursor}
+        // Phase 1a (bd-sjb4pzx8): opt-in rich-text editor (?richText=1).
+        richText={state.richText}
         nestedEditBuffers={nestedEditBuffers}
       />
       {showStaleOverlay && (

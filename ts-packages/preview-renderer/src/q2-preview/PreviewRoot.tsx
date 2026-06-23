@@ -160,6 +160,11 @@ export interface PreviewRootProps {
      */
     unlockNestingCursor?: boolean;
     /**
+     * Phase 1a (bd-sjb4pzx8): opt-in rich-text (tiptap) block editor. When true,
+     * editable paragraphs render a WYSIWYG editor instead of the textarea.
+     */
+    richText?: boolean;
+    /**
      * P3.2: per-siKey clean QMD buffers for nested blocks, produced by
      * the host's `regenerateNestedBuffers` call. Undefined when off.
      */
@@ -1498,6 +1503,7 @@ export function PreviewRoot(props: PreviewRootProps) {
                 editingDisabled: props.editingDisabled,
                 unlockNestingCursor: props.unlockNestingCursor,
                 unlockNestingCursorRef,
+                richText: props.richText,
                 nestedEditBuffers: props.nestedEditBuffers,
                 requestMove,
                 pendingCaretRef,

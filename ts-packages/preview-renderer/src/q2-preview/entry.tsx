@@ -198,6 +198,11 @@ interface UpdateAstPayload {
      */
     unlockNestingCursor?: boolean;
     /**
+     * Phase 1a (bd-sjb4pzx8): opt-in rich-text editor. Forwarded into
+     * `PreviewContext.richText`. Default-off (undefined/false).
+     */
+    richText?: boolean;
+    /**
      * P3.2: per-siKey clean QMD buffers for nested blocks. Forwarded
      * into `PreviewContext.nestedEditBuffers`. Undefined when flag is off.
      */
@@ -334,6 +339,7 @@ function updateAst(payload: UpdateAstPayload) {
         currentActor,
         editingDisabled,
         unlockNestingCursor,
+        richText,
         nestedEditBuffers,
     } = payload;
     const rootElement = document.getElementById('root');
@@ -359,6 +365,7 @@ function updateAst(payload: UpdateAstPayload) {
                 currentActor={currentActor ?? null}
                 editingDisabled={editingDisabled}
                 unlockNestingCursor={unlockNestingCursor}
+                richText={richText}
                 nestedEditBuffers={nestedEditBuffers}
                 customRegistry={customRegistry}
                 scrollToAnchor={scrollToAnchorInDocument}

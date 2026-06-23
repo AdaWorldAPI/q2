@@ -13,6 +13,7 @@ import { normalizeLineEndings } from '../utils/normalizeLineEndings';
 import { isOnFirstVisualLine, isOnLastVisualLine, getLogicalColumn, placeCaretAtColumn } from './caretGeometry';
 import { buildNestingCommitDestination, classifyNestingKey, detectPlatform } from './nestingNav';
 import { editBaseline } from './outerBlocks';
+import { RichTextEditor } from './richtext/RichTextEditor';
 
 // P3.3 §3b: detect platform once at module load so classifyNestingKey can
 // distinguish mac (Cmd+Ctrl) from other (Alt+Shift) nesting chords.
@@ -491,6 +492,27 @@ function renderBlockTextarea(
     return <EditTextarea ctx={ctx} resolved={resolved} />;
 }
 
+/**
+ * Phase 1a (bd-sjb4pzx8): which edit surface to render for the active block.
+ * The rich-text (tiptap) editor is opt-in (`ctx.richText`) and — for v1 — only
+ * handles single paragraphs; every other block type (and the flag-off default)
+ * falls back to the monospaced textarea.
+ */
+function RICHTEXT_SUPPORTED_TYPES(): Set<string> {
+    return new Set<string>(['Para']);
+}
+
+function renderBlockEditSurface(
+    ctx: PreviewContextValue,
+    resolved: ResolvedSource,
+    nodeType: string,
+): React.ReactNode {
+    if (ctx.richText && RICHTEXT_SUPPORTED_TYPES().has(nodeType)) {
+        return <RichTextEditor ctx={ctx} resolved={resolved} />;
+    }
+    return renderBlockTextarea(ctx, resolved);
+}
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -529,12 +551,13 @@ export const Block = (args: NodeArgs<BlockNode>) => {
     const resolved = ctx?.resolveSource ? ctx.resolveSource(args.node) : null;
 
     if (isBlockEditTarget(ctx, resolved) && ctx) {
-        // Editing: replace the block with a measure-and-set textarea wrapper
-        // that reproduces the element's exact box (see renderMeasuredEdit).
+        // Editing: replace the block with a measure-and-set wrapper that
+        // reproduces the element's exact box (see renderMeasuredEdit). The inner
+        // surface is the rich-text editor (opt-in, paragraphs) or the textarea.
         // Pass activeEditRegionRef so the wrapper div is tracked — used by
         // useBlockEditHover's onPointerUp to suppress parent-climb activation.
-        const textarea = renderBlockTextarea(ctx, resolved!);
-        return renderMeasuredEdit(args.node, textarea, ctx.editTarget!, ctx.activeEditRegionRef);
+        const surface = renderBlockEditSurface(ctx, resolved!, (resolved!.sourceNode as { t: string }).t);
+        return renderMeasuredEdit(args.node, surface, ctx.editTarget!, ctx.activeEditRegionRef);
     }
 
     const Component = registry[args.node.t];

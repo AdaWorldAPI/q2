@@ -161,6 +161,15 @@ export interface PreviewContextValue {
      */
     unlockNestingCursor?: boolean;
     /**
+     * Phase 1a (bd-sjb4pzx8): opt-in rich-text (tiptap) block editor. When true,
+     * an editable block renders a WYSIWYG tiptap editor instead of the monospaced
+     * textarea. Default-off (undefined/false). Set by the hub-client preference or
+     * the SPA's `?richText=1` boot URL query param, plumbed like
+     * `unlockNestingCursor`. v1 covers single paragraphs; other block types fall
+     * back to the textarea even when this is on.
+     */
+    richText?: boolean;
+    /**
      * §3: stable ref mirror of `unlockNestingCursor`, updated in PreviewRoot's
      * render body. The hover handlers (`onPointerMove`/`onPointerLeave`) are
      * `useCallback(…, [])` and would otherwise capture a stale render-0 value of
