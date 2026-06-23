@@ -89,6 +89,16 @@ export interface Soa {
   tenants: Uint8Array | null;
   // per-node global-category flag (HEEL=HIP=0xFFFF ceiling pole): 1 = cross-cutting.
   ceiling: Uint8Array;
+  // per-node GUID identity field (bytes 14-15 LE) — the stable node id.
+  identity: Uint16Array;
+  // the four 8:8 [container:identity] HHTL tiers + the family tier (each a u16:
+  // high byte = mixin/kind node, low byte = instance-on-it). The FMA cockpit lays
+  // out straight from these; OSINT ignores them.
+  heel: Uint16Array;
+  hip: Uint16Array;
+  twig: Uint16Array;
+  leaf: Uint16Array;
+  family: Uint16Array;
 }
 
 /** One readable step of the reasoning traversal, streamed into the readout. */
@@ -129,10 +139,24 @@ export function decodeSoa(buf: ArrayBuffer): Soa {
   // the node is a cross-cutting GLOBAL category (the dual-use axes), not
   // basin-local. Read straight off the 16-byte GUID (HEEL @4, HIP @6).
   const ceiling = new Uint8Array(nodeCount);
+  const identity = new Uint16Array(nodeCount);
+  // the 8:8 [container:identity] HHTL tiers (high byte = mixin node, low byte =
+  // instance). HEEL/HIP also carry the 0xFFFF/0xFFFF ceiling-pole sentinel.
+  const heelA = new Uint16Array(nodeCount);
+  const hipA = new Uint16Array(nodeCount);
+  const twigA = new Uint16Array(nodeCount);
+  const leafA = new Uint16Array(nodeCount);
+  const familyA = new Uint16Array(nodeCount);
   for (let i = 0; i < nodeCount; i++) {
     const heel = dv.getUint16(off + 4, true);
     const hip = dv.getUint16(off + 6, true);
+    heelA[i] = heel;
+    hipA[i] = hip;
+    twigA[i] = dv.getUint16(off + 8, true);
+    leafA[i] = dv.getUint16(off + 10, true);
+    familyA[i] = dv.getUint16(off + 12, true);
     if (heel === 0xffff && hip === 0xffff) ceiling[i] = 1;
+    identity[i] = dv.getUint16(off + 14, true);
     cls[i] = dv.getUint8(off + 16);
     off += 17;
   }
@@ -162,7 +186,10 @@ export function decodeSoa(buf: ArrayBuffer): Soa {
     tenants = new Uint8Array(buf, off, nodeCount * 6);
     off += nodeCount * 6;
   }
-  return { nodeCount, edgeCount, cls, edges, labels, tenants, ceiling };
+  return {
+    nodeCount, edgeCount, cls, edges, labels, tenants, ceiling, identity,
+    heel: heelA, hip: hipA, twig: twigA, leaf: leafA, family: familyA,
+  };
 }
 
 // vis-network options tuned to the Palantir look: hollow ring nodes (dark fill

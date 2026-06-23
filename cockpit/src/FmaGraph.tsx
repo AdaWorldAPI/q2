@@ -4,6 +4,15 @@
 //   · its part-of position (basin-local: organ → chamber → wall → structure)
 //   · its leaf-limited global TYPE (the 0xFFFF ceiling pole — cross-cutting,
 //     the same "Cardiac muscle tissue" shared by every chamber).
+//
+// This is the `Cascade` (ontology / part-of) reading of OGAR PR #116's HhtlMode
+// FMA tier model: each node is a stack of 8:8 [container:identity] tiers —
+// HEEL=[Organ:Heart], HIP=[Chamber:id], TWIG=[Wall:id], LEAF=[Tissue:id] — where
+// the container byte is the KIND mixin node and the identity the instance, so the
+// partonomy IS the key and the layout reads straight off it. OGAR's
+// ogar-fma-skeleton is the `Located` (spatial) sibling (the same 8:8 tiers carry
+// coronal x:y / depth z Morton cells). classid 0x0A01 = anatomical_structure in
+// OGAR's ConceptDomain::Anatomy (0x0A).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Network, type Options } from 'vis-network';
 import { DataSet } from 'vis-data';
@@ -27,6 +36,44 @@ const classColor = (c: number) => FMA_CLASS[c]?.color ?? '#8899aa';
 const REL = ['member-of', 'interfaces', 'part-of', 'is-a'];
 const REL_COLOR = ['#223040', '#223040', '#7fa6c4', CEILING_COLOR];
 
+// ── 8:8 [container:identity] HHTL-tier layout ────────────────────────────────
+// The bake addresses each node as a stack of 8:8 tiers (see src/bin/fma.rs):
+// HEEL=[Organ:Heart] HIP=[Chamber:id] TWIG=[Wall:id] LEAF=[Tissue:id]
+// family=[Cell:id]. The container (high byte) is the KIND mixin node, the
+// identity (low byte) is the instance. The non-zero tier identities ARE the
+// partonomy path — so position is read straight off the tiers, no Morton decode:
+// y = depth (class), x = a nested slot that subdivides under each parent.
+const COL = 1500; // total layout width in vis units
+const ROW = 210; // vertical gap per depth level
+const POLE_Y = -1.7 * ROW; // the cross-cutting global types hover above the body
+
+/// the instance (low) byte of an 8:8 tier.
+const inst = (t: number) => t & 0xff;
+
+// Nested horizontal slot from the [Chamber][Wall][Tissue][Cell] instance path:
+// each level subdivides its parent's slot (max-siblings per level: 4/3/2/2), so
+// children cluster under their parent. y is the depth band (class).
+function tierPos(
+  soa: Soa,
+  i: number,
+): { x: number; y: number } {
+  const path: Array<[number, number]> = [
+    [inst(soa.hip[i]), 4], // chamber 1..4
+    [inst(soa.twig[i]), 3], // wall 1..3
+    [inst(soa.leaf[i]), 2], // tissue 1..2
+    [inst(soa.family[i]), 2], // cell 1..2
+  ];
+  let lo = 0;
+  let hi = 1;
+  for (const [id, n] of path) {
+    if (id <= 0) break;
+    const w = (hi - lo) / n;
+    lo += (id - 1) * w;
+    hi = lo + w;
+  }
+  return { x: ((lo + hi) / 2) * COL, y: soa.cls[i] * ROW };
+}
+
 const OPTIONS: Options = {
   nodes: { shape: 'dot', borderWidth: 2.5, font: { color: '#d9e9f9', size: 13, strokeWidth: 3, strokeColor: PAGE_BG } },
   edges: {
@@ -36,11 +83,8 @@ const OPTIONS: Options = {
     smooth: { enabled: true, type: 'continuous', roundness: 0.2 },
     arrows: { to: { enabled: true, scaleFactor: 0.45 } },
   },
-  physics: {
-    solver: 'forceAtlas2Based',
-    forceAtlas2Based: { gravitationalConstant: -70, centralGravity: 0.008, springLength: 130, springConstant: 0.04, damping: 0.5, avoidOverlap: 0.5 },
-    stabilization: { iterations: 180, fit: true },
-  },
+  // positions are fixed 8:8-tier slots (see tierPos) — no force simulation.
+  physics: { enabled: false },
   interaction: { hover: true, tooltipDelay: 90, dragNodes: true },
   layout: { improvedLayout: false },
 };
@@ -93,18 +137,40 @@ export function FmaGraph() {
   useEffect(() => {
     if (!hostRef.current || !soa || !rel) return;
     const ceiling = (i: number) => soa.ceiling[i] === 1 || soa.cls[i] === 5;
-    const baseNode = (i: number) => ({
-      id: i,
-      label: soa.labels[i] || `#${i}`,
-      shape: ceiling(i) ? 'diamond' : 'dot',
-      color: {
-        background: ceiling(i) ? 'rgba(255,209,102,0.14)' : 'rgba(10,14,23,0.88)',
-        border: ceiling(i) ? CEILING_COLOR : classColor(soa.cls[i]),
-      },
-      size: ceiling(i) ? 22 : 13,
-      font: { color: ceiling(i) ? '#ffe9b0' : '#d9e9f9' },
-      title: `${soa.labels[i]}\n${ceiling(i) ? '◈ global type (leaf-limited, cross-cutting)' : FMA_CLASS[soa.cls[i]]?.name}`,
-    });
+
+    // Fixed position per node, read straight off the 8:8 [container:identity]
+    // HHTL tiers: part-of nodes nest by their [Chamber][Wall][Tissue][Cell]
+    // instance path (y = depth = class); the cross-cutting global types line up
+    // along the pole above the body, spread across the same width.
+    const poleNodes = Array.from({ length: soa.nodeCount }, (_, i) => i).filter(ceiling);
+    const posOf = (i: number): { x: number; y: number; size: number } => {
+      if (ceiling(i)) {
+        const k = poleNodes.indexOf(i);
+        const x = ((k + 0.5) / Math.max(poleNodes.length, 1)) * COL;
+        return { x, y: POLE_Y, size: 22 };
+      }
+      const { x, y } = tierPos(soa, i);
+      return { x, y, size: 30 - soa.cls[i] * 4 }; // coarser tier → larger dot
+    };
+
+    const baseNode = (i: number) => {
+      const p = posOf(i);
+      return {
+        id: i,
+        label: soa.labels[i] || `#${i}`,
+        x: p.x,
+        y: p.y,
+        fixed: { x: true, y: true }, // the address is the layout — pin it
+        shape: ceiling(i) ? 'diamond' : 'dot',
+        color: {
+          background: ceiling(i) ? 'rgba(255,209,102,0.14)' : 'rgba(10,14,23,0.88)',
+          border: ceiling(i) ? CEILING_COLOR : classColor(soa.cls[i]),
+        },
+        size: p.size,
+        font: { color: ceiling(i) ? '#ffe9b0' : '#d9e9f9' },
+        title: `${soa.labels[i]}\n${ceiling(i) ? '◈ global type (leaf-limited, cross-cutting)' : FMA_CLASS[soa.cls[i]]?.name}`,
+      };
+    };
     const baseEdge = (e: { s: number; t: number; r: number }, id: number) => ({
       id,
       from: e.s,
@@ -117,10 +183,9 @@ export function FmaGraph() {
     const visNodes = new DataSet<any>(Array.from({ length: soa.nodeCount }, (_, i) => baseNode(i)));
     const visEdges = new DataSet<any>(soa.edges.map((e, id) => baseEdge(e, id)));
     const net = new Network(hostRef.current, { nodes: visNodes, edges: visEdges }, OPTIONS);
-    net.once('stabilizationIterationsDone', () => {
-      net.setOptions({ physics: { enabled: false } });
-      setStatus(`${soa.nodeCount} nodes · ${soa.edgeCount} edges — click a tissue to see its dual membership`);
-    });
+    // fixed 8:8-tier slots, no simulation — just frame the nested cascade.
+    net.once('afterDrawing', () => net.fit({ animation: false }));
+    setStatus(`${soa.nodeCount} nodes · ${soa.edgeCount} edges — Z-order tile pyramid; click a tissue for its dual membership`);
 
     const dim = () => {
       visNodes.update(Array.from({ length: soa.nodeCount }, (_, i) => ({ id: i, color: { background: 'rgba(10,14,23,0.5)', border: '#26323f' }, font: { color: '#566779' } })));
