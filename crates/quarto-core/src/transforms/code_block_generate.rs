@@ -209,22 +209,15 @@ impl AstTransform for CodeBlockGenerateTransform {
         // `code-copy`; future phases will join more keys here (e.g.
         // `code-fold`, `code-line-numbers`).
         //
-        // Code-copy is an HTML-format feature: the `.code-copy-button`
-        // styling, the Bootstrap Icons clipboard glyph, and the
-        // `clipboard.js` wiring (`ClipboardJsStage`, HTML-pipeline-only)
-        // all ship only with the HTML formats. revealjs renders the same
-        // code-block markup but includes none of that support, so an
-        // emitted copy button shows as an empty, UA-bordered box next to
-        // every code cell and never copies (bd-fu1a5g6l). Suppress the
-        // copy scaffold entirely for revealjs targets — even an explicit
-        // `code-copy: true` would only render the broken button — until
-        // the feature is properly ported. Mirrors the `is_revealjs_target`
-        // gate used in `compile_theme_css` / `assemble_reveal_scss`.
-        let doc_default_copy = if crate::format::is_revealjs_target(&ctx.format.target_format) {
-            CopyMode::Off
-        } else {
-            resolve_default_copy_mode(&ast.meta)
-        };
+        // revealjs now honors `code-copy:` exactly like HTML (bd-lg6t6qfy):
+        // the `.code-copy-button` styling ships via the shared `copy-code.scss`
+        // SCSS layer (`load_copy_code_layer`, bundled by `assemble_reveal_scss`)
+        // and the clipboard JS ships as `js:revealjs:*` assets in native
+        // render. This lifts the bd-fu1a5g6l suppression that forced
+        // `CopyMode::Off` for revealjs while that support was missing.
+        // (Preview / hub-client buttons are styled + hover-hidden but inert,
+        // matching plain-HTML preview; an iframe-safe init is a follow-up.)
+        let doc_default_copy = resolve_default_copy_mode(&ast.meta);
 
         walk_blocks_mut(&mut ast.blocks, &mut |block| {
             let Block::CodeBlock(cb) = block else {
@@ -715,14 +708,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generate_omits_code_with_copy_class_for_revealjs() {
-        // bd-fu1a5g6l: revealjs ships none of the copy-button support
-        // (`.code-copy-button` CSS, the Bootstrap Icons clipboard glyph,
-        // clipboard.js), so an emitted copy button renders as an empty
-        // UA-bordered box next to every code cell — and never copies. The
-        // copy scaffold must therefore be suppressed for revealjs targets
-        // even under the default (Hover) AND when the document explicitly
-        // sets `code-copy: true`.
+    async fn generate_emits_code_with_copy_class_for_revealjs() {
+        // bd-lg6t6qfy: revealjs now ships the copy-button support — the
+        // `.code-copy-button` CSS (shared `copy-code.scss` layer) and the
+        // clipboard JS (`js:revealjs:*` assets). So revealjs honors `code-copy:`
+        // exactly like HTML, lifting the bd-fu1a5g6l suppression: the copy
+        // scaffold IS emitted under the default (Hover) and explicit
+        // `code-copy: true`, and is suppressed only by explicit `code-copy: false`.
         for meta in [ConfigValue::default(), meta_with_code_copy(yaml_bool(true))] {
             let mut ast = Pandoc {
                 meta,
@@ -744,11 +736,41 @@ mod tests {
                 panic!("expected CodeBlock");
             };
             assert!(
-                !cb.attr.1.contains(&"code-with-copy".to_string()),
-                "revealjs must NOT get code-with-copy (empty copy button); got {:?}",
+                cb.attr.1.contains(&"code-with-copy".to_string()),
+                "revealjs must get code-with-copy when copy is on; got {:?}",
                 cb.attr.1,
             );
         }
+    }
+
+    #[tokio::test]
+    async fn generate_honors_code_copy_false_for_revealjs() {
+        // The flip side of the lift: an explicit `code-copy: false` still
+        // suppresses the scaffold for revealjs, matching HTML.
+        let mut ast = Pandoc {
+            meta: meta_with_code_copy(yaml_bool(false)),
+            blocks: vec![make_codeblock("print('hi')", vec!["python"], vec![])],
+        };
+
+        let project = make_test_project();
+        let doc = DocumentInfo::from_path("/project/doc.qmd");
+        let format = Format::from_format_string("revealjs").unwrap();
+        let binaries = BinaryDependencies::new();
+        let mut ctx = RenderContext::new(&project, &doc, &format, &binaries);
+
+        CodeBlockGenerateTransform::new()
+            .transform(&mut ast, &mut ctx)
+            .await
+            .unwrap();
+
+        let Block::CodeBlock(cb) = &ast.blocks[0] else {
+            panic!("expected CodeBlock");
+        };
+        assert!(
+            !cb.attr.1.contains(&"code-with-copy".to_string()),
+            "revealjs must honor code-copy: false; got {:?}",
+            cb.attr.1,
+        );
     }
 
     #[tokio::test]

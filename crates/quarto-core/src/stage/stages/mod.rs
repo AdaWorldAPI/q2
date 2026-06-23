@@ -70,6 +70,12 @@ pub use bootstrap_js::BootstrapJsStage;
 pub use capture_splice::CaptureSpliceStage;
 #[cfg(not(target_arch = "wasm32"))]
 pub use clipboard_js::ClipboardJsStage;
+// The embedded clipboard library + init handler bytes, re-exported for the
+// native revealjs scaffold to register as `js:revealjs:*` assets (bd-lg6t6qfy).
+// Native-only: like `ClipboardJsStage`, reveal copy is functional in `q2 render`
+// but inert in the WASM preview / hub-client iframe (parity with plain HTML).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use clipboard_js::{CLIPBOARD_JS, CODE_COPY_INIT_JS};
 pub use code_highlight::CodeHighlightStage;
 pub use compile_theme_css::{CompileThemeCssStage, theme_fingerprint};
 pub use document_profile::DocumentProfileStage;
