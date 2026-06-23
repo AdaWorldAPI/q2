@@ -1,0 +1,6 @@
+# Template test fixtures must stay LF on every platform so the line-ending
+# tests are deterministic regardless of core.autocrlf. The engine preserves
+# whatever convention the input uses (#157); the CRLF path is exercised by
+# in-process tests in src/parser.rs (crlf_preservation), not by these files.
+tests/pandoc-equiv/*.template text eol=lf
+test-fixtures/*.template text eol=lf
