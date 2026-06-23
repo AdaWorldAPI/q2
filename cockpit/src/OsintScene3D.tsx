@@ -7,6 +7,10 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import {
+  CSS2DRenderer,
+  CSS2DObject,
+} from 'three/addons/renderers/CSS2DRenderer.js';
 
 const GOLDEN_ANGLE = 2.3999632;
 const NODE_REC = 17; // guid(16) + class(1)
@@ -217,6 +221,7 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   const showHubs = mode === 'adapter';
   const sphereGeom = new THREE.SphereGeometry(1, 10, 8);
   const matCache = new Map<number, THREE.MeshBasicMaterial>();
+  const nodeMeshes: THREE.Mesh[] = []; // members only — pick targets for foveal focus
   for (let i = 0; i < s.nodeCount; i++) {
     const c = s.cls[i];
     const isHub = c === HUB_CLASS;
@@ -233,7 +238,9 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     const mesh = new THREE.Mesh(sphereGeom, mat);
     mesh.position.set(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
     mesh.scale.setScalar(isHub ? 1.5 : 1.3);
+    mesh.userData.idx = i;
     scene.add(mesh);
+    if (!isHub) nodeMeshes.push(mesh);
   }
 
   const pushSeg = (arr: number[], a: number, b: number) => {
@@ -343,6 +350,124 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   });
   scene.add(new THREE.LineSegments(semGeom, semMat));
 
+  // ── Foveated connection labelling ──────────────────────────────────────────
+  // 3344 connections can't all carry a label (that's the soup). The labels are
+  // FOVEAL: hover a node and its connections light up and NAME themselves with
+  // the relation type (CONNECTED_TO, DEPLOYED_BY, …) — the way the Palantir view
+  // labels its edges. The node's class shows now; its entity name arrives with
+  // the re-bake (names aren't in the SoA wire).
+  const labelRenderer = new CSS2DRenderer();
+  labelRenderer.setSize(w, h);
+  labelRenderer.domElement.style.position = 'absolute';
+  labelRenderer.domElement.style.top = '0';
+  labelRenderer.domElement.style.left = '0';
+  labelRenderer.domElement.style.pointerEvents = 'none';
+  container.appendChild(labelRenderer.domElement);
+
+  const mkLabel = (text: string, color: string, big: boolean): CSS2DObject => {
+    const el = document.createElement('div');
+    el.textContent = text;
+    el.style.cssText =
+      `font-family:monospace;font-size:${big ? 12 : 10}px;color:${color};` +
+      'white-space:nowrap;text-shadow:0 0 4px #000,0 0 4px #000;' +
+      'background:rgba(8,12,20,0.55);padding:1px 5px;border-radius:4px;pointer-events:none;';
+    return new CSS2DObject(el);
+  };
+
+  // adjacency over the LITERAL relations (rel ≥ 2) — the facts the connections name.
+  const adj = new Map<number, Array<{ j: number; rel: number }>>();
+  const addAdj = (a: number, j: number, rel: number) => {
+    let arr = adj.get(a);
+    if (!arr) {
+      arr = [];
+      adj.set(a, arr);
+    }
+    arr.push({ j, rel });
+  };
+  for (let i = 0; i < s.edgeCount; i++) {
+    const rel = s.rels[i];
+    if (rel < 2) continue;
+    const a = s.edges[i * 2];
+    const b = s.edges[i * 2 + 1];
+    if (a >= s.nodeCount || b >= s.nodeCount) continue;
+    addAdj(a, b, rel);
+    addAdj(b, a, rel);
+  }
+
+  const focusGroup = new THREE.Group();
+  scene.add(focusGroup);
+  const baseFamO = famMat.opacity;
+  const baseSemO = semMat.opacity;
+  const colTmp = new THREE.Color();
+  let focusIdx = -1;
+  const clearFocus = () => {
+    focusGroup.children.slice().forEach((ch) => {
+      focusGroup.remove(ch);
+      (ch as THREE.LineSegments).geometry?.dispose?.();
+      const el = (ch as unknown as CSS2DObject).element;
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    });
+  };
+  const setFocus = (idx: number) => {
+    if (idx === focusIdx) return;
+    focusIdx = idx;
+    clearFocus();
+    const active = idx >= 0;
+    matCache.forEach((m, cls) => {
+      m.opacity = active ? 0.14 : cls === HUB_CLASS ? 0.32 : 0.92;
+    });
+    famMat.opacity = active ? baseFamO * 0.22 : baseFamO;
+    semMat.opacity = active ? baseSemO * 0.16 : baseSemO;
+    if (!active) return;
+    const list = adj.get(idx) ?? [];
+    const fpos: number[] = [];
+    const fcol: number[] = [];
+    list.forEach(({ j, rel }) => {
+      fpos.push(p[idx * 3], p[idx * 3 + 1], p[idx * 3 + 2], p[j * 3], p[j * 3 + 1], p[j * 3 + 2]);
+      colTmp.set(REL_COLOR[rel] ?? 0x8fa6c4);
+      fcol.push(colTmp.r, colTmp.g, colTmp.b, colTmp.r, colTmp.g, colTmp.b);
+      const hex = `#${(REL_COLOR[rel] ?? 0x8fa6c4).toString(16).padStart(6, '0')}`;
+      const lbl = mkLabel(REL_NAME[rel] ?? 'related', hex, false);
+      lbl.position.set(
+        (p[idx * 3] + p[j * 3]) / 2,
+        (p[idx * 3 + 1] + p[j * 3 + 1]) / 2,
+        (p[idx * 3 + 2] + p[j * 3 + 2]) / 2,
+      );
+      focusGroup.add(lbl);
+    });
+    const fg = new THREE.BufferGeometry();
+    fg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(fpos), 3));
+    fg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(fcol), 3));
+    focusGroup.add(
+      new THREE.LineSegments(
+        fg,
+        new THREE.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.95,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      ),
+    );
+    const clsName = (LEGEND[s.cls[idx]] && LEGEND[s.cls[idx]][0]) || 'node';
+    const node = mkLabel(`${clsName} · ${list.length} conn`, '#cfe7ff', true);
+    node.position.set(p[idx * 3], p[idx * 3 + 1] + 4, p[idx * 3 + 2]);
+    focusGroup.add(node);
+  };
+
+  const ray = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  const onMove = (ev: PointerEvent) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(nodeMeshes, false)[0];
+    setFocus(hit ? (hit.object.userData.idx as number) : -1);
+  };
+  renderer.domElement.addEventListener('pointermove', onMove);
+
   // Frame the centred radius-R cloud, then hand control to the user:
   // left-drag = orbit, scroll = zoom, right-drag = pan. A gentle idle
   // auto-rotate runs until the first interaction, then yields fully.
@@ -369,6 +494,7 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   const animate = () => {
     controls.update();
     renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
     animId = requestAnimationFrame(animate);
   };
   animate();
@@ -379,12 +505,15 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
+    labelRenderer.setSize(w, h);
   };
   window.addEventListener('resize', handleResize);
 
   return () => {
     cancelAnimationFrame(animId);
     controls.dispose();
+    renderer.domElement.removeEventListener('pointermove', onMove);
+    clearFocus();
     window.removeEventListener('resize', handleResize);
     sphereGeom.dispose();
     famGeom.dispose();
@@ -395,6 +524,9 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     renderer.dispose();
     if (container.contains(renderer.domElement)) {
       container.removeChild(renderer.domElement);
+    }
+    if (container.contains(labelRenderer.domElement)) {
+      container.removeChild(labelRenderer.domElement);
     }
   };
 }
