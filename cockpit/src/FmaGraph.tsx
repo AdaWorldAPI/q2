@@ -74,6 +74,75 @@ function tierPos(
   return { x: ((lo + hi) / 2) * COL, y: soa.cls[i] * ROW };
 }
 
+const isCeiling = (soa: Soa, i: number) => soa.ceiling[i] === 1 || soa.cls[i] === 5;
+
+// A node n is INSIDE container c's wall iff its 8:8 tier instances match c's down
+// to c's depth — i.e. c's address is a prefix of n's. The address IS the wall.
+function inside(soa: Soa, c: number, n: number): boolean {
+  const d = soa.cls[c];
+  if (soa.cls[n] < d) return false;
+  if (d >= 1 && inst(soa.hip[n]) !== inst(soa.hip[c])) return false;
+  if (d >= 2 && inst(soa.twig[n]) !== inst(soa.twig[c])) return false;
+  if (d >= 3 && inst(soa.leaf[n]) !== inst(soa.leaf[c])) return false;
+  return true;
+}
+
+interface Wall {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  color: string;
+  depth: number;
+}
+
+// One nested "outer wall" rectangle per container (Organ→Tissue; cells are
+// leaves). Each box bounds its tier-prefix descendants, so the walls nest exactly
+// like the partonomy — the Heart's box is the outermost wall (its epicardium).
+function containerWalls(soa: Soa): Wall[] {
+  const center = new Map<number, { x: number; y: number }>();
+  for (let i = 0; i < soa.nodeCount; i++) if (!isCeiling(soa, i)) center.set(i, tierPos(soa, i));
+  const walls: Wall[] = [];
+  for (let c = 0; c < soa.nodeCount; c++) {
+    if (isCeiling(soa, c) || soa.cls[c] > 3) continue; // only Organ..Tissue contain
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    let found = false;
+    for (const [n, p] of center) {
+      if (!inside(soa, c, n)) continue;
+      found = true;
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+    if (!found) continue;
+    const pad = 42 - soa.cls[c] * 7; // coarser container → roomier wall
+    walls.push({ x0: x0 - pad, y0: y0 - pad, x1: x1 + pad, y1: y1 + pad, color: classColor(soa.cls[c]), depth: soa.cls[c] });
+  }
+  return walls.sort((a, b) => a.depth - b.depth); // coarsest drawn first (behind)
+}
+
+// Stroke a rounded rect in vis-network coordinates (the beforeDrawing ctx is
+// already in network space, so it aligns with node positions).
+function strokeWall(ctx: CanvasRenderingContext2D, w: Wall): void {
+  const r = 16;
+  ctx.beginPath();
+  ctx.moveTo(w.x0 + r, w.y0);
+  ctx.arcTo(w.x1, w.y0, w.x1, w.y1, r);
+  ctx.arcTo(w.x1, w.y1, w.x0, w.y1, r);
+  ctx.arcTo(w.x0, w.y1, w.x0, w.y0, r);
+  ctx.arcTo(w.x0, w.y0, w.x1, w.y0, r);
+  ctx.closePath();
+  ctx.fillStyle = `${w.color}0f`; // very faint compartment fill
+  ctx.fill();
+  ctx.lineWidth = w.depth === 0 ? 2.6 : 1.4; // the Heart's outer wall is boldest
+  ctx.strokeStyle = `${w.color}66`;
+  ctx.stroke();
+}
+
 const OPTIONS: Options = {
   nodes: { shape: 'dot', borderWidth: 2.5, font: { color: '#d9e9f9', size: 13, strokeWidth: 3, strokeColor: PAGE_BG } },
   edges: {
@@ -183,6 +252,12 @@ export function FmaGraph() {
     const visNodes = new DataSet<any>(Array.from({ length: soa.nodeCount }, (_, i) => baseNode(i)));
     const visEdges = new DataSet<any>(soa.edges.map((e, id) => baseEdge(e, id)));
     const net = new Network(hostRef.current, { nodes: visNodes, edges: visEdges }, OPTIONS);
+    // nested "outer walls" — one rounded box per container, drawn behind the
+    // nodes; they nest exactly like the partonomy (the address IS the wall).
+    const walls = containerWalls(soa);
+    net.on('beforeDrawing', (ctx: CanvasRenderingContext2D) => {
+      for (const w of walls) strokeWall(ctx, w);
+    });
     // fixed 8:8-tier slots, no simulation — just frame the nested cascade.
     net.once('afterDrawing', () => net.fit({ animation: false }));
     setStatus(`${soa.nodeCount} nodes · ${soa.edgeCount} edges — Z-order tile pyramid; click a tissue for its dual membership`);
