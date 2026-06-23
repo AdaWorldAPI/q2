@@ -74,8 +74,11 @@ const facetColor = (code: number) =>
 const DIM_NODE = { background: 'rgba(10,14,23,0.55)', border: '#26323f' };
 const DIM_EDGE = 'rgba(50,66,84,0.12)';
 const ACTIVE = '#6cf0ff';
+// the cross-cutting global-category hubs (HEEL=HIP=0xFFFF ceiling pole) — drawn
+// as bright diamonds so the dual-use axes read as global, not basin-local.
+const CEILING_COLOR = '#ffd166';
 
-interface Soa {
+export interface Soa {
   nodeCount: number;
   edgeCount: number;
   cls: Uint8Array;
@@ -84,6 +87,8 @@ interface Soa {
   // per-node facet tenant: 6 codes (value[1..=6]) × nodeCount, or null if the
   // asset predates the tenant tail. The dynamic attribute the facet lens groups by.
   tenants: Uint8Array | null;
+  // per-node global-category flag (HEEL=HIP=0xFFFF ceiling pole): 1 = cross-cutting.
+  ceiling: Uint8Array;
 }
 
 /** One readable step of the reasoning traversal, streamed into the readout. */
@@ -110,7 +115,7 @@ interface GraphApi {
 // Decode the OSO1 wire: magic(4) | nodeCount u32 | edgeCount u32 |
 // nodeCount×[guid:16|class:1] | edgeCount×[src:u16|tgt:u16|rel:u8] |
 // nodeCount×[len:u8|utf8 name]  (the label tail is additive / may be absent).
-function decodeSoa(buf: ArrayBuffer): Soa {
+export function decodeSoa(buf: ArrayBuffer): Soa {
   const dv = new DataView(buf);
   const magicOk =
     dv.getUint8(0) === 0x4f && dv.getUint8(1) === 0x53 &&
@@ -120,7 +125,14 @@ function decodeSoa(buf: ArrayBuffer): Soa {
   const edgeCount = dv.getUint32(8, true);
   let off = 12;
   const cls = new Uint8Array(nodeCount);
+  // ceiling[i] = 1 when the GUID's HEEL and HIP are both the 0xFFFF sentinel —
+  // the node is a cross-cutting GLOBAL category (the dual-use axes), not
+  // basin-local. Read straight off the 16-byte GUID (HEEL @4, HIP @6).
+  const ceiling = new Uint8Array(nodeCount);
   for (let i = 0; i < nodeCount; i++) {
+    const heel = dv.getUint16(off + 4, true);
+    const hip = dv.getUint16(off + 6, true);
+    if (heel === 0xffff && hip === 0xffff) ceiling[i] = 1;
     cls[i] = dv.getUint8(off + 16);
     off += 17;
   }
@@ -150,7 +162,7 @@ function decodeSoa(buf: ArrayBuffer): Soa {
     tenants = new Uint8Array(buf, off, nodeCount * 6);
     off += nodeCount * 6;
   }
-  return { nodeCount, edgeCount, cls, edges, labels, tenants };
+  return { nodeCount, edgeCount, cls, edges, labels, tenants, ceiling };
 }
 
 // vis-network options tuned to the Palantir look: hollow ring nodes (dark fill
@@ -348,22 +360,26 @@ export function OsintGraph() {
     // code on that axis (categorical, computed live across every node); else the
     // class colour. This is the dynamic group-by — no baked edges involved.
     const nodeBorder = (i: number) => {
+      if (soa.ceiling[i]) return CEILING_COLOR; // global hubs stay prominent in every mode
       const ax = facetAxisRef.current;
       if (ax != null && soa.tenants) return facetColor(soa.tenants[i * 6 + ax]);
       return classColor(soa.cls[i]);
     };
+    const nodeKind = (i: number) =>
+      soa.ceiling[i] ? '◈ global category (cross-cutting)' : CLASS[soa.cls[i]]?.name ?? 'concept';
     const baseNode = (i: number) => ({
       id: i,
       label: soa.labels[i] || `#${i}`,
+      shape: soa.ceiling[i] ? 'diamond' : 'dot',
       color: {
-        background: 'rgba(10,14,23,0.88)',
+        background: soa.ceiling[i] ? 'rgba(255,209,102,0.14)' : 'rgba(10,14,23,0.88)',
         border: nodeBorder(i),
         highlight: { background: 'rgba(10,14,23,0.96)', border: '#9fe8ff' },
         hover: { background: 'rgba(10,14,23,0.82)', border: nodeBorder(i) },
       },
-      size: baseSize(i),
-      font: { color: '#d9e9f9' },
-      title: `${soa.labels[i] || `#${i}`}\n${CLASS[soa.cls[i]]?.name ?? 'concept'} · ${degree.get(i) ?? 0} links`,
+      size: baseSize(i) + (soa.ceiling[i] ? 7 : 0),
+      font: { color: soa.ceiling[i] ? '#ffe9b0' : '#d9e9f9' },
+      title: `${soa.labels[i] || `#${i}`}\n${nodeKind(i)} · ${degree.get(i) ?? 0} links`,
     });
     const baseEdge = (e: { id: number; s: number; t: number; r: number }) => ({
       id: e.id,
@@ -993,6 +1009,20 @@ export function OsintGraph() {
             {k.name}
           </span>
         ))}
+        <span style={{ marginRight: 12, whiteSpace: 'nowrap' }}>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 9,
+              height: 9,
+              border: `2px solid ${CEILING_COLOR}`,
+              marginRight: 5,
+              verticalAlign: 'middle',
+              transform: 'rotate(45deg)',
+            }}
+          />
+          ◈ global axis
+        </span>
       </div>
 
       {/* alternative-view link */}
