@@ -38,6 +38,10 @@ use aiwar_ingest::AiWarGraph;
 use aiwar_ingest::encounter_round::EncounterRound;
 use lance_graph_contract::canonical_node::{EdgeBlock, NodeGuid, NodeRow};
 
+/// Morton (Z-order) tile-pyramid codec — the universal `high:low = tile:cell`
+/// address primitive the GUID descent rides on (domain-agnostic).
+pub mod morton;
+
 /// The OSINT class's **order-based function/label row** — its schema, stored
 /// inside the one class (not sprinkled across classids). The function defined at
 /// order *i* carries label *i*; an instance inherits its label by the order it
