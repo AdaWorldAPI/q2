@@ -1,0 +1,21 @@
+[package]
+name = "osint-bake"
+version.workspace = true
+edition.workspace = true
+description = "Light, standalone regenerator for cockpit-server's osint_scene.soa — the pure aiwar→SoA bake, with no lance/datafusion/deno closure."
+
+[lib]
+name = "osint_bake"
+path = "src/lib.rs"
+
+[[bin]]
+name = "osint-bake"
+path = "src/main.rs"
+
+[dependencies]
+aiwar-ingest = { path = "../aiwar-ingest" }
+lance-graph-contract.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
