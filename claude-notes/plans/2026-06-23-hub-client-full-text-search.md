@@ -243,9 +243,14 @@ under vitest, and the production build must pass
 - [x] 1.1 Spike: pick search library (MiniSearch / FlexSearch / Orama) —
       bundle size + relevance + fuzzy/prefix support. **Decision: MiniSearch
       v7** (see Open questions for rationale).
-- [ ] 1.2 Write provider unit tests (failing) for the `SearchProvider`
-      interface.
-- [ ] 1.3 Implement in-memory `SearchProvider` (raw text) to green the tests.
+- [x] 1.2 Write provider unit tests (failing) for the `SearchProvider`
+      interface. → `hub-client/src/services/search/inMemorySearchProvider.test.ts`
+      (18 tests; verified failing before impl).
+- [x] 1.3 Implement in-memory `SearchProvider` (raw text) to green the tests.
+      → `hub-client/src/services/search/{types,inMemorySearchProvider,index}.ts`.
+      MiniSearch over `text` + `path` fields; incremental
+      add/replace/discard/removeAll; prefix + fuzzy(0.2) + path boost. All 18
+      green; typecheck clean.
 - [ ] 1.4 Wire indexing into `setSyncHandlers` (`App.tsx:435-465`): bulk index
       on project open, `addOrUpdate`/`remove`/`clear` on change.
 - [ ] 1.5 Search UI in `FileSidebar.tsx`: query box, result list, select →
