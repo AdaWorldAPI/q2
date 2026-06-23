@@ -59,6 +59,18 @@ const REL_COLOR = [
 // rel codes that make up the dimension layer: VALID_FOR (8) + the facets (10..15).
 const isFacetRel = (r: number) => r === 8 || (r >= 10 && r <= 15);
 
+// The 6 dual-use facet AXES in tenant-byte order (value[1..=6]). The SoA tenant
+// tail ships one code per axis per node; the facet lens groups nodes by them
+// LIVE (the dynamic/residual layer — the twin of the materialized facet edges).
+const FACET_AXES_UI = ['militaryUse', 'civicUse', 'airo:type', 'MLType', 'purpose', 'capacity'];
+// categorical palette for facet codes (code 0 = absent → dim slate).
+const FACET_PALETTE = [
+  '#4dd0e1', '#ffb547', '#35d07f', '#9b8cff', '#ff637d', '#c792ea',
+  '#7fd1c7', '#f0a868', '#6cf0ff', '#b5e853', '#ff8fab', '#8fb8ff',
+];
+const facetColor = (code: number) =>
+  code === 0 ? '#2a3a4a' : FACET_PALETTE[(code - 1) % FACET_PALETTE.length];
+
 const DIM_NODE = { background: 'rgba(10,14,23,0.55)', border: '#26323f' };
 const DIM_EDGE = 'rgba(50,66,84,0.12)';
 const ACTIVE = '#6cf0ff';
@@ -69,6 +81,9 @@ interface Soa {
   cls: Uint8Array;
   edges: Array<{ s: number; t: number; r: number }>;
   labels: string[];
+  // per-node facet tenant: 6 codes (value[1..=6]) × nodeCount, or null if the
+  // asset predates the tenant tail. The dynamic attribute the facet lens groups by.
+  tenants: Uint8Array | null;
 }
 
 /** One readable step of the reasoning traversal, streamed into the readout. */
@@ -89,6 +104,7 @@ interface GraphApi {
   fireLens: (angleIdx: number) => void;
   clear: () => void;
   setDims: (show: boolean) => void;
+  setFacet: (axis: number | null) => void;
 }
 
 // Decode the OSO1 wire: magic(4) | nodeCount u32 | edgeCount u32 |
@@ -127,7 +143,14 @@ function decodeSoa(buf: ArrayBuffer): Soa {
       off += len;
     }
   }
-  return { nodeCount, edgeCount, cls, edges, labels };
+  // optional tenant tail (OSO1 additive): node_count × 6 facet bytes (value[1..=6]).
+  // Old assets stop after the labels; new ones carry the per-node attribute here.
+  let tenants: Uint8Array | null = null;
+  if (off + nodeCount * 6 <= dv.byteLength) {
+    tenants = new Uint8Array(buf, off, nodeCount * 6);
+    off += nodeCount * 6;
+  }
+  return { nodeCount, edgeCount, cls, edges, labels, tenants };
 }
 
 // vis-network options tuned to the Palantir look: hollow ring nodes (dark fill
@@ -266,6 +289,7 @@ export function OsintGraph() {
   const hostRef = useRef<HTMLDivElement>(null);
   const netRef = useRef<Network | null>(null);
   const apiRef = useRef<GraphApi | null>(null);
+  const facetAxisRef = useRef<number | null>(null); // mirrors facetAxis for the build closures
   const [soa, setSoa] = useState<Soa | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('loading SoA…');
@@ -273,6 +297,8 @@ export function OsintGraph() {
   const [search, setSearch] = useState('');
   const [angle, setAngle] = useState<number | null>(null);
   const [showDims, setShowDims] = useState(true);
+  // active facet lens (0..5 = a FACET_AXES_UI axis, or null = colour by class).
+  const [facetAxis, setFacetAxis] = useState<number | null>(null);
 
   // Fetch + decode the SoA once.
   useEffect(() => {
@@ -318,14 +344,22 @@ export function OsintGraph() {
     const { degree, touched, semantic } = view;
 
     const baseSize = (i: number) => 11 + Math.min(degree.get(i) ?? 1, 16) * 1.5;
+    // facet-lens colouring: when an axis is active, a node's border is its tenant
+    // code on that axis (categorical, computed live across every node); else the
+    // class colour. This is the dynamic group-by — no baked edges involved.
+    const nodeBorder = (i: number) => {
+      const ax = facetAxisRef.current;
+      if (ax != null && soa.tenants) return facetColor(soa.tenants[i * 6 + ax]);
+      return classColor(soa.cls[i]);
+    };
     const baseNode = (i: number) => ({
       id: i,
       label: soa.labels[i] || `#${i}`,
       color: {
         background: 'rgba(10,14,23,0.88)',
-        border: classColor(soa.cls[i]),
+        border: nodeBorder(i),
         highlight: { background: 'rgba(10,14,23,0.96)', border: '#9fe8ff' },
-        hover: { background: 'rgba(10,14,23,0.82)', border: classColor(soa.cls[i]) },
+        hover: { background: 'rgba(10,14,23,0.82)', border: nodeBorder(i) },
       },
       size: baseSize(i),
       font: { color: '#d9e9f9' },
@@ -411,7 +445,7 @@ export function OsintGraph() {
     const brighten = (id: number) => {
       visNodes.update({
         id,
-        color: { background: 'rgba(10,14,23,0.95)', border: classColor(soa.cls[id]) },
+        color: { background: 'rgba(10,14,23,0.95)', border: nodeBorder(id) },
         font: { color: '#eaf4ff' },
       });
     };
@@ -611,9 +645,18 @@ export function OsintGraph() {
       visNodes.update(schemaNodeIds.map((id) => ({ id, hidden: !show })));
       visEdges.update(schemaEdgeIds.map((id) => ({ id, hidden: !show })));
     };
-    // apply the current toggle state on (re)build — covers a toggle that landed
-    // before the network (and apiRef) existed, so the button and graph never desync.
+    // facet lens: recolour every rendered node by its tenant code on `axis`
+    // (the dynamic group-by across all nodes); null restores the class colours.
+    // Read-only over the tenant column — no edges, no relayout.
+    const setFacet = (axis: number | null) => {
+      facetAxisRef.current = axis != null && soa.tenants ? axis : null;
+      visNodes.update(Array.from(touched).map(baseNode));
+    };
+    // apply the current toggle/lens state on (re)build — covers a toggle that
+    // landed before the network (and apiRef) existed, so the buttons and graph
+    // never desync.
     setDims(showDims);
+    setFacet(facetAxis);
 
     apiRef.current = {
       query: (text) => {
@@ -641,6 +684,7 @@ export function OsintGraph() {
         setReadout(null);
       },
       setDims,
+      setFacet,
     };
 
     net.on('click', (params: { nodes: unknown[] }) => {
@@ -674,6 +718,43 @@ export function OsintGraph() {
     setShowDims(next);
     apiRef.current?.setDims(next);
   };
+  const toggleFacet = (axis: number) => {
+    const next = facetAxis === axis ? null : axis;
+    setFacetAxis(next);
+    apiRef.current?.setFacet(next);
+  };
+
+  // live legend for the active facet lens: value→count computed across every
+  // rendered node from the tenant column, named via the materialized facet
+  // edges (the two layers reinforcing each other). airo:type is a bitset, so its
+  // codes read as raw role-masks rather than single values.
+  const facetLegend = useMemo(() => {
+    if (!soa || !soa.tenants || facetAxis == null || !view) return null;
+    const tenants = soa.tenants;
+    const axis = facetAxis;
+    const rel = 10 + axis;
+    const name = new Map<number, string>();
+    for (const e of soa.edges) {
+      if (e.r === rel && e.s < soa.nodeCount && e.t < soa.nodeCount) {
+        const code = tenants[e.s * 6 + axis];
+        if (code !== 0 && !name.has(code)) name.set(code, soa.labels[e.t] || `code ${code}`);
+      }
+    }
+    const count = new Map<number, number>();
+    let present = 0;
+    view.touched.forEach((i) => {
+      const code = tenants[i * 6 + axis];
+      if (code !== 0) {
+        count.set(code, (count.get(code) ?? 0) + 1);
+        present += 1;
+      }
+    });
+    const rows = Array.from(count.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([code, n]) => ({ code, n, label: name.get(code) ?? `code ${code}` }));
+    return { rows, present, distinct: count.size };
+  }, [soa, facetAxis, view]);
 
   const lensChip = (i: number): CSSProperties => ({
     fontFamily: 'monospace',
@@ -805,12 +886,82 @@ export function OsintGraph() {
             </button>
           )}
         </div>
+        {/* facet lens — colour every node by a tenant axis, the dynamic group-by */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: '#6f87a0', marginRight: 2 }}>◐ facet:</span>
+          {FACET_AXES_UI.map((ax, i) => (
+            <button
+              key={ax}
+              onClick={() => toggleFacet(i)}
+              title={`colour every node by its ${ax} code — a live group-by across all nodes (the tenant column)`}
+              style={{
+                fontFamily: 'monospace',
+                fontSize: 10,
+                color: facetAxis === i ? '#0a0e17' : '#9fb4c8',
+                background: facetAxis === i ? facetColor(i + 1) : 'rgba(17,32,48,0.6)',
+                border: `1px solid ${facetColor(i + 1)}`,
+                borderRadius: 6,
+                padding: '4px 7px',
+                cursor: 'pointer',
+                fontWeight: facetAxis === i ? 700 : 400,
+              }}
+            >
+              {ax}
+            </button>
+          ))}
+        </div>
         <div style={{ fontSize: 10, color: '#6f87a0' }}>
           one entity reasons from it; “A + B” traces the path. click any node to reason.
         </div>
       </div>
 
       {readout && <ReasonBox readout={readout} onClose={clearReason} />}
+
+      {/* facet-lens legend — the live group-by over the tenant column */}
+      {facetLegend && facetAxis != null && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 16,
+            right: 16,
+            zIndex: 10,
+            fontFamily: 'monospace',
+            fontSize: 11,
+            color: '#cfe7ff',
+            background: 'rgba(8,12,20,0.86)',
+            border: '1px solid #2a4a6a',
+            borderRadius: 8,
+            padding: '8px 10px',
+            maxWidth: 230,
+            maxHeight: '42%',
+            overflowY: 'auto',
+            pointerEvents: 'auto',
+          }}
+        >
+          <div style={{ color: '#7fd1ff', marginBottom: 5 }}>
+            ◐ {FACET_AXES_UI[facetAxis]} · {facetLegend.present} nodes · {facetLegend.distinct} values
+          </div>
+          {facetLegend.rows.map((r) => (
+            <div
+              key={r.code}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 9,
+                  height: 9,
+                  borderRadius: 9,
+                  border: `2px solid ${facetColor(r.code)}`,
+                  flex: '0 0 auto',
+                }}
+              />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</span>
+              <span style={{ color: '#7f97b0', marginLeft: 'auto' }}>{r.n}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* class legend */}
       <div
