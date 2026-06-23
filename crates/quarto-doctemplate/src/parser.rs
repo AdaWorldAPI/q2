@@ -1087,16 +1087,32 @@ fn is_first_child_newline_literal(branches: &[(VariableRef, Vec<TemplateNode>)])
     }
 }
 
-/// Check if the first node in a list is a Literal starting with '\n'.
+/// Length in bytes of the line ending a string begins with, if any.
+///
+/// Recognizes all three conventions (`\r\n`, `\n`, `\r`) like Pandoc's
+/// parser-aware doctemplates, so multiline-directive handling preserves the
+/// input convention instead of assuming LF. `\r\n` is checked first so the
+/// full two-byte sequence is consumed as a unit (#157).
+fn leading_line_ending_len(text: &str) -> Option<usize> {
+    if text.starts_with("\r\n") {
+        Some(2)
+    } else if text.starts_with(['\n', '\r']) {
+        Some(1)
+    } else {
+        None
+    }
+}
+
+/// Check if the first node in a list is a Literal starting with a line ending.
 fn first_node_is_newline_literal(nodes: &[TemplateNode]) -> bool {
     if let Some(TemplateNode::Literal(lit)) = nodes.first() {
-        lit.text.starts_with('\n')
+        leading_line_ending_len(&lit.text).is_some()
     } else {
         false
     }
 }
 
-/// Strip a leading '\n' from the first Literal node if present.
+/// Strip a leading line ending from the first Literal node if present.
 fn strip_leading_newline_from_nodes(nodes: &mut Vec<TemplateNode>) {
     if let Some(first) = nodes.first_mut() {
         strip_leading_newline_from_node(first);
@@ -1109,18 +1125,89 @@ fn strip_leading_newline_from_nodes(nodes: &mut Vec<TemplateNode>) {
     }
 }
 
-/// Strip a leading '\n' from a node if it's a Literal starting with '\n'.
+/// Strip a leading line ending (`\r\n`, `\n`, or `\r`) from a node if it's a
+/// Literal that starts with one. The full line-ending sequence is removed, so
+/// CRLF input keeps CRLF in the surrounding content.
 fn strip_leading_newline_from_node(node: &mut TemplateNode) {
     if let TemplateNode::Literal(lit) = node
-        && lit.text.starts_with('\n')
+        && let Some(len) = leading_line_ending_len(&lit.text)
     {
-        lit.text = lit.text[1..].to_string();
+        lit.text = lit.text[len..].to_string();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CRLF input must render with CRLF preserved and NO doubled blank lines
+    /// around multiline directives — matching how Pandoc's parser-aware
+    /// doctemplates preserves the input line-ending convention (#157, bd-1d3e).
+    /// These build the input in-process so the engine bug is caught on every
+    /// platform, not just on a Windows CRLF checkout.
+    mod crlf_preservation {
+        use super::*;
+        use crate::{TemplateContext, TemplateValue};
+
+        fn ctx() -> TemplateContext {
+            let mut ctx = TemplateContext::new();
+            ctx.insert("show", TemplateValue::Bool(true));
+            ctx.insert(
+                "items",
+                TemplateValue::List(vec![
+                    TemplateValue::String("one".to_string()),
+                    TemplateValue::String("two".to_string()),
+                    TemplateValue::String("three".to_string()),
+                ]),
+            );
+            ctx
+        }
+
+        #[test]
+        fn multiline_if_preserves_crlf() {
+            let src = "before\r\n$if(show)$\r\ncontent\r\n$endif$\r\nafter\r\n";
+            let template = Template::compile(src).unwrap();
+            assert_eq!(
+                template.render(&ctx()).unwrap(),
+                "before\r\ncontent\r\nafter\r\n"
+            );
+        }
+
+        #[test]
+        fn multiline_for_preserves_crlf() {
+            let src = "before\r\n$for(items)$\r\n- $it$\r\n$endfor$\r\nafter\r\n";
+            let template = Template::compile(src).unwrap();
+            assert_eq!(
+                template.render(&ctx()).unwrap(),
+                "before\r\n- one\r\n- two\r\n- three\r\nafter\r\n"
+            );
+        }
+
+        #[test]
+        fn nested_if_for_preserves_crlf() {
+            let src = "$if(items)$\r\nList:\r\n$for(items)$\r\n  - $it$\r\n$endfor$\r\n$endif$\r\n";
+            let template = Template::compile(src).unwrap();
+            assert_eq!(
+                template.render(&ctx()).unwrap(),
+                "List:\r\n  - one\r\n  - two\r\n  - three\r\n"
+            );
+        }
+
+        #[test]
+        fn else_branch_preserves_crlf() {
+            let src = "$if(show)$\r\nshown\r\n$else$\r\nhidden\r\n$endif$\r\n";
+            let template = Template::compile(src).unwrap();
+            assert_eq!(template.render(&ctx()).unwrap(), "shown\r\n");
+        }
+
+        #[test]
+        fn lf_behavior_unchanged() {
+            // The LF path must keep producing LF output (no regression).
+            let src = "before\n$if(show)$\ncontent\n$endif$\nafter\n";
+            let template = Template::compile(src).unwrap();
+            assert_eq!(template.render(&ctx()).unwrap(), "before\ncontent\nafter\n");
+        }
+    }
 
     #[test]
     fn test_parse_literal() {
