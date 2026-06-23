@@ -4,7 +4,7 @@
 // index pairs) and decodes each 16-byte GUID → xyz IN THE BROWSER — the
 // `osint_gotham::position()` logic ported to JS. No JSON anywhere: the bits feed
 // the render. The address IS the coordinate; there is no force-layout pass.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
@@ -149,6 +149,29 @@ function decodePosition(
 /** How a family-basin mixin is projected — the ClassView lens, as a render param. */
 type MixinMode = 'category' | 'adapter';
 
+// The six analysis lenses from the Palantir view. Each is a SEED for the
+// reasoning bloom: firing a lens spreads activation from the most-connected
+// entity of that lens's class (Civil Engineering = the civic lens, CivicSystem;
+// AI Development & Surveillance both read the System class but fire from
+// different hubs via a per-class cursor). Placeholder routing until the real
+// /api/graph/infer NARS trace lands; the lens→class map is the front door.
+const ANGLES: Array<{ name: string; cls: number }> = [
+  { name: 'Economic Review', cls: 1 }, // Stakeholder
+  { name: 'Civil Engineering', cls: 3 }, // CivicSystem — the civic lens
+  { name: 'Political Dynamics', cls: 2 }, // Person
+  { name: 'AI Development', cls: 0 }, // System
+  { name: 'Kill Chain', cls: 4 }, // HistoricalSystem
+  { name: 'Surveillance', cls: 0 }, // System (2nd-ranked hub)
+];
+
+/** Imperative handle the cockpit rail uses to drive the live scene. */
+interface SceneApi {
+  /** Fire the reasoning bloom from analysis lens `angleIdx` (index into ANGLES). */
+  seedAngle: (angleIdx: number) => void;
+  /** Clear any in-flight reasoning wave. */
+  clearReasoning: () => void;
+}
+
 interface Scene {
   pos: Float32Array; // nodeCount * 3
   cls: Uint8Array; // nodeCount
@@ -207,7 +230,12 @@ function parseSoa(buf: ArrayBuffer): Scene {
   return { pos, cls, basin, edges, rels, labels, nodeCount, edgeCount };
 }
 
-function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void {
+function mount(
+  container: HTMLDivElement,
+  s: Scene,
+  mode: MixinMode,
+  apiRef: { current: SceneApi | null },
+): () => void {
   let w = container.clientWidth || window.innerWidth;
   let h = container.clientHeight || window.innerHeight;
 
@@ -656,6 +684,36 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   };
   renderer.domElement.addEventListener('dblclick', onDbl);
 
+  // ── Analysis-lens seeds: one node per ANGLE for the cockpit rail ────────────
+  // Rank each class's members by literal degree (the `adj` fabric), then assign
+  // each lens the next-highest hub of its class via a per-class cursor — so two
+  // lenses on the same class (AI Development / Surveillance both = System) fire
+  // from DIFFERENT entities. Firing a lens = double-clicking its hub.
+  const byClassRanked = new Map<number, number[]>();
+  for (let i = 0; i < s.nodeCount; i++) {
+    if (s.cls[i] === HUB_CLASS) continue;
+    const arr = byClassRanked.get(s.cls[i]);
+    if (arr) arr.push(i);
+    else byClassRanked.set(s.cls[i], [i]);
+  }
+  byClassRanked.forEach((arr) =>
+    arr.sort((x, y) => (adj.get(y)?.length ?? 0) - (adj.get(x)?.length ?? 0)),
+  );
+  const classCursor = new Map<number, number>();
+  const angleSeeds = ANGLES.map(({ cls }) => {
+    const arr = byClassRanked.get(cls) ?? [];
+    const c = classCursor.get(cls) ?? 0;
+    classCursor.set(cls, c + 1);
+    return arr.length ? arr[Math.min(c, arr.length - 1)] : -1;
+  });
+  apiRef.current = {
+    seedAngle: (ai) => {
+      const idx = angleSeeds[ai];
+      if (idx >= 0) seedActivation(idx);
+    },
+    clearReasoning: () => clearActivation(),
+  };
+
   // Frame the centred radius-R cloud, then hand control to the user:
   // left-drag = orbit, scroll = zoom, right-drag = pan. A gentle idle
   // auto-rotate runs until the first interaction, then yields fully.
@@ -729,10 +787,17 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     labelRenderer.setSize(w, h);
   };
   window.addEventListener('resize', handleResize);
+  // The cockpit rail toggling does NOT fire a window resize — it just reflows
+  // the flex main pane — so observe the container's box directly to keep the
+  // canvas + label layer matched to the viewport in both cockpit and fullscreen.
+  const ro = new ResizeObserver(handleResize);
+  ro.observe(container);
 
   return () => {
     cancelAnimationFrame(animId);
     controls.dispose();
+    apiRef.current = null;
+    ro.disconnect();
     renderer.domElement.removeEventListener('pointermove', onMove);
     renderer.domElement.removeEventListener('dblclick', onDbl);
     clearFocus();
@@ -761,7 +826,10 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
 export function OsintScene3D() {
   const ref = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<Scene | null>(null);
+  const apiRef = useRef<SceneApi | null>(null);
   const [mode, setMode] = useState<MixinMode>('category');
+  const [view, setView] = useState<'cockpit' | 'fullscreen'>('cockpit');
+  const [angle, setAngle] = useState<number | null>(null);
   const [info, setInfo] = useState<{ nodes: number; edges: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -787,13 +855,41 @@ export function OsintScene3D() {
     };
   }, []);
 
-  // (Re)mount whenever the data lands or the mixin projection flips.
+  // (Re)mount whenever the data lands or the mixin projection flips. The
+  // cockpit↔fullscreen toggle does NOT remount (the ResizeObserver in mount
+  // keeps the canvas sized), so the camera + any in-flight reasoning survive it.
   useEffect(() => {
     const container = ref.current;
     const s = sceneRef.current;
     if (!container || !s) return;
-    return mount(container, s, mode);
+    return mount(container, s, mode, apiRef);
   }, [mode, info]);
+
+  const fireLens = (i: number) => {
+    setAngle(i);
+    apiRef.current?.seedAngle(i);
+  };
+  const clearLens = () => {
+    setAngle(null);
+    apiRef.current?.clearReasoning();
+  };
+
+  const cockpit = view === 'cockpit';
+  const lensBtn = (i: number): CSSProperties => ({
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    fontFamily: 'monospace',
+    fontSize: 12,
+    color: angle === i ? '#0a0e17' : '#cfe7ff',
+    background: angle === i ? `#${colorOf(ANGLES[i].cls).toString(16).padStart(6, '0')}` : 'rgba(17,32,48,0.5)',
+    border: `1px solid #${colorOf(ANGLES[i].cls).toString(16).padStart(6, '0')}`,
+    borderRadius: 6,
+    padding: '7px 10px',
+    marginBottom: 6,
+    cursor: 'pointer',
+    fontWeight: angle === i ? 700 : 400,
+  });
 
   return (
     <div
@@ -803,36 +899,102 @@ export function OsintScene3D() {
         height: '100vh',
         background: '#0a0e17',
         overflow: 'hidden',
+        display: 'flex',
       }}
     >
-      <div ref={ref} style={{ position: 'absolute', inset: 0 }} />
-      <div
-        style={{
-          position: 'absolute',
-          top: 16,
-          left: 16,
-          fontFamily: 'monospace',
-          color: '#93a9bf',
-          fontSize: 12,
-          textShadow: '0 0 4px #0a0e17',
-          pointerEvents: 'none',
-        }}
-      >
-        <div style={{ fontSize: 14, color: '#cfe7ff', marginBottom: 4 }}>
-          OSINT · classid 0x0700 · SoA bytes → GUID-decoded 3D
-        </div>
-        {info && (
-          <div>
-            {info.nodes} nodes · {info.edges} edges · decoded client-side
+      {cockpit && (
+        <aside
+          style={{
+            flex: '0 0 256px',
+            width: 256,
+            height: '100%',
+            boxSizing: 'border-box',
+            overflowY: 'auto',
+            padding: '16px 14px',
+            background: 'linear-gradient(180deg,#0d1320,#0a0e17)',
+            borderRight: '1px solid #1b2c3e',
+            fontFamily: 'monospace',
+            color: '#93a9bf',
+          }}
+        >
+          <div style={{ fontSize: 14, color: '#cfe7ff', marginBottom: 2 }}>
+            OSINT COCKPIT
           </div>
-        )}
-        <div style={{ color: '#6f87a0', marginTop: 2 }}>
-          solid = literal relations · dashed = inferred (counterpoint grammar)
-        </div>
-        {error && <div style={{ color: '#ff637d' }}>load error: {error}</div>}
-        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: '#6f87a0' }}>
+            classid 0x0700 · SoA → GUID-decoded 3D
+          </div>
+          {info && (
+            <div style={{ fontSize: 11, marginTop: 4 }}>
+              {info.nodes} nodes · {info.edges} edges
+            </div>
+          )}
+          {error && (
+            <div style={{ color: '#ff637d', fontSize: 11, marginTop: 4 }}>
+              load error: {error}
+            </div>
+          )}
+
+          <div style={{ fontSize: 11, color: '#7f97b0', margin: '14px 0 6px', letterSpacing: 1 }}>
+            ANALYSIS LENS · seed reasoning
+          </div>
+          {ANGLES.map((a, i) => (
+            <button key={a.name} onClick={() => fireLens(i)} style={lensBtn(i)}>
+              {a.name}
+            </button>
+          ))}
+          <button
+            onClick={clearLens}
+            style={{
+              display: 'block',
+              width: '100%',
+              fontFamily: 'monospace',
+              fontSize: 11,
+              color: '#93a9bf',
+              background: 'transparent',
+              border: '1px solid #243a52',
+              borderRadius: 6,
+              padding: '5px 10px',
+              marginTop: 2,
+              cursor: 'pointer',
+            }}
+          >
+            clear reasoning
+          </button>
+          <div style={{ fontSize: 10, color: '#5f7790', marginTop: 6 }}>
+            bloom → temporal-entropy prune → ~40 theories. hover any node to
+            read its links; double-click to reason from it.
+          </div>
+
+          <div style={{ fontSize: 11, color: '#7f97b0', margin: '14px 0 6px', letterSpacing: 1 }}>
+            MIXIN PROJECTION
+          </div>
+          <button
+            onClick={() => setMode((m) => (m === 'category' ? 'adapter' : 'category'))}
+            title="Project the family-basin mixin as a connective category (clique among co-family members) or as an adapter (family node + member→hub spokes)"
+            style={{
+              display: 'block',
+              width: '100%',
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: '#cfe7ff',
+              background: 'rgba(17,32,48,0.6)',
+              border: '1px solid #2a4a6a',
+              borderRadius: 6,
+              padding: '7px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            {mode === 'category' ? 'connective category' : 'adapter'}
+          </button>
+          <div style={{ fontSize: 10, color: '#5f7790', marginTop: 4 }}>
+            solid = literal · dashed = inferred (counterpoint grammar)
+          </div>
+
+          <div style={{ fontSize: 11, color: '#7f97b0', margin: '14px 0 6px', letterSpacing: 1 }}>
+            CLASSES
+          </div>
           {LEGEND.map(([name, c]) => (
-            <span key={name} style={{ marginRight: 10, whiteSpace: 'nowrap' }}>
+            <div key={name} style={{ fontSize: 11, marginBottom: 3, whiteSpace: 'nowrap' }}>
               <span
                 style={{
                   display: 'inline-block',
@@ -840,49 +1002,76 @@ export function OsintScene3D() {
                   height: 8,
                   borderRadius: 8,
                   background: `#${c.toString(16).padStart(6, '0')}`,
-                  marginRight: 4,
+                  marginRight: 6,
                 }}
               />
               {name}
-            </span>
+            </div>
           ))}
-        </div>
-        <div style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: '#7f97b0', margin: '12px 0 6px', letterSpacing: 1 }}>
+            RELATIONS
+          </div>
           {REL_LEGEND.map(([name, c]) => (
-            <span key={name} style={{ marginRight: 10, whiteSpace: 'nowrap' }}>
+            <div key={name} style={{ fontSize: 11, marginBottom: 3, whiteSpace: 'nowrap' }}>
               <span
                 style={{
                   display: 'inline-block',
                   width: 14,
                   borderTop: `2px solid #${c.toString(16).padStart(6, '0')}`,
-                  marginRight: 4,
+                  marginRight: 6,
                   verticalAlign: 'middle',
                 }}
               />
               {name}
-            </span>
+            </div>
           ))}
-        </div>
-      </div>
-      <button
-        onClick={() => setMode((m) => (m === 'category' ? 'adapter' : 'category'))}
-        title="Project the family-basin mixin as a connective category (clique among co-family members) or as an adapter (family node + member→hub spokes)"
-        style={{
-          position: 'absolute',
-          top: 16,
-          right: 16,
-          fontFamily: 'monospace',
-          fontSize: 12,
-          color: '#cfe7ff',
-          background: 'rgba(17,32,48,0.6)',
-          border: '1px solid #2a4a6a',
-          borderRadius: 6,
-          padding: '6px 12px',
-          cursor: 'pointer',
-        }}
-      >
-        mixin: {mode === 'category' ? 'connective category' : 'adapter'}
-      </button>
+        </aside>
+      )}
+
+      <main style={{ position: 'relative', flex: '1 1 auto', minWidth: 0, height: '100%' }}>
+        <div ref={ref} style={{ position: 'absolute', inset: 0 }} />
+        {!cockpit && info && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 16,
+              left: 16,
+              fontFamily: 'monospace',
+              color: '#93a9bf',
+              fontSize: 12,
+              textShadow: '0 0 4px #0a0e17',
+              pointerEvents: 'none',
+            }}
+          >
+            <div style={{ fontSize: 14, color: '#cfe7ff' }}>
+              OSINT · classid 0x0700 · GUID-decoded 3D
+            </div>
+            <div>
+              {info.nodes} nodes · {info.edges} edges · hover to read links ·
+              double-click to reason
+            </div>
+          </div>
+        )}
+        <button
+          onClick={() => setView((v) => (v === 'cockpit' ? 'fullscreen' : 'cockpit'))}
+          title="Cycle between the framed cockpit (analysis lenses + legend) and the fullscreen vast-space view"
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            fontFamily: 'monospace',
+            fontSize: 12,
+            color: '#cfe7ff',
+            background: 'rgba(17,32,48,0.7)',
+            border: '1px solid #2a4a6a',
+            borderRadius: 6,
+            padding: '6px 12px',
+            cursor: 'pointer',
+          }}
+        >
+          {cockpit ? '⛶ vast space' : '▣ cockpit'}
+        </button>
+      </main>
     </div>
   );
 }
