@@ -78,6 +78,8 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "jsdom": "^26.0.0",
+    "prosemirror-markdown": "^1.13.1",
+    "prosemirror-model": "^1.24.1",
     "typescript": "~5.9.3",
     "vitest": "^4.0.17",
     "vitest-axe": "^0.1.0"
