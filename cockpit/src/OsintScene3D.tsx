@@ -135,6 +135,7 @@ interface Scene {
   basin: Uint8Array; // nodeCount — family-basin community label (the mixin)
   edges: Uint32Array; // edgeCount * 2 (src, tgt)
   rels: Uint8Array; // edgeCount — relation type per edge (rel_code)
+  labels: string[]; // nodeCount — entity names (label tail; '' if not baked)
   nodeCount: number;
   edgeCount: number;
 }
@@ -170,7 +171,20 @@ function parseSoa(buf: ArrayBuffer): Scene {
     edges[i * 2 + 1] = dv.getUint16(o + 2, true);
     rels[i] = dv.getUint8(o + 4); // the relation type the client had been discarding
   }
-  return { pos, cls, basin, edges, rels, nodeCount, edgeCount };
+  off += edgeCount * EDGE_REC;
+  // optional label tail (OSO1 additive): node_count × [len u8 | utf8 name].
+  // Absent in pre-label assets → names stay '' and the view falls back to class.
+  const labels: string[] = new Array(nodeCount).fill('');
+  if (off < dv.byteLength) {
+    const dec = new TextDecoder();
+    for (let i = 0; i < nodeCount && off < dv.byteLength; i++) {
+      const len = dv.getUint8(off);
+      off += 1;
+      labels[i] = dec.decode(new Uint8Array(buf, off, len));
+      off += len;
+    }
+  }
+  return { pos, cls, basin, edges, rels, labels, nodeCount, edgeCount };
 }
 
 function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void {
@@ -451,7 +465,8 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
       ),
     );
     const clsName = (LEGEND[s.cls[idx]] && LEGEND[s.cls[idx]][0]) || 'node';
-    const node = mkLabel(`${clsName} · ${list.length} conn`, '#cfe7ff', true);
+    const name = s.labels[idx] || clsName; // real entity name once baked, else class
+    const node = mkLabel(`${name}  ·  ${clsName} · ${list.length} conn`, '#cfe7ff', true);
     node.position.set(p[idx * 3], p[idx * 3 + 1] + 4, p[idx * 3 + 2]);
     focusGroup.add(node);
   };

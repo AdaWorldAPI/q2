@@ -573,8 +573,10 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
 // Little-endian: `magic b"OSO1"(4) | node_count u32 | edge_count u32`, then
 //   node_count × [ guid: 16 B | class: u8 ]        (17 B/node)
 //   edge_count × [ src: u16 | tgt: u16 | rel: u8 ] (5 B/edge)
+//   node_count × [ len: u8 | utf8 name ]           (label tail, node order)
 // The client decodes each 16-byte GUID → xyz (the `position()` logic ported to
-// JS); `class` drives colour; edges are u16 indices into the node array.
+// JS); `class` drives colour; edges are u16 indices into the node array; the
+// label tail names each node (members in graph.nodes order, then basin hubs).
 
 /// Magic header for the OSINT SoA wire buffer.
 pub const OSINT_SOA_MAGIC: [u8; 4] = *b"OSO1";
@@ -680,12 +682,38 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
     }
     let edge_count = edges.len() / 5;
 
-    let mut out = Vec::with_capacity(12 + nodes.len() + edges.len());
+    // ── label section (OSO1, additive tail): node_count × [len u8 | utf8] in
+    //    node order — members in graph.nodes order, then basin hubs. This is the
+    //    inverse-AST-parser materialising the entity NAMES into the wire so the
+    //    foveal view can show "Fortify", not just a class. Old readers stop after
+    //    `edges`; new readers consume this tail.
+    let mut labels: Vec<u8> = Vec::new();
+    let mut push_label = |buf: &mut Vec<u8>, s: &str| {
+        let b = s.as_bytes();
+        let l = b.len().min(255);
+        buf.push(l as u8);
+        buf.extend_from_slice(&b[..l]);
+    };
+    for n in &graph.nodes {
+        let nm = if n.label.is_empty() { n.id.as_str() } else { n.label.as_str() };
+        push_label(&mut labels, nm);
+    }
+    for &b in &basins {
+        let nm = plan
+            .anchor_of_basin
+            .get(&b)
+            .cloned()
+            .unwrap_or_else(|| format!("family {b:02x}"));
+        push_label(&mut labels, &nm);
+    }
+
+    let mut out = Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len());
     out.extend_from_slice(&OSINT_SOA_MAGIC);
     out.extend_from_slice(&(node_count as u32).to_le_bytes());
     out.extend_from_slice(&(edge_count as u32).to_le_bytes());
     out.extend_from_slice(&nodes);
     out.extend_from_slice(&edges);
+    out.extend_from_slice(&labels);
     out
 }
 
