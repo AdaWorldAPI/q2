@@ -99,31 +99,51 @@ function inferRel(a: number, b: number): number {
   return -1; // no rule → silent
 }
 
-// Port of osint_gotham::basin_center — basins on a golden-angle spiral.
+// φ⁻¹ — golden-ratio fractional walk. Feeding the index through `frac(i·φ⁻¹)`
+// gives a low-discrepancy height in [0,1) WITHOUT needing the total count N, so
+// the same even-on-a-sphere distribution works in a per-node pure decode.
+const PHI_INV = 0.618033988749895;
+
+// Port of osint_gotham::basin_center — basins on a 3D golden-angle LATTICE.
+// The old layout was a flat Vogel disc (y ≡ 0) → a pancake. Lift the direction
+// onto a spherical-Fibonacci shell so the basins fill a BALL with real depth.
+// Height is even in cos(φ) (no pole clustering); longitude is the golden angle;
+// radius still grows with the basin index so later basins ring outward.
 function basinCenter(basin: number): [number, number, number] {
   const r = 40 * Math.sqrt(basin + 1);
-  const a = basin * GOLDEN_ANGLE;
-  return [r * Math.cos(a), 0, r * Math.sin(a)];
+  const cosPhi = 1 - 2 * (((basin + 0.5) * PHI_INV) % 1); // [-1,1], even in cosφ
+  const sinPhi = Math.sqrt(Math.max(0, 1 - cosPhi * cosPhi));
+  const theta = basin * GOLDEN_ANGLE;
+  return [r * sinPhi * Math.cos(theta), r * cosPhi, r * sinPhi * Math.sin(theta)];
 }
 
 // Port of osint_gotham::position — decode a 16-byte GUID → xyz.
 // GUID (little-endian): classid[0..4] heel[4..6] hip[6..8] twig[8..10]
 //                       leaf[10..12] family[12..14] identity[14..16].
+// The cascade tiers (heel/hip/twig) are dormant-ZERO in minted GUIDs per the
+// CANON zero-fallback ladder, so depth must come from the LIVE discriminators
+// (basin, identity) — using heel for Y collapsed the scene to a flat slab.
 function decodePosition(
   dv: DataView,
   off: number,
   isHub: boolean,
 ): [number, number, number] {
-  const heel = dv.getUint16(off + 4, true);
   const family = dv.getUint16(off + 12, true);
   const identity = dv.getUint16(off + 14, true);
   const basin = family & 0xff;
   const c = basinCenter(basin);
   if (isHub) return c;
+  // within-basin: a small 3D bloom (spherical spiral on identity), so members
+  // get local depth too instead of a flat skirt around the basin centre.
   const r = 6 * Math.sqrt(identity + 1);
-  const a = identity * GOLDEN_ANGLE;
-  const y = heel * 0.5;
-  return [c[0] + r * Math.cos(a), c[1] + y, c[2] + r * Math.sin(a)];
+  const cosPhi = 1 - 2 * (((identity + 0.5) * PHI_INV) % 1);
+  const sinPhi = Math.sqrt(Math.max(0, 1 - cosPhi * cosPhi));
+  const theta = identity * GOLDEN_ANGLE;
+  return [
+    c[0] + r * sinPhi * Math.cos(theta),
+    c[1] + r * cosPhi,
+    c[2] + r * sinPhi * Math.sin(theta),
+  ];
 }
 
 /** How a family-basin mixin is projected — the ClassView lens, as a render param. */
@@ -264,6 +284,59 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     );
   };
 
+  // Bow a straight edge into a quadratic-bezier polyline — the "wobbly arrow"
+  // arc from the Palantir view, lifted into 3D. The control point pushes
+  // perpendicular to the edge by a fraction of its length, so edges arc instead
+  // of cutting dead-straight through the cloud (depth you can *feel* on orbit).
+  // Emitted as consecutive GL_LINES pairs; optionally writes a flat per-vertex
+  // colour and reports the arc apex (for label placement).
+  const CURVE_SEG = 7; // sub-segments per edge
+  const _cs = new THREE.Vector3();
+  const _ce = new THREE.Vector3();
+  const _cc = new THREE.Vector3(); // bezier control point
+  const _cbow = new THREE.Vector3();
+  const _cup = new THREE.Vector3(0, 1, 0);
+  const _cprev = new THREE.Vector3();
+  const _ccur = new THREE.Vector3();
+  const pushCurve = (
+    arr: number[],
+    a: number,
+    b: number,
+    col?: number[],
+    r = 0,
+    g = 0,
+    bl = 0,
+    apexOut?: THREE.Vector3,
+  ) => {
+    _cs.set(p[a * 3], p[a * 3 + 1], p[a * 3 + 2]);
+    _ce.set(p[b * 3], p[b * 3 + 1], p[b * 3 + 2]);
+    _cc.addVectors(_cs, _ce).multiplyScalar(0.5);
+    _cbow.subVectors(_ce, _cs);
+    const len = _cbow.length() || 1;
+    _cbow.cross(_cup); // perpendicular bow direction
+    if (_cbow.lengthSq() < 1e-4) _cbow.set(1, 0, 0); // edge ∥ up → fall back
+    _cbow.normalize().multiplyScalar(len * 0.14); // bow height = 14 % of length
+    _cc.add(_cbow);
+    if (apexOut) apexOut.copy(_cc).addScaledVector(_cbow, -0.5); // B(0.5)
+    _cprev.copy(_cs);
+    for (let k = 1; k <= CURVE_SEG; k++) {
+      const t = k / CURVE_SEG;
+      const it = 1 - t;
+      const w0 = it * it;
+      const w1 = 2 * it * t;
+      const w2 = t * t;
+      _ccur.set(
+        w0 * _cs.x + w1 * _cc.x + w2 * _ce.x,
+        w0 * _cs.y + w1 * _cc.y + w2 * _ce.y,
+        w0 * _cs.z + w1 * _cc.z + w2 * _ce.z,
+      );
+      arr.push(_cprev.x, _cprev.y, _cprev.z, _ccur.x, _ccur.y, _ccur.z);
+      if (col) col.push(r, g, bl, r, g, bl);
+      _cprev.copy(_ccur);
+    }
+  };
+  const _apex = new THREE.Vector3();
+
   // ── Layer 1: the family-basin MIXIN, projected per the ClassView mode ──
   // `category`: the GENERATIVE GRAMMAR — for each co-family pair, inferRel()
   //   voices a typed relation from the member type-pair (selective: silent
@@ -348,9 +421,8 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     const a = s.edges[i * 2];
     const b = s.edges[i * 2 + 1];
     if (a >= s.nodeCount || b >= s.nodeCount) continue;
-    pushSeg(semPos, a, b);
     tmp.set(REL_COLOR[rel] ?? 0x8fa6c4);
-    semCol.push(tmp.r, tmp.g, tmp.b, tmp.r, tmp.g, tmp.b);
+    pushCurve(semPos, a, b, semCol, tmp.r, tmp.g, tmp.b);
   }
   const semGeom = new THREE.BufferGeometry();
   semGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(semPos), 3));
@@ -437,16 +509,11 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     const fpos: number[] = [];
     const fcol: number[] = [];
     list.forEach(({ j, rel }) => {
-      fpos.push(p[idx * 3], p[idx * 3 + 1], p[idx * 3 + 2], p[j * 3], p[j * 3 + 1], p[j * 3 + 2]);
       colTmp.set(REL_COLOR[rel] ?? 0x8fa6c4);
-      fcol.push(colTmp.r, colTmp.g, colTmp.b, colTmp.r, colTmp.g, colTmp.b);
+      pushCurve(fpos, idx, j, fcol, colTmp.r, colTmp.g, colTmp.b, _apex);
       const hex = `#${(REL_COLOR[rel] ?? 0x8fa6c4).toString(16).padStart(6, '0')}`;
       const lbl = mkLabel(REL_NAME[rel] ?? 'related', hex, false);
-      lbl.position.set(
-        (p[idx * 3] + p[j * 3]) / 2,
-        (p[idx * 3 + 1] + p[j * 3 + 1]) / 2,
-        (p[idx * 3 + 2] + p[j * 3 + 2]) / 2,
-      );
+      lbl.position.copy(_apex); // label rides the arc apex, off the sight-line
       focusGroup.add(lbl);
     });
     const fg = new THREE.BufferGeometry();
