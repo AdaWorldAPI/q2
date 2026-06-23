@@ -275,7 +275,7 @@ under vitest, and the production build must pass
       `regression` → exactly one result `methods.qmd`; snippet `<mark>`
       highlighted "regression"; clicking the result opened the file (preview
       rendered "logistic regression"); clearing restored all 4 files.
-- [ ] 1.8 `hub-client/changelog.md` entry (two-commit workflow per CLAUDE.md).
+- [x] 1.8 `hub-client/changelog.md` entry (two-commit workflow per CLAUDE.md). → 2026-06-23 entry referencing 9a48dd86.
 
 ### Phase B — relevance enrichment (after measuring parse cost)
 - [ ] B.1 Measure batch WASM-parse cost on a realistic N-file project.

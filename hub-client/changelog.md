@@ -15,6 +15,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-23
+
+- [`9a48dd86`](https://github.com/quarto-dev/q2/commits/9a48dd86): Added full-text search to the file sidebar — type in the search box to find files in the open project by content (with highlighted match snippets) and click a result to open it.
+
 ### 2026-06-22
 
 - [`f4e2c25e`](https://github.com/quarto-dev/q2/commits/f4e2c25e): Slide and AST previews now restyle live when a sibling config file changes — editing `_brand.yml` (or `_quarto.yml`) in another window recompiles the deck's theme without a page reload, matching the HTML preview.
