@@ -507,6 +507,14 @@ fn plan_basins(graph: &AiWarGraph, rounds: &[EncounterRound]) -> BasinPlan {
     }
 }
 
+/// The CEILING global-category pole. `HEEL = HIP = 0xFFFF` marks a node as a
+/// **cross-cutting global category** (not basin-local); the first non-sentinel
+/// tier below — here TWIG — sets its grain (run the sentinel deeper, through
+/// TWIG, to reach a leaf-limited category). Mirrors the existing `0xFF` hub
+/// convention lifted from the basin byte to the HHTL tiers; `0x0000` is the
+/// opposite **floor** pole (default / fall-through).
+const GLOBAL_CEILING: u16 = 0xFFFF;
+
 /// Build the classid-`0x0700` OSINT node rows (one per entity, in `graph.nodes`
 /// order so `identity == index`). The GUID-v2 tail is `leaf=0 | family=basin |
 /// identity=index`; HEEL/HIP carry the theme/anchor for deterministic HHTL
@@ -525,14 +533,31 @@ pub fn osint_node_rows(graph: &AiWarGraph, plan: &BasinPlan) -> Vec<NodeRow> {
             .push(e.target.as_str());
     }
 
+    // SchemaAxis nodes (the dual-use dimensions) are promoted to the CEILING
+    // global-category pole at TWIG grain: each gets a stable TWIG (its order
+    // among the SchemaAxis nodes, in graph.nodes order — deterministic). They
+    // become cross-cutting categories addressable across every basin, instead
+    // of being stranded basin-local (which is what islanded them).
+    let axis_twig: HashMap<&str, u16> = graph
+        .nodes
+        .iter()
+        .filter(|n| n.node_type == "SchemaAxis")
+        .enumerate()
+        .map(|(k, n)| (n.id.as_str(), k as u16))
+        .collect();
+
     graph
         .nodes
         .iter()
         .enumerate()
         .map(|(i, n)| {
             let basin = basin_of(&n.id);
-            let theme_hi = u16::from(basin >> 4);
-            let anchor_lo = u16::from(basin & 0x0F);
+            // ceiling pole (HEEL=HIP=0xFFFF, TWIG=axis grain) for the dimensions;
+            // theme/anchor (TWIG=0) for everything basin-local.
+            let (heel, hip, twig) = match axis_twig.get(n.id.as_str()) {
+                Some(&t) => (GLOBAL_CEILING, GLOBAL_CEILING, t),
+                None => (u16::from(basin >> 4), u16::from(basin & 0x0F), 0),
+            };
 
             // 16×8bit mixin-node adapters (FLAT — the old 12+4 in/out split is
             // waived). The distinct nonzero *other* basins this node connects
@@ -571,9 +596,9 @@ pub fn osint_node_rows(graph: &AiWarGraph, plan: &BasinPlan) -> Vec<NodeRow> {
             NodeRow {
                 key: NodeGuid::new_v2(
                     NodeGuid::CLASSID_OSINT, // classid 0x0700 — the ONE OSINT class
-                    theme_hi,                // HEEL — coarse HHTL routing by theme
-                    anchor_lo,               // HIP  — anchor tier
-                    0,                       // TWIG
+                    heel,                    // HEEL — theme, or 0xFFFF ceiling for a dimension
+                    hip,                     // HIP  — anchor, or 0xFFFF ceiling for a dimension
+                    twig,                    // TWIG — axis grain for a ceiling-pole dimension
                     0,                       // LEAF (4th HHTL tier)
                     u16::from(basin),        // family = basin relay (mixin)
                     i as u16,                // identity = node index
@@ -1096,5 +1121,49 @@ mod tests {
             tail[rows.len() * 6..].iter().all(|&b| b == 0),
             "basin hubs carry a zero tenant"
         );
+    }
+
+    #[test]
+    fn schema_axes_are_ceiling_pole_global_categories() {
+        // The dual-use dimensions are promoted to the 0xFFFF CEILING pole at
+        // TWIG grain: cross-cutting global categories (HEEL=HIP=sentinel), the
+        // axis index in TWIG. Entities stay basin-local (theme/anchor in
+        // HEEL/HIP, TWIG unused). The address says "global" without an edge.
+        let node = |id: &str, ty: &str| aiwar_ingest::GraphNode {
+            id: id.to_string(),
+            label: id.to_string(),
+            node_type: ty.to_string(),
+            properties: HashMap::new(),
+        };
+        let g = AiWarGraph {
+            nodes: vec![
+                node("Lattice", "System"),
+                node("militaryUse", "SchemaAxis"),
+                node("civicUse", "SchemaAxis"),
+            ],
+            edges: vec![],
+        };
+        let plan = plan_basins(&g, &[]);
+        let rows = osint_node_rows(&g, &plan);
+
+        let mu = g.nodes.iter().position(|n| n.id == "militaryUse").unwrap();
+        let cu = g.nodes.iter().position(|n| n.id == "civicUse").unwrap();
+        // both axes sit at the ceiling pole, with DISTINCT twig grains.
+        assert_eq!(rows[mu].key.heel(), 0xFFFF, "axis HEEL = ceiling sentinel");
+        assert_eq!(rows[mu].key.hip(), 0xFFFF, "axis HIP = ceiling sentinel");
+        assert_eq!(rows[cu].key.heel(), 0xFFFF);
+        assert_eq!(rows[cu].key.hip(), 0xFFFF);
+        assert_ne!(
+            rows[mu].key.twig(),
+            rows[cu].key.twig(),
+            "each axis is a distinct twig-grain category"
+        );
+        // identity/family are still the fine address (unchanged).
+        assert_eq!(rows[mu].key.identity_v2(), mu as u16);
+
+        // a normal entity stays basin-local — NOT the ceiling sentinel.
+        let sys = g.nodes.iter().position(|n| n.id == "Lattice").unwrap();
+        assert_ne!(rows[sys].key.heel(), 0xFFFF, "entity is basin-local");
+        assert_eq!(rows[sys].key.twig(), 0, "entity TWIG unused");
     }
 }
