@@ -16,6 +16,7 @@ const FIXTURES: { name: string; qmd: string }[] = [
   { name: 'plain-para', qmd: 'A simple paragraph of prose.\n' },
   { name: 'inline-formatting', qmd: 'A para with **bold**, *italic*, `code`, and a [link](https://example.com).\n' },
   { name: 'nested-emphasis', qmd: 'Text with **_bold italic_** and a [**bold link**](https://x.com).\n' },
+  { name: 'sub-sup-strike', qmd: 'Water H~2~O, exponent 2^10^, and ~~struck~~ text.\n' },
   { name: 'atx-heading', qmd: '## A second-level heading\n' },
   { name: 'heading-with-marks', qmd: '### A **bold** heading with `code` and a [link](https://x.com)\n' },
   { name: 'bullet-list', qmd: '- first item\n- second item\n- third item\n' },

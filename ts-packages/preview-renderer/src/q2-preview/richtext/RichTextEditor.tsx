@@ -15,6 +15,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Subscript from '@tiptap/extension-subscript';
+import Superscript from '@tiptap/extension-superscript';
 import type { Editor } from '@tiptap/core';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { PreviewContextValue, ResolvedSource } from './../PreviewContext';
@@ -22,6 +24,7 @@ import { buildNestingCommitDestination } from './../nestingNav';
 import { astToDoc } from './astToProseMirror';
 import { docToMarkdown } from './serializer';
 import { Chip } from './chipExtension';
+import { RichTextToolbar } from './RichTextToolbar';
 import type { AstNode, PoolEntry } from './ast';
 import { ensureRichTextStyles } from './styles';
 
@@ -82,6 +85,8 @@ export function RichTextEditor({
         trailingNode: false,
         link: { openOnClick: false },
       }),
+      Subscript,
+      Superscript,
       Chip,
     ],
     content: seedJSON,
@@ -142,10 +147,17 @@ export function RichTextEditor({
     ctx.setEditTarget?.(null);
   };
 
+  // The whole edit box (editor + toolbar + link input) is one focus scope: we
+  // commit only when focus leaves it entirely, so focusing the toolbar's link
+  // input keeps the session open.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
   // Keyboard: Esc cancels; Mod-Enter commits; plain Enter is swallowed (no split).
+  // Commit: a focusout from the edit box (focus moved outside it) commits.
   useEffect(() => {
     if (!editor) return;
     const dom = editor.view.dom as HTMLElement;
+    const root = rootRef.current;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -155,26 +167,35 @@ export function RichTextEditor({
         ctx.requestFocusRestore?.(resolved.sourceEntry.r[0]);
         commit(editor);
       } else if (e.key === 'Enter' && !e.shiftKey) {
-        // 1a: no structural split. Swallow plain Enter (Shift+Enter = hard break).
+        // 1a/1b: no structural split. Swallow plain Enter (Shift+Enter = hard break).
         e.preventDefault();
       }
     };
-    const onBlur = () => {
-      // A surface swap fires this blur as the editor unmounts — not a commit.
+    const onFocusOut = (e: FocusEvent) => {
+      // A surface swap fires this as the editor unmounts — not a commit.
       if (ctx.editorModeSwitchRef?.current) return;
+      const next = e.relatedTarget as Node | null;
+      // Focus stayed within the edit box (toolbar button / link input) — not a commit.
+      if (next && root && root.contains(next)) return;
       ctx.requestFocusRestore?.(resolved.sourceEntry.r[0]);
       commit(editor);
     };
     dom.addEventListener('keydown', onKeyDown);
-    dom.addEventListener('blur', onBlur);
+    root?.addEventListener('focusout', onFocusOut);
     return () => {
       dom.removeEventListener('keydown', onKeyDown);
-      dom.removeEventListener('blur', onBlur);
+      root?.removeEventListener('focusout', onFocusOut);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
   // The left-margin affordance (Editing… + rich/plain toggle) is rendered by
-  // renderMeasuredEdit so it is shared with the plain-text surface.
-  return <div className="q2-richtext-editor">{editor && <EditorContent editor={editor} />}</div>;
+  // renderMeasuredEdit so it is shared with the plain-text surface. The
+  // formatting toolbar is rich-only and lives here (it needs the editor).
+  return (
+    <div className="q2-richtext-editor" ref={rootRef}>
+      {editor && <RichTextToolbar editor={editor} />}
+      {editor && <EditorContent editor={editor} />}
+    </div>
+  );
 }

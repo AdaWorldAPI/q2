@@ -452,7 +452,24 @@ interactive structural-edit round-trip tests).
         getting a phantom empty trailing `<p>` (extra editor height + a stray blank
         block on commit). Verified the heading box is now tight in `q2 preview`.
         Evidence: `richtext-shots/12-heading-tight.png`.
-  - [ ] Further inline-formatting polish as needed (assess across more fixtures).
+  - [x] **Formatting toolbar** (`RichTextToolbar.tsx`) — a small box floating above
+        the top-left of the edit box: **B / I / S / x₂ / x² / 🔗**. Mark buttons call
+        `toggleMark` (same command as Cmd-B/I), highlight via `isActive`, and use
+        mousedown-preventDefault so clicking never collapses the selection. Verified
+        end-to-end: selecting a word + Bold writes `**word**` to disk.
+        Evidence: `richtext-shots/13-toolbar.png`.
+  - [x] **Subscript / superscript as real marks** — added `@tiptap/extension-{sub,super}script`,
+        schema marks, serializer (`~x~` / `^x^`), and AST mapping (Pandoc
+        `Subscript`/`Superscript` → marks, no longer chips). Round-trip fixture
+        `sub-sup-strike` green.
+  - [x] **Link create/edit** — toolbar 🔗 opens a URL input; `setLink` /
+        `extendMarkRange('link')` / `unsetLink` (edit/remove an existing link by
+        placing the cursor in it). Focus scope reworked: the editor commits only on
+        `focusout` leaving the whole `.q2-richtext-editor`, so focusing the link
+        input keeps the session open. The TS side is correct (commit log shows the
+        right markdown), **but** a downstream write-back bug corrupts a new link's
+        URL when the paragraph has another link — filed **bd-3zp3z4jx** (shared
+        text-channel bug, affects the textarea editor too; single-link edits fine).
 - [ ] **1c — Lists / blockquotes, incl. interactive structural edits** (Enter
       split, new item, backspace-merge) with round-trip tests for *interactive*
       edits (new surface beyond the spike's static round-trip).

@@ -60,9 +60,13 @@ function inlines(items: AstNode[], marks: readonly Mark[], ctx: Ctx): PMNode[] {
       case 'Strikeout':
         out.push(...inlines(asArray(node.c), marks.concat(M.strike.create()), ctx));
         break;
-      case 'Underline':
-      case 'Superscript':
       case 'Subscript':
+        out.push(...inlines(asArray(node.c), marks.concat(M.subscript.create()), ctx));
+        break;
+      case 'Superscript':
+        out.push(...inlines(asArray(node.c), marks.concat(M.superscript.create()), ctx));
+        break;
+      case 'Underline':
       case 'SmallCaps':
       case 'Quoted':
         // Outside the v1 mark set -> chip the whole construct verbatim.

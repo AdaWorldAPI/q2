@@ -55,6 +55,56 @@ const CSS = `
   border-right-color: rgba(59, 130, 246, 0.8);
 }
 
+.q2-richtext-editor { position: relative; }
+
+/* Formatting toolbar — a small box floating just above the top-left of the edit
+   box. Out of flow (absolute) so it never reflows the content; solid background
+   + shadow so it reads over whatever is behind it. */
+.q2-rt-toolbar {
+  position: absolute;
+  bottom: 100%;
+  left: -2px;
+  margin-bottom: 4px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 3px;
+  background: #fff;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  user-select: none;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+.q2-rt-tb-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  border-radius: 3px;
+  min-width: 1.6em;
+  padding: 0.25em 0.4em;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: #334155;
+}
+.q2-rt-tb-btn:hover { background: rgba(59, 130, 246, 0.12); }
+.q2-rt-tb-active { background: rgba(59, 130, 246, 0.18); color: rgb(37, 99, 235); }
+.q2-rt-tb-bold { font-weight: 700; }
+.q2-rt-tb-italic { font-style: italic; }
+.q2-rt-tb-strike { text-decoration: line-through; }
+.q2-rt-tb-sep { width: 1px; align-self: stretch; margin: 2px 2px; background: rgba(0, 0, 0, 0.12); }
+.q2-rt-link-editor { display: flex; align-items: center; gap: 2px; }
+.q2-rt-link-input {
+  font-size: 0.78rem;
+  padding: 0.15em 0.4em;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  width: 16rem;
+  max-width: 40vw;
+}
+
 .q2-richtext-editor .ProseMirror {
   outline: none;
   white-space: pre-wrap;

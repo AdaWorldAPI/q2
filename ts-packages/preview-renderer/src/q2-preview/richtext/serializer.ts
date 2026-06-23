@@ -65,6 +65,10 @@ const marks = {
   code: d.marks.code,
   link: d.marks.link,
   strike: { open: '~~', close: '~~', mixable: true, expelEnclosingWhitespace: true },
+  // qmd subscript `~x~` / superscript `^x^` (Pandoc). Single tilde for subscript
+  // (double `~~` is strikethrough, above).
+  subscript: { open: '~', close: '~', mixable: true, expelEnclosingWhitespace: true },
+  superscript: { open: '^', close: '^', mixable: true, expelEnclosingWhitespace: true },
 };
 
 export const richTextSerializer = new MarkdownSerializer(nodes, marks);

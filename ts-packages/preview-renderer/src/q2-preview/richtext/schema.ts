@@ -126,6 +126,8 @@ const marks: Record<string, MarkSpec> = {
   bold: { parseDOM: [{ tag: 'strong' }, { tag: 'b' }], toDOM: () => ['strong', 0] },
   italic: { parseDOM: [{ tag: 'em' }, { tag: 'i' }], toDOM: () => ['em', 0] },
   strike: { parseDOM: [{ tag: 's' }, { tag: 'del' }], toDOM: () => ['s', 0] },
+  subscript: { parseDOM: [{ tag: 'sub' }], toDOM: () => ['sub', 0] },
+  superscript: { parseDOM: [{ tag: 'sup' }], toDOM: () => ['sup', 0] },
   code: { parseDOM: [{ tag: 'code' }], toDOM: () => ['code', 0] },
   link: {
     attrs: { href: {}, title: { default: null } },
