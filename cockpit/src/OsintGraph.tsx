@@ -89,6 +89,10 @@ export interface Soa {
   tenants: Uint8Array | null;
   // per-node global-category flag (HEEL=HIP=0xFFFF ceiling pole): 1 = cross-cutting.
   ceiling: Uint8Array;
+  // per-node GUID identity field (bytes 14-15 LE). For basin-local nodes this is
+  // the plain identity; the FMA bake stores the node's Z-order (Morton) tile path
+  // here, so FmaGraph deinterleaves it into a fixed tile-pyramid position.
+  identity: Uint16Array;
 }
 
 /** One readable step of the reasoning traversal, streamed into the readout. */
@@ -129,10 +133,14 @@ export function decodeSoa(buf: ArrayBuffer): Soa {
   // the node is a cross-cutting GLOBAL category (the dual-use axes), not
   // basin-local. Read straight off the 16-byte GUID (HEEL @4, HIP @6).
   const ceiling = new Uint8Array(nodeCount);
+  // identity[i] = GUID bytes 14-15 (LE) — the basin-local identity, or the
+  // node's Morton tile-path when the bake stores a Z-order address there.
+  const identity = new Uint16Array(nodeCount);
   for (let i = 0; i < nodeCount; i++) {
     const heel = dv.getUint16(off + 4, true);
     const hip = dv.getUint16(off + 6, true);
     if (heel === 0xffff && hip === 0xffff) ceiling[i] = 1;
+    identity[i] = dv.getUint16(off + 14, true);
     cls[i] = dv.getUint8(off + 16);
     off += 17;
   }
@@ -162,7 +170,7 @@ export function decodeSoa(buf: ArrayBuffer): Soa {
     tenants = new Uint8Array(buf, off, nodeCount * 6);
     off += nodeCount * 6;
   }
-  return { nodeCount, edgeCount, cls, edges, labels, tenants, ceiling };
+  return { nodeCount, edgeCount, cls, edges, labels, tenants, ceiling, identity };
 }
 
 // vis-network options tuned to the Palantir look: hollow ring nodes (dark fill

@@ -27,6 +27,41 @@ const classColor = (c: number) => FMA_CLASS[c]?.color ?? '#8899aa';
 const REL = ['member-of', 'interfaces', 'part-of', 'is-a'];
 const REL_COLOR = ['#223040', '#223040', '#7fa6c4', CEILING_COLOR];
 
+// ── Z-order (Morton) tile layout ─────────────────────────────────────────────
+// The bake stores each part-of node's Morton tile path in the GUID identity (one
+// 4×4 level per part-of step, coarsest in the high nibble). Depth == class
+// (Organ 0 → Cell 4), so position is fully recoverable from identity + class:
+// walk the nibbles, decode each 4×4 cell, accumulate base-2, and the node lands
+// at the centre of its nested tile — the address literally *is* the coordinate.
+const MAX_DEPTH = 4; // cells are the deepest tier → a 2^4 = 16×16 finest grid
+const CELL = 90; // px per finest grid cell
+const POLE_Y = -2.4 * CELL; // the ceiling pole hovers above the body
+
+// inverse bit-interleave (gather even bits to the low half) — TS port of
+// `compact1by1` in osint-bake/src/morton.rs; decodes ONE 4×4 Morton cell.
+function compact1by1(n: number): number {
+  n &= 0x55555555;
+  n = (n | (n >> 1)) & 0x33333333;
+  n = (n | (n >> 2)) & 0x0f0f0f0f;
+  n = (n | (n >> 4)) & 0x00ff00ff;
+  n = (n | (n >> 8)) & 0x0000ffff;
+  return n >>> 0;
+}
+
+// Reconstruct a node's tile centre by walking its Morton path nibble-by-nibble
+// (NOT a flat decode — a multi-level code spreads the axis bits across nibbles).
+function tilePos(code: number, depth: number): { x: number; y: number; span: number } {
+  let gx = 0;
+  let gy = 0;
+  for (let k = 0; k < depth; k++) {
+    const nib = (code >> (4 * (depth - 1 - k))) & 0xf; // coarsest level first
+    gx = gx * 2 + compact1by1(nib); // each FMA level is a 2×2 branch (quad 0..1)
+    gy = gy * 2 + compact1by1(nib >> 1);
+  }
+  const span = 1 << (MAX_DEPTH - depth); // tile edge, in finest cells
+  return { x: (gx * span + span / 2) * CELL, y: (gy * span + span / 2) * CELL, span };
+}
+
 const OPTIONS: Options = {
   nodes: { shape: 'dot', borderWidth: 2.5, font: { color: '#d9e9f9', size: 13, strokeWidth: 3, strokeColor: PAGE_BG } },
   edges: {
@@ -36,11 +71,8 @@ const OPTIONS: Options = {
     smooth: { enabled: true, type: 'continuous', roundness: 0.2 },
     arrows: { to: { enabled: true, scaleFactor: 0.45 } },
   },
-  physics: {
-    solver: 'forceAtlas2Based',
-    forceAtlas2Based: { gravitationalConstant: -70, centralGravity: 0.008, springLength: 130, springConstant: 0.04, damping: 0.5, avoidOverlap: 0.5 },
-    stabilization: { iterations: 180, fit: true },
-  },
+  // positions are fixed Z-order tiles (see tilePos) — no force simulation.
+  physics: { enabled: false },
   interaction: { hover: true, tooltipDelay: 90, dragNodes: true },
   layout: { improvedLayout: false },
 };
@@ -93,18 +125,42 @@ export function FmaGraph() {
   useEffect(() => {
     if (!hostRef.current || !soa || !rel) return;
     const ceiling = (i: number) => soa.ceiling[i] === 1 || soa.cls[i] === 5;
-    const baseNode = (i: number) => ({
-      id: i,
-      label: soa.labels[i] || `#${i}`,
-      shape: ceiling(i) ? 'diamond' : 'dot',
-      color: {
-        background: ceiling(i) ? 'rgba(255,209,102,0.14)' : 'rgba(10,14,23,0.88)',
-        border: ceiling(i) ? CEILING_COLOR : classColor(soa.cls[i]),
-      },
-      size: ceiling(i) ? 22 : 13,
-      font: { color: ceiling(i) ? '#ffe9b0' : '#d9e9f9' },
-      title: `${soa.labels[i]}\n${ceiling(i) ? '◈ global type (leaf-limited, cross-cutting)' : FMA_CLASS[soa.cls[i]]?.name}`,
-    });
+
+    // Fixed Z-order position per node: part-of nodes deinterleave their Morton
+    // tile path (depth == class) into a nested tile centre; the cross-cutting
+    // global types line up along the pole above the body. The grid width spans
+    // 2^MAX_DEPTH finest cells, so the pole row is centred over that span.
+    const poleNodes = Array.from({ length: soa.nodeCount }, (_, i) => i).filter(ceiling);
+    const gridSpan = (1 << MAX_DEPTH) * CELL;
+    const posOf = (i: number): { x: number; y: number; size: number } => {
+      if (ceiling(i)) {
+        const k = poleNodes.indexOf(i);
+        const x = ((k + 0.5) / Math.max(poleNodes.length, 1)) * gridSpan;
+        return { x, y: POLE_Y, size: 22 };
+      }
+      const depth = soa.cls[i]; // Organ 0 → Cell 4
+      const { x, y } = tilePos(soa.identity[i], depth);
+      return { x, y, size: 30 - depth * 4 }; // coarser tier → larger dot
+    };
+
+    const baseNode = (i: number) => {
+      const p = posOf(i);
+      return {
+        id: i,
+        label: soa.labels[i] || `#${i}`,
+        x: p.x,
+        y: p.y,
+        fixed: { x: true, y: true }, // the address is the layout — pin it
+        shape: ceiling(i) ? 'diamond' : 'dot',
+        color: {
+          background: ceiling(i) ? 'rgba(255,209,102,0.14)' : 'rgba(10,14,23,0.88)',
+          border: ceiling(i) ? CEILING_COLOR : classColor(soa.cls[i]),
+        },
+        size: p.size,
+        font: { color: ceiling(i) ? '#ffe9b0' : '#d9e9f9' },
+        title: `${soa.labels[i]}\n${ceiling(i) ? '◈ global type (leaf-limited, cross-cutting)' : FMA_CLASS[soa.cls[i]]?.name}`,
+      };
+    };
     const baseEdge = (e: { s: number; t: number; r: number }, id: number) => ({
       id,
       from: e.s,
@@ -117,10 +173,9 @@ export function FmaGraph() {
     const visNodes = new DataSet<any>(Array.from({ length: soa.nodeCount }, (_, i) => baseNode(i)));
     const visEdges = new DataSet<any>(soa.edges.map((e, id) => baseEdge(e, id)));
     const net = new Network(hostRef.current, { nodes: visNodes, edges: visEdges }, OPTIONS);
-    net.once('stabilizationIterationsDone', () => {
-      net.setOptions({ physics: { enabled: false } });
-      setStatus(`${soa.nodeCount} nodes · ${soa.edgeCount} edges — click a tissue to see its dual membership`);
-    });
+    // fixed Z-order tiles, no simulation — just frame the nested pyramid.
+    net.once('afterDrawing', () => net.fit({ animation: false }));
+    setStatus(`${soa.nodeCount} nodes · ${soa.edgeCount} edges — Z-order tile pyramid; click a tissue for its dual membership`);
 
     const dim = () => {
       visNodes.update(Array.from({ length: soa.nodeCount }, (_, i) => ({ id: i, color: { background: 'rgba(10,14,23,0.5)', border: '#26323f' }, font: { color: '#566779' } })));

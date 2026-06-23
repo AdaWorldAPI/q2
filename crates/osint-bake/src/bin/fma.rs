@@ -19,6 +19,7 @@
 //! Run from the workspace root:  `cargo run -p osint-bake --bin fma`
 
 use lance_graph_contract::canonical_node::NodeGuid;
+use osint_bake::morton;
 use std::path::{Path, PathBuf};
 
 /// The CEILING global-category pole (HEEL=HIP=0xFFFF; sentinel through TWIG = leaf-grain).
@@ -38,6 +39,15 @@ const C_TYPE: u8 = 5; // the leaf-limited global type categories (ceiling pole)
 const REL_PART_OF: u8 = 2; // structure → its container (basin-local hierarchy)
 const REL_IS_A: u8 = 3; // structure → its cross-cutting global type (ceiling)
 
+/// Map a sibling index (0..4) to its 2×2 quadrant `(tx, ty)` inside one 4×4
+/// Morton level: 0→(0,0) 1→(1,0) 2→(0,1) 3→(1,1) — natural row-major placement.
+/// Every FMA branch is ≤4-way (4 chambers, 3 walls, 2 tissues, 2 cells), so each
+/// part-of step is exactly one `morton::descend`, and depth == class.
+fn quad(i: usize) -> (u16, u16) {
+    let i = i as u16;
+    (i & 1, (i >> 1) & 1)
+}
+
 struct Node {
     label: String,
     class: u8,
@@ -55,6 +65,12 @@ impl Builder {
     }
 
     /// A part-of (basin-local) node: HEEL=organ, HIP=chamber, TWIG=wall, LEAF=struct.
+    /// `morton` is the node's Z-order tile path (one 4×4 level per part-of step);
+    /// its low 16 bits land in the GUID identity field, so the address **is** the
+    /// layout coordinate — `FmaGraph` deinterleaves it back into a fixed position.
+    /// Edges reference the returned array index, never the identity, so storing the
+    /// Morton code here is layout-only and can't perturb the graph topology.
+    #[allow(clippy::too_many_arguments)]
     fn part_of_node(
         &mut self,
         label: &str,
@@ -64,16 +80,17 @@ impl Builder {
         wall: u16,
         leaf: u16,
         basin: u8,
+        morton: u32,
     ) -> usize {
         let i = self.nodes.len();
         let key = NodeGuid::new_v2(
             CLASSID_FMA,
-            organ,        // HEEL — organ tier
-            chamber,      // HIP  — chamber tier
-            wall,         // TWIG — wall/region tier
-            leaf,         // LEAF — structure tier
+            organ,           // HEEL — organ tier
+            chamber,         // HIP  — chamber tier
+            wall,            // TWIG — wall/region tier
+            leaf,            // LEAF — structure tier
             u16::from(basin),
-            i as u16,
+            morton as u16,   // identity — the Z-order tile path (position == address)
         );
         self.nodes.push(Node { label: label.to_string(), class, key });
         i
@@ -129,18 +146,24 @@ fn build_heart() -> Builder {
     // a couple of cell types per tissue (depth + scale; part-of only).
     let cells: [&str; 2] = ["cell A", "cell B"];
 
-    // ── the heart organ (basin-local root) ──
-    let heart = b.part_of_node("Heart", C_ORGAN, 1, 0, 0, 0, 0);
+    // ── the heart organ (basin-local root, root of the Z-order pyramid) ──
+    // Morton 0 = the whole 16×16 tile; each part-of step descends one 4×4 level.
+    let heart_m: u32 = 0;
+    let heart = b.part_of_node("Heart", C_ORGAN, 1, 0, 0, 0, 0, heart_m);
 
     let chambers = ["left atrium", "right atrium", "left ventricle", "right ventricle"];
     for (ci, chamber) in chambers.iter().enumerate() {
         let cnum = (ci as u16) + 1; // HIP 1..4
         let basin = (ci as u8) + 1; // one basin per chamber
-        let ch = b.part_of_node(chamber, C_CHAMBER, 1, cnum, 0, 0, basin);
+        let (ctx, cty) = quad(ci); // chamber → one of the 4 heart quadrants
+        let chamber_m = morton::descend(heart_m, ctx, cty);
+        let ch = b.part_of_node(chamber, C_CHAMBER, 1, cnum, 0, 0, basin, chamber_m);
         b.edge(ch, heart, REL_PART_OF);
 
         for (wi, (wall, tissues)) in walls.iter().enumerate() {
             let wnum = (wi as u16) + 1; // TWIG 1..3
+            let (wtx, wty) = quad(wi); // wall → a sub-tile of the chamber quadrant
+            let wall_m = morton::descend(chamber_m, wtx, wty);
             let w = b.part_of_node(
                 &format!("{chamber} {wall}"),
                 C_WALL,
@@ -149,11 +172,14 @@ fn build_heart() -> Builder {
                 wnum,
                 0,
                 basin,
+                wall_m,
             );
             b.edge(w, ch, REL_PART_OF);
 
             for (ti, (tissue, gtype)) in tissues.iter().enumerate() {
                 let leaf = (ti as u16) + 1;
+                let (ttx, tty) = quad(ti); // tissue → a sub-tile of the wall
+                let tissue_m = morton::descend(wall_m, ttx, tty);
                 let t = b.part_of_node(
                     &format!("{chamber} {tissue}"),
                     C_TISSUE,
@@ -162,6 +188,7 @@ fn build_heart() -> Builder {
                     wnum,
                     leaf,
                     basin,
+                    tissue_m,
                 );
                 b.edge(t, w, REL_PART_OF);
                 // THE dual membership: this basin-local tissue is-a the global type.
@@ -169,6 +196,8 @@ fn build_heart() -> Builder {
 
                 for (cells_i, cell) in cells.iter().enumerate() {
                     let cleaf = (ti as u16) * 8 + (cells_i as u16) + 16;
+                    let (xtx, xty) = quad(cells_i); // cell → the finest sub-tile
+                    let cell_m = morton::descend(tissue_m, xtx, xty);
                     let c = b.part_of_node(
                         &format!("{chamber} {tissue} {cell}"),
                         C_CELL,
@@ -177,6 +206,7 @@ fn build_heart() -> Builder {
                         wnum,
                         cleaf,
                         basin,
+                        cell_m,
                     );
                     b.edge(c, t, REL_PART_OF);
                 }
@@ -226,14 +256,18 @@ fn main() {
     let key = &b.nodes[tissue].key;
     println!("── FMA dual-membership proof ──");
     println!("node: {}", b.nodes[tissue].label);
+    // identity now carries the node's Z-order tile path (one 4×4 level per
+    // part-of step, coarsest in the high nibble). FmaGraph walks the nibbles to
+    // recover the nested-tile position; a flat decode would mis-spread the bits.
+    let morton_code = u32::from(key.identity_v2());
     println!(
-        "  part-of address (basin-local): HEEL={} HIP={} TWIG={} LEAF={} family={} identity={}",
+        "  part-of address (basin-local): HEEL={} HIP={} TWIG={} LEAF={} family={} morton=0x{:04x} (Z-order tile path)",
         key.heel(),
         key.hip(),
         key.twig(),
         key.leaf(),
         key.family_v2(),
-        key.identity_v2()
+        morton_code,
     );
     // its is-a edge → the leaf-limited global type (ceiling pole)
     let gtype = b
