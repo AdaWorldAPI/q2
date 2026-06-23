@@ -202,9 +202,14 @@ Design notes for the eventual Phase 2 (NOT built now):
 - **Batch-parse cost (Phase B):** parsing every file via WASM is unmeasured.
   Measure on a realistic multi-file project before committing to enrichment.
   Per-doc parse is keystroke-fast; N-file batch is the unknown.
-- **Index library choice:** MiniSearch (small, simple, good fuzzy/prefix) vs.
-  FlexSearch (fastest, larger API) vs. Orama (typed, plugin tokenizers).
-  Decide in Phase 1.1 with a bundle-size + relevance spike.
+- **Index library choice:** RESOLVED 2026-06-23 → **MiniSearch** (v7, MIT).
+  Rationale: first-class incremental `add`/`replace`/`discard`/`vacuum` maps
+  directly onto our `onFileContent`/`onFilesChange` event stream; per-field
+  `boost` + `boostDocument` covers Phase B title/heading weighting; prefix +
+  fuzzy built in; ~7KB gzip; excellent TS types. FlexSearch's raw-throughput
+  edge buys nothing at one-project corpus scale while costing removal/TS
+  ergonomics; Orama is heavier than Phase 1 needs (its stemming is replicable
+  via MiniSearch `processTerm` in Phase B).
 - **Snippet/highlighting:** raw-text offsets are easy; mapping back to rendered
   preview positions is harder and may be deferred.
 - **Binary files:** excluded from the text index (only `TextDocumentContent`).
@@ -235,8 +240,9 @@ under vitest, and the production build must pass
 ## Work items
 
 ### Phase 1 — open-project, client-side
-- [ ] 1.1 Spike: pick search library (MiniSearch / FlexSearch / Orama) —
-      bundle size + relevance + fuzzy/prefix support. Record decision here.
+- [x] 1.1 Spike: pick search library (MiniSearch / FlexSearch / Orama) —
+      bundle size + relevance + fuzzy/prefix support. **Decision: MiniSearch
+      v7** (see Open questions for rationale).
 - [ ] 1.2 Write provider unit tests (failing) for the `SearchProvider`
       interface.
 - [ ] 1.3 Implement in-memory `SearchProvider` (raw text) to green the tests.
