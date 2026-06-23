@@ -69,9 +69,31 @@ const MIXIN_CLIQUE_MAX = 8;
 
 // Legend for the relation layers (the mixin + the typed neo4j relations).
 const REL_LEGEND: Array<[string, number]> = [
-  ['family (mixin)', MIXIN_COLOR],
   ...REL_NAME.slice(2).map((nm, i) => [nm, REL_COLOR[i + 2]] as [string, number]),
 ];
+
+// ── The generative grammar (the "counterpoint") ────────────────────────────
+// A co-family type-PAIR voices an inferred relation. This is the imaginative
+// inverse-Louvain: the community only handed us co-membership; the type-pair
+// infers *how* two members relate. Selective — a pair with no rule stays
+// silent (variation IS the expression). Hand-authored for now; later these
+// rules bind to the OGIT class AST (OGAR / lance-graph) so the grammar is
+// grounded in the ontology instead of by hand. Classes (OSINT_SCHEMA order):
+//   0 System · 1 Stakeholder · 2 Person · 3 CivicSystem · 4 HistoricalSystem
+//   5 SchemaValue · 6 SchemaAxis
+// Returns a rel code (2..9) to voice, or -1 for silence.
+function inferRel(a: number, b: number): number {
+  const has = (x: number) => a === x || b === x;
+  const pair = (x: number, y: number) => (a === x && b === y) || (a === y && b === x);
+  if (has(4)) return 7; // HistoricalSystem × anything → precedes (HIERARCHICAL)
+  if (has(3)) return 8; // CivicSystem × anything → governs / valid-for (VALID_FOR)
+  if (has(5) || has(6)) return 6; // Schema × anything → typed-by / used-in (USED_IN)
+  if (pair(2, 0)) return 3; // Person × System → develops / uses (DEVELOPED_BY)
+  if (pair(1, 0)) return 4; // Stakeholder × System → deploys (DEPLOYED_BY)
+  if (a === 0 && b === 0) return 2; // System × System → connects (CONNECTED_TO)
+  if (a === 2 && b === 2) return 5; // Person × Person → person-link (PERSON_LINK)
+  return -1; // no rule → silent
+}
 
 // Port of osint_gotham::basin_center — basins on a golden-angle spiral.
 function basinCenter(basin: number): [number, number, number] {
@@ -222,13 +244,18 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   };
 
   // ── Layer 1: the family-basin MIXIN, projected per the ClassView mode ──
-  // `category`: the connective category — clique among co-family members for
-  //   small families (membership ⇒ every pair related), ring for large ones
-  //   (bounded proxy). The inverse of Louvain: community label → edges.
-  // `adapter`: the family node as a connector — the member→hub spokes the bake
-  //   already emits (rel 0 member-of / 1 interfaces).
+  // `category`: the GENERATIVE GRAMMAR — for each co-family pair, inferRel()
+  //   voices a typed relation from the member type-pair (selective: silent
+  //   where no rule fits). Rendered DASHED so inference reads distinctly from
+  //   the literal baked relations below. (clique candidates for small families,
+  //   ring candidates for large — bounded.)
+  // `adapter`: the family node as a connector — the literal member→hub spokes
+  //   the bake emits (rel 0 member-of / 1 interfaces).
+  const grammarMode = mode === 'category';
   const famPos: number[] = [];
-  if (mode === 'category') {
+  const famCol: number[] = [];
+  const famColor = new THREE.Color();
+  if (grammarMode) {
     const byBasin = new Map<number, number[]>();
     for (let i = 0; i < s.nodeCount; i++) {
       if (s.cls[i] === HUB_CLASS) continue; // members only
@@ -236,15 +263,22 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
       if (arr) arr.push(i);
       else byBasin.set(s.basin[i], [i]);
     }
+    const consider = (u: number, v: number) => {
+      const rel = inferRel(s.cls[u], s.cls[v]);
+      if (rel < 0) return; // no rule → silent
+      pushSeg(famPos, u, v);
+      famColor.set(REL_COLOR[rel] ?? 0x8fa6c4);
+      famCol.push(famColor.r, famColor.g, famColor.b, famColor.r, famColor.g, famColor.b);
+    };
     byBasin.forEach((members) => {
       const m = members.length;
       if (m < 2) return;
       if (m <= MIXIN_CLIQUE_MAX) {
         for (let a = 0; a < m; a++) {
-          for (let b = a + 1; b < m; b++) pushSeg(famPos, members[a], members[b]);
+          for (let b = a + 1; b < m; b++) consider(members[a], members[b]);
         }
       } else {
-        for (let a = 0; a < m; a++) pushSeg(famPos, members[a], members[(a + 1) % m]);
+        for (let a = 0; a < m; a++) consider(members[a], members[(a + 1) % m]);
       }
     });
   } else {
@@ -257,14 +291,29 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   }
   const famGeom = new THREE.BufferGeometry();
   famGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(famPos), 3));
-  const famMat = new THREE.LineBasicMaterial({
-    color: MIXIN_COLOR,
-    transparent: true,
-    opacity: 0.2,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  scene.add(new THREE.LineSegments(famGeom, famMat));
+  let famMat: THREE.LineBasicMaterial | THREE.LineDashedMaterial;
+  if (grammarMode) {
+    famGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(famCol), 3));
+    famMat = new THREE.LineDashedMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.5,
+      dashSize: 1.6,
+      gapSize: 1.3,
+      depthWrite: false,
+    });
+  } else {
+    famMat = new THREE.LineBasicMaterial({
+      color: MIXIN_COLOR,
+      transparent: true,
+      opacity: 0.16,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+  }
+  const famLines = new THREE.LineSegments(famGeom, famMat);
+  if (grammarMode) famLines.computeLineDistances(); // required for dashes
+  scene.add(famLines);
 
   // ── Layer 2: the explicit neo4j relations (rel ≥ 2), colour-typed ──
   // The VIEW on top of the mixin fabric. The bake already carries these; the
@@ -419,6 +468,9 @@ export function OsintScene3D() {
             {info.nodes} nodes · {info.edges} edges · decoded client-side
           </div>
         )}
+        <div style={{ color: '#6f87a0', marginTop: 2 }}>
+          solid = literal relations · dashed = inferred (counterpoint grammar)
+        </div>
         {error && <div style={{ color: '#ff637d' }}>load error: {error}</div>}
         <div style={{ marginTop: 8 }}>
           {LEGEND.map(([name, c]) => (
