@@ -483,6 +483,83 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   };
   renderer.domElement.addEventListener('pointermove', onMove);
 
+  // ── Spreading activation (double-click to seed) ─────────────────────────────
+  // Double-click a node to SEED a reasoning wave: activation spreads outward
+  // along the typed relations in timed hops — the lit tree grows like firing
+  // axons developing a concept. First slice of the live-reasoning / "watch the
+  // brain think" view; the real NARS trace from /api/graph/infer (truth-weighted
+  // deduction/abduction over the 4096-bit SoA) replaces this BFS next.
+  let actLines: THREE.LineSegments | null = null;
+  let actStart = 0;
+  let actTotalSeg = 0;
+  const REVEAL_MS = 55; // per-segment reveal cadence (the firing speed)
+  const clearActivation = () => {
+    if (actLines) {
+      scene.remove(actLines);
+      actLines.geometry.dispose();
+      (actLines.material as THREE.Material).dispose();
+      actLines = null;
+    }
+    actTotalSeg = 0;
+  };
+  const seedActivation = (seed: number) => {
+    clearActivation();
+    const seen = new Set<number>([seed]);
+    let frontier = [seed];
+    const apos: number[] = [];
+    const acol: number[] = [];
+    const heat = new THREE.Color();
+    let depth = 0;
+    const MAXD = 8;
+    const MAXN = 600;
+    while (frontier.length && depth < MAXD && seen.size < MAXN) {
+      const next: number[] = [];
+      for (const u of frontier) {
+        for (const { j } of adj.get(u) ?? []) {
+          if (seen.has(j)) continue;
+          seen.add(j);
+          next.push(j);
+          apos.push(p[u * 3], p[u * 3 + 1], p[u * 3 + 2], p[j * 3], p[j * 3 + 1], p[j * 3 + 2]);
+          const t = depth / MAXD;
+          heat.setHSL(0.55 - t * 0.12, 0.9, 0.78 - t * 0.4); // hot near seed → cool far
+          acol.push(heat.r, heat.g, heat.b, heat.r, heat.g, heat.b);
+          if (seen.size >= MAXN) break;
+        }
+        if (seen.size >= MAXN) break;
+      }
+      frontier = next;
+      depth++;
+    }
+    if (!apos.length) return;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(apos), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(acol), 3));
+    g.setDrawRange(0, 0);
+    actLines = new THREE.LineSegments(
+      g,
+      new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    scene.add(actLines);
+    actTotalSeg = apos.length / 6;
+    actStart = performance.now();
+  };
+  const onDbl = (ev: MouseEvent) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(nodeMeshes, false)[0];
+    if (hit) seedActivation(hit.object.userData.idx as number);
+    else clearActivation();
+  };
+  renderer.domElement.addEventListener('dblclick', onDbl);
+
   // Frame the centred radius-R cloud, then hand control to the user:
   // left-drag = orbit, scroll = zoom, right-drag = pan. A gentle idle
   // auto-rotate runs until the first interaction, then yields fully.
@@ -508,6 +585,11 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   let animId = 0;
   const animate = () => {
     controls.update();
+    if (actLines && actTotalSeg) {
+      // reveal the activation tree segment-by-segment = the wave spreading
+      const rev = Math.min(actTotalSeg, Math.floor((performance.now() - actStart) / REVEAL_MS));
+      actLines.geometry.setDrawRange(0, rev * 2);
+    }
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
     animId = requestAnimationFrame(animate);
@@ -528,7 +610,9 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     cancelAnimationFrame(animId);
     controls.dispose();
     renderer.domElement.removeEventListener('pointermove', onMove);
+    renderer.domElement.removeEventListener('dblclick', onDbl);
     clearFocus();
+    clearActivation();
     window.removeEventListener('resize', handleResize);
     sphereGeom.dispose();
     famGeom.dispose();
