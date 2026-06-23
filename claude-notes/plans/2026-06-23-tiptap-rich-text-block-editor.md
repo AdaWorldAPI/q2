@@ -332,21 +332,102 @@ Deps added (dev): `prosemirror-model`, `prosemirror-markdown`. Quarantine/delete
 before any non-experimental merge; `tsc --noEmit` is clean and the full
 preview-renderer suite (473 tests) passes with it present.
 
-### Phase 1 — Integration behind an opt-in flag (future; needs go-ahead)
+### Phase 1 — WYSIWYG in-place editor behind an opt-in flag (design locked 2026-06-23)
 
-- Replace `EditTextarea`'s `<textarea>` with a tiptap component inside the same
-  measured wrapper, seeded from `seededDraft`, committing via `commitTextEdit`.
-- Wire the dirty guard to PM's change signal; preserve the
-  stale-target/self-heal blur guards.
-- Gate behind a flag mirroring `unlockNestingCursor` (hub-client
-  `usePreference`; SPA `?richText=1` query param).
-- Keep the textarea as the default and the fallback.
+**Goal of the experiment (user's framing):** the editable view should *look like
+the rendered page* — editing a paragraph shows body font, real bold, real links,
+not a monospaced box. See "how close we can get".
+
+**The key enabler (confirmed by recon).** The editor mounts in the **same iframe**
+as the rendered content, and that iframe already has the **full Bootstrap + Quarto
+theme CSS** loaded (`<link data-q2-theme>` in `document.head`, applied in
+`q2-preview/entry.tsx`). The renderer emits **clean semantic tags** (`<p>`, `<em>`,
+`<strong>`, `<h2>`, `<a>`, `<ul>/<li>`) with no proprietary classes. So a
+ProseMirror editor emitting the same tags is styled by the theme **for free** — we
+emit matching DOM and let the cascade do the work; we do **not** reimplement theme
+styling. The existing measured-box wrapper (`renderMeasuredEdit`, the
+`q2-active-edit-region` div) is **structural** (prevents reflow) and **stays**; we
+swap the monospaced `<textarea>` inside it for a tiptap editor and reset
+ProseMirror's default editor chrome so it doesn't fight the theme.
+
+**Dev loop.** `q2 preview --allow-edit` (no sync server; serves `{allowEdit:true}`
+read by the SPA at boot). A new `?richText=1` opt-in is plumbed exactly like
+`?nestingCursor=1`: `PreviewApp` parses it → `Q2PreviewIframe` prop → `UPDATE_AST`
+payload → `PreviewContext` → dispatcher branch. Iterate + screenshot via the
+chrome-devtools MCP.
+
+**tiptap now enters** (the spike was deliberately headless ProseMirror). Phase 1
+uses `@tiptap/react` (`useEditor`/`EditorContent`) and **React NodeViews for
+chips**. The spike's `astToPm` seed and `prosemirror-markdown` serializer port over
+essentially unchanged.
+
+**Decisions locked (2026-06-23, third iteration):**
+
+- **Staging: paragraph-first, then widen.** First cut targets single paragraphs
+  only (pure inline editing — em/strong/link/code/chips, **no** structural splits)
+  to prove the "looks like the page" feel + the commit loop in the real preview
+  before taking on interactive structural edits.
+- **Chips: source-text pills only (v1).** Every chip (shortcode, math, crossref,
+  cite, raw) renders as a small pill showing its source token; always serializes
+  verbatim. (Noted future option, explicitly out of v1: render inline math via the
+  already-loaded **KaTeX** / show resolved crossref text, to match the page while
+  staying atomic. Deferred.)
+
+**Sub-phases:**
+
+- **1a — Paragraph-only WYSIWYG proof.** Wire the `richText` flag end-to-end;
+      branch the `Block` dispatcher so a `Para` edit-target renders a tiptap editor
+      (seeded from the `sourceNode` via `resolveSource`, i.e. AST→PM) inside the
+      existing measured box; emit page-matching DOM; commit via the **unchanged**
+      `commitTextEdit` path; implement the **`doc.eq(initialDoc)` dirty guard (C3)**
+      and the stale-target/self-heal blur guards. Drive with chrome-devtools;
+      capture before/after screenshots proving the editor matches the rendered
+      paragraph. Round-trip unit tests for inline edits.
+  - [x] **Production round-trip core** (`src/q2-preview/richtext/`): `schema.ts`
+        (tiptap-named PM schema + `chip`), `ast.ts`, `astToProseMirror.ts`
+        (`astToDoc`), `serializer.ts` (`docToMarkdown`). Plus shared test oracle
+        `src/test-utils/pampaOracle.ts` and `richtext/roundtrip.test.ts` (13
+        fixtures, **all pass**). Gate = SEMANTIC equivalence (no dropped/changed
+        nodes), with byte-exactness informational per user guidance (imperfect
+        round-trip OK, dropped nodes not). Two qmd-specific serializer choices
+        landed: italic→`_` (avoids qmd-disallowed `***`), list `tight` from AST
+        (Plain vs Para items). Oracle compares inline marks as a *flat set*
+        (ProseMirror's model) so `[**x**](u)`≡`**[x](u)**`. tsc clean.
+  - [ ] tiptap `Chip` node extension (React NodeView pill).
+  - [ ] `RichTextEditor.tsx` (tiptap editor seeded via `astToDoc(...).toJSON()`;
+        commit via `docToMarkdown` + `commitTextEdit`; `doc.eq` dirty guard;
+        Esc/Cmd-Enter/blur + stale-target guard; Para-only, no structural splits).
+  - [ ] Plumb `richText` flag: `PreviewContext` → `Q2PreviewIframe` →
+        `UPDATE_AST` payload → `PreviewApp` `?richText=1` (mirror `unlockNestingCursor`).
+  - [ ] Dispatcher branch: `Block` renders `RichTextEditor` (vs `EditTextarea`)
+        for `Para` when `ctx.richText`.
+  - [ ] Browser verification (`q2 preview --allow-edit` + `?richText=1`,
+        chrome-devtools screenshots of editor-vs-rendered parity).
+- [ ] **1b — Headings + inline-formatting polish** (toolbar-free; rely on standard
+      marks + theme styling). Tighten visual parity (margins, line-height).
+- [ ] **1c — Lists / blockquotes, incl. interactive structural edits** (Enter
+      split, new item, backspace-merge) with round-trip tests for *interactive*
+      edits (new surface beyond the spike's static round-trip).
+- [ ] **1d — Chip UX** (pills; read-only in v1) and the first seam toward the
+      Phase-2 textarea fallback.
+
+**Risks / open tensions for Phase 1:**
+
+- **Exact visual parity is a long tail.** ~95% free for prose; pixel-exact needs
+  iteration, and attributed blocks (`{.lead}`, classed lists) only match if we
+  carry their classes onto the editor's root node.
+- **Interactive structural edits are new** (1c). ProseMirror creates/splits nodes
+  natively; the serializer must produce correct qmd for those — proven only
+  statically so far. This also intersects Phase 2's "fall back to textarea for new
+  blocks".
+- **Chip editing.** A user fixing a typo inside a shortcode/math can't, in v1
+  (chips are read-only) — that routes through the Phase-2 textarea fallback.
 
 ### Phase 2 — Fallback + new-block authoring (future)
 
-- Escape hatch: when the user needs unsupported syntax or to add a new block,
-  drop from the rich editor to the textarea (mode toggle, or auto-fallback on
-  detecting an unsupported edit).
+- Escape hatch: when the user needs unsupported syntax, to edit a chip's source,
+  or to add a new block, drop from the rich editor to the textarea (mode toggle,
+  or auto-fallback on detecting an unsupported edit).
 - Inter-block cursoring (arrow-out) under the rich editor.
 
 ### Phase 3 — (Stretch) AST channel (future, possibly never)
