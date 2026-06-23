@@ -28,7 +28,11 @@ use super::runtime::SystemRuntime;
 /// matching `io_wasm.rs` conventions.
 fn resolve_dofile_path(lua: &Lua, path: &str) -> Result<String> {
     let p = Path::new(path);
-    if p.is_absolute() {
+    // has_root (quarto_util::is_rooted), not is_absolute: is_absolute() is
+    // false on wasm32 for rooted `/foo` paths, which would wrongly fall through
+    // to the script_dir / `/project/` branches. This fn runs only under
+    // cfg(wasm32). See bd-cfl67.
+    if quarto_util::is_rooted(p) {
         return Ok(path.to_string());
     }
 
@@ -94,6 +98,7 @@ mod tests {
     use super::super::filter::apply_lua_filter;
     use crate::pandoc::ASTContext;
     use crate::pandoc::*;
+    use mlua::Lua;
     use std::fs;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -286,5 +291,27 @@ end
             },
             other => panic!("Expected Paragraph, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_resolve_dofile_path_returns_rooted_path_as_is() {
+        let lua = Lua::new();
+        crate::lua::quarto_api::init_script_dir_stack(&lua).unwrap();
+        // Rooted VFS path, empty script dir: must be returned unchanged, not
+        // /project/-prefixed. is_absolute("/abs") is false on Windows/wasm32,
+        // so this is red until the resolver uses has_root.
+        let resolved = super::resolve_dofile_path(&lua, "/abs/helper.lua").unwrap();
+        assert_eq!(resolved, "/abs/helper.lua");
+    }
+
+    #[test]
+    fn test_resolve_dofile_path_rooted_ignores_script_dir() {
+        let lua = Lua::new();
+        crate::lua::quarto_api::init_script_dir_stack(&lua).unwrap();
+        crate::lua::quarto_api::push_script_dir(&lua, "/some/script/dir").unwrap();
+        // Rooted path with an active script dir: still returned as-is, because
+        // the rooted check runs before the script_dir.join branch.
+        let resolved = super::resolve_dofile_path(&lua, "/abs/helper.lua").unwrap();
+        assert_eq!(resolved, "/abs/helper.lua");
     }
 }
