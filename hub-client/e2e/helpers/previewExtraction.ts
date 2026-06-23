@@ -196,6 +196,17 @@ export interface PreviewStageDiagnostics {
   loadingPreview: boolean;
   iframePresent: boolean;
   bodyLen: number;
+  /**
+   * The on-screen "Render Error" message, if the preview pane is showing one
+   * (Preview's ErrorView or ReactPreview's inline error view). This is the
+   * *actual* failure reason — e.g. "Failed to read file: Path not found:
+   * /project/<target>.qmd" — which otherwise lives only in the page DOM and
+   * never reaches the CI log, where the lone visible signal is the benign
+   * mocked-auth 401. Surfacing it stops failure logs misleading the next
+   * investigator toward a phantom connectivity/auth cause. Empty when no
+   * render error is shown.
+   */
+  renderError: string;
   /** Single-line, key=value, grep-friendly form for the failure message. */
   line: string;
 }
@@ -230,6 +241,24 @@ export async function capturePreviewDiagnostics(
     if (iframe?.contentDocument?.body) {
       bodyLen = iframe.contentDocument.body.innerHTML.length;
     }
+
+    // Capture the on-screen "Render Error" message if the preview is showing
+    // one. Both error views (Preview's ErrorView and ReactPreview's inline
+    // view) render `<strong>Render Error</strong>` followed by a `<pre>` with
+    // the message, so match on that shared structure rather than a class
+    // (both use inline styles). The message is the genuine failure reason that
+    // otherwise never leaves the DOM. Collapse whitespace + cap length to keep
+    // the single-line diag tidy.
+    let renderError = '';
+    const errStrong = Array.from(document.querySelectorAll('strong')).find(
+      (s) => s.textContent?.trim() === 'Render Error',
+    );
+    if (errStrong) {
+      const pre = errStrong.parentElement?.querySelector('pre');
+      const msg = (pre?.textContent ?? errStrong.parentElement?.textContent ?? '').trim();
+      renderError = msg.replace(/\s+/g, ' ').slice(0, 300);
+    }
+
     return {
       wasmReady,
       vfsCount,
@@ -240,6 +269,7 @@ export async function capturePreviewDiagnostics(
       loadingPreview: text.includes('Loading preview'),
       iframePresent: !!iframe,
       bodyLen,
+      renderError,
     };
   }, iframeSelector);
 
@@ -259,7 +289,10 @@ export async function capturePreviewDiagnostics(
     `projectSelector=${raw.projectSelector ? 1 : 0} connecting=${raw.connecting ? 1 : 0} ` +
     `connError=${raw.connError ? 1 : 0} editor=${raw.editor ? 1 : 0} ` +
     `loadingPreview=${raw.loadingPreview ? 1 : 0} iframe=${raw.iframePresent ? 1 : 0} ` +
-    `bodyLen=${raw.bodyLen}`;
+    `bodyLen=${raw.bodyLen}` +
+    // The real failure reason, when the preview is showing a render error.
+    // Appended last so the analyzer's `stage=` parse is unaffected.
+    (raw.renderError ? ` renderError="${raw.renderError}"` : '');
 
   return { stage, ...raw, line };
 }
