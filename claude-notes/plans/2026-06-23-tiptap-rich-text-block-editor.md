@@ -401,8 +401,22 @@ essentially unchanged.
         `UPDATE_AST` payload → `PreviewApp` `?richText=1` (mirror `unlockNestingCursor`).
   - [ ] Dispatcher branch: `Block` renders `RichTextEditor` (vs `EditTextarea`)
         for `Para` when `ctx.richText`.
-  - [ ] Browser verification (`q2 preview --allow-edit` + `?richText=1`,
-        chrome-devtools screenshots of editor-vs-rendered parity).
+  - [x] Browser verification (`q2 preview --allow-edit` + `?richText=1`,
+        chrome-devtools). **Verified end-to-end 2026-06-23.** Clicking a paragraph
+        opens a tiptap editor that is visually identical to the rendered block
+        (bold/italic/code/link styled by the theme — same-iframe cascade), just
+        with a caret; DOM snapshot confirmed a real ProseMirror contenteditable
+        with `<strong>/<em>/<code>/<a>` nodes. A real edit (inserting bolded
+        "more") committed through the **unchanged** `commitTextEdit` path and
+        wrote clean qmd to disk — `(and **more**!)` — with the rest of the
+        paragraph (`**bold text**`, `*italic text*`, `` `inline code` ``,
+        `[hyperlink](…)`) round-tripped **byte-clean**. Evidence:
+        `claude-notes/richtext-shots/{01-rendered,02-editing-para1}.png`.
+
+**Phase 1a is COMPLETE and verified.** The thesis holds: the editable view looks
+like the page, edits are rich-text, and write-back is faithful qmd through the
+existing pipeline. Next: 1b (headings + inline polish), 1c (lists/blockquotes +
+interactive structural-edit round-trip tests).
 - [ ] **1b — Headings + inline-formatting polish** (toolbar-free; rely on standard
       marks + theme styling). Tighten visual parity (margins, line-height).
 - [ ] **1c — Lists / blockquotes, incl. interactive structural edits** (Enter
