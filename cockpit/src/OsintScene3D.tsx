@@ -548,12 +548,22 @@ function mount(
     const list = adj.get(idx) ?? [];
     const fpos: number[] = [];
     const fcol: number[] = [];
+    // Draw every connection arc, but label by relation TYPE — a hub with 46
+    // VALID_FOR links shouldn't stack 46 identical tags. One tag per type at
+    // the first such arc's apex, with an ×count when the type repeats.
+    const relApex = new Map<number, THREE.Vector3>();
+    const relCount = new Map<number, number>();
     list.forEach(({ j, rel }) => {
       colTmp.set(REL_COLOR[rel] ?? 0x8fa6c4);
       pushCurve(fpos, idx, j, fcol, colTmp.r, colTmp.g, colTmp.b, _apex);
+      if (!relApex.has(rel)) relApex.set(rel, _apex.clone()); // arc apex, off the sight-line
+      relCount.set(rel, (relCount.get(rel) ?? 0) + 1);
+    });
+    relApex.forEach((pos, rel) => {
       const hex = `#${(REL_COLOR[rel] ?? 0x8fa6c4).toString(16).padStart(6, '0')}`;
-      const lbl = mkLabel(REL_NAME[rel] ?? 'related', hex, false);
-      lbl.position.copy(_apex); // label rides the arc apex, off the sight-line
+      const cnt = relCount.get(rel) ?? 1;
+      const lbl = mkLabel(`${REL_NAME[rel] ?? 'related'}${cnt > 1 ? ` ×${cnt}` : ''}`, hex, false);
+      lbl.position.copy(pos);
       focusGroup.add(lbl);
     });
     const fg = new THREE.BufferGeometry();
