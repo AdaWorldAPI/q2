@@ -6,6 +6,7 @@ import { PalantirApp } from './PalantirApp';
 import { NeuralDebuggerPage } from './NeuralDebuggerPage';
 import { RenderPage, OrbitPage, FlightPage } from './RenderPage';
 import { OsintScene3D } from './OsintScene3D';
+import { OsintGraph } from './OsintGraph';
 import { ReasoningPage } from './ReasoningPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/cockpit.css';
@@ -68,10 +69,12 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/render" element={<RenderPage />} />
           <Route path="/orbit" element={<OrbitPage />} />
           <Route path="/flight" element={<FlightPage />} />
-          {/* Default landing = the enriched OSINT CAM scene (920 nodes / 3344
-              edges), decoded client-side from the baked /osint.soa bytes — the
-              live stack output, not the 221-node static aiwar JSON. */}
-          <Route path="/" element={<OsintScene3D />} />
+          {/* Default landing = the SoA decoded into the sleek vis-network
+              renderer (the Palantir look: ring nodes, wobbly edges, labels),
+              fed by the baked /osint.soa bytes — same renderer, rerouted data.
+              The 3D CAM reasoning scene lives on at /osint3d as the alternative. */}
+          <Route path="/" element={<OsintGraph />} />
+          <Route path="/osint" element={<OsintGraph />} />
           <Route path="/osint3d" element={<OsintScene3D />} />
           {/* The Palantir JSON-graph cockpit (221 aiwar nodes) stays reachable
               at /palantir and as the catch-all for its own sub-routes. */}
