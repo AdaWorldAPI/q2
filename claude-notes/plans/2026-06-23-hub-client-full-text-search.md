@@ -266,9 +266,15 @@ under vitest, and the production build must pass
       `buildSnippet(content, terms)` helper rendering `<mark>` segments;
       kept out of the provider (which need not store full text).
       `snippet.{ts,test.ts}` (8 tests).
-- [ ] 1.7 End-to-end check in a real browser session against a running hub
-      (per CLAUDE.md end-to-end-verification rule); record the invocation +
-      observed result here.
+- [x] 1.7 End-to-end check in a real browser session against a running hub.
+      → `hub-client/e2e/search.spec.ts`, run via
+      `VITE_E2E=1 npm run build && npx playwright test search.spec.ts`. Drives
+      the **full Automerge sync pipeline**: a 4-file project created on the real
+      Rust hub (`cargo run --bin hub`), synced into the browser, then the
+      sidebar search box exercised. Observed (1 passed, 16.2s): query
+      `regression` → exactly one result `methods.qmd`; snippet `<mark>`
+      highlighted "regression"; clicking the result opened the file (preview
+      rendered "logistic regression"); clearing restored all 4 files.
 - [ ] 1.8 `hub-client/changelog.md` entry (two-commit workflow per CLAUDE.md).
 
 ### Phase B — relevance enrichment (after measuring parse cost)
