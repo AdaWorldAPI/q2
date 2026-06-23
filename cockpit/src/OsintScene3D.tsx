@@ -520,6 +520,14 @@ function mount(
     addAdj(b, a, rel);
   }
 
+  // name → node index. The scene's own edges were resolved name→index at bake
+  // time, so the same map lets the real NARS trace (/api/graph/infer, whose
+  // source/target/via are entity names) land its inferred edges on scene nodes.
+  const nameToIdx = new Map<string, number>();
+  for (let i = 0; i < s.nodeCount; i++) {
+    if (s.labels[i]) nameToIdx.set(s.labels[i], i);
+  }
+
   const focusGroup = new THREE.Group();
   scene.add(focusGroup);
   const baseFamO = famMat.opacity;
@@ -617,6 +625,7 @@ function mount(
   let actPruneStart = 0;
   let actTotalSeg = 0;
   let actPhase: 'bloom' | 'prune' = 'bloom';
+  let disposed = false; // set on teardown; guards async NARS writes post-unmount
   const counter = document.createElement('div');
   counter.style.cssText =
     'position:absolute;top:14px;left:50%;transform:translateX(-50%);font-family:monospace;' +
@@ -695,13 +704,100 @@ function mount(
     actPhase = 'bloom';
     counter.style.display = 'block';
   };
+
+  // ── Real NARS trace (the truth-weighted reasoning behind the bloom) ─────────
+  // POST the seed entity to /api/graph/infer; bloom the deductions it returns
+  // (A→B,B→C ⊢ A→C with f=f₁·f₂, c=f₁·f₂·c₁·c₂). Each inference lights its
+  // reasoning PATH (source→via…→target), and CONFIDENCE is the prune metric —
+  // low-c conclusions fade, the believed theories survive. Falls back to the
+  // BFS bloom on any failure (endpoint down, no data, nothing mapped), so the
+  // working demo never regresses.
+  const REASON_HOPS = 3;
+  const REASON_MIN_CONF = 0.25;
+  const clamp01 = (x: number) => Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0));
+  interface Inference {
+    source: string;
+    target: string;
+    via?: string[];
+    truth_f?: number;
+    truth_c?: number;
+  }
+  const reasonFrom = async (seedIdx: number) => {
+    const nm = s.labels[seedIdx];
+    if (!nm) {
+      seedActivation(seedIdx); // unnamed node → heuristic bloom
+      return;
+    }
+    let infs: Inference[] = [];
+    try {
+      const r = await fetch('/api/graph/infer', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          node_id: nm,
+          max_hops: REASON_HOPS,
+          min_confidence: REASON_MIN_CONF,
+        }),
+      });
+      if (r.ok) infs = ((await r.json()).inferences as Inference[]) ?? [];
+    } catch {
+      /* endpoint down → fall through to the heuristic bloom */
+    }
+    if (disposed) return;
+    const apos: number[] = [];
+    const acol: number[] = [];
+    const scores: number[] = [];
+    const heat = new THREE.Color();
+    for (const inf of infs) {
+      const path = [inf.source, ...(inf.via ?? []), inf.target];
+      const tc = clamp01(inf.truth_c ?? 0);
+      const tf = clamp01(inf.truth_f ?? 0);
+      heat.setHSL(0.55 - tf * 0.12, 0.9, 0.4 + tc * 0.42); // confident → bright
+      for (let h = 0; h + 1 < path.length; h++) {
+        const a = nameToIdx.get(path[h]);
+        const c = nameToIdx.get(path[h + 1]);
+        if (a == null || c == null) continue;
+        apos.push(p[a * 3], p[a * 3 + 1], p[a * 3 + 2], p[c * 3], p[c * 3 + 1], p[c * 3 + 2]);
+        acol.push(heat.r, heat.g, heat.b, heat.r, heat.g, heat.b);
+        scores.push(tc); // confidence IS the prune metric
+      }
+    }
+    clearActivation();
+    if (!scores.length) {
+      seedActivation(seedIdx); // no mapped inferences → heuristic bloom
+      return;
+    }
+    actBase = new Float32Array(acol);
+    actScore = new Float32Array(scores);
+    const sorted = [...scores].sort((a, b) => b - a);
+    actThresh = sorted[Math.min(TARGET, sorted.length) - 1] ?? 0;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(apos), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(acol), 3));
+    g.setDrawRange(0, 0);
+    actLines = new THREE.LineSegments(
+      g,
+      new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    scene.add(actLines);
+    actTotalSeg = scores.length;
+    actStart = performance.now();
+    actPhase = 'bloom';
+    counter.style.display = 'block';
+  };
   const onDbl = (ev: MouseEvent) => {
     const rect = renderer.domElement.getBoundingClientRect();
     ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(ndc, camera);
     const hit = ray.intersectObjects(nodeMeshes, false)[0];
-    if (hit) seedActivation(hit.object.userData.idx as number);
+    if (hit) void reasonFrom(hit.object.userData.idx as number);
     else clearActivation();
   };
   renderer.domElement.addEventListener('dblclick', onDbl);
@@ -731,7 +827,7 @@ function mount(
   apiRef.current = {
     seedAngle: (ai) => {
       const idx = angleSeeds[ai];
-      if (idx >= 0) seedActivation(idx);
+      if (idx >= 0) void reasonFrom(idx);
     },
     clearReasoning: () => clearActivation(),
   };
@@ -817,6 +913,7 @@ function mount(
 
   return () => {
     cancelAnimationFrame(animId);
+    disposed = true;
     controls.dispose();
     apiRef.current = null;
     ro.disconnect();
