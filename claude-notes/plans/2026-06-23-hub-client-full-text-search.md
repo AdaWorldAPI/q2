@@ -1,6 +1,7 @@
 # Hub-client full-text search
 
-**Status:** design / assessment — not yet started
+**Status:** Phase 1 complete (open-project client-side search shipped on
+`epic/hub-client-full-text-search`); Phase B + Phase 2 not started.
 **Date:** 2026-06-23
 **Scope decision (from user):** open-project search first; then cross-project
 ("all my projects"), which should ride on the upcoming server-side
