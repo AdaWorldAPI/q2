@@ -14,6 +14,9 @@ import { DataSet } from 'vis-data';
 const HUB_CLASS = 0xff;
 const PAGE_BG = '#0a0e17';
 const TARGET = 40; // theories that survive the prune
+const MAX_LINES = 48; // cap the readout — streaming 170 lines froze the menu
+const SPREAD_MAX = 64; // bound the BFS fallback so a hub doesn't light the world
+const INFER_TIMEOUT_MS = 2500; // don't hang the UI on a slow /api/graph/infer
 
 // OSINT class order → colour + name (matches OSINT_SCHEMA in osint_gotham.rs).
 const CLASS = [
@@ -364,8 +367,13 @@ export function OsintGraph() {
     // ── reasoning over the network ──────────────────────────────────────────
     let addedEdges: string[] = []; // inferred (NARS) edges, removed on clear
     let pruneTimer: ReturnType<typeof setTimeout> | null = null;
+    let reasonGen = 0; // bumped per reason; a stale async result bails
+    let activeAbort: AbortController | null = null;
 
-    const restore = () => {
+    // cheap teardown of the PREVIOUS trace (no full-graph repaint — dimAll will
+    // overwrite every colour anyway, so repainting to base first was wasted work
+    // and, doubled with dimAll, part of the click lag).
+    const clearAdded = () => {
       if (pruneTimer) {
         clearTimeout(pruneTimer);
         pruneTimer = null;
@@ -374,6 +382,10 @@ export function OsintGraph() {
         visEdges.remove(addedEdges);
         addedEdges = [];
       }
+    };
+    // full restore to base styling — only the user "clear" needs this.
+    const restore = () => {
+      clearAdded();
       visNodes.update(Array.from(touched).map(baseNode));
       visEdges.update(semantic.map(baseEdge));
     };
@@ -395,19 +407,28 @@ export function OsintGraph() {
 
     const reasonFrom = async (seedId: number) => {
       const nm = soa.labels[seedId];
-      restore();
+      const gen = ++reasonGen; // claim this run
+      activeAbort?.abort(); // cancel any in-flight infer from a prior click
+      clearAdded();
       let infs: Array<{ source: string; target: string; relation?: string; via?: string[]; truth_f?: number; truth_c?: number }> = [];
       if (nm) {
+        const ac = new AbortController();
+        activeAbort = ac;
+        const to = setTimeout(() => ac.abort(), INFER_TIMEOUT_MS);
         try {
           const r = await fetch('/api/graph/infer', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ node_id: nm, max_hops: 3, min_confidence: 0.25 }),
+            signal: ac.signal,
           });
           if (r.ok) infs = (await r.json()).inferences ?? [];
         } catch {
-          /* endpoint down → BFS spread fallback below */
+          /* timeout / abort / endpoint down → spread fallback below */
+        } finally {
+          clearTimeout(to);
         }
+        if (gen !== reasonGen) return; // a newer reason superseded us — bail
       }
       // Map inferences → add inferred edges; collect lines + scores.
       const ids = new Set<number>([seedId]);
@@ -419,24 +440,28 @@ export function OsintGraph() {
         const c = nameToId.get(inf.target);
         if (a == null || c == null) continue;
         const tc = Math.max(0, Math.min(1, Number(inf.truth_c) || 0));
-        const id = `inf-${k++}`;
-        edgeOps.push({ id, from: a, to: c, conf: tc });
-        ids.add(a);
-        ids.add(c);
+        edgeOps.push({ id: `inf-${k++}`, from: a, to: c, conf: tc });
         const via = inf.via && inf.via.length ? ` · via ${inf.via.join(', ')}` : '';
         lines.push({ text: `${inf.source} —${inf.relation ?? 'infers'}→ ${inf.target}${via}`, conf: tc, survived: false });
       }
 
       if (!edgeOps.length) {
-        // no NARS edges mapped → BFS "spread" over literal relations from the seed.
-        spreadFrom(seedId);
+        spreadFrom(seedId); // no NARS edges mapped → literal-neighbourhood spread
         return;
       }
 
-      const thr = [...edgeOps.map((o) => o.conf)].sort((x, y) => y - x)[Math.min(TARGET, edgeOps.length) - 1] ?? 0;
+      // keep only the strongest MAX_LINES — streaming the full set froze the UI.
+      const order = edgeOps
+        .map((_, i) => i)
+        .sort((a, b) => edgeOps[b].conf - edgeOps[a].conf)
+        .slice(0, MAX_LINES);
+      const ops = order.map((i) => edgeOps[i]);
+      const capLines = order.map((i) => lines[i]);
+      const thr = ops.map((o) => o.conf).sort((x, y) => y - x)[Math.min(TARGET, ops.length) - 1] ?? 0;
+
       dimAll();
       brighten(seedId);
-      edgeOps.forEach((o) => {
+      ops.forEach((o) => {
         visEdges.add({
           id: o.id,
           from: o.from,
@@ -446,34 +471,38 @@ export function OsintGraph() {
           dashes: [4, 3],
         });
         addedEdges.push(o.id);
+        ids.add(o.from);
+        ids.add(o.to);
         brighten(o.from);
         brighten(o.to);
       });
-      lines.forEach((l) => (l.survived = l.conf >= thr));
-      lines.sort((a, b) => b.conf - a.conf);
-      setReadout({ seed: nm || `#${seedId}`, kind: 'nars', lines, theories: lines.filter((l) => l.survived).length });
+      capLines.forEach((l) => (l.survived = l.conf >= thr));
+      capLines.sort((a, b) => b.conf - a.conf);
+      setReadout({ seed: nm || `#${seedId}`, kind: 'nars', lines: capLines, theories: capLines.filter((l) => l.survived).length });
       focusOn(Array.from(ids));
       // prune: fade the below-threshold inferences after a beat.
       pruneTimer = setTimeout(() => {
-        edgeOps.forEach((o) => {
+        ops.forEach((o) => {
           if (o.conf < thr) visEdges.update({ id: o.id, color: { color: 'rgba(50,66,84,0.10)' }, width: 0.5 });
         });
       }, 1500);
     };
 
     const spreadFrom = (seedId: number) => {
-      // heuristic fallback: light the seed's literal neighbourhood (2 hops).
-      restore();
+      // heuristic fallback: light the seed's literal neighbourhood, bounded so a
+      // hub like "Epstein" doesn't light hundreds of edges and freeze the menu.
+      clearAdded();
       dimAll();
       brighten(seedId);
       const lines: ReasonLine[] = [];
       const ids = new Set<number>([seedId]);
       let frontier = [seedId];
-      for (let hop = 0; hop < 2; hop++) {
+      for (let hop = 0; hop < 2 && lines.length < SPREAD_MAX; hop++) {
         const next: number[] = [];
         for (const u of frontier) {
           for (const { to, rel, edgeId } of adj.get(u) ?? []) {
             if (ids.has(to)) continue;
+            if (lines.length >= SPREAD_MAX) break;
             ids.add(to);
             next.push(to);
             visEdges.update({ id: edgeId, color: { color: confColor(0.7 - hop * 0.25) }, width: 1.6 });
@@ -515,7 +544,9 @@ export function OsintGraph() {
     };
 
     const connect = (aId: number, bId: number): boolean => {
-      restore();
+      reasonGen++; // invalidate any in-flight infer so it can't clobber the path
+      activeAbort?.abort();
+      clearAdded();
       const path = bfsPath(aId, bId);
       if (!path) {
         setReadout({ seed: `${soa.labels[aId]} ↮ ${soa.labels[bId]}`, kind: 'path', lines: [{ text: 'no connecting path', conf: 0, survived: false }], theories: 0 });
@@ -576,6 +607,8 @@ export function OsintGraph() {
         if (seed != null) void reasonFrom(seed);
       },
       clear: () => {
+        reasonGen++;
+        activeAbort?.abort();
         restore();
         setReadout(null);
       },
