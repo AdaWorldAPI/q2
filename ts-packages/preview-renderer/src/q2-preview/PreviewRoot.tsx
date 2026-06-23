@@ -252,6 +252,12 @@ export function PreviewRoot(props: PreviewRootProps) {
         leafAnchorR0?: number;
         seededDraft?: string;
     } | null>(null);
+    // Phase 1a (bd-sjb4pzx8): the active edit surface when richText is on.
+    // Session-sticky (persists until the user toggles), default 'rich'.
+    const [editorMode, setEditorMode] = useState<'rich' | 'plain'>('rich');
+    // True briefly during a rich/plain swap so the outgoing surface's
+    // unmount-blur doesn't commit/close the session (see PreviewContext).
+    const editorModeSwitchRef = useRef(false);
     // Root-held ref for the in-flight edit draft. Seeded with anchorSlice at
     // activation; reset to null on close. Referentially stable → no extra
     // re-renders from draft changes.
@@ -1504,6 +1510,9 @@ export function PreviewRoot(props: PreviewRootProps) {
                 unlockNestingCursor: props.unlockNestingCursor,
                 unlockNestingCursorRef,
                 richText: props.richText,
+                editorMode,
+                setEditorMode,
+                editorModeSwitchRef,
                 nestedEditBuffers: props.nestedEditBuffers,
                 requestMove,
                 pendingCaretRef,

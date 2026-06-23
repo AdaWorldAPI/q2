@@ -59,6 +59,9 @@ export function RichTextEditor({
 
   // The seeded doc, captured post-normalization in onCreate — the dirty baseline.
   const initialDocRef = useRef<PMNode | null>(null);
+  // The original markdown the textarea seeds from (so reverting an unedited rich
+  // doc restores the exact source rather than a re-serialized form).
+  const originalMarkdownRef = useRef<string | null>(null);
   // Latch so a commit fires at most once (blur can follow a key-commit).
   const committedRef = useRef(false);
 
@@ -81,11 +84,28 @@ export function RichTextEditor({
     autofocus: 'end',
     onCreate({ editor: ed }) {
       initialDocRef.current = ed.state.doc;
+      // editDraftRef was seeded with the original markdown at activation; remember
+      // it so we can restore it verbatim if the user reverts their rich edits.
+      originalMarkdownRef.current = ctx.editDraftRef?.current ?? null;
+    },
+    onUpdate({ editor: ed }) {
+      // Keep the shared markdown draft current so a switch to plain text carries
+      // the rich edits across (dirty-aware: when unchanged, restore the verbatim
+      // original so an untouched toggle doesn't reformat the block — C3).
+      if (!ctx.editDraftRef) return;
+      const base = initialDocRef.current;
+      ctx.editDraftRef.current =
+        base && !ed.state.doc.eq(base)
+          ? docToMarkdown(ed.state.doc)
+          : originalMarkdownRef.current ?? docToMarkdown(ed.state.doc);
     },
   });
 
   const commit = (ed: Editor) => {
     if (committedRef.current) return;
+    // A rich/plain surface swap is not a commit — the content is preserved in
+    // editDraftRef; the swap must not close the edit session.
+    if (ctx.editorModeSwitchRef?.current) return;
     // Stale-unmount guard (mirrors EditTextarea): a dropped/re-anchored editor's
     // blur must not write to a byte range it no longer owns.
     if (!isStillActive(ctx, resolved)) return;
@@ -131,6 +151,8 @@ export function RichTextEditor({
       }
     };
     const onBlur = () => {
+      // A surface swap fires this blur as the editor unmounts — not a commit.
+      if (ctx.editorModeSwitchRef?.current) return;
       ctx.requestFocusRestore?.(resolved.sourceEntry.r[0]);
       commit(editor);
     };
@@ -143,12 +165,7 @@ export function RichTextEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
-  return (
-    <div className="q2-richtext-editor">
-      {/* Ancillary affordance parked in the LEFT MARGIN (not over the text) so it
-          never hijacks clicking/selecting. Future home for more edit affordances. */}
-      <span className="q2-richtext-editing-label" aria-hidden="true">Editing…</span>
-      {editor && <EditorContent editor={editor} />}
-    </div>
-  );
+  // The left-margin affordance (Editing… + rich/plain toggle) is rendered by
+  // renderMeasuredEdit so it is shared with the plain-text surface.
+  return <div className="q2-richtext-editor">{editor && <EditorContent editor={editor} />}</div>;
 }

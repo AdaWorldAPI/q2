@@ -10,22 +10,49 @@
 let injected = false;
 
 const CSS = `
-.q2-richtext-editor { position: relative; }
-
-/* Faint "Editing…" label parked in the left margin, vertically aligned to the
-   first line. pointer-events:none + user-select:none so it never interferes with
-   text interaction. This is the first of the left-margin edit affordances. */
-.q2-richtext-editing-label {
+/* Left-margin edit affordance: the "Editing…" label + the rich/plain toggle,
+   parked in the margin (absolute, right-aligned against the edit box's left edge)
+   so it never overlaps the text. The label is inert; the toggle buttons are
+   interactive but use mousedown-preventDefault to avoid blurring the editor. */
+.q2-edit-affordance {
   position: absolute;
-  right: calc(100% + 0.6rem);
+  right: calc(100% + 0.7rem);
   top: 0;
+  text-align: right;
+  user-select: none;
+}
+.q2-edit-affordance-label {
   font-size: 0.72rem;
   line-height: 1.7;
   font-style: italic;
   white-space: nowrap;
-  color: rgba(59, 130, 246, 0.65);
-  user-select: none;
+  color: rgba(59, 130, 246, 0.7);
   pointer-events: none;
+}
+.q2-edit-mode-toggle {
+  margin-top: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+}
+.q2-edit-mode-toggle button {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0 0.15rem;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  color: rgba(100, 116, 139, 0.7);
+  border-right: 2px solid transparent;
+}
+.q2-edit-mode-toggle button:hover { color: rgba(59, 130, 246, 0.9); }
+.q2-edit-mode-toggle button.q2-edit-mode-active {
+  color: rgba(59, 130, 246, 1);
+  font-weight: 600;
+  border-right-color: rgba(59, 130, 246, 0.8);
 }
 
 .q2-richtext-editor .ProseMirror {

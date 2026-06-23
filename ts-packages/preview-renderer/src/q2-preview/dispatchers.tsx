@@ -14,6 +14,7 @@ import { isOnFirstVisualLine, isOnLastVisualLine, getLogicalColumn, placeCaretAt
 import { buildNestingCommitDestination, classifyNestingKey, detectPlatform } from './nestingNav';
 import { editBaseline } from './outerBlocks';
 import { RichTextEditor } from './richtext/RichTextEditor';
+import { EditAffordance } from './richtext/EditAffordance';
 
 // P3.3 §3b: detect platform once at module load so classifyNestingKey can
 // distinguish mac (Cmd+Ctrl) from other (Alt+Shift) nesting chords.
@@ -62,11 +63,15 @@ function renderMeasuredEdit(
     node: BlockNode | CustomBlockNode,
     textarea: React.ReactNode,
     editTarget: NonNullable<PreviewContextValue['editTarget']>,
-    activeEditRegionRef?: React.MutableRefObject<HTMLDivElement | null>,
+    activeEditRegionRef: React.MutableRefObject<HTMLDivElement | null> | undefined,
+    ctx: PreviewContextValue,
+    richSupported: boolean,
 ): React.ReactNode {
     const wrapperStyle: React.CSSProperties = {
         ...(editTarget.boxStyle as React.CSSProperties),
         boxSizing: 'content-box',
+        // Positioning context for the left-margin edit affordance.
+        position: 'relative',
     };
     // Lists carry a large left padding (the bullet/number gutter). Replicating
     // it would indent the textarea away from column 0 where the source begins;
@@ -78,7 +83,12 @@ function renderMeasuredEdit(
     }
     return (
         <AttributionWrap node={node} as="div">
-            <div ref={activeEditRegionRef} id="q2-active-edit-region" style={wrapperStyle}>{textarea}</div>
+            <div ref={activeEditRegionRef} id="q2-active-edit-region" style={wrapperStyle}>
+                {/* Left-margin affordance (Editing… + rich/plain toggle), shown only
+                    when the rich editor feature is enabled. */}
+                {ctx.richText && <EditAffordance ctx={ctx} richSupported={richSupported} />}
+                {textarea}
+            </div>
         </AttributionWrap>
     );
 }
@@ -364,6 +374,9 @@ function EditTextarea({
             onBlur={() => {
                 // Do not commit mid-IME-composition (e.g. mobile dismiss before compositionend).
                 if (isComposingRef.current) return;
+                // A rich/plain surface swap is not a commit (Phase 1a) — the swap
+                // unmounts this textarea; its blur must not close the session.
+                if (ctx.editorModeSwitchRef?.current) return;
                 // P2.4d: check for a pending click-switch FIRST. If a dirty switch is in
                 // progress, handleClickSwitchBlur commits A, stashes B's landing, and closes
                 // the editor — all in one shot. Returns true when consumed (skip normal path).
@@ -493,21 +506,27 @@ function renderBlockTextarea(
 }
 
 /**
- * Phase 1a (bd-sjb4pzx8): which edit surface to render for the active block.
- * The rich-text (tiptap) editor is opt-in (`ctx.richText`) and — for v1 — only
- * handles single paragraphs; every other block type (and the flag-off default)
- * falls back to the monospaced textarea.
+ * Phase 1a (bd-sjb4pzx8): block types the rich-text editor can handle in v1.
+ * Everything else falls back to the textarea even when `richText` is on.
  */
-function RICHTEXT_SUPPORTED_TYPES(): Set<string> {
-    return new Set<string>(['Para']);
+const RICHTEXT_SUPPORTED_TYPES = new Set<string>(['Para']);
+
+/** True when the rich editor is available for this block (flag on + supported type). */
+function richTextAvailable(ctx: PreviewContextValue, sourceNodeType: string): boolean {
+    return !!ctx.richText && RICHTEXT_SUPPORTED_TYPES.has(sourceNodeType);
 }
 
+/**
+ * Which edit surface to render for the active block: the tiptap editor when rich
+ * text is available AND the session mode is 'rich' (the default); otherwise the
+ * monospaced textarea (flag off, unsupported type, or the user toggled to plain).
+ */
 function renderBlockEditSurface(
     ctx: PreviewContextValue,
     resolved: ResolvedSource,
-    nodeType: string,
+    sourceNodeType: string,
 ): React.ReactNode {
-    if (ctx.richText && RICHTEXT_SUPPORTED_TYPES().has(nodeType)) {
+    if (richTextAvailable(ctx, sourceNodeType) && (ctx.editorMode ?? 'rich') !== 'plain') {
         return <RichTextEditor ctx={ctx} resolved={resolved} />;
     }
     return renderBlockTextarea(ctx, resolved);
@@ -556,8 +575,12 @@ export const Block = (args: NodeArgs<BlockNode>) => {
         // surface is the rich-text editor (opt-in, paragraphs) or the textarea.
         // Pass activeEditRegionRef so the wrapper div is tracked — used by
         // useBlockEditHover's onPointerUp to suppress parent-climb activation.
-        const surface = renderBlockEditSurface(ctx, resolved!, (resolved!.sourceNode as { t: string }).t);
-        return renderMeasuredEdit(args.node, surface, ctx.editTarget!, ctx.activeEditRegionRef);
+        const sourceNodeType = (resolved!.sourceNode as { t: string }).t;
+        const surface = renderBlockEditSurface(ctx, resolved!, sourceNodeType);
+        return renderMeasuredEdit(
+            args.node, surface, ctx.editTarget!, ctx.activeEditRegionRef,
+            ctx, richTextAvailable(ctx, sourceNodeType),
+        );
     }
 
     const Component = registry[args.node.t];
@@ -616,7 +639,8 @@ export const CustomBlock = (args: NodeArgs<CustomBlockNode>) => {
 
     if (isBlockEditTarget(ctx, resolved) && ctx) {
         const textarea = renderBlockTextarea(ctx, resolved!);
-        return renderMeasuredEdit(args.node, textarea, ctx.editTarget!, ctx.activeEditRegionRef);
+        // CustomBlocks are not rich-editable in v1 → always textarea, no toggle.
+        return renderMeasuredEdit(args.node, textarea, ctx.editTarget!, ctx.activeEditRegionRef, ctx, false);
     }
 
     const Component =

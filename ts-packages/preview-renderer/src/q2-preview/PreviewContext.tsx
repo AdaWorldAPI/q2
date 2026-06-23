@@ -170,6 +170,23 @@ export interface PreviewContextValue {
      */
     richText?: boolean;
     /**
+     * Phase 1a (bd-sjb4pzx8): per-edit-session editor surface choice when
+     * `richText` is on. `'rich'` (default) renders the tiptap editor; `'plain'`
+     * renders the monospaced textarea (the escape hatch for syntax the rich
+     * editor can't express). Reset to `'rich'` each time a new block is opened.
+     * Toggled by the left-margin affordance.
+     */
+    editorMode?: 'rich' | 'plain';
+    /** Set the current edit session's editor surface (rich/plain). */
+    setEditorMode?: (mode: 'rich' | 'plain') => void;
+    /**
+     * True while a rich/plain surface swap is in flight. The outgoing surface's
+     * blur (fired as it unmounts) must NOT commit/close the edit session — the
+     * swap is not a "done editing" gesture. Set by the toggle, cleared on the
+     * next tick. Both surfaces' blur handlers check it.
+     */
+    editorModeSwitchRef?: MutableRefObject<boolean>;
+    /**
      * §3: stable ref mirror of `unlockNestingCursor`, updated in PreviewRoot's
      * render body. The hover handlers (`onPointerMove`/`onPointerLeave`) are
      * `useCallback(…, [])` and would otherwise capture a stale render-0 value of

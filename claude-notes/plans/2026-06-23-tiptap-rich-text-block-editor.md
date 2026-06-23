@@ -417,6 +417,29 @@ essentially unchanged.
 like the page, edits are rich-text, and write-back is faithful qmd through the
 existing pipeline. Next: 1b (headings + inline polish), 1c (lists/blockquotes +
 interactive structural-edit round-trip tests).
+
+### 1a follow-ups (post-completion, all verified in `q2 preview`)
+
+- **Edit-mode tint** — active editor gets a subtle blue tint + ring (the faithful
+  WYSIWYG was *too* faithful to tell it was live). Zero text shift.
+- **Left-margin affordances** — "Editing…" label + a **rich/plain editor toggle**
+  parked in the left margin (absolute, off the text, so it never hijacks
+  clicking/selecting). The toggle is the in-place **escape hatch to the textarea**
+  for syntax the rich editor can't express (a Phase-2 idea brought forward).
+  Shared by both surfaces via `renderMeasuredEdit`; session-sticky `editorMode`
+  in `PreviewRoot`. A `editorModeSwitchRef` guard stops the surface swap from
+  triggering a blur-commit/close; rich→plain hands content across via
+  `editDraftRef` (dirty-aware, so an untouched toggle never reformats). Files:
+  `richtext/EditAffordance.tsx`, `richtext/styles.ts`, `dispatchers.tsx`,
+  `PreviewRoot.tsx`, `PreviewContext.tsx`. Evidence:
+  `richtext-shots/{07-toggle-rich,09-toggle-plain-fixed}.png`.
+- **Chip source via `.l`** — chip text now slices from a node's literal `.l`
+  location, not the compact pool entry (which is mis-assigned for shortcode
+  spans). Shortcode chips render verbatim `{{< meta key >}}`. (Also filed
+  bd-u145dg3y: warn when a block-level shortcode is used inline.)
+- **Known limitation (Phase 2):** plain→rich re-seeds the rich editor from the
+  original AST (it can't parse arbitrary edited markdown in-iframe). rich→plain
+  preserves edits. Full bidirectional content handoff needs the parent parse.
 - [ ] **1b — Headings + inline-formatting polish** (toolbar-free; rely on standard
       marks + theme styling). Tighten visual parity (margins, line-height).
 - [ ] **1c — Lists / blockquotes, incl. interactive structural edits** (Enter
