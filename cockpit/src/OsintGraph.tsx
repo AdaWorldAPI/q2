@@ -78,7 +78,7 @@ const ACTIVE = '#6cf0ff';
 // as bright diamonds so the dual-use axes read as global, not basin-local.
 const CEILING_COLOR = '#ffd166';
 
-interface Soa {
+export interface Soa {
   nodeCount: number;
   edgeCount: number;
   cls: Uint8Array;
@@ -115,7 +115,7 @@ interface GraphApi {
 // Decode the OSO1 wire: magic(4) | nodeCount u32 | edgeCount u32 |
 // nodeCount×[guid:16|class:1] | edgeCount×[src:u16|tgt:u16|rel:u8] |
 // nodeCount×[len:u8|utf8 name]  (the label tail is additive / may be absent).
-function decodeSoa(buf: ArrayBuffer): Soa {
+export function decodeSoa(buf: ArrayBuffer): Soa {
   const dv = new DataView(buf);
   const magicOk =
     dv.getUint8(0) === 0x4f && dv.getUint8(1) === 0x53 &&
