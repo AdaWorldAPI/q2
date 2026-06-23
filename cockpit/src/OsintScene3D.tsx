@@ -489,10 +489,23 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   // axons developing a concept. First slice of the live-reasoning / "watch the
   // brain think" view; the real NARS trace from /api/graph/infer (truth-weighted
   // deduction/abduction over the 4096-bit SoA) replaces this BFS next.
+  const TARGET = 40; // surviving theories after the prune
+  const REVEAL_MS = 38; // bloom cadence (firing speed)
+  const PRUNE_MS = 2600; // contraction duration
   let actLines: THREE.LineSegments | null = null;
+  let actBase: Float32Array | null = null; // bloom colours (restore target for fade)
+  let actScore: Float32Array | null = null; // per-segment score (entropy proxy)
+  let actThresh = 0; // final prune threshold = TARGET-th highest score
   let actStart = 0;
+  let actPruneStart = 0;
   let actTotalSeg = 0;
-  const REVEAL_MS = 55; // per-segment reveal cadence (the firing speed)
+  let actPhase: 'bloom' | 'prune' = 'bloom';
+  const counter = document.createElement('div');
+  counter.style.cssText =
+    'position:absolute;top:14px;left:50%;transform:translateX(-50%);font-family:monospace;' +
+    'font-size:13px;color:#cfe7ff;background:rgba(8,12,20,0.6);padding:4px 12px;border-radius:6px;' +
+    'pointer-events:none;display:none;text-shadow:0 0 4px #000;';
+  container.appendChild(counter);
   const clearActivation = () => {
     if (actLines) {
       scene.remove(actLines);
@@ -500,7 +513,10 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
       (actLines.material as THREE.Material).dispose();
       actLines = null;
     }
+    actBase = null;
+    actScore = null;
     actTotalSeg = 0;
+    counter.style.display = 'none';
   };
   const seedActivation = (seed: number) => {
     clearActivation();
@@ -508,10 +524,13 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     let frontier = [seed];
     const apos: number[] = [];
     const acol: number[] = [];
+    const scores: number[] = [];
     const heat = new THREE.Color();
     let depth = 0;
     const MAXD = 8;
-    const MAXN = 600;
+    const MAXN = 700;
+    const hash = (a: number, b: number) =>
+      ((((a * 73856093) ^ (b * 19349663)) >>> 0) % 1000) / 1000;
     while (frontier.length && depth < MAXD && seen.size < MAXN) {
       const next: number[] = [];
       for (const u of frontier) {
@@ -523,6 +542,10 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
           const t = depth / MAXD;
           heat.setHSL(0.55 - t * 0.12, 0.9, 0.78 - t * 0.4); // hot near seed → cool far
           acol.push(heat.r, heat.g, heat.b, heat.r, heat.g, heat.b);
+          // entropy proxy: shallow + well-connected + a deterministic jitter.
+          // (placeholder for the real NARS truth/confidence over the SoA.)
+          const deg = Math.min(1, (adj.get(j)?.length ?? 1) / 12);
+          scores.push(0.45 * (1 - t) + 0.35 * deg + 0.2 * hash(u, j));
           if (seen.size >= MAXN) break;
         }
         if (seen.size >= MAXN) break;
@@ -531,6 +554,10 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
       depth++;
     }
     if (!apos.length) return;
+    actBase = new Float32Array(acol);
+    actScore = new Float32Array(scores);
+    const sorted = [...scores].sort((a, b) => b - a);
+    actThresh = sorted[Math.min(TARGET, sorted.length) - 1] ?? 0;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(apos), 3));
     g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(acol), 3));
@@ -546,8 +573,10 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
       }),
     );
     scene.add(actLines);
-    actTotalSeg = apos.length / 6;
+    actTotalSeg = scores.length;
     actStart = performance.now();
+    actPhase = 'bloom';
+    counter.style.display = 'block';
   };
   const onDbl = (ev: MouseEvent) => {
     const rect = renderer.domElement.getBoundingClientRect();
@@ -585,10 +614,38 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
   let animId = 0;
   const animate = () => {
     controls.update();
-    if (actLines && actTotalSeg) {
-      // reveal the activation tree segment-by-segment = the wave spreading
-      const rev = Math.min(actTotalSeg, Math.floor((performance.now() - actStart) / REVEAL_MS));
-      actLines.geometry.setDrawRange(0, rev * 2);
+    if (actLines && actTotalSeg && actBase && actScore) {
+      const now = performance.now();
+      if (actPhase === 'bloom') {
+        // expansion: reveal the wave segment-by-segment
+        const rev = Math.min(actTotalSeg, Math.floor((now - actStart) / REVEAL_MS));
+        actLines.geometry.setDrawRange(0, rev * 2);
+        counter.textContent = `${rev} ideas firing…`;
+        if (rev >= actTotalSeg) {
+          actPhase = 'prune';
+          actPruneStart = now;
+          actLines.geometry.setDrawRange(0, actTotalSeg * 2);
+        }
+      } else {
+        // contraction (temporal-entropy prune): threshold rises 0→actThresh,
+        // below-threshold branches fade to black (additive ⇒ invisible),
+        // survivors stay lit — thousands of ideas collapse to ~TARGET theories.
+        const f = Math.min(1, (now - actPruneStart) / PRUNE_MS);
+        const thr = actThresh * f;
+        const band = actThresh * 0.14 + 1e-6;
+        const col = actLines.geometry.getAttribute('color') as THREE.BufferAttribute;
+        const arr = col.array as Float32Array;
+        let alive = 0;
+        for (let sIdx = 0; sIdx < actTotalSeg; sIdx++) {
+          const sc = actScore[sIdx];
+          const k = sc >= thr ? 1 : Math.max(0, 1 - (thr - sc) / band);
+          if (sc >= thr) alive++;
+          const o = sIdx * 6;
+          for (let v = 0; v < 6; v++) arr[o + v] = actBase[o + v] * k;
+        }
+        col.needsUpdate = true;
+        counter.textContent = f >= 1 ? `${alive} theories` : `${alive} → ${TARGET} · pruning…`;
+      }
     }
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
@@ -626,6 +683,9 @@ function mount(container: HTMLDivElement, s: Scene, mode: MixinMode): () => void
     }
     if (container.contains(labelRenderer.domElement)) {
       container.removeChild(labelRenderer.domElement);
+    }
+    if (container.contains(counter)) {
+      container.removeChild(counter);
     }
   };
 }
