@@ -52,7 +52,24 @@ COPY --from=frontend /build/dist/ /build/q2/cockpit/dist/
 
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
-RUN git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
+#
+# lance-graph is PINNED to an explicit commit (NOT `--depth 1 main`) for two
+# reasons:
+#   1. Cache-bust. A `--depth 1 main` clone lives in its own Docker layer that
+#      an empty/unrelated q2 commit does NOT invalidate, so Railway reuses a
+#      STALE lance-graph from an earlier build. Bumping this SHA changes the
+#      RUN and forces a fresh clone.
+#   2. COUNT_FUSE lockstep. lance-graph-ogar compile-asserts (E0080 on mismatch)
+#      that lance_graph_contract::ogar_codebook::CODEBOOK.len() ==
+#      ogar_vocab::class_ids::ALL.len(). q2's Cargo.lock pins ogar-vocab to a
+#      fixed OGAR SHA (302c284 = 43 concepts); the lance-graph clone MUST carry
+#      the matching 43-concept mirror. 36059ce0 is the #595 merge (ogar_codebook
+#      synced to 43) — the matched pair of the ogar-vocab pin.
+# WHEN OGAR MINTS CONCEPTS: bump ogar-vocab in q2's Cargo.lock AND this SHA
+# together (after the lance-graph mirror lands), or the fuse trips again.
+ARG LANCE_GRAPH_REF=36059ce0
+RUN git clone https://github.com/AdaWorldAPI/lance-graph.git \
+ && git -C lance-graph checkout "${LANCE_GRAPH_REF}" \
  && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
 
