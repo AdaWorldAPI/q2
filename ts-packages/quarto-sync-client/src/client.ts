@@ -199,6 +199,17 @@ interface SyncClientState {
   peerStorageIds: Map<string, string>;
   /** Resolved retry policy for the current connection. */
   findDocRetry: Required<FindDocRetryOptions>;
+  /**
+   * Set once the initial `loadFileDocuments` pass has finished. Gates the
+   * unavailable-file retry: a peer event during the initial load must not race
+   * it (that load's own findDocs already benefit from the connected peer).
+   */
+  initialLoadComplete: boolean;
+  /**
+   * Active timer for the bounded "retry unavailable files while a peer is
+   * connected" loop, or null when idle. Cleared on disconnect.
+   */
+  unavailableRetryTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const DEFAULT_FIND_DOC_RETRY: Required<FindDocRetryOptions> = {
@@ -266,6 +277,8 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     connectedPeers: new Set(),
     peerStorageIds: new Map(),
     findDocRetry: DEFAULT_FIND_DOC_RETRY,
+    initialLoadComplete: false,
+    unavailableRetryTimer: null,
   };
 
   // AST cache: last successful parse per file (for round-tripping)
@@ -624,6 +637,68 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
     );
   }
 
+  // Bounded "retry unavailable files while a peer is connected" loop. This
+  // closes the gap that made the smoke-all preview tests flaky in CI: the app
+  // opens each project offline-first (its per-project connect uses the 1 ms
+  // default peer wait), the websocket connects in the background, most docs
+  // sync — but a doc still in flight when loadFileDocuments' 5 s findDoc cap
+  // fires is marked `unavailable`, and was then NEVER retried, so the render
+  // failed permanently with "Path not found". The key insight from the CI
+  // diagnostics: the peer is *connected* by then (vfs shows ~all files) — the
+  // straggler is sync-lag, not a dangling entry — yet retry-on-peer-*transition*
+  // never fires because the peer doesn't drop+reconnect. So instead, while a
+  // peer is present, poll: re-fetch the stranded files every few seconds until
+  // they arrive or a deadline. subscribeToFile feeds the normal onFileContent
+  // path, so a late file flows into the VFS and re-renders like any live edit.
+  // (Implements retry-on-peer-arrival, deferred as "plan D2" at the
+  // syncWithFiles dangling-entry guard.)
+  const UNAVAILABLE_RETRY_INTERVAL_MS = 2000;
+  const UNAVAILABLE_RETRY_WINDOW_MS = 60000;
+
+  async function retryUnavailableFilesOnce(): Promise<void> {
+    if (!state.repo || state.unavailableFiles.size === 0) return;
+    const entries = Array.from(state.unavailableFiles.entries());
+    await Promise.all(
+      entries.map(async ([path, docId]) => {
+        try {
+          const handle = await findDoc<FileDocument>(normalizeDocId(docId) as DocumentId);
+          state.unavailableFiles.delete(path);
+          await subscribeToFile(path, handle);
+        } catch (err) {
+          if (!isUnavailableError(err)) throw err;
+          // Still unavailable — leave the marker for the next poll tick.
+        }
+      }),
+    );
+  }
+
+  // Start (idempotently) the bounded retry poll. No-op when nothing is
+  // unavailable or a poll is already scheduled. With zero connected peers an
+  // unavailable file IS the truth (offline), so the tick re-fetches only while
+  // a peer is present; the deadline bounds the whole effort.
+  function startUnavailableRetry(): void {
+    if (state.unavailableRetryTimer || state.unavailableFiles.size === 0) return;
+    const deadline = Date.now() + UNAVAILABLE_RETRY_WINDOW_MS;
+    const tick = async (): Promise<void> => {
+      state.unavailableRetryTimer = null;
+      if (state.unavailableFiles.size === 0) return;
+      if (state.connectedPeers.size > 0) {
+        await retryUnavailableFilesOnce();
+      }
+      if (state.unavailableFiles.size > 0 && Date.now() < deadline) {
+        state.unavailableRetryTimer = setTimeout(() => void tick(), UNAVAILABLE_RETRY_INTERVAL_MS);
+      }
+    };
+    state.unavailableRetryTimer = setTimeout(() => void tick(), UNAVAILABLE_RETRY_INTERVAL_MS);
+  }
+
+  function stopUnavailableRetry(): void {
+    if (state.unavailableRetryTimer) {
+      clearTimeout(state.unavailableRetryTimer);
+      state.unavailableRetryTimer = null;
+    }
+  }
+
   // Helper: sync files with index changes
   async function syncWithFiles(newFiles: FileEntry[]): Promise<void> {
     const newPaths = new Set(newFiles.map(f => f.path));
@@ -801,6 +876,12 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
           currentlyOnline = true;
           syncLog('Peer connected - switching to online mode');
           callbacks.onConnectionChange?.(true);
+          // A peer just (re)connected; (re)start the bounded retry of any
+          // stranded files. Guarded to after the initial load so it can't
+          // race it (that load's own findDocs already see this peer).
+          if (state.initialLoadComplete) {
+            startUnavailableRetry();
+          }
         }
       };
       const onPeerDisconnect = () => {
@@ -815,10 +896,18 @@ export function createSyncClient(callbacks: SyncClientCallbacks, astOptions?: AS
       state.cleanupFns.push(() => {
         state.repo!.networkSubsystem.off('peer', onPeerConnect);
         state.repo!.networkSubsystem.off('peer-disconnected', onPeerDisconnect);
+        stopUnavailableRetry();
       });
 
       // Load file documents
       await loadFileDocuments(files);
+      // From here, stranded files are retried by the bounded poll below (and
+      // re-kicked on any later peer reconnect).
+      state.initialLoadComplete = true;
+      // Kick the bounded retry for anything the initial load left stranded
+      // (the common CI case: peer connected mid-load, last doc lost the 5 s
+      // race; it syncs a moment later and the poll picks it up).
+      startUnavailableRetry();
 
       callbacks.onConnectionChange?.(currentlyOnline);
       // Annotate dangling entries so callers can list-but-mark them
