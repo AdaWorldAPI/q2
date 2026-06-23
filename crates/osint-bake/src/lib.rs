@@ -38,6 +38,11 @@ use aiwar_ingest::AiWarGraph;
 use aiwar_ingest::encounter_round::EncounterRound;
 use lance_graph_contract::canonical_node::{EdgeBlock, NodeGuid, NodeRow};
 
+/// Minimal line-oriented Turtle reader for the FMA heart fixture — the source
+/// side of the `ttl → hydrate → canonical-GUID → .soa` thread (the real `fma.owl`
+/// loads via `lance-graph-rdf` at the spine; this is the light-bake subset).
+pub mod fma_ttl;
+
 /// Morton (Z-order) tile-pyramid codec — the universal `high:low = tile:cell`
 /// address primitive the GUID descent rides on (domain-agnostic).
 pub mod morton;
@@ -833,8 +838,7 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         tenants.extend_from_slice(&[0u8; 6]);
     }
 
-    let mut out =
-        Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len() + tenants.len());
+    let mut out = Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len() + tenants.len());
     out.extend_from_slice(&OSINT_SOA_MAGIC);
     out.extend_from_slice(&(node_count as u32).to_le_bytes());
     out.extend_from_slice(&(edge_count as u32).to_le_bytes());
