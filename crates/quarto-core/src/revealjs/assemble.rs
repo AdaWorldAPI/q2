@@ -101,7 +101,8 @@ pub fn reveal_assets(compiled_theme_css: Option<&str>) -> Vec<RevealAsset> {
         None => Cow::Borrowed(THEME_WHITE_CSS),
     };
     let fingerprint = crate::stage::stages::theme_fingerprint(&theme_content);
-    vec![
+    #[allow(unused_mut)] // mutated only on native (clipboard assets); WASM leaves it as-is
+    let mut assets = vec![
         RevealAsset {
             key_suffix: "1-reset".to_string(),
             filename: "reset.css".to_string(),
@@ -137,7 +138,41 @@ pub fn reveal_assets(compiled_theme_css: Option<&str>) -> Vec<RevealAsset> {
             content_type: "application/javascript",
             kind: RevealAssetKind::Js,
         },
-    ]
+    ];
+
+    // Code-copy clipboard support (bd-lg6t6qfy). Native-only — copy is
+    // functional in `q2 render` but inert in the WASM preview / hub-client
+    // iframe (parity with plain-HTML preview, where clipboard-js is likewise
+    // excluded from the WASM pipeline; an iframe-safe init is a follow-up).
+    // Sorted keys load clipboard → code-copy-init before reveal core; the init
+    // checks `window.ClipboardJS` (set by the library) and degrades gracefully
+    // when `window.bootstrap` is absent (copy works, no tooltip — the icon
+    // still flashes to the checkmark via copy-code.scss). UTF-8 conversion of
+    // the embedded bytes is infallible for these vendored ASCII/JS sources.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use crate::stage::stages::{CLIPBOARD_JS, CODE_COPY_INIT_JS};
+        assets.push(RevealAsset {
+            key_suffix: "clipboard".to_string(),
+            filename: "clipboard.min.js".to_string(),
+            content: Cow::Borrowed(
+                std::str::from_utf8(CLIPBOARD_JS).expect("clipboard.min.js is valid UTF-8"),
+            ),
+            content_type: "application/javascript",
+            kind: RevealAssetKind::Js,
+        });
+        assets.push(RevealAsset {
+            key_suffix: "code-copy-init".to_string(),
+            filename: "code-copy-init.js".to_string(),
+            content: Cow::Borrowed(
+                std::str::from_utf8(CODE_COPY_INIT_JS).expect("code-copy-init.js is valid UTF-8"),
+            ),
+            content_type: "application/javascript",
+            kind: RevealAssetKind::Js,
+        });
+    }
+
+    assets
 }
 
 /// Register the deck's vendored assets as `Project`-scoped artifacts so the
@@ -582,13 +617,24 @@ mod tests {
             ]
         );
 
-        // Exactly one JS artifact (reveal core).
-        let js: Vec<&str> = store
+        // JS artifacts: reveal core + the code-copy clipboard library and its
+        // init handler (bd-lg6t6qfy). Sorted keys load clipboard → init →
+        // reveal; init checks `window.ClipboardJS`, set by the library just
+        // before it.
+        let mut js: Vec<&str> = store
             .get_by_prefix("js:revealjs:")
             .into_iter()
             .map(|(k, _)| k)
             .collect();
-        assert_eq!(js, vec!["js:revealjs:reveal"]);
+        js.sort_unstable();
+        assert_eq!(
+            js,
+            vec![
+                "js:revealjs:clipboard",
+                "js:revealjs:code-copy-init",
+                "js:revealjs:reveal",
+            ]
+        );
 
         // reveal.css: Project-scoped, clean lib path, exact embedded bytes.
         let reveal = store.get("css:revealjs:2-reveal").unwrap();
@@ -612,6 +658,30 @@ mod tests {
         assert_eq!(core.scope, ArtifactScope::Project);
         assert_eq!(core.path.as_deref(), Some(Path::new("revealjs/reveal.js")));
         assert_eq!(core.as_str(), Some(REVEAL_JS));
+
+        // clipboard library + init handler: Project-scoped, clean lib paths,
+        // exact embedded bytes (the same assets ClipboardJsStage ships for HTML).
+        let clip = store.get("js:revealjs:clipboard").unwrap();
+        assert_eq!(clip.scope, ArtifactScope::Project);
+        assert_eq!(
+            clip.path.as_deref(),
+            Some(Path::new("revealjs/clipboard.min.js"))
+        );
+        assert_eq!(
+            clip.as_str(),
+            Some(std::str::from_utf8(crate::stage::stages::CLIPBOARD_JS).unwrap())
+        );
+
+        let init = store.get("js:revealjs:code-copy-init").unwrap();
+        assert_eq!(init.scope, ArtifactScope::Project);
+        assert_eq!(
+            init.path.as_deref(),
+            Some(Path::new("revealjs/code-copy-init.js"))
+        );
+        assert_eq!(
+            init.as_str(),
+            Some(std::str::from_utf8(crate::stage::stages::CODE_COPY_INIT_JS).unwrap())
+        );
     }
 
     /// Distinct theme CSS → distinct fingerprinted keys (so per-deck themes in a
