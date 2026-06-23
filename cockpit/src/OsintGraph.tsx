@@ -205,6 +205,8 @@ function ReasonBox({ readout, onClose }: { readout: Readout; onClose: () => void
         bottom: 56,
         width: 400,
         maxHeight: '46%',
+        zIndex: 10,
+        pointerEvents: 'auto',
         display: 'flex',
         flexDirection: 'column',
         fontFamily: 'monospace',
@@ -221,7 +223,11 @@ function ReasonBox({ readout, onClose }: { readout: Readout; onClose: () => void
         <span style={{ color: '#7fd1ff' }}>
           {head} · {readout.seed}
         </span>
-        <span onClick={onClose} style={{ cursor: 'pointer', color: '#6f87a0' }}>
+        <span
+          onClick={onClose}
+          title="close"
+          style={{ cursor: 'pointer', color: '#9fb4c8', padding: '0 4px', fontSize: 13 }}
+        >
           ✕
         </span>
       </div>
@@ -655,7 +661,10 @@ export function OsintGraph() {
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100vh', background: PAGE_BG, overflow: 'hidden' }}>
-      <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
+      {/* zIndex:0 traps the vis-network canvas in its OWN stacking context, so
+          the overlays (zIndex:10) reliably win pointer events — otherwise the
+          canvas swallowed clicks on the search box (no focus) and the ✕. */}
+      <div ref={hostRef} style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
 
       {/* title + status */}
       <div
@@ -663,6 +672,7 @@ export function OsintGraph() {
           position: 'absolute',
           top: 16,
           left: 16,
+          zIndex: 10,
           fontFamily: 'monospace',
           color: '#93a9bf',
           fontSize: 12,
@@ -681,6 +691,8 @@ export function OsintGraph() {
           top: 58,
           left: 16,
           width: 320,
+          zIndex: 10,
+          pointerEvents: 'auto',
           fontFamily: 'monospace',
           display: 'flex',
           flexDirection: 'column',
@@ -761,6 +773,7 @@ export function OsintGraph() {
           position: 'absolute',
           bottom: 16,
           left: 16,
+          zIndex: 10,
           fontFamily: 'monospace',
           fontSize: 11,
           color: '#93a9bf',
@@ -793,6 +806,7 @@ export function OsintGraph() {
           position: 'absolute',
           top: 14,
           right: 16,
+          zIndex: 10,
           fontFamily: 'monospace',
           fontSize: 12,
           color: '#cfe7ff',
