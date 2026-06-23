@@ -2,21 +2,27 @@
 //! `lance-graph-contract`) half of `cockpit-server`'s `osint_gotham.rs`, lifted
 //! into a light tool crate so the enriched `osint_scene.soa` asset can be
 //! regenerated WITHOUT compiling cockpit-server's heavy closure (lance /
-//! datafusion / arrow / deno_core). Every item below is byte-identical to
-//! `osint_gotham.rs`; the bin (`src/main.rs`) is the regenerate entrypoint.
+//! datafusion / arrow / deno_core). This is now the **canonical** bake: it began
+//! as a verbatim mirror of `osint_gotham.rs`'s pure bake and now *leads* it — the
+//! additive **tenant section** (`value[1..=6]` per node) lands here first. The
+//! legacy copy in `osint_gotham.rs` (run only by its `#[ignore]`d bake test) is
+//! pending the delegation de-dup. The bin (`src/main.rs`) is the regenerate
+//! entrypoint.
 //!
 //! Why this exists: at runtime cockpit-server serves the *pre-baked* asset via
-//! `include_bytes!`; `osint_soa_bytes` is a bake-time tool (run only by the
-//! `#[ignore]`d `bake_osint_soa` test). Pulling it into its own crate lets the
-//! asset be rebuilt on a disk-constrained host. See PR #44 (entity→SchemaValue
-//! facet edges, rel 10..15) — the connective tissue this bake emits.
+//! `include_bytes!`; `osint_soa_bytes` is a bake-time tool. Pulling it into its
+//! own crate lets the asset be rebuilt on a disk-constrained host. Two layers
+//! ship for the dual-use dimensions: the facet EDGES (rel 10..15, PR #44 — the
+//! materialized "reference" categories) and the **tenant section** (the dynamic,
+//! per-node attribute the cockpit groups across all nodes — the "residual").
 
-// VERBATIM-MIRROR SUPPRESSIONS. Every item below is byte-identical to the pure
-// bake in cockpit-server's `osint_gotham.rs` (the single source of truth until
-// that crate is wired to delegate here). These clippy/rustc nits are inherited
-// from that mirror and are latent there too; suppressing rather than rewriting
-// them keeps the two copies byte-identical (zero behavioural drift) until the
-// de-dup lands, at which point this block — and this crate's copy — go away.
+// MIRROR SUPPRESSIONS. The bulk of this crate is byte-identical to the pure bake
+// in cockpit-server's `osint_gotham.rs` (the single source of truth until that
+// crate is wired to delegate here; `osint_soa_bytes` now additionally emits the
+// tenant tail). These clippy/rustc nits are inherited from that mirror and are
+// latent there too; suppressing rather than rewriting them avoids gratuitous
+// drift until the de-dup lands, at which point this block — and this crate's
+// copy of the shared functions — go away.
 #![allow(
     clippy::collapsible_if,
     clippy::implicit_clone,
@@ -440,7 +446,18 @@ fn plan_basins(graph: &AiWarGraph, rounds: &[EncounterRound]) -> BasinPlan {
     }
     let mut anchor_nibble: HashMap<String, u8> = HashMap::new(); // node → its anchor nibble
     let mut anchor_of_basin: HashMap<u8, String> = HashMap::new();
-    for (theme, ids) in &theme_nodes {
+    // Iterate themes in a STABLE (sorted) order. When >15 themes exist,
+    // `theme_index` clamps the overflow to ti=15, so their `(15<<4)|nib` basins
+    // collide in `anchor_of_basin`; a raw HashMap iteration here would let the
+    // surviving hub label depend on the hash seed — a non-deterministic bake
+    // (the asset SHA changed run-to-run only in the basin-hub label tail).
+    // `anchor_nibble` is per-id collision-free, so this does NOT affect node
+    // family/identity/GUIDs — only which entity names a colliding ti=15 hub.
+    // (This is a determinism fix that osint_gotham.rs's legacy copy also needs.)
+    let mut theme_keys: Vec<&String> = theme_nodes.keys().collect();
+    theme_keys.sort();
+    for theme in theme_keys {
+        let ids = &theme_nodes[theme];
         let ti = *theme_index.get(theme).unwrap_or(&0);
         let mut sorted = ids.clone();
         sorted.sort_by(|a, b| deg(b).cmp(&deg(a)).then_with(|| a.cmp(b)));
@@ -772,13 +789,30 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         push_label(&mut labels, &nm);
     }
 
-    let mut out = Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len());
+    // ── tenant section (OSO1, additive tail): node_count × 6 facet bytes
+    //    (`value[1..=6]`: militaryUse, civicUse, airo:type, MLType, purpose,
+    //    capacity) in node order — members in graph.nodes order, then basin hubs
+    //    (zeroed; a hub carries no facet). This is the DYNAMIC, per-node
+    //    attribute the client groups by across all nodes (the residual layer);
+    //    the facet EDGES (rel 10..15) are its materialized twin (the reference
+    //    layer). Old readers stop after the label tail; new readers consume this.
+    let mut tenants: Vec<u8> = Vec::with_capacity(node_count * 6);
+    for r in &rows {
+        tenants.extend_from_slice(&r.value[FACET_MILITARY..=FACET_CAPACITY]);
+    }
+    for _ in &basins {
+        tenants.extend_from_slice(&[0u8; 6]);
+    }
+
+    let mut out =
+        Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len() + tenants.len());
     out.extend_from_slice(&OSINT_SOA_MAGIC);
     out.extend_from_slice(&(node_count as u32).to_le_bytes());
     out.extend_from_slice(&(edge_count as u32).to_le_bytes());
     out.extend_from_slice(&nodes);
     out.extend_from_slice(&edges);
     out.extend_from_slice(&labels);
+    out.extend_from_slice(&tenants);
     out
 }
 
@@ -1020,5 +1054,47 @@ mod tests {
         let fixed = 12 + nodes * 17 + edges * 5;
         assert!(bytes.len() >= fixed, "fixed records are a lower bound");
         assert!(bytes.len() > fixed, "additive label tail present");
+    }
+
+    #[test]
+    fn tenant_section_carries_the_facet_codes() {
+        // The dynamic per-node attribute layer: `value[1..=6]` shipped as the
+        // trailing tenant section (6 bytes/node) — the residual twin of the facet
+        // edges. Baked from the same rows, so the tail must mirror them exactly.
+        const DU: &str = r#"{
+            "N_Systems": [
+                {"id": "Lavender", "name": "Lavender",
+                 "militaryUse": "Intelligence",
+                 "civicUse": "Surveillance",
+                 "MLTask": "Predict",
+                 "purpose": "Monitoring",
+                 "capacity": "Profiling"}
+            ]
+        }"#;
+        let g = aiwar_ingest::load_from_str(DU).expect("valid dual-use fixture");
+        let plan = plan_basins(&g, &[]);
+        let rows = osint_node_rows(&g, &plan);
+        let bytes = osint_soa_bytes(&g, &[]);
+
+        let node_count = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
+        // the tenant section is the final node_count × 6 bytes (the last tail).
+        let tail = &bytes[bytes.len() - node_count * 6..];
+
+        // member tenants come first, in graph.nodes order → index == row index.
+        let lav = g.nodes.iter().position(|n| n.id == "Lavender").unwrap();
+        assert_eq!(
+            &tail[lav * 6..lav * 6 + 6],
+            &rows[lav].value[FACET_MILITARY..=FACET_CAPACITY],
+            "tenant tail mirrors value[1..=6]"
+        );
+        assert!(
+            tail[lav * 6..lav * 6 + 6].iter().any(|&b| b != 0),
+            "Lavender carries facet codes in its tenant"
+        );
+        // basin-hub tenants (after the members) are zero — a hub has no facet.
+        assert!(
+            tail[rows.len() * 6..].iter().all(|&b| b == 0),
+            "basin hubs carry a zero tenant"
+        );
     }
 }
