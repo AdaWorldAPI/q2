@@ -28,6 +28,7 @@ import { AssetManifestContext } from './AssetManifestContext';
 import { NoteNumberingContext } from './NoteNumberingContext';
 import { RevealDeck } from './RevealDeck';
 import { installLinkHandlers } from '../utils/iframeLinkHandlers';
+import { installCodeCopy } from '../utils/codeCopy';
 import { buildNestingCommitDestination, buildNestingSurfaces, parentSurface, childSurfaceToward, childSurfaceTowardLine, topBlockR0, depthOfSurface, relocateSurface, surfaceAtLine } from './nestingNav';
 import type { NestingSurface } from './nestingNav';
 import type { CaretHint } from './caretGeometry';
@@ -1350,6 +1351,19 @@ export function PreviewRoot(props: PreviewRootProps) {
             },
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Install the iframe-safe code-copy handler (bd-wa2pgri8) on the preview
+    // host. `previewHostRef` wraps BOTH the <RevealDeck> and the plain-HTML
+    // <Ast> branch, so one delegated, capture-phase listener makes
+    // `.code-copy-button` clicks copy in reveal AND plain-HTML preview, in both
+    // q2-preview and hub-client (which share this PreviewRoot). Delegation +
+    // a stable host = survives edit re-renders (the iframe-safe property the
+    // native ClipboardJsStage, excluded from the WASM pipeline, lacked).
+    useEffect(() => {
+        const host = previewHostRef.current;
+        if (!host) return;
+        return installCodeCopy(host);
     }, []);
 
     // Phase F.1 (bd-kw93.14): scroll to the cross-page anchor after React commits the new AST.
