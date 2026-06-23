@@ -14,6 +14,15 @@ const CSS = `
   outline: none;
   white-space: pre-wrap;
   word-wrap: break-word;
+  /* "Edit mode" affordance: the WYSIWYG render is faithful enough that the user
+     can't otherwise tell editing is live. A subtle tint + ring signals it. The
+     padding is cancelled by an equal negative margin so the text does NOT shift
+     (zero reflow) — only the tinted area extends slightly around the content. */
+  background: rgba(59, 130, 246, 0.08);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
+  border-radius: 3px;
+  padding: 2px 5px;
+  margin: -2px -5px;
 }
 .q2-richtext-editor .ProseMirror:focus { outline: none; }
 /* The measured edit box reproduces the original block's margin/padding; the
