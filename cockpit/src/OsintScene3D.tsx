@@ -289,29 +289,30 @@ function mount(
     p[i * 3 + 2] = (s.pos[i * 3 + 2] - cz) * scale;
   }
 
-  // nodes as spheres. In `category` mode the family node is DISSOLVED into the
-  // edges it implies (the connective category), so hubs aren't drawn; in
-  // `adapter` mode the family node is a modest visible connector.
-  const showHubs = mode === 'adapter';
+  // nodes as spheres — the FULL static-GUID set, all 920 incl. family hubs.
+  // The hubs render as dim, larger basin ANCHORS (the family skeleton) in both
+  // modes, so reasoning/grammar edges that terminate on a family node land on a
+  // visible node, not an invisible position. In `category` mode the grammar
+  // still reconstructs co-family edges among members (the connective category);
+  // in `adapter` mode the literal member→hub spokes draw to these same anchors.
   const sphereGeom = new THREE.SphereGeometry(1, 10, 8);
   const matCache = new Map<number, THREE.MeshBasicMaterial>();
   const nodeMeshes: THREE.Mesh[] = []; // members only — pick targets for foveal focus
   for (let i = 0; i < s.nodeCount; i++) {
     const c = s.cls[i];
     const isHub = c === HUB_CLASS;
-    if (isHub && !showHubs) continue;
     let mat = matCache.get(c);
     if (!mat) {
       mat = new THREE.MeshBasicMaterial({
         color: colorOf(c),
         transparent: true,
-        opacity: isHub ? 0.32 : 0.92,
+        opacity: isHub ? 0.28 : 0.92,
       });
       matCache.set(c, mat);
     }
     const mesh = new THREE.Mesh(sphereGeom, mat);
     mesh.position.set(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
-    mesh.scale.setScalar(isHub ? 1.5 : 1.3);
+    mesh.scale.setScalar(isHub ? 2.0 : 1.3);
     mesh.userData.idx = i;
     scene.add(mesh);
     if (!isHub) nodeMeshes.push(mesh);
