@@ -251,11 +251,21 @@ under vitest, and the production build must pass
       MiniSearch over `text` + `path` fields; incremental
       add/replace/discard/removeAll; prefix + fuzzy(0.2) + path boost. All 18
       green; typecheck clean.
-- [ ] 1.4 Wire indexing into `setSyncHandlers` (`App.tsx:435-465`): bulk index
-      on project open, `addOrUpdate`/`remove`/`clear` on change.
-- [ ] 1.5 Search UI in `FileSidebar.tsx`: query box, result list, select →
-      `onSelectFile`.
-- [ ] 1.6 Snippet/highlight rendering for matches (raw-text offsets).
+- [x] 1.4 Wire indexing into the project. **Refinement:** instead of hooking
+      raw `setSyncHandlers` callbacks, the index is maintained by a
+      `useProjectSearch(files, fileContents)` hook (in `Editor.tsx`) that
+      reconciles the index against React state — a file is indexed iff it is in
+      both `files` (authoritative membership) and `fileContents` (text). This
+      reflects adds/edits/deletes/project-switches for free with no risk of
+      drift from what the user sees. `useProjectSearch.{ts,test.tsx}` (6 tests).
+- [x] 1.5 Search UI in `FileSidebar.tsx`: debounced query box (120ms), ranked
+      result list, clear button, select → `onSelectFile`. `searchFiles` +
+      `fileContents` props threaded from `Editor`. `FileSidebar.search.test.tsx`
+      (5 tests).
+- [x] 1.6 Snippet/highlight rendering for matches (raw-text offsets) via a pure
+      `buildSnippet(content, terms)` helper rendering `<mark>` segments;
+      kept out of the provider (which need not store full text).
+      `snippet.{ts,test.ts}` (8 tests).
 - [ ] 1.7 End-to-end check in a real browser session against a running hub
       (per CLAUDE.md end-to-end-verification rule); record the invocation +
       observed result here.

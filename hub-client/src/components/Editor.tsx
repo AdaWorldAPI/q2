@@ -18,6 +18,7 @@ import type { Diagnostic } from '@quarto/preview-renderer/types/diagnostic';
 import { useIntelligenceProviders } from '../hooks/useIntelligenceProviders';
 import { registerQmdLanguage } from './quartoTheme';
 import { processFileForUpload } from '../services/resourceService';
+import { useProjectSearch } from '../services/search';
 import { usePresence } from '../hooks/usePresence';
 import { usePreference } from '../hooks/usePreference';
 import { useTheme } from './ThemeContext';
@@ -139,6 +140,9 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
   // View mode for pane sizing
   const { viewMode } = useViewMode();
   const { effectiveTheme } = useTheme();
+
+  // Full-text search index over the open project (Phase 1: client-side).
+  const searchFiles = useProjectSearch(files, fileContents);
 
   // Select initial file based on URL route or default
   const getInitialFile = useCallback((): FileEntry | null => {
@@ -972,6 +976,8 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
                       onRenameFile={handleRenameFile}
                       onOpenInNewTab={handleOpenInNewTab}
                       onCopyLink={handleCopyLink}
+                      searchFiles={searchFiles}
+                      fileContents={fileContents}
                     />
                   );
                 case 'outline':
