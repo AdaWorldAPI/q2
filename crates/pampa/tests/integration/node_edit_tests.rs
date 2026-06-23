@@ -1424,3 +1424,46 @@ fn preserve_leaf_variant_does_not_fire_on_multi_block_replacement() {
         bl.content[0][0]
     );
 }
+
+// =============================================================================
+// bd-3zp3z4jx — link URL corruption on write-back
+// =============================================================================
+
+/// Editing a paragraph so it gains a SECOND link must keep both links' distinct
+/// URLs. Repro for bd-3zp3z4jx: a new link in a multi-link paragraph was getting
+/// an adjacent link's URL on write-back (found via the rich-text editor, but the
+/// bug is in apply_node_edit / the incremental writer, shared by both editors).
+#[test]
+fn apply_node_edit_preserves_distinct_link_urls() {
+    // Original paragraph has ONE link.
+    let content = "Text with a [link](https://existing.example) here.\n";
+    // Edit it to add a NEW link (before the existing one) with a DIFFERENT url.
+    let replacement = "Text with a [newlink](https://added.example) and a [link](https://existing.example) here.\n";
+    let result = edit_block(content, 0, replacement);
+
+    assert!(
+        result.contains("https://added.example"),
+        "the NEW link's URL must survive write-back; got: {result:?}"
+    );
+    assert!(
+        result.contains("https://existing.example"),
+        "the original link's URL must survive write-back; got: {result:?}"
+    );
+}
+
+/// Changing an EXISTING link's URL must persist the new URL (bd-3zp3z4jx).
+/// Previously the inline splice preserved the old `](url)` delimiter verbatim.
+#[test]
+fn apply_node_edit_changes_existing_link_url() {
+    let content = "Go to [the site](https://old.example) now.\n";
+    let replacement = "Go to [the site](https://new.example) now.\n";
+    let result = edit_block(content, 0, replacement);
+    assert!(
+        result.contains("https://new.example"),
+        "changed URL must persist; got: {result:?}"
+    );
+    assert!(
+        !result.contains("https://old.example"),
+        "old URL must be gone; got: {result:?}"
+    );
+}
