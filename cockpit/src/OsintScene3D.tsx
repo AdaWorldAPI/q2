@@ -6,6 +6,7 @@
 // the render. The address IS the coordinate; there is no force-layout pass.
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const GOLDEN_ANGLE = 2.3999632;
 const NODE_REC = 17; // guid(16) + class(1)
@@ -108,7 +109,7 @@ function mount(container: HTMLDivElement, s: Scene): () => void {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0e17);
-  scene.fog = new THREE.FogExp2(0x0a0e17, 0.0035);
+  scene.fog = new THREE.FogExp2(0x0a0e17, 0.0014);
   const camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 4000);
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(w, h);
@@ -180,24 +181,39 @@ function mount(container: HTMLDivElement, s: Scene): () => void {
   const lineGeom = new THREE.BufferGeometry();
   lineGeom.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
   const lineMat = new THREE.LineBasicMaterial({
-    color: 0x2a3a4f,
+    color: 0x5fa8d8,
     transparent: true,
-    opacity: 0.22,
+    opacity: 0.34,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
   });
   scene.add(new THREE.LineSegments(lineGeom, lineMat));
 
+  // Frame the centred radius-R cloud, then hand control to the user:
+  // left-drag = orbit, scroll = zoom, right-drag = pan. A gentle idle
+  // auto-rotate runs until the first interaction, then yields fully.
+  const fitDist = R / Math.sin((camera.fov * Math.PI) / 360); // fit sphere R in FOV
+  camera.position.set(fitDist * 0.55, fitDist * 0.62, fitDist * 0.95);
+  camera.lookAt(0, 0, 0);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 0, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.rotateSpeed = 0.6;
+  controls.zoomSpeed = 0.9;
+  controls.panSpeed = 0.7;
+  controls.minDistance = 15;
+  controls.maxDistance = 1500;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.5;
+  controls.addEventListener('start', () => {
+    controls.autoRotate = false;
+  });
+
   let animId = 0;
-  let frame = 0;
-  const camR = R * 2.4;
   const animate = () => {
-    frame++;
-    const t = frame * 0.0014;
-    camera.position.set(
-      Math.sin(t) * camR,
-      Math.sin(t * 0.3) * camR * 0.35,
-      Math.cos(t) * camR,
-    );
-    camera.lookAt(0, 0, 0);
+    controls.update();
     renderer.render(scene, camera);
     animId = requestAnimationFrame(animate);
   };
@@ -214,9 +230,11 @@ function mount(container: HTMLDivElement, s: Scene): () => void {
 
   return () => {
     cancelAnimationFrame(animId);
+    controls.dispose();
     window.removeEventListener('resize', handleResize);
     sphereGeom.dispose();
     lineGeom.dispose();
+    lineMat.dispose();
     matCache.forEach((m) => m.dispose());
     renderer.dispose();
     if (container.contains(renderer.domElement)) {
