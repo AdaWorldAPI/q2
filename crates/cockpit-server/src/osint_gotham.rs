@@ -90,6 +90,244 @@ fn label_of_order(order: u8) -> &'static str {
     OSINT_SCHEMA.get(order as usize).copied().unwrap_or("Other")
 }
 
+// ── Dual-use facet tenant (value-slab bytes 1..=6) ──────────────────────────
+//
+// The aiwar dual-use taxonomy (the AIRO/VAIR ontology: militaryUse ↔ civicUse,
+// airo:type, MLType, purpose, capacity) packed as fixed-width codes into the
+// SAME `[0u8; 480]` value slab that byte 0 ([`CLASS_ORDER_TENANT`]) uses for the
+// class-label order. These are NOT separate `SchemaAxis`/`SchemaValue` nodes and
+// NOT a per-axis family class — they are a **value tenant on the one OSINT class
+// (0x0700)**, read by the same ClassView. That makes dual-use *hot*: a scan over
+// the value column can filter/group by facet without touching any cold blob.
+//
+// Each axis is a closed codebook (the schema-as-data `SchemaValue` value-set,
+// stabilised here as a sorted `&[&str]`); a facet code is `1 + index`, and `0`
+// means absent/unknown (graceful — an enrichment node with no aiwar facet, or a
+// value the harvest added past this codebook, simply reads 0). `airo:type` is a
+// BITSET because it is compound: a node can be AIDeployer AND AISubject — the
+// techno-imperial boomerang (tech fielded *and* turned on the fielder) in one
+// node. Systems fill military/civic/ML/purpose/capacity; stakeholders & people
+// fill the AIRO role; schema/ontology nodes fill none.
+const FACET_MILITARY: usize = 1; // militaryUse — primary token, u8 code
+const FACET_CIVIC: usize = 2; // civicUse    — primary token, u8 code
+const FACET_AIRO_ROLE: usize = 3; // airo:type   — u8 bitset (compound)
+const FACET_MLTYPE: usize = 4; // MLTask/MLTasks primary token, u8 code
+const FACET_PURPOSE: usize = 5; // purpose / purpose:vair — u8 code
+const FACET_CAPACITY: usize = 6; // capacity / capacity:airo — u8 code
+
+/// `airo:type` actor roles in bit order. The four canonical AIRO players plus
+/// the two rare variants the harvest carries; the game-theory structure is
+/// Developer *builds* → Deployer *fields* → Subject *is targeted*, Provider
+/// *supplies*. Index = bit position in [`FACET_AIRO_ROLE`].
+const AIRO_ROLE: &[&str] = &[
+    "AISubject",   // bit 0 — the targeted (where harm lands)
+    "AIDeployer",  // bit 1 — the fielder
+    "AIDeveloper", // bit 2 — the builder
+    "AIProvider",  // bit 3 — the supplier
+    "AIOperator",  // bit 4
+    "AISupplier",  // bit 5
+];
+
+/// `militaryUse` value-set (schema legend ∪ system instances).
+const MILITARY_USE: &[&str] = &[
+    "Command",
+    "Communications",
+    "Intel",
+    "Intelligence",
+    "Logistics",
+    "Mapping",
+    "Operations",
+    "Personnel",
+    "Planning",
+    "Prediction",
+    "Robot",
+];
+
+/// `civicUse` value-set (the civilian face of the dual-use pair).
+const CIVIC_USE: &[&str] = &[
+    "AIAssistants",
+    "AR",
+    "AccessGranting",
+    "Advertising",
+    "AppUnlocking",
+    "BehaviorEvaluation",
+    "BorderPatrol",
+    "Chatbots",
+    "CloudComputing",
+    "ConsumerTracking",
+    "CrowdControl",
+    "Dashboard",
+    "DataBrokers",
+    "DataDistribution",
+    "Delivery",
+    "EdgeComputing",
+    "Games",
+    "IdentityVerification",
+    "InternetAccess",
+    "LocationAnalytics",
+    "Logistics",
+    "Marketing",
+    "NaturalLanguageProcessing",
+    "Policing",
+    "PrivateSecurity",
+    "ProjectManagement",
+    "RecommenderSystem",
+    "RecommenderSystems",
+    "Retired",
+    "Robot",
+    "ScientificResearch",
+    "SecureTransmission",
+    "Security",
+    "SmartHome",
+    "SocialWelfareSystems",
+    "SupplyChainManagement",
+    "Surveillance",
+    "TranslationApps",
+    "Unknown",
+    "VR",
+    "VehicleTasking",
+];
+
+/// `MLTask` / `MLType` value-set (the technical capability).
+const ML_TYPE: &[&str] = &[
+    "Assign",
+    "Automate",
+    "Capture",
+    "Classification",
+    "Clustering",
+    "CommonSenseReasoning",
+    "ComputerVision",
+    "DecisionTree",
+    "FaceRecognition",
+    "Generate",
+    "ImageGeneration",
+    "InformationRetrieval",
+    "KnowledgeBase",
+    "ObjectDetection",
+    "ObjectRecognition",
+    "PatternRecognition",
+    "Photogrammetry",
+    "PolicyReasoning",
+    "PoseEstimation",
+    "Predict",
+    "Ranking",
+    "Recognize",
+    "Recommendation",
+    "SentimentAnalysis",
+    "SignalAnalysis",
+    "SignalTracking",
+    "Sort",
+    "SortingAlgorithm",
+    "SpatialReasoning",
+    "SpeechAnalysis",
+    "SpeechSynthesis",
+    "Store",
+    "TemporalReasoning",
+    "TextAnalysis",
+    "TextGeneration",
+    "TransformerModel",
+    "VoiceRecognition",
+];
+
+/// `purpose:vair` value-set (the AIRO/VAIR declared purpose).
+const PURPOSE_VAIR: &[&str] = &[
+    "AssessingPeopleRelatedRisk",
+    "AssessingRiskOfOffending",
+    "DetectingCriminalOffences",
+    "DetectingIndividuals",
+    "DetectingLies",
+    "EvaluatingEmployeePerformance",
+    "EvaluatingJobCandidates",
+    "IdentifyingIndividuals",
+    "Monitoring",
+    "PerformingBackgroundChecks",
+    "PredictiveMapping",
+    "ProducingRecommendation",
+    "RecognizingIndividuals",
+    "RemoteIdentification",
+];
+
+/// `capacity:airo` value-set (the AIRO capability the system exercises).
+const CAPACITY_AIRO: &[&str] = &[
+    "AudioProcessing",
+    "BehaviourAnalysis",
+    "BiometricCategorisation",
+    "BiometricIdentification",
+    "BiometricsBasedEmotionRecognition",
+    "Classification",
+    "ComputerVision",
+    "DialectRecognition",
+    "EmotionRecognition",
+    "FaceRecognition",
+    "Geolocation",
+    "GestureRecognition",
+    "ImageGeneration",
+    "InformationRetrieval",
+    "LieDetection",
+    "NamedEntityRecognition",
+    "ObjectDetection",
+    "ObjectRecognition",
+    "PoseEstimation",
+    "Profiling",
+    "RelationshipExtraction",
+    "SensitiveAttributeInference",
+    "SentimentAnalysis",
+    "SignalTracking",
+];
+
+/// Code a single facet value (`1 + index` in its codebook; `0` = absent /
+/// unknown). Compound axes (comma-joined) code their **primary** token; the
+/// match is case-insensitive so harvest casing drift never silently drops.
+fn facet_code(book: &[&str], value: &str) -> u8 {
+    let primary = value.split(',').next().unwrap_or("").trim();
+    if primary.is_empty() {
+        return 0;
+    }
+    book.iter()
+        .position(|&v| v.eq_ignore_ascii_case(primary))
+        .map(|i| i as u8 + 1)
+        .unwrap_or(0)
+}
+
+/// Code the (compound) `airo:type` as a bitset over [`AIRO_ROLE`]. A node that
+/// is both AIDeployer and AISubject sets both bits — the boomerang made legible.
+fn airo_role_bits(value: &str) -> u8 {
+    let mut bits = 0u8;
+    for tok in value.split(',') {
+        if let Some(i) = AIRO_ROLE
+            .iter()
+            .position(|&r| r.eq_ignore_ascii_case(tok.trim()))
+        {
+            bits |= 1u8 << i;
+        }
+    }
+    bits
+}
+
+/// Pack the dual-use facet tenant (`value[1..=6]`) from a node's source
+/// properties. Absent props leave their byte at 0.
+fn write_facet_tenant(value: &mut [u8; 480], props: &HashMap<String, Value>) {
+    let s = |k: &str| props.get(k).and_then(|v| v.as_str());
+    if let Some(v) = s("militaryUse") {
+        value[FACET_MILITARY] = facet_code(MILITARY_USE, v);
+    }
+    if let Some(v) = s("civicUse") {
+        value[FACET_CIVIC] = facet_code(CIVIC_USE, v);
+    }
+    if let Some(v) = s("airo:type") {
+        value[FACET_AIRO_ROLE] = airo_role_bits(v);
+    }
+    if let Some(v) = s("MLTask").or_else(|| s("MLTasks")) {
+        value[FACET_MLTYPE] = facet_code(ML_TYPE, v);
+    }
+    if let Some(v) = s("purpose").or_else(|| s("purpose:vair")) {
+        value[FACET_PURPOSE] = facet_code(PURPOSE_VAIR, v);
+    }
+    if let Some(v) = s("capacity").or_else(|| s("capacity:airo")) {
+        value[FACET_CAPACITY] = facet_code(CAPACITY_AIRO, v);
+    }
+}
+
 /// Golden angle (radians) — the φ-spiral / Vogel constant.
 const GOLDEN_ANGLE: f32 = 2.399_963_2;
 
@@ -361,11 +599,14 @@ pub fn osint_node_rows(graph: &AiWarGraph, plan: &BasinPlan) -> Vec<NodeRow> {
                 }
             }
 
-            // value tenant: the class-label ORDER. An instance inherits its
-            // label by the order it carries here, from the one class's schema
-            // (OSINT_SCHEMA). One fixed byte; the rest of the slab stays zero.
+            // value tenant: byte 0 carries the class-label ORDER (an instance
+            // inherits its label by the order it carries here, from the one
+            // class's schema, OSINT_SCHEMA); bytes 1..=6 carry the dual-use
+            // facet tenant (militaryUse ↔ civicUse, AIRO role, MLType, purpose,
+            // capacity) packed from the source props; the rest stays zero.
             let mut value = [0u8; 480];
             value[CLASS_ORDER_TENANT] = label_order(&n.node_type);
+            write_facet_tenant(&mut value, &n.properties);
 
             NodeRow {
                 key: NodeGuid::new_v2(
@@ -813,14 +1054,66 @@ mod tests {
             // GUID-v2 tail: identity == index, family == basin byte (high byte 0)
             assert_eq!(row.key.identity_v2(), i as u16);
             assert_eq!(row.key.family_v2() >> 8, 0, "basin is an 8-bit byte");
-            // value tenant: one byte carries the class-label order; rest zero.
+            // value tenant: byte 0 = class-label order, bytes 1..=6 = the
+            // dual-use facet tenant (zero in this fixture — no aiwar facet
+            // props), the rest of the slab stays zero.
             let order = row.value[CLASS_ORDER_TENANT];
             assert!((order as usize) <= OSINT_SCHEMA.len(), "order in range");
             assert!(
-                row.value[CLASS_ORDER_TENANT + 1..].iter().all(|&b| b == 0),
-                "only the class-order tenant byte is set"
+                row.value[FACET_CAPACITY + 1..].iter().all(|&b| b == 0),
+                "nothing past the facet tenant is set"
             );
         }
+    }
+
+    #[test]
+    fn dual_use_facets_pack_into_the_value_tenant() {
+        // A System carries the dual-use pair + ML/purpose/capacity; an actor
+        // carries the AIRO role. The boomerang stakeholder is BOTH AIDeployer
+        // and AISubject — both bits set in one node (tech fielded AND turned on
+        // the fielder).
+        const DU: &str = r#"{
+            "N_Systems": [
+                {"id": "Lavender", "name": "Lavender",
+                 "militaryUse": "Intelligence",
+                 "civicUse": "RecommenderSystem, BehaviorEvaluation",
+                 "MLTask": "Predict",
+                 "purpose": "AssessingRiskOfOffending",
+                 "capacity": "Profiling"}
+            ],
+            "N_Stakeholders": [
+                {"id": "Boomerang", "name": "Boomerang Nation", "type": "Nation",
+                 "airo:type": "AIDeployer, AISubject"}
+            ]
+        }"#;
+        let g = aiwar_ingest::load_from_str(DU).expect("valid dual-use fixture");
+        let plan = plan_basins(&g, &[]);
+        let rows = osint_node_rows(&g, &plan);
+
+        let lav = g.nodes.iter().position(|n| n.id == "Lavender").unwrap();
+        let lv = &rows[lav].value;
+        // militaryUse "Intelligence" is index 3 in MILITARY_USE → code 4.
+        assert_eq!(lv[FACET_MILITARY], 4, "militaryUse coded by codebook index");
+        // civicUse primary token "RecommenderSystem" coded; the compound second
+        // token is dropped at v1.
+        assert_ne!(lv[FACET_CIVIC], 0, "civicUse primary token coded");
+        assert_ne!(lv[FACET_MLTYPE], 0, "MLTask coded");
+        assert_ne!(lv[FACET_PURPOSE], 0, "purpose coded");
+        assert_ne!(lv[FACET_CAPACITY], 0, "capacity coded");
+        assert_eq!(lv[FACET_AIRO_ROLE], 0, "a System carries no AIRO actor role");
+
+        let boom = g.nodes.iter().position(|n| n.id == "Boomerang").unwrap();
+        let bv = &rows[boom].value;
+        // AISubject = bit 0, AIDeployer = bit 1 → 0b011. The boomerang in one node.
+        assert_eq!(
+            bv[FACET_AIRO_ROLE], 0b011,
+            "deployer AND subject — the boomerang"
+        );
+        assert_eq!(bv[FACET_MILITARY], 0, "a stakeholder carries no system facet");
+
+        // the tenant stays within bytes 0..=6; the rest of the slab is zero.
+        assert!(lv[FACET_CAPACITY + 1..].iter().all(|&b| b == 0));
+        assert!(bv[FACET_CAPACITY + 1..].iter().all(|&b| b == 0));
     }
 
     #[test]
