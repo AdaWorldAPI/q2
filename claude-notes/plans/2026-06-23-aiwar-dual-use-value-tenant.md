@@ -63,20 +63,44 @@ stakeholders & people fill 3; schema nodes fill none.
       stakeholder packs AIDeployer|AISubject bits.
 - [ ] `cargo nextest run -p cockpit-server` green.
 
-### Phase 2 — wire + view (next increment, touches the baked asset)
-- [ ] Emit the 6-byte facet tail per node on the OSO1 wire (additive, after
-      the label tail; old readers ignore it).
-- [ ] Mirror the codebook in `OsintGraph.tsx`; decode the facet tail.
-- [ ] Surface dual-use in node tooltips + the reasoning readout (the "direct
-      line" narration).
-- [ ] Add the **AIRO-role "meta" lens**: recolour actors by game-theory role
-      (Subject = harm lands here, Deployer fields, Developer builds, Provider
-      supplies); boomerang nodes (Subject+Deployer) flagged.
-- [ ] Re-bake `assets/osint_scene.soa` from the FULL harvest
-      (`/home/user/aiwar-neo4j-harvest` — must be the 920-node enriched
-      source, NOT the 221-node `public/` fallback) and verify node count
-      unchanged.
-- [ ] `npm run build` (cockpit) green; inspect the rendered scene.
+### Phase 2 — dimensions IN the schema (facet edges)  ← CORRECTED 2026-06-23
+
+**Why the original Phase 2 was wrong.** The plan was to decode the tenant into
+tooltips + an AIRO lens. Operator feedback (with screenshots): "the dimensions
+are still not in the schema; the family-adapter-as-model ↔ ClassView doesn't
+work." Diagnosis confirmed in the harvest cypher: the 12 `SchemaAxis` + their
+`SchemaValue` leaves exist, but there is **zero** edge from any entity to a
+`SchemaValue` — the schema is a disconnected legend. The `0x0700` ClassView is
+empty + display-only, so it can never put a dimension "in the schema" (a
+ClassView renders one entity's fields on click; it does not emit shared graph
+edges). The tenant bytes are a hot-scan twin, not graph structure. "In the
+schema" = traversable edges.
+
+**The fix (done):** emit `entity → SchemaValue` facet edges — the harvest's own
+faceted graph (model.rs pattern #1) that its cypher never emitted.
+- [x] `entity_facet_edges()` in `osint_gotham.rs`: per-axis edges (rel 10..15)
+      from each node's facet props to the matching `SchemaValue` (keyed by value
+      string); compound values split. Emitted in `osint_soa_bytes`.
+- [x] `OsintGraph.tsx`: REL_NAME/REL_COLOR for 10..15; a **dimension-layer
+      toggle** (`◇ dimensions`) that hides cls 5/6 nodes + VALID_FOR + facet
+      edges via vis `hidden` (no relayout) — the "family concepts" off/on.
+- [x] tests: `facet_edges_wire_entities_to_schema_values` (5 edges, compound
+      split, no spurious sources); logic verified standalone; `npm run build`
+      (cockpit) green.
+- [ ] **RE-BAKE REQUIRED** — the facet edges are inert until `osint_scene.soa`
+      is regenerated. The bake (`cargo test -p cockpit-server --bin q2-cockpit
+      -- --ignored bake_osint_soa`) needs cockpit-server to compile (lance 7 +
+      datafusion — disk-infeasible in the dev sandbox) AND the FULL enriched
+      harvest at `/home/user/aiwar-neo4j-harvest` (NOT the 221-node `public/`
+      fallback, which has no `SchemaValue` nodes to link to). Do this on
+      Railway / a full-disk machine, then verify node count unchanged and the
+      facet edges present.
+
+### Phase 3 — optional follow-ups
+- [ ] Canonicalize the facet edges in the harvest cypher (source-side), so all
+      consumers get them, not just the cockpit bake.
+- [ ] "Same tool" / boomerang traversal: from a `SchemaValue` walk to every
+      entity sharing it; flag the Deployer∩Subject nodes.
 
 ## Notes
 - Source repos cloned to scratchpad: `aiwar` (Quarto site + canonical CSV),

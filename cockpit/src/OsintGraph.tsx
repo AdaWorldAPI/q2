@@ -43,14 +43,21 @@ const ANGLES: Array<{ name: string; cls: number }> = [
 
 // rel byte → relation name + colour (rel_code in osint_gotham.rs). 0/1 are the
 // basin scaffold; 2..9 are the real neo4j relations (the VIEW we render).
+// 0/1 are the basin scaffold; 2..9 the real neo4j relations; 10..15 are the
+// dual-use FACET edges (entity → its SchemaValue), the dimensions made
+// traversable — the toggleable "dimension layer".
 const REL_NAME = [
   'member-of', 'interfaces', 'CONNECTED_TO', 'DEVELOPED_BY', 'DEPLOYED_BY',
   'PERSON_LINK', 'USED_IN', 'HIERARCHICAL', 'VALID_FOR', 'related',
+  'militaryUse', 'civicUse', 'airo:type', 'MLType', 'purpose', 'capacity',
 ];
 const REL_COLOR = [
   '#223040', '#223040', '#4dd0e1', '#ffb547', '#35d07f',
   '#ff637d', '#9b8cff', '#c792ea', '#7fd1c7', '#8fa6c4',
+  '#ff637d', '#35d07f', '#c792ea', '#7fd1ff', '#ffb547', '#9b8cff',
 ];
+// rel codes that make up the dimension layer: VALID_FOR (8) + the facets (10..15).
+const isFacetRel = (r: number) => r === 8 || (r >= 10 && r <= 15);
 
 const DIM_NODE = { background: 'rgba(10,14,23,0.55)', border: '#26323f' };
 const DIM_EDGE = 'rgba(50,66,84,0.12)';
@@ -81,6 +88,7 @@ interface GraphApi {
   query: (text: string) => 'seed' | 'path' | 'not-found';
   fireLens: (angleIdx: number) => void;
   clear: () => void;
+  setDims: (show: boolean) => void;
 }
 
 // Decode the OSO1 wire: magic(4) | nodeCount u32 | edgeCount u32 |
@@ -264,6 +272,7 @@ export function OsintGraph() {
   const [readout, setReadout] = useState<Readout | null>(null);
   const [search, setSearch] = useState('');
   const [angle, setAngle] = useState<number | null>(null);
+  const [showDims, setShowDims] = useState(true);
 
   // Fetch + decode the SoA once.
   useEffect(() => {
@@ -593,6 +602,19 @@ export function OsintGraph() {
       return prefix ?? sub;
     };
 
+    // the dimension layer = SchemaValue/SchemaAxis nodes (cls 5/6) + their
+    // VALID_FOR and facet edges. Toggle hides it via vis `hidden` (no relayout),
+    // so the "family concepts" can be dropped to a clean entity graph and back.
+    const schemaNodeIds = Array.from(touched).filter((i) => soa.cls[i] === 5 || soa.cls[i] === 6);
+    const schemaEdgeIds = semantic.filter((e) => isFacetRel(e.r)).map((e) => e.id);
+    const setDims = (show: boolean) => {
+      visNodes.update(schemaNodeIds.map((id) => ({ id, hidden: !show })));
+      visEdges.update(schemaEdgeIds.map((id) => ({ id, hidden: !show })));
+    };
+    // apply the current toggle state on (re)build — covers a toggle that landed
+    // before the network (and apiRef) existed, so the button and graph never desync.
+    setDims(showDims);
+
     apiRef.current = {
       query: (text) => {
         const parts = text.split(/[+,&]/).map((s) => s.trim()).filter(Boolean);
@@ -618,6 +640,7 @@ export function OsintGraph() {
         restore();
         setReadout(null);
       },
+      setDims,
     };
 
     net.on('click', (params: { nodes: unknown[] }) => {
@@ -645,6 +668,11 @@ export function OsintGraph() {
   const clearReason = () => {
     setAngle(null);
     apiRef.current?.clear();
+  };
+  const toggleDims = () => {
+    const next = !showDims;
+    setShowDims(next);
+    apiRef.current?.setDims(next);
   };
 
   const lensChip = (i: number): CSSProperties => ({
@@ -742,6 +770,23 @@ export function OsintGraph() {
               {a.name}
             </button>
           ))}
+          <button
+            onClick={toggleDims}
+            title="show/hide the dimension layer — militaryUse · civicUse · airo:type · MLType · purpose · capacity"
+            style={{
+              fontFamily: 'monospace',
+              fontSize: 11,
+              color: showDims ? '#0a0e17' : '#9fb4c8',
+              background: showDims ? '#c792ea' : 'rgba(17,32,48,0.6)',
+              border: '1px solid #c792ea',
+              borderRadius: 6,
+              padding: '5px 9px',
+              cursor: 'pointer',
+              fontWeight: showDims ? 700 : 400,
+            }}
+          >
+            ◇ dimensions
+          </button>
           {readout && (
             <button
               onClick={clearReason}
