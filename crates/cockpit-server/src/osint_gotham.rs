@@ -846,6 +846,63 @@ fn push_edge(buf: &mut Vec<u8>, s: usize, t: usize, rel: u8) {
     buf.push(rel);
 }
 
+// Facet edge-type codes (entity → SchemaValue, one per dual-use axis). These put
+// the dimensions IN the schema — traversable — beyond the orphaned
+// `SchemaValue —VALID_FOR→ SchemaAxis` legend the harvest emits. They are the
+// graph-structure twin of the value tenant (value[1..=6]): the tenant is the hot
+// scan, these edges are the schema. rel ≥ 10 keeps them a distinct, toggleable
+// layer the client can hide ("family concepts" off).
+const REL_FACET_MILITARY: u8 = 10;
+const REL_FACET_CIVIC: u8 = 11;
+const REL_FACET_AIRO: u8 = 12;
+const REL_FACET_MLTYPE: u8 = 13;
+const REL_FACET_PURPOSE: u8 = 14;
+const REL_FACET_CAPACITY: u8 = 15;
+
+/// (property-key candidates, facet rel) per dual-use axis. First matching key
+/// wins (e.g. `MLTask` before `MLTasks`). Mirrors the facet tenant axes.
+const FACET_AXES: &[(&[&str], u8)] = &[
+    (&["militaryUse"], REL_FACET_MILITARY),
+    (&["civicUse"], REL_FACET_CIVIC),
+    (&["airo:type"], REL_FACET_AIRO),
+    (&["MLTask", "MLTasks"], REL_FACET_MLTYPE),
+    (&["purpose", "purpose:vair"], REL_FACET_PURPOSE),
+    (&["capacity", "capacity:airo"], REL_FACET_CAPACITY),
+];
+
+/// Entity → `SchemaValue` facet edges: for each node carrying a dual-use facet
+/// property, an edge to the `SchemaValue` node for each comma-split value.
+/// `SchemaValue` nodes are keyed by their value string (the ingest's id), so the
+/// match is exact. This is the harvest's faceted graph (model.rs pattern #1 —
+/// "nodes belong to multiple overlapping taxonomies") that its cypher never
+/// actually emitted: without it the schema is a disconnected legend.
+fn entity_facet_edges(graph: &AiWarGraph) -> Vec<(usize, usize, u8)> {
+    let value_idx: HashMap<&str, usize> = graph
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.node_type == "SchemaValue")
+        .map(|(i, n)| (n.id.as_str(), i))
+        .collect();
+    let mut out = Vec::new();
+    for (i, n) in graph.nodes.iter().enumerate() {
+        for (keys, rel) in FACET_AXES {
+            for key in *keys {
+                let Some(s) = n.properties.get(*key).and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                for tok in s.split(',') {
+                    if let Some(&vi) = value_idx.get(tok.trim()) {
+                        out.push((i, vi, *rel));
+                    }
+                }
+                break; // first matching key for this axis wins
+            }
+        }
+    }
+    out
+}
+
 /// Serialize the enriched CAM SoA scene to the binary wire format above: node
 /// GUIDs (decoded to xyz on the client) + class byte, then the typed link chart
 /// and the member-of / interface structure as u16 index pairs. Members occupy
@@ -901,6 +958,11 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         {
             push_edge(&mut edges, s, t, rel_code(&e.rel_type));
         }
+    }
+    // facet edges: wire each entity to the SchemaValue node for each dual-use
+    // facet — the dimensions IN the schema (rel ≥ 10, a toggleable layer).
+    for (s, t, rel) in entity_facet_edges(graph) {
+        push_edge(&mut edges, s, t, rel);
     }
     for (i, r) in rows.iter().enumerate() {
         let basin = (r.key.family_v2() & 0xFF) as u8;
@@ -1460,6 +1522,52 @@ mod tests {
             bytes.len()
         );
         assert!(bytes.len() > 12 && nodes > 221, "baked the enriched SoA");
+    }
+
+    #[test]
+    fn facet_edges_wire_entities_to_schema_values() {
+        // A tiny faceted graph: a System + a Stakeholder, plus the SchemaValue
+        // nodes their facets point at. entity_facet_edges must wire each entity
+        // to the value(s) it carries — the dimensions IN the schema, not a legend.
+        let gnode = |id: &str, ty: &str, props: &[(&str, &str)]| aiwar_ingest::GraphNode {
+            id: id.to_string(),
+            label: id.to_string(),
+            node_type: ty.to_string(),
+            properties: props
+                .iter()
+                .map(|(k, v)| (k.to_string(), Value::String(v.to_string())))
+                .collect(),
+        };
+        let g = AiWarGraph {
+            nodes: vec![
+                gnode(
+                    "Lattice",
+                    "System",
+                    &[
+                        ("militaryUse", "Intelligence"),
+                        ("civicUse", "Policing, CrowdControl"),
+                    ],
+                ),
+                gnode("Intelligence", "SchemaValue", &[]),
+                gnode("Policing", "SchemaValue", &[]),
+                gnode("CrowdControl", "SchemaValue", &[]),
+                gnode("Israel", "Stakeholder", &[("airo:type", "AIDeployer, AISubject")]),
+                gnode("AIDeployer", "SchemaValue", &[]),
+                gnode("AISubject", "SchemaValue", &[]),
+            ],
+            edges: vec![],
+        };
+        let fe = entity_facet_edges(&g);
+        // System → its militaryUse value, and BOTH civicUse values (compound split).
+        assert!(fe.contains(&(0, 1, REL_FACET_MILITARY)), "militaryUse edge");
+        assert!(fe.contains(&(0, 2, REL_FACET_CIVIC)), "civicUse Policing");
+        assert!(fe.contains(&(0, 3, REL_FACET_CIVIC)), "civicUse CrowdControl");
+        // Stakeholder → BOTH airo roles (the boomerang, as two edges).
+        assert!(fe.contains(&(4, 5, REL_FACET_AIRO)), "airo AIDeployer");
+        assert!(fe.contains(&(4, 6, REL_FACET_AIRO)), "airo AISubject");
+        // SchemaValue nodes never source a facet edge; exactly five edges, no extras.
+        assert!(!fe.iter().any(|&(s, _, _)| (1..=3).contains(&s) || s >= 5));
+        assert_eq!(fe.len(), 5);
     }
 
     #[test]
