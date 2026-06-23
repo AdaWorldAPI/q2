@@ -68,7 +68,14 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/render" element={<RenderPage />} />
           <Route path="/orbit" element={<OrbitPage />} />
           <Route path="/flight" element={<FlightPage />} />
+          {/* Default landing = the enriched OSINT CAM scene (920 nodes / 3344
+              edges), decoded client-side from the baked /osint.soa bytes — the
+              live stack output, not the 221-node static aiwar JSON. */}
+          <Route path="/" element={<OsintScene3D />} />
           <Route path="/osint3d" element={<OsintScene3D />} />
+          {/* The Palantir JSON-graph cockpit (221 aiwar nodes) stays reachable
+              at /palantir and as the catch-all for its own sub-routes. */}
+          <Route path="/palantir" element={<PalantirApp />} />
           <Route path="/*" element={<PalantirApp />} />
         </Routes>
       </BrowserRouter>
