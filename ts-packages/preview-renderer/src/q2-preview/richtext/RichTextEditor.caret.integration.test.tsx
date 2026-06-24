@@ -64,19 +64,30 @@ function mountEditor(initialCoords: { x: number; y: number } | null) {
     return { ...utils, getCoords: () => coordsRef.current };
 }
 
+/** Flush a requestAnimationFrame tick (placement is deferred one frame so the
+ *  swapped-in editor box is laid out before posAtCoords reads its geometry). */
+const nextFrame = () =>
+    new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
 describe('RichTextEditor — caret-at-click consume', () => {
-    it('consumes the coords ref and places the caret when coords are present', () => {
+    it('consumes the coords ref at mount and places the caret (next frame) when coords are present', async () => {
         const { getCoords } = mountEditor({ x: 42, y: 117 });
 
-        // Helper invoked with the editor + the captured coords…
+        // The ref is consumed synchronously at mount (so a remount can't reuse a
+        // stale click); placement itself is deferred one frame.
+        expect(getCoords()).toBeNull();
+        expect(placeCaretFromClick).not.toHaveBeenCalled();
+
+        await nextFrame();
+
+        // Helper invoked with the editor + the captured coords after layout settles.
         expect(placeCaretFromClick).toHaveBeenCalledTimes(1);
         expect(placeCaretFromClick.mock.calls[0][1]).toEqual({ x: 42, y: 117 });
-        // …and the ref is consumed (so a remount won't reuse a stale click).
-        expect(getCoords()).toBeNull();
     });
 
-    it('does not place the caret (and leaves end-of-block) when no coords present', () => {
+    it('does not place the caret (and leaves end-of-block) when no coords present', async () => {
         const { getCoords } = mountEditor(null);
+        await nextFrame();
 
         expect(placeCaretFromClick).not.toHaveBeenCalled();
         expect(getCoords()).toBeNull();

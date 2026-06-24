@@ -266,11 +266,46 @@ DevTools MCP against a running `q2 preview --allow-edit`, using `/tmp/rt-remo/`)
       `setTextSelection`) via the `placeCaretFromClick` helper; read+clear the ref
       once; keep `autofocus:'end'` fallback.
 - [x] Run jsdom tests; confirm they pass (capture + helper + consume all green).
-- [ ] `npm run build:all` from `hub-client/` (production build is stricter).
-- [ ] End-to-end browser verification (items above); screenshot + notes here.
-- [ ] Update `hub-client/changelog.md` if hub-client output is affected
-      (preview-renderer is bundled into the SPA → likely yes; follow the
-      two-commit changelog workflow).
+- [x] `npm run build:all` from `hub-client/` (production build is stricter) —
+      passed (strict `tsc -b` project-references + vite + WASM rebuild). Also
+      `tsc --noEmit` in preview-renderer: clean. Full preview-renderer suites:
+      490 unit + 498 integration green, no regressions.
+- [x] Committed verified core as `151be676` (unrelated Cargo.lock WASM-sync
+      change left out).
+- [x] End-to-end browser verification — **passed** (Chrome DevTools MCP against
+      `q2 preview index.qmd --allow-edit` on port 7654, `&richText=1`). Method:
+      dispatch a real mouse `pointermove`/`down`/`up` carrying the glyph's viewport
+      coords (located via a Range), then read the resulting ProseMirror selection
+      offset. Observed (caret offset vs. click target; `delta=0` means exact):
+
+      | Scenario | block | target | caret | result |
+      |---|---|---|---|---|
+      | Paragraph mid (40%) | P | 79 | 79 | delta 0, not end ✓ |
+      | Paragraph near-start (10%) | P | 19 | 19 | delta 0, not end ✓ |
+      | Heading (50%) | H2 | 18 | 17 | delta −1 (sub-glyph), not end ✓ |
+      | Clean click-switch P1→P2 (40%) | P | 46 | 46 | delta 0, not end ✓ |
+      | Keyboard (ArrowDown×2 + Enter) | P | — | 199=len | at end ✓ (default kept) |
+
+      Before the fix every mouse-open landed at 199 (end). Screenshot:
+      `claude-notes/richtext-shots/14-caret-at-click.png` (editor open mid-paragraph,
+      caret offset confirmed = click target = 79). Build chain used:
+      `cargo xtask build-q2-preview-spa && cargo build --bin q2` (TS-only change;
+      no WASM rebuild needed), restart the preview server (it embeds the SPA at
+      startup), reload the page.
+
+      **Key finding (recorded for future work):** the geometry was never the
+      problem — `caretRangeFromPoint` returned the correct position immediately.
+      The caret pinned to end because tiptap's `autofocus:'end'` applies its
+      end-selection in a `requestAnimationFrame` that *raced and beat* our
+      placement on the same frame. Fix: `autofocus:false`, and the mount effect
+      owns the opening caret (click position, else explicit `focus('end')`).
+- [x] Changelog: **intentionally skipped.** The two-commit `hub-client/changelog.md`
+      workflow triggers on changes under `hub-client/`; this change lives in
+      `ts-packages/preview-renderer`. More importantly the changelog is "a summary
+      of user-facing changes," and the rich-text editor (bd-sjb4pzx8) is still
+      behind the experimental `&richText=1` flag — it has **zero** changelog
+      entries. A sub-improvement to an unshipped flag-gated feature would be
+      inconsistent. Add one entry for the whole editor when the flag is removed.
 
 ---
 

@@ -91,7 +91,13 @@ export function RichTextEditor({
       Chip,
     ],
     content: seedJSON,
-    autofocus: 'end',
+    // Initial caret placement is owned entirely by the mount effect below (click
+    // position for a mouse-open, else end-of-block) — see bd-q9lyghv2. tiptap's
+    // own `autofocus` applies its end-selection in a requestAnimationFrame, which
+    // RACES our placement (browser-verified: it lands on the same frame and wins,
+    // pinning the caret to end). Disabling it removes the competitor so there is a
+    // single source of truth for the opening selection.
+    autofocus: false,
     // 1b: edit existing structure only — no markdown auto-conversion (e.g. typing
     // "## " must not turn a paragraph into a heading, or change a heading's level).
     // Structural edits are a later phase; bold/italic via Cmd-B/I still work.
@@ -153,20 +159,31 @@ export function RichTextEditor({
   // input keeps the session open.
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  // bd-q9lyghv2 caret-at-click: at mount, consume the viewport coords of the
-  // mouse click that opened this editor (stashed by useBlockEditHover) and place
-  // the caret there via posAtCoords — so the FIRST click lands the cursor where
-  // the user clicked instead of at end-of-block (the autofocus:'end' fallback).
+  // bd-q9lyghv2 caret-at-click: own the editor's opening caret. Consume the
+  // viewport coords of the mouse click that opened this editor (stashed by
+  // useBlockEditHover) and place the caret there via posAtCoords — so the FIRST
+  // click lands the cursor where the user clicked. With no coords (keyboard/touch
+  // open, or a posAtCoords miss) we focus at end-of-block — the historical
+  // default that `autofocus:'end'` used to provide before we disabled it.
   //
-  // Read-and-CLEAR exactly once: a self-heal re-anchor can remount this editor,
-  // but by then the document has reflowed and the captured coordinates are stale
-  // (the block moved on screen), so the remount must fall back to end-of-block
-  // rather than re-replay a now-wrong click. Nulling the ref here guarantees that.
+  // Read-and-CLEAR the coords exactly once: a self-heal re-anchor can remount this
+  // editor, but by then the document has reflowed and the captured coordinates are
+  // stale (the block moved on screen), so the remount falls back to end-of-block
+  // rather than re-replaying a now-wrong click. Nulling the ref here guarantees that.
+  //
+  // The placement runs in a requestAnimationFrame so the swapped-in editor box is
+  // laid out before posAtCoords reads geometry, and (with autofocus disabled)
+  // nothing competes to reset the selection afterward.
   useEffect(() => {
     if (!editor) return;
     const coords = ctx.pendingClickCoordsRef?.current ?? null;
     if (ctx.pendingClickCoordsRef) ctx.pendingClickCoordsRef.current = null;
-    if (coords) placeCaretFromClick(editor, coords);
+    const raf = requestAnimationFrame(() => {
+      if (editor.isDestroyed) return;
+      if (coords && placeCaretFromClick(editor, coords)) return;
+      editor.commands.focus('end');
+    });
+    return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
