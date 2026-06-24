@@ -58,3 +58,26 @@ Notes:
   ~6.6 s/frame on the scalar path (no AVX target-cpu in the scratchpad project);
   correctness verified by viewing the rendered frames.
 - Colours: golden-angle hue per structure at S=0.34 V=0.78 (muted, per request).
+- Brush: splat3d render uses gaussian scale 0.0025 (was 0.008 — the big isotropic
+  brush blobbed the detail into a "Warhol" look; 0.0025 at 810x1080 restores the
+  ribcage/vertebrae). Frames re-rendered.
+
+## Follow-ups (proposed, next PR)
+
+The splat is currently isotropic spheres (no orientation) — too big = blobs,
+too small = disconnected dots. The real upgrade, in one pass over the meshes:
+
+- [ ] **Anisotropic surface-fit gaussians** ("connect the dots"): read OBJ
+      *faces* (the bake currently drops them) -> per-vertex normals -> orient
+      each gaussian flat-to-surface (`scale[3]` tangent-wide / normal-thin,
+      `quat` from normal). splat3d's `Gaussian3D` already supports scale+quat;
+      the three.js page needs a real splat shader (oriented quads). This is the
+      "muscle memory of the nodes" — each gaussian inherits its shape from the
+      structure it came from. NOT voxels (those are discrete/volumetric; these
+      are continuous surfaces).
+- [ ] **Third "map FMA" view**: bake a per-gaussian FMA structure id + legend
+      (idx -> FMA concept / name / colour) into SPL1, then pick-to-label in 3D
+      and sync selection with the /fma-style partonomy graph. Realises the
+      osint-cad-splat thesis: graph and splat are one node at one address, two
+      payloads. Own page (/torso-map) vs folding labels into /torso-live: TBD
+      with user.
