@@ -15,6 +15,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-24
+
+- [`79ea2831`](https://github.com/quarto-dev/q2/commits/79ea2831): Fixed italic/emphasis text rendering upright in the preview — reveal.js's global CSS reset was leaking onto every document and zeroing `font-style` on `<em>`/`<i>`/`<cite>`; it is now scoped to slide decks only.
+
 ### 2026-06-22
 
 - [`f4e2c25e`](https://github.com/quarto-dev/q2/commits/f4e2c25e): Slide and AST previews now restyle live when a sibling config file changes — editing `_brand.yml` (or `_quarto.yml`) in another window recompiles the deck's theme without a page reload, matching the HTML preview.
