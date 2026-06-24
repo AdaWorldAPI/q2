@@ -27,6 +27,7 @@ import {
 import { SERVER_INFO_PATH } from './globalSetup';
 import type { ServerInfo } from './globalSetup';
 import { expect, type Page } from '@playwright/test';
+import { DEFAULT_PREFERENCES } from '../../src/services/preferences/schema';
 import type {} from './testHooks';
 
 export interface ProjectFile {
@@ -194,6 +195,31 @@ export async function bootstrapProjectSet(
       },
     };
   });
+  // bd-038tnyqy: pin the rich-text editor OFF as the e2e baseline. The app now
+  // defaults richText ON (bd-j1nto6eq), but the q2-preview editing specs were
+  // written against the plain-textarea surface (they click a block and
+  // `waitFor('textarea')`); with rich-text on they would open `.ProseMirror`
+  // and time out. We MERGE `richText:false` rather than overwrite, so a spec's
+  // own preference seed (set in its `beforeEach`, which runs before this script)
+  // is preserved, and any future rich-text spec can opt IN by seeding
+  // `richText:true` explicitly. No inline seed → write the full default object
+  // (incl. `version`, required by the zod schema) with `richText:false`.
+  await page.addInitScript((defaults) => {
+    const KEY = 'quarto-hub:preferences';
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw === null) {
+        localStorage.setItem(KEY, JSON.stringify({ ...defaults, richText: false }));
+      } else {
+        const cur = JSON.parse(raw);
+        if (cur.richText === undefined) {
+          localStorage.setItem(KEY, JSON.stringify({ ...cur, richText: false }));
+        }
+      }
+    } catch {
+      localStorage.setItem(KEY, JSON.stringify({ ...defaults, richText: false }));
+    }
+  }, DEFAULT_PREFERENCES);
   await page.goto('/');
   await expect(page.locator('body')).toBeVisible();
 
