@@ -100,6 +100,11 @@ interface Q2PreviewIframeProps {
    */
   unlockNestingCursor?: boolean;
   /**
+   * Phase 1a (bd-sjb4pzx8): opt-in rich-text (tiptap) block editor. Forwarded
+   * unchanged in the UPDATE_AST payload into `PreviewContext.richText`.
+   */
+  richText?: boolean;
+  /**
    * P3.2: per-siKey clean QMD buffers for nested blocks, produced by
    * the host's `regenerateNestedBuffers` call (gated on
    * `unlockNestingCursor`). Forwarded unchanged in the UPDATE_AST payload
@@ -169,6 +174,7 @@ export function Q2PreviewIframe({
   currentActor,
   editingDisabled,
   unlockNestingCursor,
+  richText,
   nestedEditBuffers,
   currentSlideIndex,
   onSlideChange,
@@ -365,6 +371,8 @@ export function Q2PreviewIframe({
           editingDisabled,
           // P3.2: nesting-cursor mode + per-key nested buffers.
           unlockNestingCursor,
+          // Phase 1a (bd-sjb4pzx8): opt-in rich-text editor.
+          richText,
           nestedEditBuffers,
         },
       },
@@ -383,6 +391,7 @@ export function Q2PreviewIframe({
     currentActor,
     editingDisabled,
     unlockNestingCursor,
+    richText,
     nestedEditBuffers,
   ]);
 

@@ -23,6 +23,7 @@ export default function SettingsTab({
 }: SettingsTabProps) {
   const [errorOverlayCollapsed, setErrorOverlayCollapsed] = usePreference('errorOverlayCollapsed');
   const [unlockNestingCursor, setUnlockNestingCursor] = usePreference('unlockNestingCursor');
+  const [richText, setRichText] = usePreference('richText');
   const [isCapturing, setIsCapturing] = useState(false);
 
   const handleScreenshot = async () => {
@@ -103,6 +104,18 @@ export default function SettingsTab({
           <span className="setting-name">Nesting cursor</span>
           <span className="setting-description">
             Descend into nested list/quote blocks; edit each level cleanly.
+          </span>
+        </label>
+        <label className="setting-toggle">
+          <input
+            type="checkbox"
+            checked={richText}
+            onChange={(e) => setRichText(e.target.checked)}
+          />
+          <span className="setting-name">Rich-text editor</span>
+          <span className="setting-description">
+            Edit paragraphs and headings as formatted text (WYSIWYG) instead of
+            raw markdown. Other blocks still use the plain text editor.
           </span>
         </label>
         <div style={{ marginTop: '16px' }}>

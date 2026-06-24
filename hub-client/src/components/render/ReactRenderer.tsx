@@ -112,6 +112,12 @@ interface ReactRendererProps {
    */
   unlockNestingCursor?: boolean;
   /**
+   * bd-j1nto6eq: rich-text (tiptap) block editor. Forwarded to
+   * `Q2PreviewIframe` only (q2-debug/slides don't support it), exactly like
+   * `unlockNestingCursor`.
+   */
+  richText?: boolean;
+  /**
    * P3.2: per-siKey clean QMD buffers for nested blocks, produced by
    * `regenerateNestedBuffers` in `ReactPreview` (gated on
    * `unlockNestingCursor`). Forwarded to `Q2PreviewIframe` only.
@@ -149,6 +155,7 @@ function ReactRenderer({
   untransformedAstJson,
   currentActor,
   unlockNestingCursor,
+  richText,
   nestedEditBuffers,
   scrollHandleRef,
   onPreviewScroll,
@@ -314,6 +321,7 @@ function ReactRenderer({
             untransformedAstJson={untransformedAstJson}
             currentActor={currentActor}
             unlockNestingCursor={unlockNestingCursor}
+            richText={richText}
             nestedEditBuffers={nestedEditBuffers}
             currentSlideIndex={currentSlideIndex}
             onSlideChange={onSlideChange}

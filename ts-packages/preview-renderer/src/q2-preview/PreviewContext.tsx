@@ -99,6 +99,22 @@ export interface PreviewContextValue {
      * only — the ref prevents draft changes from propagating up to PreviewRoot.
      */
     editDraftRef?: MutableRefObject<string | null>;
+    /**
+     * Viewport coordinates of the mouse click that activated the current edit
+     * target, or null for keyboard / touch activation (bd-q9lyghv2). Written by
+     * `useBlockEditHover`'s mouse `onPointerUp` (the single activation site that
+     * opens a block — both fresh-open and click-switch flow through it) and read
+     * exactly ONCE by `RichTextEditor` at mount, which uses `posAtCoords` to land
+     * the caret where the user clicked instead of at end-of-block.
+     *
+     * The reader CLEARS it after consuming so a self-heal re-anchor remount can't
+     * reuse a stale click (after a reflow the coordinates point at the wrong
+     * glyph) — that remount correctly falls back to end-of-block.
+     *
+     * A `MutableRefObject` is referentially stable, so exposing it here does NOT
+     * cause extra re-renders.
+     */
+    pendingClickCoordsRef?: MutableRefObject<{ x: number; y: number } | null>;
     /** SourceInfo-value index from the untransformed AST (Plan 2a). Built once per render. */
     sourceIndex?: Map<string, SourceIndexEntry> | null;
     /** Resolve a transformed block to its source counterpart + reachability class (Plan 2a). */
@@ -160,6 +176,32 @@ export interface PreviewContextValue {
      * boot URL query param.
      */
     unlockNestingCursor?: boolean;
+    /**
+     * Rich-text (tiptap) block editor (bd-sjb4pzx8). When true, an editable block
+     * renders a WYSIWYG tiptap editor instead of the monospaced textarea. The flag
+     * itself is off unless a host sets it; the q2 preview SPA now defaults it ON
+     * via its `?richText` boot param (only `?richText=0` opts out — bd-q9lyghv2
+     * follow-up), plumbed like `unlockNestingCursor`. v1 covers single paragraphs
+     * and headings; other block types fall back to the textarea even when on.
+     */
+    richText?: boolean;
+    /**
+     * Phase 1a (bd-sjb4pzx8): per-edit-session editor surface choice when
+     * `richText` is on. `'rich'` (default) renders the tiptap editor; `'plain'`
+     * renders the monospaced textarea (the escape hatch for syntax the rich
+     * editor can't express). Reset to `'rich'` each time a new block is opened.
+     * Toggled by the left-margin affordance.
+     */
+    editorMode?: 'rich' | 'plain';
+    /** Set the current edit session's editor surface (rich/plain). */
+    setEditorMode?: (mode: 'rich' | 'plain') => void;
+    /**
+     * True while a rich/plain surface swap is in flight. The outgoing surface's
+     * blur (fired as it unmounts) must NOT commit/close the edit session — the
+     * swap is not a "done editing" gesture. Set by the toggle, cleared on the
+     * next tick. Both surfaces' blur handlers check it.
+     */
+    editorModeSwitchRef?: MutableRefObject<boolean>;
     /**
      * §3: stable ref mirror of `unlockNestingCursor`, updated in PreviewRoot's
      * render body. The hover handlers (`onPointerMove`/`onPointerLeave`) are
