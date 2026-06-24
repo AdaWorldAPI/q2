@@ -125,10 +125,11 @@ fn main() {
     let out_path = a.get(4).cloned().unwrap_or_else(|| "cockpit/public/fma_body.mesh".into());
     let cell_mm: f32 = a.get(5).and_then(|s| s.parse().ok()).unwrap_or(3.6);
 
-    // converged key: FMA → (tissue, part_of depth, row).
+    // converged key: FMA → (tissue, part_of depth, row, name).
     let mut fma_tissue: HashMap<String, String> = HashMap::new();
     let mut fma_depth: HashMap<String, usize> = HashMap::new();
     let mut fma_row: HashMap<String, u16> = HashMap::new();
+    let mut fma_name: HashMap<String, String> = HashMap::new();
     for (i, line) in std::fs::read_to_string(&conv_path).unwrap_or_default().lines().enumerate() {
         if i == 0 {
             continue;
@@ -138,6 +139,8 @@ fn main() {
             fma_row.insert(f[0].into(), (fma_tissue.len() & 0xFFFF) as u16);
             fma_tissue.insert(f[0].into(), f[4].into());
             fma_depth.insert(f[0].into(), f[6].matches(" / ").count());
+            // name = the deepest segment of the part_of distinguished name.
+            fma_name.insert(f[0].into(), f[6].rsplit(" / ").next().unwrap_or(f[0]).trim().to_string());
         }
     }
     let mut fj_fma: HashMap<String, Vec<String>> = HashMap::new();
@@ -255,8 +258,8 @@ fn main() {
         buf.extend_from_slice(&v.to_le_bytes());
     }
     for i in 0..pos.len() {
-        for k in 0..3 {
-            buf.extend_from_slice(&pos[i][k].to_le_bytes());
+        for c in pos[i] {
+            buf.extend_from_slice(&c.to_le_bytes());
         }
         buf.push(qi8(nrm[i][0]) as u8);
         buf.push(qi8(nrm[i][1]) as u8);
@@ -287,6 +290,24 @@ fn main() {
     );
     File::create(&manifest_path).unwrap().write_all(manifest.as_bytes()).unwrap();
 
-    eprintln!("[cockpit_bake] {} verts, {} tris -> {out_path} ({} MB) + manifest", pos.len(), tris.len(), buf.len() / 1_000_000);
+    // search index: row → {fma, name, tissue} for the nodes present in the mesh. Drives the
+    // /fma-body search bar; per-node centroids are computed client-side from `node_row`.
+    let used: std::collections::HashSet<u16> = row.iter().copied().collect();
+    let mut node_entries: Vec<(u16, &String, &String, &String)> = fma_row
+        .iter()
+        .filter(|(_, r)| used.contains(r))
+        .filter_map(|(fma, r)| Some((*r, fma, fma_name.get(fma)?, fma_tissue.get(fma)?)))
+        .collect();
+    node_entries.sort_by_key(|&(r, ..)| r);
+    let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+    let nodes_json: String = node_entries
+        .iter()
+        .map(|(r, fma, name, tissue)| format!("{{\"row\":{r},\"fma\":\"{}\",\"name\":\"{}\",\"tissue\":\"{}\"}}", esc(fma), esc(name), esc(tissue)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let nodes_path = format!("{out_path}.nodes.json");
+    File::create(&nodes_path).unwrap().write_all(format!("{{\"nodes\":[{nodes_json}]}}").as_bytes()).unwrap();
+
+    eprintln!("[cockpit_bake] {} verts, {} tris -> {out_path} ({} MB) + manifest + {} search nodes", pos.len(), tris.len(), buf.len() / 1_000_000, node_entries.len());
     eprintln!("[cockpit_bake] opacity byte = LAYER id; layers: {layers:?}");
 }
