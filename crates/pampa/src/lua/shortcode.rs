@@ -982,7 +982,10 @@ return {
             .unwrap();
         match result {
             LuaShortcodeResult::Text(s) => {
-                let expected = tmp.path().join("data.json").to_string_lossy().to_string();
+                // resolve_path returns forward slashes on all platforms; the
+                // pushed script dir is a native temp path (backslashes on
+                // Windows), so normalize the expected value the same way.
+                let expected = quarto_util::to_forward_slashes(&tmp.path().join("data.json"));
                 assert_eq!(s, expected);
             }
             other => panic!("Expected Text with resolved path, got {:?}", other),
@@ -1091,7 +1094,7 @@ return {
             .unwrap();
         match result1 {
             LuaShortcodeResult::Text(s) => {
-                let expected = tmp1.path().join("data1.json").to_string_lossy().to_string();
+                let expected = quarto_util::to_forward_slashes(&tmp1.path().join("data1.json"));
                 assert_eq!(s, expected);
             }
             other => panic!("Expected Text for ext1, got {:?}", other),
@@ -1104,7 +1107,7 @@ return {
             .unwrap();
         match result2 {
             LuaShortcodeResult::Text(s) => {
-                let expected = tmp2.path().join("data2.json").to_string_lossy().to_string();
+                let expected = quarto_util::to_forward_slashes(&tmp2.path().join("data2.json"));
                 assert_eq!(s, expected);
             }
             other => panic!("Expected Text for ext2, got {:?}", other),

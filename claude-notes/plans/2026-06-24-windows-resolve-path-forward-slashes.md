@@ -3,7 +3,7 @@
 **Date:** 2026-06-24
 **Braid:** bd-picv
 **Worktree:** `.worktrees/bd-picv-fix-windows-path-separator` (branch `braid/bd-picv-fix-windows-path-separator`, based on `main`)
-**Status:** Design settled with user (2026-06-24). Direction chosen: production normalize + `is_rooted`. **Implementation not yet started.**
+**Status:** Implemented 2026-06-24 (production normalize + `is_rooted`). pampa lib + targeted tests green on Windows. Full `cargo xtask verify` pending as pre-push gate.
 
 ## Triage verdict
 
@@ -86,50 +86,49 @@ current tests lack:
       itself contains backslashes** (simulates the real `filter.rs`/`shortcode.rs` input on
       Windows). Current tests push forward-slash dirs (`/some/extension/dir`), so they don't
       exercise the backslash-input path. Use a backslash literal dir and assert
-      forward-slash output.
-- [ ] A test that an absolute/rooted input is returned forward-slash-normalized (covers the
-      `is_rooted` branch return value, e.g. `C:\abs\x.json` → `C:/abs/x.json` on Windows;
-      `/abs/x.json` unchanged elsewhere).
+      forward-slash output. → `test_quarto_utils_resolve_path_backslash_script_dir`.
+- [x] A test that a rooted input is returned forward-slash-normalized and NEVER joined onto
+      the script dir. → `test_quarto_utils_resolve_path_rooted_ignores_script_dir`. Pushes a
+      `C:\some\dir` script dir, resolves `/abs/x.json`; pre-fix the `is_absolute` gate let it
+      fall through and join (RED: `left: "C:\\abs\\x.json"`), pinning the `is_rooted` swap.
 
 ### Phase 1 — Production fix in `quarto_api.rs`
 
-- [ ] `resolve_path`: replace `p.is_absolute()` with `quarto_util::is_rooted(p)`; return
-      `quarto_util::to_forward_slashes(p)` from the rooted branch (so a rooted input with
-      backslashes is normalized, not returned verbatim).
-- [ ] `normalize_path`: replace the trailing `result.to_string_lossy().to_string()` with
-      `quarto_util::to_forward_slashes(&result)` so the collapsed path is forward-slash on
-      all platforms.
-- [ ] Decide the no-script-dir relative branch (`return Ok(path)` at :365): normalize it too
-      for full determinism, or leave (input is already forward-slash from Lua source). See
-      design note below — leaning normalize-for-consistency.
+- [x] `resolve_path`: replaced `p.is_absolute()` with `quarto_util::is_rooted(p)`; rooted
+      branch returns `quarto_util::to_forward_slashes(p)`.
+- [x] `normalize_path`: trailing `result.to_string_lossy().to_string()` replaced with
+      `quarto_util::to_forward_slashes(&result)`.
+- [x] No-script-dir relative branch: **normalized** (residual Q1 resolved — see below). The
+      branch now returns `to_forward_slashes(p)` so every return path is forward-slash.
 
 ### Phase 2 — Verify tests pass with NO cfg-gating
 
-- [ ] Existing assertions (`"/a/b/c"`, `"/ext/dir/sub/data.json"`) pass unchanged on all
-      platforms. If any still need a `#[cfg(windows)]`, that signals the production fix is
-      incomplete — investigate rather than cfg-gate.
+- [x] All 10 original assertions + 2 new pass on Windows with **no `#[cfg(windows)]`**.
+- [x] Updated 3 stale assertions in `shortcode.rs` (`test_shortcode_resolve_path`,
+      `..._multi_extension`) that encoded the old backslash output — now use
+      `quarto_util::to_forward_slashes` on the expected temp path. These exercise the real
+      production path (real temp-dir script dir → forward-slash output end-to-end).
 
 ### Phase 3 — Workspace verification
 
-- [ ] `cargo nextest run -p pampa` (lib + integration) green on Windows.
-- [ ] `cargo xtask verify` — full leg, since `quarto_api.rs` is in pampa which
-      wasm-quarto-hub-client depends on; the `is_rooted` change touches WASM-relevant logic.
-- [ ] Confirm `quarto-util` is a normal (non-dev) dependency of pampa (bd-3pe8 flagged this
-      as a possible gate). Check `crates/pampa/Cargo.toml`.
+- [x] `cargo nextest run -p pampa` lib tests green; full-crate run green **except** 8
+      pre-existing Windows failures (`test_json_writer`, `test_html_writer`,
+      `unit_test_corpus_matches_*`, `unit_test_snapshots_{json,native}`,
+      `test_qmd_roundtrip_consistency`, `test_metadata_source_tracking_002_qmd`). Confirmed
+      via `git stash` they fail identically on clean branch HEAD — CRLF/snapshot failures from
+      the broader Windows test campaign, unrelated to this change and out of scope.
+- [x] `cargo build --workspace` clean (0 errors; 4 pre-existing unrelated warnings).
+- [x] `quarto-util` is already a normal dependency of pampa (`Cargo.toml:56
+      quarto-util.workspace = true`) — residual Q2 resolved, no promotion needed.
+- [ ] `cargo xtask verify` — full leg (incl. WASM hub-build), since the `is_rooted` change
+      is WASM-relevant. **Pending — run as the pre-push gate.**
 
-## Open design questions for the user
+## Open design questions for the user — RESOLVED
 
-Direction is settled. Two small residual choices, both with a lean — confirm or override
-during implementation, not blocking:
-
-1. **No-script-dir relative branch** (`resolve_path` :364-365). When no script dir is set,
-   a relative input is returned as-is. Normalize it to forward slashes too (consistency:
-   every return path is forward-slash), or leave verbatim (input from Lua source is already
-   forward-slash; minimal change)? **Lean: normalize, for a single invariant — "resolve_path
-   always returns forward slashes."**
-2. **`quarto-util` dependency tier in pampa.** If `quarto_util` is currently a dev-dependency
-   of pampa (used only in tests so far), this change promotes it to a regular dependency.
-   Confirm that's acceptable (it should be — it's a tiny utility crate). **Lean: promote.**
+1. **No-script-dir relative branch.** Resolved: **normalized.** Single invariant —
+   "resolve_path always returns forward slashes." Implemented.
+2. **`quarto-util` dependency tier.** Resolved: already a regular (`.workspace = true`)
+   dependency of pampa; no change needed.
 
 ## Risks / tradeoffs
 
