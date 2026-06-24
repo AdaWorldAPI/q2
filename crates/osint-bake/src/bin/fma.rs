@@ -1,11 +1,14 @@
 //! FMA anatomy slice — the "real test" of the dual-membership lattice.
 //!
-//! Stands up a small Foundational-Model-of-Anatomy-shaped slice of the **heart**
-//! (~120 nodes: organ → chambers → walls → tissues → cells) and proves that one
-//! node resolves to BOTH addresses at once:
+//! **Hydrated from an FMA `.ttl` fixture** (`data/fma-heart.fixture.ttl`) via
+//! [`hydrate_fma`] — no longer hand-built. Stands up a Foundational-Model-of-
+//! Anatomy-shaped slice of the **heart** (organ → chambers → wall layers) and
+//! proves that one node resolves to BOTH addresses at once:
 //!
-//! * **part-of position** (basin-local): HEEL=organ, HIP=chamber, TWIG=wall,
-//!   LEAF=structure, family=chamber-basin — where the node *is* in the body.
+//! * **part-of position** (basin-local): HEEL=[Organ:Heart], HIP=[Chamber:id],
+//!   TWIG=[Wall:id] — where the node *is* in the body, read straight off the key
+//!   (the partonomy walk fills the cascade; deeper tiers stay 0 until the real
+//!   75K FMA hydrates tissues/cells through the same walk).
 //! * **leaf-limited global type** (the CEILING pole, HEEL=HIP=TWIG=0xFFFF,
 //!   LEAF=type): "cardiac muscle tissue", "endothelium" — cross-cutting types
 //!   that appear in *every* chamber. The deepest sentinel run (through TWIG)
@@ -41,6 +44,7 @@
 //! Run from the workspace root:  `cargo run -p osint-bake --bin fma`
 
 use lance_graph_contract::canonical_node::NodeGuid;
+use osint_bake::fma_ttl;
 use std::path::{Path, PathBuf};
 
 /// The CEILING global-category pole (HEEL=HIP=0xFFFF; sentinel through TWIG = leaf-grain).
@@ -95,7 +99,10 @@ struct Builder {
 
 impl Builder {
     fn new() -> Self {
-        Self { nodes: Vec::new(), edges: Vec::new() }
+        Self {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        }
     }
 
     /// A part-of node addressed by its `[kind-mixin : instance]` HHTL cascade.
@@ -116,14 +123,26 @@ impl Builder {
         let i = self.nodes.len();
         let key = NodeGuid::new_v2(
             CLASSID_FMA,
-            tier(MX_ORGAN, ID_HEART),                                // HEEL  [Organ:Heart]
-            if chamber > 0 { tier(MX_CHAMBER, chamber) } else { 0 }, // HIP   [Chamber:id]
-            if wall > 0 { tier(MX_WALL, wall) } else { 0 },          // TWIG  [Wall:id]
-            if tissue > 0 { tier(MX_TISSUE, tissue) } else { 0 },    // LEAF  [Tissue:id]
-            if cell > 0 { tier(MX_CELL, cell) } else { 0 },          // family[Cell:id]
-            i as u16,                                                // identity — stable node id
+            tier(MX_ORGAN, ID_HEART), // HEEL  [Organ:Heart]
+            if chamber > 0 {
+                tier(MX_CHAMBER, chamber)
+            } else {
+                0
+            }, // HIP   [Chamber:id]
+            if wall > 0 { tier(MX_WALL, wall) } else { 0 }, // TWIG  [Wall:id]
+            if tissue > 0 {
+                tier(MX_TISSUE, tissue)
+            } else {
+                0
+            }, // LEAF  [Tissue:id]
+            if cell > 0 { tier(MX_CELL, cell) } else { 0 }, // family[Cell:id]
+            i as u16,                 // identity — stable node id
         );
-        self.nodes.push(Node { label: label.to_string(), class, key });
+        self.nodes.push(Node {
+            label: label.to_string(),
+            class,
+            key,
+        });
         i
     }
 
@@ -132,14 +151,18 @@ impl Builder {
         let i = self.nodes.len();
         let key = NodeGuid::new_v2(
             CLASSID_FMA,
-            CEILING, // HEEL sentinel
-            CEILING, // HIP  sentinel
-            CEILING, // TWIG sentinel → leaf-grain ("limited to the leaf")
+            CEILING,  // HEEL sentinel
+            CEILING,  // HIP  sentinel
+            CEILING,  // TWIG sentinel → leaf-grain ("limited to the leaf")
             type_idx, // LEAF — the sole discriminator
             0,        // family — global, no basin
             i as u16,
         );
-        self.nodes.push(Node { label: label.to_string(), class: C_TYPE, key });
+        self.nodes.push(Node {
+            label: label.to_string(),
+            class: C_TYPE,
+            key,
+        });
         i
     }
 
@@ -148,69 +171,120 @@ impl Builder {
     }
 }
 
-fn build_heart() -> Builder {
-    let mut b = Builder::new();
+/// Embedded FMA heart fixture — real class names + the canonical FMA predicate
+/// set. The production path hydrates the 266 MB `fma.owl` through
+/// `lance-graph-rdf` at the spine; this light bake hydrates the fixture so
+/// `/fma` renders without the lance/datafusion closure. See
+/// `data/fma-heart.fixture.ttl`.
+const FMA_TTL: &str = include_str!("../../data/fma-heart.fixture.ttl");
 
-    // ── cross-cutting global TYPE categories (leaf-limited, ceiling pole) ──
-    // Each is the is-a target for the matching tissue in EVERY chamber.
-    let types = [
-        "Cardiac muscle tissue",
-        "Fibrous tissue",
-        "Endothelium",
-        "Elastic tissue",
-        "Mesothelium",
-        "Adipose tissue",
-    ];
-    let type_idx: Vec<usize> = types
+/// Hydrate an FMA `.ttl` fragment into the bake's [`Builder`] — the light-bake
+/// twin of `lance_graph_ontology::hydrate_fma`. Walk the `bfo:part_of` partonomy
+/// into the canonical HHTL cascade (each node's sibling-rank at each depth → the
+/// 8:8 `[mixin:instance]` tier), and project each `rdfs:subClassOf` onto the
+/// cross-cutting global-type ceiling. Depth (organ→chamber→wall→…) is the
+/// distance from the partonomy root; nothing is hardcoded to "heart", so the
+/// real 75K FMA hydrates through the exact same walk.
+fn hydrate_fma(ttl: &str) -> Builder {
+    use std::collections::{BTreeMap, BTreeSet, VecDeque};
+    let frag = fma_ttl::parse(ttl);
+
+    // child → parent (part_of); parent → IRI-sorted children (stable sibling
+    // ranks ⇒ a reproducible, byte-deterministic asset).
+    let parent_of: BTreeMap<&str, &str> = frag
+        .part_of
         .iter()
-        .enumerate()
-        .map(|(k, t)| b.type_node(t, k as u16))
+        .map(|(c, p)| (c.as_str(), p.as_str()))
         .collect();
+    let mut children: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let mut in_tree: BTreeSet<&str> = BTreeSet::new();
+    for (c, p) in &frag.part_of {
+        children.entry(p.as_str()).or_default().push(c.as_str());
+        in_tree.insert(c.as_str());
+        in_tree.insert(p.as_str());
+    }
+    for v in children.values_mut() {
+        v.sort_unstable();
+    }
+    // 1-based sibling rank under the parent — the tier identity byte (0 = root).
+    let rank_of = |node: &str| -> u8 {
+        parent_of
+            .get(node)
+            .and_then(|p| children[p].iter().position(|&c| c == node))
+            .map_or(0, |k| (k as u8) + 1)
+    };
+    // (depth, [chamber, wall, tissue, cell]) — sibling ranks along the ancestor
+    // chain, root-first; depth 0 = the partonomy root (the organ).
+    let path_of = |node: &str| -> (u8, [u8; 4]) {
+        let mut chain: Vec<&str> = Vec::new();
+        let mut cur = node;
+        while let Some(&p) = parent_of.get(cur) {
+            chain.push(cur);
+            cur = p;
+        }
+        chain.reverse();
+        let mut ids = [0u8; 4];
+        for (k, &n) in chain.iter().enumerate().take(4) {
+            ids[k] = rank_of(n);
+        }
+        (chain.len() as u8, ids)
+    };
+    let class_for = |depth: u8| match depth {
+        0 => C_ORGAN,
+        1 => C_CHAMBER,
+        2 => C_WALL,
+        3 => C_TISSUE,
+        _ => C_CELL,
+    };
 
-    // each wall carries two tissues, each is-a one of the global types above.
-    // (wall label, [(tissue label, type index)])
-    let walls: [(&str, [(&str, usize); 2]); 3] = [
-        ("myocardium", [("muscle layer", 0), ("fibrous skeleton", 1)]),
-        ("endocardium", [("endothelial lining", 2), ("elastic layer", 3)]),
-        ("epicardium", [("mesothelial layer", 4), ("subepicardial fat", 5)]),
-    ];
-    // a couple of cell types per tissue (depth + scale; part-of only).
-    let cells: [&str; 2] = ["cell A", "cell B"];
+    let mut b = Builder::new();
+    let mut idx: BTreeMap<&str, usize> = BTreeMap::new();
 
-    // ── the heart organ — HEEL=[Organ:Heart], deeper tiers zero ──
-    let heart = b.part_of_node("Heart", C_ORGAN, 0, 0, 0, 0);
+    // BFS from the root(s) so every parent is built before its children (the
+    // edge list references node indices).
+    let mut queue: VecDeque<&str> = in_tree
+        .iter()
+        .copied()
+        .filter(|n| !parent_of.contains_key(n))
+        .collect();
+    while let Some(n) = queue.pop_front() {
+        if idx.contains_key(n) {
+            continue;
+        }
+        let (depth, ids) = path_of(n);
+        let node = b.part_of_node(
+            &fma_ttl::label_of(n),
+            class_for(depth),
+            ids[0],
+            ids[1],
+            ids[2],
+            ids[3],
+        );
+        idx.insert(n, node);
+        if let Some(cs) = children.get(n) {
+            queue.extend(cs.iter().copied());
+        }
+    }
 
-    let chambers = ["left atrium", "right atrium", "left ventricle", "right ventricle"];
-    for (ci, chamber) in chambers.iter().enumerate() {
-        let cid = (ci as u8) + 1; // chamber instance 1..4 (HIP identity)
-        let ch = b.part_of_node(chamber, C_CHAMBER, cid, 0, 0, 0);
-        b.edge(ch, heart, REL_PART_OF);
+    // cross-cutting tissue-type ceiling nodes (subClassOf targets not in the tree).
+    let mut type_idx: BTreeMap<&str, usize> = BTreeMap::new();
+    for (_c, ty) in &frag.is_a {
+        if idx.contains_key(ty.as_str()) || type_idx.contains_key(ty.as_str()) {
+            continue;
+        }
+        let t = b.type_node(&fma_ttl::label_of(ty), type_idx.len() as u16);
+        type_idx.insert(ty.as_str(), t);
+    }
 
-        for (wi, (wall, tissues)) in walls.iter().enumerate() {
-            let wid = (wi as u8) + 1; // wall instance 1..3 (TWIG identity)
-            let w = b.part_of_node(&format!("{chamber} {wall}"), C_WALL, cid, wid, 0, 0);
-            b.edge(w, ch, REL_PART_OF);
-
-            for (ti, (tissue, gtype)) in tissues.iter().enumerate() {
-                let tid = (ti as u8) + 1; // tissue instance 1..2 (LEAF identity)
-                let t = b.part_of_node(&format!("{chamber} {tissue}"), C_TISSUE, cid, wid, tid, 0);
-                b.edge(t, w, REL_PART_OF);
-                // THE dual membership: this tissue is-a the cross-cutting global type.
-                b.edge(t, type_idx[*gtype], REL_IS_A);
-
-                for (cell_i, cell) in cells.iter().enumerate() {
-                    let ceid = (cell_i as u8) + 1; // cell instance 1..2 (family identity)
-                    let c = b.part_of_node(
-                        &format!("{chamber} {tissue} {cell}"),
-                        C_CELL,
-                        cid,
-                        wid,
-                        tid,
-                        ceid,
-                    );
-                    b.edge(c, t, REL_PART_OF);
-                }
-            }
+    // part_of edges (containment) + is-a edges (the dual membership).
+    for (c, p) in &frag.part_of {
+        if let (Some(&ci), Some(&pi)) = (idx.get(c.as_str()), idx.get(p.as_str())) {
+            b.edge(ci, pi, REL_PART_OF);
+        }
+    }
+    for (c, ty) in &frag.is_a {
+        if let (Some(&ci), Some(&ti)) = (idx.get(c.as_str()), type_idx.get(ty.as_str())) {
+            b.edge(ci, ti, REL_IS_A);
         }
     }
     b
@@ -244,15 +318,15 @@ fn emit_oso1(b: &Builder) -> Vec<u8> {
 }
 
 fn main() {
-    let b = build_heart();
+    let b = hydrate_fma(FMA_TTL);
     let bytes = emit_oso1(&b);
 
-    // dual-membership proof: find a basin-local tissue and show BOTH addresses.
+    // dual-membership proof: a hydrated wall layer carries BOTH addresses.
     let tissue = b
         .nodes
         .iter()
-        .position(|x| x.label == "left ventricle muscle layer")
-        .expect("LV muscle layer present");
+        .position(|x| x.label == "Myocardium of left ventricle")
+        .expect("LV myocardium hydrated from the fixture");
     let key = &b.nodes[tissue].key;
     println!("── FMA dual-membership proof ──");
     println!("node: {}", b.nodes[tissue].label);
@@ -283,7 +357,11 @@ fn main() {
         gk.leaf()
     );
     // cross-cutting: how many chambers' tissues share this one global type?
-    let members = b.edges.iter().filter(|&&(_, t, rel)| t == gtype && rel == REL_IS_A).count();
+    let members = b
+        .edges
+        .iter()
+        .filter(|&&(_, t, rel)| t == gtype && rel == REL_IS_A)
+        .count();
     println!(
         "  '{}' is the is-a target of {members} tissues across the chambers (cross-cutting)",
         b.nodes[gtype].label

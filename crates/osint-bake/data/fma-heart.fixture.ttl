@@ -1,0 +1,53 @@
+# fma-heart.fixture.ttl — FIXTURE, NOT the real FMA.
+#
+# A faithful but hand-authored heart subtree in the canonical FMA predicate
+# set. The real Foundational Model of Anatomy (266 MB fma.owl, ~1.5M triples,
+# OGIT contextId 13, dcterms:source AdaWorldAPI/MedCare-rs bioportal-ontologies)
+# hydrates through lance-graph-rdf / lance_graph_ontology::hydrate_fma at the
+# spine; this light q2 bake mirrors that shape on a subtree so /fma renders
+# without the lance/datafusion closure that bake deliberately excludes.
+#
+# Line-oriented Turtle subset: one `subject predicate object .` per line.
+# Predicates mirror the canonical hydrator set (pr-d-1-fma-owl-hydrator):
+#   bfo:part_of      → partonomy (drives the HHTL cascade tiers)
+#   rdfs:subClassOf  → cross-cutting tissue type (the is-a ceiling)
+
+@prefix fma:  <http://purl.org/sig/ont/fma/> .
+@prefix bfo:  <http://purl.obolibrary.org/obo/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# ── chambers regional-part-of the heart ──
+fma:Left_atrium bfo:part_of fma:Heart .
+fma:Right_atrium bfo:part_of fma:Heart .
+fma:Left_ventricle bfo:part_of fma:Heart .
+fma:Right_ventricle bfo:part_of fma:Heart .
+
+# ── each chamber's wall layers, each a subClassOf its tissue type ──
+fma:Myocardium_of_left_atrium bfo:part_of fma:Left_atrium .
+fma:Myocardium_of_left_atrium rdfs:subClassOf fma:Cardiac_muscle_tissue .
+fma:Endocardium_of_left_atrium bfo:part_of fma:Left_atrium .
+fma:Endocardium_of_left_atrium rdfs:subClassOf fma:Endothelium .
+fma:Epicardium_of_left_atrium bfo:part_of fma:Left_atrium .
+fma:Epicardium_of_left_atrium rdfs:subClassOf fma:Mesothelium .
+
+fma:Myocardium_of_right_atrium bfo:part_of fma:Right_atrium .
+fma:Myocardium_of_right_atrium rdfs:subClassOf fma:Cardiac_muscle_tissue .
+fma:Endocardium_of_right_atrium bfo:part_of fma:Right_atrium .
+fma:Endocardium_of_right_atrium rdfs:subClassOf fma:Endothelium .
+fma:Epicardium_of_right_atrium bfo:part_of fma:Right_atrium .
+fma:Epicardium_of_right_atrium rdfs:subClassOf fma:Mesothelium .
+
+fma:Myocardium_of_left_ventricle bfo:part_of fma:Left_ventricle .
+fma:Myocardium_of_left_ventricle rdfs:subClassOf fma:Cardiac_muscle_tissue .
+fma:Endocardium_of_left_ventricle bfo:part_of fma:Left_ventricle .
+fma:Endocardium_of_left_ventricle rdfs:subClassOf fma:Endothelium .
+fma:Epicardium_of_left_ventricle bfo:part_of fma:Left_ventricle .
+fma:Epicardium_of_left_ventricle rdfs:subClassOf fma:Mesothelium .
+
+fma:Myocardium_of_right_ventricle bfo:part_of fma:Right_ventricle .
+fma:Myocardium_of_right_ventricle rdfs:subClassOf fma:Cardiac_muscle_tissue .
+fma:Endocardium_of_right_ventricle bfo:part_of fma:Right_ventricle .
+fma:Endocardium_of_right_ventricle rdfs:subClassOf fma:Endothelium .
+fma:Epicardium_of_right_ventricle bfo:part_of fma:Right_ventricle .
+fma:Epicardium_of_right_ventricle rdfs:subClassOf fma:Mesothelium .
+
