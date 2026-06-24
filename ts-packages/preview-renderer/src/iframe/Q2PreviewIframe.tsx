@@ -3,7 +3,7 @@ import type { Ref } from 'react';
 import { vfsReadFile } from '@quarto/preview-runtime';
 import { DEFAULT_CSS_ARTIFACT_PATH } from '../types/artifactPaths';
 import { buildAssetManifest, type ManifestCacheEntry } from '../q2-preview/assetWalker';
-import { findElementForLine, isElementVisible, computeScrollRatio } from './scrollSyncDom';
+import { scrollIframeToLine, getIframeScrollRatio } from './scrollSyncDom';
 
 /**
  * Imperative scroll-sync handle, parallel to `MorphIframeHandle`. The
@@ -186,30 +186,14 @@ export function Q2PreviewIframe({
   // editor state → SET_SLIDE …). Reset on IFRAME_READY (fresh iframe).
   const lastSentSlideRef = useRef<number | undefined>(undefined);
 
-  // Scroll-sync handle. Same-origin access to the iframe document lets
-  // us reuse the exact line→element mapping `MorphIframe` uses for the
-  // HTML preview.
+  // Scroll-sync handle. Same-origin access to the iframe document lets us
+  // reuse the exact shared scroll helpers `MorphIframe` uses for the HTML
+  // preview.
   useImperativeHandle(
     scrollHandleRef,
     () => ({
-      scrollToLine: (line: number) => {
-        const iframe = iframeRef.current;
-        const doc = iframe?.contentDocument;
-        const win = iframe?.contentWindow;
-        if (!doc || !win) return;
-        const element = findElementForLine(doc, line);
-        if (!element) return;
-        if (!isElementVisible(element, win)) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      },
-      getScrollRatio: () => {
-        const iframe = iframeRef.current;
-        const win = iframe?.contentWindow;
-        const doc = iframe?.contentDocument;
-        if (!win || !doc) return null;
-        return computeScrollRatio(win, doc);
-      },
+      scrollToLine: (line: number) => scrollIframeToLine(iframeRef.current, line),
+      getScrollRatio: () => getIframeScrollRatio(iframeRef.current),
     }),
     [],
   );

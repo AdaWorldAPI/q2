@@ -99,11 +99,34 @@ export function isElementVisible(element: HTMLElement, win: Window): boolean {
 }
 
 /**
- * Scroll ratio of an iframe document: 0 at the top, 1 at the bottom, and 0
- * for a document too short to scroll. `win`/`doc` are the iframe's own
- * contentWindow/contentDocument. Shared by MorphIframe and Q2PreviewIframe.
+ * Editor→preview scroll: bring the element mapped to `line` into view,
+ * centered, but only if it isn't already fully visible. No-op when the iframe
+ * isn't ready or no element maps to the line. The single scroll-to-line code
+ * path shared by MorphIframe and Q2PreviewIframe.
  */
-export function computeScrollRatio(win: Window, doc: Document): number {
+export function scrollIframeToLine(
+    iframe: HTMLIFrameElement | null,
+    line: number,
+): void {
+    const doc = iframe?.contentDocument;
+    const win = iframe?.contentWindow;
+    if (!doc || !win) return;
+    const element = findElementForLine(doc, line);
+    if (!element) return;
+    if (!isElementVisible(element, win)) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+/**
+ * Current scroll ratio of the iframe document: 0 at the top, 1 at the bottom,
+ * 0 for a document too short to scroll, and null when the iframe isn't ready.
+ * Shared by MorphIframe and Q2PreviewIframe.
+ */
+export function getIframeScrollRatio(iframe: HTMLIFrameElement | null): number | null {
+    const win = iframe?.contentWindow;
+    const doc = iframe?.contentDocument;
+    if (!win || !doc) return null;
     const maxScroll = doc.documentElement.scrollHeight - win.innerHeight;
     if (maxScroll <= 0) return 0;
     return win.scrollY / maxScroll;

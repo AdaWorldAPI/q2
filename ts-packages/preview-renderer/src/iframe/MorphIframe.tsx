@@ -1,12 +1,11 @@
-import { useRef, useEffect, useCallback, useImperativeHandle } from 'react';
+import { useRef, useEffect, useCallback, useImperativeHandle, useState } from 'react';
 import type { Ref } from 'react';
 import morphdom from 'morphdom';
 import { postProcessIframe } from '../utils/iframePostProcessor';
 import {
   parseDataLoc,
-  findElementForLine,
-  isElementVisible,
-  computeScrollRatio,
+  scrollIframeToLine,
+  getIframeScrollRatio,
   type SourceLocation,
 } from './scrollSyncDom';
 
@@ -44,10 +43,10 @@ interface MorphIframeProps {
   ref: Ref<MorphIframeHandle>;
 }
 
-// `SourceLocation`, `parseDataLoc`, `findElementForLine`, and
-// `isElementVisible` are shared with `Q2PreviewIframe` via
-// `./scrollSyncDom`. The position-comparison + offset helpers below
-// are selection-sync specific and stay local.
+// The scroll-sync handle methods (`scrollIframeToLine`, `getIframeScrollRatio`)
+// and `SourceLocation`/`parseDataLoc` are shared with `Q2PreviewIframe` via
+// `./scrollSyncDom`. The position-comparison + offset helpers below are
+// selection-sync specific and stay local.
 
 /**
  * Check if a position (line, col) is within or after the start of a data-loc range.
@@ -189,6 +188,12 @@ function MorphIframe({
 }: MorphIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const isInitializedRef = useRef(false);
+  // Flips true once the `srcdoc` load settles. The initial load replaces the
+  // iframe's contentWindow/contentDocument asynchronously, so the scroll /
+  // click / selectionchange listeners must (re)attach to the *settled*
+  // document — not the pre-load one present at mount. Parallels
+  // Q2PreviewIframe's `iframeReady` gate.
+  const [documentReady, setDocumentReady] = useState(false);
 
   // Scroll the preview to an anchor element
   const scrollToAnchor = useCallback((anchor: string) => {
@@ -256,6 +261,9 @@ function MorphIframe({
       const handleLoad = () => {
         isInitializedRef.current = true;
         internalPostProcess(iframe);
+        // The settled document now exists; let the listener effect re-run and
+        // attach scroll / click / selectionchange to it.
+        setDocumentReady(true);
       };
       iframe.addEventListener('load', handleLoad, { once: true });
       iframe.srcdoc = html;
@@ -299,27 +307,8 @@ function MorphIframe({
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
-    scrollToLine: (line: number) => {
-      const iframe = iframeRef.current;
-      const doc = iframe?.contentDocument;
-      const win = iframe?.contentWindow;
-      if (!doc || !win) return;
-
-      const element = findElementForLine(doc, line);
-      if (!element) return;
-
-      // Only scroll if element is not already visible
-      if (!isElementVisible(element, win)) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    },
-    getScrollRatio: () => {
-      const iframe = iframeRef.current;
-      const win = iframe?.contentWindow;
-      const doc = iframe?.contentDocument;
-      if (!win || !doc) return null;
-      return computeScrollRatio(win, doc);
-    },
+    scrollToLine: (line: number) => scrollIframeToLine(iframeRef.current, line),
+    getScrollRatio: () => getIframeScrollRatio(iframeRef.current),
     setScrollRatio: (ratio: number) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow || !iframe?.contentDocument) return;
@@ -419,8 +408,11 @@ function MorphIframe({
     },
   }), []);
 
-  // Set up event listeners on iframe
+  // Set up event listeners on iframe. Gated on `documentReady` so the
+  // listeners bind to the post-load document (the srcdoc load replaces it
+  // asynchronously), re-running if that document or any callback changes.
   useEffect(() => {
+    if (!documentReady) return;
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow || !iframe?.contentDocument) return;
 
@@ -485,7 +477,7 @@ function MorphIframe({
       iframe.contentDocument?.removeEventListener('click', handleClick);
       iframe.contentDocument?.removeEventListener('selectionchange', handleSelectionChange);
     };
-  }, [onScroll, onClick, onSelectionChange]);
+  }, [documentReady, onScroll, onClick, onSelectionChange]);
 
   return (
     <iframe
