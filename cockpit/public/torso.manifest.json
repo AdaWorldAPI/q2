@@ -1,23 +1,40 @@
 {
-  "source": "BodyParts3D 4.0 (DBCLS) part-of OBJ, decimated 99%, with vn normals",
+  "source": "BodyParts3D 4.0 (DBCLS) is_a OBJ, decimated 99%, with vn normals",
   "license": "CC-BY 4.0 (site) / CC-BY-SA 2.1 JP (2013 files)",
   "attribution": "BodyParts3D, (c) The Database Center for Life Science. Current site licence: CC-BY 4.0; 2013 mesh files embed CC-BY-SA 2.1 Japan.",
   "format": "SPL2 (anisotropic + node-row tags); node SoA in torso.nodes.json",
-  "root_fma": "FMA7181",
-  "root_name": "trunk",
-  "concepts": 178,
-  "meshes": 577,
-  "gaussians": 231515,
+  "build": "v4 is_a-primary (canonical type+name+meshes), tissue colour + depth-peel, DN->GUID",
+  "concepts": 1658,
+  "meshes": 2234,
+  "gaussians": 602341,
+  "stride": 7,
   "radius": 0.0035,
   "bbox_min": [
-    -0.5499102767007714,
-    -0.269514341019139,
-    -0.9999999999999999
+    -0.3853058085111082,
+    -0.1688237762404329,
+    -0.9999999999999998
   ],
   "bbox_max": [
-    0.5499102767007714,
-    0.269514341019139,
-    1.0000000000000002
+    0.3853058085111082,
+    0.1688237762404329,
+    0.9999999999999999
   ],
-  "owners": 91
+  "tissues": {
+    "flesh": 121,
+    "gland": 19,
+    "artery": 414,
+    "gi": 19,
+    "vein": 221,
+    "skin": 3,
+    "kidney": 7,
+    "nerve": 126,
+    "muscle": 382,
+    "heart": 19,
+    "viscus": 25,
+    "lung": 30,
+    "bone": 203,
+    "liver": 15,
+    "vessel": 4,
+    "cartilage": 50
+  }
 }
