@@ -12,6 +12,7 @@ import { TorsoMesh } from './TorsoMesh';
 import { TorsoSplat } from './TorsoSplat';
 import { TorsoRender } from './TorsoRender';
 import { TorsoMap } from './TorsoMap';
+import { FmaBody } from './FmaBody';
 import { ReasoningPage } from './ReasoningPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/cockpit.css';
@@ -92,6 +93,10 @@ createRoot(document.getElementById('root')!).render(
           {/* FMA torso map — splat AS the GUID/value-tenant SoA: click a gaussian → its
               FMA node (O(1) switch into the node SoA) → label + partonomy ↔ graph */}
           <Route path="/torso-map" element={<TorsoMap />} />
+          {/* MY full-body FMA viewer — solid triangle surface gated per (place:tissue)
+              LAYER (skin/muscle/organ/skeleton/vessel/nerve buttons) + solid↔transparent.
+              Additive; reads cockpit/public/fma_body.mesh; never touches /torso* (#57/#58). */}
+          <Route path="/fma-body" element={<FmaBody />} />
           {/* The Palantir JSON-graph cockpit (221 aiwar nodes) stays reachable
               at /palantir and as the catch-all for its own sub-routes. */}
           <Route path="/palantir" element={<PalantirApp />} />

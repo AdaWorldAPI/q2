@@ -40,7 +40,8 @@ BodyParts3D meshes ──tissue (is_a tree)──► triangle rasterizer (z-buff
 | `serve` | dep-free std HTTP server, all routes under `/FMA` (binds `0.0.0.0:$PORT`) |
 | `guid` | mint the part_of GUID per FMA node → `guid/guid_manifest.tsv`, `guid/fj_guid.tsv` |
 | `converge` | **v3**: cascading-HHTL `(place:tissue)` **canonical NodeGuid** + `connected_to` edges → `guid/{guid_converged,nodes,edges}.tsv` |
-| `graph` | **v3 render**: the connectivity graph — nodes placed/colored by the key, wired by `connected_to` → `graph/graph_<mode>.png` |
+| `graph` | **v3 render**: SOLID triangle surface colored by `tissue`, with a GUID **prefix** that selects the subtree (`graph … 00000a02` = skeleton) → `graph/graph_<sel>.png` |
+| `cockpit_bake` | bake the full body → `cockpit/public/fma_body.mesh` (SPM1, opacity = layer id) for the **`/fma-body`** cockpit page (layer toggles + transparency) |
 | `anchor` | compression study: cascade vs raw-cartesian vs Cartesian-Skeleton hybrid |
 
 ## Routes (`serve`)
@@ -99,11 +100,18 @@ Cascade soft tissue (aortic segments, 0x0A01, mode Cascade):
   FMA3736 ascending  00000a01-0901-0702-0e02-…  ↔ arch, descending   part_of siblings = the connected segments
 ```
 
-![FMA connectivity graph](docs/graph_all.png)
+![FMA skeleton, selected by GUID prefix](docs/graph_skeleton.png)
 
-*`graph all` — 1368 FMA nodes placed by `place` (Located Morton for the ivory bone
-clusters in skull/hands/feet, centroids for the red vascular tree), colored by `tissue`
-(is_a), wired by `connected_to`. The address is the render.*
+*`graph … 00000a02` — the canonical key SELECTS the geometry: the `0x0A02` (skeleton)
+classid prefix renders just the bones as solid triangles (922K), colored by the `tissue`
+byte (is_a). The address is the render; the prefix is the query. `graph all` / `tissues`
+/ `vessel` render the whole body / inner tissues / vascular tree.*
+
+The same converged mesh drives an interactive cockpit page (**`/fma-body`**, additive to
+`/torso*`): `cockpit_bake` writes `cockpit/public/fma_body.mesh` (SPM1, the opacity byte =
+a layer id), and `cockpit/src/FmaBody.tsx` renders the solid `THREE.Mesh` with **per-layer
+toggle buttons** (skin / muscle / organ / skeleton / vessel / nerve) + a **solid↔transparent**
+switch — each layer gated by the converged `(place:tissue)` key.
 
 ## Run
 
