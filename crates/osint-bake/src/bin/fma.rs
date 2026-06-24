@@ -1,23 +1,32 @@
 //! FMA anatomy slice — the "real test" of the dual-membership lattice.
 //!
-//! **Hydrated from an FMA `.ttl` fixture** (`data/fma-heart.fixture.ttl`) via
+//! **Hydrated from a real FMA heart subtree** (`data/fma-heart.ttl`, extracted
+//! from the 266 MB `fma.owl` v5.0.0 by `tools/extract_fma_heart.py`) via
 //! [`hydrate_fma`] — no longer hand-built. Stands up a Foundational-Model-of-
-//! Anatomy-shaped slice of the **heart** (organ → chambers → wall layers) and
-//! proves that one node resolves to BOTH addresses at once:
+//! Anatomy slice of the **heart** (organ → its 22 major subdivisions: the four
+//! chamber cavities, the four valves, the three cardiac septa, both coronary
+//! arteries, the wall's endo/epi/myocardium, the fibrous skeleton, … → their
+//! sub-parts) and proves that one node resolves to BOTH addresses at once:
 //!
-//! * **part-of position** (basin-local): HEEL=[Organ:Heart], HIP=[Chamber:id],
-//!   TWIG=[Wall:id] — where the node *is* in the body, read straight off the key
-//!   (the partonomy walk fills the cascade; deeper tiers stay 0 until the real
-//!   75K FMA hydrates tissues/cells through the same walk).
+//! * **part-of position** (basin-local): HEEL=[Organ:Heart], HIP=[part:id],
+//!   TWIG=[sub-part:id], LEAF=[deeper:id] — where the node *is* in the body, read
+//!   straight off the key (the partonomy walk fills the cascade; deeper tiers
+//!   stay 0 until the full 75K-term FMA hydrates tissues/cells through the same
+//!   walk).
 //! * **leaf-limited global type** (the CEILING pole, HEEL=HIP=TWIG=0xFFFF,
-//!   LEAF=type): "cardiac muscle tissue", "endothelium" — cross-cutting types
-//!   that appear in *every* chamber. The deepest sentinel run (through TWIG)
-//!   makes the LEAF the sole discriminator: "limited to the leaf".
+//!   LEAF=type): "Atrioventricular valve", "Endothelium of endocardium",
+//!   "Cavity of ventricle" — cross-cutting FMA `subClassOf` types carried by
+//!   structures in *different* parts of the heart. The deepest sentinel run
+//!   (through TWIG) makes the LEAF the sole discriminator: "limited to the leaf".
 //!
-//! The same `Cardiac muscle tissue` ceiling node is the `is-a` target for the
-//! myocardium tissue in all four chambers — visibly cross-cutting. Emits
-//! `cockpit/public/fma.soa` (OSO1, the cockpit's `/fma` view reads it) and
-//! prints the dual-membership proof.
+//! The proof picks the strongest real cross-cutter in the slice — the ceiling
+//! type that is the `is-a` target of the most structures (e.g. `Subdivision of
+//! cavity of cardiac chamber`, shared by the inflow/outflow cavities of all four
+//! chambers; or `Endothelium of endocardium`, shared by the valve and septum
+//! endothelia) — then a member sitting deepest in the body, and shows it
+//! resolving to both its part-of cascade and that shared global type. Emits
+//! `cockpit/public/fma.soa` (OSO1, the cockpit's `/fma` view reads it) and prints
+//! the dual-membership proof.
 //!
 //! ## Relation to OGAR PR #116 (the FMA canon)
 //!
@@ -171,12 +180,14 @@ impl Builder {
     }
 }
 
-/// Embedded FMA heart fixture — real class names + the canonical FMA predicate
-/// set. The production path hydrates the 266 MB `fma.owl` through
-/// `lance-graph-rdf` at the spine; this light bake hydrates the fixture so
-/// `/fma` renders without the lance/datafusion closure. See
-/// `data/fma-heart.fixture.ttl`.
-const FMA_TTL: &str = include_str!("../../data/fma-heart.fixture.ttl");
+/// Embedded real FMA heart subtree — extracted from `fma.owl` (FMA v5.0.0,
+/// CC BY 3.0) by `tools/extract_fma_heart.py`: a balanced BFS of the
+/// `regional_part`/`constitutional_part` partonomy from `FMA:Heart` (depth ≤ 4,
+/// per-parent fan-out capped so no single subtree dominates). The production
+/// path hydrates the full 266 MB `fma.owl` through `lance-graph-rdf` at the
+/// spine; this light bake hydrates the committed subtree so `/fma` renders
+/// without the lance/datafusion closure. See `data/fma-heart.ttl`.
+const FMA_TTL: &str = include_str!("../../data/fma-heart.ttl");
 
 /// Hydrate an FMA `.ttl` fragment into the bake's [`Builder`] — the light-bake
 /// twin of `lance_graph_ontology::hydrate_fma`. Walk the `bfo:part_of` partonomy
@@ -321,17 +332,51 @@ fn main() {
     let b = hydrate_fma(FMA_TTL);
     let bytes = emit_oso1(&b);
 
-    // dual-membership proof: a hydrated wall layer carries BOTH addresses.
-    let tissue = b
-        .nodes
+    // Dual-membership proof: pick the strongest real cross-cutter in the slice —
+    // the ceiling TYPE that is the `is-a` target of the most structures — then the
+    // member sitting deepest in the body. Whatever the hydrated heart slice
+    // contains, this surfaces a node that genuinely resolves to BOTH a basin-local
+    // part-of cascade and a cross-cutting global type. `tier_depth` counts the
+    // non-zero HHTL tiers: how deep into the body the part-of address runs.
+    let tier_depth = |n: usize| -> usize {
+        let k = &b.nodes[n].key;
+        [k.heel(), k.hip(), k.twig(), k.leaf(), k.family_v2()]
+            .iter()
+            .filter(|&&t| t != 0)
+            .count()
+    };
+    // group is-a edges by ceiling-type target → the members that share it.
+    let mut by_type: std::collections::BTreeMap<usize, Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for &(s, t, rel) in &b.edges {
+        if rel == REL_IS_A {
+            by_type.entry(t).or_default().push(s);
+        }
+    }
+    // strongest cross-cutter: most members, ties broken by label (deterministic).
+    let (&gtype, sharers) = by_type
         .iter()
-        .position(|x| x.label == "Myocardium of left ventricle")
-        .expect("LV myocardium hydrated from the fixture");
-    let key = &b.nodes[tissue].key;
-    println!("── FMA dual-membership proof ──");
-    println!("node: {}", b.nodes[tissue].label);
-    // the partonomy IS the key: each HHTL tier is an 8:8 [mixin:identity] pair.
+        .max_by(|x, y| {
+            x.1.len()
+                .cmp(&y.1.len())
+                .then_with(|| b.nodes[*y.0].label.cmp(&b.nodes[*x.0].label))
+        })
+        .expect("the slice has is-a edges");
+    // anchor: the member sitting deepest in the body (ties broken by label).
+    let &anchor = sharers
+        .iter()
+        .max_by(|&&x, &&y| {
+            tier_depth(x)
+                .cmp(&tier_depth(y))
+                .then_with(|| b.nodes[y].label.cmp(&b.nodes[x].label))
+        })
+        .expect("a cross-cutting type has members");
+
+    let key = &b.nodes[anchor].key;
     let show = |t: u16| format!("[{:02x}:{:02x}]", t >> 8, t & 0xFF);
+    println!("── FMA dual-membership proof ──");
+    println!("node: {}", b.nodes[anchor].label);
+    // the partonomy IS the key: each HHTL tier is an 8:8 [mixin:identity] pair.
     println!(
         "  part-of address — HHTL 8:8 [mixin:identity]: HEEL {} HIP {} TWIG {} LEAF {} family {}",
         show(key.heel()),
@@ -340,13 +385,7 @@ fn main() {
         show(key.leaf()),
         show(key.family_v2()),
     );
-    // its is-a edge → the leaf-limited global type (ceiling pole)
-    let gtype = b
-        .edges
-        .iter()
-        .find(|&&(s, _, rel)| s == tissue && rel == REL_IS_A)
-        .map(|&(_, t, _)| t)
-        .expect("tissue is-a a global type");
+    // its is-a edge → the leaf-limited global type (ceiling pole).
     let gk = &b.nodes[gtype].key;
     println!(
         "  is-a global type (ceiling): {}  HEEL={:#06x} HIP={:#06x} TWIG={:#06x} LEAF={}",
@@ -356,16 +395,15 @@ fn main() {
         gk.twig(),
         gk.leaf()
     );
-    // cross-cutting: how many chambers' tissues share this one global type?
-    let members = b
-        .edges
-        .iter()
-        .filter(|&&(_, t, rel)| t == gtype && rel == REL_IS_A)
-        .count();
+    // cross-cutting: how many structures across the heart share this one type?
     println!(
-        "  '{}' is the is-a target of {members} tissues across the chambers (cross-cutting)",
-        b.nodes[gtype].label
+        "  '{}' is the is-a target of {} structures in different parts of the heart (cross-cutting)",
+        b.nodes[gtype].label,
+        sharers.len()
     );
+    let mut shared_by: Vec<&str> = sharers.iter().map(|&m| b.nodes[m].label.as_str()).collect();
+    shared_by.sort_unstable();
+    println!("    shared by: {}", shared_by.join(", "));
 
     let n_types = b.nodes.iter().filter(|x| x.class == C_TYPE).count();
     println!(

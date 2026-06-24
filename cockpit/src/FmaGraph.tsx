@@ -3,7 +3,8 @@
 // same vis-network renderer, and on click shows a node resolving to BOTH:
 //   · its part-of position (basin-local: organ → chamber → wall → structure)
 //   · its leaf-limited global TYPE (the 0xFFFF ceiling pole — cross-cutting,
-//     the same "Cardiac muscle tissue" shared by every chamber).
+//     e.g. one "Subdivision of cavity of cardiac chamber" or "Endothelium of
+//     endocardium" shared by structures in different parts of the heart).
 //
 // This is the `Cascade` (ontology / part-of) reading of OGAR PR #116's HhtlMode
 // FMA tier model: each node is a stack of 8:8 [container:identity] tiers —
