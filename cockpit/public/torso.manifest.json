@@ -1,42 +1,23 @@
 {
-  "source": "BodyParts3D 4.0 (DBCLS) part-of OBJ, decimated 99%",
-  "license": "CC-BY 4.0",
-  "attribution": "BodyParts3D, (c) The Database Center for Life Science licensed under CC Attribution 4.0 International",
+  "source": "BodyParts3D 4.0 (DBCLS) part-of OBJ, decimated 99%, with vn normals",
+  "license": "CC-BY 4.0 (site) / CC-BY-SA 2.1 JP (2013 files)",
+  "attribution": "BodyParts3D, (c) The Database Center for Life Science. Current site licence: CC-BY 4.0; 2013 mesh files embed CC-BY-SA 2.1 Japan.",
+  "format": "SPL2 (anisotropic + node-row tags); node SoA in torso.nodes.json",
   "root_fma": "FMA7181",
   "root_name": "trunk",
-  "concepts": 102,
+  "concepts": 178,
   "meshes": 577,
-  "vertices_total": 693959,
-  "gaussians": 231320,
-  "radius": 0.0045,
+  "gaussians": 231515,
+  "radius": 0.0035,
   "bbox_min": [
-    -0.5499420475739409,
-    -0.2690260109315338,
+    -0.5499102767007714,
+    -0.269514341019139,
     -0.9999999999999999
   ],
   "bbox_max": [
-    0.5499420475739409,
-    0.2690260109315338,
+    0.5499102767007714,
+    0.269514341019139,
     1.0000000000000002
   ],
-  "regions": [
-    {
-      "fma": "FMA259209",
-      "name": "thoracic segment of trunk"
-    },
-    {
-      "fma": "FMA259211",
-      "name": "abdominal segment of trunk"
-    },
-    {
-      "fma": "FMA10427",
-      "name": "body wall"
-    },
-    {
-      "fma": "FMA9579",
-      "name": "perineum"
-    }
-  ],
-  "generated_by": "crates/osint-bake/tools/bake_torso_splat.py",
-  "format": "SPL1: hdr[magic4|count u32|radius f32|bbox_min 3f|bbox_max 3f]; body count*[pos 3f|rgb 3u8|opacity u8]; little-endian"
+  "owners": 91
 }
