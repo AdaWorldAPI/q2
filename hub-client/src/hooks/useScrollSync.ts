@@ -6,6 +6,15 @@
  * - Preview → Editor: Scroll in preview scrolls editor viewport (without moving cursor)
  * - 50ms debounce to prevent jitter
  * - Graceful degradation when source locations unavailable
+ *
+ * Editor → Preview can be *deferred* (`deferToRender`): the cursor moves the
+ * instant a keystroke lands, but fresh `data-loc` only reaches the preview DOM
+ * once the async render commits. For the q2-preview path (whose iframe posts
+ * `AST_RENDERED`), a cursor move during an edit defers its scroll until that
+ * signal (`handleAstRendered`) — firing once, against the fresh DOM. The HTML
+ * preview has no such signal, so it leaves `deferToRender` off and scrolls
+ * immediately. `scrollToLineDeferred` lets replay drive the same deferred
+ * mechanism with an explicit line instead of the cursor.
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -23,6 +32,13 @@ interface UseScrollSyncOptions {
   enabled: boolean;
   /** Reference tracking whether editor has focus (to prevent feedback loop) */
   editorHasFocusRef: RefObject<boolean>;
+  /**
+   * Defer editor→preview scroll until the preview reports it committed a new
+   * AST (`handleAstRendered`). True for q2-preview, whose iframe posts
+   * `AST_RENDERED`; left false for the HTML preview, which has no such signal
+   * and scrolls immediately on cursor move (its DOM is already current).
+   */
+  deferToRender?: boolean;
 }
 
 /**
@@ -31,7 +47,27 @@ interface UseScrollSyncOptions {
 interface UseScrollSyncReturn {
   handlePreviewScroll: () => void;
   handlePreviewClick: () => void;
+  /**
+   * Call when the preview iframe reports it committed a new AST
+   * (`AST_RENDERED`). Flushes any editor→preview scroll deferred while the
+   * render was in flight — once, against the up-to-date DOM. A no-op when no
+   * scroll is pending (so a collaborator's render never yanks).
+   */
+  handleAstRendered: () => void;
+  /**
+   * Scroll the preview to an explicit line, deferred to the next render the
+   * same way cursor-driven sync is. Replay uses this so history scrubbing
+   * shares the q2-preview scroll mechanism rather than a separate ratio path.
+   * Programmatic, so unlike the cursor path it isn't gated on editor focus.
+   */
+  scrollToLineDeferred: (line: number) => void;
 }
+
+// A render that never reports back must not strand a deferred scroll: an edit
+// that errored produces no `AST_RENDERED`, and an edit that doesn't change the
+// AST produces no iframe re-render either. After this long we give up waiting
+// and scroll against whatever DOM is current (the last-good one).
+const RENDER_SETTLE_TIMEOUT_MS = 1000;
 
 /**
  * Hook for bidirectional scroll synchronization between Monaco editor and preview iframe.
@@ -43,6 +79,7 @@ export function useScrollSync({
   getPreviewScrollRatio,
   enabled,
   editorHasFocusRef,
+  deferToRender = false,
 }: UseScrollSyncOptions): UseScrollSyncReturn {
   // Track if we're currently syncing to prevent feedback loops
   const isSyncingRef = useRef(false);
@@ -51,35 +88,78 @@ export function useScrollSync({
   const editorDebounceRef = useRef<number | null>(null);
   const previewDebounceRef = useRef<number | null>(null);
 
-  // Editor → Preview sync
-  const syncEditorToPreview = useCallback(() => {
-    if (!enabled || isSyncingRef.current) return;
+  // A scroll is pending, awaiting flush. `pendingTargetRef` holds an explicit
+  // target line (scrollToLineDeferred / replay); null means "use the cursor".
+  const pendingScrollRef = useRef(false);
+  const pendingTargetRef = useRef<number | null>(null);
+  // An edit changed the content, so a render (→ AST_RENDERED) is expected; a
+  // pending scroll defers until the fresh data-loc DOM exists. Only tracked
+  // when deferToRender is on.
+  const renderPendingRef = useRef(false);
+  // Safety timer that bounds the above deferral (see RENDER_SETTLE_TIMEOUT_MS).
+  const renderWaitRef = useRef<number | null>(null);
 
+  // Latest option callbacks held in refs so the returned handlers keep a
+  // stable identity. `handleAstRendered` feeds Q2PreviewIframe's message
+  // listener deps; a churning identity re-subscribes that window listener and
+  // can drop a postMessage racing the swap.
+  const scrollPreviewToLineRef = useRef(scrollPreviewToLine);
+  const getPreviewScrollRatioRef = useRef(getPreviewScrollRatio);
+  const enabledRef = useRef(enabled);
+  scrollPreviewToLineRef.current = scrollPreviewToLine;
+  getPreviewScrollRatioRef.current = getPreviewScrollRatio;
+  enabledRef.current = enabled;
+
+  const clearRenderWait = useCallback(() => {
+    if (renderWaitRef.current != null) {
+      clearTimeout(renderWaitRef.current);
+      renderWaitRef.current = null;
+    }
+  }, []);
+
+  // Flush a pending editor→preview scroll. An explicit target
+  // (scrollToLineDeferred, used by replay) is programmatic and not focus-gated;
+  // a cursor-driven scroll is dropped if focus moved to the preview, which is
+  // then the active surface (preview→editor).
+  const flushPendingScroll = useCallback(() => {
+    if (!pendingScrollRef.current) return;
+    pendingScrollRef.current = false;
+    clearRenderWait();
+
+    const target = pendingTargetRef.current;
+    pendingTargetRef.current = null;
+
+    if (!enabledRef.current) return;
     const editor = editorRef.current;
     if (!editor) return;
 
-    const position = editor.getPosition();
-    if (!position) return;
-
-    const line = position.lineNumber;
+    let line: number;
+    if (target != null) {
+      line = target;
+    } else {
+      if (!editorHasFocusRef.current) return;
+      const position = editor.getPosition();
+      if (!position) return;
+      line = position.lineNumber;
+    }
 
     isSyncingRef.current = true;
-    scrollPreviewToLine(line);
+    scrollPreviewToLineRef.current(line);
     // Reset syncing flag after animation completes
     setTimeout(() => {
       isSyncingRef.current = false;
     }, 300);
-  }, [enabled, editorRef, scrollPreviewToLine]);
+  }, [clearRenderWait, editorRef, editorHasFocusRef]);
 
   // Preview → Editor sync (using scroll ratio matching)
   const syncPreviewToEditor = useCallback(() => {
     // Skip if disabled, already syncing, or editor has focus (prevents feedback loop)
-    if (!enabled || isSyncingRef.current || editorHasFocusRef.current) return;
+    if (!enabledRef.current || isSyncingRef.current || editorHasFocusRef.current) return;
 
     const editor = editorRef.current;
     if (!editor) return;
 
-    const scrollRatio = getPreviewScrollRatio();
+    const scrollRatio = getPreviewScrollRatioRef.current();
     if (scrollRatio === null) return;
 
     // Apply same ratio to editor
@@ -95,32 +175,55 @@ export function useScrollSync({
     setTimeout(() => {
       isSyncingRef.current = false;
     }, 300); // Longer timeout to account for smooth animation
-  }, [enabled, editorRef, getPreviewScrollRatio, editorHasFocusRef]);
+  }, [editorRef, editorHasFocusRef]);
 
-  // Set up editor cursor position listener
+  // Editor cursor + (q2 only) content listeners. A cursor move marks a pending
+  // scroll; when deferToRender is on, a content change marks a render as
+  // expected so the debounce defers to the post-render flush (one scroll,
+  // fresh DOM). The HTML preview leaves deferToRender off and flushes on the
+  // debounce, since its DOM is already current.
   useEffect(() => {
     if (!enabled) return;
 
     const editor = editorRef.current;
     if (!editor) return;
 
-    const disposable = editor.onDidChangeCursorPosition(() => {
-      // Debounce
+    const cursorDisposable = editor.onDidChangeCursorPosition(() => {
+      pendingScrollRef.current = true;
+      pendingTargetRef.current = null;
       if (editorDebounceRef.current) {
         clearTimeout(editorDebounceRef.current);
       }
       editorDebounceRef.current = window.setTimeout(() => {
-        syncEditorToPreview();
+        // An edit is in flight — the DOM is about to change. Let the
+        // post-render flush (handleAstRendered) do the single scroll.
+        if (deferToRender && renderPendingRef.current) return;
+        flushPendingScroll();
       }, 50);
     });
 
+    let contentDisposable: Monaco.IDisposable | undefined;
+    if (deferToRender) {
+      contentDisposable = editor.onDidChangeModelContent(() => {
+        renderPendingRef.current = true;
+        clearRenderWait();
+        renderWaitRef.current = window.setTimeout(() => {
+          renderWaitRef.current = null;
+          renderPendingRef.current = false;
+          flushPendingScroll();
+        }, RENDER_SETTLE_TIMEOUT_MS);
+      });
+    }
+
     return () => {
-      disposable.dispose();
+      cursorDisposable.dispose();
+      contentDisposable?.dispose();
       if (editorDebounceRef.current) {
         clearTimeout(editorDebounceRef.current);
       }
+      clearRenderWait();
     };
-  }, [enabled, editorRef, syncEditorToPreview]);
+  }, [enabled, editorRef, deferToRender, flushPendingScroll, clearRenderWait]);
 
   // Debounced preview scroll handler
   const handlePreviewScroll = useCallback(() => {
@@ -138,6 +241,29 @@ export function useScrollSync({
     syncPreviewToEditor();
   }, [syncPreviewToEditor]);
 
+  // The preview iframe committed a new AST: fresh data-loc DOM is in place,
+  // so flush the deferred editor→preview scroll once.
+  const handleAstRendered = useCallback(() => {
+    renderPendingRef.current = false;
+    flushPendingScroll();
+  }, [flushPendingScroll]);
+
+  // Scroll to an explicit line, deferred the same way the cursor path is.
+  // If a render is in flight (deferToRender), the AST_RENDERED / safety flush
+  // handles it; otherwise flush on the debounce against the current DOM.
+  const scrollToLineDeferred = useCallback((line: number) => {
+    if (!enabledRef.current) return;
+    pendingScrollRef.current = true;
+    pendingTargetRef.current = line;
+    if (deferToRender && renderPendingRef.current) return;
+    if (editorDebounceRef.current) {
+      clearTimeout(editorDebounceRef.current);
+    }
+    editorDebounceRef.current = window.setTimeout(() => {
+      flushPendingScroll();
+    }, 50);
+  }, [deferToRender, flushPendingScroll]);
+
   // Cleanup debounce timer on unmount
   useEffect(() => {
     return () => {
@@ -150,5 +276,7 @@ export function useScrollSync({
   return {
     handlePreviewScroll,
     handlePreviewClick,
+    handleAstRendered,
+    scrollToLineDeferred,
   };
 }

@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Node } from '../../framework';
+import { Node, dataLocProps } from '../../framework';
 import type { BlockNode, FigureBlock, InlineNode, NodeArgs } from '../../framework';
 import { PreviewContext } from '../PreviewContext';
 
@@ -33,7 +33,7 @@ export const Figure = (args: NodeArgs<FigureBlock>) => {
     }
 
     return (
-        <figure {...props}>
+        <figure {...props} {...dataLocProps(node)}>
             {bodyBlocks.map((b, i) => (
                 <Node
                     key={i}

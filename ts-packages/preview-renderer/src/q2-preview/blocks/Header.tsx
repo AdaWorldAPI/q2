@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { renderChildren } from '../../framework';
+import { renderChildren, dataLocProps } from '../../framework';
 import type { HeaderBlock, NodeArgs } from '../../framework';
 import { PreviewContext } from '../PreviewContext';
 
@@ -28,5 +28,5 @@ export const Header = (args: NodeArgs<HeaderBlock>) => {
     }
     const Tag = headerTags[Math.min(Math.max(level, 1), 6) - 1];
 
-    return <Tag {...domProps}>{renderChildren(args)}</Tag>;
+    return <Tag {...domProps} {...dataLocProps(args.node)}>{renderChildren(args)}</Tag>;
 };

@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { renderChildren } from '../../framework';
+import { renderChildren, dataLocProps } from '../../framework';
 import type { BlockQuoteBlock, NodeArgs } from '../../framework';
 import { PreviewContext } from '../PreviewContext';
 
@@ -9,7 +9,7 @@ export const BlockQuote = (args: NodeArgs<BlockQuoteBlock>) => {
     const resolved = ctx?.resolveSource ? ctx.resolveSource(args.node) : null;
     const isEditable = resolved != null && resolved.reachabilityClass !== 'Opaque' && poolId !== undefined;
     return (
-        <blockquote {...(isEditable ? { 'data-block-pool-id': poolId, tabIndex: -1 } : {})}>
+        <blockquote {...(isEditable ? { 'data-block-pool-id': poolId, tabIndex: -1 } : {})} {...dataLocProps(args.node)}>
             {renderChildren(args)}
         </blockquote>
     );

@@ -1,7 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import type { Ref } from 'react';
 import { vfsReadFile } from '@quarto/preview-runtime';
 import { DEFAULT_CSS_ARTIFACT_PATH } from '../types/artifactPaths';
 import { buildAssetManifest, type ManifestCacheEntry } from '../q2-preview/assetWalker';
+import { scrollIframeToLine, getIframeScrollRatio } from './scrollSyncDom';
+
+/**
+ * Imperative scroll-sync handle, parallel to `MorphIframeHandle`. The
+ * q2-preview iframe is same-origin (`allow-same-origin`), so the parent
+ * reads `contentDocument` / `contentWindow` directly rather than going
+ * through postMessage. Editor→preview uses `data-loc` attributes the
+ * q2-preview leaves stamp via `dataLocProps`; preview→editor uses the
+ * raw scroll ratio.
+ */
+export interface Q2PreviewIframeHandle {
+  scrollToLine: (line: number) => void;
+  getScrollRatio: () => number | null;
+}
 
 interface Q2PreviewIframeProps {
   astJson: string;
@@ -108,6 +123,17 @@ interface Q2PreviewIframeProps {
    * in-deck navigation.
    */
   onSlideChange?: (slideIndex: number) => void;
+  /** Scroll-sync handle (scrollToLine / getScrollRatio). */
+  scrollHandleRef?: Ref<Q2PreviewIframeHandle>;
+  /** Called when the preview iframe is scrolled (preview→editor sync). */
+  onScroll?: () => void;
+  /** Called when the preview iframe is clicked (preview→editor sync). */
+  onClick?: () => void;
+  /**
+   * Called after the iframe commits a new AST (`AST_RENDERED`), so the host
+   * can re-run editor→preview scroll sync against the fresh `data-loc` DOM.
+   */
+  onAstRendered?: () => void;
 }
 
 /**
@@ -146,6 +172,10 @@ export function Q2PreviewIframe({
   nestedEditBuffers,
   currentSlideIndex,
   onSlideChange,
+  scrollHandleRef,
+  onScroll,
+  onClick,
+  onAstRendered,
 }: Q2PreviewIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeReady, setIframeReady] = useState(false);
@@ -155,6 +185,41 @@ export function Q2PreviewIframe({
   // otherwise loop: cursor → SET_SLIDE → slidechanged → SLIDE_CHANGED →
   // editor state → SET_SLIDE …). Reset on IFRAME_READY (fresh iframe).
   const lastSentSlideRef = useRef<number | undefined>(undefined);
+
+  // Scroll-sync handle. Same-origin access to the iframe document lets us
+  // reuse the exact shared scroll helpers `MorphIframe` uses for the HTML
+  // preview.
+  useImperativeHandle(
+    scrollHandleRef,
+    () => ({
+      scrollToLine: (line: number) => scrollIframeToLine(iframeRef.current, line),
+      getScrollRatio: () => getIframeScrollRatio(iframeRef.current),
+    }),
+    [],
+  );
+
+  // Forward iframe scroll / click to the parent for preview→editor sync.
+  // Attached once the iframe document exists (IFRAME_READY); the q2-preview
+  // app re-renders its body via React on each UPDATE_AST but never reloads
+  // the iframe, so the contentWindow/document — and these listeners —
+  // persist across edits.
+  useEffect(() => {
+    if (!iframeReady) return;
+    const iframe = iframeRef.current;
+    const win = iframe?.contentWindow;
+    const doc = iframe?.contentDocument;
+    if (!win || !doc) return;
+
+    const handleScroll = () => onScroll?.();
+    const handleClick = () => onClick?.();
+
+    win.addEventListener('scroll', handleScroll, { passive: true });
+    doc.addEventListener('click', handleClick);
+    return () => {
+      win.removeEventListener('scroll', handleScroll);
+      doc.removeEventListener('click', handleClick);
+    };
+  }, [iframeReady, onScroll, onClick]);
 
   // Track the last fingerprint we posted and the current outstanding
   // blob URL so we can dedupe re-sends and revoke replaced URLs.
@@ -219,12 +284,16 @@ export function Q2PreviewIframe({
         // not bounce back as a redundant SET_SLIDE, then report it up.
         lastSentSlideRef.current = event.data.index;
         onSlideChange?.(event.data.index);
+      } else if (event.data.type === 'AST_RENDERED') {
+        // The iframe committed a new AST and laid out; the fresh data-loc
+        // DOM is now in place, so re-run editor→preview scroll sync.
+        onAstRendered?.();
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onNavigateToDocument, setAst, onSlideChange]);
+  }, [onNavigateToDocument, setAst, onSlideChange, onAstRendered]);
 
   // Post the controlled slide index to the iframe when it changes. The
   // iframe navigates the reveal deck imperatively (RevealNavSync), so
