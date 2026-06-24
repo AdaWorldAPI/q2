@@ -95,11 +95,11 @@ insert a single backtick, matching the user's expectation. Keeping it in
       ✅ 18 files / 121 tests pass.
 - [x] `cd hub-client && npm run build:all` — production build succeeds (stricter
       than `tsc --noEmit`; required for hub-client changes per CLAUDE.md). ✅
-- [ ] **End-to-end, in a browser**: open a `.qmd` in the Monaco view, place the
+- [x] **End-to-end, in a browser**: open a `.qmd` in the Monaco view, place the
       cursor at the end of a word, type `` ` ``, and confirm only **one**
       backtick is inserted. Also confirm: selecting a word and typing `` ` ``
-      still wraps it (surroundingPairs intact). Record the steps + observation.
-      ⏳ To be done together against a local hub-client.
+      still wraps it (surroundingPairs intact). ✅ User tested against a local
+      hub-client and confirmed the bug is fixed (2026-06-24).
 - [ ] Update `hub-client/changelog.md` per the two-commit workflow in CLAUDE.md
       (hub-client changes require a changelog entry referencing the commit hash).
 
