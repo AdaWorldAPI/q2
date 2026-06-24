@@ -229,6 +229,33 @@ pub fn load_highlight_layer() -> Result<SassLayer, SassError> {
     parse_layer(content, Some("highlight.scss"))
 }
 
+/// Load the default code-copy-button SCSS layer.
+///
+/// Reads `copy-code.scss` from the embedded templates directory. The
+/// layer styles the copy-button scaffold emitted by
+/// `CodeBlockRenderTransform` (`.code-copy-outer-scaffold` /
+/// `.code-copy-button` / the `.bi::before` clipboard-glyph SVG). It is
+/// self-contained — the clipboard icon is a `background-image` data-URI
+/// SVG, so there is no Bootstrap Icons *font* dependency, and the SVG
+/// `fill` colors degrade through `variable-exists` guards to literals.
+///
+/// Shared by the HTML path (`compile_*`) and the revealjs path
+/// (`assemble_reveal_scss`) so both honor `code-copy:` with one source
+/// of truth (bd-lg6t6qfy). Mirrors [`load_highlight_layer`]: included
+/// as a built-in user layer (after Bootstrap / Quarto defaults, before
+/// user theme overrides) so themes can restyle the button.
+pub fn load_copy_code_layer() -> Result<SassLayer, SassError> {
+    use crate::resources::TEMPLATES_RESOURCES;
+
+    let content = TEMPLATES_RESOURCES
+        .read_str(Path::new("copy-code.scss"))
+        .ok_or_else(|| SassError::CompilationFailed {
+            message: "copy-code.scss not found in templates resources".to_string(),
+        })?;
+
+    parse_layer(content, Some("copy-code.scss"))
+}
+
 /// Load the default `.embed-example` (runnable-example "Demo N") SCSS layer.
 ///
 /// Reads `embed-example.scss` from the embedded templates directory. The
@@ -384,12 +411,31 @@ pub fn assemble_reveal_scss(theme_layers: &[SassLayer]) -> Result<String, SassEr
 
     let framework = load_reveal_framework()?;
     let quarto = load_quarto_reveal_layer()?;
-    let merged = if theme_layers.is_empty() {
-        None
-    } else {
-        Some(merge_layers(theme_layers))
-    };
-    Ok(assemble_scss(&framework, &quarto, merged.as_ref()))
+
+    // Bundle the default syntax-highlight rules (`highlight.scss`, the same
+    // `.hl-*` colours the HTML path includes via `load_highlight_layer`) so
+    // revealjs code blocks — already annotated with `hl-*` spans by
+    // `CodeHighlightStage` — actually get coloured (bd-ehyyfpjj). The
+    // highlight layer is placed BEFORE the user theme layers so a deck's
+    // `theme:` can still override any `.hl-*` class in a later layer,
+    // matching the HTML layer order. It rides in the `theme` slot of
+    // `assemble_scss` (rules emitted after framework + quarto), so its
+    // colours win over reveal's generic code rules at equal specificity.
+    let highlight = load_highlight_layer()?;
+    // Bundle the copy-button rules (`copy-code.scss`, the same layer the
+    // HTML path includes via `load_copy_code_layer`) so revealjs honors
+    // `code-copy:` — the deck's copy buttons get styled + hover-hidden
+    // like HTML's, instead of rendering as an empty UA-bordered box
+    // (bd-lg6t6qfy, lifting the bd-fu1a5g6l suppression). Placed in the
+    // theme slot before user theme layers, matching the highlight layer.
+    let copy_code = load_copy_code_layer()?;
+    let mut combined: Vec<SassLayer> = Vec::with_capacity(2 + theme_layers.len());
+    combined.push(highlight);
+    combined.push(copy_code);
+    combined.extend_from_slice(theme_layers);
+    let merged = merge_layers(&combined);
+
+    Ok(assemble_scss(&framework, &quarto, Some(&merged)))
 }
 
 /// Assemble a complete SCSS string for compilation.

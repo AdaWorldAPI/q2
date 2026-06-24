@@ -17,6 +17,7 @@ import {
   type FileTreeNode,
 } from '../utils/fileTree';
 import { resolveDefaultDestination } from './fileUpload';
+import { buildSnippet, type SearchFiles, type SearchResult } from '../services/search';
 import './FileSidebar.css';
 
 export interface FileSidebarProps {
@@ -36,6 +37,17 @@ export interface FileSidebarProps {
   onOpenInNewTab?: (file: FileEntry) => void;
   /** Copy a link to a file to clipboard */
   onCopyLink?: (file: FileEntry) => void;
+  /**
+   * Full-text search over the open project. When provided, a search box is
+   * shown and a query replaces the file tree with ranked results. Absent
+   * means search is disabled (the tree renders as before).
+   */
+  searchFiles?: SearchFiles;
+  /**
+   * Live text content per path, used only to render match snippets in search
+   * results. Optional; without it results show the path alone.
+   */
+  fileContents?: Map<string, string>;
 }
 
 interface ContextMenuState {
@@ -91,8 +103,12 @@ export default function FileSidebar({
   onRenameFile,
   onOpenInNewTab,
   onCopyLink,
+  searchFiles,
+  fileContents,
 }: FileSidebarProps) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
@@ -109,6 +125,39 @@ export default function FileSidebar({
 
   // Build file tree from flat file list
   const fileTree = useMemo(() => buildFileTree(files), [files]);
+
+  // Resolve a search result's path back to its FileEntry.
+  const filesByPath = useMemo(() => {
+    const m = new Map<string, FileEntry>();
+    for (const f of files) m.set(f.path, f);
+    return m;
+  }, [files]);
+
+  const isSearching = searchQuery.trim() !== '';
+
+  // Debounced full-text search; ignore stale async resolutions. All state
+  // updates happen inside the timer callback (never synchronously in the
+  // effect body) to avoid cascading renders.
+  useEffect(() => {
+    if (!searchFiles) return;
+    let cancelled = false;
+    const handle = setTimeout(
+      () => {
+        if (!isSearching) {
+          if (!cancelled) setSearchResults([]);
+          return;
+        }
+        void searchFiles(searchQuery, { limit: 50 }).then((results) => {
+          if (!cancelled) setSearchResults(results);
+        });
+      },
+      isSearching ? 120 : 0
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [searchFiles, searchQuery, isSearching]);
 
   // Toggle a folder's expanded state
   const toggleFolder = useCallback((path: string) => {
@@ -375,6 +424,51 @@ export default function FileSidebar({
     );
   };
 
+  // Render the ranked search results (replaces the tree while searching).
+  const renderSearchResults = (): React.ReactNode => {
+    if (searchResults.length === 0) {
+      return (
+        <div className="empty-state">
+          <p>No matches</p>
+        </div>
+      );
+    }
+    return searchResults.map((result) => {
+      const file = filesByPath.get(result.path);
+      if (!file) return null; // result for a file no longer listed
+      const fileName = result.path.split('/').pop() || result.path;
+      const dir = result.path.slice(0, result.path.length - fileName.length);
+      const content = fileContents?.get(result.path);
+      const snippet = content ? buildSnippet(content, result.terms) : [];
+      const isActive = currentFile?.path === result.path;
+      return (
+        <div
+          key={result.path}
+          className={`search-result ${isActive ? 'active' : ''}`}
+          onClick={() => onSelectFile(file)}
+          title={result.path}
+        >
+          <div className="search-result-header">
+            <span className="file-icon">{getFileIcon(result.path)}</span>
+            <span className="search-result-name">{fileName}</span>
+            {dir && <span className="search-result-path">{dir}</span>}
+          </div>
+          {snippet.length > 0 && (
+            <div className="search-result-snippet">
+              {snippet.map((seg, i) =>
+                seg.match ? (
+                  <mark key={i}>{seg.text}</mark>
+                ) : (
+                  <span key={i}>{seg.text}</span>
+                )
+              )}
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
   return (
     <div
       ref={sidebarRef}
@@ -397,8 +491,33 @@ export default function FileSidebar({
         </button>
       </div>
 
+      {searchFiles && (
+        <div className="sidebar-search">
+          <input
+            type="search"
+            className="sidebar-search-input"
+            placeholder="Search files…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Search files"
+          />
+          {isSearching && (
+            <button
+              className="sidebar-search-clear"
+              onClick={() => setSearchQuery('')}
+              title="Clear search"
+              aria-label="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="file-list">
-        {files.length === 0 ? (
+        {isSearching ? (
+          renderSearchResults()
+        ) : files.length === 0 ? (
           <div className="empty-state">
             <p>No files yet</p>
             <p className="hint">Drop files here or click + to create</p>

@@ -7,6 +7,7 @@ import type { ActorIdentity } from '@quarto/preview-runtime';
 import {
   parseQmdToAstWithAttribution,
   renderPageInProjectWithAttribution,
+  renderPageForPreview,
   isWasmReady,
   incrementalWriteQmd,
   applyNodeEdit,
@@ -186,28 +187,39 @@ async function doRender(
     };
   }
 
-  if (pipelineKindForFormat(options.format) === 'preview') {
+  // Convergence (bd-vwp4y5ku): `format: revealjs` renders through the
+  // q2-preview pipeline too — via `renderPageForPreview`, the same WASM
+  // entry the `q2 preview` SPA uses. That entry applies `quarto preview`'s
+  // format substitution (`revealjs` → the `q2-slides` pseudo-format), so
+  // the full transform pipeline runs (incl. `CompileThemeCssStage`) and
+  // the returned AST carries the document's compiled reveal theme +
+  // `theme_fingerprint`. Without it, revealjs fell through to the
+  // parse-only path below — a raw AST the hand-rolled deck rendered with
+  // reveal's stock `white.css` (uppercase headings, centered content).
+  const isSlidesPreview = options.format === 'revealjs';
+
+  if (isSlidesPreview || pipelineKindForFormat(options.format) === 'preview') {
     if (!options.documentPath) {
       return {
         success: false,
-        error: 'q2-preview requires a document path (renderPageInProject reads from VFS)',
+        error: 'preview render requires a document path (reads the file from VFS)',
         diagnostics: [],
       };
     }
 
-    // Phase 3 — q2-preview attribution wiring. `attributionJson` is
-    // produced by `useAttribution` and threaded through `doRender`'s
-    // options exactly as for q2-debug (line 175 below). When it's
-    // `null`, the WASM call falls through to the byte-identical
-    // no-attribution path; otherwise the active-page ctx receives a
-    // `PreBuiltAttributionProvider` and the resulting AST JSON
-    // carries `astContext.attribution*` for `<Ast>` to surface as
-    // per-author backgrounds and tooltips.
-    const result = await renderPageInProjectWithAttribution(
-      options.documentPath,
-      undefined,
-      options.attributionJson,
-    );
+    // q2-preview threads author attribution through
+    // `renderPageInProjectWithAttribution` (`attributionJson` is produced
+    // by `useAttribution`; `null` is byte-identical to the no-attribution
+    // path). The revealjs slides path uses `renderPageForPreview`, which
+    // performs the preview format substitution but does not yet thread
+    // attribution — slides have no attribution overlay today (follow-up).
+    const result = isSlidesPreview
+      ? await renderPageForPreview(options.documentPath, undefined, undefined)
+      : await renderPageInProjectWithAttribution(
+          options.documentPath,
+          undefined,
+          options.attributionJson,
+        );
     const allDiagnostics: Diagnostic[] = [
       ...(result.diagnostics ?? []),
       ...(result.warnings ?? []),
@@ -218,7 +230,7 @@ async function doRender(
       if (astJson === undefined) {
         return {
           success: false,
-          error: 'q2-preview render succeeded but produced no ast_json — backend bug',
+          error: 'preview render succeeded but produced no ast_json — backend bug',
           diagnostics: allDiagnostics,
         };
       }
@@ -630,13 +642,26 @@ export default function ReactPreview({
     doRenderWithStateManagement(newContent, documentPath);
   }, [doRenderWithStateManagement]);
 
-  // Re-render when content changes, scroll sync is toggled, or a new
-  // attribution payload arrives.
+  // Re-render when the active page's content changes, a sibling file's
+  // content changes, scroll sync is toggled, or a new attribution payload
+  // arrives.
+  //
+  // `fileContents` (bd-4jjckvwt) gets a fresh Map identity on every
+  // Automerge edit (App.tsx), so depending on it makes a sibling edit —
+  // most importantly `_brand.yml` / `_quarto.yml` / `_metadata.yml`
+  // arriving via sync — re-render the active document. Without it, a
+  // brand/theme change underneath the deck never recompiled the theme CSS
+  // until a manual reload. This matches the HTML path's effect in
+  // `Preview.tsx` (Phase 9 Decision 6). `updatePreview` here is
+  // debounce-free, but `doRenderWithStateManagement`'s `lastContentRef`
+  // guard discards stale in-flight results, so a burst settles on the
+  // latest content.
   useEffect(() => {
     // Pass document path as-is from Automerge (e.g., "index.qmd" or "docs/index.qmd").
     updatePreview(content, currentFile?.path);
   }, [
     content,
+    fileContents,
     updatePreview,
     scrollSyncEnabled,
     currentFile?.path,

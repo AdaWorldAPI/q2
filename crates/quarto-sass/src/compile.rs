@@ -73,7 +73,10 @@ pub fn assemble_theme_scss(
     config: &ThemeConfig,
     context: &ThemeContext<'_>,
 ) -> Result<(String, Vec<PathBuf>), SassError> {
-    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{
+        load_copy_code_layer, load_embed_example_layer, load_highlight_layer,
+        load_title_block_layer,
+    };
 
     // Process theme specs into layers
     let result = process_theme_specs(&config.themes, context)?;
@@ -85,7 +88,13 @@ pub fn assemble_theme_scss(
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
     let embed_example_layer = load_embed_example_layer()?;
-    let mut user_layers = vec![title_block_layer, highlight_layer, embed_example_layer];
+    let copy_code_layer = load_copy_code_layer()?;
+    let mut user_layers = vec![
+        title_block_layer,
+        highlight_layer,
+        embed_example_layer,
+        copy_code_layer,
+    ];
     user_layers.extend(result.layers);
 
     // Assemble SCSS
@@ -187,7 +196,10 @@ pub fn compile_with_doc_vars(
     context: &ThemeContext<'_>,
     doc_vars: &crate::SassLayer,
 ) -> Result<String, SassError> {
-    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{
+        load_copy_code_layer, load_embed_example_layer, load_highlight_layer,
+        load_title_block_layer,
+    };
     use crate::themes::process_theme_specs;
     use quarto_system_runtime::sass_native::compile_scss_with_embedded;
 
@@ -207,7 +219,13 @@ pub fn compile_with_doc_vars(
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
     let embed_example_layer = load_embed_example_layer()?;
-    let mut user_layers = vec![title_block_layer, highlight_layer, embed_example_layer];
+    let copy_code_layer = load_copy_code_layer()?;
+    let mut user_layers = vec![
+        title_block_layer,
+        highlight_layer,
+        embed_example_layer,
+        copy_code_layer,
+    ];
 
     let mut load_paths = default_load_paths();
     if config.has_themes() {
@@ -320,7 +338,10 @@ pub fn compile_default_css(
     runtime: &dyn SystemRuntime,
     minified: bool,
 ) -> Result<String, SassError> {
-    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{
+        load_copy_code_layer, load_embed_example_layer, load_highlight_layer,
+        load_title_block_layer,
+    };
     use quarto_system_runtime::sass_native::compile_scss_with_embedded;
 
     // Return cached version if available (only for minified)
@@ -333,10 +354,15 @@ pub fn compile_default_css(
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
     let embed_example_layer = load_embed_example_layer()?;
+    let copy_code_layer = load_copy_code_layer()?;
 
     // Assemble SCSS: Bootstrap + Quarto + title block + highlight + embed-example defaults
-    let scss =
-        assemble_with_user_layers(&[title_block_layer, highlight_layer, embed_example_layer])?;
+    let scss = assemble_with_user_layers(&[
+        title_block_layer,
+        highlight_layer,
+        embed_example_layer,
+        copy_code_layer,
+    ])?;
 
     // Get load paths and resources
     let load_paths = default_load_paths();
@@ -446,7 +472,10 @@ pub async fn compile_with_doc_vars(
     context: &ThemeContext<'_>,
     doc_vars: &crate::SassLayer,
 ) -> Result<String, SassError> {
-    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{
+        load_copy_code_layer, load_embed_example_layer, load_highlight_layer,
+        load_title_block_layer,
+    };
     use crate::themes::process_theme_specs;
 
     if doc_vars.is_empty() {
@@ -459,7 +488,13 @@ pub async fn compile_with_doc_vars(
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
     let embed_example_layer = load_embed_example_layer()?;
-    let mut user_layers = vec![title_block_layer, highlight_layer, embed_example_layer];
+    let copy_code_layer = load_copy_code_layer()?;
+    let mut user_layers = vec![
+        title_block_layer,
+        highlight_layer,
+        embed_example_layer,
+        copy_code_layer,
+    ];
 
     let mut load_paths = default_load_paths();
     if config.has_themes() {
@@ -524,7 +559,10 @@ pub async fn compile_default_css(
     runtime: &dyn SystemRuntime,
     minified: bool,
 ) -> Result<String, SassError> {
-    use crate::bundle::{load_embed_example_layer, load_highlight_layer, load_title_block_layer};
+    use crate::bundle::{
+        load_copy_code_layer, load_embed_example_layer, load_highlight_layer,
+        load_title_block_layer,
+    };
 
     // Return cached version if available (only for minified, matching
     // native). Minified is always true in practice for hub-client.
@@ -543,10 +581,15 @@ pub async fn compile_default_css(
     let title_block_layer = load_title_block_layer()?;
     let highlight_layer = load_highlight_layer()?;
     let embed_example_layer = load_embed_example_layer()?;
+    let copy_code_layer = load_copy_code_layer()?;
 
     // Assemble SCSS: Bootstrap + Quarto + title block + highlight + embed-example defaults
-    let scss =
-        assemble_with_user_layers(&[title_block_layer, highlight_layer, embed_example_layer])?;
+    let scss = assemble_with_user_layers(&[
+        title_block_layer,
+        highlight_layer,
+        embed_example_layer,
+        copy_code_layer,
+    ])?;
 
     // Get load paths (these point to VFS paths populated by wasm-quarto-hub-client)
     let load_paths = default_load_paths();
@@ -624,6 +667,18 @@ mod tests {
             "Should contain nested-capture .hl-function-builtin rule"
         );
 
+        // Should have code-copy-button rules from the shared copy-code.scss
+        // layer (bd-lg6t6qfy extracted these out of _bootstrap-rules.scss; the
+        // HTML output must be unchanged by that extraction).
+        assert!(
+            css.contains(".code-copy-button"),
+            "Should contain .code-copy-button rule from copy-code.scss"
+        );
+        assert!(
+            css.contains(".code-copy-outer-scaffold"),
+            "Should contain the .code-copy-outer-scaffold positioning context"
+        );
+
         // Should have Quarto page-footer layout rules (ported from Q1).
         assert!(
             css.contains(".nav-footer"),
@@ -651,6 +706,49 @@ mod tests {
             css.len() > 100_000,
             "Bootstrap CSS should be > 100KB, got {} bytes",
             css.len()
+        );
+    }
+
+    #[test]
+    fn test_compile_reveal_theme_includes_highlight_rules() {
+        // bd-ehyyfpjj: `format: revealjs` code blocks receive `hl-*` span
+        // annotations from `CodeHighlightStage`, but render UNCOLORED unless
+        // the compiled reveal theme CSS also carries the `.hl-*` colour
+        // rules. Every HTML compile bundles `highlight.scss` via
+        // `load_highlight_layer`; the reveal path must include it too, or
+        // render/preview/hub-client all show plain (uncolored) code.
+        let runtime = NativeRuntime::new();
+        // Empty theme layers → the default (white-equivalent) reveal theme.
+        let css = compile_reveal_theme_css(&runtime, true, &[], &[]).unwrap();
+        assert!(
+            css.contains(".hl-keyword"),
+            "reveal theme CSS must contain .hl-keyword from highlight.scss"
+        );
+        assert!(
+            css.contains(".hl-function-builtin"),
+            "reveal theme CSS must contain the nested-capture .hl-function-builtin rule"
+        );
+    }
+
+    #[test]
+    fn test_compile_reveal_theme_includes_copy_code_rules() {
+        // bd-lg6t6qfy: `format: revealjs` emits the same copy-button scaffold
+        // (`.code-copy-outer-scaffold` / `.code-copy-button`) as HTML, but the
+        // reveal theme CSS historically shipped none of the styling — so the
+        // button rendered as an empty UA-bordered box (bd-fu1a5g6l suppressed
+        // it). Every HTML compile bundles `copy-code.scss` via
+        // `load_copy_code_layer`; `assemble_reveal_scss` must include it too,
+        // or render/preview/hub-client show an unstyled (or suppressed) button.
+        let runtime = NativeRuntime::new();
+        // Empty theme layers → the default (white-equivalent) reveal theme.
+        let css = compile_reveal_theme_css(&runtime, true, &[], &[]).unwrap();
+        assert!(
+            css.contains(".code-copy-button"),
+            "reveal theme CSS must contain .code-copy-button from copy-code.scss"
+        );
+        assert!(
+            css.contains(".code-copy-outer-scaffold"),
+            "reveal theme CSS must contain the .code-copy-outer-scaffold scaffold rule"
         );
     }
 

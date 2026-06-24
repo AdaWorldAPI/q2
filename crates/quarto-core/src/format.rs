@@ -138,6 +138,37 @@ pub fn is_revealjs_target(target_format: &str) -> bool {
     matches!(target_format, "revealjs" | "q2-slides")
 }
 
+/// The canonical Pandoc output format a Lua filter or shortcode should see as
+/// its `FORMAT` global, given the pipeline's `target_format`.
+///
+/// The preview pipeline runs with a *pseudo-format* `target_format`
+/// (`q2-preview`, `q2-slides`, …) so q2-core can branch on it for AST-vs-HTML
+/// output and reveal-tree construction (see [`builtin_pseudo_format`] /
+/// [`is_revealjs_target`]). But Lua extensions don't know about those
+/// pseudo-formats: their `quarto.doc.is_format("html:js")` /
+/// `is_format("revealjs")` checks (e.g. the built-in `video` shortcode) only
+/// recognize real Pandoc formats. If we hand the pseudo-format straight to Lua,
+/// those checks fail and format-gated shortcodes/filters silently degrade
+/// (`{{< video >}}` collapsed to a plain link in preview — bd-5b21rbaq).
+///
+/// This maps each preview pseudo-format back to the real format it emulates so
+/// preview Lua behaves identically to render:
+/// - `q2-preview` / `q2-debug` / `q2-raw` → `html`
+/// - `q2-slides` → `revealjs` (so `is_format("revealjs")` is true, matching
+///   what [`is_revealjs_target`] already does for pipeline decisions; note this
+///   intentionally differs from [`builtin_pseudo_format`], which reports the
+///   *output writer* base `html`).
+///
+/// Any non-pseudo `target_format` (`html`, `revealjs`, `latex`, …) passes
+/// through unchanged.
+pub fn lua_format_for(target_format: &str) -> &str {
+    match target_format {
+        "q2-preview" | "q2-debug" | "q2-raw" => "html",
+        "q2-slides" => "revealjs",
+        other => other,
+    }
+}
+
 /// Extract the chosen output format from a document's leading YAML
 /// front-matter: the `format:` scalar, or the first key when `format:` is a
 /// map (e.g. `format: {revealjs: {...}}`). Returns `None` when there is no
@@ -326,6 +357,35 @@ impl Format {
             output_extension: "docx".to_string(),
             native_pipeline: false,
             pipeline_kind: None,
+        }
+    }
+
+    /// The canonical Pandoc output format a Lua filter or shortcode should see
+    /// as its `FORMAT` global.
+    ///
+    /// Lua extensions branch on real Pandoc formats
+    /// (`quarto.doc.is_format("html:js")`, `is_format("revealjs")`, …), not on
+    /// q2's preview pseudo-formats or extension-style format strings. This
+    /// resolves a `Format` to the base format it emulates:
+    /// - reveal targets (`revealjs` render **and** `q2-slides` preview) →
+    ///   `"revealjs"`, so `is_format("revealjs")` fires in preview too. The
+    ///   bare [`identifier`](Self::identifier) would otherwise collapse
+    ///   `q2-slides` to `Html` (its *output writer* is HTML), losing
+    ///   reveal-ness — the reason a user filter in a reveal preview saw
+    ///   `"html"` (bd-5b21rbaq).
+    /// - everything else → the identifier base (`html`, `pdf`, …), which
+    ///   already canonicalizes extension formats (`acm-pdf` → `pdf`) and the
+    ///   HTML preview pseudo-formats (`q2-preview`/`q2-debug`/`q2-raw` → `html`).
+    ///
+    /// This is the [`Format`]-aware companion to the string-only
+    /// [`lua_format_for`] (used where only a `target_format` string is in hand,
+    /// e.g. the transform-pipeline builder); the two agree on the pseudo-format
+    /// and base cases.
+    pub fn lua_format(&self) -> &str {
+        if is_revealjs_target(&self.target_format) {
+            "revealjs"
+        } else {
+            self.identifier.as_str()
         }
     }
 
@@ -819,6 +879,79 @@ mod tests {
         // later commit (Plan 7 cleanup retires the temporary
         // `target_format == "q2-preview"` string match).
         assert_eq!(f.pipeline_kind, Some("preview"));
+    }
+
+    #[test]
+    fn test_lua_format_for_maps_preview_pseudo_formats() {
+        // HTML-emulating pseudo-formats resolve to `html` so
+        // `is_format("html:js")` fires in preview (bd-5b21rbaq).
+        assert_eq!(lua_format_for("q2-preview"), "html");
+        assert_eq!(lua_format_for("q2-debug"), "html");
+        assert_eq!(lua_format_for("q2-raw"), "html");
+        // The reveal preview pseudo-format resolves to `revealjs` so
+        // `is_format("revealjs")` fires — distinct from
+        // `builtin_pseudo_format`, which reports the output-writer base `html`.
+        assert_eq!(lua_format_for("q2-slides"), "revealjs");
+    }
+
+    #[test]
+    fn test_lua_format_for_passes_through_real_formats() {
+        for f in ["html", "revealjs", "latex", "pdf", "gfm", "typst", "docx"] {
+            assert_eq!(lua_format_for(f), f, "real format {f} must pass through");
+        }
+    }
+
+    #[test]
+    fn test_format_lua_format_canonicalizes() {
+        // Real formats: identifier base.
+        assert_eq!(
+            Format::from_format_string("html").unwrap().lua_format(),
+            "html"
+        );
+        assert_eq!(
+            Format::from_format_string("revealjs").unwrap().lua_format(),
+            "revealjs"
+        );
+        // Extension formats canonicalize to their base (the bug `identifier`
+        // already handled; `lua_format` must preserve it).
+        assert_eq!(
+            Format::from_format_string("acm-pdf").unwrap().lua_format(),
+            "pdf"
+        );
+        // HTML preview pseudo-formats → html.
+        assert_eq!(
+            Format::from_format_string("q2-preview")
+                .unwrap()
+                .lua_format(),
+            "html"
+        );
+        assert_eq!(
+            Format::from_format_string("q2-debug").unwrap().lua_format(),
+            "html"
+        );
+        // Reveal preview pseudo-format → revealjs (NOT its html output base) —
+        // the parity fix for user filters in reveal preview.
+        assert_eq!(
+            Format::from_format_string("q2-slides")
+                .unwrap()
+                .lua_format(),
+            "revealjs"
+        );
+    }
+
+    /// `Format::lua_format` and the string-only `lua_format_for` must agree on
+    /// the pseudo-format + base cases both handle, so the shortcode pipeline
+    /// (string-only) and user-filter stage (Format-aware) don't drift.
+    #[test]
+    fn test_lua_format_helpers_agree_on_shared_cases() {
+        for fmt in ["html", "revealjs", "q2-preview", "q2-slides", "q2-debug"] {
+            let f = Format::from_format_string(fmt).unwrap();
+            assert_eq!(
+                f.lua_format(),
+                lua_format_for(&f.target_format),
+                "lua_format helpers disagree for {fmt}"
+            );
+        }
     }
 
     #[test]

@@ -50,6 +50,16 @@ interface RevealDeckProps {
     registry: FormatRegistry;
     currentFilePath: string;
     onNavigateToDocument?: (path: string, anchor: string | null) => void;
+    /**
+     * Slide-navigation bridge (bd-mwbsdmel). `registerSlideNavigator`
+     * receives an imperative `goTo(index)` the host can call to drive the
+     * deck (cursor→slide sync); `null` is passed on unmount. `onSlideChange`
+     * fires with the new horizontal index whenever the deck navigates
+     * (arrows/controls/`goTo`), so the host can mirror the deck's position.
+     * Both optional — the standalone `q2 preview` SPA omits them.
+     */
+    registerSlideNavigator?: (nav: ((index: number) => void) | null) => void;
+    onSlideChange?: (slideIndex: number) => void;
 }
 
 /** A `Div` block carrying the `section` class — a reveal slide / stack. */
@@ -240,6 +250,60 @@ export function RevealChrome(props: { footerHtml?: string; logoHtml?: string }) 
     return null;
 }
 
+/**
+ * Two-way slide-navigation bridge (bd-mwbsdmel). Mounted as a child of
+ * `<Deck>` so `useReveal()` resolves the deck context — the same
+ * escape-hatch pattern as `RevealChrome`. Renders nothing in the tree.
+ *
+ * - Outbound: subscribes to reveal's `slidechanged` and reports the new
+ *   horizontal index through `onSlideChange`, so the host (the editor)
+ *   can mirror in-deck navigation (arrows, controls).
+ * - Inbound: registers an imperative `goTo(index)` via
+ *   `registerSlideNavigator` (and clears it on unmount). The host calls
+ *   it to move the deck — driven by the cursor→slide mapping — without an
+ *   AST re-render. `goTo` no-ops when the deck is already on that slide,
+ *   so an echoed host index doesn't fight a user mid-navigation.
+ *
+ * Mirrors only the horizontal index (`h`), matching the editor's
+ * `useCursorToSlide` granularity and the retired hand-rolled deck's
+ * `revealApi.slide(n)` / `getIndices().h` behaviour.
+ */
+export function RevealNavSync(props: {
+    registerSlideNavigator?: (nav: ((index: number) => void) | null) => void;
+    onSlideChange?: (slideIndex: number) => void;
+}) {
+    const reveal = useReveal();
+    const { registerSlideNavigator, onSlideChange } = props;
+    useEffect(() => {
+        if (!reveal) return;
+        // `useReveal()`'s RevealApi widens to `any`; pin the slice we use.
+        const api = reveal as unknown as {
+            slide?: (h: number, v?: number) => void;
+            getIndices?: () => { h?: number; v?: number };
+            on?: (type: string, cb: () => void) => void;
+            off?: (type: string, cb: () => void) => void;
+        };
+
+        const goTo = (index: number) => {
+            const cur = api.getIndices?.()?.h ?? 0;
+            if (cur !== index) api.slide?.(index);
+        };
+        registerSlideNavigator?.(goTo);
+
+        const handleSlideChanged = () => {
+            onSlideChange?.(api.getIndices?.()?.h ?? 0);
+        };
+        api.on?.('slidechanged', handleSlideChanged);
+
+        return () => {
+            registerSlideNavigator?.(null);
+            api.off?.('slidechanged', handleSlideChanged);
+        };
+    }, [reveal, registerSlideNavigator, onSlideChange]);
+
+    return null;
+}
+
 export function RevealDeck(props: RevealDeckProps) {
     const chrome = revealChromeFromMeta(props.ast.meta);
     const slides = props.ast.blocks.map((block, i) => {
@@ -290,6 +354,12 @@ export function RevealDeck(props: RevealDeckProps) {
                     {/* Deck-level footer/logo: injected into `.reveal` outside
                         `.slides` (renders null in-tree). Mirrors assemble.rs. */}
                     <RevealChrome footerHtml={chrome.footerHtml} logoHtml={chrome.logoHtml} />
+                    {/* Cursor↔slide bridge (bd-mwbsdmel). Renders null;
+                        no-op when the host wires no navigator (q2 preview SPA). */}
+                    <RevealNavSync
+                        registerSlideNavigator={props.registerSlideNavigator}
+                        onSlideChange={props.onSlideChange}
+                    />
                 </Deck>
             </IncrementalContext.Provider>
         </RegistryContext.Provider>

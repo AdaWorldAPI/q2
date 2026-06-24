@@ -236,6 +236,15 @@ async function main(): Promise<void> {
       capabilities: {
         tools: {},
       },
+      instructions:
+        'Tools operate on a project identified by its automerge index document ID. ' +
+        'You may pass that id directly, OR paste a quarto-hub.com share URL ' +
+        '(`https://quarto-hub.com/#/share/<id>?file=…&name=…`) — the link users share ' +
+        'to grant access — anywhere a `project` is expected. The server extracts the ' +
+        'id from the `#/share/<id>` fragment, and if the URL carries a `file=` ' +
+        'parameter it becomes the default `path` for file tools. If a share URL ' +
+        "names a different hub in its `server=` than this server is connected to, " +
+        'the call is rejected (rather than silently hitting the wrong hub).',
     },
   );
 

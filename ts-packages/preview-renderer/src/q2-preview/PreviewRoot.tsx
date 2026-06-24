@@ -28,6 +28,7 @@ import { AssetManifestContext } from './AssetManifestContext';
 import { NoteNumberingContext } from './NoteNumberingContext';
 import { RevealDeck } from './RevealDeck';
 import { installLinkHandlers } from '../utils/iframeLinkHandlers';
+import { installCodeCopy } from '../utils/codeCopy';
 import { buildNestingCommitDestination, buildNestingSurfaces, parentSurface, childSurfaceToward, childSurfaceTowardLine, topBlockR0, depthOfSurface, relocateSurface, surfaceAtLine } from './nestingNav';
 import type { NestingSurface } from './nestingNav';
 import type { CaretHint } from './caretGeometry';
@@ -175,6 +176,16 @@ export interface PreviewRootProps {
      * Tests can ignore it (default no-op).
      */
     scrollToAnchor?: (anchor: string) => boolean;
+    /**
+     * Slide-navigation bridge for `format: revealjs` decks (bd-mwbsdmel),
+     * forwarded to `RevealDeck`. `registerSlideNavigator` lets the deck
+     * register an imperative `goTo(index)` the host drives via `SET_SLIDE`;
+     * `onSlideChange` reports in-deck navigation back to the host. Both are
+     * no-ops for non-slide previews. In production `entry.tsx` wires these
+     * to the parent postMessage channel; tests can omit them.
+     */
+    registerSlideNavigator?: (nav: ((index: number) => void) | null) => void;
+    onSlideChange?: (slideIndex: number) => void;
 }
 
 /**
@@ -1342,6 +1353,19 @@ export function PreviewRoot(props: PreviewRootProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Install the iframe-safe code-copy handler (bd-wa2pgri8) on the preview
+    // host. `previewHostRef` wraps BOTH the <RevealDeck> and the plain-HTML
+    // <Ast> branch, so one delegated, capture-phase listener makes
+    // `.code-copy-button` clicks copy in reveal AND plain-HTML preview, in both
+    // q2-preview and hub-client (which share this PreviewRoot). Delegation +
+    // a stable host = survives edit re-renders (the iframe-safe property the
+    // native ClipboardJsStage, excluded from the WASM pipeline, lacked).
+    useEffect(() => {
+        const host = previewHostRef.current;
+        if (!host) return;
+        return installCodeCopy(host);
+    }, []);
+
     // Phase F.1 (bd-kw93.14): scroll to the cross-page anchor after React commits the new AST.
     const lastScrolledEpochRef = useRef<number>(0);
     useEffect(() => {
@@ -1501,6 +1525,8 @@ export function PreviewRoot(props: PreviewRootProps) {
                                     registry={mergedPreviewRegistry}
                                     currentFilePath={props.currentFilePath}
                                     onNavigateToDocument={props.onNavigateToDocument}
+                                    registerSlideNavigator={props.registerSlideNavigator}
+                                    onSlideChange={props.onSlideChange}
                                 />
                             ) : (
                                 <Ast

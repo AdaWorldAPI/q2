@@ -79,6 +79,21 @@ describe('MCP protocol', () => {
       required: ['project', 'path'],
     });
   });
+
+  // A share URL whose server= names a hub other than this server's configured
+  // one (--server wss://dummy.example.com) must error *before* connecting, so no
+  // network is needed here. (bd-m4slev7a)
+  it('should reject a share URL pointing at a different hub', async () => {
+    const result = await client.callTool('connect_project', {
+      project:
+        'https://quarto-hub.com/#/share/abc123?server=wss%3A%2F%2Fother.example.com%2Fws',
+    });
+    expect(result.isError).toBe(true);
+    const msg = result.content[0]!.text;
+    expect(msg).toContain('other.example.com');
+    expect(msg).toContain('dummy.example.com');
+    expect(msg).toContain('--server');
+  });
 });
 
 describe('MCP protocol (read-only mode)', () => {
@@ -201,6 +216,41 @@ describe('live: connect and read', () => {
     });
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain('File not found');
+  }, 15000);
+
+  // End-to-end share-URL handling: the `project` argument is a full
+  // quarto-hub.com share link rather than a bare id. The server must extract
+  // the id from the `#/share/<id>` fragment, and `file=` must supply a default
+  // `path` so read_file works with no explicit path. (bd-m4slev7a)
+  const SHARE_URL =
+    `https://quarto-hub.com/#/share/${HELLO_WORLD_DOC}` +
+    `?server=wss%3A%2F%2Fsync.automerge.org&file=index.qmd&name=Hello+World`;
+
+  it('should connect using a share URL in place of an id', async () => {
+    const result = await client.callTool('connect_project', { project: SHARE_URL });
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.project).toBe(HELLO_WORLD_DOC);
+    const paths = data.files.map((f: { path: string }) => f.path);
+    expect(paths).toContain('index.qmd');
+  }, 15000);
+
+  it('should read the share URL file= with no explicit path', async () => {
+    const result = await client.callTool('read_file', { project: SHARE_URL });
+    expect(result.isError).toBeUndefined();
+    const content = result.content[0]!.text;
+    // index.qmd (named by file= in the share URL) has YAML frontmatter.
+    expect(content).toContain('---');
+    expect(content).toContain('title:');
+  }, 15000);
+
+  it('should let an explicit path override the share URL file=', async () => {
+    const result = await client.callTool('read_file', {
+      project: SHARE_URL,
+      path: '_quarto.yml',
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]!.text.length).toBeGreaterThan(0);
   }, 15000);
 });
 

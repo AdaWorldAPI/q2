@@ -15,6 +15,16 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-23
+
+- [`9a48dd86`](https://github.com/quarto-dev/q2/commits/9a48dd86): Added full-text search to the file sidebar — type in the search box to find files in the open project by content (with highlighted match snippets) and click a result to open it.
+
+### 2026-06-22
+
+- [`f4e2c25e`](https://github.com/quarto-dev/q2/commits/f4e2c25e): Slide and AST previews now restyle live when a sibling config file changes — editing `_brand.yml` (or `_quarto.yml`) in another window recompiles the deck's theme without a page reload, matching the HTML preview.
+- [`5b45e8be`](https://github.com/quarto-dev/q2/commits/5b45e8be): RevealJS decks in the live editor keep cursor↔slide navigation in sync with the preview now that they render through the shared preview pipeline — moving the cursor scrolls the deck to that slide, and navigating the deck tracks back.
+- [`70f5cb4c`](https://github.com/quarto-dev/q2/commits/70f5cb4c): RevealJS slides in the live editor now apply the document's compiled Quarto reveal theme — matching `quarto preview` and `quarto render` — instead of reveal.js's stock white theme (uppercase headings, centered content).
+
 ### 2026-06-19
 
 - [`de037126`](https://github.com/quarto-dev/q2/commits/de037126): Inline block editing in the live preview pane. Click any block — a paragraph, heading, list item, div, or blockquote — to edit it in place, with the surrounding page layout staying put while you type. A breadcrumb "nesting cursor" moves the edit focus into and out of nested blocks (click a breadcrumb level, or use a keyboard chord), and a small status indicator shows whether each edit was saved, changed nothing, or hit an error. Enabled by default.

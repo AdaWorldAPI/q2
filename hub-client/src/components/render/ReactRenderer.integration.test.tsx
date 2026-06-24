@@ -63,10 +63,6 @@ vi.mock('./ReactAstSlideRenderer', () => ({
   SlideAst: () => <div data-testid="slide-sentinel" />,
 }));
 
-vi.mock('./RevealjsReactAstSlideRenderer', () => ({
-  RevealjsSlideAst: () => <div data-testid="revealjs-sentinel" />,
-}));
-
 // Imported after vi.mock so the mocks are in place.
 import ReactRenderer from './ReactRenderer';
 
@@ -205,6 +201,45 @@ describe('ReactRenderer format routing', () => {
     mountForRouting('q2-debug');
     expect(capturedAstIframeProps.length).toBeGreaterThan(0);
     expect(capturedPreviewIframeProps.length).toBe(0);
+  });
+
+  it('routes revealjs through Q2PreviewIframe, not the hand-rolled deck (bd-vwp4y5ku)', () => {
+    // Convergence: `format: revealjs` must render through the shared
+    // q2-preview iframe (which applies the document's compiled reveal
+    // theme via the `<style data-q2-theme>` transport, exactly as
+    // `q2 preview` does) instead of the legacy hand-rolled
+    // `RevealjsSlideAst` deck (which hardcodes reveal's stock
+    // `white.css` — uppercase headings, centered content).
+    const { queryByTestId } = mountForRouting('revealjs');
+    expect(capturedPreviewIframeProps.length).toBeGreaterThan(0);
+    // Not through the generic slide path (the retired hand-rolled reveal
+    // deck is gone; revealjs no longer falls back to SlideAst either)...
+    expect(queryByTestId('slide-sentinel')).toBeNull();
+    // ...and never through the q2-debug iframe.
+    expect(capturedAstIframeProps.length).toBe(0);
+  });
+
+  it('forwards cursor→slide sync props to Q2PreviewIframe for revealjs (bd-mwbsdmel)', () => {
+    // The iframe path must receive the editor's controlled slide index
+    // and slide-change callback so cursor→slide navigation survives the
+    // move off the hand-rolled deck.
+    const onSlideChange = () => {};
+    render(
+      <ReactRenderer
+        astJson={EMPTY_AST}
+        currentFilePath="/project/index.qmd"
+        files={[]}
+        fileContents={new Map()}
+        onNavigateToDocument={() => {}}
+        setAst={() => {}}
+        format="revealjs"
+        currentSlideIndex={3}
+        onSlideChange={onSlideChange}
+      />,
+    );
+    const props = capturedPreviewIframeProps.at(-1);
+    expect(props?.currentSlideIndex).toBe(3);
+    expect(props?.onSlideChange).toBe(onSlideChange);
   });
 
   it('does not route q2-slides through any AST iframe', () => {

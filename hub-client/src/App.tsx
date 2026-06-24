@@ -56,7 +56,19 @@ async function connectAndLoadContents(
   if (import.meta.env.VITE_E2E === '1') {
     actorId = (window as any).__QUARTO_TEST_ACTOR_ID__ as string | undefined ?? actorId;
   }
-  const files = await connect(syncServer, indexDocId, actorId, screenName, color);
+  // Production opens offline-first (the sync client's 1 ms default peer wait):
+  // a returning user sees cached content instantly while the peer connects in
+  // the background. But the smoke-all E2E env always starts with EMPTY storage
+  // and must sync every doc from the (local) server, so opening offline-first
+  // there means loadFileDocuments races the still-connecting websocket — and
+  // under CI contention the render-target doc loses that race, is marked
+  // unavailable, and the preview fails "Path not found" (stage
+  // EDITOR_NO_PREVIEW; sometimes the index loses it too → CONNECT_STALL).
+  // waitForPeer resolves the instant the peer connects, so this only adds wall
+  // time when the connection is genuinely slow — exactly the CI case we want to
+  // wait out. Tree-shaken in production, so no offline-first UX change there.
+  const peerTimeoutMs = import.meta.env.VITE_E2E === '1' ? 15000 : undefined;
+  const files = await connect(syncServer, indexDocId, actorId, screenName, color, peerTimeoutMs);
   const contents = new Map<string, string>();
   for (const file of files) {
     const content = getFileContent(file.path);

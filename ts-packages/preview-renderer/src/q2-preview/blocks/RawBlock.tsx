@@ -11,7 +11,23 @@ import { PreviewContext } from '../PreviewContext';
  *
  * Sanitization is the user's responsibility — RawBlock means "trust
  * the author." The iframe sandbox limits the blast radius.
+ *
+ * Reveal stretch: React can only inject raw HTML through a wrapper element
+ * (`dangerouslySetInnerHTML`), so a stretched reveal video ends up at
+ * `section > div > iframe.r-stretch`. reveal's stretch selector
+ * (`section > .r-stretch`, direct children only) would miss it. When the raw
+ * HTML's root element carries `r-stretch`, we mirror that class onto the
+ * wrapper div so reveal stretches the wrapper; quarto-reveal.css then sizes the
+ * inner iframe to fill it. Inert outside reveal (the CSS rule is reveal-scoped).
+ * bd-xfw2omlt.
  */
+
+/** Does the first/root element of an HTML fragment carry the given class? */
+function rootHasClass(html: string, cls: string): boolean {
+    const m = html.match(/^\s*<[a-zA-Z][^>]*?\sclass\s*=\s*"([^"]*)"/);
+    return m != null && m[1].split(/\s+/).includes(cls);
+}
+
 export const RawBlock = ({ node }: NodeArgs<RawBlockType>) => {
     const ctx = useContext(PreviewContext);
     const poolId = (node as any).s as string | number | undefined;
@@ -21,7 +37,8 @@ export const RawBlock = ({ node }: NodeArgs<RawBlockType>) => {
 
     const [format, content] = node.c;
     if (format === 'html' || format === 'html5') {
-        return <div {...affordanceAttr} dangerouslySetInnerHTML={{ __html: content }} />;
+        const className = rootHasClass(content, 'r-stretch') ? 'r-stretch' : undefined;
+        return <div className={className} {...affordanceAttr} dangerouslySetInnerHTML={{ __html: content }} />;
     }
     return <pre {...affordanceAttr}>{content}</pre>;
 };

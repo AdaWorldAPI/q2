@@ -63,6 +63,13 @@ impl SourceInfo {
                         return piece.source_info.map_offset(offset_in_piece, ctx);
                     }
                 }
+                // Exclusive end: `offset == total` matches no piece above; map it to
+                // the end of the last piece (like Original/Substring's map_offset(length)).
+                if let Some(last) = pieces.last()
+                    && offset == last.offset_in_concat + last.length
+                {
+                    return last.source_info.map_offset(last.length, ctx);
+                }
                 None // Offset not found in any piece
             }
             SourceInfo::Generated { .. } => {
@@ -212,6 +219,18 @@ mod tests {
         let mapped = concat.map_offset(4, &ctx).unwrap();
         assert_eq!(mapped.file_id, file_id2);
         assert_eq!(mapped.location.offset, 1);
+
+        // Exclusive end (offset 6 == total): maps to end of last piece
+        let mapped = concat.map_offset(6, &ctx).unwrap();
+        assert_eq!(mapped.file_id, file_id2);
+        assert_eq!(mapped.location.offset, 3);
+
+        // map_range over the whole concat: exclusive end must resolve
+        let (start, end) = concat.map_range(0, 6, &ctx).unwrap();
+        assert_eq!(start.file_id, file_id1);
+        assert_eq!(start.location.offset, 0);
+        assert_eq!(end.file_id, file_id2);
+        assert_eq!(end.location.offset, 3);
     }
 
     #[test]
