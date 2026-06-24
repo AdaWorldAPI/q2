@@ -61,11 +61,12 @@ function decodeSpl3(buf: ArrayBuffer): Spl3 {
   const scale = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     const b = off + i * 22;
-    // upright: +90 about X, (x,y,z) -> (x,-z,y) (matches bake/driver); normals too.
+    // upright: (x,y,z) -> (-x, z, y), a proper rotation that stands the body head-up
+    // in three.js's Y-up world (model +Z superior -> +Y up). normals rotate the same way.
     const x = dv.getFloat32(b, true), y = dv.getFloat32(b + 4, true), z = dv.getFloat32(b + 8, true);
-    positions[i * 3] = x; positions[i * 3 + 1] = -z; positions[i * 3 + 2] = y;
-    normals[i * 3] = dv.getInt8(b + 12) / 127;
-    normals[i * 3 + 1] = -dv.getInt8(b + 14) / 127;
+    positions[i * 3] = -x; positions[i * 3 + 1] = z; positions[i * 3 + 2] = y;
+    normals[i * 3] = -dv.getInt8(b + 12) / 127;
+    normals[i * 3 + 1] = dv.getInt8(b + 14) / 127;
     normals[i * 3 + 2] = dv.getInt8(b + 13) / 127;
     colors[i * 3] = dv.getUint8(b + 15);
     colors[i * 3 + 1] = dv.getUint8(b + 16);
