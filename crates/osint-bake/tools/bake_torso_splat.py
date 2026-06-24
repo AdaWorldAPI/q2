@@ -160,17 +160,101 @@ def bfs(root, children):
     return order, depth
 
 
-def read_obj_v_vn(path):
-    vs, ns = [], []
+def read_obj_tris(path):
+    """One oriented SURFEL per triangle (the other session's technique): mean =
+    centroid, normal = face normal, r = mean centroid->vertex distance (so the disk
+    COVERS the triangle). Returns [(cx,cy,cz, nx,ny,nz, r)]. This is what reaches
+    into the field instead of leaving isolated per-vertex blobs."""
+    vs = []
+    out = []
     with open(path, "rb") as f:
         for ln in f:
             if ln[:2] == b"v ":
                 p = ln.split(); vs.append((float(p[1]), float(p[2]), float(p[3])))
-            elif ln[:3] == b"vn ":
-                p = ln.split(); ns.append((float(p[1]), float(p[2]), float(p[3])))
-    if len(ns) != len(vs):
-        ns = [(0.0, 0.0, 1.0)] * len(vs)
-    return vs, ns
+            elif ln[:2] == b"f ":
+                p = ln.split()
+                try:
+                    ia = int(p[1].split(b"/")[0]) - 1
+                    ib = int(p[2].split(b"/")[0]) - 1
+                    ic = int(p[3].split(b"/")[0]) - 1
+                except (ValueError, IndexError):
+                    continue
+                if not (0 <= ia < len(vs) and 0 <= ib < len(vs) and 0 <= ic < len(vs)):
+                    continue
+                a, b, c = vs[ia], vs[ib], vs[ic]
+                cx = (a[0] + b[0] + c[0]) / 3
+                cy = (a[1] + b[1] + c[1]) / 3
+                cz = (a[2] + b[2] + c[2]) / 3
+                e1 = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+                e2 = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+                nx = e1[1] * e2[2] - e1[2] * e2[1]
+                ny = e1[2] * e2[0] - e1[0] * e2[2]
+                nz = e1[0] * e2[1] - e1[1] * e2[0]
+                nl = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
+                r = (((cx - a[0]) ** 2 + (cy - a[1]) ** 2 + (cz - a[2]) ** 2) ** 0.5
+                     + ((cx - b[0]) ** 2 + (cy - b[1]) ** 2 + (cz - b[2]) ** 2) ** 0.5
+                     + ((cx - c[0]) ** 2 + (cy - c[1]) ** 2 + (cz - c[2]) ** 2) ** 0.5) / 3
+                out.append((cx, cy, cz, nx / nl, ny / nl, nz / nl, r))
+    return out
+
+
+def lowdisc_indices(n, stride):
+    """Golden-ratio (R1) low-discrepancy subset of [0, n): ~n/stride indices, evenly
+    spread AND aperiodic — the cheapest 'Kurvenlineal / X-Trans' decorrelation. A
+    regular range(0,n,stride) picks every Nth vertex and BEATS against the mesh
+    tessellation (structured aliasing) and clumps on irregular meshes; the golden
+    step 1/phi never re-aligns (most-irrational continued fraction [1;1,1,...]), so
+    coverage is even with no periodic beat -> a smaller brush closes the surface
+    without tearing holes."""
+    if stride <= 1 or n <= 1:
+        return range(n)
+    m = max(1, round(n / stride))
+    g = 0.6180339887498949  # 1/phi
+    return sorted({min(n - 1, int(((i + 1) * g % 1.0) * n)) for i in range(m)})
+
+
+def knn_radii(xs, ys, zs, k=3, factor=0.55):
+    """Per-surfel disk radius = `factor` * mean distance to the k nearest neighbours
+    within the SAME structure (the LOCAL sample spacing). This is the metric Sigma-fit
+    that REPLACES the hand-rolled sqrt(stride) bridge: dense regions get small disks,
+    sparse regions larger, with NO uniform over-inflation — so opaque disks TILE the
+    surface watertight (factor 0.55 -> ~10% overlap, crisp) instead of piling into
+    oversized marbles. Grid-hashed, ~O(n). Same principle the substrate render path
+    uses (k-NN metric Sigma); baked here so the SPL3 asset is render-ready for the
+    three.js cockpit consumer, which has no Sigma-fit pass of its own."""
+    n = len(xs)
+    if n <= 1:
+        return [0.006] * n
+    x0, y0, z0 = min(xs), min(ys), min(zs)
+    span = max(max(xs) - x0, max(ys) - y0, max(zs) - z0) or 1.0
+    cell = max(span / (n ** 0.5), 1e-4)  # ~one surface-spacing per cell
+    inv = 1.0 / cell
+    grid = collections.defaultdict(list)
+
+    def cellkey(i):
+        return (int((xs[i] - x0) * inv), int((ys[i] - y0) * inv), int((zs[i] - z0) * inv))
+
+    for i in range(n):
+        grid[cellkey(i)].append(i)
+    out = [cell * factor] * n
+    for i in range(n):
+        bx, by, bz = cellkey(i)
+        ds, ring = [], 1
+        while len(ds) < k + 1 and ring <= 4:
+            ds = []
+            for dx in range(-ring, ring + 1):
+                for dy in range(-ring, ring + 1):
+                    for dz in range(-ring, ring + 1):
+                        for j in grid.get((bx + dx, by + dy, bz + dz), ()):
+                            if j != i:
+                                ds.append((xs[i] - xs[j]) ** 2 + (ys[i] - ys[j]) ** 2
+                                          + (zs[i] - zs[j]) ** 2)
+            ring += 1
+        ds.sort()
+        kk = min(k, len(ds))
+        if kk:
+            out[i] = factor * (sum(d ** 0.5 for d in ds[:kk]) / kk)
+    return out
 
 
 def tissue_of(fma, parent, name, canon, cache):
@@ -267,8 +351,9 @@ def main(scratch, out_path, budget=BUDGET_DEFAULT):
             p = obj_path(fj)
             if not os.path.exists(p):
                 continue
-            vs, ns = read_obj_v_vn(p); vcache[fj] = (vs, ns)
-            incl[c].append(fj); total_v += len(vs)
+            tris = read_obj_tris(p)  # one oriented surfel per triangle (the agreed front)
+            vcache[fj] = tris
+            incl[c].append(fj); total_v += len(tris)
     stride = max(1, round(total_v / budget))
 
     # pass 2: gather gaussians grouped by node; tissue colour + depth-peel opacity;
@@ -291,9 +376,9 @@ def main(scratch, out_path, budget=BUDGET_DEFAULT):
         identity = ident_ctr[tissue] & 0xFFFF; ident_ctr[tissue] += 1
         g_start = len(gx)
         for fj in incl[c]:
-            vs, ns = vcache[fj]
-            for k in range(0, len(vs), stride):
-                (x, y, z) = vs[k]; (nx, ny, nz) = ns[k]
+            tris = vcache[fj]
+            for k in lowdisc_indices(len(tris), stride):
+                (x, y, z, nx, ny, nz, _rad) = tris[k]
                 gx.append(x); gy.append(y); gz.append(z)
                 gnx.append(nx); gny.append(ny); gnz.append(nz)
                 gr.append(col[0]); gg.append(col[1]); gb.append(col[2])
@@ -321,6 +406,13 @@ def main(scratch, out_path, budget=BUDGET_DEFAULT):
     inv = 1.0 / half
     for i in range(len(gx)):
         gx[i] = (gx[i] - cx) * inv; gy[i] = (gy[i] - cy) * inv; gz[i] = (gz[i] - cz) * inv
+    # per-structure k-NN disk sizing (metric Sigma-fit; replaces the sqrt(stride)
+    # bridge). Computed on the NORMALISED coords so the radii are already in asset
+    # space. Each structure sized among its own surfels — no cross-tissue contamination.
+    gsc = [0.0] * len(gx)
+    for nd in nodes:
+        s, cnt = nd["g_start"], nd["g_count"]
+        gsc[s:s + cnt] = knn_radii(gx[s:s + cnt], gy[s:s + cnt], gz[s:s + cnt])
     for nd in nodes:
         s, c = nd["g_start"], nd["g_count"]
         xs = gx[s:s + c]; ys = gy[s:s + c]; zs = gz[s:s + c]
@@ -329,24 +421,33 @@ def main(scratch, out_path, budget=BUDGET_DEFAULT):
 
     n = len(gx)
     bmin = (min(gx), min(gy), min(gz)); bmax = (max(gx), max(gy), max(gz))
-    radius = 0.0035
+    # SPL3: the header f32 is scale_max — the dequant reference for the per-gaussian
+    # scale byte. Use the 99th percentile of the disk radii (NOT the max) so a few
+    # giant triangles don't crush the precision of the bulk; the top 1% saturate at
+    # byte 255 (slightly under-sized, harmless). Robust quantization, not a tuned
+    # constant. Per-gaussian disk radius = scale_byte / 255 * scale_max.
+    ssort = sorted(gsc)
+    scale_max = ssort[min(len(ssort) - 1, int(round(0.99 * len(ssort))))] if ssort else 1.0
+    scale_max = scale_max or 1.0
 
     def qi8(v):
         return max(-127, min(127, int(round(v * 127))))
 
     buf = bytearray()
-    buf += b"SPL2"
+    buf += b"SPL3"
     buf += struct.pack("<II", n, len(nodes))
-    buf += struct.pack("<f", radius)
+    buf += struct.pack("<f", scale_max)
     buf += struct.pack("<3f", *bmin)
     buf += struct.pack("<3f", *bmax)
     for i in range(n):
         nx, ny, nz = gnx[i], gny[i], gnz[i]
         m = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
+        sc_u8 = max(1, min(255, int(round(gsc[i] / scale_max * 255))))
         buf += struct.pack("<3f", gx[i], gy[i], gz[i])
         buf += struct.pack("<3b", qi8(nx / m), qi8(ny / m), qi8(nz / m))
         buf += struct.pack("<3B", gr[i], gg[i], gb[i])
         buf += struct.pack("<B", gop[i])
+        buf += struct.pack("<B", sc_u8)
         buf += struct.pack("<H", grow[i])
     with open(out_path, "wb") as f:
         f.write(buf)
@@ -355,15 +456,17 @@ def main(scratch, out_path, budget=BUDGET_DEFAULT):
     pub = os.path.dirname(out_path)
     with open(os.path.join(pub, "torso.nodes.json"), "w", encoding="utf-8") as f:
         json.dump({"attribution": ATTRIBUTION, "decomposition": "is_a (BodyParts3D 4.0)",
-                   "radius": radius, "count": n, "nodes": nodes}, f)
+                   "scale_max": scale_max, "count": n, "nodes": nodes}, f)
     manifest = {
         "source": "BodyParts3D 4.0 (DBCLS) is_a OBJ, decimated 99%, with vn normals",
         "license": "CC-BY 4.0 (site) / CC-BY-SA 2.1 JP (2013 files)",
         "attribution": ATTRIBUTION,
-        "format": "SPL2 (anisotropic + node-row tags); node SoA in torso.nodes.json",
+        "format": ("SPL3 (per-triangle surfels: pos 3f | normal 3i8 | rgb 3u8 | "
+                   "opacity u8 | scale u8 | node_row u16 = 22 B; header f32 = "
+                   "scale_max dequant ref); node SoA in torso.nodes.json"),
         "build": "v4 is_a-primary (canonical type+name+meshes), tissue colour + depth-peel, DN->GUID",
         "concepts": len(nodes), "meshes": len(owner), "gaussians": n, "stride": stride,
-        "radius": radius, "bbox_min": list(bmin), "bbox_max": list(bmax),
+        "scale_max": scale_max, "bbox_min": list(bmin), "bbox_max": list(bmax),
         "tissues": dict(tissue_hist),
     }
     with open(os.path.join(pub, "torso.manifest.json"), "w", encoding="utf-8") as f:
@@ -372,7 +475,8 @@ def main(scratch, out_path, budget=BUDGET_DEFAULT):
     print(f"baked {out_path}: {n:,} gaussians, {len(nodes)} is_a structures, stride {stride}",
           file=sys.stderr)
     print(f"  tissues: {dict(tissue_hist)}", file=sys.stderr)
-    print(f"  SPL2 {len(buf):,} B + torso.nodes.json + manifest", file=sys.stderr)
+    print(f"  scale_max {scale_max:.5f} (99th pct disk radius); SPL3 {len(buf):,} B "
+          f"+ torso.nodes.json + manifest", file=sys.stderr)
 
 
 if __name__ == "__main__":
