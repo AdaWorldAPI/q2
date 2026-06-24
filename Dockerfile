@@ -73,6 +73,28 @@ RUN git clone https://github.com/AdaWorldAPI/lance-graph.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
 
+# CPU baseline: x86-64-v4 (the 4th microarch level — AVX-512F/BW/CD/DQ/VL on top
+# of v3's AVX2+FMA). This is the compile FLOOR; it flips on `target_feature =
+# "avx512f"`, so q2-ndarray's `simd.rs` dispatch selects its native `simd_avx512`
+# backend (`__m512`/`__m512d`/`__m512i`) instead of the v3 AVX2 default.
+#
+# BF16 + AMX 16x16 tile GEMM are NOT gated by this flag — they ride q2-ndarray's
+# CPU-AGNOSTIC runtime autodetect polyfill (`simd_caps()` + the AMX `arch_prctl`
+# XTILEDATA enable + CPU-model detect). The polyfill opportunistically lights them
+# up only when the *runtime* host actually has them, and always keeps the AVX2 /
+# scalar paths it compiled in as fallback. So: AVX-512 = compile baseline here;
+# BF16/AMX = runtime-detected; everything below v4 = polyfill fallback.
+#
+# ⚠ REQUIREMENT: a v4 floor makes the binary REQUIRE AVX-512 at run time — it
+# SIGILLs on the first `__m512` op on a host without it (the PR #170 failure mode,
+# one level up). The Railway *build* machine needs no AVX-512 (compiling != run),
+# but the *deploy* host does. AMX additionally needs a Sapphire/Emerald/Granite
+# Rapids Xeon at run time; on anything older the autodetect simply skips AMX (that
+# is the agnostic polyfill working as intended, not an error). If a deploy target
+# may lack AVX-512, drop this to `x86-64-v3` and rely on runtime dispatch for the
+# AVX-512/AMX paths — one portable binary, same hot paths when the silicon allows.
+ENV CARGO_BUILD_RUSTFLAGS="-C target-cpu=x86-64-v4"
+
 # Build the q2 binary with embedded frontend
 WORKDIR /build/q2
 RUN cargo build --release -p cockpit-server --features embed-cockpit,planner \
