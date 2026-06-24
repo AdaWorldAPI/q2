@@ -125,6 +125,7 @@ interface ReactRendererProps {
   scrollHandleRef?: Ref<Q2PreviewIframeHandle>;
   onPreviewScroll?: () => void;
   onPreviewClick?: () => void;
+  onAstRendered?: () => void;
 }
 
 /**
@@ -152,6 +153,7 @@ function ReactRenderer({
   scrollHandleRef,
   onPreviewScroll,
   onPreviewClick,
+  onAstRendered,
 }: ReactRendererProps) {
   // Stable wrappers for Q2PreviewIframe props that are useEffect dependencies.
   //
@@ -318,6 +320,7 @@ function ReactRenderer({
             scrollHandleRef={scrollHandleRef}
             onScroll={onPreviewScroll}
             onClick={onPreviewClick}
+            onAstRendered={onAstRendered}
           />
         </div>
       </ErrorBoundary>

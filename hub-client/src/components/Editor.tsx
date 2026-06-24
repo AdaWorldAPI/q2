@@ -300,6 +300,9 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
   // Preview scroll functions for external control (from MarkdownSummary / replay)
   const previewScrollToLineRef = useRef<((line: number) => void) | null>(null);
   const previewSetScrollRatioRef = useRef<((ratio: number) => void) | null>(null);
+  // q2-preview only: deferred scroll-to-line used by replay so scrubbing
+  // shares the render-deferred scroll mechanism of normal q2-preview editing.
+  const previewReplayScrollRef = useRef<((line: number) => void) | null>(null);
 
   // Editor drag-drop state for image insertion
   const [isEditorDragOver, setIsEditorDragOver] = useState(false);
@@ -373,6 +376,9 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
   const handleRegisterSetScrollRatio = useCallback((fn: (ratio: number) => void) => {
     previewSetScrollRatioRef.current = fn;
   }, []);
+  const handleRegisterReplayScroll = useCallback((fn: (line: number) => void) => {
+    previewReplayScrollRef.current = fn;
+  }, []);
 
   // Update document title based on current file and project
   useEffect(() => {
@@ -440,6 +446,10 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
           if (prevContent[ci] === '\n') changedLine++;
         }
         editor.revealLineInCenter(changedLine);
+        // q2-preview: scroll to the changed line through the same
+        // render-deferred mechanism as normal editing (no-op if the HTML
+        // preview is active, which uses the ratio path below instead).
+        previewReplayScrollRef.current?.(changedLine);
         requestAnimationFrame(() => {
           const maxScroll = editor.getScrollHeight() - editor.getLayoutInfo().height;
           if (maxScroll > 0) {
@@ -1089,6 +1099,7 @@ export default function Editor({ project, files, fileContents, onDisconnect, onC
             onWasmStatusChange={handleWasmStatusChange}
             onRegisterScrollToLine={handleRegisterScrollToLine}
             onRegisterSetScrollRatio={handleRegisterSetScrollRatio}
+            onRegisterReplayScroll={handleRegisterReplayScroll}
             onAstChange={handleAstChange}
             currentSlideIndex={currentSlideIndex}
             onSlideChange={handleSlideChange}

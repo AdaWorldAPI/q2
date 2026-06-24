@@ -50,8 +50,37 @@ describe('findElementForLine', () => {
         expect(findElementForLine(doc, 2)?.id).toBe('outer');
     });
 
-    it('returns null when no element covers the line', () => {
-        const doc = docWith('<p data-loc="0:1:1-1:5">a</p>');
+    it('falls back to the nearest preceding block past the last range', () => {
+        // Cursor past every range (e.g. a fresh blank line at the end of the
+        // document). Snaps to the closest block that starts at or before the
+        // line, so end-of-document edits still scroll the preview.
+        const doc = docWith(
+            '<p data-loc="0:1:1-1:5" id="a">a</p>' +
+                '<p data-loc="0:3:1-3:5" id="b">b</p>',
+        );
+        expect(findElementForLine(doc, 99)?.id).toBe('b');
+    });
+
+    it('falls back to the nearest block in a gap between ranges', () => {
+        // Line 5 is between the two paragraphs (covered by neither); the
+        // preceding block wins over the following one.
+        const doc = docWith(
+            '<p data-loc="0:1:1-2:5" id="a">a</p>' +
+                '<p data-loc="0:8:1-8:5" id="b">b</p>',
+        );
+        expect(findElementForLine(doc, 5)?.id).toBe('a');
+    });
+
+    it('falls back to the first block for a line before all ranges', () => {
+        const doc = docWith(
+            '<p data-loc="0:5:1-5:5" id="a">a</p>' +
+                '<p data-loc="0:9:1-9:5" id="b">b</p>',
+        );
+        expect(findElementForLine(doc, 1)?.id).toBe('a');
+    });
+
+    it('returns null only when there are no located elements at all', () => {
+        const doc = docWith('<p>no data-loc here</p>');
         expect(findElementForLine(doc, 99)).toBeNull();
     });
 

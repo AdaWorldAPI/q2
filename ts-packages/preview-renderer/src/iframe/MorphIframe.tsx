@@ -6,6 +6,7 @@ import {
   parseDataLoc,
   findElementForLine,
   isElementVisible,
+  computeScrollRatio,
   type SourceLocation,
 } from './scrollSyncDom';
 
@@ -314,21 +315,10 @@ function MorphIframe({
     },
     getScrollRatio: () => {
       const iframe = iframeRef.current;
-      if (!iframe?.contentWindow || !iframe?.contentDocument) return null;
-
-      const iframeWindow = iframe.contentWindow;
-      const iframeDoc = iframe.contentDocument;
-
-      // Calculate preview scroll ratio (0 = top, 1 = bottom)
-      const previewScrollY = iframeWindow.scrollY;
-      const previewScrollHeight = iframeDoc.documentElement.scrollHeight;
-      const previewViewportHeight = iframeWindow.innerHeight;
-      const previewMaxScroll = previewScrollHeight - previewViewportHeight;
-
-      // Avoid division by zero for short documents
-      if (previewMaxScroll <= 0) return 0;
-
-      return previewScrollY / previewMaxScroll;
+      const win = iframe?.contentWindow;
+      const doc = iframe?.contentDocument;
+      if (!win || !doc) return null;
+      return computeScrollRatio(win, doc);
     },
     setScrollRatio: (ratio: number) => {
       const iframe = iframeRef.current;

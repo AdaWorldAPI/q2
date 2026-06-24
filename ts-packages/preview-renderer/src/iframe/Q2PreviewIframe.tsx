@@ -3,7 +3,7 @@ import type { Ref } from 'react';
 import { vfsReadFile } from '@quarto/preview-runtime';
 import { DEFAULT_CSS_ARTIFACT_PATH } from '../types/artifactPaths';
 import { buildAssetManifest, type ManifestCacheEntry } from '../q2-preview/assetWalker';
-import { findElementForLine, isElementVisible } from './scrollSyncDom';
+import { findElementForLine, isElementVisible, computeScrollRatio } from './scrollSyncDom';
 
 /**
  * Imperative scroll-sync handle, parallel to `MorphIframeHandle`. The
@@ -129,6 +129,11 @@ interface Q2PreviewIframeProps {
   onScroll?: () => void;
   /** Called when the preview iframe is clicked (preview→editor sync). */
   onClick?: () => void;
+  /**
+   * Called after the iframe commits a new AST (`AST_RENDERED`), so the host
+   * can re-run editor→preview scroll sync against the fresh `data-loc` DOM.
+   */
+  onAstRendered?: () => void;
 }
 
 /**
@@ -170,6 +175,7 @@ export function Q2PreviewIframe({
   scrollHandleRef,
   onScroll,
   onClick,
+  onAstRendered,
 }: Q2PreviewIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeReady, setIframeReady] = useState(false);
@@ -202,10 +208,7 @@ export function Q2PreviewIframe({
         const win = iframe?.contentWindow;
         const doc = iframe?.contentDocument;
         if (!win || !doc) return null;
-        const maxScroll =
-          doc.documentElement.scrollHeight - win.innerHeight;
-        if (maxScroll <= 0) return 0;
-        return win.scrollY / maxScroll;
+        return computeScrollRatio(win, doc);
       },
     }),
     [],
@@ -297,12 +300,16 @@ export function Q2PreviewIframe({
         // not bounce back as a redundant SET_SLIDE, then report it up.
         lastSentSlideRef.current = event.data.index;
         onSlideChange?.(event.data.index);
+      } else if (event.data.type === 'AST_RENDERED') {
+        // The iframe committed a new AST and laid out; the fresh data-loc
+        // DOM is now in place, so re-run editor→preview scroll sync.
+        onAstRendered?.();
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onNavigateToDocument, setAst, onSlideChange]);
+  }, [onNavigateToDocument, setAst, onSlideChange, onAstRendered]);
 
   // Post the controlled slide index to the iframe when it changes. The
   // iframe navigates the reveal deck imperatively (RevealNavSync), so

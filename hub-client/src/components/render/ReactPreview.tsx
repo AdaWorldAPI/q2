@@ -94,6 +94,13 @@ interface PreviewProps {
   currentSlideIndex?: number;
   onSlideChange?: (slideIndex: number) => void;
   onContentRewrite: (content: string) => void;
+  /**
+   * Register a deferred scroll-to-line with the parent (Editor.tsx) for
+   * replay. Scrubbing history scrolls the preview to the changed line through
+   * the same render-deferred mechanism as normal q2-preview editing, so it
+   * lands once against the fresh DOM instead of racing the async render.
+   */
+  onRegisterReplayScroll?: (fn: (line: number) => void) => void;
   format: string; // 'q2-slides', 'q2-debug', or 'q2-preview'
   /**
    * Automerge actor → display identity (name + colour). Consumed
@@ -419,6 +426,7 @@ export default function ReactPreview({
   currentSlideIndex,
   onSlideChange,
   onContentRewrite,
+  onRegisterReplayScroll,
   format,
   identities,
   attributionOn,
@@ -475,7 +483,8 @@ export default function ReactPreview({
   // `handlePreviewClick`. Only the q2-preview format wires this; other
   // React formats (q2-debug, slides) leave the handle unattached.
   const previewScrollRef = useRef<Q2PreviewIframeHandle>(null);
-  const { handlePreviewScroll, handlePreviewClick } = useScrollSync({
+
+  const { handlePreviewScroll, handlePreviewClick, handleAstRendered, scrollToLineDeferred } = useScrollSync({
     editorRef,
     scrollPreviewToLine: (line: number) => {
       previewScrollRef.current?.scrollToLine(line);
@@ -485,7 +494,17 @@ export default function ReactPreview({
     },
     enabled: scrollSyncEnabled && editorReady,
     editorHasFocusRef,
+    deferToRender: true,
   });
+
+  // Register the deferred scroll-to-line with the parent (Editor.tsx) so
+  // replay scrubbing scrolls the preview to the changed line through the same
+  // render-deferred mechanism as normal q2-preview editing.
+  useEffect(() => {
+    onRegisterReplayScroll?.((line: number) => {
+      scrollToLineDeferred(line);
+    });
+  }, [onRegisterReplayScroll, scrollToLineDeferred]);
 
   // Three-way theme fingerprint (Plan 2A item 11):
   //   `undefined` → pre-first-render or render failed; iframe keeps
@@ -797,6 +816,7 @@ export default function ReactPreview({
             scrollHandleRef={previewScrollRef}
             onPreviewScroll={handlePreviewScroll}
             onPreviewClick={handlePreviewClick}
+            onAstRendered={handleAstRendered}
           />
         ) : previewState === 'ERROR_AT_START' && currentError ? (
           <div style={{ padding: '20px', color: 'red' }}>
