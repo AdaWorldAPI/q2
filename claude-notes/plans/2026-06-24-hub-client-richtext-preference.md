@@ -3,7 +3,9 @@
 **Date:** 2026-06-24
 **Strand:** bd-j1nto6eq (discovered-from bd-sjb4pzx8)
 **Branch:** `braid/bd-sjb4pzx8-tiptap-rich-text-editor` (the rich-text feature branch; PR #335)
-**Status:** In progress.
+**Status:** ✅ Implemented + verified (2026-06-24). Commits `a6f16a1e` (feature)
+and `b010dafe` (changelog). End-to-end on quarto-hub left to the user (see
+Phase 4). Not yet pushed.
 **Builds on / required reading:** the rich-text editor work (bd-sjb4pzx8),
 the caret-at-click + reset.css fixes (bd-q9lyghv2, bd-dg8x84bu), and the q2
 preview SPA default-on flip (commit 512907f7).
