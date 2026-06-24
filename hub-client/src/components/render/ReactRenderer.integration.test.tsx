@@ -242,6 +242,24 @@ describe('ReactRenderer format routing', () => {
     expect(props?.onSlideChange).toBe(onSlideChange);
   });
 
+  it('forwards the richText flag to Q2PreviewIframe (bd-j1nto6eq)', () => {
+    // hub-client's rich-text preference must reach the iframe so editable
+    // paragraphs/headings render the tiptap editor instead of the textarea.
+    render(
+      <ReactRenderer
+        astJson={EMPTY_AST}
+        currentFilePath="/project/index.qmd"
+        files={[]}
+        fileContents={new Map()}
+        onNavigateToDocument={() => {}}
+        setAst={() => {}}
+        format="q2-preview"
+        richText={true}
+      />,
+    );
+    expect(capturedPreviewIframeProps.at(-1)?.richText).toBe(true);
+  });
+
   it('does not route q2-slides through any AST iframe', () => {
     const { queryByTestId } = mountForRouting('q2-slides');
     expect(capturedAstIframeProps.length).toBe(0);

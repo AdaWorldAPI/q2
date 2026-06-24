@@ -23,6 +23,15 @@ export const UserPreferencesSchema = z.object({
    * unreachable.
    */
   unlockNestingCursor: z.boolean().default(true),
+  /**
+   * bd-j1nto6eq: rich-text (tiptap) block editor in the q2-preview pane
+   * (default-ON). When true, clicking an editable paragraph or heading opens
+   * the WYSIWYG editor instead of the monospaced textarea; unsupported block
+   * types fall back to the textarea. Mirrors the q2 preview SPA default.
+   * `.default(true)` keeps prefs written before this key existed parsing
+   * cleanly (see the regression test in schema.test.ts).
+   */
+  richText: z.boolean().default(true),
 });
 
 // Infer TypeScript type from schema
@@ -38,6 +47,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   errorOverlayCollapsed: true, // collapsed by default
   colorScheme: 'auto',
   unlockNestingCursor: true,    // nesting-cursor ON by default (P3.2)
+  richText: true,               // rich-text editor ON by default (bd-j1nto6eq)
 };
 
 // Validation function - returns valid preferences or defaults

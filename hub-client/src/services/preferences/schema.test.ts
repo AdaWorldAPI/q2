@@ -9,11 +9,17 @@ describe('validatePreferences', () => {
       errorOverlayCollapsed: false,
       colorScheme: 'dark',
       unlockNestingCursor: true,
+      richText: false,
     });
     expect(result.scrollSyncEnabled).toBe(true);
     expect(result.errorOverlayCollapsed).toBe(false);
     expect(result.colorScheme).toBe('dark');
     expect(result.unlockNestingCursor).toBe(true);
+    expect(result.richText).toBe(false);
+  });
+
+  it('defaults richText to ON (rich-text editor enabled by default)', () => {
+    expect(DEFAULT_PREFERENCES.richText).toBe(true);
   });
 
   it('falls back to defaults for invalid data', () => {
@@ -41,5 +47,24 @@ describe('validatePreferences', () => {
     expect(result.colorScheme).toBe('dark');
     // Must fill in the missing field with its default:
     expect(result.unlockNestingCursor).toBe(true);
+  });
+
+  // Same migration-safety concern for richText (bd-j1nto6eq): adding it as a
+  // required field would wipe older stored prefs that predate it. z.boolean()
+  // .default(true) keeps them parsing and fills the default.
+  it('preserves other settings when richText is absent (prefs from before it existed)', () => {
+    const oldPrefs = {
+      version: 1,
+      scrollSyncEnabled: false,
+      errorOverlayCollapsed: false,
+      colorScheme: 'dark',
+      unlockNestingCursor: false, // non-default, must be preserved
+    };
+    const result = validatePreferences(oldPrefs);
+    expect(result.scrollSyncEnabled).toBe(false);
+    expect(result.unlockNestingCursor).toBe(false);
+    expect(result.colorScheme).toBe('dark');
+    // Missing richText fills in its ON default:
+    expect(result.richText).toBe(true);
   });
 });

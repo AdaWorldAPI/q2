@@ -444,6 +444,10 @@ export default function ReactPreview({
   // a per-siKey clean QMD buffer table; when off, that WASM pass is
   // completely unreachable.
   const [unlockNestingCursor] = usePreference('unlockNestingCursor');
+  // bd-j1nto6eq: rich-text editor preference (default-ON), forwarded to the
+  // q2-preview iframe so editable paragraphs/headings open the tiptap editor
+  // instead of the monospaced textarea.
+  const [richText] = usePreference('richText');
   // Track previewState in a ref for use in callbacks
   const previewStateRef = useRef<PreviewState>('START');
   useEffect(() => {
@@ -812,6 +816,7 @@ export default function ReactPreview({
             untransformedAstJson={rendered.untransformedAstJson}
             currentActor={getActorId()}
             unlockNestingCursor={unlockNestingCursor}
+            richText={richText}
             nestedEditBuffers={nestedEditBuffers}
             scrollHandleRef={previewScrollRef}
             onPreviewScroll={handlePreviewScroll}
