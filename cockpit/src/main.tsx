@@ -8,6 +8,7 @@ import { RenderPage, OrbitPage, FlightPage } from './RenderPage';
 import { OsintScene3D } from './OsintScene3D';
 import { OsintGraph } from './OsintGraph';
 import { FmaGraph } from './FmaGraph';
+import { TorsoMesh } from './TorsoMesh';
 import { TorsoSplat } from './TorsoSplat';
 import { TorsoRender } from './TorsoRender';
 import { TorsoMap } from './TorsoMap';
@@ -82,10 +83,12 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/osint3d" element={<OsintScene3D />} />
           {/* FMA anatomy slice — part-of basin × leaf-limited global type (dual membership) */}
           <Route path="/fma" element={<FmaGraph />} />
-          {/* FMA torso — real BodyParts3D anatomy as a gaussian splat, two ways:
-              /torso = splat3d CPU render (turntable), /torso-live = three.js orbit */}
+          {/* FMA torso — real BodyParts3D anatomy. /torso-live = filled smooth triangle
+              SURFACE (the hero: solid CAD-style anatomy); /torso = turntable; /torso-splat
+              = the opaque surfel point cloud (kept for comparison). */}
           <Route path="/torso" element={<TorsoRender />} />
-          <Route path="/torso-live" element={<TorsoSplat />} />
+          <Route path="/torso-live" element={<TorsoMesh />} />
+          <Route path="/torso-splat" element={<TorsoSplat />} />
           {/* FMA torso map — splat AS the GUID/value-tenant SoA: click a gaussian → its
               FMA node (O(1) switch into the node SoA) → label + partonomy ↔ graph */}
           <Route path="/torso-map" element={<TorsoMap />} />
