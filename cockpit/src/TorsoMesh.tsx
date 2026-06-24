@@ -35,7 +35,10 @@ interface Mesh {
 //                | bbox_min 3f | bbox_max 3f
 //   vertex body  vert_count x 21 B: pos 3f | normal 3i8 | rgb 3u8 | opacity u8 | node_row u16
 //   index body   tri_count x 12 B: 3x u32 (global vertex indices)
-// Orientation +90 about X, (x,y,z) -> (x,-z,y), so the body stands head-up.
+// Orientation (x,y,z) -> (-x, z, y): a proper rotation (det +1, so triangle winding
+// and gl_FrontFacing stay correct) that stands the body head-up in three.js's Y-up
+// world (model +Z superior -> world +Y up; +Y anterior -> +Z toward viewer). No
+// screen-flip — three.js is Y-up, so the rotation lives entirely in the decode.
 function decodeSpm1(buf: ArrayBuffer): Mesh {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
@@ -50,9 +53,9 @@ function decodeSpm1(buf: ArrayBuffer): Mesh {
   for (let i = 0; i < vertCount; i++) {
     const b = voff + i * 21;
     const x = dv.getFloat32(b, true), y = dv.getFloat32(b + 4, true), z = dv.getFloat32(b + 8, true);
-    positions[i * 3] = x; positions[i * 3 + 1] = -z; positions[i * 3 + 2] = y;
-    normals[i * 3] = dv.getInt8(b + 12) / 127;
-    normals[i * 3 + 1] = -dv.getInt8(b + 14) / 127;
+    positions[i * 3] = -x; positions[i * 3 + 1] = z; positions[i * 3 + 2] = y;
+    normals[i * 3] = -dv.getInt8(b + 12) / 127;
+    normals[i * 3 + 1] = dv.getInt8(b + 14) / 127;
     normals[i * 3 + 2] = dv.getInt8(b + 13) / 127;
     colors[i * 3] = dv.getUint8(b + 15);
     colors[i * 3 + 1] = dv.getUint8(b + 16);

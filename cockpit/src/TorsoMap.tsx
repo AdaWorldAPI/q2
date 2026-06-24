@@ -44,8 +44,8 @@ interface Spl3 {
 }
 
 // SPL3 body (22 B): pos 3f | normal 3i8 | rgb 3u8 | opacity u8 | scale u8 | node_row u16.
-// Orientation: +90 about X, (x,y,z) -> (x,-z,y) — matches the bake/driver so the
-// body stands head-up (BodyParts3D model +Z is superior).
+// Orientation: (x,y,z) -> (-x, z, y), a proper rotation that stands the body head-up
+// in three.js's Y-up world (BodyParts3D model +Z is superior -> +Y up).
 function decodeSpl3(buf: ArrayBuffer): Spl3 {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
@@ -62,9 +62,9 @@ function decodeSpl3(buf: ArrayBuffer): Spl3 {
   for (let i = 0; i < count; i++) {
     const b = off + i * 22;
     const x = dv.getFloat32(b, true), y = dv.getFloat32(b + 4, true), z = dv.getFloat32(b + 8, true);
-    positions[i * 3] = x; positions[i * 3 + 1] = -z; positions[i * 3 + 2] = y;
+    positions[i * 3] = -x; positions[i * 3 + 1] = z; positions[i * 3 + 2] = y;
     const nx = dv.getInt8(b + 12) / 127, ny = dv.getInt8(b + 13) / 127, nz = dv.getInt8(b + 14) / 127;
-    normals[i * 3] = nx; normals[i * 3 + 1] = -nz; normals[i * 3 + 2] = ny;
+    normals[i * 3] = -nx; normals[i * 3 + 1] = nz; normals[i * 3 + 2] = ny;
     colors[i * 3] = dv.getUint8(b + 15) / 255;
     colors[i * 3 + 1] = dv.getUint8(b + 16) / 255;
     colors[i * 3 + 2] = dv.getUint8(b + 17) / 255;
