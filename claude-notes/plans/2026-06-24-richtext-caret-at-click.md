@@ -3,7 +3,9 @@
 **Date:** 2026-06-24
 **Strand:** bd-q9lyghv2 (discovered-from bd-sjb4pzx8)
 **Branch:** current worktree branch
-**Status:** Plan drafted — awaiting go-ahead.
+**Status:** ✅ Implemented + end-to-end verified (2026-06-24). Commits
+`151be676` (feature) and `410885a3` (autofocus race fix + jsdom test polyfill).
+All work items below complete.
 **Builds on / required reading:**
 `claude-notes/plans/2026-06-23-tiptap-rich-text-block-editor.md` (the rich-text
 editor plan), `RichTextEditor.tsx`, `useBlockEditHover.tsx`, `PreviewContext.tsx`.
