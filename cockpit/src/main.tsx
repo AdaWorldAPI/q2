@@ -8,6 +8,8 @@ import { RenderPage, OrbitPage, FlightPage } from './RenderPage';
 import { OsintScene3D } from './OsintScene3D';
 import { OsintGraph } from './OsintGraph';
 import { FmaGraph } from './FmaGraph';
+import { TorsoSplat } from './TorsoSplat';
+import { TorsoRender } from './TorsoRender';
 import { ReasoningPage } from './ReasoningPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/cockpit.css';
@@ -79,6 +81,10 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/osint3d" element={<OsintScene3D />} />
           {/* FMA anatomy slice — part-of basin × leaf-limited global type (dual membership) */}
           <Route path="/fma" element={<FmaGraph />} />
+          {/* FMA torso — real BodyParts3D anatomy as a gaussian splat, two ways:
+              /torso = splat3d CPU render (turntable), /torso-live = three.js orbit */}
+          <Route path="/torso" element={<TorsoRender />} />
+          <Route path="/torso-live" element={<TorsoSplat />} />
           {/* The Palantir JSON-graph cockpit (221 aiwar nodes) stays reachable
               at /palantir and as the catch-all for its own sub-routes. */}
           <Route path="/palantir" element={<PalantirApp />} />
