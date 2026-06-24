@@ -1,7 +1,13 @@
-import { useRef, useEffect, useCallback, useImperativeHandle } from 'react';
+import { useRef, useEffect, useCallback, useImperativeHandle, useState } from 'react';
 import type { Ref } from 'react';
 import morphdom from 'morphdom';
 import { postProcessIframe } from '../utils/iframePostProcessor';
+import {
+  parseDataLoc,
+  scrollIframeToLine,
+  getIframeScrollRatio,
+  type SourceLocation,
+} from './scrollSyncDom';
 
 // Methods exposed via ref
 export interface MorphIframeHandle {
@@ -37,77 +43,10 @@ interface MorphIframeProps {
   ref: Ref<MorphIframeHandle>;
 }
 
-/**
- * Parsed source location from data-loc attribute.
- * Format: "fileId:startLine:startCol-endLine:endCol" (1-based)
- */
-export interface SourceLocation {
-  fileId: number;
-  startLine: number;
-  startCol: number;
-  endLine: number;
-  endCol: number;
-}
-
-/**
- * Parse a data-loc attribute string into a SourceLocation object.
- * Returns null if the format is invalid.
- */
-function parseDataLoc(dataLoc: string): SourceLocation | null {
-  const match = dataLoc.match(/^(\d+):(\d+):(\d+)-(\d+):(\d+)$/);
-  if (!match) return null;
-  return {
-    fileId: parseInt(match[1], 10),
-    startLine: parseInt(match[2], 10),
-    startCol: parseInt(match[3], 10),
-    endLine: parseInt(match[4], 10),
-    endCol: parseInt(match[5], 10),
-  };
-}
-
-/**
- * Find the best matching element for a given line number.
- * Prefers the most specific (smallest range) match.
- */
-function findElementForLine(
-  doc: Document,
-  line: number
-): HTMLElement | null {
-  const elements = doc.querySelectorAll('[data-loc]');
-  let bestMatch: HTMLElement | null = null;
-  let bestRangeSize = Infinity;
-
-  for (const element of elements) {
-    const dataLoc = element.getAttribute('data-loc');
-    if (!dataLoc) continue;
-
-    const loc = parseDataLoc(dataLoc);
-    if (!loc) continue;
-
-    // Check if line is within this element's range
-    if (line >= loc.startLine && line <= loc.endLine) {
-      const rangeSize = loc.endLine - loc.startLine;
-      // Prefer smaller (more specific) ranges
-      if (rangeSize < bestRangeSize) {
-        bestMatch = element as HTMLElement;
-        bestRangeSize = rangeSize;
-      }
-    }
-  }
-
-  return bestMatch;
-}
-
-/**
- * Check if an element is fully visible in the viewport.
- */
-function isElementVisible(element: HTMLElement): boolean {
-  const rect = element.getBoundingClientRect();
-  const viewportHeight = window.innerHeight;
-
-  // Element is visible if it's within the viewport bounds
-  return rect.top >= 0 && rect.bottom <= viewportHeight;
-}
+// The scroll-sync handle methods (`scrollIframeToLine`, `getIframeScrollRatio`)
+// and `SourceLocation`/`parseDataLoc` are shared with `Q2PreviewIframe` via
+// `./scrollSyncDom`. The position-comparison + offset helpers below are
+// selection-sync specific and stay local.
 
 /**
  * Check if a position (line, col) is within or after the start of a data-loc range.
@@ -249,6 +188,12 @@ function MorphIframe({
 }: MorphIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const isInitializedRef = useRef(false);
+  // Flips true once the `srcdoc` load settles. The initial load replaces the
+  // iframe's contentWindow/contentDocument asynchronously, so the scroll /
+  // click / selectionchange listeners must (re)attach to the *settled*
+  // document — not the pre-load one present at mount. Parallels
+  // Q2PreviewIframe's `iframeReady` gate.
+  const [documentReady, setDocumentReady] = useState(false);
 
   // Scroll the preview to an anchor element
   const scrollToAnchor = useCallback((anchor: string) => {
@@ -316,6 +261,9 @@ function MorphIframe({
       const handleLoad = () => {
         isInitializedRef.current = true;
         internalPostProcess(iframe);
+        // The settled document now exists; let the listener effect re-run and
+        // attach scroll / click / selectionchange to it.
+        setDocumentReady(true);
       };
       iframe.addEventListener('load', handleLoad, { once: true });
       iframe.srcdoc = html;
@@ -359,37 +307,8 @@ function MorphIframe({
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
-    scrollToLine: (line: number) => {
-      const iframe = iframeRef.current;
-      const doc = iframe?.contentDocument;
-      if (!doc) return;
-
-      const element = findElementForLine(doc, line);
-      if (!element) return;
-
-      // Only scroll if element is not already visible
-      if (!isElementVisible(element)) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    },
-    getScrollRatio: () => {
-      const iframe = iframeRef.current;
-      if (!iframe?.contentWindow || !iframe?.contentDocument) return null;
-
-      const iframeWindow = iframe.contentWindow;
-      const iframeDoc = iframe.contentDocument;
-
-      // Calculate preview scroll ratio (0 = top, 1 = bottom)
-      const previewScrollY = iframeWindow.scrollY;
-      const previewScrollHeight = iframeDoc.documentElement.scrollHeight;
-      const previewViewportHeight = iframeWindow.innerHeight;
-      const previewMaxScroll = previewScrollHeight - previewViewportHeight;
-
-      // Avoid division by zero for short documents
-      if (previewMaxScroll <= 0) return 0;
-
-      return previewScrollY / previewMaxScroll;
-    },
+    scrollToLine: (line: number) => scrollIframeToLine(iframeRef.current, line),
+    getScrollRatio: () => getIframeScrollRatio(iframeRef.current),
     setScrollRatio: (ratio: number) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow || !iframe?.contentDocument) return;
@@ -489,8 +408,11 @@ function MorphIframe({
     },
   }), []);
 
-  // Set up event listeners on iframe
+  // Set up event listeners on iframe. Gated on `documentReady` so the
+  // listeners bind to the post-load document (the srcdoc load replaces it
+  // asynchronously), re-running if that document or any callback changes.
   useEffect(() => {
+    if (!documentReady) return;
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow || !iframe?.contentDocument) return;
 
@@ -555,7 +477,7 @@ function MorphIframe({
       iframe.contentDocument?.removeEventListener('click', handleClick);
       iframe.contentDocument?.removeEventListener('selectionchange', handleSelectionChange);
     };
-  }, [onScroll, onClick, onSelectionChange]);
+  }, [documentReady, onScroll, onClick, onSelectionChange]);
 
   return (
     <iframe

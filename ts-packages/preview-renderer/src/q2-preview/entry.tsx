@@ -372,6 +372,9 @@ function updateAst(payload: UpdateAstPayload) {
                 scrollToAnchor={scrollToAnchorInDocument}
                 registerSlideNavigator={registerSlideNavigator}
                 onSlideChange={postSlideChanged}
+                onAstRendered={() => {
+                    window.parent.postMessage({ type: 'AST_RENDERED' }, '*');
+                }}
                 onNavigateToDocument={(path, anchor) => {
                     window.parent.postMessage(
                         { type: 'NAVIGATE_TO_DOCUMENT', path, anchor },

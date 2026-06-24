@@ -700,9 +700,26 @@ fn compute_inline_alignments<'a>(
                 if !is_container_inline(orig_inline) {
                     return false;
                 }
-                // For Custom inlines, also check type_name matches
+                // A container's non-child "identity" is preserved VERBATIM from the
+                // original source by the inline splice (assemble_recursed_container
+                // copies the delimiters around the children) — it is NOT a
+                // recursable child. So two containers may only be treated as "the
+                // same" (and recursed) when that identity is unchanged; otherwise
+                // we must fall through to UseAfter, which re-serializes the new
+                // inline with its correct target/attr.
+                //
+                // bd-3zp3z4jx: without this, a NEW link in a multi-link paragraph
+                // matched an OLD link by type alone and inherited the old link's
+                // URL (the `](url)` is part of the verbatim-copied closing
+                // delimiter). The non-child identity is: Link/Image `target`+`attr`,
+                // Span `attr`, Custom `type_name`.
                 match (*orig_inline, exec_inline) {
                     (Inline::Custom(o), Inline::Custom(e)) => o.type_name == e.type_name,
+                    (Inline::Link(o), Inline::Link(e)) => o.target == e.target && o.attr == e.attr,
+                    (Inline::Image(o), Inline::Image(e)) => {
+                        o.target == e.target && o.attr == e.attr
+                    }
+                    (Inline::Span(o), Inline::Span(e)) => o.attr == e.attr,
                     _ => true,
                 }
             });

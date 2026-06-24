@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Node, liItemAttrProps } from '../../framework';
+import { Node, liItemAttrProps, dataLocProps } from '../../framework';
 import type { NodeArgs, OrderedListBlock } from '../../framework';
 import { IncrementalContext } from '../IncrementalContext';
 import { PreviewContext } from '../PreviewContext';
@@ -47,7 +47,7 @@ export const OrderedList = (args: NodeArgs<OrderedListBlock>) => {
 
     if (enabled) {
         return (
-            <ol {...olProps}>
+            <ol {...olProps} {...dataLocProps(args.node)}>
                 {args.node.c[1].map((item, i) => (
                     <li key={i} {...liItemAttrProps(args.node.itemAttr?.[i], incremental)}>
                         {item.map((block, j) => (
@@ -69,7 +69,7 @@ export const OrderedList = (args: NodeArgs<OrderedListBlock>) => {
         props.tabIndex = -1;
     }
     return (
-        <ol {...olProps}>
+        <ol {...olProps} {...dataLocProps(args.node)}>
             {args.node.c[1].map((item, i) => {
                 // Per-item block attr (bd-aeyss6p5) applies to every <li>.
                 const itemAttrProps = liItemAttrProps(args.node.itemAttr?.[i], false);

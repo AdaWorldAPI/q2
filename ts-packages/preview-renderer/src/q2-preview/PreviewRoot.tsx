@@ -191,6 +191,14 @@ export interface PreviewRootProps {
      */
     registerSlideNavigator?: (nav: ((index: number) => void) | null) => void;
     onSlideChange?: (slideIndex: number) => void;
+    /**
+     * Fired after React commits a new AST and layout settles, so the host
+     * can re-run editor→preview scroll sync against the fresh `data-loc`
+     * DOM (the cursor-driven scroll otherwise races the async render). In
+     * production `entry.tsx` wires this to post `AST_RENDERED` to the
+     * parent; tests can omit it.
+     */
+    onAstRendered?: () => void;
 }
 
 /**
@@ -1397,6 +1405,16 @@ export function PreviewRoot(props: PreviewRootProps) {
         });
         return () => cancelAnimationFrame(raf);
     }, [props.pendingAnchor, props.pendingAnchorEpoch, props.astJson, props.scrollToAnchor]);
+
+    // Notify the host once a new AST has committed and laid out, so it can
+    // re-run editor→preview scroll sync against the fresh `data-loc` DOM
+    // (bd-9kzfi). rAF defers to post-layout, matching the anchor scroll above.
+    const onAstRendered = props.onAstRendered;
+    useEffect(() => {
+        if (!onAstRendered) return;
+        const raf = requestAnimationFrame(() => onAstRendered());
+        return () => cancelAnimationFrame(raf);
+    }, [onAstRendered, props.astJson]);
 
     // Single merge site: built-in preview leaves + user overrides.
     const mergedPreviewRegistry: FormatRegistry = {

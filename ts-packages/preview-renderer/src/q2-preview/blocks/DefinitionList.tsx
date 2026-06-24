@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { Node } from '../../framework';
+import { Node, dataLocProps } from '../../framework';
 import type {
     BlockNode,
     DefinitionListBlock,
@@ -28,7 +28,7 @@ export const DefinitionList = (args: NodeArgs<DefinitionListBlock>) => {
     const { node, setLocalAst, onNavigateToDocument } = args;
 
     return (
-        <dl {...affordanceAttr}>
+        <dl {...affordanceAttr} {...dataLocProps(node)}>
             {node.c.flatMap(([term, defs], i) => {
                 const dt = (
                     <dt key={`dt-${i}`}>
