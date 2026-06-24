@@ -1,19 +1,20 @@
-// FMA torso · splat3d CPU render (the "splat" page).
+// FMA torso · opaque surfel turntable (the "splat render" page).
 //
-// A turntable of frames rendered bake-side by ndarray::hpc::splat3d — the
-// CPU-SIMD EWA gaussian-splat renderer (no GPU) — over the same torso.splat
-// asset the /torso-live page orbits live. The frames are baked from real
-// BodyParts3D anatomy (FMA-keyed meshes); see crates/osint-bake/tools/
-// bake_torso_splat.py + the scratchpad torso-render driver.
+// A pre-rendered turntable of the OPAQUE surfel render (z-buffer, nearest surface
+// wins — no soft-gaussian fog) over the same torso.splat asset the /torso-live page
+// orbits live. Frames are rendered bake-side by the scratchpad torso-render driver
+// over real BodyParts3D anatomy (FMA-keyed is_a meshes); see crates/osint-bake/tools/
+// bake_torso_splat.py. Skin/flesh is gated out so the crisp anatomy shows.
 //
-// This is the "splat" companion to /torso-live's "live orbit": splat3d owns
-// these pixels (the spine renders), three.js owns the live one. Same geometry.
+// This is the offline companion to /torso-live's live orbit (same geometry); it is
+// also the slot for the higher-fidelity CERTIFIED GAUSSIAN render (jc-SPD + Cesium
+// SSE/HLOD, the substrate path) when that lands — "opaque now, gaussian later".
 //
 // Geometry: BodyParts3D, (c) The Database Center for Life Science, CC-BY 4.0.
 import { useEffect, useRef, useState } from 'react';
 
 const FRAME_COUNT = 20;
-const frameSrc = (i: number) => `/torso-frames/torso_${String(i).padStart(3, '0')}.jpg`;
+const frameSrc = (i: number) => `/torso-frames/torso_${String(i).padStart(3, '0')}.png`;
 
 interface Manifest {
   attribution: string;
@@ -87,10 +88,10 @@ export function TorsoRender() {
       </div>
 
       <div style={{ position: 'absolute', top: 12, left: 16, color: '#cdd9e5', font: '13px ui-monospace, monospace', pointerEvents: 'none' }}>
-        <div style={{ fontSize: 15, color: '#fff' }}>FMA torso · splat3d CPU render</div>
+        <div style={{ fontSize: 15, color: '#fff' }}>FMA torso · opaque surfel turntable</div>
         <div style={{ opacity: 0.7 }}>
-          ndarray::hpc::splat3d (EWA, no GPU)
-          {manifest ? ` · ${manifest.gaussians.toLocaleString()} gaussians · ${manifest.concepts} structures` : ''}
+          z-buffer surfels (no GPU, no fog)
+          {manifest ? ` · ${manifest.gaussians.toLocaleString()} surfels · ${manifest.concepts} structures` : ''}
           {' · real BodyParts3D anatomy'}
         </div>
         <div style={{ opacity: 0.55, marginTop: 2 }}>
