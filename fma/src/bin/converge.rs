@@ -126,53 +126,129 @@ impl Tree {
     }
 }
 
-// ── tissue classification (is_a taxonomy → label/color), shared with the renderer ──
+// ── tissue classification (name + is_a + part_of → label/color), shared with the renderer ──
+// Priority order (specific → generic): the first tissue whose keyword hits the structure's own
+// name or any ancestor wins. "organ" is NOT a bare keyword (it would match "organ zone/region/
+// part"); organs are caught by viscera names + "viscus"/"gland". Matching is word-bounded for
+// single tokens so "scapula" (bone) does not hit "subscapularis" (muscle).
 const TISSUE: &[(&str, [u8; 3], &[&str])] = &[
-    (
-        "bone",
-        [235, 224, 199],
-        &["bone", "skeletal", "osseous", "vertebra", "sesamoid"],
-    ),
-    ("cartilage", [159, 184, 217], &["cartilage", "chondral"]),
-    ("ligament", [230, 230, 219], &["ligament"]),
-    ("tendon", [224, 219, 204], &["tendon", "aponeurosis"]),
-    (
-        "muscle",
-        [189, 92, 87],
-        &["muscle", "musculature", "musculus"],
-    ),
-    (
-        "vessel",
-        [204, 56, 56],
-        &[
-            "artery",
-            "arterial",
-            "vein",
-            "venous",
-            "vascular",
-            "capillary",
-        ],
-    ),
     (
         "nerve",
         [235, 209, 82],
         &["nerve", "neural", "ganglion", "plexus", "nervous"],
     ),
-    ("organ", [204, 148, 132], &["organ", "viscus", "gland"]),
-    ("skin", [219, 168, 138], &["skin", "integument"]),
+    (
+        "vessel",
+        [204, 56, 56],
+        &[
+            "artery", "arteries", "arterial", "arteriole", "vein", "veins", "venous", "vena",
+            "venule", "vascular", "aorta", "aortic", "capillary", "sinus",
+        ],
+    ),
+    ("cartilage", [159, 184, 217], &["cartilage", "chondral", "meniscus"]),
+    ("ligament", [230, 230, 219], &["ligament"]),
+    ("tendon", [224, 219, 204], &["tendon", "aponeurosis"]),
+    ("fascia", [210, 205, 196], &["fascia", "iliotibial", "retinaculum"]),
+    (
+        "muscle",
+        [189, 92, 87],
+        &["muscle", "musculature", "musculus", "myocardium"],
+    ),
+    (
+        "bone",
+        [235, 224, 199],
+        &[
+            "bone", "skeletal", "osseous", "vertebra", "vertebral", "sesamoid", "ossicle",
+            "scapula", "clavicle", "sternum", "manubrium", "rib", "ribs", "ilium", "ischium",
+            "pubis", "hip bone", "pelvis", "sacrum", "coccyx", "femur", "patella", "tibia",
+            "fibula", "humerus", "radius", "ulna", "carpal", "metacarpal", "tarsal",
+            "metatarsal", "phalanx", "phalange", "skull", "cranium", "cranial", "mandible",
+            "maxilla", "hyoid", "calvaria", "zygomatic", "ethmoid", "sphenoid", "vomer",
+            "palatine",
+        ],
+    ),
+    (
+        "organ",
+        [204, 148, 132],
+        &[
+            "viscus", "gland", "heart", "ventricle", "atrium", "lung", "liver", "hepatic lobe",
+            "kidney", "spleen", "stomach", "pancreas", "gallbladder", "intestine", "duodenum",
+            "jejunum", "ileum", "cecum", "caecum", "colon", "rectum", "appendix", "esophagus",
+            "oesophagus", "trachea", "bronchus", "bronchi", "larynx", "pharynx", "bladder",
+            "ureter", "urethra", "brain", "cerebrum", "cerebral", "cerebellum", "cerebellar",
+            "brainstem", "diencephalon", "thalamus", "thyroid", "thymus", "adrenal",
+            "suprarenal", "hypophysis", "pituitary", "uterus", "ovary", "testis", "testicle",
+            "prostate", "epididymis", "eyeball", "cochlea", "tongue", "tonsil", "scrotum",
+            "penis", "vagina", "cervix", "mammary", "breast", "parotid", "submandibular",
+            "sublingual",
+        ],
+    ),
+    ("skin", [219, 168, 138], &["skin", "integument", "epidermis", "dermis"]),
 ];
-fn tissue_of(ia: &Tree, fma: &str) -> (&'static str, [u8; 3]) {
-    for id in ia.chain(fma).iter().rev() {
-        if let Some(nm) = ia.name_of.get(id) {
-            let l = nm.to_lowercase();
-            for (lab, col, kws) in TISSUE {
-                if kws.iter().any(|k| l.contains(k)) {
-                    return (lab, *col);
-                }
+/// word-bounded for single tokens (so "scapula" ≠ "subscapularis"); substring for multi-word keys.
+fn hit(name: &str, kw: &str) -> bool {
+    if kw.contains(' ') {
+        name.contains(kw)
+    } else {
+        name.split(|c: char| !c.is_ascii_alphanumeric()).any(|t| t == kw)
+    }
+}
+fn tissue_of(po: &Tree, ia: &Tree, fma: &str) -> (&'static str, [u8; 3]) {
+    // candidate names, leaf-first: own name + is_a ancestry, then part_of ancestry. is_a first
+    // carries "muscle organ"/"bone organ" disambiguators; part_of recovers the ~500 structures
+    // absent from the is_a tree (heart, nerves, pelvis, vessels) via their own descriptive name.
+    let mut names: Vec<String> = Vec::new();
+    for tree in [ia, po] {
+        for id in tree.chain(fma).iter().rev() {
+            if let Some(nm) = tree.name_of.get(id) {
+                names.push(nm.to_lowercase());
+            }
+        }
+    }
+    for nm in &names {
+        for (lab, col, kws) in TISSUE {
+            if kws.iter().any(|k| hit(nm, k)) {
+                return (lab, *col);
             }
         }
     }
     ("other", [150, 150, 160])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// classify a single lowercase name through the priority table (the inner loop of tissue_of).
+    fn classify(name: &str) -> &'static str {
+        let l = name.to_lowercase();
+        TISSUE
+            .iter()
+            .find(|(_, _, kws)| kws.iter().any(|k| hit(&l, k)))
+            .map_or("other", |(lab, _, _)| lab)
+    }
+    #[test]
+    fn hit_is_word_bounded() {
+        // single tokens are word-bounded: "scapula" the bone must not leak into its neighbours
+        assert!(hit("left scapula", "scapula"));
+        assert!(!hit("levator scapulae", "scapula")); // a muscle
+        assert!(!hit("left subscapular artery", "scapula")); // a vessel
+        assert!(!hit("nervure", "nerve")); // no stray substring match
+        assert!(hit("left hip bone", "hip bone")); // multi-word keys match as substrings
+    }
+    #[test]
+    fn priority_and_organ_restriction() {
+        assert_eq!(classify("heart"), "organ");
+        assert_eq!(classify("right scapula"), "bone");
+        assert_eq!(classify("muscle of thigh"), "muscle");
+        // word-bounding: "scapulae" must NOT be read as the bone "scapula" — by name alone this
+        // is unclassified (the real tissue_of upgrades it to muscle via its is_a ancestry).
+        assert_eq!(classify("levator scapulae"), "other");
+        assert_eq!(classify("vertebral artery"), "vessel"); // vessel beats bone
+        assert_eq!(classify("right iliotibial tract"), "fascia"); // NOT organ
+        assert_eq!(classify("median nerve"), "nerve");
+        assert_eq!(classify("organ zone"), "other"); // bare "organ" no longer fires
+        assert_eq!(classify("cardinal organ part"), "other");
+    }
 }
 
 // ── geometry: per-FMA centroid from the meshes (slices 1 + 3) ──
@@ -398,7 +474,7 @@ fn main() {
         if skeletal_node {
             skeletal += 1;
         }
-        let (tissue, rgb) = tissue_of(&ia, fma);
+        let (tissue, rgb) = tissue_of(&po, &ia, fma);
 
         // PLACE (high bytes): Located Morton for a skeletal node WITH a centroid,
         // else Cascade part_of rank. TISSUE (low bytes): is_a rank, both modes.

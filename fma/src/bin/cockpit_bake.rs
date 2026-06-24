@@ -112,7 +112,7 @@ fn layer_of(tissue: &str) -> (u8, &'static str, [u8; 3]) {
         "cartilage" => (4, "skeleton", [159, 184, 217]),
         "vessel" => (5, "vessel", [204, 56, 56]),
         "nerve" => (6, "nerve", [235, 209, 82]),
-        "ligament" | "tendon" => (7, "connective", [224, 219, 204]),
+        "ligament" | "tendon" | "fascia" => (7, "connective", [224, 219, 204]),
         _ => (8, "other", [150, 150, 160]),
     }
 }
