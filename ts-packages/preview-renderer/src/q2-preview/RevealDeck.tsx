@@ -37,7 +37,14 @@ import { Deck, Slide, Stack, useReveal } from '@revealjs/react';
 // stays static (it is theme-independent: columns/asides/footnotes) and is purely
 // additive, so the runtime theme link landing after it does not change the
 // cascade.
-import '../../../../resources/revealjs/reset.css';
+// bd-dg8x84bu: import the .reveal-SCOPED reset, never the upstream global one.
+// These are side-effecting CSS imports that Vite hoists into the single global
+// q2-preview stylesheet, so they apply to ALL preview content. reveal.css and
+// quarto-reveal.css are already fully .reveal-scoped (safe), but the upstream
+// reset.css is a global Meyer page reset (html, body, ..., em { font: inherit })
+// that zeroed font-style on <em>/<i>/<cite> in format:html documents. reset-scoped.css
+// is the derived, .reveal-scoped equivalent — same effect on deck slides, no leak.
+import '../../../../resources/revealjs/reset-scoped.css';
 import '../../../../resources/revealjs/reveal.css';
 import '../../../../resources/revealjs/quarto-reveal.css';
 

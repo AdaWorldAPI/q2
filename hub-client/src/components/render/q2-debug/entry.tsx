@@ -16,7 +16,10 @@ import { Deck, Slide } from '@revealjs/react';
 // deck styling (bd-4b7f1hr7; same convergence as bd-ibqkf9ry). The
 // vendored↔npm byte-identity test in `revealjs/assemble.rs` keeps
 // these in sync with the pinned npm package.
-import '../../../../../resources/revealjs/reset.css';
+// bd-dg8x84bu: scoped reset, never the global Meyer reset — this debug iframe
+// renders arbitrary content via <Ast> (not only decks), so a global reset would
+// zero font-style on <em>/<i> here too. reset-scoped.css confines it to .reveal.
+import '../../../../../resources/revealjs/reset-scoped.css';
 import '../../../../../resources/revealjs/reveal.css';
 import '../../../../../resources/revealjs/theme/white.css';
 import '../../../../../resources/revealjs/quarto-reveal.css';
