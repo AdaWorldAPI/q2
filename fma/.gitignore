@@ -1,0 +1,13 @@
+/target
+Cargo.lock
+# fetched geometry (run ./fetch_data.sh)
+/data/parts
+/data/isa_parts
+/data/combined_element_parts.txt
+*.zip
+# render outputs
+/fma_frames
+/mesh
+/guid
+/anchor
+/turntable

@@ -1,0 +1,17 @@
+[package]
+name = "fma"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "FMA-addressed 3D human anatomy — triangle rasterizer + canonical GUID + /FMA server"
+license = "Apache-2.0"
+
+# Standalone crate, intentionally isolated from the q2 Quarto workspace.
+[workspace]
+
+[dependencies]
+png = "0.17"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
