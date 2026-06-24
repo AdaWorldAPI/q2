@@ -159,6 +159,64 @@ per-triangle surfel ─→ CLAM reach ─→ jc::weyl sampling ─→ splat_neig
   `lance-graph/crates/perturbation-sim`): owned by other sessions. **Read and
   consume; never reimplement or modify** (architectural-compliance P0).
 
+## MESH PIVOT + Morton/gridlake synergy (2026-06-24 PM — the triangle-surface answer + substrate check)
+
+The opaque SURFEL render killed the fog but left "sequins" (discrete disks with gaps).
+Operator: "connect to a triangle filled surface ... kurvenlineal over triangles
+(Quadro/AutoCAD)" + "stay with highest quality, do NOT coarsen." The answer: render the
+BodyParts3D OBJ FACES **filled** (`THREE.Mesh`, smooth Phong from the cell-averaged
+per-vertex normals), not centroids-as-points. Filled triangle surfaces decisively beat
+splats — solid ivory bone, red muscle, no sequins, no fog (the Open 3D Man material
+aesthetic). The other session reached the same conclusion independently (601,922-tri
+solid skeleton).
+
+- **Format:** SPM1 indexed mesh (vert 21 B [pos 3f|normal 3i8|rgb 3u8|opacity u8|node_row
+  u16] + tri 12 B [3× u32]); `crates/osint-bake/tools/bake_torso_mesh.py`.
+- **Decimation:** vertex clustering, cell-averaged normals (= the smooth "curve-ruler"),
+  reuses the is_a tissue classifier. **Highest quality = cell 3.6 mm = 1.40M tris (29 MB)**;
+  web-weight coarsening (cell 5.5 mm = 831K) was REJECTED ("skull looks terrible").
+- **Render:** `cockpit/src/TorsoMesh.tsx` (live `THREE.Mesh`, two-sided Phong via
+  `gl_FrontFacing`, `uFloor` cuts the skin shell, S toggles). The preview driver gained a
+  filled-triangle Phong z-buffer rasterizer (SPM1) beside the surfel one.
+
+### Morton tile pyramid + simd_soa "gridlake" for the MESH ("shader batch synergies without the artifacts")
+
+Investigated ndarray read-only. **VERDICT: PARTIAL — the indexing/LOD substrate is
+genuinely gaussian-free and reusable; the *render* half of splat3d is gaussian+alpha-blend
+and gives nothing for opaque triangles.**
+
+GAUSSIAN-FREE + REUSABLE (no fog path, no `GaussianBatch`):
+- `src/simd_soa.rs` `MultiLaneColumn` — fully general SoA carrier (`Arc<[u8]>`, 64-byte
+  aligned, zero-copy `iter_f32x16`/`iter_f64x8`/…). **Layout-only, zero geometry awareness.**
+  (The `#[derive(SoA)]` macro in `.claude/knowledge/hhtl-gridlake-pre-sprint-prompt.md` is
+  PLANNED, not shipped — only `MultiLaneColumn` + the 4 iterators exist today.)
+- The Morton min/max **cascade pattern** in `examples/morton_cascade_probe.rs` (example, not
+  library API): Morton order makes each quadtree node a contiguous SoA range → flat min/max
+  reduction → prune a whole subtree. Adaptable to a spatial per-tile-bbox pyramid.
+- `crates/cesium/src/{sse,hlod}.rs` — LIVE + tested + **geometry-agnostic** OGC 3D-Tiles
+  SSE (`sse_for_tile`) + HLOD `traverse_hlod` (ADD/REPLACE refine by screen-space error):
+  "which tiles at this distance" works unchanged for mesh tiles. (cesium is an oracle-only
+  non-default crate — lift the two modules, don't depend on it; `implicit_tiling.rs` Morton
+  decoder is all-commented scaffold.)
+- `src/aabb.rs` — LIVE, generic, AVX-512 `aabb_intersect_batch` / `aabb_filter_by_distance`
+  — the batch frustum/box cull primitive.
+
+MUST BUILD consumer-side (none exists; the splat3d render path is gaussian + alpha-blend):
+- A triangle→Morton-leaf tiler + per-tile bbox pyramid (the probe tiles 4×4 scalar cells,
+  not triangles).
+- Generic `F32x16` vertex-projection + normal-transform kernels — the math is **inlined** in
+  the gaussian `splat3d/project.rs::project_chunk_x16`, not exposed; `Camera` (4×4 view +
+  pinhole intrinsics) exists and is general.
+- An opaque Phong shade + z-buffer rasterizer — `splat3d/raster.rs` is the alpha-blend SH
+  compositor (the rejected fog path).
+
+So the synergy is real and **artifact-free at the substrate** (carrier + cascade + LOD +
+cull), but a BUILD on top, not a wire-up: gaussian coupling is confined to
+`splat3d/{gaussian,project,tile,raster,sh}.rs` + `cesium::to_cam_soa`, none of which the
+mesh path must touch. Today's cockpit renders the 1.4M mesh on the GPU (three.js) where this
+batching is moot; the gridlake/Morton path is the route to a NATIVE SIMD mesh rasterizer
+(offline turntable / server render) if/when that is wanted.
+
 ## Cross-refs
 
 - `claude-notes/research/2026-06-24-torso-anatomy-coverage-gap.md` — the is_a-primary
