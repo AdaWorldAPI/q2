@@ -42,8 +42,19 @@ BodyParts3D (FMA partof tree + FJ OBJ meshes)
 
 ## Checklist
 
-- [ ] `tools/bake_torso_splat.py` — BodyParts3D → SPL1 gaussian asset + manifest
-- [ ] `cockpit/public/torso.splat` (+ `torso.manifest.json` attribution/legend)
-- [ ] SPL1 TS decoder + `/torso-live` three.js orbit page + route
-- [ ] torso.ply + splat3d_flex render → `/torso` frames page + route
-- [ ] attribution surfaced in-UI; verify tsc; commit; PR
+- [x] `tools/bake_torso_splat.py` — BodyParts3D → SPL1 gaussian asset + manifest
+      (231K gaussians, 577 meshes, 102 structures; muted pastel per-structure hues)
+- [x] `cockpit/public/torso.splat` (3.7 MB) + `torso.manifest.json` (attribution/legend)
+- [x] SPL1 TS decoder + `/torso-live` three.js orbit page + route
+- [x] `/torso` splat3d CPU render: scratchpad `torso-render` driver reads SPL1 →
+      `Gaussian3D` → ndarray::hpc::splat3d turntable (no Inria .ply needed) →
+      20 JPEG frames in `cockpit/public/torso-frames/` → `/torso` viewer page + route
+- [x] attribution surfaced in-UI; tsc clean
+- [ ] PR
+
+Notes:
+- The CPU render runs under ndarray's own 1.95 toolchain (scratchpad project,
+  path-dep on ../ndarray) — q2's workspace stays free of the ndarray dep.
+  ~6.6 s/frame on the scalar path (no AVX target-cpu in the scratchpad project);
+  correctness verified by viewing the rendered frames.
+- Colours: golden-angle hue per structure at S=0.34 V=0.78 (muted, per request).

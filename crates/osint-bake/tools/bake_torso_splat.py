@@ -93,9 +93,10 @@ def read_obj_vertices(path):
 
 def concept_color(idx):
     """Deterministic distinct hue per concept (golden-angle walk) so each
-    anatomical structure reads as its own colour."""
+    anatomical structure reads as its own colour — muted/pastel (low saturation)
+    so the splat is soft, not neon."""
     h = (idx * 0.6180339887498949) % 1.0
-    r, g, b = colorsys.hsv_to_rgb(h, 0.62, 0.96)
+    r, g, b = colorsys.hsv_to_rgb(h, 0.34, 0.78)
     return (int(r * 255), int(g * 255), int(b * 255))
 
 

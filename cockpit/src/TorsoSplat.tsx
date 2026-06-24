@@ -207,9 +207,10 @@ export function TorsoSplat() {
         </div>
       )}
 
-      <a href="/fma" style={{ position: 'absolute', top: 14, right: 16, color: '#7fa6c4', font: '12px ui-monospace, monospace', textDecoration: 'none' }}>
-        ← FMA heart
-      </a>
+      <div style={{ position: 'absolute', top: 14, right: 16, font: '12px ui-monospace, monospace', display: 'flex', gap: 14 }}>
+        <a href="/torso" style={{ color: '#7fa6c4', textDecoration: 'none' }}>splat render →</a>
+        <a href="/fma" style={{ color: '#7fa6c4', textDecoration: 'none' }}>← FMA heart</a>
+      </div>
 
       <div style={{ position: 'absolute', bottom: 10, left: 16, color: '#5a6b7e', font: '10px ui-monospace, monospace', maxWidth: '70%', pointerEvents: 'none' }}>
         {manifest?.attribution ?? 'BodyParts3D, (c) The Database Center for Life Science, licensed under CC Attribution 4.0 International'}
