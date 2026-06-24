@@ -198,8 +198,9 @@ interface UpdateAstPayload {
      */
     unlockNestingCursor?: boolean;
     /**
-     * Phase 1a (bd-sjb4pzx8): opt-in rich-text editor. Forwarded into
-     * `PreviewContext.richText`. Default-off (undefined/false).
+     * Rich-text editor (bd-sjb4pzx8). Forwarded into `PreviewContext.richText`.
+     * Off unless the host sets it; the q2 preview SPA now defaults it ON
+     * (`?richText=0` opts out — bd-q9lyghv2 follow-up).
      */
     richText?: boolean;
     /**

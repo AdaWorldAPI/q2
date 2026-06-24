@@ -202,8 +202,9 @@ interface PreviewAppState {
    */
   nestingCursor: boolean;
   /**
-   * Phase 1a (bd-sjb4pzx8): opt-in rich-text (tiptap) block editor. Read once
-   * at boot from `?richText=1`. When true the SPA passes `richText` to the
+   * Rich-text (tiptap) block editor (bd-sjb4pzx8). Now ON BY DEFAULT
+   * (bd-q9lyghv2 follow-up): read once at boot from `?richText`, where only an
+   * explicit `?richText=0` opts out. When true the SPA passes `richText` to the
    * iframe so editable paragraphs render the WYSIWYG editor. Read-at-load only.
    */
   richText: boolean;
@@ -288,15 +289,16 @@ function parseNestingCursorParam(search: string): boolean {
 }
 
 /**
- * Phase 1a (bd-sjb4pzx8): parse `?richText=1` from the boot URL. Read-at-load;
+ * Parse `?richText` from the boot URL (bd-sjb4pzx8). The rich-text editor is now
+ * the DEFAULT (bd-q9lyghv2 follow-up): only an explicit `?richText=0` opts OUT;
+ * an absent param, `?richText=1`, or any other value keeps it on. Read-at-load;
  * the SPA does not react to URL changes after mount.
  */
-function parseRichTextParam(search: string): boolean {
-  if (!search) return false;
+export function parseRichTextParam(search: string): boolean {
   try {
-    return new URLSearchParams(search).get('richText') === '1';
+    return new URLSearchParams(search).get('richText') !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -1271,7 +1273,7 @@ export default function PreviewApp() {
         editingDisabled={!state.allowEdit}
         // P3.2: nesting-cursor mode + per-key nested buffers.
         unlockNestingCursor={state.nestingCursor}
-        // Phase 1a (bd-sjb4pzx8): opt-in rich-text editor (?richText=1).
+        // Rich-text editor (bd-sjb4pzx8): on by default; `?richText=0` opts out.
         richText={state.richText}
         nestedEditBuffers={nestedEditBuffers}
       />

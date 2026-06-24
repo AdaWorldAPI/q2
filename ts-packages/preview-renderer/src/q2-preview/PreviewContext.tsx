@@ -177,12 +177,12 @@ export interface PreviewContextValue {
      */
     unlockNestingCursor?: boolean;
     /**
-     * Phase 1a (bd-sjb4pzx8): opt-in rich-text (tiptap) block editor. When true,
-     * an editable block renders a WYSIWYG tiptap editor instead of the monospaced
-     * textarea. Default-off (undefined/false). Set by the hub-client preference or
-     * the SPA's `?richText=1` boot URL query param, plumbed like
-     * `unlockNestingCursor`. v1 covers single paragraphs; other block types fall
-     * back to the textarea even when this is on.
+     * Rich-text (tiptap) block editor (bd-sjb4pzx8). When true, an editable block
+     * renders a WYSIWYG tiptap editor instead of the monospaced textarea. The flag
+     * itself is off unless a host sets it; the q2 preview SPA now defaults it ON
+     * via its `?richText` boot param (only `?richText=0` opts out — bd-q9lyghv2
+     * follow-up), plumbed like `unlockNestingCursor`. v1 covers single paragraphs
+     * and headings; other block types fall back to the textarea even when on.
      */
     richText?: boolean;
     /**
