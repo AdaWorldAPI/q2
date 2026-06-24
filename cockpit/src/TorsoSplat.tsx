@@ -27,32 +27,36 @@ interface Spl1 {
   colors: Uint8Array;
 }
 
-// Decode the SPL1 wire (mirrors bake_torso_splat.py): little-endian
-//   header 36 B: magic "SPL1" | count u32 | radius f32 | bbox_min 3f | bbox_max 3f
-//   body count x 16 B: pos 3f (12) | rgb 3u8 (3) | opacity u8 (1)
+// Decode the SPL2 wire (mirrors bake_torso_splat.py): little-endian
+//   header 40 B: magic "SPL2" | count u32 | node_count u32 | radius f32
+//                | bbox_min 3f | bbox_max 3f
+//   body count x 21 B: pos 3f (12) | normal 3i8 (3) | rgb 3u8 (3) | opacity u8 (1)
+//                | node_row u16 (2)
+// The live-orbit view renders points: it reads pos + rgb and ignores the normal
+// and node-row tags (those drive the /torso splat3d render and the /torso-map view).
 function decodeSpl1(buf: ArrayBuffer): Spl1 {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
-  if (magic !== 'SPL1') throw new Error(`bad magic "${magic}" (expected SPL1)`);
+  if (magic !== 'SPL2') throw new Error(`bad magic "${magic}" (expected SPL2)`);
   const count = dv.getUint32(4, true);
-  const radius = dv.getFloat32(8, true);
+  const radius = dv.getFloat32(12, true);
   const bboxMin: [number, number, number] = [
-    dv.getFloat32(12, true), dv.getFloat32(16, true), dv.getFloat32(20, true),
+    dv.getFloat32(16, true), dv.getFloat32(20, true), dv.getFloat32(24, true),
   ];
   const bboxMax: [number, number, number] = [
-    dv.getFloat32(24, true), dv.getFloat32(28, true), dv.getFloat32(32, true),
+    dv.getFloat32(28, true), dv.getFloat32(32, true), dv.getFloat32(36, true),
   ];
-  const off = 36;
+  const off = 40;
   const positions = new Float32Array(count * 3);
   const colors = new Uint8Array(count * 3);
   for (let i = 0; i < count; i++) {
-    const b = off + i * 16;
+    const b = off + i * 21;
     positions[i * 3] = dv.getFloat32(b, true);
     positions[i * 3 + 1] = dv.getFloat32(b + 4, true);
     positions[i * 3 + 2] = dv.getFloat32(b + 8, true);
-    colors[i * 3] = dv.getUint8(b + 12);
-    colors[i * 3 + 1] = dv.getUint8(b + 13);
-    colors[i * 3 + 2] = dv.getUint8(b + 14);
+    colors[i * 3] = dv.getUint8(b + 15);
+    colors[i * 3 + 1] = dv.getUint8(b + 16);
+    colors[i * 3 + 2] = dv.getUint8(b + 17);
   }
   return { count, radius, bboxMin, bboxMax, positions, colors };
 }
