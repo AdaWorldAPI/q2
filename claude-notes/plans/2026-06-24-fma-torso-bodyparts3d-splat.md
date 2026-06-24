@@ -62,22 +62,49 @@ Notes:
   brush blobbed the detail into a "Warhol" look; 0.0025 at 810x1080 restores the
   ribcage/vertebrae). Frames re-rendered.
 
-## Follow-ups (proposed, next PR)
+## Follow-up PR — anisotropic + GUID-tag + map (branch claude/torso-anisotropic-map)
 
-The splat is currently isotropic spheres (no orientation) — too big = blobs,
-too small = disconnected dots. The real upgrade, in one pass over the meshes:
+- [x] **SPL2 format** (supersedes SPL1): hdr 40B [`SPL2`|count|node_count|radius|
+      bbox]; body 21B [pos 3f | normal 3i8 | rgb 3u8 | opacity u8 | node_row u16].
+      Helix-orderable + residual-ready (the codec PR slots in here).
+- [x] **Anisotropic surface-fit gaussians** ("connect the dots"): bake reads OBJ
+      `vn` (BodyParts3D ships normals — free, no face traversal); render driver
+      orients each gaussian flat-to-surface (`scale=[t,t,thin]`, `quat` aligns
+      local-z to the normal). Tangent 0.004 connects within a structure while
+      rib gaps stay visible. NOT voxels (continuous surfaces, not a discrete grid).
+- [x] **Per-node SoA + O(1) switch** (the GUID/value-tenant backbone): bake emits
+      `torso.nodes.json` — one row per FMA structure (178 rows, 91 own meshes):
+      fma id, name, depth, HHTL tier-ranks, colour, gaussian RANGE (start+count),
+      OBJ-geometry tenant (centroid + bbox + FJ handles). Each gaussian carries
+      its node_row. Consumers build the switch (row -> node) once -> O(1) tenant
+      reads. Position = real BodyParts3D coordinate; identity = the FMA node.
+- [x] **/torso-map page**: click a gaussian -> node_row -> node SoA -> FMA label +
+      partonomy breadcrumb; structure list (graph -> splat) highlights gaussians.
+      Realises the osint-cad-splat thesis: graph and splat, one node at one address.
+- [x] tsc clean. Browser pick-interaction not exercised here (raycast-on-Points
+      logic is standard; geometry verified via the CPU frames).
 
-- [ ] **Anisotropic surface-fit gaussians** ("connect the dots"): read OBJ
-      *faces* (the bake currently drops them) -> per-vertex normals -> orient
-      each gaussian flat-to-surface (`scale[3]` tangent-wide / normal-thin,
-      `quat` from normal). splat3d's `Gaussian3D` already supports scale+quat;
-      the three.js page needs a real splat shader (oriented quads). This is the
-      "muscle memory of the nodes" — each gaussian inherits its shape from the
-      structure it came from. NOT voxels (those are discrete/volumetric; these
-      are continuous surfaces).
-- [ ] **Third "map FMA" view**: bake a per-gaussian FMA structure id + legend
-      (idx -> FMA concept / name / colour) into SPL1, then pick-to-label in 3D
-      and sync selection with the /fma-style partonomy graph. Realises the
-      osint-cad-splat thesis: graph and splat are one node at one address, two
-      payloads. Own page (/torso-map) vs folding labels into /torso-live: TBD
-      with user.
+## Helix-anchor codec — MEASURED (branch claude/torso-helix-codec)
+
+`tools/spl_codec.py` encodes SPL2 -> SPL3 and round-trips it. The x265-for-
+gaussians design, mapped to signals already in SPL2 + the node SoA:
+  helix    = 3D Morton (Z-order) of position = identity/GUID order (locality-preserving)
+  anchor   = FMA node (SoA centroid + per-node colour) = the I-frame, random-access
+  motion   = gaussian offset from its node anchor (the motion vector)
+  residual = helix-ordered zig-zag delta of (motion, normal)
+  colour   = ANCHOR-PREDICTED -> 0 per-gaussian bytes (a 178-entry node palette)
+
+Measured on the real torso (231,515 gaussians):
+- SPL2 21.0 B/g -> SPL3 7.47 B/g  =>  **2.8x smaller** (zlib entropy stand-in)
+- colour: **exact, 887 B total** for ALL colour (crisp by construction, no bleed)
+- position round-trip RMSE **0.00001** (16-bit quant, effectively lossless)
+- node_row RLE 35 KB / 231K gaussians (structures contiguous in helix order)
+- stream split: motion 1.02 MB, normal 671 KB (the optimization target -> octahedral
+  + range coder), rows 35 KB, palette 887 B
+
+Validates the design before wiring it into the render. Next increments:
+- [ ] octahedral normals + range coder (the 671 KB normal stream)
+- [ ] decode SPL3 at cockpit load; anisotropic/edge-aware reconstruction
+      (node_row-bounded + normal-oriented = crisp colours in the render)
+- [ ] animation: deform node anchors -> motion-skinned gaussians follow
+      (Motion-Blender GS; the partonomy is the rig)

@@ -10,6 +10,7 @@ import { OsintGraph } from './OsintGraph';
 import { FmaGraph } from './FmaGraph';
 import { TorsoSplat } from './TorsoSplat';
 import { TorsoRender } from './TorsoRender';
+import { TorsoMap } from './TorsoMap';
 import { ReasoningPage } from './ReasoningPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/cockpit.css';
@@ -85,6 +86,9 @@ createRoot(document.getElementById('root')!).render(
               /torso = splat3d CPU render (turntable), /torso-live = three.js orbit */}
           <Route path="/torso" element={<TorsoRender />} />
           <Route path="/torso-live" element={<TorsoSplat />} />
+          {/* FMA torso map — splat AS the GUID/value-tenant SoA: click a gaussian → its
+              FMA node (O(1) switch into the node SoA) → label + partonomy ↔ graph */}
+          <Route path="/torso-map" element={<TorsoMap />} />
           {/* The Palantir JSON-graph cockpit (221 aiwar nodes) stays reachable
               at /palantir and as the catch-all for its own sub-routes. */}
           <Route path="/palantir" element={<PalantirApp />} />
