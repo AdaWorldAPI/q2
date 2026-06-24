@@ -84,9 +84,27 @@ Notes:
 - [x] tsc clean. Browser pick-interaction not exercised here (raycast-on-Points
       logic is standard; geometry verified via the CPU frames).
 
-## Next PR — Helix-48 residue codec (queued)
+## Helix-anchor codec — MEASURED (branch claude/torso-helix-codec)
 
-Order gaussians along the helix (= Morton/Vogel identity order = GUID order),
-bake appearance into the 48 SH (shading vs flat — pending user), x265-style
-residual-code the SH along the curve. The asset byte-order becomes the node
-identity order, codec-compressed. SPL2 is laid out ready for it.
+`tools/spl_codec.py` encodes SPL2 -> SPL3 and round-trips it. The x265-for-
+gaussians design, mapped to signals already in SPL2 + the node SoA:
+  helix    = 3D Morton (Z-order) of position = identity/GUID order (locality-preserving)
+  anchor   = FMA node (SoA centroid + per-node colour) = the I-frame, random-access
+  motion   = gaussian offset from its node anchor (the motion vector)
+  residual = helix-ordered zig-zag delta of (motion, normal)
+  colour   = ANCHOR-PREDICTED -> 0 per-gaussian bytes (a 178-entry node palette)
+
+Measured on the real torso (231,515 gaussians):
+- SPL2 21.0 B/g -> SPL3 7.47 B/g  =>  **2.8x smaller** (zlib entropy stand-in)
+- colour: **exact, 887 B total** for ALL colour (crisp by construction, no bleed)
+- position round-trip RMSE **0.00001** (16-bit quant, effectively lossless)
+- node_row RLE 35 KB / 231K gaussians (structures contiguous in helix order)
+- stream split: motion 1.02 MB, normal 671 KB (the optimization target -> octahedral
+  + range coder), rows 35 KB, palette 887 B
+
+Validates the design before wiring it into the render. Next increments:
+- [ ] octahedral normals + range coder (the 671 KB normal stream)
+- [ ] decode SPL3 at cockpit load; anisotropic/edge-aware reconstruction
+      (node_row-bounded + normal-oriented = crisp colours in the render)
+- [ ] animation: deform node anchors -> motion-skinned gaussians follow
+      (Motion-Blender GS; the partonomy is the rig)
