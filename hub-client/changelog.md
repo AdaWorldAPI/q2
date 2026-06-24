@@ -15,6 +15,10 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-24
+
+- [`160c6607`](https://github.com/quarto-dev/q2/commits/160c6607): The AST preview (q2-preview) now keeps editor↔preview scroll in sync — moving the cursor scrolls the preview to that block, and scrolling the preview tracks back to the editor.
+
 ### 2026-06-23
 
 - [`9a48dd86`](https://github.com/quarto-dev/q2/commits/9a48dd86): Added full-text search to the file sidebar — type in the search box to find files in the open project by content (with highlighted match snippets) and click a result to open it.
