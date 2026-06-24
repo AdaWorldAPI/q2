@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { quartoThemeRules, qmdMonarch } from './quartoTheme';
+import { quartoThemeRules, qmdMonarch, qmdLanguageConfiguration } from './quartoTheme';
 
 describe('quartoThemeRules namespace invariant', () => {
   it('every theme rule token carries the qmd. sentinel prefix', () => {
@@ -43,5 +43,31 @@ describe('qmd Monarch base — bracket symmetry', () => {
         `rule ${re} treats "[" and "]" asymmetrically — link brackets would mismatch`,
       ).toBe(re.test(']'));
     }
+  });
+});
+
+describe('qmd language configuration — backtick auto-close (bd-w1s38lbe)', () => {
+  // Regression: a backtick in `autoClosingPairs` made Monaco auto-close `` ` ``
+  // whenever the next char was whitespace/EOL. Wrapping an existing word in
+  // inline code (type `` ` `` before the word, then `` ` `` after it) inserted
+  // TWO trailing backticks because the end-of-word keystroke triggered the
+  // auto-close. Backticks must NOT auto-close.
+  it('does not auto-close backticks', () => {
+    const pairs = qmdLanguageConfiguration.autoClosingPairs ?? [];
+    expect(
+      pairs.some((p) => p.open === '`' || p.close === '`'),
+      'backtick must not be in autoClosingPairs — it doubles when wrapping a word',
+    ).toBe(false);
+  });
+
+  // The fix must not over-correct: typing `` ` `` over a *selection* should
+  // still wrap it, which is the `surroundingPairs` list (independent of
+  // `autoClosingPairs` in Monaco).
+  it('still surrounds a selection with backticks', () => {
+    const pairs = qmdLanguageConfiguration.surroundingPairs ?? [];
+    expect(
+      pairs.some((p) => p.open === '`' && p.close === '`'),
+      'backtick must remain in surroundingPairs so wrap-selection still works',
+    ).toBe(true);
   });
 });
