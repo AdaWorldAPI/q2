@@ -22,7 +22,7 @@ are CYP2C19 Poor Metabolizer?"* runs two ways:
 
 ## Measured (1M patients, best-of-5)
 
-```
+```text
 key column 16 MB · value column 496 MB
   key-only (prefix-route)   10063 hits    817 M rows/s · 13.1 GB/s   [touched 16 B/row]
   value    (decode slab)    10063 hits      3 M rows/s ·  1.6 GB/s   [touched 496 B/row]

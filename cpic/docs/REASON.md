@@ -20,7 +20,7 @@ prefix of each chain node is printed.
 
 ## The four demo cases (real output)
 
-```
+```text
 CYP2C19 *2/*2 + clopidogrel   → Poor Metabolizer → g100411 Strong (cpic A)
    ⊢ f=0.950 c=0.767   CPIC: "Avoid clopidogrel if possible. Use prasugrel or ticagrelor…"
 

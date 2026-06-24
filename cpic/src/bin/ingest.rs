@@ -81,10 +81,25 @@ fn load(path: &str) -> Vec<Value> {
     serde_json::from_str(&s).unwrap_or_else(|e| panic!("parse {path}: {e}"))
 }
 
+/// True only for a real ATC code shape (letter + 2 digits + …), so placeholders like "NA"
+/// don't get mis-filed under ATC main group "N".
+fn is_atc(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1].is_ascii_digit() && b[2].is_ascii_digit()
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().collect();
-    let dir = a.get(1).cloned().unwrap_or_else(|| "cpic/data".into());
-    let out = a.get(2).cloned().unwrap_or_else(|| "cpic/out".into());
+    // default to crate-relative paths when run from cpic/, repo-relative otherwise
+    let local = std::path::Path::new("data/gene.json").exists();
+    let dir = a
+        .get(1)
+        .cloned()
+        .unwrap_or_else(|| if local { "data" } else { "cpic/data" }.into());
+    let out = a
+        .get(2)
+        .cloned()
+        .unwrap_or_else(|| if local { "out" } else { "cpic/out" }.into());
     let max_diplo: usize = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(4000);
     fs::create_dir_all(&out).unwrap();
     let p = |f: &str| format!("{dir}/{f}");
@@ -124,11 +139,10 @@ fn main() {
             .and_then(|x| x.as_str())
             .unwrap_or("");
         let mut isa = vec!["drug".to_string()];
-        if !atc.is_empty() {
+        let valid_atc = is_atc(atc);
+        if valid_atc {
             isa.push(atc[..1].into()); // anatomical main group, e.g. N
-            if atc.len() >= 3 {
-                isa.push(atc[..3].into()); // therapeutic subgroup, e.g. N06
-            }
+            isa.push(atc[..3].into()); // therapeutic subgroup, e.g. N06
             if atc.len() >= 4 {
                 isa.push(atc[..4].into()); // pharmacological subgroup, e.g. N06A
             }
@@ -137,7 +151,11 @@ fn main() {
             }
         }
         isa.push(norm(&name));
-        let root = atc.chars().next().unwrap_or('_');
+        let root = if valid_atc {
+            atc.chars().next().unwrap_or('_')
+        } else {
+            '_'
+        };
         let g = gr.add(&NodeSpec {
             classid: CID_DRUG,
             basin: &format!("drug:{root}"),
@@ -210,7 +228,8 @@ fn main() {
     let mut diplo_minted = 0usize;
     let dipath = p("gene_result_diplotype.json");
     if let Ok(s) = fs::read_to_string(&dipath) {
-        let rows: Vec<Value> = serde_json::from_str(&s).unwrap_or_default();
+        let rows: Vec<Value> =
+            serde_json::from_str(&s).unwrap_or_else(|e| panic!("parse {dipath}: {e}"));
         for v in &rows {
             let dip = v["diplotype"].as_str().unwrap_or("").to_string();
             let sym = v["diplotypekey"]
@@ -230,15 +249,21 @@ fn main() {
             let mut part = gene_part_of(&sym);
             part.push("diplotypes".into());
             part.push(norm(&dip));
-            gr.add(&NodeSpec {
+            let record = diplo_minted < max_diplo;
+            let g = gr.add(&NodeSpec {
                 classid: CID_DIPLOTYPE,
                 basin: &sym,
                 part,
                 isa: vec!["diplotype".into(), zyg.into()],
                 kind: "diplotype",
                 label: format!("{sym} {dip}"),
-                record: diplo_minted < max_diplo,
+                record,
             });
+            if record {
+                if let Some(gene) = gene_g.get(&sym) {
+                    gr.edge(g, "part_of", *gene); // diplotype → gene (recorded rows only)
+                }
+            }
             diplo_minted += 1;
         }
     } else {

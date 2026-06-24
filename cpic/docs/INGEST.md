@@ -4,7 +4,10 @@
 > full guideline text + pharmacist review). This slice mints addresses and wires the
 > graph; it does not give dosing advice.
 
-`cargo run --release --bin ingest -- [data_dir=data] [out_dir=out] [max_diplotype_rows=4000]`
+`cargo run --release --bin ingest -- [data_dir] [out_dir] [max_diplotype_rows]`
+
+Positional args; when run from `cpic/` the defaults are `data out 4000`. Example:
+`cargo run --release --bin ingest -- data out 4000`.
 
 Reads the CPIC JSON tables and mints the **canonical 16-byte `NodeGuid`** for every
 entity, emitting `out/pgx_nodes.tsv` + `out/pgx_edges.tsv`. The GUID layout is
@@ -16,7 +19,7 @@ crate's `converge` bin targets — only the domain changes.
 
 Each of the three HHTL tiers (HEEL/HIP/TWIG) is an **8:8 tile**:
 
-```
+```text
         HEEL              HIP               TWIG
    ┌────────┬───┐   ┌────────┬───┐   ┌────────┬───┐
    │ part_of│isa│   │ part_of│isa│   │ part_of│isa│
@@ -61,7 +64,7 @@ cascade.
 
 ## Both axes route — the cascade demo (real output)
 
-```
+```text
 allele         guid                                  HEEL  HIP   TWIG  family
 CYP2C19 *2     000c0002-c358-ec6f-f76f-d69bfe558274  c358  ec6f  f76f  d69bfe   (No function)
 CYP2C9  *2     000c0002-c358-ecd8-f7d8-fbd6cbd5c622  c358  ecd8  f7d8  fbd6cb   (Decreased function)
@@ -91,7 +94,7 @@ The `lookupkey` join works for **both** lookup methods: phenotype genes (key mat
 `gene_result.result`, e.g. `Poor Metabolizer`) and allele-status genes (key matches
 `*57:01 positive`). Worked clinical chain present in the output:
 
-```
+```text
 HLA-B *57:01 positive ──recommends──▶ g100421 [HLA-B:*57:01 positive] → Strong ──targets──▶ abacavir
 ```
 
@@ -110,11 +113,12 @@ correct GUIDs; only the edge is missing.
 
 With the diplotype table present locally:
 
-```
+```text
 minted 114,410 GUIDs, 0 collisions
   genes 132 · alleles 1349 · phenotypes 101 · drugs 323 · recommendations 2159
   diplotypes minted 110,346  (the combinatorial layer: N(N+1)/2 per gene)
-edges 6000  (part_of 1450 · pair 573 · recommends 1818 · targets 2159)
+edges 10000  (part_of 5450 · pair 573 · recommends 1818 · targets 2159)
+  part_of = allele/phenotype→gene (1450) + recorded diplotype→gene (4000)
 ```
 
 The **110k diplotypes** are the natural large-N target for the `scan` slice: a cohort
