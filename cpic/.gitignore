@@ -1,0 +1,6 @@
+/target
+/out
+Cargo.lock
+# big tables fetched separately (see docs/INGEST.md § Data):
+/data/gene_result_diplotype.json
+/data/allele_frequency.json

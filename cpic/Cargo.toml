@@ -1,0 +1,23 @@
+# cpic — CPIC pharmacogenomics on the V3 (part_of : is_a) GUID
+#
+# Standalone crate, intentionally isolated from the q2 Quarto workspace (its own
+# empty [workspace] table), mirroring the `fma/` crate. Reasons about CPIC
+# gene/allele/diplotype/phenotype/drug/recommendation entities by minting the
+# canonical 16-byte NodeGuid with the (part_of : is_a) cascading-HHTL tile.
+[package]
+name = "cpic"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "CPIC pharmacogenomics addressed by the V3 (part_of:is_a) canonical NodeGuid"
+license = "Apache-2.0"
+
+# Standalone — not a member of the q2 workspace.
+[workspace]
+
+[dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1

@@ -1,0 +1,26 @@
+guid	kind	label	part_of	is_a
+000c0001-c3fa-ec2a-f72a-fbd6cb3779b9	gene	CYP2C9	pharmacogenome / CYP / CYP2 / CYP2C / CYP2C9	entity / gene
+000c0001-c3fa-ec2a-f72a-1066f93779b9	gene	CYP2D6	pharmacogenome / CYP / CYP2 / CYP2D / CYP2D6	entity / gene
+000c0001-c3fa-1b2a-982a-61ef4f3779b9	gene	HLA-B	pharmacogenome / HLA / HLA-B	entity / gene
+000c0001-c3fa-ec2a-f72a-d69bfe3779b9	gene	CYP2C19	pharmacogenome / CYP / CYP2 / CYP2C / CYP2C19	entity / gene
+000c0001-c3fa-f92a-8f2a-ec80083779b9	gene	TPMT	pharmacogenome / TPMT / TPMT	entity / gene
+000c0002-c358-ec6f-f76f-d69bfe4cda56	allele	CYP2C19 *4	pharmacogenome / CYP / CYP2 / CYP2C / CYP2C19 / 4	allele / no_function
+000c0002-c358-ec6f-f76f-1066f96f7ace	allele	CYP2D6 *4	pharmacogenome / CYP / CYP2 / CYP2D / CYP2D6 / 4	allele / no_function
+000c0002-c358-1bd5-98d5-61ef4f6ef372	allele	HLA-B *57:01	pharmacogenome / HLA / HLA-B / 57_01	allele / uncertain_function
+000c0002-c358-ec6f-f76f-d69bfe558274	allele	CYP2C19 *2	pharmacogenome / CYP / CYP2 / CYP2C / CYP2C19 / 2	allele / no_function
+000c0002-c358-ecd8-f7d8-fbd6cbd5c622	allele	CYP2C9 *2	pharmacogenome / CYP / CYP2 / CYP2C / CYP2C9 / 2	allele / decreased_function
+000c0002-c358-ec07-f707-d69bfe3c1176	allele	CYP2C19 *1	pharmacogenome / CYP / CYP2 / CYP2C / CYP2C19 / 1	allele / normal_function
+000c0002-c358-ec6f-f76f-fbd6cb6b6a6d	allele	CYP2C9 *3	pharmacogenome / CYP / CYP2 / CYP2C / CYP2C9 / 3	allele / no_function
+000c0002-c358-ec07-f707-1066f9fd85b3	allele	CYP2D6 *1	pharmacogenome / CYP / CYP2 / CYP2D / CYP2D6 / 1	allele / normal_function
+000c0004-c347-ecb1-f7b1-1066f93779b9	phenotype	CYP2D6 Ultrarapid Metabolizer	pharmacogenome / CYP / CYP2 / CYP2D / CYP2D6 / phenotypes / ultrarapid_metabolizer	phenotype / ultrarapid_metabolizer
+000c0004-c347-ecb1-f7b1-1066f96ef372	phenotype	CYP2D6 Ultrarapid Metabolizer	pharmacogenome / CYP / CYP2 / CYP2D / CYP2D6 / phenotypes / ultrarapid_metabolizer	phenotype / ultrarapid_metabolizer
+000c0004-c347-ec7a-f77a-1066f9a66d2b	phenotype	CYP2D6 Normal Metabolizer	pharmacogenome / CYP / CYP2 / CYP2D / CYP2D6 / phenotypes / normal_metabolizer	phenotype / normal_metabolizer
+000c0004-c347-f9a8-8fa8-ec80083779b9	phenotype	TPMT Intermediate Metabolizer	pharmacogenome / TPMT / TPMT / phenotypes / intermediate_metabolizer	phenotype / intermediate_metabolizer
+000c0004-c347-f9e9-8fe9-ec80086ef372	phenotype	TPMT Poor Metabolizer	pharmacogenome / TPMT / TPMT / phenotypes / poor_metabolizer	phenotype / poor_metabolizer
+000c0004-c347-f9db-8fdb-ec8008a66d2b	phenotype	TPMT Indeterminate	pharmacogenome / TPMT / TPMT / phenotypes / indeterminate	phenotype / indeterminate
+000c0005-c3af-cb3e-233c-1c839f6ef372	drug	abacavir	pharmacogenome / drugs / abacavir	drug / J / J05 / J05A / J05AF / abacavir
+000c0005-c3af-cb0a-630d-1c7cd36ef372	drug	amitriptyline	pharmacogenome / drugs / amitriptyline	drug / N / N06 / N06A / N06AA / amitriptyline
+000c0005-c3af-cba6-3010-1c9137a66d2b	drug	warfarin	pharmacogenome / drugs / warfarin	drug / B / B01 / B01A / B01AA / warfarin
+000c0005-c3af-cba6-b610-1c9137bbcdc8	drug	clopidogrel	pharmacogenome / drugs / clopidogrel	drug / B / B01 / B01A / B01AC / clopidogrel
+000c0006-c7ee-454c-db4c-a2917a3779b9	recommendation	g100421 RxNorm:190521 [HLA-B:*57:01 negative] -> Strong	recommendations / g100421 / rxnorm_190521	recommendation / strong
+000c0006-c7ee-454c-db4c-a2917a6ef372	recommendation	g100421 RxNorm:190521 [HLA-B:*57:01 positive] -> Strong	recommendations / g100421 / rxnorm_190521	recommendation / strong
