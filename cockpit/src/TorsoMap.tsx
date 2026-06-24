@@ -30,10 +30,15 @@ interface NodesDoc { attribution: string; root: string; nodes: NodeRow[] }
 interface Spl2 {
   count: number;
   positions: Float32Array;
-  colors: Float32Array; // 0..1 rgb
-  rows: Float32Array; // node_row per gaussian
+  colors: Float32Array; // 0..1 rgb (flat per-structure tissue colour)
+  normals: Float32Array; // unit surface normal (drives lighting)
+  opacity: Float32Array; // 0..1 per-gaussian (depth-peel: wall translucent, organs solid)
+  rows: Float32Array; // node_row per gaussian (the O(1) switch key)
 }
 
+// SPL2 body (21 B): pos 3f | normal 3i8 | rgb 3u8 | opacity u8 | node_row u16.
+// Orientation: +90 about X, (x,y,z) -> (x,-z,y) — matches the bake/driver so the
+// body stands head-up (BodyParts3D model +Z is superior).
 function decodeSpl2(buf: ArrayBuffer): Spl2 {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
@@ -42,31 +47,47 @@ function decodeSpl2(buf: ArrayBuffer): Spl2 {
   const off = 40;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
+  const normals = new Float32Array(count * 3);
+  const opacity = new Float32Array(count);
   const rows = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     const b = off + i * 21;
-    // upright: (x,y,z) -> (x,z,-y)
-    positions[i * 3] = dv.getFloat32(b, true);
-    positions[i * 3 + 1] = dv.getFloat32(b + 8, true);
-    positions[i * 3 + 2] = -dv.getFloat32(b + 4, true);
+    const x = dv.getFloat32(b, true), y = dv.getFloat32(b + 4, true), z = dv.getFloat32(b + 8, true);
+    positions[i * 3] = x; positions[i * 3 + 1] = -z; positions[i * 3 + 2] = y;
+    const nx = dv.getInt8(b + 12) / 127, ny = dv.getInt8(b + 13) / 127, nz = dv.getInt8(b + 14) / 127;
+    normals[i * 3] = nx; normals[i * 3 + 1] = -nz; normals[i * 3 + 2] = ny;
     colors[i * 3] = dv.getUint8(b + 15) / 255;
     colors[i * 3 + 1] = dv.getUint8(b + 16) / 255;
     colors[i * 3 + 2] = dv.getUint8(b + 17) / 255;
+    opacity[i] = dv.getUint8(b + 18) / 255;
     rows[i] = dv.getUint16(b + 19, true);
   }
-  return { count, positions, colors, rows };
+  return { count, positions, colors, normals, opacity, rows };
 }
 
+// Lighting computed at the vertex from the baked surface normal — hemisphere
+// (sky/ground) ambient + key diffuse + soft fill, light fixed in object space so
+// the turntable stays consistently lit. Per-gaussian opacity carries the depth-peel
+// (wall/muscle translucent, deep organs/vessels/bone solid). Selection dims the rest.
 const VERT = `
 attribute vec3 aColor;
+attribute vec3 aNormal;
+attribute float aOpacity;
 attribute float aRow;
 uniform float uSelected;
 uniform float uSize;
 varying vec3 vColor;
-varying float vDim;
+varying float vAlpha;
 void main() {
-  vColor = aColor;
-  vDim = (uSelected < 0.0 || abs(aRow - uSelected) < 0.5) ? 1.0 : 0.16;
+  vec3 n = normalize(aNormal);
+  const vec3 L = vec3(-0.401, 0.783, 0.476);
+  float ndl = max(dot(n, L), 0.0);
+  float hemi = 0.34 + 0.20 * (n.y * 0.5 + 0.5);
+  float fill = 0.12 * (-n.x * 0.5 + 0.5);
+  float shade = min(hemi + fill + 0.92 * ndl, 1.3);
+  bool sel = uSelected < 0.0 || abs(aRow - uSelected) < 0.5;
+  vColor = aColor * shade * (sel ? 1.0 : 0.14);
+  vAlpha = aOpacity * (sel ? 1.0 : 0.5);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * mv;
   gl_PointSize = uSize * (1.0 / -mv.z);
@@ -74,12 +95,13 @@ void main() {
 const FRAG = `
 precision mediump float;
 varying vec3 vColor;
-varying float vDim;
+varying float vAlpha;
 void main() {
   vec2 c = gl_PointCoord - 0.5;
-  if (dot(c, c) > 0.25) discard;
-  float a = smoothstep(0.25, 0.05, dot(c, c));
-  gl_FragColor = vec4(vColor * vDim, a);
+  float d = dot(c, c);
+  if (d > 0.25) discard;
+  float a = smoothstep(0.25, 0.04, d) * vAlpha;
+  gl_FragColor = vec4(vColor, a);
 }`;
 
 function mount(
@@ -87,6 +109,7 @@ function mount(
   splat: Spl2,
   onPick: (row: number) => void,
   apiRef: { current: { select: (row: number) => void } | null },
+  onStats: (s: { fps: number; frac: number }) => void,
 ): () => void {
   let w = container.clientWidth || window.innerWidth;
   let h = container.clientHeight || window.innerHeight;
@@ -99,14 +122,29 @@ function mount(
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   container.appendChild(renderer.domElement);
 
+  // LazyLock: build the geometry ONCE; selection + throttle are uniforms / drawRange,
+  // never a rebuild or re-upload. A shuffled index makes a drawRange prefix a uniform
+  // spatial subsample, so adaptive decimation thins evenly (not by structure order).
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(splat.positions, 3));
   geom.setAttribute('aColor', new THREE.BufferAttribute(splat.colors, 3));
+  geom.setAttribute('aNormal', new THREE.BufferAttribute(splat.normals, 3));
+  geom.setAttribute('aOpacity', new THREE.BufferAttribute(splat.opacity, 1));
   geom.setAttribute('aRow', new THREE.BufferAttribute(splat.rows, 1));
+  const idx = new Uint32Array(splat.count);
+  for (let i = 0; i < splat.count; i++) idx[i] = i;
+  let s = 0x9e3779b9 >>> 0;
+  for (let i = splat.count - 1; i > 0; i--) {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    const j = s % (i + 1);
+    const t = idx[i]; idx[i] = idx[j]; idx[j] = t;
+  }
+  geom.setIndex(new THREE.BufferAttribute(idx, 1));
+  geom.setDrawRange(0, splat.count);
   const mat = new THREE.ShaderMaterial({
     vertexShader: VERT,
     fragmentShader: FRAG,
-    uniforms: { uSelected: { value: -1 }, uSize: { value: 4.2 } },
+    uniforms: { uSelected: { value: -1 }, uSize: { value: 4.6 } },
     transparent: true,
     depthWrite: true,
   });
@@ -137,8 +175,35 @@ function mount(
 
   apiRef.current = { select: (row: number) => { mat.uniforms.uSelected.value = row; } };
 
+  // Adaptive-FPS: an EMA of the frame time predicts next-frame cost; over the 60fps
+  // budget we thin the draw range (uniform subsample) + drop pixelRatio BEFORE the
+  // stutter lands, and recover when frames are cheap. Active fraction is surfaced —
+  // never silent decimation. This is the 602K-point mitigation in action.
   let raf = 0;
-  const tick = () => { raf = requestAnimationFrame(tick); controls.update(); renderer.render(scene, camera); };
+  let ema = 16.6;
+  let last = performance.now();
+  let active = splat.count;
+  let sinceStat = 0;
+  const tick = () => {
+    raf = requestAnimationFrame(tick);
+    const now = performance.now();
+    ema = ema * 0.9 + (now - last) * 0.1;
+    last = now;
+    if (ema > 22 && active > splat.count * 0.2) {
+      active = Math.max(Math.round(splat.count * 0.2), Math.round(active * 0.9));
+    } else if (ema < 15 && active < splat.count) {
+      active = Math.min(splat.count, Math.round(active * 1.05) + 2000);
+    }
+    geom.setDrawRange(0, active);
+    const pr = ema > 30 ? 1 : Math.min(window.devicePixelRatio, 2);
+    if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
+    controls.update();
+    renderer.render(scene, camera);
+    if (++sinceStat >= 20) {
+      sinceStat = 0;
+      onStats({ fps: Math.round(1000 / Math.max(ema, 1)), frac: active / splat.count });
+    }
+  };
   tick();
   const onResize = () => {
     w = container.clientWidth || window.innerWidth; h = container.clientHeight || window.innerHeight;
@@ -159,6 +224,7 @@ export function TorsoMap() {
   const [doc, setDoc] = useState<NodesDoc | null>(null);
   const [sel, setSel] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<{ fps: number; frac: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,7 +242,7 @@ export function TorsoMap() {
   useEffect(() => {
     const c = ref.current;
     if (!c || !splat) return;
-    return mount(c, splat, (row) => setSel(row), apiRef);
+    return mount(c, splat, (row) => setSel(row), apiRef, setStats);
   }, [splat]);
 
   useEffect(() => { apiRef.current?.select(sel ?? -1); }, [sel]);
@@ -220,6 +286,12 @@ export function TorsoMap() {
           click a structure — splat ↔ FMA, one node at one address
           {doc ? ` · ${owners.length} structures` : ''}
         </div>
+        {splat && (
+          <div style={{ opacity: 0.55, marginTop: 2 }}>
+            {splat.count.toLocaleString()} gaussians
+            {stats ? ` · ${stats.fps} fps · ${Math.round(stats.frac * 100)}% drawn (adaptive)` : ''}
+          </div>
+        )}
       </div>
 
       {error && (

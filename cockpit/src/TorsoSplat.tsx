@@ -25,6 +25,8 @@ interface Spl1 {
   bboxMax: [number, number, number];
   positions: Float32Array;
   colors: Uint8Array;
+  normals: Float32Array;
+  opacity: Float32Array;
 }
 
 // Decode the SPL2 wire (mirrors bake_torso_splat.py): little-endian
@@ -49,16 +51,22 @@ function decodeSpl1(buf: ArrayBuffer): Spl1 {
   const off = 40;
   const positions = new Float32Array(count * 3);
   const colors = new Uint8Array(count * 3);
+  const normals = new Float32Array(count * 3);
+  const opacity = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     const b = off + i * 21;
-    positions[i * 3] = dv.getFloat32(b, true);
-    positions[i * 3 + 1] = dv.getFloat32(b + 4, true);
-    positions[i * 3 + 2] = dv.getFloat32(b + 8, true);
+    // upright: +90 about X, (x,y,z) -> (x,-z,y) (matches bake/driver); normals too.
+    const x = dv.getFloat32(b, true), y = dv.getFloat32(b + 4, true), z = dv.getFloat32(b + 8, true);
+    positions[i * 3] = x; positions[i * 3 + 1] = -z; positions[i * 3 + 2] = y;
+    normals[i * 3] = dv.getInt8(b + 12) / 127;
+    normals[i * 3 + 1] = -dv.getInt8(b + 14) / 127;
+    normals[i * 3 + 2] = dv.getInt8(b + 13) / 127;
     colors[i * 3] = dv.getUint8(b + 15);
     colors[i * 3 + 1] = dv.getUint8(b + 16);
     colors[i * 3 + 2] = dv.getUint8(b + 17);
+    opacity[i] = dv.getUint8(b + 18) / 255;
   }
-  return { count, radius, bboxMin, bboxMax, positions, colors };
+  return { count, radius, bboxMin, bboxMax, positions, colors, normals, opacity };
 }
 
 interface Manifest {
@@ -69,24 +77,46 @@ interface Manifest {
   gaussians: number;
 }
 
-// A soft round sprite so each gaussian reads as a splat, not a hard square.
-function gaussianSprite(): THREE.CanvasTexture {
-  const s = 64;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = s;
-  const ctx = cv.getContext('2d')!;
-  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.5, 'rgba(255,255,255,0.85)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, s, s);
-  const tex = new THREE.CanvasTexture(cv);
-  tex.needsUpdate = true;
-  return tex;
-}
+// Lighting from the baked surface normal (hemisphere + diffuse + fill, light fixed
+// in object space) + per-gaussian depth-peel opacity. Same recipe as the CPU driver
+// and /torso-map, so all three views agree.
+const VERT = `
+attribute vec3 aColor;
+attribute vec3 aNormal;
+attribute float aOpacity;
+uniform float uSize;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vec3 n = normalize(aNormal);
+  const vec3 L = vec3(-0.401, 0.783, 0.476);
+  float ndl = max(dot(n, L), 0.0);
+  float hemi = 0.34 + 0.20 * (n.y * 0.5 + 0.5);
+  float fill = 0.12 * (-n.x * 0.5 + 0.5);
+  float shade = min(hemi + fill + 0.92 * ndl, 1.3);
+  vColor = aColor * shade;
+  vAlpha = aOpacity;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = uSize * (1.0 / -mv.z);
+}`;
+const FRAG = `
+precision mediump float;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vec2 c = gl_PointCoord - 0.5;
+  float d = dot(c, c);
+  if (d > 0.25) discard;
+  float a = smoothstep(0.25, 0.04, d) * vAlpha;
+  gl_FragColor = vec4(vColor, a);
+}`;
 
-function mount(container: HTMLDivElement, splat: Spl1): () => void {
+function mount(
+  container: HTMLDivElement,
+  splat: Spl1,
+  onStats: (s: { fps: number; frac: number }) => void,
+): () => void {
   let w = container.clientWidth || window.innerWidth;
   let h = container.clientHeight || window.innerHeight;
 
@@ -99,24 +129,32 @@ function mount(container: HTMLDivElement, splat: Spl1): () => void {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   container.appendChild(renderer.domElement);
 
+  // LazyLock: build the geometry ONCE; a shuffled index makes an adaptive drawRange
+  // prefix a uniform spatial subsample. Orientation is baked into the decode, so no
+  // points.rotation is needed (the body already stands head-up).
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(splat.positions, 3));
-  geom.setAttribute('color', new THREE.BufferAttribute(splat.colors, 3, true)); // u8 normalized
-
-  const sprite = gaussianSprite();
-  const mat = new THREE.PointsMaterial({
-    size: Math.max(splat.radius * 3.4, 0.012),
-    sizeAttenuation: true,
-    vertexColors: true,
-    map: sprite,
-    alphaTest: 0.28,
+  geom.setAttribute('aColor', new THREE.BufferAttribute(splat.colors, 3, true)); // u8 normalized
+  geom.setAttribute('aNormal', new THREE.BufferAttribute(splat.normals, 3));
+  geom.setAttribute('aOpacity', new THREE.BufferAttribute(splat.opacity, 1));
+  const idx = new Uint32Array(splat.count);
+  for (let i = 0; i < splat.count; i++) idx[i] = i;
+  let s = 0x9e3779b9 >>> 0;
+  for (let i = splat.count - 1; i > 0; i--) {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    const j = s % (i + 1);
+    const t = idx[i]; idx[i] = idx[j]; idx[j] = t;
+  }
+  geom.setIndex(new THREE.BufferAttribute(idx, 1));
+  geom.setDrawRange(0, splat.count);
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: VERT,
+    fragmentShader: FRAG,
+    uniforms: { uSize: { value: Math.max(splat.radius * 1400, 3.0) } },
     transparent: true,
     depthWrite: true,
   });
   const points = new THREE.Points(geom, mat);
-  // BodyParts3D's long axis (superior-inferior) is model +Z; stand it upright so
-  // the torso's height maps to world +Y.
-  points.rotation.x = -Math.PI / 2;
   scene.add(points);
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -128,11 +166,33 @@ function mount(container: HTMLDivElement, splat: Spl1): () => void {
   controls.minDistance = 0.6;
   controls.maxDistance = 12;
 
+  // Adaptive-FPS: EMA of the frame time thins the draw range (uniform subsample) +
+  // drops pixelRatio before a stutter lands, recovering when frames are cheap. The
+  // fixed autorotate is deterministic, so this also stays smooth and predictable.
   let raf = 0;
+  let ema = 16.6;
+  let last = performance.now();
+  let active = splat.count;
+  let sinceStat = 0;
   const tick = () => {
     raf = requestAnimationFrame(tick);
+    const now = performance.now();
+    ema = ema * 0.9 + (now - last) * 0.1;
+    last = now;
+    if (ema > 22 && active > splat.count * 0.2) {
+      active = Math.max(Math.round(splat.count * 0.2), Math.round(active * 0.9));
+    } else if (ema < 15 && active < splat.count) {
+      active = Math.min(splat.count, Math.round(active * 1.05) + 2000);
+    }
+    geom.setDrawRange(0, active);
+    const pr = ema > 30 ? 1 : Math.min(window.devicePixelRatio, 2);
+    if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
     controls.update();
     renderer.render(scene, camera);
+    if (++sinceStat >= 20) {
+      sinceStat = 0;
+      onStats({ fps: Math.round(1000 / Math.max(ema, 1)), frac: active / splat.count });
+    }
   };
   tick();
 
@@ -152,7 +212,6 @@ function mount(container: HTMLDivElement, splat: Spl1): () => void {
     controls.dispose();
     geom.dispose();
     mat.dispose();
-    sprite.dispose();
     renderer.dispose();
     if (renderer.domElement.parentNode === container) {
       container.removeChild(renderer.domElement);
@@ -165,6 +224,7 @@ export function TorsoSplat() {
   const [splat, setSplat] = useState<Spl1 | null>(null);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<{ fps: number; frac: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -182,7 +242,7 @@ export function TorsoSplat() {
   useEffect(() => {
     const container = ref.current;
     if (!container || !splat) return;
-    return mount(container, splat);
+    return mount(container, splat, setStats);
   }, [splat]);
 
   return (
@@ -200,6 +260,11 @@ export function TorsoSplat() {
                 ? ''
                 : 'loading torso.splat…'}
         </div>
+        {stats && (
+          <div style={{ opacity: 0.5, marginTop: 2 }}>
+            {stats.fps} fps · {Math.round(stats.frac * 100)}% drawn (adaptive)
+          </div>
+        )}
       </div>
 
       {error && (
