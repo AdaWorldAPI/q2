@@ -29,6 +29,7 @@ use tower_http::cors::CorsLayer;
 
 mod openai;
 mod graph_engine;
+mod clinical;
 mod osint_gotham;
 mod scene_player;
 mod shader_stream;
@@ -168,6 +169,8 @@ async fn main() {
         .route("/api/graph/snapshot", get(graph_engine::graph_snapshot_handler))
         .route("/api/graph/infer", post(graph_engine::nars_infer_handler))
         .route("/api/graph/health", get(graph_engine::graph_health_handler))
+        // Clinical NARS reasoning for the /fma-body organ panel (real TruthValue::deduction)
+        .route("/api/clinical/reason", post(clinical::clinical_reason_handler))
         // OSINT domain (classid 0x0700): the harvest as a CANON family-basin graph
         // (round→anchor basins, GUID-v2 tail), displayed via the OGAR ClassView.
         .route("/api/graph/osint", get(osint_gotham::osint_graph_handler))
