@@ -27,6 +27,7 @@ import { Chip } from './chipExtension';
 import { RichTextToolbar } from './RichTextToolbar';
 import type { AstNode, PoolEntry } from './ast';
 import { ensureRichTextStyles } from './styles';
+import { placeCaretFromClick } from './caretFromClick';
 
 function commitDestination(ctx: PreviewContextValue, resolved: ResolvedSource): string | null {
   if (ctx.editTargetRef !== undefined) {
@@ -151,6 +152,23 @@ export function RichTextEditor({
   // commit only when focus leaves it entirely, so focusing the toolbar's link
   // input keeps the session open.
   const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // bd-q9lyghv2 caret-at-click: at mount, consume the viewport coords of the
+  // mouse click that opened this editor (stashed by useBlockEditHover) and place
+  // the caret there via posAtCoords — so the FIRST click lands the cursor where
+  // the user clicked instead of at end-of-block (the autofocus:'end' fallback).
+  //
+  // Read-and-CLEAR exactly once: a self-heal re-anchor can remount this editor,
+  // but by then the document has reflowed and the captured coordinates are stale
+  // (the block moved on screen), so the remount must fall back to end-of-block
+  // rather than re-replay a now-wrong click. Nulling the ref here guarantees that.
+  useEffect(() => {
+    if (!editor) return;
+    const coords = ctx.pendingClickCoordsRef?.current ?? null;
+    if (ctx.pendingClickCoordsRef) ctx.pendingClickCoordsRef.current = null;
+    if (coords) placeCaretFromClick(editor, coords);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   // Keyboard: Esc cancels; Mod-Enter commits; plain Enter is swallowed (no split).
   // Commit: a focusout from the edit box (focus moved outside it) commits.

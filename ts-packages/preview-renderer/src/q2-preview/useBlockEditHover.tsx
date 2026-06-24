@@ -61,7 +61,7 @@ export function useBlockEditHover(): {
         hoveredRef.current = el;
     };
 
-    const activate = useCallback((el: Element, opts?: { keyboard?: boolean }) => {
+    const activate = useCallback((el: Element, opts?: { keyboard?: boolean; clickCoords?: { x: number; y: number } }) => {
         // P3.3: mode branch — unlocked uses the leaf (deepest pool-id),
         // locked uses resolveOuterBlock (collapses to outermost prefixing container).
         const outerBlock = ctx?.unlockNestingCursor
@@ -115,6 +115,13 @@ export function useBlockEditHover(): {
         // §7: write editExpandedRef at EVERY open so remounts read the correct value
         // and hops see false (reset) rather than stale true from a prior expand.
         if (ctx.editExpandedRef) ctx.editExpandedRef.current = expandOnOpen;
+        // bd-q9lyghv2 caret-at-click: stash (mouse) or clear (keyboard/touch) the
+        // opening click's viewport coords at the single open chokepoint — after the
+        // early-return guards above, so the ref always matches the editor that is
+        // about to mount and can never hold a stale click from an earlier session.
+        // RichTextEditor reads+clears it once at mount; a null ref means
+        // end-of-block (the keyboard/touch default).
+        if (ctx.pendingClickCoordsRef) ctx.pendingClickCoordsRef.current = opts?.clickCoords ?? null;
         ctx.setEditTarget({
             anchorR0,
             anchorR1,
@@ -250,10 +257,14 @@ export function useBlockEditHover(): {
         // G18 Layer 1: a dirty click-switch commits A in handleClickSwitchBlur and
         // closes its editor; B is then activated here unconditionally (no deferred
         // reland). self-heal re-anchors B after A's commit round-trips.
-        // Mouse click: activate.
+        // Mouse click: activate, carrying the click's viewport coords so the rich
+        // editor can land the caret where the user clicked (posAtCoords at mount)
+        // instead of at end-of-block. This is the single open site for BOTH
+        // fresh-open and click-switch (dirty-A click-switch re-opens B through here
+        // too), so it covers every mouse-opened editor.
         const el = findEditTarget(e);
         if (el) {
-            activate(el);
+            activate(el, { clickCoords: { x: e.clientX, y: e.clientY } });
         }
     }, [activate, ctx]);
 
