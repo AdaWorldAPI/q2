@@ -42,6 +42,7 @@ BodyParts3D meshes ──tissue (is_a tree)──► triangle rasterizer (z-buff
 | `converge` | **v3**: cascading-HHTL `(place:tissue)` **canonical NodeGuid** + `connected_to` edges → `guid/{guid_converged,nodes,edges}.tsv` |
 | `graph` | **v3 render**: SOLID triangle surface colored by `tissue`, with a GUID **prefix** that selects the subtree (`graph … 00000a02` = skeleton) → `graph/graph_<sel>.png` |
 | `cockpit_bake` | bake the full body → `cockpit/public/fma_body.mesh` (SPM1, opacity = layer id) for the **`/fma-body`** cockpit page (layer toggles + transparency) |
+| `soa_scan` | 1M-row SoA scalability PoC: key-only **prefix-route** scan vs full **value-decode** scan (~90× at 1M — the canon's *"prerender with zero value decode"*) |
 | `anchor` | compression study: cascade vs raw-cartesian vs Cartesian-Skeleton hybrid |
 
 ## Routes (`serve`)
