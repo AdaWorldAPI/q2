@@ -1,0 +1,39 @@
+{
+  "source": "BodyParts3D 4.0 (DBCLS) is_a OBJ, vertex-cluster decimated, smooth normals",
+  "license": "CC-BY 4.0 (site) / CC-BY-SA 2.1 JP (2013 files)",
+  "attribution": "BodyParts3D, (c) The Database Center for Life Science. Current site licence: CC-BY 4.0; 2013 mesh files embed CC-BY-SA 2.1 Japan.",
+  "format": "SPM1 (indexed triangle mesh: vert 21 B [pos 3f|normal 3i8|rgb 3u8|opacity u8|node_row u16] + tri 12 B [3x u32]); node SoA in torso.mesh.nodes.json",
+  "build": "filled smooth triangle surface, is_a tissue colour, k-NN-free (mesh)",
+  "concepts": 1658,
+  "verts": 594371,
+  "tris": 1397138,
+  "cell_mm": 3.6,
+  "bbox_min": [
+    -0.38476483821007973,
+    -0.1684113575739727,
+    -0.9999999999999998
+  ],
+  "bbox_max": [
+    0.38476483821007973,
+    0.16841135757397263,
+    0.9999999999999999
+  ],
+  "tissues": {
+    "flesh": 121,
+    "gland": 19,
+    "artery": 415,
+    "gi": 19,
+    "vein": 221,
+    "skin": 3,
+    "kidney": 7,
+    "nerve": 126,
+    "muscle": 382,
+    "heart": 22,
+    "viscus": 25,
+    "bone": 203,
+    "lung": 26,
+    "liver": 15,
+    "vessel": 4,
+    "cartilage": 50
+  }
+}
