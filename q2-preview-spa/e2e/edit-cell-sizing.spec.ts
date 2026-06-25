@@ -68,7 +68,12 @@ test.afterEach(async () => {
 });
 
 test('paragraph: active region height and following heading top unchanged on activation', async ({ page }) => {
-    await page.goto(server.url);
+    // Pin richText=0: these no-reflow tests use the textarea as the activation
+    // baseline (assertNoReflowOnActivation waits for a <textarea>). Since rich-text
+    // is the q2-preview default (bd-j1nto6eq), Para/Header would otherwise open in
+    // the rich editor and no textarea would mount. Same baseline pin as the
+    // hub-client e2e (bd-038tnyqy). Tracked: bd-n4v4phe4.
+    await page.goto(`${server.url}${server.url.includes('?') ? '&' : '?'}richText=0`);
     await waitForEditableBlocks(page);
     const iframe = page.frameLocator('iframe');
     await assertNoReflowOnActivation(
@@ -80,7 +85,12 @@ test('paragraph: active region height and following heading top unchanged on act
 });
 
 test('heading: active region height and following list top unchanged on activation', async ({ page }) => {
-    await page.goto(server.url);
+    // Pin richText=0: these no-reflow tests use the textarea as the activation
+    // baseline (assertNoReflowOnActivation waits for a <textarea>). Since rich-text
+    // is the q2-preview default (bd-j1nto6eq), Para/Header would otherwise open in
+    // the rich editor and no textarea would mount. Same baseline pin as the
+    // hub-client e2e (bd-038tnyqy). Tracked: bd-n4v4phe4.
+    await page.goto(`${server.url}${server.url.includes('?') ? '&' : '?'}richText=0`);
     await waitForEditableBlocks(page);
     const iframe = page.frameLocator('iframe');
     await assertNoReflowOnActivation(
@@ -92,7 +102,12 @@ test('heading: active region height and following list top unchanged on activati
 });
 
 test('paragraph above list: active region height and list top unchanged on activation', async ({ page }) => {
-    await page.goto(server.url);
+    // Pin richText=0: these no-reflow tests use the textarea as the activation
+    // baseline (assertNoReflowOnActivation waits for a <textarea>). Since rich-text
+    // is the q2-preview default (bd-j1nto6eq), Para/Header would otherwise open in
+    // the rich editor and no textarea would mount. Same baseline pin as the
+    // hub-client e2e (bd-038tnyqy). Tracked: bd-n4v4phe4.
+    await page.goto(`${server.url}${server.url.includes('?') ? '&' : '?'}richText=0`);
     await waitForEditableBlocks(page);
     const iframe = page.frameLocator('iframe');
     await assertNoReflowOnActivation(

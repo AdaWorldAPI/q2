@@ -193,7 +193,7 @@ describe('P3.2 SPA query param: ?nestingCursor=1 → iframe receives unlockNesti
     expect(mockRegenerateNestedBuffers).toHaveBeenCalledWith(CONTENT, AST);
   });
 
-  it('passes unlockNestingCursor: false (or absent) when no ?nestingCursor param', async () => {
+  it('passes unlockNestingCursor: true by default when no ?nestingCursor param (bd-9x3zbuj8)', async () => {
     Object.defineProperty(window, 'location', {
       value: {
         ...window.location,
@@ -214,8 +214,13 @@ describe('P3.2 SPA query param: ?nestingCursor=1 → iframe receives unlockNesti
     );
 
     const props = capturedIframeProps[capturedIframeProps.length - 1];
-    // No param → nestingCursor defaults to false → unlockNestingCursor should be false/absent.
-    expect(props?.unlockNestingCursor).toBeFalsy();
+    // The navigator is now default-ON (matching hub-client): no param ⇒
+    // unlockNestingCursor: true. It still self-gates on an edit target, so a
+    // read-only preview shows nothing.
+    expect(props?.unlockNestingCursor).toBe(true);
+    // On-path: with nestingCursor on AND non-empty content + AST, the nested
+    // buffer regen runs (same assertion as the ?nestingCursor=1 case).
+    expect(mockRegenerateNestedBuffers).toHaveBeenCalledWith(CONTENT, AST);
   });
 
   it('passes unlockNestingCursor: false when ?nestingCursor=0', async () => {

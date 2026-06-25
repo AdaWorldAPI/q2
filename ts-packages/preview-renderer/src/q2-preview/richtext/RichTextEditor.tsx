@@ -20,7 +20,8 @@ import Superscript from '@tiptap/extension-superscript';
 import type { Editor } from '@tiptap/core';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { PreviewContextValue, ResolvedSource } from './../PreviewContext';
-import { buildNestingCommitDestination } from './../nestingNav';
+import { buildNestingCommitDestination, buildAncestorPath } from './../nestingNav';
+import { BreadcrumbCrumbs } from './../BreadcrumbCrumbs';
 import { astToDoc } from './astToProseMirror';
 import { docToMarkdown } from './serializer';
 import { Chip } from './chipExtension';
@@ -224,12 +225,33 @@ export function RichTextEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
+  // Inline nesting breadcrumb (bd-9x3zbuj8 Task 2): when the nesting cursor is
+  // on, the hierarchy navigator renders to the RIGHT of the formatting buttons in
+  // the SAME toolbar row, instead of as a separate floating chip that would
+  // overlap the toolbar. The standalone BreadcrumbChip self-suppresses for this
+  // exact case (rich editor active for the target). Built here from the live edit
+  // target so it tracks nesting in/out moves.
+  const et = ctx.editTarget;
+  const inlineBreadcrumb =
+    ctx.unlockNestingCursor && et
+      ? (() => {
+          const crumbs = buildAncestorPath(ctx.sourceIndex, et.anchorR0, et.anchorR1);
+          if (crumbs.length === 0) return null;
+          return (
+            <BreadcrumbCrumbs
+              layout="inline"
+              displayItems={crumbs.map((crumb) => ({ kind: 'crumb' as const, crumb }))}
+            />
+          );
+        })()
+      : null;
+
   // The left-margin affordance (Editing… + rich/plain toggle) is rendered by
   // renderMeasuredEdit so it is shared with the plain-text surface. The
   // formatting toolbar is rich-only and lives here (it needs the editor).
   return (
     <div className="q2-richtext-editor" ref={rootRef}>
-      {editor && <RichTextToolbar editor={editor} />}
+      {editor && <RichTextToolbar editor={editor} trailing={inlineBreadcrumb} />}
       {editor && <EditorContent editor={editor} />}
     </div>
   );
