@@ -275,16 +275,21 @@ const CONNECTION_BANNER_STYLE: React.CSSProperties = {
 };
 
 /**
- * P3.2: parse `?nestingCursor=1` from the boot URL search string.
- * Returns true only when the param is exactly `"1"`. Read-at-load;
- * the SPA does not react to URL changes after mount.
+ * Parse `?nestingCursor` from the boot URL (P3.2; default flipped in
+ * bd-9x3zbuj8). The hierarchical block navigator (BreadcrumbChip) is now the
+ * DEFAULT in q2 preview, matching hub-client (which defaults the
+ * `unlockNestingCursor` preference on): only an explicit `?nestingCursor=0`
+ * opts OUT; an absent param, `?nestingCursor=1`, or any other value keeps it
+ * on. Read-at-load; the SPA does not react to URL changes after mount.
+ *
+ * Safe to default on globally: the navigator self-gates on an active edit
+ * target, so a read-only preview (no `--allow-edit`) never shows it.
  */
-function parseNestingCursorParam(search: string): boolean {
-  if (!search) return false;
+export function parseNestingCursorParam(search: string): boolean {
   try {
-    return new URLSearchParams(search).get('nestingCursor') === '1';
+    return new URLSearchParams(search).get('nestingCursor') !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 
