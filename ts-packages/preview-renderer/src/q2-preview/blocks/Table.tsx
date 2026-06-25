@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Node } from '../../framework';
+import { Node, dataLocProps } from '../../framework';
 import type { BlockNode, InlineNode, NodeArgs, TableBlock } from '../../framework';
 import { PreviewContext } from '../PreviewContext';
 
@@ -142,7 +142,7 @@ export const Table = (args: NodeArgs<TableBlock>) => {
     const [attr, [, captionBlocks], , [, headRows], bodies, [, footRows]] = c;
 
     return (
-        <table {...attrToProps(attr)} {...affordanceAttr}>
+        <table {...attrToProps(attr)} {...affordanceAttr} {...dataLocProps(node)}>
             {captionBlocks && captionBlocks.length > 0 && (
                 <caption>
                     {captionBlocks.map((b, i) => (

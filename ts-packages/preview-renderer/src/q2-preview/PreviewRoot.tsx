@@ -160,6 +160,11 @@ export interface PreviewRootProps {
      */
     unlockNestingCursor?: boolean;
     /**
+     * Phase 1a (bd-sjb4pzx8): opt-in rich-text (tiptap) block editor. When true,
+     * editable paragraphs render a WYSIWYG editor instead of the textarea.
+     */
+    richText?: boolean;
+    /**
      * P3.2: per-siKey clean QMD buffers for nested blocks, produced by
      * the host's `regenerateNestedBuffers` call. Undefined when off.
      */
@@ -186,6 +191,14 @@ export interface PreviewRootProps {
      */
     registerSlideNavigator?: (nav: ((index: number) => void) | null) => void;
     onSlideChange?: (slideIndex: number) => void;
+    /**
+     * Fired after React commits a new AST and layout settles, so the host
+     * can re-run editor→preview scroll sync against the fresh `data-loc`
+     * DOM (the cursor-driven scroll otherwise races the async render). In
+     * production `entry.tsx` wires this to post `AST_RENDERED` to the
+     * parent; tests can omit it.
+     */
+    onAstRendered?: () => void;
 }
 
 /**
@@ -247,10 +260,21 @@ export function PreviewRoot(props: PreviewRootProps) {
         leafAnchorR0?: number;
         seededDraft?: string;
     } | null>(null);
+    // Phase 1a (bd-sjb4pzx8): the active edit surface when richText is on.
+    // Session-sticky (persists until the user toggles), default 'rich'.
+    const [editorMode, setEditorMode] = useState<'rich' | 'plain'>('rich');
+    // True briefly during a rich/plain swap so the outgoing surface's
+    // unmount-blur doesn't commit/close the session (see PreviewContext).
+    const editorModeSwitchRef = useRef(false);
     // Root-held ref for the in-flight edit draft. Seeded with anchorSlice at
     // activation; reset to null on close. Referentially stable → no extra
     // re-renders from draft changes.
     const editDraftRef = useRef<string | null>(null);
+    // bd-q9lyghv2 caret-at-click: viewport coords of the mouse click that opened
+    // the current editor (null for keyboard/touch). Written by useBlockEditHover's
+    // onPointerUp; read+cleared once by RichTextEditor at mount to place the caret
+    // at the click via posAtCoords. Referentially stable → no extra re-renders.
+    const pendingClickCoordsRef = useRef<{ x: number; y: number } | null>(null);
     // §7 expand-on-edit: mirrors the expanded state of the current editor.
     // Written at EVERY open (activate / openEditTarget) so:
     //   - Remounts read the correct value (PRESERVED).
@@ -1382,6 +1406,16 @@ export function PreviewRoot(props: PreviewRootProps) {
         return () => cancelAnimationFrame(raf);
     }, [props.pendingAnchor, props.pendingAnchorEpoch, props.astJson, props.scrollToAnchor]);
 
+    // Notify the host once a new AST has committed and laid out, so it can
+    // re-run editor→preview scroll sync against the fresh `data-loc` DOM
+    // (bd-9kzfi). rAF defers to post-layout, matching the anchor scroll above.
+    const onAstRendered = props.onAstRendered;
+    useEffect(() => {
+        if (!onAstRendered) return;
+        const raf = requestAnimationFrame(() => onAstRendered());
+        return () => cancelAnimationFrame(raf);
+    }, [onAstRendered, props.astJson]);
+
     // Single merge site: built-in preview leaves + user overrides.
     const mergedPreviewRegistry: FormatRegistry = {
         ...previewRegistry,
@@ -1490,6 +1524,7 @@ export function PreviewRoot(props: PreviewRootProps) {
                 editTarget,
                 setEditTarget,
                 editDraftRef,
+                pendingClickCoordsRef,
                 editExpandedRef,
                 activeEditRegionRef,
                 editTargetRef,
@@ -1498,6 +1533,10 @@ export function PreviewRoot(props: PreviewRootProps) {
                 editingDisabled: props.editingDisabled,
                 unlockNestingCursor: props.unlockNestingCursor,
                 unlockNestingCursorRef,
+                richText: props.richText,
+                editorMode,
+                setEditorMode,
+                editorModeSwitchRef,
                 nestedEditBuffers: props.nestedEditBuffers,
                 requestMove,
                 pendingCaretRef,

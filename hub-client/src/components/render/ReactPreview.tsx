@@ -20,6 +20,8 @@ import { useAttribution } from '../../hooks/useAttribution';
 import { stripAnsi } from '@quarto/preview-renderer/utils/stripAnsi';
 import { PreviewErrorOverlay } from '@quarto/preview-renderer/overlays/PreviewErrorOverlay';
 import { usePreference } from '../../hooks/usePreference';
+import { useScrollSync } from '../../hooks/useScrollSync';
+import type { Q2PreviewIframeHandle } from '@quarto/preview-renderer/iframe/Q2PreviewIframe';
 import ReactRenderer from './ReactRenderer';
 
 /**
@@ -92,6 +94,13 @@ interface PreviewProps {
   currentSlideIndex?: number;
   onSlideChange?: (slideIndex: number) => void;
   onContentRewrite: (content: string) => void;
+  /**
+   * Register a deferred scroll-to-line with the parent (Editor.tsx) for
+   * replay. Scrubbing history scrolls the preview to the changed line through
+   * the same render-deferred mechanism as normal q2-preview editing, so it
+   * lands once against the fresh DOM instead of racing the async render.
+   */
+  onRegisterReplayScroll?: (fn: (line: number) => void) => void;
   format: string; // 'q2-slides', 'q2-debug', or 'q2-preview'
   /**
    * Automerge actor → display identity (name + colour). Consumed
@@ -407,6 +416,9 @@ export default function ReactPreview({
   files,
   fileContents,
   scrollSyncEnabled,
+  editorRef,
+  editorReady,
+  editorHasFocusRef,
   onFileChange,
   onOpenNewFileDialog,
   onDiagnosticsChange,
@@ -414,6 +426,7 @@ export default function ReactPreview({
   currentSlideIndex,
   onSlideChange,
   onContentRewrite,
+  onRegisterReplayScroll,
   format,
   identities,
   attributionOn,
@@ -431,6 +444,10 @@ export default function ReactPreview({
   // a per-siKey clean QMD buffer table; when off, that WASM pass is
   // completely unreachable.
   const [unlockNestingCursor] = usePreference('unlockNestingCursor');
+  // bd-j1nto6eq: rich-text editor preference (default-ON), forwarded to the
+  // q2-preview iframe so editable paragraphs/headings open the tiptap editor
+  // instead of the monospaced textarea.
+  const [richText] = usePreference('richText');
   // Track previewState in a ref for use in callbacks
   const previewStateRef = useRef<PreviewState>('START');
   useEffect(() => {
@@ -463,6 +480,35 @@ export default function ReactPreview({
       ),
     [unlockNestingCursor, rendered.renderedContent, rendered.untransformedAstJson],
   );
+
+  // Scroll sync (editor ↔ preview). Mirrors `Preview.tsx`: the q2-preview
+  // iframe exposes `scrollToLine` / `getScrollRatio` via this handle, and
+  // forwards its own scroll/click events through `handlePreviewScroll` /
+  // `handlePreviewClick`. Only the q2-preview format wires this; other
+  // React formats (q2-debug, slides) leave the handle unattached.
+  const previewScrollRef = useRef<Q2PreviewIframeHandle>(null);
+
+  const { handlePreviewScroll, handlePreviewClick, handleAstRendered, scrollToLineDeferred } = useScrollSync({
+    editorRef,
+    scrollPreviewToLine: (line: number) => {
+      previewScrollRef.current?.scrollToLine(line);
+    },
+    getPreviewScrollRatio: () => {
+      return previewScrollRef.current?.getScrollRatio() ?? null;
+    },
+    enabled: scrollSyncEnabled && editorReady,
+    editorHasFocusRef,
+    deferToRender: true,
+  });
+
+  // Register the deferred scroll-to-line with the parent (Editor.tsx) so
+  // replay scrubbing scrolls the preview to the changed line through the same
+  // render-deferred mechanism as normal q2-preview editing.
+  useEffect(() => {
+    onRegisterReplayScroll?.((line: number) => {
+      scrollToLineDeferred(line);
+    });
+  }, [onRegisterReplayScroll, scrollToLineDeferred]);
 
   // Three-way theme fingerprint (Plan 2A item 11):
   //   `undefined` → pre-first-render or render failed; iframe keeps
@@ -770,7 +816,12 @@ export default function ReactPreview({
             untransformedAstJson={rendered.untransformedAstJson}
             currentActor={getActorId()}
             unlockNestingCursor={unlockNestingCursor}
+            richText={richText}
             nestedEditBuffers={nestedEditBuffers}
+            scrollHandleRef={previewScrollRef}
+            onPreviewScroll={handlePreviewScroll}
+            onPreviewClick={handlePreviewClick}
+            onAstRendered={handleAstRendered}
           />
         ) : previewState === 'ERROR_AT_START' && currentError ? (
           <div style={{ padding: '20px', color: 'red' }}>

@@ -23,7 +23,7 @@ import { act } from '@testing-library/react';
 // NOT mock react-dom/client: we need the real render so the active doc is a
 // genuine reveal deck when UPDATE_THEME arrives.
 vi.mock('@revealjs/react', () => ({ Deck: () => null, Slide: () => null }));
-vi.mock('../../../../resources/revealjs/reset.css', () => ({}));
+vi.mock('../../../../resources/revealjs/reset-scoped.css', () => ({}));
 vi.mock('../../../../resources/revealjs/reveal.css', () => ({}));
 vi.mock('../../../../resources/revealjs/theme/white.css', () => ({}));
 vi.mock('../../../../resources/revealjs/quarto-reveal.css', () => ({}));

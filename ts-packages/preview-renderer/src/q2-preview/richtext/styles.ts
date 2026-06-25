@@ -1,0 +1,151 @@
+// Phase 1a (bd-sjb4pzx8) — one-time CSS for the rich-text editor.
+//
+// Goal: the editor should look like the rendered page. The heavy lifting is done
+// by the theme stylesheet already loaded in the iframe (it styles the editor's
+// <p>/<em>/<strong>/<a> for free). This sheet only (a) strips ProseMirror's
+// default editor chrome so it doesn't fight the theme, (b) zeroes the inner
+// block margin since the measured box already reproduces the block's spacing,
+// and (c) gives chips a subtle, source-token pill look.
+
+let injected = false;
+
+const CSS = `
+/* Left-margin edit affordance: the "Editing…" label + the rich/plain toggle,
+   parked in the margin (absolute, right-aligned against the edit box's left edge)
+   so it never overlaps the text. The label is inert; the toggle buttons are
+   interactive but use mousedown-preventDefault to avoid blurring the editor. */
+.q2-edit-affordance {
+  position: absolute;
+  right: calc(100% + 0.7rem);
+  top: 0;
+  text-align: right;
+  user-select: none;
+}
+.q2-edit-affordance-label {
+  font-size: 0.72rem;
+  line-height: 1.7;
+  font-style: italic;
+  white-space: nowrap;
+  color: rgba(59, 130, 246, 0.7);
+  pointer-events: none;
+}
+.q2-edit-mode-toggle {
+  margin-top: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+}
+.q2-edit-mode-toggle button {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0 0.15rem;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  color: rgba(100, 116, 139, 0.7);
+  border-right: 2px solid transparent;
+}
+.q2-edit-mode-toggle button:hover { color: rgba(59, 130, 246, 0.9); }
+.q2-edit-mode-toggle button.q2-edit-mode-active {
+  color: rgba(59, 130, 246, 1);
+  font-weight: 600;
+  border-right-color: rgba(59, 130, 246, 0.8);
+}
+
+.q2-richtext-editor { position: relative; }
+
+/* Formatting toolbar — a small box floating just above the top-left of the edit
+   box. Out of flow (absolute) so it never reflows the content; solid background
+   + shadow so it reads over whatever is behind it. */
+.q2-rt-toolbar {
+  position: absolute;
+  bottom: 100%;
+  left: -2px;
+  margin-bottom: 4px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 3px;
+  background: #fff;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  user-select: none;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+.q2-rt-tb-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  border-radius: 3px;
+  min-width: 1.6em;
+  padding: 0.25em 0.4em;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: #334155;
+}
+.q2-rt-tb-btn:hover { background: rgba(59, 130, 246, 0.12); }
+.q2-rt-tb-active { background: rgba(59, 130, 246, 0.18); color: rgb(37, 99, 235); }
+.q2-rt-tb-bold { font-weight: 700; }
+.q2-rt-tb-italic { font-style: italic; }
+.q2-rt-tb-strike { text-decoration: line-through; }
+.q2-rt-tb-sep { width: 1px; align-self: stretch; margin: 2px 2px; background: rgba(0, 0, 0, 0.12); }
+.q2-rt-link-editor { display: flex; align-items: center; gap: 2px; }
+.q2-rt-link-input {
+  font-size: 0.78rem;
+  padding: 0.15em 0.4em;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  width: 16rem;
+  max-width: 40vw;
+}
+
+.q2-richtext-editor .ProseMirror {
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  /* "Edit mode" affordance: the WYSIWYG render is faithful enough that the user
+     can't otherwise tell editing is live. A subtle tint + ring signals it. The
+     padding is cancelled by an equal negative margin so the text does NOT shift
+     (zero reflow) — only the tinted area extends slightly around the content. */
+  background: rgba(59, 130, 246, 0.08);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
+  border-radius: 3px;
+  padding: 2px 5px;
+  margin: -2px -5px;
+}
+.q2-richtext-editor .ProseMirror:focus { outline: none; }
+/* The measured edit box reproduces the original block's margin/padding; the
+   editor's own block must not add a second margin. */
+.q2-richtext-editor .ProseMirror > * { margin-top: 0; margin-bottom: 0; }
+
+/* Opaque source-token chips (v1: pills, not rendered). */
+.q2-chip {
+  font-family: var(--bs-font-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.85em;
+  background: rgba(120, 120, 160, 0.14);
+  border: 1px solid rgba(120, 120, 160, 0.30);
+  border-radius: 3px;
+  padding: 0 0.25em;
+  white-space: nowrap;
+  cursor: default;
+  user-select: all;
+}
+.q2-chip-math { background: rgba(80, 160, 120, 0.14); border-color: rgba(80, 160, 120, 0.30); }
+.q2-chip-cite, .q2-chip-shortcode { background: rgba(160, 120, 80, 0.14); border-color: rgba(160, 120, 80, 0.30); }
+`;
+
+/** Inject the rich-text editor stylesheet into the document head once. */
+export function ensureRichTextStyles(): void {
+  if (injected || typeof document === 'undefined') return;
+  injected = true;
+  const style = document.createElement('style');
+  style.setAttribute('data-q2-richtext', '1');
+  style.textContent = CSS;
+  document.head.appendChild(style);
+}

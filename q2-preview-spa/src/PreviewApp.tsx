@@ -202,6 +202,13 @@ interface PreviewAppState {
    */
   nestingCursor: boolean;
   /**
+   * Rich-text (tiptap) block editor (bd-sjb4pzx8). Now ON BY DEFAULT
+   * (bd-q9lyghv2 follow-up): read once at boot from `?richText`, where only an
+   * explicit `?richText=0` opts out. When true the SPA passes `richText` to the
+   * iframe so editable paragraphs render the WYSIWYG editor. Read-at-load only.
+   */
+  richText: boolean;
+  /**
    * IndexDocument V2 capture sidecar (Phase C.3) — path → CaptureRef
    * mapping. Populated by the server-side eager-capture driver (Phase
    * C.1) and read here by the render effect (Phase C.4) so the
@@ -282,6 +289,20 @@ function parseNestingCursorParam(search: string): boolean {
 }
 
 /**
+ * Parse `?richText` from the boot URL (bd-sjb4pzx8). The rich-text editor is now
+ * the DEFAULT (bd-q9lyghv2 follow-up): only an explicit `?richText=0` opts OUT;
+ * an absent param, `?richText=1`, or any other value keeps it on. Read-at-load;
+ * the SPA does not react to URL changes after mount.
+ */
+export function parseRichTextParam(search: string): boolean {
+  try {
+    return new URLSearchParams(search).get('richText') !== '0';
+  } catch {
+    return true;
+  }
+}
+
+/**
  * P3.2: module-level empty object returned by the nestedEditBuffers memo
  * when nestingCursor is off. Referentially stable so the iframe effect dep
  * never churns on an off-render.
@@ -348,6 +369,9 @@ function buildInitialState(): PreviewAppState {
     allowEdit: false,
     nestingCursor: typeof window !== 'undefined'
       ? parseNestingCursorParam(window.location.search)
+      : false,
+    richText: typeof window !== 'undefined'
+      ? parseRichTextParam(window.location.search)
       : false,
     bootAttempt: 1,
     bootLastError: null,
@@ -1249,6 +1273,8 @@ export default function PreviewApp() {
         editingDisabled={!state.allowEdit}
         // P3.2: nesting-cursor mode + per-key nested buffers.
         unlockNestingCursor={state.nestingCursor}
+        // Rich-text editor (bd-sjb4pzx8): on by default; `?richText=0` opts out.
+        richText={state.richText}
         nestedEditBuffers={nestedEditBuffers}
       />
       {showStaleOverlay && (

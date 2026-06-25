@@ -15,6 +15,13 @@ be in reverse chronological order (latest first).
 
 -->
 
+### 2026-06-24
+
+- [`0ccf989a`](https://github.com/quarto-dev/q2/commits/0ccf989a): The editor no longer auto-inserts a second backtick — typing `` ` `` at the end of a word to close inline code now adds just one backtick instead of two (selecting a word and typing `` ` `` still wraps it).
+- [`a6f16a1e`](https://github.com/quarto-dev/q2/commits/a6f16a1e): The live preview now opens paragraphs and headings in a rich-text (WYSIWYG) editor by default — click to edit formatted text instead of raw markdown. Toggle it off under Settings → "Rich-text editor"; other block types continue to use the plain text editor.
+- [`79ea2831`](https://github.com/quarto-dev/q2/commits/79ea2831): Fixed italic/emphasis text rendering upright in the preview — reveal.js's global CSS reset was leaking onto every document and zeroing `font-style` on `<em>`/`<i>`/`<cite>`; it is now scoped to slide decks only.
+- [`160c6607`](https://github.com/quarto-dev/q2/commits/160c6607): The AST preview (q2-preview) now keeps editor↔preview scroll in sync — moving the cursor scrolls the preview to that block, and scrolling the preview tracks back to the editor.
+
 ### 2026-06-23
 
 - [`9a48dd86`](https://github.com/quarto-dev/q2/commits/9a48dd86): Added full-text search to the file sidebar — type in the search box to find files in the open project by content (with highlighted match snippets) and click a result to open it.

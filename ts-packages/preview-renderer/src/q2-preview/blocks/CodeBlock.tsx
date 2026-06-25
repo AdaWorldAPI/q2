@@ -1,4 +1,5 @@
 import { Fragment, useContext, type ReactNode } from 'react';
+import { dataLocProps } from '../../framework';
 import type { CodeBlock as CodeBlockType, NodeArgs } from '../../framework';
 import { PreviewContext } from '../PreviewContext';
 import { sliceEncodedUtf8 } from '../../utils/sliceSource';
@@ -195,7 +196,7 @@ export const CodeBlock = ({ node }: NodeArgs<CodeBlockType>) => {
         const divClassName = ['sourceCode', ...extras].join(' ');
         const codeContainerClass = language ? `sourceCode ${language}` : 'sourceCode';
         return (
-            <div className={divClassName} {...(id ? { id } : {})} {...affordanceAttr}>
+            <div className={divClassName} {...(id ? { id } : {})} {...affordanceAttr} {...dataLocProps(node)}>
                 <pre className={codeContainerClass} {...preDataAttrs}>
                     <code className={codeContainerClass}>{renderHighlighted(code, spans)}</code>
                 </pre>
@@ -211,7 +212,7 @@ export const CodeBlock = ({ node }: NodeArgs<CodeBlockType>) => {
     if (id) preProps.id = id;
     if (classes.length) preProps.className = classes.join(' ');
     return (
-        <pre {...preProps} {...affordanceAttr}>
+        <pre {...preProps} {...affordanceAttr} {...dataLocProps(node)}>
             <code>{code}</code>
         </pre>
     );

@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Node, liItemAttrProps } from '../../framework';
+import { Node, liItemAttrProps, dataLocProps } from '../../framework';
 import type { BulletListBlock, NodeArgs } from '../../framework';
 import { IncrementalContext } from '../IncrementalContext';
 import { PreviewContext } from '../PreviewContext';
@@ -27,7 +27,7 @@ export const BulletList = (args: NodeArgs<BulletListBlock>) => {
 
     if (enabled) {
         return (
-            <ul>
+            <ul {...dataLocProps(args.node)}>
                 {args.node.c.map((item, i) => (
                     <li key={i} {...liItemAttrProps(args.node.itemAttr?.[i], incremental)}>
                         {item.map((block, j) => (
@@ -48,7 +48,7 @@ export const BulletList = (args: NodeArgs<BulletListBlock>) => {
     const isEditable = resolved != null && resolved.reachabilityClass !== 'Opaque' && poolId !== undefined && !ctx?.editingDisabled;
 
     return (
-        <ul {...(isEditable ? { 'data-block-pool-id': poolId, tabIndex: -1 } : {})}>
+        <ul {...(isEditable ? { 'data-block-pool-id': poolId, tabIndex: -1 } : {})} {...dataLocProps(args.node)}>
             {args.node.c.map((item, i) => {
                 // Per-item block attr (bd-aeyss6p5) applies to every <li>.
                 const itemAttrProps = liItemAttrProps(args.node.itemAttr?.[i], false);

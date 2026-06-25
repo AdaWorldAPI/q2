@@ -157,7 +157,7 @@ export const qmdMonarch: Monaco.languages.IMonarchLanguage = {
   },
 };
 
-const qmdLanguageConfiguration: Monaco.languages.LanguageConfiguration = {
+export const qmdLanguageConfiguration: Monaco.languages.LanguageConfiguration = {
   comments: { blockComment: ['<!--', '-->'] },
   brackets: [
     ['[', ']'],
@@ -168,7 +168,11 @@ const qmdLanguageConfiguration: Monaco.languages.LanguageConfiguration = {
     { open: '[', close: ']' },
     { open: '(', close: ')' },
     { open: '{', close: '}' },
-    { open: '`', close: '`' },
+    // NOTE: backtick is intentionally NOT auto-closed (bd-w1s38lbe). Monaco
+    // auto-closes only when the next char is whitespace/EOL, so wrapping an
+    // existing word — `` ` `` before it, then `` ` `` after it — doubled the
+    // trailing backtick. It stays in `surroundingPairs` below so typing `` ` ``
+    // over a selection still wraps it.
     { open: '"', close: '"' },
     { open: '$', close: '$' },
   ],

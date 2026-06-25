@@ -34,7 +34,7 @@ vi.mock('@revealjs/react', () => ({
     Deck: () => null,
     Slide: () => null,
 }));
-vi.mock('../../../../resources/revealjs/reset.css', () => ({}));
+vi.mock('../../../../resources/revealjs/reset-scoped.css', () => ({}));
 vi.mock('../../../../resources/revealjs/reveal.css', () => ({}));
 vi.mock('../../../../resources/revealjs/theme/white.css', () => ({}));
 vi.mock('../../../../resources/revealjs/quarto-reveal.css', () => ({}));

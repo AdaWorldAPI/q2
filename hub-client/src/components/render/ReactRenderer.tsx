@@ -1,8 +1,8 @@
 import { useMemo, useRef, useCallback, Component } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import type { FileEntry } from '@quarto/preview-renderer/types/project';
 import { Q2DebugIframe } from './q2-debug/Q2DebugIframe';
-import { Q2PreviewIframe } from '@quarto/preview-renderer/iframe/Q2PreviewIframe';
+import { Q2PreviewIframe, type Q2PreviewIframeHandle } from '@quarto/preview-renderer/iframe/Q2PreviewIframe';
 import { Q2RawIframe } from './q2-raw/Q2RawIframe';
 import { SlideAst } from './ReactAstSlideRenderer';
 import { transpileTSX } from '../../services/tsxTranspiler';
@@ -112,11 +112,26 @@ interface ReactRendererProps {
    */
   unlockNestingCursor?: boolean;
   /**
+   * bd-j1nto6eq: rich-text (tiptap) block editor. Forwarded to
+   * `Q2PreviewIframe` only (q2-debug/slides don't support it), exactly like
+   * `unlockNestingCursor`.
+   */
+  richText?: boolean;
+  /**
    * P3.2: per-siKey clean QMD buffers for nested blocks, produced by
    * `regenerateNestedBuffers` in `ReactPreview` (gated on
    * `unlockNestingCursor`). Forwarded to `Q2PreviewIframe` only.
    */
   nestedEditBuffers?: Record<string, string>;
+  /**
+   * Scroll-sync wiring, forwarded to `Q2PreviewIframe` only (the
+   * q2-preview format). The other formats (q2-debug, q2-slides,
+   * revealjs) don't participate in editor↔preview scroll sync.
+   */
+  scrollHandleRef?: Ref<Q2PreviewIframeHandle>;
+  onPreviewScroll?: () => void;
+  onPreviewClick?: () => void;
+  onAstRendered?: () => void;
 }
 
 /**
@@ -140,7 +155,12 @@ function ReactRenderer({
   untransformedAstJson,
   currentActor,
   unlockNestingCursor,
+  richText,
   nestedEditBuffers,
+  scrollHandleRef,
+  onPreviewScroll,
+  onPreviewClick,
+  onAstRendered,
 }: ReactRendererProps) {
   // Stable wrappers for Q2PreviewIframe props that are useEffect dependencies.
   //
@@ -301,9 +321,14 @@ function ReactRenderer({
             untransformedAstJson={untransformedAstJson}
             currentActor={currentActor}
             unlockNestingCursor={unlockNestingCursor}
+            richText={richText}
             nestedEditBuffers={nestedEditBuffers}
             currentSlideIndex={currentSlideIndex}
             onSlideChange={onSlideChange}
+            scrollHandleRef={scrollHandleRef}
+            onScroll={onPreviewScroll}
+            onClick={onPreviewClick}
+            onAstRendered={onAstRendered}
           />
         </div>
       </ErrorBoundary>
