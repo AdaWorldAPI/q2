@@ -55,30 +55,86 @@ The `command` binding wiring, not the programs themselves:
 Any platform-appropriate program that produces the same observable behavior
 satisfies these contracts.
 
-## Draft phases (skeleton — design not finalized)
+## Scope: 8 tests, not 3 (confirmed)
 
-- [ ] Phase 1: make the three tests hermetic / platform-aware
-  - [ ] `test_command_success`: Windows uses `cmd` + `["/C", "echo", "hello"]`; Unix keeps `echo`.
-  - [ ] `test_command_failure`: Windows uses `cmd` + `["/C", "exit", "1"]`; Unix keeps `false`.
-  - [ ] `test_command_with_input`: stdin echo. Windows candidate `cmd /C more` or `sort` (reads stdin, writes it back); Unix keeps `cat`. Needs a verified choice — see design questions.
+The same disease lives in a second crate. All confirmed failing from PowerShell
+(coreutils-free PATH) with `program not found`:
+
+`crates/pampa/src/lua/system.rs` (Lua binding layer):
+- `test_command_success` — `echo` — assert `contains("hello")` *(tolerant)*
+- `test_command_failure` — `false` — assert integer exit *(tolerant)*
+- `test_command_with_input` — `cat` — assert `contains(...)` *(tolerant)*
+
+`crates/quarto-system-runtime/src/native.rs` (runtime layer):
+- `test_exec_command_success` — `echo` — `contains` *(tolerant)*
+- `test_exec_command_failure` — `false` — `!success()` *(tolerant)*
+- `test_exec_pipe_failure` — `false` — expects `ProcessFailed` *(tolerant)*
+- `test_exec_command_with_stdin` — `cat` — **`assert_eq!(stdout, "input data")`** *(strict)*
+- `test_exec_pipe_success` — `cat` — **`assert_eq!(output, b"pipe input")`** *(strict)*
+
+The two **strict** stdin tests are the design wrinkle: no stock Windows program
+echoes stdin **verbatim** — `findstr`/`sort`/`more` all append `\r\n`. The
+runtime *does* pass bytes through unchanged (`exec_command` is byte-clean); the
+trailing CRLF is an artifact of the chosen Windows echo program, not the
+runtime. So the strict assertions must compare `trim_end()` (or `contains`) on
+Windows, otherwise the program's CRLF breaks an otherwise-correct round-trip.
+
+## Verified program choices (Windows)
+
+Tested from a coreutils-free shell — all exit 0, all round-trip the input:
+
+| Concept | Unix | Windows |
+|---|---|---|
+| print arg, exit 0 | `echo hello` | `cmd /C echo hello` |
+| nonzero exit | `false` | `cmd /C exit 1` |
+| echo stdin | `cat` | `findstr "^"` (matches every line, preserves order) |
+
+`cmd.exe`, `findstr.exe`, `sort.exe` are all in `C:\Windows\System32` — present
+on every Windows install. Chose `findstr "^"` over `sort` (sort reorders
+multi-line input; findstr preserves it — safer if a fixture grows).
+
+## Design (option A — cross-platform, keep Windows coverage)
+
+Per-crate, test-only `#[cfg]` helpers (the two crates can't share a helper
+without a new test-util dependency; duplication is two tiny functions):
+
+```rust
+// returns the program + args for "print hello, exit 0"
+#[cfg(not(windows))]
+fn echo_cmd() -> (&'static str, &'static [&'static str]) { ("echo", &["hello"]) }
+#[cfg(windows)]
+fn echo_cmd() -> (&'static str, &'static [&'static str]) { ("cmd", &["/C", "echo", "hello"]) }
+```
+
+(pampa's tests build a Lua string, so its helpers return the `command(...)`
+snippet instead; same cfg shape.)
+
+For the two **strict** stdin tests, swap the program via the helper AND relax
+the assertion to line-ending-tolerant:
+
+```rust
+assert_eq!(output.stdout_string().trim_end(), "input data");
+```
+
+A one-line doc comment on each helper explains why (Pandoc-compatible
+`exec_command` spawns directly with no shell; Unix coreutils are absent on a
+stock Windows box; the strict tests trim because the Windows echo program adds
+CRLF).
+
+## Phases
+
+- [ ] Phase 1 (TDD): confirm red, then fix
+  - [ ] Confirm the 8 tests fail from PowerShell (done — evidence above).
+  - [ ] pampa: cfg-helpers for the 3 `command` tests.
+  - [ ] native: cfg-helpers for the 5 exec tests; trim-compare the 2 strict ones.
 - [ ] Phase 2: verify
-  - [ ] Run the three tests from **PowerShell** (coreutils-free PATH) — must pass.
-  - [ ] Run from Git Bash — must still pass.
+  - [ ] All 8 pass from **PowerShell** (coreutils-free).
+  - [ ] All 8 still pass from **Git Bash**.
   - [ ] `cargo xtask verify --skip-hub-build`.
 
-## Design questions for Chris
+## Open question for Chris
 
-1. **Shape of the fix.** Platform-gate the command strings with
-   `cfg!(windows)` inside each test (smallest change), or factor a single
-   `#[cfg(windows)]` / `#[cfg(unix)]` helper returning `(cmd, args, input)`
-   tuples for the three cases (DRYer, one place to maintain)? Leaning toward
-   the helper since all three share the same pattern.
-2. **stdin-echo program on Windows.** `cmd /C more` mangles short input and
-   adds a trailing form-feed in some shells; `sort` with no args reads stdin and
-   echoes lines but reorders multi-line input (fine for the single-line test
-   fixture). Which do you want — `sort`, `more`, `findstr "^"`, or a different
-   approach? I'll verify the chosen one actually round-trips before committing.
-3. **Scope.** This strand is the three `command` tests only. While running the
-   full suite from PowerShell I can catch any *other* coreutils-dependent tests
-   in the same pass — want me to file those as separate strands (the Windows
-   test-fix campaign), or keep this one narrow?
+**Scope confirmation.** Fix all 8 here (one mechanical change, one root cause),
+or keep this strand to pampa's 3 and file the 5 `native.rs` ones as a linked
+sibling strand? I lean fix-all-8 — splitting leaves the workspace red on Windows
+for no benefit, and the fix is identical in shape.

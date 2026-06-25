@@ -519,6 +519,39 @@ mod tests {
         NativeRuntime::new()
     }
 
+    // exec_command/exec_pipe spawn the program directly with no shell, so these
+    // tests must name a program that exists on the platform. Unix coreutils
+    // (echo/false/cat) are not standalone executables on a stock Windows box, so
+    // Windows routes through cmd.exe / findstr.exe (both always present in
+    // System32). The runtime is byte-clean; the Windows echo program appends
+    // CRLF, which is why the stdin round-trip assertions trim trailing newlines.
+    #[cfg(not(windows))]
+    fn echo_cmd() -> (&'static str, &'static [&'static str]) {
+        ("echo", &["hello"])
+    }
+    #[cfg(windows)]
+    fn echo_cmd() -> (&'static str, &'static [&'static str]) {
+        ("cmd", &["/C", "echo", "hello"])
+    }
+
+    #[cfg(not(windows))]
+    fn false_cmd() -> (&'static str, &'static [&'static str]) {
+        ("false", &[])
+    }
+    #[cfg(windows)]
+    fn false_cmd() -> (&'static str, &'static [&'static str]) {
+        ("cmd", &["/C", "exit", "1"])
+    }
+
+    #[cfg(not(windows))]
+    fn cat_cmd() -> (&'static str, &'static [&'static str]) {
+        ("cat", &[])
+    }
+    #[cfg(windows)]
+    fn cat_cmd() -> (&'static str, &'static [&'static str]) {
+        ("findstr", &["^"])
+    }
+
     #[test]
     fn test_file_read_write() {
         let temp = TempFileTempDir::new().unwrap();
@@ -722,7 +755,8 @@ mod tests {
     fn test_exec_command_success() {
         let rt = runtime();
 
-        let output = rt.exec_command("echo", &["hello"], None).unwrap();
+        let (cmd, args) = echo_cmd();
+        let output = rt.exec_command(cmd, args, None).unwrap();
 
         assert!(output.success());
         assert!(output.stdout_string().contains("hello"));
@@ -732,7 +766,8 @@ mod tests {
     fn test_exec_command_failure() {
         let rt = runtime();
 
-        let output = rt.exec_command("false", &[], None).unwrap();
+        let (cmd, args) = false_cmd();
+        let output = rt.exec_command(cmd, args, None).unwrap();
 
         assert!(!output.success());
     }
@@ -741,26 +776,33 @@ mod tests {
     fn test_exec_command_with_stdin() {
         let rt = runtime();
 
-        let output = rt.exec_command("cat", &[], Some(b"input data")).unwrap();
+        let (cmd, args) = cat_cmd();
+        let output = rt.exec_command(cmd, args, Some(b"input data")).unwrap();
 
         assert!(output.success());
-        assert_eq!(output.stdout_string(), "input data");
+        // trim_end: the Windows echo program (findstr) appends CRLF; the runtime
+        // itself passes stdin through unchanged.
+        assert_eq!(output.stdout_string().trim_end(), "input data");
     }
 
     #[test]
     fn test_exec_pipe_success() {
         let rt = runtime();
 
-        let output = rt.exec_pipe("cat", &[], b"pipe input").unwrap();
+        let (cmd, args) = cat_cmd();
+        let output = rt.exec_pipe(cmd, args, b"pipe input").unwrap();
 
-        assert_eq!(output, b"pipe input");
+        // trim_end: the Windows echo program (findstr) appends CRLF; the runtime
+        // itself passes stdin through unchanged.
+        assert_eq!(String::from_utf8_lossy(&output).trim_end(), "pipe input");
     }
 
     #[test]
     fn test_exec_pipe_failure() {
         let rt = runtime();
 
-        let result = rt.exec_pipe("false", &[], b"");
+        let (cmd, args) = false_cmd();
+        let result = rt.exec_pipe(cmd, args, b"");
 
         assert!(matches!(result, Err(RuntimeError::ProcessFailed { .. })));
     }

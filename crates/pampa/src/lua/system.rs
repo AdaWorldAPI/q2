@@ -505,6 +505,26 @@ mod tests {
         (lua, runtime)
     }
 
+    // pandoc.system.command spawns the program directly with no shell (matching
+    // Pandoc), so these tests must name a program that exists on the platform.
+    // Unix coreutils (echo/false/cat) are not standalone executables on a stock
+    // Windows box, so Windows routes through cmd.exe / findstr.exe (both always
+    // present in System32).
+    #[cfg(not(windows))]
+    const ECHO_COMMAND: &str = "pandoc.system.command('echo', {'hello'})";
+    #[cfg(windows)]
+    const ECHO_COMMAND: &str = "pandoc.system.command('cmd', {'/C', 'echo', 'hello'})";
+
+    #[cfg(not(windows))]
+    const FALSE_COMMAND: &str = "pandoc.system.command('false', {})";
+    #[cfg(windows)]
+    const FALSE_COMMAND: &str = "pandoc.system.command('cmd', {'/C', 'exit', '1'})";
+
+    #[cfg(not(windows))]
+    const CAT_STDIN_COMMAND: &str = "pandoc.system.command('cat', {}, 'hello from stdin')";
+    #[cfg(windows)]
+    const CAT_STDIN_COMMAND: &str = "pandoc.system.command('findstr', {'^'}, 'hello from stdin')";
+
     #[test]
     fn test_os_and_arch() {
         let (lua, _) = create_test_lua();
@@ -686,10 +706,7 @@ mod tests {
     fn test_command_success() {
         let (lua, _) = create_test_lua();
 
-        let result: (Value, String, String) = lua
-            .load("pandoc.system.command('echo', {'hello'})")
-            .eval()
-            .unwrap();
+        let result: (Value, String, String) = lua.load(ECHO_COMMAND).eval().unwrap();
 
         // On success, first value should be false
         assert_eq!(result.0, Value::Boolean(false));
@@ -700,10 +717,7 @@ mod tests {
     fn test_command_failure() {
         let (lua, _) = create_test_lua();
 
-        let result: (Value, String, String) = lua
-            .load("pandoc.system.command('false', {})")
-            .eval()
-            .unwrap();
+        let result: (Value, String, String) = lua.load(FALSE_COMMAND).eval().unwrap();
 
         // On failure, first value should be the exit code
         match result.0 {
@@ -871,11 +885,8 @@ mod tests {
     fn test_command_with_input() {
         let (lua, _) = create_test_lua();
 
-        // Test command with stdin input (cat echoes back input)
-        let result: (Value, String, String) = lua
-            .load("pandoc.system.command('cat', {}, 'hello from stdin')")
-            .eval()
-            .unwrap();
+        // Test command with stdin input (the program echoes back stdin)
+        let result: (Value, String, String) = lua.load(CAT_STDIN_COMMAND).eval().unwrap();
 
         assert_eq!(result.0, Value::Boolean(false));
         assert!(result.1.contains("hello from stdin"));
