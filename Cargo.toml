@@ -20,6 +20,11 @@ exclude = [
     # in the same workspace graph. See
     # claude-notes/plans/2026-04-20-wasm-shim-merge.md.
     "crates/tree-sitter-language-wasm-shim",
+    # cpic — standalone pharmacogenomics crate (its own [workspace], serde +
+    # serde_json only). cockpit-server path-depends on it for the /cpic panel;
+    # excluding it here makes cargo treat it as a separate workspace root so the
+    # cross-boundary path dep resolves (else: "multiple workspace roots found").
+    "cpic",
 ]
 resolver = "2"
 

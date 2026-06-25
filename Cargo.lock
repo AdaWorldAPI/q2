@@ -53,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "aiwar-ingest"
-version = "0.4.1"
+version = "0.7.0"
 dependencies = [
  "regex",
  "serde",
@@ -1725,6 +1725,7 @@ dependencies = [
  "async-stream",
  "axum 0.7.9",
  "causal-edge",
+ "cpic",
  "deno_core",
  "futures-core",
  "include_dir",
@@ -1974,6 +1975,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9702aee5d1d744c01d82f6915644f950f898e014903385464c773b96fefdecb"
 dependencies = [
  "futures-io",
+]
+
+[[package]]
+name = "cpic"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -7170,7 +7179,7 @@ dependencies = [
 
 [[package]]
 name = "osint-bake"
-version = "0.4.1"
+version = "0.7.0"
 dependencies = [
  "aiwar-ingest",
  "lance-graph-contract",

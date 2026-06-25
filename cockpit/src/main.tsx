@@ -13,6 +13,7 @@ import { TorsoSplat } from './TorsoSplat';
 import { TorsoRender } from './TorsoRender';
 import { TorsoMap } from './TorsoMap';
 import { FmaBody } from './FmaBody';
+import { CpicCockpit } from './CpicCockpit';
 import { ReasoningPage } from './ReasoningPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/cockpit.css';
@@ -97,6 +98,11 @@ createRoot(document.getElementById('root')!).render(
               LAYER (skin/muscle/organ/skeleton/vessel/nerve buttons) + solid↔transparent.
               Additive; reads cockpit/public/fma_body.mesh; never touches /torso* (#57/#58). */}
           <Route path="/fma-body" element={<FmaBody />} />
+          {/* /cpic — CPIC pharmacogenomics cockpit (gene-first): {gene, diplotype, drug}
+              → phenotype → recommendation, 2-hop NARS deduction over the real CPIC tables
+              via POST /api/cpic/reason (the standalone cpic crate). Additive, gene-first
+              alternative to the organ-first /fma-body. */}
+          <Route path="/cpic" element={<CpicCockpit />} />
           {/* The Palantir JSON-graph cockpit (221 aiwar nodes) stays reachable
               at /palantir and as the catch-all for its own sub-routes. */}
           <Route path="/palantir" element={<PalantirApp />} />
