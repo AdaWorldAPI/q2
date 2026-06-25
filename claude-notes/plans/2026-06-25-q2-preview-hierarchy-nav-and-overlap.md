@@ -298,9 +298,17 @@ preference on, so describe accordingly. Task 2 affects both environments
 - [x] hub-client production build green; unit 662 + integration 76 green
 - [x] e2e verification in a real `q2 preview --allow-edit` session + screenshot
       (see below). Full q2-preview-spa e2e suite green (37 tests).
-- [ ] `hub-client/changelog.md` entry (two-commit workflow) — pending commit
+- [x] `hub-client/changelog.md` entry (commit df3287bf, referencing 15b9287c)
 - [ ] `cargo xtask verify --skip-hub-build` before push (Rust untouched; binary
       builds clean — `cargo build --bin q2` succeeded)
+
+## Commits (branch `braid/bd-9x3zbuj8-preview-hierarchy-nav-overlap`)
+
+- `15b9287c` feat(preview-renderer): inline nesting breadcrumb in the toolbar (Task 2)
+- `d73079be` feat(q2-preview): default the hierarchical block navigator ON (Task 1)
+- `ad18bf91` test(q2-preview e2e): pin richText=0 in edit-cell-sizing (bd-n4v4phe4)
+- `553ded66` docs(plan)
+- `df3287bf` docs(hub-client): changelog
 
 ## End-to-end verification record (2026-06-25)
 
