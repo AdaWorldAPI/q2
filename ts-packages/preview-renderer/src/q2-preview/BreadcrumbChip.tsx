@@ -53,8 +53,10 @@
 
 import React, { useContext, useLayoutEffect, useRef, useState } from 'react';
 import { PreviewContext } from './PreviewContext';
-import { buildAncestorPath, detectPlatform } from './nestingNav';
+import { buildAncestorPath, currentSourceNodeType } from './nestingNav';
 import type { AncestorCrumb } from './nestingNav';
+import { BreadcrumbCrumbs, type CrumbDisplayItem } from './BreadcrumbCrumbs';
+import { richEditorActiveForType } from './richTextSupport';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -81,16 +83,12 @@ export const MIN_GLYPH_W = 16;
  */
 export const CRUMB_W = 22;
 
-// ── Display item types ─────────────────────────────────────────────────────────
-
-// The crumb row fills a fixed band [◀.right, surfaceLeft] via flexbox, so items
-// carry no explicit width — they share the band equally (expand when few, shrink
-// when many; the middle ellipsizes once they no longer fit at MIN_GLYPH_W).
-type CrumbDisplayItem =
-    | { kind: 'crumb'; crumb: AncestorCrumb }
-    | { kind: 'ellipsis' };
-
 // ── Chip geometry (computed once per editTarget change) ────────────────────────
+//
+// The crumb row fills a fixed band [◀.right, surfaceLeft] via flexbox; the crumb
+// UI itself (◀ · band · ▶ · future) is rendered by the shared `BreadcrumbCrumbs`
+// component (also used inline in the rich-text toolbar — bd-9x3zbuj8 Task 2). This
+// file owns only the standalone POSITIONING geometry.
 
 interface ChipGeometry {
     /** chip top (px, relative to #quarto-content). */
@@ -186,7 +184,15 @@ export function BreadcrumbChip(): React.ReactElement | null {
     const [geom, setGeom] = useState<ChipGeometry | null>(null);
 
     const et = ctx?.editTarget;
-    const active = !!ctx?.unlockNestingCursor && !!et;
+    // Suppress the standalone floating chip when the rich-text editor is showing
+    // for this target — there the breadcrumb renders INLINE in the toolbar row
+    // instead (bd-9x3zbuj8 Task 2), so a standalone chip would double it up.
+    // currentSourceNodeType resolves the active node's type from the source index;
+    // richEditorActiveForType applies the same predicate the dispatcher uses to
+    // pick the rich surface (so this stays in lock-step with editorMode/richText).
+    const nodeType = et ? currentSourceNodeType(ctx?.sourceIndex, et.anchorR0, et.anchorR1) : null;
+    const richInlineActive = !!ctx && nodeType != null && richEditorActiveForType(ctx, nodeType);
+    const active = !!ctx?.unlockNestingCursor && !!et && !richInlineActive;
 
     // ── Geometry effect (Phase 3: content-plane anchor, no scroll listener) ───
     //
@@ -259,15 +265,14 @@ export function BreadcrumbChip(): React.ReactElement | null {
     if (!active || !et) return null;
 
     const crumbs = buildAncestorPath(ctx?.sourceIndex, et.anchorR0, et.anchorR1);
-    const platform = detectPlatform();
-    const outTip = platform === 'mac' ? 'Out (⌘⌃←)' : 'Out (Alt+Shift+←)';
-    const inTip = platform === 'mac' ? 'In (⌘⌃→)' : 'In (Alt+Shift+→)';
 
     // stopPropagation: the host (#quarto-content) carries delegated pointer
-    // handlers (useBlockEditHover); the chip must fully intercept its own pointer
-    // events so a chip click is never read as a leaf-reset/click-switch.
-    // preventDefault on pointerdown keeps the textarea focused (no blur-commit on
-    // a button press). [Real focus/blur + pointer-ordering: verified in P3.5.]
+    // handlers (useBlockEditHover); the standalone chip floats OUTSIDE the edit
+    // region, so it must fully intercept its own pointer events — a chip click
+    // must never be read as a leaf-reset/click-switch, and pointerdown must not
+    // blur-commit the textarea. (The inline rendering sits INSIDE the edit region,
+    // where the host's active-region guard already ignores it.)
+    // [Real focus/blur + pointer-ordering: verified in P3.5.]
     const eat = (e: React.PointerEvent) => { e.stopPropagation(); e.preventDefault(); };
 
     // Determine display items for the crumb row.
@@ -278,186 +283,43 @@ export function BreadcrumbChip(): React.ReactElement | null {
         ? geom.displayItems
         : crumbs.map((crumb) => ({ kind: 'crumb' as const, crumb }));
 
+    // The crumb styles (incl. `#quarto-content { position: relative }` that the
+    // geometry effect's offset-parent lookup relies on) are injected by
+    // BreadcrumbCrumbs via ensureBreadcrumbStyles(), rendered as our child below.
     return (
-        <>
-            <style>{`
-                /* Phase 3: make #quarto-content the chip's offset-parent.
-                   This creates a stacking context on the page-columns grid
-                   container (spans screen-start → screen-end). Risk is LOW:
-                   no position:fixed children inside #quarto-content; the
-                   attribution overlay renders outside it; sidebar/TOC/overlays
-                   have their own stacking contexts at the page-grid level.
-                   The chip's z-index:50 paints above sidebar(z≈1)/main(z=0). */
-                #quarto-content { position: relative; }
-
-                .q2-breadcrumb-chip {
-                    display: flex;
-                    align-items: center;
-                    gap: 0;
-                    pointer-events: auto;
-                    /* No horizontal padding: chipLeft + ◀ width + band width must sum
-                       exactly to surfaceLeft so the crumb row's right edge meets the
-                       pivot (computeChipGeometry pins it there). Vertical breathing
-                       only. The opaque fill (set below) gives the glyphs legibility
-                       over occluded content. */
-                    padding: 1px 0;
-                    /* G13: opaque pill — a very faint cool blue-grey (B highest,
-                       G a touch over R). The previous translucent white +
-                       backdrop-filter read as murky over occluded content; an opaque
-                       fill fully covers what's behind, so the filter is redundant. */
-                    background: rgb(243, 247, 250);
-                    border-radius: 4px;
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-                }
-                /* Fixed-width crumb band: [◀.right, surfaceLeft]. Crumbs flex to fill
-                   it (expand when few, shrink when many); width is set inline. */
-                .q2-breadcrumb-crumbs {
-                    display: flex;
-                    align-items: center;
-                    gap: 0;
-                    overflow: hidden;
-                }
-                .q2-crumb {
-                    border: none;
-                    background: transparent;
-                    font-size: 12px;
-                    padding: 1px 3px;
-                    cursor: pointer;
-                    color: inherit;
-                    line-height: 1.4;
-                    overflow: hidden;
-                    white-space: nowrap;
-                    text-overflow: ellipsis;
-                    text-align: center;
-                    /* Share the band equally; shrink below content width if needed. */
-                    flex: 1 1 0;
-                    min-width: 0;
-                }
-                .q2-crumb-current {
-                    font-weight: bold;
-                    text-decoration: underline;
-                }
-                .q2-crumb:not(.q2-crumb-current):hover {
-                    text-decoration: underline;
-                }
-                .q2-breadcrumb-out,
-                .q2-breadcrumb-in {
-                    border: none;
-                    background: transparent;
-                    font-size: 11px;
-                    padding: 1px 4px;
-                    cursor: pointer;
-                    color: #555;
-                    line-height: 1.4;
-                    border-radius: 3px;
-                    flex-shrink: 0;
-                }
-                .q2-breadcrumb-out:hover,
-                .q2-breadcrumb-in:hover {
-                    background: rgba(0,0,0,0.08);
-                }
-                .q2-crumb-cat-container { color: #4f46e5; }
-                .q2-crumb-cat-list      { color: #15803d; }
-                .q2-crumb-cat-quote     { color: #b45309; }
-                .q2-crumb-cat-leaf-text { color: #0284c7; }
-                .q2-crumb-cat-embed     { color: #0f766e; }
-                .q2-breadcrumb-future   { opacity: 0.4; }
-                .q2-crumb-ellipsis {
-                    font-size: 12px;
-                    padding: 1px 3px;
-                    color: #888;
-                    line-height: 1.4;
-                    flex: 0 0 auto;
-                    user-select: none;
-                }
-            `}</style>
-            {/* Phase 3d: position:absolute — never reflows; paints into outer margin
-                (no overflow:hidden on #quarto-content or page-columns ancestors). */}
-            <div
-                ref={chipRef}
-                className="q2-breadcrumb-chip"
-                data-testid="q2-breadcrumb-chip"
-                role="toolbar"
-                aria-label="Nesting breadcrumb"
-                onPointerDown={eat}
-                onPointerUp={(e) => e.stopPropagation()}
-                style={{
-                    position: 'absolute',
-                    // #quarto-content is a CSS grid (.page-columns). An abspos child
-                    // of a grid is contained by its GRID AREA, not the grid box — so
-                    // without this it auto-places into the body content column and
-                    // `left:0` resolves to the column edge (colLeft), unable to reach
-                    // the outer page margin. Spanning screen-start→screen-end makes the
-                    // grid area the full page width, so computed left/top (measured vs
-                    // #quarto-content) resolve against the full box and margin-spill works.
-                    gridColumn: 'screen-start / screen-end',
-                    gridRow: '1 / -1',
-                    top: geom ? `${geom.top}px` : undefined,
-                    // Left edge from computeChipGeometry (pivot-pinned left-spill):
-                    // surfaceLeft − ◀ − band, clamped to ≥ 0 at the page edge.
-                    left: geom ? `${geom.chipLeft}px` : undefined,
-                    zIndex: 50,
-                }}
-            >
-                {/* ◀ out-arrow — fixed width, sits in the left page margin. */}
-                <button
-                    type="button"
-                    className="q2-breadcrumb-out"
-                    title={outTip}
-                    aria-label={outTip}
-                    style={{ minWidth: `${MIN_GLYPH_W}px`, maxWidth: `${MIN_GLYPH_W}px`, flex: '0 0 auto' }}
-                    onPointerDown={(e) => e.preventDefault()}
-                    onClick={(e) => { e.stopPropagation(); ctx?.requestNestingMove?.('out'); }}
-                >◀</button>
-                {/* Crumb band — fixed width [◀.right, surfaceLeft]; crumbs flex to fill,
-                    so their right edge meets the surface left (the pivot). */}
-                <div
-                    className="q2-breadcrumb-crumbs"
-                    style={geom ? { width: `${geom.bandWidth}px`, flex: '0 0 auto' } : undefined}
-                >
-                    {displayItems.map((item, idx) => {
-                        if (item.kind === 'ellipsis') {
-                            return (
-                                <span
-                                    key={`ellipsis-${idx}`}
-                                    className="q2-crumb-ellipsis"
-                                    aria-hidden="true"
-                                >…</span>
-                            );
-                        }
-                        const c = item.crumb;
-                        return (
-                            <button
-                                key={`${c.r0}-${c.r1}`}
-                                type="button"
-                                className={[
-                                    'q2-crumb',
-                                    `q2-crumb-cat-${c.category}`,
-                                    c.isCurrent ? 'q2-crumb-current' : '',
-                                ].filter(Boolean).join(' ')}
-                                title={c.label}
-                                aria-label={c.label}
-                                aria-current={c.isCurrent ? 'true' : undefined}
-                                onPointerDown={(e) => e.preventDefault()}
-                                onClick={(e) => { e.stopPropagation(); ctx?.requestNestingSelect?.(c.r0, c.r1); }}
-                            >{c.abbrev}</button>
-                        );
-                    })}
-                </div>
-                {/* ▶ in-arrow + future-crumb placeholder — just right of the pivot
-                    (over the content). The placeholder reserves the successor plan's
-                    forward-crumb slot. */}
-                <button
-                    type="button"
-                    className="q2-breadcrumb-in"
-                    title={inTip}
-                    aria-label={inTip}
-                    style={{ flex: '0 0 auto' }}
-                    onPointerDown={(e) => e.preventDefault()}
-                    onClick={(e) => { e.stopPropagation(); ctx?.requestNestingMove?.('in'); }}
-                >▶</button>
-                <span className="q2-breadcrumb-future" />
-            </div>
-        </>
+        // Phase 3d: position:absolute — never reflows; paints into outer margin
+        // (no overflow:hidden on #quarto-content or page-columns ancestors).
+        <div
+            ref={chipRef}
+            className="q2-breadcrumb-chip"
+            data-testid="q2-breadcrumb-chip"
+            role="toolbar"
+            aria-label="Nesting breadcrumb"
+            onPointerDown={eat}
+            onPointerUp={(e) => e.stopPropagation()}
+            style={{
+                position: 'absolute',
+                // #quarto-content is a CSS grid (.page-columns). An abspos child
+                // of a grid is contained by its GRID AREA, not the grid box — so
+                // without this it auto-places into the body content column and
+                // `left:0` resolves to the column edge (colLeft), unable to reach
+                // the outer page margin. Spanning screen-start→screen-end makes the
+                // grid area the full page width, so computed left/top (measured vs
+                // #quarto-content) resolve against the full box and margin-spill works.
+                gridColumn: 'screen-start / screen-end',
+                gridRow: '1 / -1',
+                top: geom ? `${geom.top}px` : undefined,
+                // Left edge from computeChipGeometry (pivot-pinned left-spill):
+                // surfaceLeft − ◀ − band, clamped to ≥ 0 at the page edge.
+                left: geom ? `${geom.chipLeft}px` : undefined,
+                zIndex: 50,
+            }}
+        >
+            <BreadcrumbCrumbs
+                layout="standalone"
+                displayItems={displayItems}
+                bandWidth={geom?.bandWidth}
+            />
+        </div>
     );
 }

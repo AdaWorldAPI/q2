@@ -13,7 +13,7 @@
 // input DOES take focus; the editor's commit is scoped to "focus left the whole
 // edit box" (see RichTextEditor), so focusing the input keeps the session open.
 
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/core';
 
 interface MarkSpec {
@@ -30,7 +30,15 @@ const MARKS: MarkSpec[] = [
   { name: 'superscript', label: 'x²', title: 'Superscript' },
 ];
 
-export function RichTextToolbar({ editor }: { editor: Editor }) {
+export function RichTextToolbar({
+  editor,
+  trailing,
+}: {
+  editor: Editor;
+  /** Optional content rendered at the END of the toolbar row, after a separator
+   *  (bd-9x3zbuj8 Task 2: the inline nesting breadcrumb). */
+  trailing?: ReactNode;
+}) {
   // Re-render on selection/content changes so isActive() highlights stay current.
   const [, force] = useState(0);
   useEffect(() => {
@@ -145,6 +153,12 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
             <button type="button" className="q2-rt-tb-btn" title="Remove link" onMouseDown={(e) => { e.preventDefault(); removeLink(); }}>✕</button>
           )}
         </div>
+      )}
+      {trailing != null && (
+        <>
+          <span className="q2-rt-tb-sep" />
+          {trailing}
+        </>
       )}
     </div>
   );

@@ -15,6 +15,7 @@ import { buildNestingCommitDestination, classifyNestingKey, detectPlatform } fro
 import { editBaseline } from './outerBlocks';
 import { RichTextEditor } from './richtext/RichTextEditor';
 import { EditAffordance } from './richtext/EditAffordance';
+import { richTextAvailable } from './richTextSupport';
 
 // P3.3 §3b: detect platform once at module load so classifyNestingKey can
 // distinguish mac (Cmd+Ctrl) from other (Alt+Shift) nesting chords.
@@ -505,16 +506,8 @@ function renderBlockTextarea(
     return <EditTextarea ctx={ctx} resolved={resolved} />;
 }
 
-/**
- * Block types the rich-text editor can handle. Everything else falls back to the
- * textarea even when `richText` is on. 1a: Para. 1b: + Header. (1c: lists/quotes.)
- */
-const RICHTEXT_SUPPORTED_TYPES = new Set<string>(['Para', 'Header']);
-
-/** True when the rich editor is available for this block (flag on + supported type). */
-function richTextAvailable(ctx: PreviewContextValue, sourceNodeType: string): boolean {
-    return !!ctx.richText && RICHTEXT_SUPPORTED_TYPES.has(sourceNodeType);
-}
+// `RICHTEXT_SUPPORTED_TYPES` / `richTextAvailable` live in the leaf module
+// `richTextSupport.ts` (shared with the breadcrumb, no import cycle).
 
 /**
  * Which edit surface to render for the active block: the tiptap editor when rich
