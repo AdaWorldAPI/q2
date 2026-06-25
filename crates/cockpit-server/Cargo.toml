@@ -49,6 +49,10 @@ notebook-query.workspace = true
 # AIwar renderer — loads graph data into the engine
 aiwar-ingest = { path = "../aiwar-ingest" }
 
+# CPIC pharmacogenomics — standalone crate (serde + serde_json only, NO lance
+# closure). Provides cpic::reason over the baked CPIC tables for the /cpic panel.
+cpic = { path = "../../cpic" }
+
 # ── Quarto rendering pipeline ───────────────────────────────────────
 # pampa parses .qmd, quarto-core renders, deno_core executes JS/TS cells
 quarto-core.workspace = true
