@@ -17,6 +17,7 @@ be in reverse chronological order (latest first).
 
 ### 2026-06-25
 
+- [`d6066dc9`](https://github.com/quarto-dev/q2/commits/d6066dc9): The editing toolbar (and breadcrumb navigator) no longer gets cut off when you edit the very first block of a document with no title — it now flips below the block when there isn't room above.
 - [`15b9287c`](https://github.com/quarto-dev/q2/commits/15b9287c): The block-hierarchy navigator (◀ Dv ¶ ▶) now sits inline to the right of the rich-text formatting buttons instead of overlapping them, and `q2 preview --allow-edit` shows the navigator by default (matching the hub editor).
 
 ### 2026-06-24
