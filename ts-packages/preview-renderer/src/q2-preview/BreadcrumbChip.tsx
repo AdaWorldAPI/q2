@@ -57,6 +57,10 @@ import { buildAncestorPath, currentSourceNodeType } from './nestingNav';
 import type { AncestorCrumb } from './nestingNav';
 import { BreadcrumbCrumbs, type CrumbDisplayItem } from './BreadcrumbCrumbs';
 import { richEditorActiveForType } from './richTextSupport';
+import { shouldPlaceChromeBelow } from './editChromeGeometry';
+
+/** Gap (px) between the chip and the surface when flipped below it (bd-pvcnea83). */
+const CHIP_FLIP_GAP = 4;
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -255,9 +259,20 @@ export function BreadcrumbChip(): React.ReactElement | null {
         );
         const displayItems = selectDisplayItems(crumbs, slots);
 
-        // --- Chip top: bottom edge flush at surface top ---
+        // --- Chip top: above the surface by default; flip below when clipped ---
+        // Default: bottom edge flush at the surface top (top = surfaceTop − chipH).
+        // But for a surface flush against the viewport top (e.g. the first block of
+        // a title-less document) that lands above the scroll area and is cropped, so
+        // flip BELOW the surface instead (bd-pvcnea83). Decide from the surface's
+        // viewport-relative top (sRect.top), guarded on real geometry so jsdom's
+        // zero-rects keep the default 'above' placement.
         const chipH = chipRef.current?.getBoundingClientRect().height ?? 0;
-        const top = surfaceTop - chipH;
+        const haveRealGeometry = sRect.height > 0;
+        const flipBelow = haveRealGeometry
+            && shouldPlaceChromeBelow(sRect.top, chipH, CHIP_FLIP_GAP);
+        const top = flipBelow
+            ? (sRect.bottom - hostRect.top) + CHIP_FLIP_GAP // below the surface
+            : surfaceTop - chipH;                           // above (default)
 
         setGeom({ top, chipLeft, bandWidth, displayItems });
     }, [active, et?.anchorR0, et?.anchorR1, ctx?.activeEditRegionRef, ctx?.sourceIndex]);

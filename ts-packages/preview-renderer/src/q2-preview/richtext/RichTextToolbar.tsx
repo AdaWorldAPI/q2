@@ -13,8 +13,12 @@
 // input DOES take focus; the editor's commit is scoped to "focus left the whole
 // edit box" (see RichTextEditor), so focusing the input keeps the session open.
 
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/core';
+import { shouldPlaceChromeBelow } from '../editChromeGeometry';
+
+/** Gap (px) between the toolbar and the edit box, matching the CSS margin. */
+const TOOLBAR_GAP = 4;
 
 interface MarkSpec {
   name: string;
@@ -50,6 +54,26 @@ export function RichTextToolbar({
       editor.off('transaction', bump);
     };
   }, [editor]);
+
+  // Vertical placement (bd-pvcnea83): the toolbar floats ABOVE the edit box by
+  // default, but flips BELOW when there isn't room above (e.g. editing the first
+  // block of a title-less document, flush against the viewport top — otherwise it
+  // is clipped above the scroll area, with no way to scroll up to it).
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const [placeBelow, setPlaceBelow] = useState(false);
+  useLayoutEffect(() => {
+    const tb = toolbarRef.current;
+    const box = tb?.closest('.q2-richtext-editor');
+    if (!tb || !box) return;
+    const height = tb.offsetHeight;
+    // Degenerate layout (jsdom zero-rects): keep the default 'above' placement.
+    if (height <= 0) return;
+    const surfaceTop = box.getBoundingClientRect().top;
+    setPlaceBelow(shouldPlaceChromeBelow(surfaceTop, height, TOOLBAR_GAP));
+    // Mount-only: the toolbar remounts per edit target, and the edit box's top is
+    // stable for a given target, so a single measurement suffices.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -103,7 +127,11 @@ export function RichTextToolbar({
   };
 
   return (
-    <div className="q2-rt-toolbar" contentEditable={false}>
+    <div
+      ref={toolbarRef}
+      className={`q2-rt-toolbar${placeBelow ? ' q2-rt-toolbar-below' : ''}`}
+      contentEditable={false}
+    >
       {!linkOpen ? (
         <>
           {MARKS.map((m) => (
