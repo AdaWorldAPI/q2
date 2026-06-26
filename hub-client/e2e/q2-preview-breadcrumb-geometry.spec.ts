@@ -65,11 +65,14 @@ test.describe('Phase 4 — Breadcrumb chip geometry (real browser)', () => {
     });
 
     // -------------------------------------------------------------------------
-    // Existing vertical test (P3.5 tier i item 1) — kept byte-for-byte.
-    // Guards: chip sits above the active edit surface, never occluding line 1.
+    // Vertical placement at the top of the document (P3.5 tier i item 1).
+    // The first block is flush against the viewport top, so there is no room
+    // ABOVE it for the chip — it must flip BELOW the edit surface rather than be
+    // clipped above the scroll area (bd-pvcnea83). Guards: chip flipped below,
+    // anchored near the surface bottom, and never clipped above the viewport.
     // -------------------------------------------------------------------------
 
-    test('chip sits above the active edit surface, never occluding line 1', async ({ page }) => {
+    test('chip flips below the edit surface at the document top (uncropped, never occluding the edited text)', async ({ page }) => {
         // Enable the nesting-cursor BEFORE any navigation — addInitScript re-applies
         // on every document load, including the iframe.
         await page.addInitScript(() => {
@@ -129,36 +132,113 @@ test.describe('Phase 4 — Breadcrumb chip geometry (real browser)', () => {
         // TypeScript narrowing (already asserted above).
         if (!chipBox || !taBox) throw new Error('impossible — asserted above');
 
+        const surfaceBottom = taBox.y + taBox.height;
         console.log(
             `Chip box: y=${chipBox.y.toFixed(2)}, bottom=${(chipBox.y + chipBox.height).toFixed(2)}, height=${chipBox.height.toFixed(2)}\n` +
-            `Textarea box: y=${taBox.y.toFixed(2)}`,
+            `Textarea box: y=${taBox.y.toFixed(2)}, bottom=${surfaceBottom.toFixed(2)}`,
         );
 
-        // Step 5: assertions.
+        // Step 5: assertions (bd-pvcnea83 — flipped-below placement at the top).
         const TOL = 2;
 
-        // (a) Chip bottom is AT OR ABOVE surface top — never occludes line 1.
+        // (a) Chip top is AT OR BELOW the surface bottom — the chip flipped below the
+        //     edit box (no room above at the document top), so it never overlaps the
+        //     edited text.
         expect(
-            chipBox.y + chipBox.height,
-            `chip bottom (${(chipBox.y + chipBox.height).toFixed(2)}) must be ≤ textarea top (${taBox.y.toFixed(2)}) + ${TOL}px tolerance`,
-        ).toBeLessThanOrEqual(taBox.y + TOL);
+            chipBox.y,
+            `chip top (${chipBox.y.toFixed(2)}) must be ≥ surface bottom (${surfaceBottom.toFixed(2)}) − ${TOL}px — flipped below, not overlapping the surface`,
+        ).toBeGreaterThanOrEqual(surfaceBottom - TOL);
 
-        // (b) Chip bottom is anchored close to the surface top (not floating far above).
+        // (b) Chip is anchored close to the surface bottom (not floating far below).
         //     The gap must be less than ~one chip-gap (12 px) so the chip is still
         //     visually attached and the useLayoutEffect positioning is doing real work.
         expect(
-            taBox.y - (chipBox.y + chipBox.height),
-            `chip must be anchored near the surface top — gap (${(taBox.y - (chipBox.y + chipBox.height)).toFixed(2)}px) must be < 12px`,
+            chipBox.y - surfaceBottom,
+            `chip must be anchored near the surface bottom — gap (${(chipBox.y - surfaceBottom).toFixed(2)}px) must be < 12px`,
         ).toBeLessThan(12);
 
-        // (c) At the document top, the chip sits in the page margin (not clipped above
-        //     the viewport — `top` is clamped to ≥ 0 in real CSS).
+        // (c) The chip is not clipped above the viewport top (the whole point of the
+        //     flip — `top` is ≥ 0 in real CSS).
         expect(
             chipBox.y,
             `chip top (${chipBox.y.toFixed(2)}) must be ≥ 0 — not clipped above the viewport`,
         ).toBeGreaterThanOrEqual(0);
 
         // Step 6: close the editor.
+        await iframe.locator('textarea').first().press('Escape');
+    });
+
+    // -------------------------------------------------------------------------
+    // Companion to the above: the flip is CONDITIONAL. When a block has room
+    // above it (not at the document top), the chip stays in its default ABOVE
+    // placement — proving bd-pvcnea83 only flips when there isn't room, rather
+    // than always rendering below.
+    // -------------------------------------------------------------------------
+
+    test('chip stays above the edit surface when there is room above (non-top block)', async ({ page }) => {
+        await page.addInitScript(() => {
+            localStorage.setItem('quarto-hub:preferences', JSON.stringify({
+                version: 1,
+                scrollSyncEnabled: true,
+                errorOverlayCollapsed: true,
+                colorScheme: 'auto',
+                unlockNestingCursor: true,
+            }));
+        });
+
+        const serverUrl = getServerUrl();
+        // A title plus several paragraphs gives a later paragraph ample headroom
+        // above it, so the chip is NOT clipped and keeps its default above placement.
+        const QMD = [
+            '---',
+            'title: With a title',
+            'format: q2-preview',
+            '---',
+            '',
+            'Para one.',
+            '',
+            'Para two.',
+            '',
+            'Para three.',
+            '',
+            'Para four.',
+            '',
+        ].join('\n');
+
+        const docId = await createProjectOnServer(serverUrl, [
+            { path: '_quarto.yml', content: 'project:\n  type: default\n', contentType: 'text' },
+            { path: 'breadcrumb-above.qmd', content: QMD, contentType: 'text' },
+        ]);
+
+        const iframe = await openFile(page, serverUrl, docId, 'breadcrumb-above.qmd');
+
+        // Edit a LATER paragraph (index 2 → "Para three.") — well below the top.
+        await iframe.locator('p[data-block-pool-id]').nth(2).click();
+        await iframe.locator('textarea').first().waitFor({ timeout: 10_000 });
+        const chip = iframe.locator('[data-testid="q2-breadcrumb-chip"]');
+        await chip.waitFor({ timeout: 5000 });
+
+        const chipBox = await chip.boundingBox();
+        const taBox = await iframe.locator('textarea').first().boundingBox();
+        if (!chipBox || !taBox) throw new Error('chip/textarea bounding box must be non-null');
+
+        console.log(
+            `Chip box: y=${chipBox.y.toFixed(2)}, bottom=${(chipBox.y + chipBox.height).toFixed(2)}\n` +
+            `Textarea box: y=${taBox.y.toFixed(2)}`,
+        );
+
+        const TOL = 2;
+        // Default ABOVE placement: chip bottom sits at or above the surface top.
+        expect(
+            chipBox.y + chipBox.height,
+            `chip bottom (${(chipBox.y + chipBox.height).toFixed(2)}) must be ≤ surface top (${taBox.y.toFixed(2)}) + ${TOL}px — default above placement`,
+        ).toBeLessThanOrEqual(taBox.y + TOL);
+        // Anchored near the surface top.
+        expect(
+            taBox.y - (chipBox.y + chipBox.height),
+            `chip must be anchored near the surface top — gap (${(taBox.y - (chipBox.y + chipBox.height)).toFixed(2)}px) must be < 12px`,
+        ).toBeLessThan(12);
+
         await iframe.locator('textarea').first().press('Escape');
     });
 
