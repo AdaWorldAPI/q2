@@ -10,7 +10,7 @@ description = "Citation processing engine using CSL styles"
 quarto-csl = { path = "../quarto-csl" }
 quarto-error-reporting = { path = "../quarto-error-reporting" }
 quarto-pandoc-types = { path = "../quarto-pandoc-types" }
-quarto-source-map = { path = "../quarto-source-map" }
+quarto-source-map = { workspace = true }
 quarto-xml = { path = "../quarto-xml" }
 hashlink = "0.11.0"
 rust-embed = { version = "8", features = ["include-exclude"] }

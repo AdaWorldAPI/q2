@@ -22,7 +22,7 @@ quarto-treesitter-ast = { workspace = true }
 # Error reporting infrastructure
 quarto-parse-errors = { path = "../quarto-parse-errors" }
 quarto-error-reporting = { path = "../quarto-error-reporting" }
-quarto-source-map = { path = "../quarto-source-map" }
+quarto-source-map = { workspace = true }
 
 # Serialization (for TemplateValue conversion from JSON)
 serde = { workspace = true, features = ["derive"] }
