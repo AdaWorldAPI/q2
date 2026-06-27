@@ -20,7 +20,20 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const PAGE_BG = 0x0a0e17;
-const DEFAULT_FLOOR = 0.5; // gate skin (0.14) + flesh (0.45) out; keep muscle (0.55)+
+
+// 8 compartment layers — the per-vertex byte-19 LAYER id (same scheme as /fma-body),
+// baked by bake_body_v3.py's LAYER_OF. Each toggles independently; this is what makes
+// /body compartmentalized instead of /torso-live's single depth-peel floor.
+const LAYERS: { id: number; name: string; color: string }[] = [
+  { id: 1, name: 'skin', color: '#dba88a' },
+  { id: 2, name: 'muscle', color: '#bd5c57' },
+  { id: 3, name: 'organ', color: '#cc9484' },
+  { id: 4, name: 'skeleton', color: '#ebe0c7' },
+  { id: 5, name: 'vessel', color: '#cc3838' },
+  { id: 6, name: 'nerve', color: '#ebd152' },
+  { id: 7, name: 'connective', color: '#e0dbcc' },
+  { id: 8, name: 'other', color: '#9696a0' },
+];
 
 interface Mesh {
   vertCount: number;
@@ -28,7 +41,7 @@ interface Mesh {
   positions: Float32Array;
   normals: Float32Array;
   colors: Uint8Array;
-  opacity: Float32Array;
+  layer: Float32Array; // byte-19 = compartment LAYER id (1..8)
   index: Uint32Array;
 }
 
@@ -36,6 +49,12 @@ interface BodyV3Data {
   mesh: Mesh;
   conceptCount: number; // V3 substrate cardinality (CLASSID_FMA_V3 nodes)
   classid: number;      // 0x1000_0A01 expected
+}
+
+interface RenderState {
+  enabled: Float32Array; // index 1..8 → 0/1
+  alpha: number;
+  transparent: boolean;
 }
 
 // SPM1 geometry block (same wire as torso.mesh) at byte offset `voff`:
@@ -56,7 +75,7 @@ function decodeSpm1(dv: DataView, voff: number): Mesh {
   const positions = new Float32Array(vertCount * 3);
   const normals = new Float32Array(vertCount * 3);
   const colors = new Uint8Array(vertCount * 3);
-  const opacity = new Float32Array(vertCount);
+  const layer = new Float32Array(vertCount);
   for (let i = 0; i < vertCount; i++) {
     const b = vbase + i * 21;
     const x = dv.getFloat32(b, true), y = dv.getFloat32(b + 4, true), z = dv.getFloat32(b + 8, true);
@@ -67,7 +86,7 @@ function decodeSpm1(dv: DataView, voff: number): Mesh {
     colors[i * 3] = dv.getUint8(b + 15);
     colors[i * 3 + 1] = dv.getUint8(b + 16);
     colors[i * 3 + 2] = dv.getUint8(b + 17);
-    opacity[i] = dv.getUint8(b + 18) / 255;
+    layer[i] = dv.getUint8(b + 18); // byte-19 = compartment LAYER id (not opacity)
     // node_row u16 at b+19 → indexes the V3 node table (picker view; not needed to draw)
   }
   const ibase = vbase + vertCount * 21;
@@ -78,7 +97,7 @@ function decodeSpm1(dv: DataView, voff: number): Mesh {
     index[t * 3 + 1] = dv.getUint32(b + 4, true);
     index[t * 3 + 2] = dv.getUint32(b + 8, true);
   }
-  return { vertCount, triCount, positions, normals, colors, opacity, index };
+  return { vertCount, triCount, positions, normals, colors, layer, index };
 }
 
 // BSO1 container: read the 18-byte header, skip the V3 node table, decode the SPM1 block.
@@ -98,24 +117,26 @@ function decodeBso1(buf: ArrayBuffer): BodyV3Data {
 const VERT = `
 attribute vec3 aNormal;
 attribute vec3 aColor;
-attribute float aOpacity;
+attribute float aLayer;
 varying vec3 vNormal;
 varying vec3 vColor;
-varying float vOpacity;
+varying float vLayer;
 void main() {
   vNormal = aNormal;
   vColor = aColor;
-  vOpacity = aOpacity;
+  vLayer = aLayer;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 const FRAG = `
 precision mediump float;
-uniform float uFloor;
+uniform float uEnabled[9];   // [0] unused, [1..8] = layer on/off
+uniform float uAlpha;
 varying vec3 vNormal;
 varying vec3 vColor;
-varying float vOpacity;
+varying float vLayer;
 void main() {
-  if (vOpacity < uFloor) discard;                 // cut the skin/flesh shell
+  int li = int(vLayer + 0.5);
+  if (li < 1 || li > 8 || uEnabled[li] < 0.5) discard;  // gate by compartment layer
   vec3 n = normalize(vNormal);
   if (!gl_FrontFacing) n = -n;                     // two-sided
   const vec3 L = vec3(-0.401, 0.783, 0.476);
@@ -123,13 +144,13 @@ void main() {
   float hemi = 0.34 + 0.20 * (n.y * 0.5 + 0.5);
   float fill = 0.12 * (-n.x * 0.5 + 0.5);
   float shade = min(hemi + fill + 0.92 * ndl, 1.3);
-  gl_FragColor = vec4(vColor * shade, 1.0);        // OPAQUE solid surface
+  gl_FragColor = vec4(vColor * shade, uAlpha);     // uAlpha=1 solid, <1 transparent
 }`;
 
 function mount(
   container: HTMLDivElement,
   mesh: Mesh,
-  floorRef: { value: number },
+  st: RenderState,
   onStats: (s: { fps: number }) => void,
 ): () => void {
   let w = container.clientWidth || window.innerWidth;
@@ -148,16 +169,16 @@ function mount(
   geom.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
   geom.setAttribute('aNormal', new THREE.BufferAttribute(mesh.normals, 3));
   geom.setAttribute('aColor', new THREE.BufferAttribute(mesh.colors, 3, true)); // u8 normalized
-  geom.setAttribute('aOpacity', new THREE.BufferAttribute(mesh.opacity, 1));
+  geom.setAttribute('aLayer', new THREE.BufferAttribute(mesh.layer, 1));
   geom.setIndex(new THREE.BufferAttribute(mesh.index, 1));
   const mat = new THREE.ShaderMaterial({
     vertexShader: VERT,
     fragmentShader: FRAG,
-    uniforms: { uFloor: { value: floorRef.value } },
+    uniforms: { uEnabled: { value: st.enabled }, uAlpha: { value: st.alpha } },
     side: THREE.DoubleSide,
-    transparent: false,
+    transparent: st.transparent,
     depthTest: true,
-    depthWrite: true,
+    depthWrite: !st.transparent,
   });
   const obj = new THREE.Mesh(geom, mat);
   scene.add(obj);
@@ -175,6 +196,7 @@ function mount(
   let ema = 16.6;
   let last = performance.now();
   let sinceStat = 0;
+  let wasT = st.transparent;
   const tick = () => {
     raf = requestAnimationFrame(tick);
     const now = performance.now();
@@ -182,7 +204,14 @@ function mount(
     last = now;
     const pr = ema > 30 ? 1 : Math.min(window.devicePixelRatio, 2);
     if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
-    mat.uniforms.uFloor.value = floorRef.value;
+    mat.uniforms.uEnabled.value = st.enabled;
+    mat.uniforms.uAlpha.value = st.alpha;
+    if (st.transparent !== wasT) {
+      mat.transparent = st.transparent;
+      mat.depthWrite = !st.transparent;
+      mat.needsUpdate = true;
+      wasT = st.transparent;
+    }
     controls.update();
     renderer.render(scene, camera);
     if (++sinceStat >= 20) {
@@ -220,22 +249,18 @@ export function BodyV3() {
   const [data, setData] = useState<BodyV3Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<{ fps: number } | null>(null);
-  const [skin, setSkin] = useState(false);
-  const floorRef = useRef({ value: DEFAULT_FLOOR });
+  // compartment toggles — skin (1) off by default so the anatomy shows, like /fma-body.
+  const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
+  const [transparent, setTransparent] = useState(false);
+  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: false });
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 's' || e.key === 'S') {
-        setSkin((v) => {
-          const nv = !v;
-          floorRef.current.value = nv ? 0.0 : DEFAULT_FLOOR;
-          return nv;
-        });
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+    const e = new Float32Array(9);
+    for (let i = 1; i <= 8; i++) e[i] = on[i] ? 1 : 0;
+    stRef.current.enabled = e;
+    stRef.current.transparent = transparent;
+    stRef.current.alpha = transparent ? 0.42 : 1.0;
+  }, [on, transparent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,15 +296,21 @@ export function BodyV3() {
   useEffect(() => {
     const container = ref.current;
     if (!container || !data) return;
-    return mount(container, data.mesh, floorRef.current, setStats);
+    return mount(container, data.mesh, stRef.current, setStats);
   }, [data]);
+
+  const btn = (active: boolean): React.CSSProperties => ({
+    padding: '5px 11px', borderRadius: 6, border: `1px solid ${active ? '#5a7fa8' : '#2a3242'}`,
+    background: active ? '#16202e' : '#0e1219', color: active ? '#cdd9e5' : '#6a7686',
+    font: '12px ui-monospace, monospace', cursor: 'pointer',
+  });
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0e17', overflow: 'hidden' }}>
       <div ref={ref} style={{ position: 'absolute', inset: 0 }} />
 
       <div style={{ position: 'absolute', top: 12, left: 16, color: '#cdd9e5', font: '13px ui-monospace, monospace', pointerEvents: 'none' }}>
-        <div style={{ fontSize: 15, color: '#fff' }}>FMA body · full-res V3 substrate</div>
+        <div style={{ fontSize: 15, color: '#fff' }}>FMA body · full-res V3 substrate · compartments</div>
         <div style={{ opacity: 0.7 }}>
           {data
             ? `${data.mesh.triCount.toLocaleString()} triangles · ${data.mesh.vertCount.toLocaleString()} vertices — ALL points, drag to orbit`
@@ -295,7 +326,7 @@ export function BodyV3() {
         )}
         {stats && (
           <div style={{ opacity: 0.5, marginTop: 2 }}>
-            {stats.fps} fps · smooth Phong surface · S = skin {skin ? 'on' : 'off'}
+            {stats.fps} fps · smooth Phong surface · toggle compartments →
           </div>
         )}
       </div>
@@ -309,9 +340,21 @@ export function BodyV3() {
         </div>
       )}
 
-      <div style={{ position: 'absolute', top: 14, right: 16, font: '12px ui-monospace, monospace', display: 'flex', gap: 14 }}>
-        <a href="/torso-live" style={{ color: '#7fa6c4', textDecoration: 'none' }}>decimated torso →</a>
-        <a href="/fma-body" style={{ color: '#7fa6c4', textDecoration: 'none' }}>layered →</a>
+      {/* compartment layer toggles + solid/transparent (right) — same gating as /fma-body */}
+      <div style={{ position: 'absolute', top: 12, right: 16, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 360 }}>
+          {LAYERS.map((l) => (
+            <button key={l.id} style={btn(on[l.id])} onClick={() => setOn((p) => ({ ...p, [l.id]: !p[l.id] }))}>
+              <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: l.color, marginRight: 6, verticalAlign: 'middle' }} />
+              {l.name}
+            </button>
+          ))}
+        </div>
+        <button style={btn(transparent)} onClick={() => setTransparent((v) => !v)}>{transparent ? 'transparent' : 'solid'} ⇄</button>
+        <div style={{ display: 'flex', gap: 14, font: '12px ui-monospace, monospace', marginTop: 2 }}>
+          <a href="/torso-live" style={{ color: '#7fa6c4', textDecoration: 'none' }}>decimated torso →</a>
+          <a href="/fma-body" style={{ color: '#7fa6c4', textDecoration: 'none' }}>2k layered →</a>
+        </div>
       </div>
 
       <div style={{ position: 'absolute', bottom: 10, left: 16, color: '#5a6b7e', font: '10px ui-monospace, monospace', maxWidth: '70%', pointerEvents: 'none' }}>

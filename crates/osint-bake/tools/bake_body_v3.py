@@ -38,6 +38,20 @@ from bake_torso_splat import (
     bfs, isa_dn, load_isa, tissue_color, tissue_of,
 )
 
+# Compartment LAYER id (the per-vertex byte-19 gating key the /body viewer's buttons
+# toggle) — mirrors fma's cockpit_bake layer_of / FmaBody.tsx LAYERS, but maps the
+# FINER is_a tissues onto the same 8 layers (1 skin·2 muscle·3 organ·4 skeleton·
+# 5 vessel·6 nerve·7 connective·8 other). This is what makes /body compartmentalized
+# like /fma-body instead of a single depth-peel floor like /torso-live.
+LAYER_OF = {
+    "skin": 1, "flesh": 1,
+    "muscle": 2,
+    "heart": 3, "lung": 3, "liver": 3, "kidney": 3, "gi": 3, "gland": 3, "viscus": 3,
+    "bone": 4, "cartilage": 4,
+    "artery": 5, "vein": 5, "vessel": 5,
+    "nerve": 6,
+}  # default → 8 "other"
+
 
 def read_obj_mesh(path):
     """(verts, normals aligned to verts, faces). BodyParts3D uses `f v//vn` with
@@ -153,7 +167,7 @@ def main(scratch, out_dir, cell_mm=0.0):
         nm = canon.get(c, name.get(c, c))
         tissue = tissue_of(c, parent, name, canon, tcache)
         col = tissue_color(tissue, r)
-        op_u8 = max(8, min(255, int(round(TISSUE_OPACITY[tissue] * 255))))
+        layer_id = LAYER_OF.get(tissue, 8)  # byte-19 = compartment layer (not opacity)
         v_start = len(px)
         for fj in meshes_of[c]:
             p = obj_path(fj)
@@ -168,7 +182,7 @@ def main(scratch, out_dir, cell_mm=0.0):
                 px.append(x); py.append(y); pz.append(z)
                 nx.append(ax); ny.append(ay); nz.append(az)
                 cr.append(col[0]); cg.append(col[1]); cb.append(col[2])
-                cop.append(op_u8); crow.append(r)
+                cop.append(layer_id); crow.append(r)
             for (a, b, cc) in nf:
                 tris.append((base + a, base + b, base + cc))
         pa, seen = parent.get(c), 0
@@ -177,7 +191,7 @@ def main(scratch, out_dir, cell_mm=0.0):
         nodes.append({
             "row": r, "fma": c, "name": nm, "tissue": tissue, "depth": depth[c],
             "parent_row": row_of.get(pa, -1), "container": CONTAINER_ID[tissue],
-            "rgb": list(col), "opacity": round(TISSUE_OPACITY[tissue], 3),
+            "rgb": list(col), "layer": layer_id, "opacity": round(TISSUE_OPACITY[tissue], 3),
             "is_a": isa_dn(c, parent, name, tissue),
             "cascade": cascade_of(c, parent, children, depth, rank_cache),
             "v_start": v_start, "v_count": len(px) - v_start, "fj": meshes_of[c],
