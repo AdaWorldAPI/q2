@@ -8,7 +8,7 @@ repository.workspace = true
 description = "CSL (Citation Style Language) parsing with source tracking for Quarto"
 
 [dependencies]
-quarto-error-reporting = { path = "../quarto-error-reporting" }
+quarto-error-reporting = { workspace = true }
 quarto-source-map = { workspace = true }
 quarto-xml = { path = "../quarto-xml" }
 thiserror = { workspace = true }

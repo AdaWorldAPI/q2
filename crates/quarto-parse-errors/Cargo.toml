@@ -11,7 +11,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-quarto-error-reporting = { path = "../quarto-error-reporting" }
+quarto-error-reporting = { workspace = true }
 quarto-source-map = { workspace = true }
 tree-sitter = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
