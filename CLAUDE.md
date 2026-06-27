@@ -296,8 +296,11 @@ When fixing ANY bug:
 **Core libraries:**
 - `quarto-core`: core rendering infrastructure for Quarto
 - `quarto-util`: shared utilities for Quarto crates
-- `quarto-error-reporting`: uniform, helpful, beautiful error messages
-- `quarto-source-map`: maintain source location information for data structures
+- `quarto-error-catalog`: Quarto's `Q-*` error-code catalog data + the `CatalogProvider` it installs into `quarto-error-reporting`
+
+**Externalized foundation crates** (published to crates.io from their own `posit-dev/` repos; consumed here as version deps, no longer in `crates/`):
+- `quarto-error-reporting`: uniform, helpful, beautiful error messages — now **catalog-agnostic** (the `Q-*` data lives in the in-tree `quarto-error-catalog`). Repo: `posit-dev/quarto-error-reporting`. The `json` wire shape is behind a default-off `json` feature; q2's wire-shape consumers enable it.
+- `quarto-source-map`: maintain source location information for data structures. Repo: `posit-dev/quarto-source-map`. (See `claude-notes/plans/2026-06-26-extract-error-reporting-foundation.md` for the extraction.)
 
 **Parsing libraries:**
 - `quarto-yaml`: YAML parser with accurate fine-grained source locations

@@ -320,25 +320,54 @@ would otherwise come from an uninitialised global.
 
 Requires Phase 1 (source-map published) **and** Phase 2 (carve-out done).
 
-- [ ] **3a.** Create `posit-dev/<error-reporting-repo>`; **copy** the
-      `quarto-error-reporting` sources (fresh `git init`, no history). Own
-      `[workspace.package]`. Crucially, its `quarto-source-map` dependency is now
-      the **published version** dep (Phase 1c), *not* a path dep. (`json.rs` +
-      `coalesce.rs` travel with it, `json` behind its feature; the catalog data
-      already left in Phase 2c.)
-- [ ] **3b.** Standalone CI: `cargo build` + `cargo nextest run` with the
-      **`EmptyCatalog`** default — proving catalog-agnostic operation with zero
-      Quarto policy present.
-- [ ] **3c.** External-consumer smoke test: a throwaway crate builds a
-      `DiagnosticMessage`, installs a trivial `CatalogProvider`, renders — proving
-      the published API is usable with no Quarto context.
-- [ ] **3d.** Publish `quarto-error-reporting` to crates.io.
-- [ ] **3e.** q2 cutover: replace the in-tree `quarto-error-reporting` path dep with
-      the published version dep (enable `features = ["json"]`); delete the in-tree
-      copy. `quarto-error-catalog` stays in q2 and now depends on the external
-      `quarto-error-reporting`. **Full `cargo xtask verify` incl. hub-build** (WASM
-      risk surface again, now de-risked by Phase 1d).
-- [ ] **3f.** Update `CLAUDE.md`'s crate-layout section + the workspace member list.
+- [x] **3a.** Created **`posit-dev/quarto-error-reporting`** (public,
+      https://github.com/posit-dev/quarto-error-reporting): copied src/ + tests/ +
+      examples/ + `schemas/` + LICENSE; standalone single-crate manifest
+      (`version = "0.1.0"`, edition 2024, explicit dep versions,
+      **`quarto-source-map = "0.1.0"`** published dep, `schemars` optional +
+      `[features] json`). Dropped `CONTRIBUTING-ERRORS.md` (Quarto catalog policy —
+      belongs with `quarto-error-catalog`) and rewrote `README.md` for the
+      catalog-agnostic library. One source fix needed for stable-clippy
+      `-D warnings`: `macros.rs` had `items_after_test_module` (q2's pinned-nightly
+      clippy tolerated it) — moved the test module below the `#[macro_export]`
+      macros + dropped the now-redundant macro imports. (q2 deletes its copy at
+      3e, so the standalone becomes the single source; no divergence.)
+- [x] **3b.** Standalone CI green locally: builds **default (json off, no
+      schemars)** and `--all-features`; `cargo test` 51 / `--all-features` 61 +
+      doctests + schema_drift; fmt + clippy (both feature sets) clean.
+      `.github/workflows/ci.yml` added (Linux/macOS/Windows, both feature sets).
+      CI running on the new repo.
+- [x] **3c.** External-consumer smoke test (scratchpad `er-smoke`): a separate
+      crate with **default features** builds+renders a `DiagnosticMessage`, gets
+      `EmptyCatalog` (no docs URL), then installs a custom `CatalogProvider` and
+      resolves a URL — `cargo tree` confirms **no schemars** in its tree. Passes.
+      `cargo publish --dry-run` clean (24 files, verify-built).
+- [ ] **3d.** Publish `quarto-error-reporting` to crates.io. **(User step — needs
+      crates.io credentials; depends on the published `quarto-source-map 0.1.0`,
+      which is already live.)**
+- [x] **3e.** q2 cutover (branch `braid/bd-egcyeym9-error-reporting-cutover`):
+      flipped `[workspace.dependencies.quarto-error-reporting]` `path` →
+      `version = "0.1.0"`; consolidated the 7 plain path-deps onto `{ workspace =
+      true }`; the WASM crate (excluded standalone workspace) → `{ version =
+      "0.1.0", features = ["json"] }`; the json consumers (`quarto`, `quarto-core`,
+      `quarto-preview`) kept their `features = ["json"]` (now resolving to the
+      external crate); deleted in-tree `crates/quarto-error-reporting`.
+      `quarto-error-catalog` now depends on the external crate. Cargo.lock resolves
+      `quarto-error-reporting 0.1.0` + transitively `quarto-source-map 0.1.0` from
+      the registry. `cargo nextest run --workspace` **10177 passed**; **full
+      `cargo xtask verify` GREEN** (all 14 steps incl. WASM — precache succeeded,
+      bundle under limit).
+
+**Phase 3 is COMPLETE.** Both foundation crates (`quarto-source-map`,
+`quarto-error-reporting`) are now published to crates.io from their own
+`posit-dev/` repos and consumed by q2 as version deps. The q2 tree keeps
+`quarto-error-catalog` (the `Q-*` policy) + the 4 json consumers. Next up: the
+YAML stack (`quarto-yaml` + `quarto-yaml-validation`) per the sibling plan.
+- [x] **3f.** Updated `CLAUDE.md` crate layout: `quarto-error-reporting` +
+      `quarto-source-map` moved to an "Externalized foundation crates" section
+      (published from `posit-dev/`); added `quarto-error-catalog`. (Workspace member
+      list needs no edit — the in-tree crate was pulled in via the `crates/*` glob,
+      so deleting the directory removes it.)
 
 ## Decisions
 

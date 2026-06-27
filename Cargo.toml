@@ -113,7 +113,7 @@ path = "./crates/quarto-yaml"
 path = "./crates/quarto-yaml-validation"
 
 [workspace.dependencies.quarto-error-reporting]
-path = "./crates/quarto-error-reporting"
+version = "0.1.0"
 
 [workspace.dependencies.quarto-error-catalog]
 path = "./crates/quarto-error-catalog"
