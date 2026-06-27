@@ -31,4 +31,11 @@ matrixmultiply-threading = ["ndarray-simd", "ndarray/matrixmultiply-threading"]
 hpc = ["ndarray-simd", "blas", "rayon", "matrixmultiply-threading"]
 
 [dependencies]
-ndarray = { git = "https://github.com/AdaWorldAPI/ndarray.git", branch = "master", optional = true }
+# The REAL AdaWorldAPI/ndarray fork — the SAME local checkout lance-graph compiles
+# (it reaches it as `../../../ndarray`; from here that is `../../../../ndarray`).
+# Not a second git@master clone: a git source would recursively fetch ndarray's
+# `crates/burn/upstream` submodule (AdaWorldAPI/burn.git) — an ML framework the
+# ndarray workspace `exclude`s and never builds — and would resolve a DISTINCT
+# ndarray crate from lance-graph's path copy, so one binary would carry two
+# ndarrays. The path makes both consumers unify on the one updated fork.
+ndarray = { path = "../../../../ndarray", optional = true }

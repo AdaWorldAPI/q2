@@ -68,10 +68,22 @@ COPY --from=frontend /build/dist/ /build/q2/cockpit/dist/
 # WHEN OGAR MINTS CONCEPTS: bump ogar-vocab in q2's Cargo.lock AND this SHA
 # together (after the lance-graph mirror lands), or the fuse trips again.
 ARG LANCE_GRAPH_REF=36059ce0
+# Sibling checkouts the path deps resolve against:
+#   /build/lance-graph  → lance-graph + all its crates (pinned, COUNT_FUSE above)
+#   /build/ndarray      → the REAL AdaWorldAPI/ndarray fork, consumed by BOTH
+#                         lance-graph (../../../ndarray) AND q2-ndarray
+#                         (../../../../ndarray). `--depth 1` WITHOUT
+#                         --recurse-submodules: ndarray's workspace `exclude`s
+#                         crates/burn, so the burn submodule (AdaWorldAPI/burn.git)
+#                         is never needed — leaving it unfetched is correct, not a
+#                         gap. (q2-ndarray no longer carries a git dep, so cargo no
+#                         longer clones a SECOND ndarray-with-burn into ~/.cargo.)
+# neo4j-rs is intentionally NOT cloned — it was a discarded Neo4j-GUI experiment,
+# referenced by no manifest; the only neo4j path is the opt-in `neo4j-fallback`
+# feature (crates.io neo4rs), which this build does not enable.
 RUN git clone https://github.com/AdaWorldAPI/lance-graph.git \
  && git -C lance-graph checkout "${LANCE_GRAPH_REF}" \
- && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
+ && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git
 
 # CPU baseline: x86-64-v4 (the 4th microarch level — AVX-512F/BW/CD/DQ/VL on top
 # of v3's AVX2+FMA). This is the compile FLOOR; it flips on `target_feature =
