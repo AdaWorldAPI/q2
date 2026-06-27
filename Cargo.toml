@@ -116,7 +116,7 @@ path = "./crates/quarto-yaml-validation"
 path = "./crates/quarto-error-reporting"
 
 [workspace.dependencies.quarto-source-map]
-path = "./crates/quarto-source-map"
+version = "0.1.0"
 
 [workspace.dependencies.quarto-xml]
 path = "./crates/quarto-xml"

@@ -9,7 +9,7 @@ description = "Error reporting and diagnostic messages for Quarto"
 
 [dependencies]
 # Source location tracking
-quarto-source-map = { path = "../quarto-source-map" }
+quarto-source-map = { workspace = true }
 
 # Error reporting
 ariadne = { workspace = true }

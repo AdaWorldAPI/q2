@@ -3879,7 +3879,9 @@ dependencies = [
 
 [[package]]
 name = "quarto-source-map"
-version = "0.7.0"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e3d29b1ef6088d016dfe84d831e5aa3daaba4624e23621364c2aef6d593114f"
 dependencies = [
  "serde",
  "serde_json",

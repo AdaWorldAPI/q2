@@ -12,7 +12,7 @@ repository.workspace = true
 
 [dependencies]
 quarto-error-reporting = { path = "../quarto-error-reporting" }
-quarto-source-map = { path = "../quarto-source-map" }
+quarto-source-map = { workspace = true }
 tree-sitter = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0"
