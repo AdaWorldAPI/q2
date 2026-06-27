@@ -25,6 +25,11 @@
 //! # Regenerate after editing JsonDiagnostic / JsonPass1Failure:
 //! QUARTO_REGEN_SCHEMAS=1 cargo nextest run -p quarto-error-reporting --test schema_drift
 //! ```
+//!
+//! Gated on the `json` feature (the wire shapes live behind it); compiles to an
+//! empty test binary when `json` is off. In the q2 workspace the feature is on
+//! (enabled by `quarto`/`quarto-core`/… via unification).
+#![cfg(feature = "json")]
 
 use std::path::PathBuf;
 

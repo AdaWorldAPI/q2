@@ -62,7 +62,10 @@ pub mod builder;
 // (WASM render bridge) and quarto-preview (server-side diagnostics
 // endpoint). Lifted from wasm-quarto-hub-client under bd-b9kzg so
 // the q2-preview SPA can consume both feeds without a translation
-// layer.
+// layer. Behind the default-off `json` feature (carries `schemars`
+// and Quarto's `quarto.org` schema URLs) so the published crate stays
+// minimal for non-Quarto consumers.
+#[cfg(feature = "json")]
 pub mod json;
 
 // Macros for convenient error creation
@@ -85,6 +88,7 @@ pub use coalesce::{CoalescedDiagnostic, coalesce_by_source};
 pub use diagnostic::{
     DetailItem, DetailKind, DiagnosticKind, DiagnosticMessage, MessageContent, TextRenderOptions,
 };
+#[cfg(feature = "json")]
 pub use json::{
     JsonDiagnostic, JsonDiagnosticDetail, JsonPass1Failure, diagnostic_to_json, with_source_file,
 };
