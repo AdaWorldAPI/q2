@@ -1449,15 +1449,18 @@ mod tests {
         // `resource_error_to_parse_error` should be findable in the
         // shared error catalog. If a future change adds a new variant
         // and forgets to register a code, this test fails loudly.
+        // Query the catalog data directly (the codes live in
+        // `quarto-error-catalog` now, not in `quarto-error-reporting`).
         for code in ["Q-5-1", "Q-5-2", "Q-5-3"] {
+            let info = quarto_error_catalog::ERROR_CATALOG.get(code);
             assert!(
-                quarto_error_reporting::catalog::get_error_info(code).is_some(),
+                info.is_some(),
                 "code {} is not registered in error_catalog.json",
                 code
             );
             assert_eq!(
-                quarto_error_reporting::catalog::get_subsystem(code),
-                Some("project"),
+                info.unwrap().subsystem,
+                "project",
                 "code {} should be under the 'project' subsystem",
                 code
             );

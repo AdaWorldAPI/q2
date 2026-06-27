@@ -108,6 +108,19 @@ fn populate_dir_recursive(runtime: &WasmRuntime, dir: &include_dir::Dir<'_>, pre
 
 #[wasm_bindgen(start)]
 pub fn init() {
+    // NOTE: we deliberately do NOT install `quarto-error-catalog` here. The
+    // catalog only supplies docs URLs / titles, and the WASM render bridge
+    // never surfaces them — the `JsonDiagnostic` wire shape has no `docs_url`
+    // field, so diagnostics flow out code-only regardless. Installing it would
+    // `include_str!` the 46 KB `error_catalog.json` (plus provider code) into
+    // the bundle, pushing the WASM past hub-client's 35 MiB PWA precache limit
+    // (`vite.config.ts` `maximumFileSizeToCacheInBytes`) for zero functional
+    // gain. This is a legitimate "embedder installs nothing → EmptyCatalog"
+    // choice in the cross-package error-code discipline. The native `q2`
+    // binary, which has no bundle constraint, does install it. If the preview
+    // ever needs docs URLs, add a `docs_url` field to `JsonDiagnostic`, install
+    // here, and raise the precache limit deliberately.
+
     // Install console_error_panic_hook as the base, then wrap it to
     // filter out expected Lua control-flow panics (see `LuaThrow` above).
     // Without this wrapper, every pcall-caught Lua error would leave a

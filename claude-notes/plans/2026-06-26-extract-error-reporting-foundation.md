@@ -181,8 +181,10 @@ the **WASM cutover** — on the easiest crate, before the harder error-reporting
       +serde), added `README.md` + `.gitignore`. Builds on **stable** rustc 1.95
       (no nightly needed).
 - [x] **1b.** Local validation green: `cargo build`, `cargo test` (104 unit + 4
-      doctests pass), `cargo publish --dry-run` clean. *(Gap: no GitHub Actions CI
-      workflow committed to the new repo yet — tests were run locally. Add one.)*
+      doctests pass), `cargo publish --dry-run` clean. **CI workflow added**
+      (`.github/workflows/ci.yml`, commit `ee3780d`): stable Rust, test matrix
+      Linux/macOS/**Windows** + a fmt/clippy(`-D warnings`) job. First run green on
+      all 4 jobs — Windows build confirmed (first time this crate has built there).
 - [x] **1c.** Published `quarto-source-map 0.1.0` to crates.io (Carlos's personal
       account; `cargo owner --add github:posit-dev:<team>` deferred — weekend).
 - [x] **1d.** q2 cutover (branch `braid/bd-egcyeym9-source-map-extraction`):
@@ -214,32 +216,105 @@ engineering and is valuable even if the repo move slipped. Does **not** depend o
 Phase 1. There is **no façade** — `quarto-error-reporting` keeps its name and its
 public surface (minus the moved catalog *data*).
 
-- [ ] **2a (test first).** Pin the behaviour the carve-out must preserve, against
-      the *current* code:
-      - `get_docs_url("Q-0-1")` returns the quarto.org URL (with the q2 catalog
-        active);
-      - a new test asserting that with **no** catalog installed, `get_docs_url`
-        returns `None` (passes only after the registry exists — write it now,
-        expect red).
-- [ ] **2b.** Introduce `CatalogProvider` + the `OnceLock` registry + delegating
-      free-functions in `quarto-error-reporting`; keep `ErrorCodeInfo` here.
-      Repoint `diagnostic.rs:290` at `catalog()`. Green.
-- [ ] **2c.** Create `quarto-error-catalog` crate: move `error_catalog.json` + the
-      `ERROR_CATALOG` static + the `QuartoCatalog` provider + `install()` there.
-      Move the catalog-data tests with it. Wire `install()` into q2 binary/WASM/test
-      entry points.
-- [ ] **2d.** Put `json.rs` behind a default-off `json` feature in
-      `quarto-error-reporting`; have q2's dependents that use it enable
-      `features = ["json"]`. Confirm the 9 dependents + the 2 `quarto-core` catalog
-      callers + all `json`/`coalesce` consumers compile **unchanged** (only feature
-      flags and the `ERROR_CATALOG` import path may move).
-- [ ] **2e.** Audit manifests: `schemars` becomes `json`-feature-only; drop
-      `once_cell` if the registry's `OnceLock` makes it unused; `url` stays.
-- [ ] **2f.** `cargo xtask verify` green (touches `quarto-core` → hub-client/WASM;
-      do NOT `--skip-hub-build`).
+- [x] **2a (test first).** Behaviour pinned: `empty_catalog_returns_none`
+      (direct, global-free) + `installed_catalog_is_used_by_lookups` (the single
+      global-mutating test) in `quarto-error-reporting`; the positive
+      `get_docs_url("Q-0-1") → quarto.org` case relocated to `quarto-error-catalog`
+      integration tests (`install_makes_get_docs_url_resolve`,
+      `diagnostic_docs_url_resolves_after_install`).
+- [x] **2b.** `quarto-error-reporting` now catalog-agnostic: `CatalogProvider`
+      trait + `EmptyCatalog` + `OnceLock` registry + `install_catalog` in
+      `catalog.rs`; `get_docs_url`/`get_error_info`/`get_subsystem` keep their
+      signatures but delegate to the installed provider (the `&'static` lifetime
+      survives via `catalog(): &'static dyn CatalogProvider`). `ERROR_CATALOG`
+      static + `include_str!` removed; `lib.rs` re-exports updated. `diagnostic.rs`
+      `docs_url()` unchanged (still calls the local delegating fn); its positive
+      doctest/test relaxed/relocated.
+- [x] **2c.** New `quarto-error-catalog` crate: `error_catalog.json` (git-moved) +
+      `ERROR_CATALOG` (Lazy) + `QuartoCatalog: CatalogProvider` + `install()`; the
+      example moved here; the 10 data-presence tests ported (direct map access).
+      `install()` wired into the `q2` binary `main`. **WASM deliberately does
+      NOT install** (see the 2f note): the WASM bridge never surfaces docs URLs
+      (`JsonDiagnostic` has no `docs_url` field), and installing would
+      `include_str!` the 46 KB catalog into the bundle, pushing the WASM past
+      hub-client's 35 MiB PWA precache limit. A legitimate "embedder installs
+      nothing → EmptyCatalog" choice. The 2 `quarto-core` data-presence `#[test]`s
+      now query
+      `quarto_error_catalog::ERROR_CATALOG` directly (dev-dep added). **Audit
+      script + ~25 path references updated** to `crates/quarto-error-catalog/…`;
+      `scripts/audit-error-codes.py` passes (exit 0). Full workspace nextest:
+      **10240 passed**.
+- [x] **2d.** `json.rs` now behind a **default-off `json` feature** (`lib.rs`
+      `#[cfg(feature = "json")]` on the module + re-export; `tests/schema_drift.rs`
+      gated with `#![cfg(feature = "json")]`). Only **4** crates use the wire
+      symbols (`quarto`, `quarto-core`, `quarto-preview`, `wasm-quarto-hub-client`);
+      each now declares `features = ["json"]`. `to_json` (uses `serde_json::json!`,
+      not the module) and `coalesce.rs` stay unconditional. Verified by `cargo
+      tree`: `schemars` **absent** by default, present with `--features json`.
+- [x] **2e.** `schemars` made `optional = true` + `[features] json =
+      ["dep:schemars"]`. `once_cell` **dropped** (registry uses `std::sync::OnceLock`;
+      confirmed unused via `cargo tree`). `url` stays. Two clippy fixes in the new
+      code (`map().unwrap_or` → `match`; needless doctest `fn main`).
+- [x] **2f.** `cargo xtask verify` **GREEN — all 14 steps** (incl. WASM build +
+      hub-client tests). Two failures found + fixed en route: (1) two clippy lints
+      in the new code (Step 1); (2) the WASM build (Step 7) broke hub-client's vite
+      PWA step — wiring `install()` into the WASM bootstrap `include_str!`'d the
+      46 KB catalog and forced it past the 35 MiB precache limit (`vite.config.ts`
+      `maximumFileSizeToCacheInBytes`). Fixed *soundly* (not by raising the limit):
+      removed the WASM `install()` + `quarto-error-catalog` dep, since the WASM
+      surfaces no docs URLs — pure dead weight there. WASM now 36,684,365 B
+      (15.8 KB **under** the limit). Workspace nextest **10240 passed**.
+
+**Phase 2 is COMPLETE.** `quarto-error-reporting` is now catalog-agnostic (a
+`CatalogProvider` seam + `EmptyCatalog` default, no embedded `Q-*` data); the q2
+policy lives in the new `quarto-error-catalog`; `json` is a default-off feature.
+The crate is ready to carve out (Phase 3) once the Phase-1-style repo/publish
+machinery is pointed at it. Uncommitted on `braid/bd-egcyeym9-error-reporting-split`.
 
 > At the end of Phase 2, q2 still builds `quarto-error-reporting` from a path dep;
 > it is now catalog-agnostic and cleanly carve-able.
+
+### Phase 2 — implementation notes (investigation 2026-06-27)
+
+**Blast-radius finding (much smaller than feared).** A full workspace audit shows
+the catalog is **completely decoupled from the production render path**:
+- `DiagnosticMessage` does *not* consult the catalog to build its title/message
+  (verified: no `get_error_info`/`message_template` use in `builder.rs`/`diagnostic.rs`).
+- `to_text` (ariadne) and the JSON wire shape **never call `docs_url()`**; `json.rs`
+  has no `docs_url` field. **Zero `.snap` files contain a `quarto.org/docs/errors`
+  URL.** So the carve-out cannot change any rendered output or snapshot.
+- `docs_url()` has **zero** consumers anywhere in the workspace. `ErrorCodeInfo` has
+  no external users.
+- The *only* catalog uses outside `quarto-error-reporting`: two `quarto-core`
+  `#[test]`s (`project_resources.rs:1447`, `theme_diagnostic.rs:271`) asserting
+  their codes are registered, plus the `examples/with_error_code.rs` example.
+
+**Consequence:** `install()` is **behaviour-neutral today** (nothing reads the
+catalog in production); it matters only for the data-verification tests and for
+future features that surface docs URLs. This removes the test-fragility risk that
+would otherwise come from an uninitialised global.
+
+**Finalised design.**
+- *`quarto-error-reporting` (catalog-agnostic):* keep `ErrorCodeInfo`; add
+  `CatalogProvider` trait + `OnceLock<Box<dyn CatalogProvider>>` registry +
+  `install_catalog()` + `EmptyCatalog` default. `get_docs_url`/`get_error_info`/
+  `get_subsystem` keep their **exact signatures** (the `&'static` lifetime survives
+  because `catalog()` returns `&'static dyn CatalogProvider`) but delegate to the
+  installed provider. `diagnostic.rs:290` is unchanged (still calls the local
+  `get_docs_url`). Remove `error_catalog.json` + the `ERROR_CATALOG` static + the
+  data tests + the example. Drop the `ERROR_CATALOG` re-export from `lib.rs`.
+- *`quarto-error-catalog` (new q2 crate):* `error_catalog.json` + the loader +
+  `QuartoCatalog: CatalogProvider` + `install()`. Houses the moved data-presence
+  tests, the moved doctests (e.g. `get_subsystem("Q-0-1") == Some("internal")`),
+  and the moved example. Deps: `quarto-error-reporting`, `serde`, `serde_json`,
+  `once_cell`.
+- *Test seams:* test providers/`EmptyCatalog` are exercised **directly** (no
+  global) wherever possible; exactly one test asserts the global-empty default and
+  one asserts global-install delegation — safe under nextest's process-per-test
+  (and per-process doctests). The two `quarto-core` tests gain a
+  `quarto-error-catalog` dev-dependency and call `quarto_error_catalog::install()`.
+- *Binaries/WASM:* wire `quarto_error_catalog::install()` into the `q2` binary
+  `main` and the WASM bootstrap (future-proofing; behaviour-neutral now).
 
 ## Phase 3 — Extract `quarto-error-reporting` into a *separate* repo and cut q2 over
 

@@ -272,15 +272,18 @@ mod tests {
         // Belt-and-braces: every code emitted by
         // sass_error_to_parse_error must exist in the shared
         // catalog, under the 'theme' subsystem.
+        // Query the catalog data directly (the codes live in
+        // `quarto-error-catalog` now, not in `quarto-error-reporting`).
         for code in ["Q-14-1", "Q-14-2"] {
+            let info = quarto_error_catalog::ERROR_CATALOG.get(code);
             assert!(
-                quarto_error_reporting::catalog::get_error_info(code).is_some(),
+                info.is_some(),
                 "{} is not registered in error_catalog.json",
                 code,
             );
             assert_eq!(
-                quarto_error_reporting::catalog::get_subsystem(code),
-                Some("theme"),
+                info.unwrap().subsystem,
+                "theme",
                 "{} should live under the 'theme' subsystem",
                 code,
             );

@@ -14,23 +14,30 @@ quarto-source-map = { workspace = true }
 # Error reporting
 ariadne = { workspace = true }
 thiserror = { workspace = true }
-once_cell = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 # JSON Schema generation for the wire format (bd-iey8o). Scoped to
-# this crate: `schemars` documents machine-to-machine JSON shapes
-# emitted by Quarto. Do NOT add it to other crates for the purpose
-# of validating user-authored YAML config — that's the job of
-# `quarto-yaml-validation`, which speaks Quarto's own dialect. See
-# `claude-notes/plans/2026-05-22-q2-render-json-errors.md` §
-# "Coexistence with quarto-yaml-validation".
-schemars = { workspace = true }
+# this crate AND to the `json` feature: `schemars` documents the
+# machine-to-machine JSON shapes in `json.rs`. Do NOT add it to other
+# crates for the purpose of validating user-authored YAML config —
+# that's the job of `quarto-yaml-validation`, which speaks Quarto's own
+# dialect. See `claude-notes/plans/2026-05-22-q2-render-json-errors.md`
+# § "Coexistence with quarto-yaml-validation".
+schemars = { workspace = true, optional = true }
 
 # URL handling for file:// hyperlinks
 url = "2.5"
+
+[features]
+# The `json.rs` wire shape (JsonDiagnostic etc.) and its `schemars`
+# dependency are opt-in: the q2 consumers (quarto, quarto-core,
+# quarto-preview, wasm-quarto-hub-client) enable `json`, while a
+# standalone non-Quarto consumer gets a leaner build with no schemars.
+# Default-off so the published crate stays minimal.
+json = ["dep:schemars"]
 
 [dev-dependencies]
 # No dev dependencies yet

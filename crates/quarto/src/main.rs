@@ -609,6 +609,11 @@ enum TraceCommand {
 }
 
 fn main() -> Result<()> {
+    // Install Quarto's `Q-*` error catalog into the catalog-agnostic
+    // `quarto-error-reporting` host, so diagnostics can resolve docs URLs and
+    // catalog metadata. Must run before any diagnostic is rendered; idempotent.
+    quarto_error_catalog::install();
+
     let cli = Cli::parse();
 
     // Initialize logging. The `-v` flag chooses a default filter

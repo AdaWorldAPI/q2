@@ -3418,6 +3418,7 @@ dependencies = [
  "pollster",
  "quarto-core",
  "quarto-doctemplate",
+ "quarto-error-catalog",
  "quarto-error-reporting",
  "quarto-hub",
  "quarto-lsp",
@@ -3534,6 +3535,7 @@ dependencies = [
  "quarto-ast-reconcile",
  "quarto-config",
  "quarto-doctemplate",
+ "quarto-error-catalog",
  "quarto-error-reporting",
  "quarto-highlight",
  "quarto-navigation",
@@ -3594,6 +3596,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "quarto-error-catalog"
+version = "0.7.0"
+dependencies = [
+ "once_cell",
+ "quarto-error-reporting",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "quarto-error-message-macros"
 version = "0.1.0"
 dependencies = [
@@ -3609,7 +3621,6 @@ name = "quarto-error-reporting"
 version = "0.7.0"
 dependencies = [
  "ariadne",
- "once_cell",
  "quarto-source-map",
  "schemars",
  "serde",

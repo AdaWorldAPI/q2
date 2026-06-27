@@ -23,7 +23,8 @@ pollster.workspace = true
 tokio.workspace = true
 
 quarto-core = { workspace = true, features = ["clap"] }
-quarto-error-reporting.workspace = true
+quarto-error-catalog.workspace = true
+quarto-error-reporting = { workspace = true, features = ["json"] }
 quarto-source-map.workspace = true
 quarto-trace.workspace = true
 quarto-trace-server.workspace = true

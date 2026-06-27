@@ -3,7 +3,7 @@
 // This conversion rule fixes Q-2-5 errors by adding closing '_' marks
 // where they are missing at the end of blocks.
 //
-// Error catalog entry: crates/quarto-error-reporting/error_catalog.json
+// Error catalog entry: crates/quarto-error-catalog/error_catalog.json
 // Error code: Q-2-5
 // Title: "Unclosed Underscore Emphasis"
 // Message: "I reached the end of the block before finding a closing '_' for the emphasis."

@@ -1,6 +1,6 @@
 // Q-2-15: Unclosed Strong Underscore Emphasis
 //
-// Error catalog entry: crates/quarto-error-reporting/error_catalog.json
+// Error catalog entry: crates/quarto-error-catalog/error_catalog.json
 // Error code: Q-2-15
 // Title: "Unclosed Strong Underscore Emphasis"
 // Message: "I reached the end of the block before finding a closing '__' for the strong emphasis."

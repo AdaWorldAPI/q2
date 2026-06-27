@@ -3,7 +3,7 @@
 // This conversion rule fixes Q-2-12 errors by adding closing star marks
 // where they are missing at the end of blocks.
 //
-// Error catalog entry: crates/quarto-error-reporting/error_catalog.json
+// Error catalog entry: crates/quarto-error-catalog/error_catalog.json
 // Error code: Q-2-12
 // Title: "Unclosed Star Emphasis"
 // Message: "I reached the end of the block before finding a closing '*' for the emphasis."

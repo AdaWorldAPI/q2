@@ -3,7 +3,7 @@
 // This conversion rule fixes Q-2-18 errors by adding closing strikeout marks
 // where they are missing at the end of blocks.
 //
-// Error catalog entry: crates/quarto-error-reporting/error_catalog.json
+// Error catalog entry: crates/quarto-error-catalog/error_catalog.json
 // Error code: Q-2-18
 // Title: "Unclosed Strikeout"
 // Message: "I reached the end of the block before finding a closing '~~' for the strikeout."
