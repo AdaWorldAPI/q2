@@ -51,3 +51,12 @@ CLAUDE.local.md
 
 # Visual brainstorming companion scratch files
 .superpowers/
+
+# FMA body.soa bake scratch (regenerated from uploads; do not commit)
+scratch-fma/
+crates/osint-bake/tools/__pycache__/
+
+# big FMA body wire — lives in GitHub Releases, never in git
+cockpit/public/body.soa
+cockpit/public/body.soa.gz
+scratch-fma/

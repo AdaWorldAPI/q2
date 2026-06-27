@@ -13,6 +13,7 @@ import { TorsoSplat } from './TorsoSplat';
 import { TorsoRender } from './TorsoRender';
 import { TorsoMap } from './TorsoMap';
 import { FmaBody } from './FmaBody';
+import { BodyV3 } from './BodyV3';
 import { CpicCockpit } from './CpicCockpit';
 import { ReasoningPage } from './ReasoningPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -98,6 +99,12 @@ createRoot(document.getElementById('root')!).render(
               LAYER (skin/muscle/organ/skeleton/vessel/nerve buttons) + solid↔transparent.
               Additive; reads cockpit/public/fma_body.mesh; never touches /torso* (#57/#58). */}
           <Route path="/fma-body" element={<FmaBody />} />
+          {/* /body — the FULL-RESOLUTION FMA body on the V3 substrate: ALL points
+              (4.2 M-vert / 6.7 M-tri BodyParts3D surface, no decimation), every concept
+              minted on the CLASSID_FMA_V3 (part_of:is_a) cascade. Reads the pre-baked
+              cockpit/public/body.soa (BSO1 = V3 node table + SPM1 geometry). Polygons,
+              not surfels — the successor to /torso-live's decimated 2k-concept torso. */}
+          <Route path="/body" element={<BodyV3 />} />
           {/* /cpic — CPIC pharmacogenomics cockpit (gene-first): {gene, diplotype, drug}
               → phenotype → recommendation, 2-hop NARS deduction over the real CPIC tables
               via POST /api/cpic/reason (the standalone cpic crate). Additive, gene-first
