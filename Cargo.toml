@@ -222,7 +222,10 @@ path = "../lance-graph/crates/lance-graph-contract"
 # u16). family(u16) is the deterministic basin (round→anchor), NOT a category and
 # NOT a Louvain cluster — location is permanent via the HHTL, the basin is an
 # interface the node adapts to.
-features = ["guid-v2-tail"]
+# guid-v3-tail (implies guid-v2-tail): the FMA bake mints on the V3 cascade tail —
+# CLASSID_FMA_V3 (0x1000_0A01) resolves to ReadMode::FMA_V3, the (part_of:is_a)
+# reading of the SAME leaf·family·identity bytes (no re-carve, same new_v2 storage).
+features = ["guid-v2-tail", "guid-v3-tail"]
 
 # OGAR Active-Record activation crate — the real `impl lance_graph_contract::
 # ClassView` (OgarClassView) used for DISPLAY only. default-features = light: the

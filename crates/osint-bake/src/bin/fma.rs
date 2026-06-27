@@ -52,19 +52,23 @@
 //!
 //! Run from the workspace root:  `cargo run -p osint-bake --bin fma`
 
-use lance_graph_contract::canonical_node::NodeGuid;
+use lance_graph_contract::canonical_node::{NodeGuid, classid_read_mode};
 use osint_bake::fma_ttl;
 use std::path::{Path, PathBuf};
 
 /// The CEILING global-category pole (HEEL=HIP=0xFFFF; sentinel through TWIG = leaf-grain).
 const CEILING: u16 = 0xFFFF;
-/// FMA classid — `anatomical_structure` (`0x0A01`) in OGAR's
-/// `ConceptDomain::Anatomy` (high byte `0x0A`; resolves via
-/// `ogar_vocab::canonical_concept_domain`). The heart slice is soft-tissue
-/// anatomy, so it takes the universal-root concept; OGAR reserves
-/// `0x0A02..0x0A04` for skeleton/bone/joint. Aligned to OGAR PR #116
-/// (`docs/FMA-SKELETON-CONVERGENCE-ANCHOR.md`) — was the ad-hoc `0x00F0_0A00`.
-const CLASSID_FMA: u32 = 0x0000_0A01;
+/// FMA classid — the **V3 cascade-key** `CLASSID_FMA_V3` (`0x1000_0A01`): the V3
+/// generation marker `0x1000` in the HIGH (custom) u16, the canon `anatomical_structure`
+/// concept `0x0A01` preserved in the LOW u16 (so `classid_concept_domain` still routes
+/// OGAR's `ConceptDomain::Anatomy`, high byte `0x0A`). V3 is a *reading* of the SAME
+/// leaf·family·identity tail v2 mints — the `(part_of:is_a)` cascade reinterprets the
+/// 8:8 tiers, never re-carves — so the node still mints through `new_v2` (via
+/// `mint_for`'s V3 arm), resolving to `ReadMode::FMA_V3`. Migrated from the legacy V2
+/// `0x0000_0A01`; the heart slice is soft-tissue anatomy (universal-root concept;
+/// OGAR reserves `0x0A02..0x0A04` for skeleton/bone/joint). See OGAR PR #116
+/// (`docs/FMA-SKELETON-CONVERGENCE-ANCHOR.md`) and the V3 set in `canonical_node.rs`.
+const CLASSID_FMA: u32 = NodeGuid::CLASSID_FMA_V3;
 
 // class bytes → cockpit colour/label (see FmaGraph.tsx).
 const C_ORGAN: u8 = 0;
@@ -130,7 +134,12 @@ impl Builder {
         cell: u8,
     ) -> usize {
         let i = self.nodes.len();
-        let key = NodeGuid::new_v2(
+        // Mint by the classid's registered tail variant (V3 for CLASSID_FMA_V3),
+        // never by hardcoding `new` vs `new_v2` — the contract's `mint_for` litmus.
+        // V3 mints the SAME leaf·family·identity tail through `new_v2`; only the
+        // read mode (the (part_of:is_a) 8:8 cascade) differs.
+        let key = NodeGuid::mint_for(
+            classid_read_mode(CLASSID_FMA).tail_variant,
             CLASSID_FMA,
             tier(MX_ORGAN, ID_HEART), // HEEL  [Organ:Heart]
             if chamber > 0 {
@@ -144,8 +153,12 @@ impl Builder {
             } else {
                 0
             }, // LEAF  [Tissue:id]
-            if cell > 0 { tier(MX_CELL, cell) } else { 0 }, // family[Cell:id]
-            i as u16,                 // identity — stable node id
+            if cell > 0 {
+                tier(MX_CELL, cell) as u32
+            } else {
+                0
+            }, // family[Cell:id]
+            i as u32,                 // identity — stable node id
         );
         self.nodes.push(Node {
             label: label.to_string(),
@@ -158,14 +171,15 @@ impl Builder {
     /// A leaf-limited global TYPE category: HEEL=HIP=TWIG=0xFFFF, LEAF=type idx.
     fn type_node(&mut self, label: &str, type_idx: u16) -> usize {
         let i = self.nodes.len();
-        let key = NodeGuid::new_v2(
+        let key = NodeGuid::mint_for(
+            classid_read_mode(CLASSID_FMA).tail_variant,
             CLASSID_FMA,
             CEILING,  // HEEL sentinel
             CEILING,  // HIP  sentinel
             CEILING,  // TWIG sentinel → leaf-grain ("limited to the leaf")
             type_idx, // LEAF — the sole discriminator
             0,        // family — global, no basin
-            i as u16,
+            i as u32,
         );
         self.nodes.push(Node {
             label: label.to_string(),
