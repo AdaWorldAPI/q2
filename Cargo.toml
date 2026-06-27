@@ -244,6 +244,17 @@ path = "../lance-graph/crates/causal-edge"
 [workspace.dependencies.graph-flow]
 path = "./crates/stubs/graph-flow"
 
+# The REAL AdaWorldAPI/ndarray fork, consumed DIRECTLY — the SAME local checkout
+# lance-graph compiles (`../ndarray`), so the whole binary unifies on one fork.
+# No wrapper crate: when everything compiles into a single binary from local
+# source, wrapping ndarray behind another crate buys nothing — it only hides
+# `ndarray::simd` / `ndarray::hpc` (the AVX-512→AVX2→scalar polyfill, compile-time
+# `target-cpu=x86-64-v4` + runtime `simd_caps()`) behind a pointless indirection.
+[workspace.dependencies.ndarray]
+path = "../ndarray"
+default-features = false
+features = ["std", "hpc-extras"]
+
 [workspace.dependencies.q2-ndarray]
 path = "./crates/stubs/q2-ndarray"
 
