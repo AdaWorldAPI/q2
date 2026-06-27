@@ -19,12 +19,12 @@ echo
 
 # Extract catalog codes
 echo "📚 Extracting catalog codes..."
-if [ ! -f "crates/quarto-error-reporting/error_catalog.json" ]; then
+if [ ! -f "crates/quarto-error-catalog/error_catalog.json" ]; then
   echo "❌ Error: Cannot find error_catalog.json"
   exit 1
 fi
 
-jq -r 'keys[]' crates/quarto-error-reporting/error_catalog.json | sort > /tmp/catalog-codes.txt
+jq -r 'keys[]' crates/quarto-error-catalog/error_catalog.json | sort > /tmp/catalog-codes.txt
 catalog_count=$(wc -l < /tmp/catalog-codes.txt | tr -d ' ')
 echo "   Found $catalog_count codes in catalog"
 

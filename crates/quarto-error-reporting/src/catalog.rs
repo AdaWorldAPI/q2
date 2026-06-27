@@ -1,16 +1,23 @@
-//! Error code catalog and lookup.
+//! Pluggable error-code catalog.
 //!
-//! This module provides access to the centralized error catalog, which maps
-//! error codes (like "Q-1-1") to their metadata (title, message template, docs URL, etc.).
+//! `quarto-error-reporting` is **catalog-agnostic**: it defines the catalog
+//! *shape* ([`ErrorCodeInfo`]) and a [`CatalogProvider`] seam, but ships no
+//! catalog *data*. An embedding product installs its own catalog once, early,
+//! via [`install_catalog`]; in Quarto this is done by the `quarto-error-catalog`
+//! crate (`quarto_error_catalog::install()`), which carries the `Q-*`
+//! `error_catalog.json`. With nothing installed, every lookup returns `None`
+//! (see [`EmptyCatalog`]).
+//!
+//! This is the host side of the cross-package error-code discipline; see
+//! `claude-notes/designs/cross-package-error-codes.md`.
 
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// Metadata for an error code.
 ///
-/// Each entry in the error catalog describes a specific error code,
-/// including its subsystem, title, default message, and documentation URL.
+/// Each catalog entry describes a specific error code, including its
+/// subsystem, title, default message, and documentation URL.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ErrorCodeInfo {
     /// Subsystem name (e.g., "yaml", "markdown", "engine")
@@ -30,288 +37,161 @@ pub struct ErrorCodeInfo {
     pub since_version: String,
 }
 
-/// Global error catalog, loaded lazily from JSON at compile time.
+/// A source of error-code metadata, supplied by the embedding product.
 ///
-/// The catalog is loaded from `error_catalog.json` using `include_str!()`,
-/// which embeds the JSON at compile time. This means no runtime file I/O.
+/// Implementors return metadata for a given code, or `None` if the code is not
+/// in their catalog. The returned reference is tied to `&self`, which lets the
+/// installed-global path (see [`install_catalog`]) hand out `&'static`
+/// references — the installed provider lives for the rest of the process.
 ///
-/// # Panics
-///
-/// Panics if the embedded JSON is invalid. This should only happen during
-/// development if someone manually edits the catalog incorrectly.
-pub static ERROR_CATALOG: Lazy<HashMap<String, ErrorCodeInfo>> = Lazy::new(|| {
-    let json_data = include_str!("../error_catalog.json");
-    serde_json::from_str(json_data).expect("Invalid error catalog JSON - this is a bug in Quarto")
-});
+/// `Send + Sync` is required so the provider can live in a process-wide
+/// [`OnceLock`]; it costs nothing for the data-only providers in practice.
+pub trait CatalogProvider: Send + Sync {
+    /// Look up an error code's metadata, or `None` if it is not in this catalog.
+    fn lookup(&self, code: &str) -> Option<&ErrorCodeInfo>;
+}
 
-/// Look up error code information.
+/// The default provider used when none has been installed: every lookup is
+/// `None`. This is what makes the crate usable standalone with zero config — a
+/// non-Quarto consumer that installs nothing simply gets code-less, URL-less
+/// diagnostics (tier-2 "passthrough" in the discipline's terms).
+pub struct EmptyCatalog;
+
+impl CatalogProvider for EmptyCatalog {
+    fn lookup(&self, _code: &str) -> Option<&ErrorCodeInfo> {
+        None
+    }
+}
+
+/// The process-wide installed catalog. Written at most once, by the embedder.
+static CATALOG: OnceLock<Box<dyn CatalogProvider>> = OnceLock::new();
+
+/// Install the process-wide catalog provider.
 ///
-/// Returns `None` if the error code is not found in the catalog.
+/// The **first** call wins; later calls are no-ops (so a double install — e.g.
+/// a binary's `main` plus a test helper — is harmless). Embedders should call
+/// this once, as early as possible, at binary / WASM startup, *before* any
+/// diagnostic's docs URL is resolved.
+pub fn install_catalog(provider: Box<dyn CatalogProvider>) {
+    let _ = CATALOG.set(provider);
+}
+
+/// The installed provider, or a shared [`EmptyCatalog`] if none was installed.
+fn catalog() -> &'static dyn CatalogProvider {
+    static EMPTY: EmptyCatalog = EmptyCatalog;
+    match CATALOG.get() {
+        Some(provider) => &**provider,
+        None => &EMPTY,
+    }
+}
+
+/// Look up full metadata for an error code via the installed catalog.
+///
+/// Returns `None` if no catalog is installed, or the code is not in it.
 ///
 /// # Example
 ///
 /// ```
 /// use quarto_error_reporting::catalog::get_error_info;
 ///
-/// if let Some(info) = get_error_info("Q-0-1") {
-///     println!("Error: {} - {}", info.title, info.message_template);
-/// }
+/// // With a `CatalogProvider` installed (e.g. via `quarto-error-catalog`),
+/// // this resolves to the code's metadata; with none installed it is `None`.
+/// let _ = get_error_info("Q-0-1");
 /// ```
-pub fn get_error_info(code: &str) -> Option<&ErrorCodeInfo> {
-    ERROR_CATALOG.get(code)
+pub fn get_error_info(code: &str) -> Option<&'static ErrorCodeInfo> {
+    catalog().lookup(code)
 }
 
-/// Get documentation URL for an error code.
+/// Get the documentation URL for an error code, if the installed catalog has one.
 ///
-/// Returns `None` if the error code is not found or has no documentation URL.
+/// Returns `None` if no catalog is installed, the code is unknown, or the entry
+/// has no documentation URL.
 ///
 /// # Example
 ///
 /// ```
 /// use quarto_error_reporting::catalog::get_docs_url;
 ///
-/// if let Some(url) = get_docs_url("Q-0-1") {
-///     println!("See {} for more information", url);
-/// }
+/// // `Some(url)` iff a catalog mapping this code (with a docs URL) is installed.
+/// let _ = get_docs_url("Q-0-1");
 /// ```
-pub fn get_docs_url(code: &str) -> Option<&str> {
-    ERROR_CATALOG
-        .get(code)
+pub fn get_docs_url(code: &str) -> Option<&'static str> {
+    catalog()
+        .lookup(code)
         .and_then(|info| info.docs_url.as_deref())
 }
 
-/// Get the subsystem name for an error code.
+/// Get the subsystem name for an error code, if the installed catalog knows it.
 ///
-/// Returns `None` if the error code is not found.
+/// Returns `None` if no catalog is installed or the code is unknown.
 ///
 /// # Example
 ///
 /// ```
 /// use quarto_error_reporting::catalog::get_subsystem;
 ///
-/// assert_eq!(get_subsystem("Q-0-1"), Some("internal"));
+/// // With a catalog installed this returns e.g. `Some("internal")` for "Q-0-1".
+/// let _ = get_subsystem("Q-0-1");
 /// ```
-pub fn get_subsystem(code: &str) -> Option<&str> {
-    ERROR_CATALOG.get(code).map(|info| info.subsystem.as_str())
+pub fn get_subsystem(code: &str) -> Option<&'static str> {
+    catalog().lookup(code).map(|info| info.subsystem.as_str())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_catalog_loads() {
-        // Just accessing ERROR_CATALOG will trigger loading
-        // If the JSON is invalid, this will panic
-        assert!(!ERROR_CATALOG.is_empty());
-    }
-
-    #[test]
-    fn test_internal_error_exists() {
-        let info = get_error_info("Q-0-1");
-        assert!(info.is_some());
-
-        let info = info.unwrap();
-        assert_eq!(info.subsystem, "internal");
-        assert_eq!(info.title, "Internal Error");
-        assert!(info.docs_url.is_some());
-    }
-
-    #[test]
-    fn test_get_docs_url() {
-        let url = get_docs_url("Q-0-1");
-        assert!(url.is_some());
-        assert!(url.unwrap().starts_with("https://quarto.org/docs/errors/"));
-    }
-
-    #[test]
-    fn test_get_subsystem() {
-        assert_eq!(get_subsystem("Q-0-1"), Some("internal"));
-        assert_eq!(get_subsystem("Q-999-999"), None); // quarto-error-code-audit-ignore
-    }
-
-    #[test]
-    fn test_nonexistent_code() {
-        assert!(get_error_info("Q-999-999").is_none()); // quarto-error-code-audit-ignore
-        assert!(get_docs_url("Q-999-999").is_none()); // quarto-error-code-audit-ignore
-    }
-
-    // L8 / bd-rqgx test #1: Q-12-14 catalog presence.
-    #[test]
-    fn error_catalog_has_q_12_14() {
-        let info = get_error_info("Q-12-14").expect("Q-12-14 must be in the catalog");
-        assert_eq!(info.subsystem, "listing");
-        assert_eq!(info.title, "Listing Type custom Without template Path");
-        assert!(
-            info.message_template.contains("type: custom"),
-            "Q-12-14 message must mention `type: custom`; got: {}",
-            info.message_template
-        );
-        assert!(
-            info.message_template.contains("default"),
-            "Q-12-14 message must mention the default fallback; got: {}",
-            info.message_template
-        );
-    }
-
-    // bd-8d6rk: Q-13-1..6 navigation subsystem catalog presence.
-    //
-    // These six codes back the structured-diagnostic migration of the
-    // sidebar / navbar / page-footer / body-link / sidebar `auto:`
-    // warnings (previously plain `DiagnosticMessage::warning(format!())`
-    // strings without codes). See
-    // `claude-notes/plans/2026-05-20-bd-8d6rk-navigation-diagnostics.md`
-    // for the per-code title/problem/hint table.
-    #[test]
-    fn error_catalog_has_q_13_navigation_codes() {
-        let cases: &[(&str, &str, &str)] = &[
-            ("Q-13-1", "Sidebar", "missing document"),
-            ("Q-13-2", "Navbar", "missing document"),
-            ("Q-13-3", "Page footer", "missing document"),
-            ("Q-13-4", "Body link", "missing document"),
-            ("Q-13-5", "auto:", "project index"),
-            ("Q-13-6", "auto:", "no documents"),
-            ("Q-13-7", "Page navigation", "missing document"),
-        ];
-        for (code, title_substr, message_substr) in cases {
-            let info =
-                get_error_info(code).unwrap_or_else(|| panic!("{} must be in the catalog", code));
-            assert_eq!(
-                info.subsystem, "navigation",
-                "{} should be in the navigation subsystem; got: {}",
-                code, info.subsystem
-            );
-            assert!(
-                info.title.contains(title_substr),
-                "{} title must mention `{}`; got: {}",
-                code,
-                title_substr,
-                info.title
-            );
-            assert!(
-                info.message_template.contains(message_substr),
-                "{} message must mention `{}`; got: {}",
-                code,
-                message_substr,
-                info.message_template
-            );
-            assert!(
-                info.docs_url.as_deref().is_some_and(|u| u.ends_with(code)),
-                "{} docs_url must end with {}; got: {:?}",
-                code,
-                code,
-                info.docs_url
-            );
+    fn sample_info(subsystem: &str, docs_url: Option<&str>) -> ErrorCodeInfo {
+        ErrorCodeInfo {
+            subsystem: subsystem.to_string(),
+            title: "Sample".to_string(),
+            message_template: "sample".to_string(),
+            docs_url: docs_url.map(str::to_string),
+            since_version: "0.0.0".to_string(),
         }
     }
 
-    // L9 / bd-o90m test #1: Q-12-15 + Q-12-16 catalog presence.
+    /// The default provider returns `None` for everything. Tested *directly*
+    /// (no global state) so it is robust regardless of test runner — this is
+    /// the canonical "no catalog installed → None" behaviour.
     #[test]
-    fn error_catalog_has_q_12_15_and_q_12_16() {
-        let q15 = get_error_info("Q-12-15").expect("Q-12-15 must be in the catalog");
-        assert_eq!(q15.subsystem, "listing");
-        assert!(
-            q15.title.to_lowercase().contains("feed"),
-            "Q-12-15 title must mention feed; got: {}",
-            q15.title
-        );
-        assert!(
-            q15.message_template.contains("site-url"),
-            "Q-12-15 message must mention `site-url`; got: {}",
-            q15.message_template
-        );
-
-        let q16 = get_error_info("Q-12-16").expect("Q-12-16 must be in the catalog");
-        assert_eq!(q16.subsystem, "listing");
-        assert!(
-            q16.title.to_lowercase().contains("feed"),
-            "Q-12-16 title must mention feed; got: {}",
-            q16.title
-        );
-        assert!(
-            q16.message_template.contains("description"),
-            "Q-12-16 message must mention the empty description fallback; got: {}",
-            q16.message_template
-        );
+    fn empty_catalog_returns_none() {
+        let empty = EmptyCatalog;
+        assert!(empty.lookup("Q-0-1").is_none());
+        assert!(empty.lookup("anything").is_none());
     }
 
-    // bd-bxrkxblx: Q-5-6 / Q-5-7 resource-copy diagnostics.
-    //
-    // Q-5-6 is the span-aware *warning* for a referenced resource
-    // whose source file is missing (detected before the copy is
-    // attempted). Q-5-7 is the hard *error* for a copy/write that
-    // fails at flush for an environment reason (permission denied,
-    // disk full). See
-    // `claude-notes/plans/2026-06-19-resource-copy-error-diagnostic.md`.
-    #[test]
-    fn error_catalog_has_q_5_6_and_q_5_7() {
-        let q6 = get_error_info("Q-5-6").expect("Q-5-6 must be in the catalog");
-        assert_eq!(q6.subsystem, "project");
-        assert!(
-            q6.title.to_lowercase().contains("resource"),
-            "Q-5-6 title must mention `resource`; got: {}",
-            q6.title
-        );
-        assert!(
-            q6.message_template.to_lowercase().contains("not exist")
-                || q6.message_template.to_lowercase().contains("missing")
-                || q6.message_template.to_lowercase().contains("not found"),
-            "Q-5-6 message must describe the missing source; got: {}",
-            q6.message_template
-        );
-        assert!(
-            q6.docs_url.as_deref().is_some_and(|u| u.ends_with("Q-5-6")),
-            "Q-5-6 docs_url must end with the code; got: {:?}",
-            q6.docs_url
-        );
-
-        let q7 = get_error_info("Q-5-7").expect("Q-5-7 must be in the catalog");
-        assert_eq!(q7.subsystem, "project");
-        assert!(
-            q7.title.to_lowercase().contains("copy")
-                || q7.title.to_lowercase().contains("resource"),
-            "Q-5-7 title must mention copy/resource; got: {}",
-            q7.title
-        );
-        assert!(
-            q7.message_template.to_lowercase().contains("copy"),
-            "Q-5-7 message must mention copying; got: {}",
-            q7.message_template
-        );
-        assert!(
-            q7.docs_url.as_deref().is_some_and(|u| u.ends_with("Q-5-7")),
-            "Q-5-7 docs_url must end with the code; got: {:?}",
-            q7.docs_url
-        );
+    /// A trivial mock provider implements the trait and is found by lookup.
+    struct MockCatalog {
+        entry: ErrorCodeInfo,
+    }
+    impl CatalogProvider for MockCatalog {
+        fn lookup(&self, code: &str) -> Option<&ErrorCodeInfo> {
+            (code == "Q-0-1").then_some(&self.entry)
+        }
     }
 
-    // bd-rr6qzcvu: Q-15-1 — the new `crossref` subsystem's first code,
-    // for a duplicate crossref identifier.
+    /// The **single** test in this crate that mutates the process-global
+    /// catalog: install a mock and assert the free functions delegate to it for
+    /// a known code, and return `None` for an unknown one. Keeping this the only
+    /// global-mutating test means there is no intra-process install conflict,
+    /// even under `cargo test` (threads) rather than nextest (process-per-test).
     #[test]
-    fn error_catalog_has_q_15_1_crossref() {
-        let info = get_error_info("Q-15-1").expect("Q-15-1 must be in the catalog");
-        assert_eq!(info.subsystem, "crossref");
-        assert!(
-            info.title.to_lowercase().contains("duplicate")
-                && info.title.to_lowercase().contains("crossref"),
-            "Q-15-1 title must mention a duplicate crossref; got: {}",
-            info.title
+    fn installed_catalog_is_used_by_lookups() {
+        install_catalog(Box::new(MockCatalog {
+            entry: sample_info("internal", Some("https://example.test/docs/Q-0-1")),
+        }));
+
+        assert_eq!(get_subsystem("Q-0-1"), Some("internal"));
+        assert_eq!(
+            get_docs_url("Q-0-1"),
+            Some("https://example.test/docs/Q-0-1")
         );
-        assert!(
-            info.message_template.to_lowercase().contains("unique")
-                || info
-                    .message_template
-                    .to_lowercase()
-                    .contains("more than once"),
-            "Q-15-1 message must explain the uniqueness requirement; got: {}",
-            info.message_template
-        );
-        assert!(
-            info.docs_url
-                .as_deref()
-                .is_some_and(|u| u.ends_with("Q-15-1")),
-            "Q-15-1 docs_url must end with the code; got: {:?}",
-            info.docs_url
-        );
+        assert!(get_error_info("Q-0-1").is_some());
+
+        // Unknown code, even with a catalog installed, is `None`.
+        assert!(get_subsystem("Q-9-9").is_none());
+        assert!(get_docs_url("Q-9-9").is_none());
+        assert!(get_error_info("Q-9-9").is_none());
     }
 }

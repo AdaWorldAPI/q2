@@ -5,7 +5,7 @@ Each page expands a terminal-format error message into a fuller
 explanation: what the error means in plain language, why it
 typically fires, and how a user can fix it. The codes themselves
 live in the catalog at
-[`crates/quarto-error-reporting/error_catalog.json`](../../crates/quarto-error-reporting/error_catalog.json),
+[`crates/quarto-error-catalog/error_catalog.json`](../../crates/quarto-error-catalog/error_catalog.json),
 which defines which codes exist; the pages in this directory
 explain them.
 

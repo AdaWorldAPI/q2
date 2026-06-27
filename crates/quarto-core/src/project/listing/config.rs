@@ -14,7 +14,7 @@
 //! The shape is the L2 reference document
 //! (`claude-notes/plans/2026-05-06-listings-L2-data-model.md`).
 //! Diagnostic codes for invalid shapes are `Q-12-N`, registered in
-//! `crates/quarto-error-reporting/error_catalog.json`.
+//! `crates/quarto-error-catalog/error_catalog.json`.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

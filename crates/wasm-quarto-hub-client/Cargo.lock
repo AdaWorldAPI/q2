@@ -2224,7 +2224,6 @@ name = "quarto-error-reporting"
 version = "0.7.0"
 dependencies = [
  "ariadne",
- "once_cell",
  "quarto-source-map",
  "schemars",
  "serde",

@@ -3,7 +3,7 @@
 // This conversion rule fixes Q-2-33 errors by replacing spaces with %20
 // in link and image targets.
 //
-// Error catalog entry: crates/quarto-error-reporting/error_catalog.json
+// Error catalog entry: crates/quarto-error-catalog/error_catalog.json
 // Error code: Q-2-33
 // Title: "Spaces in Link Targets"
 // Message: "Link targets cannot contain spaces. Replace spaces with %20."

@@ -276,13 +276,18 @@ impl DiagnosticMessage {
     ///
     /// # Example
     ///
+    /// Resolves the code against the installed [`CatalogProvider`]
+    /// (`crate::catalog`); returns `None` when no catalog is installed, the
+    /// code is unknown, or the entry has no docs URL.
+    ///
     /// ```
     /// use quarto_error_reporting::DiagnosticMessage;
     ///
     /// let msg = DiagnosticMessage::error("Internal Error")
     ///     .with_code("Q-0-1");
     ///
-    /// assert!(msg.docs_url().is_some());
+    /// // `Some(url)` iff a catalog mapping "Q-0-1" (with a docs URL) is installed.
+    /// let _ = msg.docs_url();
     /// ```
     pub fn docs_url(&self) -> Option<&str> {
         self.code
@@ -928,12 +933,11 @@ mod tests {
         assert_eq!(msg.code, Some("Q-1-1".to_string()));
     }
 
-    #[test]
-    fn test_docs_url() {
-        let msg = DiagnosticMessage::error("Internal Error").with_code("Q-0-1");
-        assert!(msg.docs_url().is_some());
-        assert!(msg.docs_url().unwrap().contains("Q-0-1"));
-    }
+    // The positive case — `docs_url()` for a real code resolves to the
+    // quarto.org URL — moved to `quarto-error-catalog`'s integration tests,
+    // where the `Q-*` catalog is installed. Here we only cover the
+    // catalog-free cases (no code / unknown code → `None`), which hold
+    // regardless of whether a catalog is installed.
 
     #[test]
     fn test_docs_url_without_code() {

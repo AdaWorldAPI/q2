@@ -14,7 +14,6 @@ quarto-source-map = { workspace = true }
 # Error reporting
 ariadne = { workspace = true }
 thiserror = { workspace = true }
-once_cell = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
