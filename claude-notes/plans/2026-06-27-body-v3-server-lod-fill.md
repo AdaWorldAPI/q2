@@ -106,15 +106,22 @@ centroid (robust to outliers), clamped to an **absolute** `[RMIN, RMAX]`
 diameter boundary (`RMAX=0.020` ≈ 34 mm dia, covers the aorta, kills balloons).
 662 vessels → +71,872 core verts / +133,152 tris.
 
-### BF16 positions — BSO2 **ver 4** (the "A" brick)
-Per-vertex `pos` column is now **BF16** (3× u16 LE = 6 B/vertex), half of ver 3's
+### Half-precision positions — the "A" brick
+> **SUPERSEDED to F16 (BSO2 ver 5).** BF16 (ver 4) was tried first and **rejected**:
+> its 7-bit mantissa gave a ~3 mm step near the head (y≈0.85) → a visible staircase
+> (Treppeneffekt) on the eye/brain. Shipped format is **F16 / IEEE half (ver 5)** —
+> same 6 B/vertex, 10-bit mantissa, ~0.2 mm (measured 0.21 mm max over the wire), no
+> staircase. Bake uses ndarray's `F16::from_f32`; renderer widens via a 64K half→f32
+> LUT. `BodyV3.tsx` reads ver 3 (f32) / 4 (BF16) / 5 (F16). gz ≈ 63 MB (vs f32's 80).
+> The BF16 description below is retained for history.
+
+Per-vertex `pos` column was **BF16** (3× u16 LE = 6 B/vertex), half of ver 3's
 12 B f32. Conversion via ndarray's sanctioned RNE batch path
 (`f32_to_bf16_batch_rne`) on the native bake host (AVX-512/AMX). The renderer
 widens back to f32 client-side (`bits << 16` — BF16 is the top 16 bits of f32, so
-the widening is exact). Verified round-trip ≈ 1.4 mm error on a 1.7 m body — below
-the visual + cascade (screen-space-error) floor. Wire 176 MB → 150 MB; gz 80 MB →
-57.5 MB. `BodyV3.tsx` reads both ver 3 and ver 4. Asset replaced in release
-`fma-body-soa-v3-v1` (Dockerfile pulls it same-origin, unchanged).
+the widening is exact). Round-trip ≈ 1.4 mm — which turned out to be visible on
+small smooth structures, hence the F16 upgrade above. Asset in release
+`fma-body-soa-v3-v1` (Dockerfile pulls it same-origin).
 
 ### "B": server-side HHTL-O(1) LOD endpoint — WIRED (de-risked)
 cockpit-server can't build in-sandbox (quarto-core→runtimelib is a proxy-blocked

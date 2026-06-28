@@ -48,8 +48,10 @@ MATERIALS = [
     {"id": 5, "name": "neural", "doppler": "none", "rgb": [226, 205, 88]},
 ]
 TISSUE_MATERIAL = {
-    "artery": 0, "heart": 0, "vein": 3, "vessel": 3, "nerve": 5,
-    # everything solid (bone/cartilage/muscle/organs/skin/flesh) → solid_tissue
+    "artery": 0, "vein": 3, "vessel": 3, "nerve": 5,
+    # heart is a chambered ORGAN, not a tube — mapping it to artery(0) made the slicer-
+    # fill sweep a PCA-centerline lumen rod through it. Fall through to solid_tissue
+    # (like every other solid: bone/cartilage/muscle/organs/skin/flesh).
 }
 
 

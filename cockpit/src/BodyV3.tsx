@@ -301,6 +301,7 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
     if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
     uniforms.uEnabled.value = st.enabled;          // shared by both materials
     uniforms.uGlobalAlpha.value = st.alpha;
+    if (!st.lodOn) lodFail = false;   // toggling LOD off clears a transient failure → re-enabling retries
     uniforms.uLodOn.value = st.lodOn && !lodFail && lodReady ? 1 : 0;   // only cull after a real response
     if (st.focus) {                                 // search-pick zoom: glide to the organ
       tmp.set(st.focus.t[0], st.focus.t[1], st.focus.t[2]);
@@ -360,10 +361,18 @@ export function BodyV3() {
 
   useEffect(() => {
     let cancelled = false;
-    const inflate = async (r: Response) =>
-      r.body && typeof DecompressionStream !== 'undefined'
-        ? new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
-        : r.arrayBuffer();
+    // Decide by the *payload*, not by DecompressionStream support: if the browser (or a
+    // CDN) already decoded Content-Encoding: gzip, the bytes are plain; if served raw,
+    // they start with the gzip magic 1f 8b. Only inflate when actually gzipped.
+    const inflate = async (r: Response): Promise<ArrayBuffer> => {
+      const buf = await r.arrayBuffer();
+      const u8 = new Uint8Array(buf);
+      const gz = u8.length > 1 && u8[0] === 0x1f && u8[1] === 0x8b;
+      if (!gz) return buf;
+      if (typeof DecompressionStream === 'undefined')
+        throw new Error('body.soa.gz is gzip but this browser lacks DecompressionStream');
+      return new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    };
     (async () => {
       const local = await fetch('/body.soa.gz').catch(() => null);
       if (local && local.ok) return decodeBso2(await inflate(local));
@@ -428,10 +437,10 @@ export function BodyV3() {
           {matches.length > 0 && (
             <div style={{ marginTop: 4, background: '#0e1219', border: '1px solid #1c2530', borderRadius: 6, overflow: 'hidden', maxHeight: 320, overflowY: 'auto' }}>
               {matches.map((c) => (
-                <div key={c.row} onClick={() => { pick(c); setQuery(''); }} style={{ padding: '6px 9px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid #141b24', color: '#cdd9e5' }}>
+                <button type="button" key={c.row} onClick={() => { pick(c); setQuery(''); }} style={{ width: '100%', textAlign: 'left', padding: '6px 9px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 8, border: 'none', borderBottom: '1px solid #141b24', background: 'transparent', color: '#cdd9e5', font: '13px ui-monospace, monospace' }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
                   <span style={{ opacity: 0.5, flexShrink: 0 }}>{LAYERS[(c.layer - 1) % 8]?.name}</span>
-                </div>
+                </button>
               ))}
             </div>
           )}
