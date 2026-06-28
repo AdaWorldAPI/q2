@@ -45,10 +45,10 @@ const MATERIAL_ALPHA_LEVEL: Record<string, number> = {
 interface Decoded {
   nConcepts: number; nVerts: number; nTris: number; classid: number;
   positions: Float32Array; index: Uint32Array; opaqueTris: number;
-  colors: Uint8Array; alpha: Float32Array; layer: Float32Array;
+  colors: Uint8Array; alpha: Float32Array; layer: Float32Array; row: Float32Array;
   materials: Material[]; labels: string[];
 }
-interface RenderState { enabled: Float32Array; alpha: number; transparent: boolean }
+interface RenderState { enabled: Float32Array; alpha: number; transparent: boolean; lodOn: boolean }
 
 function decodeBso2(buf: ArrayBuffer): Decoded {
   const dv = new DataView(buf);
@@ -97,15 +97,17 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const colors = new Uint8Array(nV * 3);
   const alpha = new Float32Array(nV);
   const layer = new Float32Array(nV);
+  const row = new Float32Array(nV);             // concept index per vertex → server-LOD gate
   for (let i = 0; i < nV; i++) {
     positions[i * 3] = -srcPos[i * 3];               // (x,y,z)->(-x,z,y) head-up
     positions[i * 3 + 1] = srcPos[i * 3 + 2];
     positions[i * 3 + 2] = srcPos[i * 3 + 1];
-    const row = rowArr[i];
-    const m = materials[cMat[row]] ?? materials[materials.length - 1];
+    const r = rowArr[i];
+    const m = materials[cMat[r]] ?? materials[materials.length - 1];
     colors[i * 3] = m.rgb[0]; colors[i * 3 + 1] = m.rgb[1]; colors[i * 3 + 2] = m.rgb[2];
     alpha[i] = P17(MATERIAL_ALPHA_LEVEL[m.name] ?? 16);
-    layer[i] = cLayer[row] || 8;
+    layer[i] = cLayer[r] || 8;
+    row[i] = r;
   }
   // partition triangles: opaque (all 3 verts α≈1 — solids) first, then transparent
   // (vessels/#17 α<1). Lets the renderer draw opaque fast (early-Z, no blend) and
@@ -120,21 +122,26 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
     else { tr -= 3; index[tr] = x; index[tr + 1] = y; index[tr + 2] = z; }
   }
   const opaqueTris = op / 3;
-  return { nConcepts: nC, nVerts: nV, nTris: nT, classid, positions, index, opaqueTris, colors, alpha, layer, materials, labels };
+  return { nConcepts: nC, nVerts: nV, nTris: nT, classid, positions, index, opaqueTris, colors, alpha, layer, row, materials, labels };
 }
 
 const VERT = `
-attribute vec3 aColor; attribute float aAlpha; attribute float aLayer;
-varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer;
-void main(){ vNormal = normalMatrix * normal; vColor = aColor; vAlpha = aAlpha; vLayer = aLayer;
+attribute vec3 aColor; attribute float aAlpha; attribute float aLayer; attribute float aRow;
+varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer; varying float vRow;
+void main(){ vNormal = normalMatrix * normal; vColor = aColor; vAlpha = aAlpha; vLayer = aLayer; vRow = aRow;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`;
 const FRAG = `
 precision mediump float;
 uniform float uEnabled[9]; uniform float uGlobalAlpha;
-varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer;
+uniform sampler2D uLod; uniform float uLodN; uniform float uLodOn;  // server HHTL LOD gate
+varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer; varying float vRow;
 void main(){
   int li = int(vLayer + 0.5);
   if(li < 1 || li > 8 || uEnabled[li] < 0.5) discard;   // compartment gate
+  if(uLodOn > 0.5){                                      // server LOD: HhtlAction 0=Reject ⇒ cull
+    float act = texture2D(uLod, vec2((vRow + 0.5) / uLodN, 0.5)).r;
+    if(act < 0.002) discard;                             // 0/255 = Reject
+  }
   vec3 n = normalize(vNormal); if(!gl_FrontFacing) n = -n;
   const vec3 L = vec3(-0.401,0.783,0.476);
   float ndl = max(dot(n,L),0.0);
@@ -155,14 +162,24 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
   geom.setAttribute('aColor', new THREE.BufferAttribute(d.colors, 3, true));
   geom.setAttribute('aAlpha', new THREE.BufferAttribute(d.alpha, 1));
   geom.setAttribute('aLayer', new THREE.BufferAttribute(d.layer, 1));
+  geom.setAttribute('aRow', new THREE.BufferAttribute(d.row, 1));
   geom.setIndex(new THREE.BufferAttribute(d.index, 1));
   geom.computeVertexNormals();
+
+  // server-LOD action texture: 1 px per concept, R8, init 255 (= show all until the
+  // first /api/body/lod response arrives — never cull on a cold start).
+  const lodData = new Uint8Array(d.nConcepts).fill(255);
+  const lodTex = new THREE.DataTexture(lodData, d.nConcepts, 1, THREE.RedFormat, THREE.UnsignedByteType);
+  lodTex.needsUpdate = true;
   // two draw groups over the partitioned index: [0]=opaque solids (fast),
   // [1]=translucent vessels (blended, drawn after).
   geom.clearGroups();
   geom.addGroup(0, d.opaqueTris * 3, 0);
   geom.addGroup(d.opaqueTris * 3, (d.nTris - d.opaqueTris) * 3, 1);
-  const uniforms = { uEnabled: { value: st.enabled }, uGlobalAlpha: { value: st.alpha } };
+  const uniforms = {
+    uEnabled: { value: st.enabled }, uGlobalAlpha: { value: st.alpha },
+    uLod: { value: lodTex }, uLodN: { value: d.nConcepts }, uLodOn: { value: 0 },
+  };
   const opaqueMat = new THREE.ShaderMaterial({
     vertexShader: VERT, fragmentShader: FRAG, uniforms,
     side: THREE.DoubleSide, transparent: false, depthWrite: true,
@@ -178,6 +195,34 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
   controls.autoRotate = true; controls.autoRotateSpeed = 0.6;
   controls.minDistance = 0.6; controls.maxDistance = 12;
 
+  // throttled server-LOD poll: post the live camera (in display space — block bounds
+  // are baked in the same space), write the per-concept action bytes into lodTex.
+  let lodNext = 0, lodInflight = false, lodFail = false;
+  const postLod = (now: number) => {
+    if (!st.lodOn || lodFail || lodInflight || now < lodNext) return;
+    lodInflight = true; lodNext = now + 220;
+    camera.updateMatrixWorld();
+    const e = camera.matrixWorldInverse.elements;   // column-major → row-major view
+    const view = [
+      [e[0], e[4], e[8], e[12]], [e[1], e[5], e[9], e[13]],
+      [e[2], e[6], e[10], e[14]], [e[3], e[7], e[11], e[15]],
+    ];
+    const fy = (h / 2) / Math.tan((camera.fov * Math.PI) / 360);
+    const body = {
+      view, fx: fy, fy, cx: w / 2, cy: h / 2, near: camera.near, far: camera.far,
+      width: w, height: h, position: [camera.position.x, camera.position.y, camera.position.z],
+    };
+    fetch('/api/body/lod', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((j: { actions: number[] }) => {
+        const a = j.actions;
+        for (let i = 0; i < lodData.length && i < a.length; i++) lodData[i] = a[i];
+        lodTex.needsUpdate = true;
+      })
+      .catch(() => { lodFail = true; })   // endpoint absent (old deploy) → silently keep full render
+      .finally(() => { lodInflight = false; });
+  };
+
   let raf = 0, ema = 16.6, last = performance.now(), since = 0, wasT = st.transparent;
   const tick = () => {
     raf = requestAnimationFrame(tick);
@@ -186,7 +231,9 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
     if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
     uniforms.uEnabled.value = st.enabled;          // shared by both materials
     uniforms.uGlobalAlpha.value = st.alpha;
+    uniforms.uLodOn.value = st.lodOn && !lodFail ? 1 : 0;
     if (st.transparent !== wasT) { transMat.depthWrite = !st.transparent; wasT = st.transparent; }
+    postLod(now);
     controls.update(); renderer.render(scene, camera);
     if (++since >= 20) { since = 0; onStats({ fps: Math.round(1000 / Math.max(ema, 1)) }); }
   };
@@ -198,7 +245,7 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
   const ro = new ResizeObserver(onResize); ro.observe(container);
   return () => {
     cancelAnimationFrame(raf); ro.disconnect(); controls.dispose();
-    geom.dispose(); opaqueMat.dispose(); transMat.dispose(); renderer.dispose();
+    geom.dispose(); lodTex.dispose(); opaqueMat.dispose(); transMat.dispose(); renderer.dispose();
     if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
   };
 }
@@ -213,7 +260,8 @@ export function BodyV3() {
   // skin (1) off by default so the anatomy shows.
   const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
   const [transparent, setTransparent] = useState(true);
-  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: true });
+  const [lod, setLod] = useState(false);   // server HHTL LOD — opt-in (off = today's full render)
+  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: true, lodOn: false });
 
   useEffect(() => {
     const e = new Float32Array(9);
@@ -221,7 +269,8 @@ export function BodyV3() {
     stRef.current.enabled = e;
     stRef.current.transparent = transparent;
     stRef.current.alpha = transparent ? 1.0 : 1.0; // alpha comes from #17 material; toggle flips depthWrite
-  }, [on, transparent]);
+    stRef.current.lodOn = lod;
+  }, [on, transparent, lod]);
 
   useEffect(() => {
     let cancelled = false;
@@ -284,6 +333,7 @@ export function BodyV3() {
           ))}
         </div>
         <button style={btn(transparent)} onClick={() => setTransparent((v) => !v)}>{transparent ? 'translucent' : 'solid'} ⇄</button>
+        <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="server HHTL depth-cascade: culls off-frustum concepts when zoomed in">server LOD {lod ? 'on' : 'off'}</button>
         <a href="/fma-body" style={{ color: '#7fa6c4', textDecoration: 'none', font: '12px ui-monospace, monospace' }}>2k layered →</a>
       </div>
 

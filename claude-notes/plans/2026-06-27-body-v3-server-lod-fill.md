@@ -116,10 +116,31 @@ the visual + cascade (screen-space-error) floor. Wire 176 MB → 150 MB; gz 80 M
 57.5 MB. `BodyV3.tsx` reads both ver 3 and ver 4. Asset replaced in release
 `fma-body-soa-v3-v1` (Dockerfile pulls it same-origin, unchanged).
 
-### Next — "B": server-side HHTL-O(1) LOD endpoint
-`cockpit-server` `/api/body/lod`: HHTL `cascade_blocks` over the 1658 baked
-`BlockBounds` (O(1) reference, not O(verts)), `bf16_16x16` for block-bounds × view,
-stream selected concept v-ranges. Blind-deploy brick (unverifiable in-sandbox).
+### "B": server-side HHTL-O(1) LOD endpoint — WIRED (de-risked)
+cockpit-server can't build in-sandbox (quarto-core→runtimelib is a proxy-blocked
+git dep), so B is a blind deploy — de-risked three ways:
+1. **Verified core, standalone:** `scratch-fma/bodylod` builds + runs here against
+   ndarray-only. `build_blocks(wire)` → per-concept `BlockBounds`, `concept_actions`
+   → `cascade_blocks` (HHTL HEEL→HIP→TWIG→LEAF, O(concepts≈1658), the O(1)
+   reference). Monotonic LOD on the real BF16 wire: near 1521 ProjectExact / 137
+   KeepCoarse → far 211 / 1447. The cockpit-server handler reuses this exact logic.
+2. **Tiny embedded asset, not the geometry:** `soabake` bakes `body.blocks`
+   (1658×16 B = 26 KB: centroid + radius per concept, in the renderer's DISPLAY
+   space so the client posts its three.js camera directly). cockpit-server
+   `include_bytes!`s it — no 57 MB startup gunzip, no feature gate.
+3. **Opt-in client, default OFF:** `BodyV3.tsx` keeps the full render; a "server
+   LOD" toggle (default off) posts the throttled camera to `/api/body/lod`, writes
+   the per-concept `HhtlAction` bytes into a 1658-px R8 `DataTexture`, and the
+   frag shader discards Reject concepts (gated by `uLodOn`). If the endpoint 404s
+   (old deploy) or errors, it silently falls back to the full render. So a wrong
+   cull (camera-space math is unverifiable here) only ever shows when the user
+   flips the toggle — never by default.
+
+Files: `crates/cockpit-server/src/body_lod.rs` (+ route in `main.rs`, `splat3d`
+feature in `Cargo.toml`, `assets/body.blocks`); `cockpit/src/BodyV3.tsx`.
+**Deferred (Phase B pyramid):** with single-LOD geometry the cascade only
+distinguishes show/cull, so the win is frustum-culling whole concepts when zoomed
+in; switching KeepCoarse → a decimated mesh needs the L1/L2 decimation pyramid.
 
 ## Constraints
 - Big baked assets (LOD pyramid, fill) → GitHub Releases (q2 `fma-body-soa-v3-*`),

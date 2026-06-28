@@ -28,6 +28,7 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 mod openai;
+mod body_lod;
 mod graph_engine;
 mod clinical;
 mod pgx;
@@ -181,6 +182,9 @@ async fn main() {
         // Pre-baked enriched OSINT SoA bytes — the 3D view (/osint3d) fetches
         // these and decodes each GUID → xyz client-side (no JSON).
         .route("/osint.soa", get(osint_soa_handler))
+        // /body server-side HHTL LOD — POST camera → per-concept HhtlAction byte
+        // (cascade over 1658 baked BlockBounds; native SIMD; client gates draw by it).
+        .route("/api/body/lod", post(body_lod::body_lod_handler))
         // Health
         .route("/health", get(health_handler));
 

@@ -111,6 +111,40 @@ fn main() {
         if i % 97 == 0 { max_norm_err = max_norm_err.max(helix_orient::angle_error_deg(n, 3)); }
     }
 
+    // ── per-concept BlockBounds (centroid + radius) for server-side HHTL LOD ──
+    // Recomputed from the `row` column (covers original + vessel-fill verts), so
+    // the tiny `{out}.blocks` asset (nc × 16 B) the cockpit-server embeds matches
+    // exactly what /api/body/lod's `cascade_blocks` runs over. center3 f32 | radius f32.
+    let mut bsum = vec![[0f64; 3]; nc];
+    let mut bcnt = vec![0u32; nc];
+    for i in 0..nv {
+        let r = row[i] as usize;
+        if r < nc { bsum[r][0] += pos[i*3] as f64; bsum[r][1] += pos[i*3+1] as f64; bsum[r][2] += pos[i*3+2] as f64; bcnt[r] += 1; }
+    }
+    let bcen: Vec<[f32; 3]> = (0..nc).map(|r| if bcnt[r] > 0 {
+        [(bsum[r][0]/bcnt[r] as f64) as f32, (bsum[r][1]/bcnt[r] as f64) as f32, (bsum[r][2]/bcnt[r] as f64) as f32]
+    } else { [0.0; 3] }).collect();
+    let mut brad = vec![0f32; nc];
+    for i in 0..nv {
+        let r = row[i] as usize;
+        if r < nc {
+            let c = bcen[r];
+            let d = (pos[i*3]-c[0]).powi(2) + (pos[i*3+1]-c[1]).powi(2) + (pos[i*3+2]-c[2]).powi(2);
+            if d > brad[r] { brad[r] = d; }
+        }
+    }
+    // emit centroids in the RENDERER's display space (the BodyV3 remap (x,y,z)->(-x,z,y)),
+    // so the client posts its three.js camera directly — block space == rendered space.
+    // radius is reflection/permutation-invariant (max distance), so it is unchanged.
+    let mut blocks = Vec::with_capacity(nc * 16);
+    for r in 0..nc {
+        let c = bcen[r];
+        for v in [-c[0], c[2], c[1]] { blocks.extend_from_slice(&v.to_le_bytes()); }
+        blocks.extend_from_slice(&brad[r].sqrt().max(1e-4).to_le_bytes());
+    }
+    let blocks_out = format!("{}.blocks", out.strip_suffix(".soa").unwrap_or(&out));
+    std::fs::write(&blocks_out, &blocks).unwrap();
+
     // ── assemble BSO2 ──
     let mut o = Vec::with_capacity(nc * 40 + nv * 22 + idx.len() + 64);
     o.extend_from_slice(b"BSO2");
@@ -142,5 +176,6 @@ fn main() {
         u32::from_le_bytes(guid[0..4].try_into().unwrap()), le16(4), le16(6), le16(14));
     println!("  helix: 2× 3-byte/vertex ({} B col); max normal angle err ~{:.3}°", helix.len(), max_norm_err);
     println!("  pos: BF16 (ver 4) — {} B col (was {} B as f32)", nv * 6, nv * 12);
+    println!("  blocks: wrote {blocks_out} ({} B = {nc}×16 BlockBounds)", blocks.len());
     println!("  wrote {out} ({} B)", o.len());
 }

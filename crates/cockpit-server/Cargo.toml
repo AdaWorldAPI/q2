@@ -66,7 +66,10 @@ serde_v8.workspace = true
 # — the fork's own AVX-512→AVX2→scalar polyfill (compile-time target-cpu=v4 flips
 # cfg(target_feature="avx512f"); runtime simd_caps() lights up AMX/BF16). No
 # q2-ndarray wrapper: one binary, one fork, no indirection.
-ndarray.workspace = true
+# `splat3d` adds the HHTL depth-cascade (`ndarray::hpc::splat3d::depth_cascade`)
+# used by /api/body/lod for server-side LOD selection. It only pulls `std`
+# (no extra dep tree), merged on top of the workspace `std`+`hpc-extras`.
+ndarray = { workspace = true, features = ["splat3d"] }
 
 # ── Embedded frontend ──────────────────────────────────────────
 # When embed-cockpit feature is on, the Vite React build (cockpit/dist/)
