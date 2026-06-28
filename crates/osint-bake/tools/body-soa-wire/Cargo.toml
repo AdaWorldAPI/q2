@@ -1,0 +1,15 @@
+[package]
+name = "soabake"
+version = "0.1.0"
+edition = "2021"
+publish = false
+[workspace]
+[dependencies]
+# Relative to the sibling-clone layout (lance-graph + ndarray next to q2 — the same
+# /build/q2 + /build/lance-graph + /build/ndarray the Dockerfile clones, and the local
+# /home/user/{q2,lance-graph,ndarray} dev layout). Rebuildable from any checkout.
+lance-graph-contract = { path = "../../../../../lance-graph/crates/lance-graph-contract", features = ["guid-v3-tail"] }
+ndarray = { path = "../../../../../ndarray", default-features = false, features = ["std", "splat3d"] }
+serde_json = "1"
+[profile.release]
+opt-level = 3

@@ -6786,7 +6786,7 @@ dependencies = [
 [[package]]
 name = "ogar-adapter-surrealql"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#302c28437c7621957acfd414b80925d9ebccee84"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#a1fb1701ec60246c4393d126e3ff6bb8b3a53dcf"
 dependencies = [
  "ogar-vocab",
 ]
@@ -6794,7 +6794,7 @@ dependencies = [
 [[package]]
 name = "ogar-class-view"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#302c28437c7621957acfd414b80925d9ebccee84"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#a1fb1701ec60246c4393d126e3ff6bb8b3a53dcf"
 dependencies = [
  "lance-graph-contract",
  "ogar-vocab",
@@ -6803,12 +6803,12 @@ dependencies = [
 [[package]]
 name = "ogar-ontology"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#302c28437c7621957acfd414b80925d9ebccee84"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#a1fb1701ec60246c4393d126e3ff6bb8b3a53dcf"
 
 [[package]]
 name = "ogar-vocab"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#302c28437c7621957acfd414b80925d9ebccee84"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#a1fb1701ec60246c4393d126e3ff6bb8b3a53dcf"
 
 [[package]]
 name = "once_cell"

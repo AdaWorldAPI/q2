@@ -60,8 +60,16 @@ quarto-system-runtime.workspace = true
 deno_core.workspace = true
 serde_v8.workspace = true
 
-# ── SIMD compute ────────────────────────────────────────────────────
-q2-ndarray.workspace = true
+# ── SIMD compute — the REAL AdaWorldAPI/ndarray fork, used DIRECTLY ──
+# Same local checkout lance-graph compiles. SIMD (dot/hamming/popcount, BLAS
+# L1-L3, CAM-PQ) goes through `ndarray::simd` / `ndarray::backend` / `ndarray::hpc`
+# — the fork's own AVX-512→AVX2→scalar polyfill (compile-time target-cpu=v4 flips
+# cfg(target_feature="avx512f"); runtime simd_caps() lights up AMX/BF16). No
+# q2-ndarray wrapper: one binary, one fork, no indirection.
+# `splat3d` adds the HHTL depth-cascade (`ndarray::hpc::splat3d::depth_cascade`)
+# used by /api/body/lod for server-side LOD selection. It only pulls `std`
+# (no extra dep tree), merged on top of the workspace `std`+`hpc-extras`.
+ndarray = { workspace = true, features = ["splat3d"] }
 
 # ── Embedded frontend ──────────────────────────────────────────
 # When embed-cockpit feature is on, the Vite React build (cockpit/dist/)

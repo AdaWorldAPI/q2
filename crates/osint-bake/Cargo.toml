@@ -14,7 +14,11 @@ path = "src/main.rs"
 
 [dependencies]
 aiwar-ingest = { path = "../aiwar-ingest" }
-lance-graph-contract.workspace = true
+# osint-bake is the ONLY crate that mints on the V3 cascade tail (the FMA bake:
+# CLASSID_FMA_V3 0x1000_0A01 → ReadMode::FMA_V3, the part_of:is_a reading of the
+# SAME leaf·family·identity bytes). guid-v3-tail is requested here, NOT workspace-
+# wide, so it doesn't force the feature onto cockpit-server's Railway build.
+lance-graph-contract = { workspace = true, features = ["guid-v3-tail"] }
 serde_json.workspace = true
 
 [lints]

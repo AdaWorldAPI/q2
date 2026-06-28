@@ -222,6 +222,13 @@ path = "../lance-graph/crates/lance-graph-contract"
 # u16). family(u16) is the deterministic basin (round→anchor), NOT a category and
 # NOT a Louvain cluster — location is permanent via the HHTL, the basin is an
 # interface the node adapts to.
+# NOTE: guid-v3-tail is NOT enabled workspace-wide. Only `osint-bake` mints on the
+# V3 cascade tail (the FMA bake), so it requests `guid-v3-tail` on its OWN dep
+# (crates/osint-bake/Cargo.toml). Enabling it here forced EVERY member — including
+# cockpit-server — to require a lance-graph-contract carrying the feature, which
+# broke the Railway cockpit build against the deliberately-pinned LANCE_GRAPH_REF
+# (Dockerfile COUNT_FUSE lockstep). cockpit-server uses no V3 minting; it needs
+# only guid-v2-tail (the OSINT/Gotham v2 leaf·family·identity tail).
 features = ["guid-v2-tail"]
 
 # OGAR Active-Record activation crate — the real `impl lance_graph_contract::
@@ -236,6 +243,17 @@ path = "../lance-graph/crates/causal-edge"
 
 [workspace.dependencies.graph-flow]
 path = "./crates/stubs/graph-flow"
+
+# The REAL AdaWorldAPI/ndarray fork, consumed DIRECTLY — the SAME local checkout
+# lance-graph compiles (`../ndarray`), so the whole binary unifies on one fork.
+# No wrapper crate: when everything compiles into a single binary from local
+# source, wrapping ndarray behind another crate buys nothing — it only hides
+# `ndarray::simd` / `ndarray::hpc` (the AVX-512→AVX2→scalar polyfill, compile-time
+# `target-cpu=x86-64-v4` + runtime `simd_caps()`) behind a pointless indirection.
+[workspace.dependencies.ndarray]
+path = "../ndarray"
+default-features = false
+features = ["std", "hpc-extras"]
 
 [workspace.dependencies.q2-ndarray]
 path = "./crates/stubs/q2-ndarray"

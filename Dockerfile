@@ -50,28 +50,45 @@ COPY . /build/q2
 # so include_dir! can embed it at compile time
 COPY --from=frontend /build/dist/ /build/q2/cockpit/dist/
 
+# Pull the big FMA body wire (BSO2) from the q2 release into dist/ so include_dir!
+# embeds it and the server serves it SAME-ORIGIN at /body.soa.gz. The browser cannot
+# fetch the release URL directly (github.com/.../releases/download sends no CORS
+# header on its redirect → "TypeError: Failed to fetch"), so /body fetches the
+# same-origin copy. The asset stays in the release (downloaded at build), never git.
+RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.soa.gz \
+      -o /build/q2/cockpit/dist/body.soa.gz \
+ && ls -lh /build/q2/cockpit/dist/body.soa.gz
+
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
 #
-# lance-graph is PINNED to an explicit commit (NOT `--depth 1 main`) for two
-# reasons:
-#   1. Cache-bust. A `--depth 1 main` clone lives in its own Docker layer that
-#      an empty/unrelated q2 commit does NOT invalidate, so Railway reuses a
-#      STALE lance-graph from an earlier build. Bumping this SHA changes the
-#      RUN and forces a fresh clone.
-#   2. COUNT_FUSE lockstep. lance-graph-ogar compile-asserts (E0080 on mismatch)
-#      that lance_graph_contract::ogar_codebook::CODEBOOK.len() ==
-#      ogar_vocab::class_ids::ALL.len(). q2's Cargo.lock pins ogar-vocab to a
-#      fixed OGAR SHA (302c284 = 43 concepts); the lance-graph clone MUST carry
-#      the matching 43-concept mirror. 36059ce0 is the #595 merge (ogar_codebook
-#      synced to 43) — the matched pair of the ogar-vocab pin.
-# WHEN OGAR MINTS CONCEPTS: bump ogar-vocab in q2's Cargo.lock AND this SHA
-# together (after the lance-graph mirror lands), or the fuse trips again.
-ARG LANCE_GRAPH_REF=36059ce0
-RUN git clone https://github.com/AdaWorldAPI/lance-graph.git \
- && git -C lance-graph checkout "${LANCE_GRAPH_REF}" \
- && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/neo4j-rs.git
+# lance-graph + ndarray are cloned at their BRANCH HEAD (latest) — NOT a pinned,
+# stale SHA. The repos at their tips are mutually consistent, so "use the latest of
+# everything" is the rule: a pinned-old lance-graph (36059ce0) is exactly what
+# lacked `guid-v3-tail` and broke the build. The `COPY . /build/q2` above changes on
+# every q2 commit, invalidating this RUN layer too, so each build re-clones fresh
+# (no stale-cache problem the old pin was guarding against).
+#
+# Sibling checkouts the path deps resolve against:
+#   /build/lance-graph  → lance-graph @ main HEAD — carries guid-v2-tail +
+#                         guid-v3-tail and the 65-concept ogar_codebook mirror.
+#   /build/ndarray      → the REAL AdaWorldAPI/ndarray fork, consumed by BOTH
+#                         lance-graph (../../../ndarray) AND q2-ndarray
+#                         (../../../../ndarray). `--depth 1` WITHOUT
+#                         --recurse-submodules: ndarray's workspace `exclude`s
+#                         crates/burn, so the burn submodule (AdaWorldAPI/burn.git)
+#                         is never needed — leaving it unfetched is correct.
+#
+# COUNT_FUSE: lance-graph-ogar asserts (E0080 on mismatch)
+# CODEBOOK.len() == ogar_vocab::class_ids::ALL.len(). Both move together at HEAD —
+# lance-graph main's 65-concept codebook mirror matches OGAR main's 65-concept vocab;
+# q2's Cargo.lock pins ogar-vocab to OGAR main HEAD (a1fb170). Always bump the two
+# repos' HEADs together, never one alone.
+#
+# neo4j-rs is intentionally NOT cloned — a discarded Neo4j-GUI experiment referenced
+# by no manifest; the only neo4j path is the opt-in `neo4j-fallback` (crates.io neo4rs).
+RUN git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
+ && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git
 
 # CPU baseline: x86-64-v4 (the 4th microarch level — AVX-512F/BW/CD/DQ/VL on top
 # of v3's AVX2+FMA). This is the compile FLOOR; it flips on `target_feature =
