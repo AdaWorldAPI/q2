@@ -178,20 +178,23 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
 }
 
 const VERT = `
-attribute vec3 aColor; attribute float aAlpha; attribute float aLayer; attribute float aRow;
-varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer; varying float vRow;
+attribute vec3 aColor; attribute float aAlpha; attribute float aLayer; attribute highp float aRow;
+varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer; varying highp float vRow;
 void main(){ vNormal = normalMatrix * normal; vColor = aColor; vAlpha = aAlpha; vLayer = aLayer; vRow = aRow;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`;
 const FRAG = `
 precision mediump float;
 uniform float uEnabled[9]; uniform float uGlobalAlpha;
-uniform sampler2D uLod; uniform float uLodN; uniform float uLodOn;  // server HHTL LOD gate
-varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer; varying float vRow;
+uniform sampler2D uLod; uniform highp float uLodN; uniform float uLodOn;  // server HHTL LOD gate
+varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer;
+varying highp float vRow;   // highp: concept IDs up to ~1658 + the texel-center divide must
+                            // resolve exactly; mediump's min precision aliases adjacent rows.
 void main(){
   int li = int(vLayer + 0.5);
   if(li < 1 || li > 8 || uEnabled[li] < 0.5) discard;   // compartment gate
   if(uLodOn > 0.5){                                      // server LOD: HhtlAction 0=Reject ⇒ cull
-    float act = texture2D(uLod, vec2((vRow + 0.5) / uLodN, 0.5)).r;
+    highp vec2 uv = vec2((vRow + 0.5) / uLodN, 0.5);
+    float act = texture2D(uLod, uv).r;
     if(act < 0.002) discard;                             // 0/255 = Reject
   }
   vec3 n = normalize(vNormal); if(!gl_FrontFacing) n = -n;
@@ -306,9 +309,10 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
       camera.position.lerp(tmp.clone().add(dir.multiplyScalar(st.focus.d)), 0.12);
     }
     if (st.transparent !== wasT) {
-      // flip the solid group into the x-ray (whole-body translucent) and back
+      // flip ONLY the solid group into the x-ray (whole-body translucent) and back.
+      // transMat is the always-blended #17 vessel pass — it must keep depthWrite OFF
+      // in both modes, or its unsorted triangles self-occlude later transparent ones.
       opaqueMat.transparent = st.transparent; opaqueMat.depthWrite = !st.transparent; opaqueMat.needsUpdate = true;
-      transMat.depthWrite = !st.transparent;
       wasT = st.transparent;
     }
     postLod(now);
