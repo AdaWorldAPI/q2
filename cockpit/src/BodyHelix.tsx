@@ -1,17 +1,14 @@
-// /helix — EXPERIMENTAL helix-orientation viewer. Parallel to /body (BodyV3); shares
-// NOTHING with it so the working /body can never break. Same baked wire (`body.soa.gz`,
-// BSO2) — but instead of computing float normals from the mesh, it shades from the
-// per-vertex *helix normal* bytes that /body bakes and skips.
+// /helix — EXPERIMENTAL viewer. Parallel to /body (BodyV3); shares NOTHING with it so the
+// working /body can never break. Shades from the per-vertex helix NORMAL.
 //
-// The helix normal (offsets +3,+4 within each 6-byte `pos3|nrm3` helix block) is a
-// Fisher-2z geodesic code: byte = index into a 256-dir golden-spiral codebook
-// (`helix_orient` in ndarray; level-0 = codebook(π), level-1 refinement = codebook(0.40)).
-// The helix normal is the canonical lance-graph::helix::Signed360 (6 bytes, place-coupled
-// to the HHTL address): rim endpoint pair + signed polar lift + golden azimuth. We decode
-// it ONCE at load and re-encode octahedrally to a normalized-i8 ×2 vertex attribute — the
-// GPU then reads the normal natively (normalized fetch, ~4-ALU octa decode), no per-frame
-// work, no texture. REQUIRES a canonical helix bake (soabake → helix::encode_signed); the
-// old helix_orient artifact is a different codec and is NOT read here.
+// The normal is the canonical lance-graph::helix::Signed360 (6 bytes, place-coupled to the
+// HHTL address): rim endpoint pair + signed polar lift + golden azimuth. The (polar,
+// azimuth) are the NORMALIZED angular coordinates — we do NOT reconstruct the Cartesian
+// normal per vertex (no √/sin/cos, and never the rim's Fisher-Z/atanh). Instead a direction
+// LUT is PRE-MATERIALIZED once (the trig runs LUT_W·256 times) and every vertex is a single
+// normalized-index lookup: a CPU-SIMD gather / one GPU texture fetch / works with no GPU.
+// REQUIRES the canonical helix bake (helixbake → helix::encode_signed, BSO2 ver 6); the old
+// helix_orient artifact is a different codec and is NOT read here.
 //
 // Reads an optional stamped artifact first (`/body.helix.<stamp>.soa.gz` via
 // `/body.manifest.json`) then falls back to the shared `/body.soa.gz`, so a future
@@ -56,41 +53,50 @@ const HALF_LUT: Float32Array = (() => {
   return t;
 })();
 
-// ── canonical lance-graph::helix::Signed360 decode (6 bytes, full sphere) ──
+// ── canonical lance-graph::helix::Signed360 (6 bytes, full sphere) ──
 // Wire (LE): [rim.start, rim.end, rim.floor_version, polar, azimuth_lo, azimuth_hi].
 //  polar   → signed lift y: |y| in 7 bits, sign in the PARTITION (≥128 upper, <128 lower).
 //  azimuth → φ = az_u16 / 65536 · 2π   (golden angle n·φ over the full 360°).
-//  r = √(1−y²);  world (X,Z,Y) = (r·sinφ, r·cosφ, y)  [placement.rs cartesian; Y = lift].
-// The rim endpoint pair is the place-anchored metric carrier (start_idx = HHTL place);
-// for the RENDER normal only (polar, azimuth) are needed — r follows from the unit sphere.
+// These are the NORMALIZED angular coordinates — they are NOT reconstructed per vertex.
+// Instead we PRE-MATERIALISE a direction LUT once (the trig/√ runs LUT_W·256 times, not
+// per the 4.2 M verts) and every vertex is a single normalized-index lookup (CPU-SIMD
+// gather / one GPU fetch / works with no GPU). The rim (Fisher-Z / atanh endpoints) is the
+// metric carrier and is NEVER materialised here — only (polar, azimuth) drive the render.
 type V3 = [number, number, number];
 const TAU = Math.PI * 2;
-function decodeSigned360Display(b: Uint8Array, off: number): V3 {
-  const polar = b[off + 3];
+const LUT_W = 1024;   // azimuth columns (top 10 bits of az_u16 → ~0.35°); rows = polar (256)
+// direction for one (polar, az_u16) cell, in display space (-x,z,y). Called ONLY at
+// LUT-build time — the one place trig is allowed.
+function dirFromPolarAz(polar: number, az16: number): V3 {
   const y = polar >= 128 ? (polar - 128) / 127 : -(127 - polar) / 127;
-  const az = ((b[off + 4] | (b[off + 5] << 8)) / 65536) * TAU;
+  const az = (az16 / 65536) * TAU;
   const r = Math.sqrt(Math.max(0, 1 - y * y));
-  const X = r * Math.sin(az), Z = r * Math.cos(az);   // world; up-axis = y (lift)
-  return [-X, Z, y];   // (x,y,z)->(-x,z,y) display remap of world normal (X, y, Z)
+  const X = r * Math.sin(az), Z = r * Math.cos(az);   // world (X, y, Z), up-axis = y
+  return [-X, Z, y];                                   // (x,y,z)->(-x,z,y) display remap
 }
-// octahedral encode of a unit vector → 2 signed components in [-1,1] → i8. ~0.2° at int8,
-// below the 0.3° Fisher-2z precision (no degradation); GPU reads it as a normalized fetch.
-function octEncode(n: V3): [number, number] {
-  const l1 = Math.abs(n[0]) + Math.abs(n[1]) + Math.abs(n[2]) || 1e-12;
-  let ox = n[0] / l1, oy = n[1] / l1;
-  if (n[2] < 0) {
-    const x = ox, y = oy;
-    ox = (1 - Math.abs(y)) * (x >= 0 ? 1 : -1);
-    oy = (1 - Math.abs(x)) * (y >= 0 ? 1 : -1);
+// 256×LUT_W RGBA8 direction LUT (normal*0.5+0.5). Built ONCE; the only materialization.
+function buildDirLut(): THREE.DataTexture {
+  const data = new Uint8Array(256 * LUT_W * 4);
+  for (let p = 0; p < 256; p++) {
+    for (let a = 0; a < LUT_W; a++) {
+      const n = dirFromPolarAz(p, a << 6);            // a is the top 10 bits of az_u16
+      const o = (p * LUT_W + a) * 4;
+      data[o] = Math.round((n[0] * 0.5 + 0.5) * 255);
+      data[o + 1] = Math.round((n[1] * 0.5 + 0.5) * 255);
+      data[o + 2] = Math.round((n[2] * 0.5 + 0.5) * 255);
+      data[o + 3] = 255;
+    }
   }
-  const q = (v: number) => Math.max(-127, Math.min(127, Math.round(v * 127)));
-  return [q(ox), q(oy)];
+  const tex = new THREE.DataTexture(data, LUT_W, 256, THREE.RGBAFormat);
+  tex.minFilter = THREE.NearestFilter; tex.magFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 interface Decoded {
   nVerts: number; nTris: number;
   positions: Float32Array; index: Uint32Array;
-  colors: Uint8Array; nrmOct: Int8Array; layer: Float32Array;
+  colors: Uint8Array; polAz: Uint8Array; layer: Float32Array;
   concepts: number;
 }
 
@@ -135,7 +141,7 @@ function decode(buf: ArrayBuffer): Decoded {
 
   const positions = new Float32Array(nV * 3);
   const colors = new Uint8Array(nV * 3);
-  const nrmOct = new Int8Array(nV * 2);    // octahedral i8 of the decoded helix normal
+  const polAz = new Uint8Array(nV * 3);    // (polar, az_lo, az_hi) — normalized LUT key, NO trig
   const layer = new Float32Array(nV);
   for (let i = 0; i < nV; i++) {
     positions[i * 3] = -srcPos[i * 3];
@@ -144,29 +150,29 @@ function decode(buf: ArrayBuffer): Decoded {
     const r = rowArr[i], li = cLayer[r] || 8;
     const rgb = conceptColor(li, r);
     colors[i * 3] = rgb[0]; colors[i * 3 + 1] = rgb[1]; colors[i * 3 + 2] = rgb[2];
-    // canonical Signed360 (6-byte) decode of this vertex's helix normal → octahedral i8.
-    const oct = octEncode(decodeSigned360Display(helix, i * 6));
-    nrmOct[i * 2] = oct[0]; nrmOct[i * 2 + 1] = oct[1];
+    // just copy the Signed360 normalized coords — the LUT does the (one-time) materialization.
+    polAz[i * 3] = helix[i * 6 + 3];       // polar
+    polAz[i * 3 + 1] = helix[i * 6 + 4];   // azimuth_lo
+    polAz[i * 3 + 2] = helix[i * 6 + 5];   // azimuth_hi
     layer[i] = li;
   }
   const raw = new Uint32Array(buf.slice(idxOff, idxOff + 12 * nT));
   const index = new Uint32Array(raw);     // straight copy (no opaque/transparent split)
-  return { nVerts: nV, nTris: nT, positions, index, colors, nrmOct, layer, concepts: nC };
+  return { nVerts: nV, nTris: nT, positions, index, colors, polAz, layer, concepts: nC };
 }
 
 const VERT = `
 precision highp float;
-attribute vec3 aColor; attribute vec2 aOct; attribute float aLayer;
+attribute vec3 aColor; attribute vec3 aPolAz; attribute float aLayer;
+uniform sampler2D uDirLut;                         // pre-materialized (polar × azimuth) → dir
 varying vec3 vNormal; varying vec3 vColor; varying float vLayer;
 void main(){
   vColor = aColor; vLayer = aLayer;
-  // octahedral decode of the normalized-i8 helix normal — GPU-native, no texture.
-  vec2 f = aOct;                                   // [-1,1] from the normalized i8 attr
-  vec3 n = vec3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
-  float t = max(-n.z, 0.0);
-  n.x += n.x >= 0.0 ? -t : t;
-  n.y += n.y >= 0.0 ? -t : t;
-  vNormal = normalMatrix * normalize(n);
+  // normalized-index lookup — NO trig per vertex. aPolAz = (polar, az_lo, az_hi) in [0,255].
+  float az = aPolAz.y + aPolAz.z * 256.0;          // az_u16 ∈ [0,65535]
+  vec2 uv = vec2((az + 0.5) / 65536.0, (aPolAz.x + 0.5) / 256.0);
+  vec3 n = texture2D(uDirLut, uv).xyz * 2.0 - 1.0;
+  vNormal = normalMatrix * n;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 const FRAG = `
@@ -194,11 +200,11 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array): ()
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
   geom.setAttribute('aColor', new THREE.Uint8BufferAttribute(d.colors, 3, true));
-  geom.setAttribute('aOct', new THREE.Int8BufferAttribute(d.nrmOct, 2, true)); // normalized i8 → [-1,1]
+  geom.setAttribute('aPolAz', new THREE.Uint8BufferAttribute(d.polAz, 3, false)); // raw 0..255 LUT key
   geom.setAttribute('aLayer', new THREE.BufferAttribute(d.layer, 1));
   geom.setIndex(new THREE.BufferAttribute(d.index, 1));
 
-  const uniforms = { uEnabled: { value: enabled } };
+  const uniforms = { uEnabled: { value: enabled }, uDirLut: { value: buildDirLut() } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -236,7 +242,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array): ()
     el2.removeEventListener('pointerdown', onDown); window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointermove', onMove); el2.removeEventListener('wheel', onWheel);
     window.removeEventListener('resize', onResize);
-    geom.dispose(); mat.dispose(); renderer.dispose();
+    geom.dispose(); mat.dispose(); uniforms.uDirLut.value.dispose(); renderer.dispose();
     if (el2.parentElement === container) container.removeChild(el2);
   };
 }
@@ -297,7 +303,7 @@ export default function BodyHelix() {
         <div style={{ color: '#fff', fontSize: 15 }}>/helix — surfel-normal viewer (experimental)</div>
         <div style={{ opacity: 0.65, marginTop: 2, maxWidth: 440 }}>
           {error ? <span style={{ color: '#e06c6c' }}>{error}</span>
-            : d ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} concepts — shaded from the canonical helix::Signed360 normal (place-coupled to HHTL) decoded once → octahedral i8, GPU-native normalized fetch.`
+            : d ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} concepts — canonical helix::Signed360 normals (place-coupled to HHTL); per vertex is a normalized (polar,azimuth) lookup into a pre-materialized direction LUT — no per-vertex trig/atanh.`
               : 'loading canonical helix bake (Signed360 normals)…'}
         </div>
       </div>
