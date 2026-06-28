@@ -1,0 +1,12 @@
+[package]
+name = "soabake"
+version = "0.1.0"
+edition = "2021"
+publish = false
+[workspace]
+[dependencies]
+lance-graph-contract = { path = "/home/user/lance-graph/crates/lance-graph-contract", features = ["guid-v3-tail"] }
+ndarray = { path = "/home/user/ndarray", default-features = false, features = ["std", "splat3d"] }
+serde_json = "1"
+[profile.release]
+opt-level = 3
