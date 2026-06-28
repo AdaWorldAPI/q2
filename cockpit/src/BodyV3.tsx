@@ -1,15 +1,15 @@
-// FMA body · full-resolution SoA (BSO2) · Gouraud + #17-palette alpha.
+// FMA body · full-resolution SoA (BSO2 v3) · Gouraud · #17-palette alpha · compartments.
 //
-// Reads the option-2 rebake wire `body.soa` (BSO2) — struct-of-arrays columns, the
-// two-GUID design: address GUID (classid 0x1000 + (part_of:is_a) 8:8 + identity),
-// XYZ location, helix (server-side), material + label CODEBOOK INDICES (never raw
-// text). The renderer dispatches on classid 0x1000, joins each vertex's concept row
-// → material codebook → colour + #17-palette alpha, and Gouraud-shades the full
-// 6.68 M-triangle surface (no decimation; smooth normals computed from geometry).
+// Reads the option-2 rebake wire `body.soa` (BSO2): SoA columns, the two-GUID design
+// (address = classid 0x1000 + (part_of:is_a) 8:8 + identity; location = XYZ; helix
+// server-side). material + label + LAYER are codebook indices (never raw text).
+// Renders the full 6.68 M-triangle body: Gouraud, #17-palette alpha (Doppler material),
+// and an 8-LAYER compartment menu (skin/muscle/organ/skeleton/vessel/nerve/connective/
+// other) so the skin shell can be toggled away to reveal the anatomy.
 //
-// BSO2 (LE): magic "BSO2" | ver u16 | nC u32 | nV u32 | nT u32
-//   | GUID[16·nC] | material u8[nC] | label u32[nC] | centroid 3f[nC] | (vstart,vcount) 2u32[nC]
-//   | pos 3f[nV] | helix 6B[nV] | row u32[nV] | idx 3u32[nT]
+// BSO2 v3 (LE): magic "BSO2" | ver u16 | nC u32 | nV u32 | nT u32
+//   | GUID[16·nC] | material u8[nC] | LAYER u8[nC] | label u32[nC] | centroid 3f[nC]
+//   | (vstart,vcount) 2u32[nC] | pos 3f[nV] | helix 6B[nV] | row u32[nV] | idx 3u32[nT]
 //   | labels_json (u32 len + utf8) | materials_json (u32 len + utf8)
 //
 // Data: BodyParts3D, (c) The Database Center for Life Science, CC-BY 4.0.
@@ -20,11 +20,20 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const PAGE_BG = 0x0a0e17;
 const FMA_V3_CLASSID = 0x10000a01;
 
+const LAYERS: { id: number; name: string; color: string }[] = [
+  { id: 1, name: 'skin', color: '#dba88a' },
+  { id: 2, name: 'muscle', color: '#bd5c57' },
+  { id: 3, name: 'organ', color: '#cc9484' },
+  { id: 4, name: 'skeleton', color: '#ebe0c7' },
+  { id: 5, name: 'vessel', color: '#cc3838' },
+  { id: 6, name: 'nerve', color: '#ebd152' },
+  { id: 7, name: 'connective', color: '#e0dbcc' },
+  { id: 8, name: 'other', color: '#9696a0' },
+];
+
 interface Material { id: number; name: string; doppler: string; rgb: [number, number, number] }
 
 // bgz17 / Base17 "#17" palette → alpha: transparency quantized to 17 levels (0..16)/16.
-// Each Doppler/solid material maps to a level → α; vessels read translucent so the
-// solid anatomy shows through, solids opaque. (17 discrete steps, not a continuum.)
 const P17 = (lvl: number) => Math.max(0, Math.min(16, lvl)) / 16;
 const MATERIAL_ALPHA_LEVEL: Record<string, number> = {
   low_resistance_artery: 13, high_resistance_artery: 13, portal_venous: 11,
@@ -34,11 +43,10 @@ const MATERIAL_ALPHA_LEVEL: Record<string, number> = {
 interface Decoded {
   nConcepts: number; nVerts: number; nTris: number; classid: number;
   positions: Float32Array; index: Uint32Array;
-  colors: Uint8Array;      // per-vertex rgb (from concept material)
-  alpha: Float32Array;     // per-vertex #17-palette alpha
+  colors: Uint8Array; alpha: Float32Array; layer: Float32Array;
   materials: Material[]; labels: string[];
-  matName: (row: number) => string;
 }
+interface RenderState { enabled: Float32Array; alpha: number; transparent: boolean }
 
 function decodeBso2(buf: ArrayBuffer): Decoded {
   const dv = new DataView(buf);
@@ -47,12 +55,13 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const nC = dv.getUint32(6, true), nV = dv.getUint32(10, true), nT = dv.getUint32(14, true);
   let o = 18;
   const guidOff = o; o += 16 * nC;
-  const matOff = o; o += nC;             // material codebook index u8
-  const labOff = o; o += 4 * nC;         // label codebook index u32
-  o += 12 * nC;                          // centroid 3f (server LOD; skip here)
-  o += 8 * nC;                           // (vstart,vcount) (skip)
+  const matOff = o; o += nC;            // material codebook index u8
+  const layerOff = o; o += nC;          // LAYER index u8 (1..8)
+  const labOff = o; o += 4 * nC;        // label codebook index u32
+  o += 12 * nC;                         // centroid (server LOD)
+  o += 8 * nC;                          // (vstart,vcount)
   const posOff = o; o += 12 * nV;
-  o += 6 * nV;                           // helix (server-side; not needed for draw)
+  o += 6 * nV;                          // helix (server-side)
   const rowOff = o; o += 4 * nV;
   const idxOff = o; o += 12 * nT;
   const labLen = dv.getUint32(o, true); o += 4;
@@ -60,56 +69,50 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const matLen = dv.getUint32(o, true); o += 4;
   const materials: Material[] = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, o, matLen)));
 
-  const classid = dv.getUint32(guidOff, true); // classid of GUID[0]
+  const classid = dv.getUint32(guidOff, true);
+  const cMat = new Uint8Array(buf.slice(matOff, matOff + nC));
+  const cLayer = new Uint8Array(buf.slice(layerOff, layerOff + nC));
 
-  // per-concept material index → rgb + alpha level
-  const cMat = new Uint8Array(buf, matOff, nC);
-  const cLab = new Uint32Array(buf.slice(labOff, labOff + 4 * nC));
-
-  // positions (orient (x,y,z)->(-x,z,y) head-up, det +1) + per-vertex colour/alpha by concept row
   const srcPos = new Float32Array(buf, posOff, nV * 3);
+  const rowArr = new Uint32Array(buf.slice(rowOff, rowOff + 4 * nV));
   const positions = new Float32Array(nV * 3);
   const colors = new Uint8Array(nV * 3);
   const alpha = new Float32Array(nV);
-  const rowArr = new Uint32Array(buf.slice(rowOff, rowOff + 4 * nV));
+  const layer = new Float32Array(nV);
   for (let i = 0; i < nV; i++) {
-    positions[i * 3] = -srcPos[i * 3];
+    positions[i * 3] = -srcPos[i * 3];               // (x,y,z)->(-x,z,y) head-up
     positions[i * 3 + 1] = srcPos[i * 3 + 2];
     positions[i * 3 + 2] = srcPos[i * 3 + 1];
-    const m = materials[cMat[rowArr[i]]] ?? materials[materials.length - 1];
+    const row = rowArr[i];
+    const m = materials[cMat[row]] ?? materials[materials.length - 1];
     colors[i * 3] = m.rgb[0]; colors[i * 3 + 1] = m.rgb[1]; colors[i * 3 + 2] = m.rgb[2];
     alpha[i] = P17(MATERIAL_ALPHA_LEVEL[m.name] ?? 16);
+    layer[i] = cLayer[row] || 8;
   }
   const index = new Uint32Array(buf.slice(idxOff, idxOff + 12 * nT));
-
-  return {
-    nConcepts: nC, nVerts: nV, nTris: nT, classid, positions, index, colors, alpha,
-    materials, labels, matName: (row: number) => materials[cMat[row]]?.name ?? '?',
-  };
+  return { nConcepts: nC, nVerts: nV, nTris: nT, classid, positions, index, colors, alpha, layer, materials, labels };
 }
 
-// Gouraud: smooth per-vertex normal (computed from geometry) interpolated across the
-// face; #17-palette alpha drives transparency so vessels read through the solids.
 const VERT = `
-attribute vec3 aColor;
-attribute float aAlpha;
-varying vec3 vNormal; varying vec3 vColor; varying float vAlpha;
-void main(){ vNormal = normalMatrix * normal; vColor = aColor; vAlpha = aAlpha;
+attribute vec3 aColor; attribute float aAlpha; attribute float aLayer;
+varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer;
+void main(){ vNormal = normalMatrix * normal; vColor = aColor; vAlpha = aAlpha; vLayer = aLayer;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`;
 const FRAG = `
 precision mediump float;
-varying vec3 vNormal; varying vec3 vColor; varying float vAlpha;
+uniform float uEnabled[9]; uniform float uGlobalAlpha;
+varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer;
 void main(){
+  int li = int(vLayer + 0.5);
+  if(li < 1 || li > 8 || uEnabled[li] < 0.5) discard;   // compartment gate
   vec3 n = normalize(vNormal); if(!gl_FrontFacing) n = -n;
   const vec3 L = vec3(-0.401,0.783,0.476);
   float ndl = max(dot(n,L),0.0);
-  float hemi = 0.34 + 0.20*(n.y*0.5+0.5);
-  float fill = 0.12*(-n.x*0.5+0.5);
-  float shade = min(hemi+fill+0.92*ndl, 1.3);
-  gl_FragColor = vec4(vColor*shade, vAlpha);
+  float shade = min(0.34 + 0.20*(n.y*0.5+0.5) + 0.12*(-n.x*0.5+0.5) + 0.92*ndl, 1.3);
+  gl_FragColor = vec4(vColor*shade, vAlpha * uGlobalAlpha);   // #17 alpha × solid/transparent
 }`;
 
-function mount(container: HTMLDivElement, d: Decoded, onStats: (s: { fps: number }) => void): () => void {
+function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: (s: { fps: number }) => void): () => void {
   let w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(PAGE_BG);
   const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 100); camera.position.set(0, 0.05, 3.0);
@@ -121,12 +124,14 @@ function mount(container: HTMLDivElement, d: Decoded, onStats: (s: { fps: number
   geom.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
   geom.setAttribute('aColor', new THREE.BufferAttribute(d.colors, 3, true));
   geom.setAttribute('aAlpha', new THREE.BufferAttribute(d.alpha, 1));
+  geom.setAttribute('aLayer', new THREE.BufferAttribute(d.layer, 1));
   geom.setIndex(new THREE.BufferAttribute(d.index, 1));
-  geom.computeVertexNormals(); // smooth normals → Gouraud
+  geom.computeVertexNormals();
 
   const mat = new THREE.ShaderMaterial({
-    vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide,
-    transparent: true, depthWrite: true,
+    vertexShader: VERT, fragmentShader: FRAG,
+    uniforms: { uEnabled: { value: st.enabled }, uGlobalAlpha: { value: st.alpha } },
+    side: THREE.DoubleSide, transparent: true, depthWrite: true,
   });
   scene.add(new THREE.Mesh(geom, mat));
 
@@ -135,12 +140,15 @@ function mount(container: HTMLDivElement, d: Decoded, onStats: (s: { fps: number
   controls.autoRotate = true; controls.autoRotateSpeed = 0.6;
   controls.minDistance = 0.6; controls.maxDistance = 12;
 
-  let raf = 0, ema = 16.6, last = performance.now(), since = 0;
+  let raf = 0, ema = 16.6, last = performance.now(), since = 0, wasT = st.transparent;
   const tick = () => {
     raf = requestAnimationFrame(tick);
     const now = performance.now(); ema = ema * 0.9 + (now - last) * 0.1; last = now;
     const pr = ema > 30 ? 1 : Math.min(window.devicePixelRatio, 2);
     if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
+    mat.uniforms.uEnabled.value = st.enabled;
+    mat.uniforms.uGlobalAlpha.value = st.alpha;
+    if (st.transparent !== wasT) { mat.depthWrite = !st.transparent; mat.needsUpdate = true; wasT = st.transparent; }
     controls.update(); renderer.render(scene, camera);
     if (++since >= 20) { since = 0; onStats({ fps: Math.round(1000 / Math.max(ema, 1)) }); }
   };
@@ -164,6 +172,18 @@ export function BodyV3() {
   const [d, setD] = useState<Decoded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<{ fps: number } | null>(null);
+  // skin (1) off by default so the anatomy shows.
+  const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
+  const [transparent, setTransparent] = useState(true);
+  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: true });
+
+  useEffect(() => {
+    const e = new Float32Array(9);
+    for (let i = 1; i <= 8; i++) e[i] = on[i] ? 1 : 0;
+    stRef.current.enabled = e;
+    stRef.current.transparent = transparent;
+    stRef.current.alpha = transparent ? 1.0 : 1.0; // alpha comes from #17 material; toggle flips depthWrite
+  }, [on, transparent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -181,15 +201,19 @@ export function BodyV3() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
-    const c = ref.current; if (!c || !d) return; return mount(c, d, setStats);
-  }, [d]);
+  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, stRef.current, setStats); }, [d]);
+
+  const btn = (active: boolean): React.CSSProperties => ({
+    padding: '5px 11px', borderRadius: 6, border: `1px solid ${active ? '#5a7fa8' : '#2a3242'}`,
+    background: active ? '#16202e' : '#0e1219', color: active ? '#cdd9e5' : '#6a7686',
+    font: '12px ui-monospace, monospace', cursor: 'pointer',
+  });
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0e17', overflow: 'hidden' }}>
       <div ref={ref} style={{ position: 'absolute', inset: 0 }} />
       <div style={{ position: 'absolute', top: 12, left: 16, color: '#cdd9e5', font: '13px ui-monospace, monospace', pointerEvents: 'none' }}>
-        <div style={{ fontSize: 15, color: '#fff' }}>FMA body · SoA · Gouraud + #17-palette alpha</div>
+        <div style={{ fontSize: 15, color: '#fff' }}>FMA body · SoA · Gouraud · compartments</div>
         <div style={{ opacity: 0.7 }}>
           {d ? `${d.nTris.toLocaleString()} triangles · ${d.nVerts.toLocaleString()} vertices — ALL points, drag to orbit`
             : error ? '' : 'loading body.soa (BSO2)…'}
@@ -199,20 +223,32 @@ export function BodyV3() {
             {d.nConcepts.toLocaleString()} concepts ·{' '}
             {d.classid === FMA_V3_CLASSID
               ? <span style={{ color: '#7fdca0' }}>classid 0x{d.classid.toString(16)} ✓ V3 (part_of:is_a)</span>
-              : <span style={{ color: '#ff8095' }}>classid 0x{d.classid.toString(16)} — expected 0x10000a01</span>}
-            {' '}· {d.materials.length} Doppler/solid materials
+              : <span style={{ color: '#ff8095' }}>classid 0x{d.classid.toString(16)}</span>}
           </div>
         )}
         {stats && <div style={{ opacity: 0.5, marginTop: 2 }}>{stats.fps} fps · vessels translucent (#17 alpha)</div>}
       </div>
+
       {error && (
         <div style={{ position: 'absolute', top: '46%', width: '100%', textAlign: 'center', color: '#ff8095', font: '13px ui-monospace, monospace' }}>
           {error}
-          <div style={{ opacity: 0.7, marginTop: 6 }}>
-            bake: <code>bake_body_soa.py → body-soa-wire → body.soa(.gz) → q2 release</code>
-          </div>
         </div>
       )}
+
+      {/* 8-compartment toggles + solid/transparent (right) */}
+      <div style={{ position: 'absolute', top: 12, right: 16, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 360 }}>
+          {LAYERS.map((l) => (
+            <button key={l.id} style={btn(on[l.id])} onClick={() => setOn((p) => ({ ...p, [l.id]: !p[l.id] }))}>
+              <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: l.color, marginRight: 6, verticalAlign: 'middle' }} />
+              {l.name}
+            </button>
+          ))}
+        </div>
+        <button style={btn(transparent)} onClick={() => setTransparent((v) => !v)}>{transparent ? 'translucent' : 'solid'} ⇄</button>
+        <a href="/fma-body" style={{ color: '#7fa6c4', textDecoration: 'none', font: '12px ui-monospace, monospace' }}>2k layered →</a>
+      </div>
+
       <div style={{ position: 'absolute', bottom: 10, left: 16, color: '#5a6b7e', font: '10px ui-monospace, monospace', maxWidth: '70%', pointerEvents: 'none' }}>
         BodyParts3D, (c) The Database Center for Life Science, licensed under CC Attribution 4.0 International
       </div>

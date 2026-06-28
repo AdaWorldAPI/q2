@@ -16,6 +16,21 @@ const CLASSID_FMA: u32 = NodeGuid::CLASSID_FMA_V3; // 0x1000_0A01
 
 fn tile(part_of: u8, is_a: u8) -> u16 { ((part_of as u16) << 8) | is_a as u16 }
 
+// 8 compartment layers (skin/muscle/organ/skeleton/vessel/nerve/connective/other) —
+// the toggle granularity, separate from the Doppler material. Maps the finer is_a
+// tissue onto the same scheme /fma-body uses.
+fn layer_of(tissue: &str) -> u8 {
+    match tissue {
+        "skin" | "flesh" => 1,
+        "muscle" => 2,
+        "heart" | "lung" | "liver" | "kidney" | "gi" | "gland" | "viscus" => 3,
+        "bone" | "cartilage" => 4,
+        "artery" | "vein" | "vessel" => 5,
+        "nerve" => 6,
+        _ => 8,
+    }
+}
+
 fn read_f32s(path: &str) -> Vec<f32> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
@@ -44,6 +59,7 @@ fn main() {
     // ── per-concept columns: address GUID, material, label, centroid, (v_start,v_count) ──
     let mut guid = Vec::with_capacity(nc * 16);
     let mut material = Vec::with_capacity(nc);
+    let mut layer = Vec::with_capacity(nc);
     let mut label = Vec::with_capacity(nc * 4);
     let mut centroid = Vec::with_capacity(nc * 12);
     let mut vrange = Vec::with_capacity(nc * 8);
@@ -59,6 +75,7 @@ fn main() {
         );
         guid.extend_from_slice(key.as_bytes());
         material.push(c["material"].as_u64().unwrap_or(4) as u8);
+        layer.push(layer_of(c["tissue"].as_str().unwrap_or("")));
         label.extend_from_slice(&(c["name_idx"].as_u64().unwrap_or(0) as u32).to_le_bytes());
         let cen = c["centroid"].as_array().unwrap();
         for k in 0..3 { centroid.extend_from_slice(&(cen[k].as_f64().unwrap() as f32).to_le_bytes()); }
@@ -89,11 +106,11 @@ fn main() {
     // ── assemble BSO2 ──
     let mut o = Vec::with_capacity(nc * 40 + nv * 22 + idx.len() + 64);
     o.extend_from_slice(b"BSO2");
-    o.extend_from_slice(&2u16.to_le_bytes());
+    o.extend_from_slice(&3u16.to_le_bytes());
     o.extend_from_slice(&(nc as u32).to_le_bytes());
     o.extend_from_slice(&(nv as u32).to_le_bytes());
     o.extend_from_slice(&(nt as u32).to_le_bytes());
-    o.extend_from_slice(&guid); o.extend_from_slice(&material);
+    o.extend_from_slice(&guid); o.extend_from_slice(&material); o.extend_from_slice(&layer);
     o.extend_from_slice(&label); o.extend_from_slice(&centroid); o.extend_from_slice(&vrange);
     o.extend_from_slice(&pos[..nv * 3].iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>());
     o.extend_from_slice(&helix);
