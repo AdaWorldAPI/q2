@@ -15,7 +15,7 @@
 // to f32 client-side by bits<<16). This decoder reads both.
 //
 // Data: BodyParts3D, (c) The Database Center for Life Science, CC-BY 4.0.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
@@ -42,13 +42,33 @@ const MATERIAL_ALPHA_LEVEL: Record<string, number> = {
   systemic_venous: 11, solid_tissue: 16, neural: 15,
 };
 
+const hexRgb = (h: string): [number, number, number] =>
+  [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const LAYER_RGB: Record<number, [number, number, number]> = Object.fromEntries(LAYERS.map((l) => [l.id, hexRgb(l.color)]));
+const frac = (x: number) => x - Math.floor(x);
+// deterministic per-concept colour: vessels keep the Doppler material rgb (artery red /
+// vein blue); every other layer is tinted from its LAYER_RGB base (skeleton = bone, organ
+// = warm, …) with a per-concept brightness + slight per-channel tilt so adjacent organs /
+// bones read as distinct shades instead of one flat colour.
+function conceptColor(layerId: number, matRgb: [number, number, number], row: number): [number, number, number] {
+  if (layerId === 5) return matRgb;                       // vessels → Doppler material colour
+  const base = LAYER_RGB[layerId] ?? [150, 150, 160];
+  const h = frac(Math.sin(row * 12.9898) * 43758.5453);   // stable hash in [0,1)
+  const bright = 0.82 + 0.34 * h;
+  const tilt = (s: number) => 1 + 0.13 * (frac(Math.sin(row * s) * 9711.13) - 0.5) * 2;
+  const out: [number, number, number] = [base[0] * bright * tilt(1.7), base[1] * bright * tilt(2.9), base[2] * bright * tilt(4.1)];
+  return [Math.min(255, out[0]), Math.min(255, out[1]), Math.min(255, out[2])];
+}
+
+interface ConceptInfo { row: number; name: string; centroid: [number, number, number]; layer: number; material: string }
+
 interface Decoded {
   nConcepts: number; nVerts: number; nTris: number; classid: number;
   positions: Float32Array; index: Uint32Array; opaqueTris: number;
   colors: Uint8Array; alpha: Float32Array; layer: Float32Array; row: Float32Array;
-  materials: Material[]; labels: string[];
+  materials: Material[]; labels: string[]; concepts: ConceptInfo[];
 }
-interface RenderState { enabled: Float32Array; alpha: number; transparent: boolean; lodOn: boolean }
+interface RenderState { enabled: Float32Array; alpha: number; transparent: boolean; lodOn: boolean; focus: { t: [number, number, number]; d: number } | null }
 
 function decodeBso2(buf: ArrayBuffer): Decoded {
   const dv = new DataView(buf);
@@ -63,7 +83,7 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const matOff = o; o += nC;            // material codebook index u8
   const layerOff = o; o += nC;          // LAYER index u8 (1..8)
   const labOff = o; o += 4 * nC;        // label codebook index u32
-  o += 12 * nC;                         // centroid (server LOD)
+  const cenOff = o; o += 12 * nC;       // per-concept centroid 3×f32 (search zoom + server LOD)
   o += 8 * nC;                          // (vstart,vcount)
   const posOff = o; o += posBytes * nV;
   o += 6 * nV;                          // helix (server-side)
@@ -77,6 +97,21 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const classid = dv.getUint32(guidOff, true);
   const cMat = new Uint8Array(buf.slice(matOff, matOff + nC));
   const cLayer = new Uint8Array(buf.slice(layerOff, layerOff + nC));
+  const cNameIdx = new Uint32Array(buf.slice(labOff, labOff + 4 * nC));
+  const cCen = new Float32Array(buf.slice(cenOff, cenOff + 12 * nC));  // bake-space; remap below
+
+  // per-concept colour (precompute once) + searchable concept table (name + centroid).
+  const conceptRgb: [number, number, number][] = new Array(nC);
+  const concepts: ConceptInfo[] = new Array(nC);
+  for (let cI = 0; cI < nC; cI++) {
+    const mat = materials[cMat[cI]] ?? materials[materials.length - 1];
+    const li = cLayer[cI] || 8;
+    conceptRgb[cI] = conceptColor(li, mat.rgb, cI);
+    concepts[cI] = {
+      row: cI, name: labels[cNameIdx[cI]] ?? `concept ${cI}`, layer: li, material: mat.name,
+      centroid: [-cCen[cI * 3], cCen[cI * 3 + 2], cCen[cI * 3 + 1]],  // (x,y,z)->(-x,z,y) display
+    };
+  }
 
   // pos → f32 working array. ver 4 stores BF16 (u16): widen via bits<<16 (BF16 is
   // the top 16 bits of an IEEE-754 f32, so a left-shift into the high half is the
@@ -104,7 +139,8 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
     positions[i * 3 + 2] = srcPos[i * 3 + 1];
     const r = rowArr[i];
     const m = materials[cMat[r]] ?? materials[materials.length - 1];
-    colors[i * 3] = m.rgb[0]; colors[i * 3 + 1] = m.rgb[1]; colors[i * 3 + 2] = m.rgb[2];
+    const rgb = conceptRgb[r];
+    colors[i * 3] = rgb[0]; colors[i * 3 + 1] = rgb[1]; colors[i * 3 + 2] = rgb[2];
     alpha[i] = P17(MATERIAL_ALPHA_LEVEL[m.name] ?? 16);
     layer[i] = cLayer[r] || 8;
     row[i] = r;
@@ -122,7 +158,7 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
     else { tr -= 3; index[tr] = x; index[tr + 1] = y; index[tr + 2] = z; }
   }
   const opaqueTris = op / 3;
-  return { nConcepts: nC, nVerts: nV, nTris: nT, classid, positions, index, opaqueTris, colors, alpha, layer, row, materials, labels };
+  return { nConcepts: nC, nVerts: nV, nTris: nT, classid, positions, index, opaqueTris, colors, alpha, layer, row, materials, labels, concepts };
 }
 
 const VERT = `
@@ -228,6 +264,7 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
   };
 
   let raf = 0, ema = 16.6, last = performance.now(), since = 0, wasT = st.transparent;
+  const tmp = new THREE.Vector3();
   const tick = () => {
     raf = requestAnimationFrame(tick);
     const now = performance.now(); ema = ema * 0.9 + (now - last) * 0.1; last = now;
@@ -236,6 +273,12 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
     uniforms.uEnabled.value = st.enabled;          // shared by both materials
     uniforms.uGlobalAlpha.value = st.alpha;
     uniforms.uLodOn.value = st.lodOn && !lodFail ? 1 : 0;
+    if (st.focus) {                                 // search-pick zoom: glide to the organ
+      tmp.set(st.focus.t[0], st.focus.t[1], st.focus.t[2]);
+      controls.target.lerp(tmp, 0.12);
+      const dir = camera.position.clone().sub(controls.target).normalize();
+      camera.position.lerp(tmp.clone().add(dir.multiplyScalar(st.focus.d)), 0.12);
+    }
     if (st.transparent !== wasT) {
       // flip the solid group into the x-ray (whole-body translucent) and back
       opaqueMat.transparent = st.transparent; opaqueMat.depthWrite = !st.transparent; opaqueMat.needsUpdate = true;
@@ -270,7 +313,9 @@ export function BodyV3() {
   const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
   const [transparent, setTransparent] = useState(false);   // default solid (like /fma-body)
   const [lod, setLod] = useState(false);   // server HHTL LOD — opt-in (off = today's full render)
-  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: false, lodOn: false });
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<ConceptInfo | null>(null);
+  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: false, lodOn: false, focus: null });
 
   useEffect(() => {
     const e = new Float32Array(9);
@@ -301,6 +346,20 @@ export function BodyV3() {
 
   useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, stRef.current, setStats); }, [d]);
 
+  // search the label codebook (concept names) → ranked matches.
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || !d) return [] as ConceptInfo[];
+    const hits = d.concepts.filter((c) => c.name.toLowerCase().includes(q));
+    hits.sort((a, b) => a.name.length - b.name.length);   // shortest (closest) name first
+    return hits.slice(0, 14);
+  }, [query, d]);
+
+  function pick(c: ConceptInfo) {
+    setSelected(c);
+    stRef.current.focus = { t: c.centroid, d: 0.6 };   // glide the camera to the organ
+  }
+
   const btn = (active: boolean): React.CSSProperties => ({
     padding: '5px 11px', borderRadius: 6, border: `1px solid ${active ? '#5a7fa8' : '#2a3242'}`,
     background: active ? '#16202e' : '#0e1219', color: active ? '#cdd9e5' : '#6a7686',
@@ -326,6 +385,47 @@ export function BodyV3() {
         )}
         {stats && <div style={{ opacity: 0.5, marginTop: 2 }}>{stats.fps} fps · {transparent ? 'x-ray (whole body 0.42)' : 'solid · #17 vessels'}</div>}
       </div>
+
+      {/* search the label codebook + detail side window (left) */}
+      {d && (
+        <div style={{ position: 'absolute', top: 92, left: 16, width: 320, font: '13px ui-monospace, monospace' }}>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`search ${d.nConcepts.toLocaleString()} labels — e.g. "liver"`}
+            style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 6, border: '1px solid #2a3242', background: '#0e1219', color: '#cdd9e5', font: '13px ui-monospace, monospace' }}
+          />
+          {matches.length > 0 && (
+            <div style={{ marginTop: 4, background: '#0e1219', border: '1px solid #1c2530', borderRadius: 6, overflow: 'hidden', maxHeight: 320, overflowY: 'auto' }}>
+              {matches.map((c) => (
+                <div key={c.row} onClick={() => { pick(c); setQuery(''); }} style={{ padding: '6px 9px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid #141b24', color: '#cdd9e5' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                  <span style={{ opacity: 0.5, flexShrink: 0 }}>{LAYERS[(c.layer - 1) % 8]?.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {selected && (
+            <div style={{ marginTop: 10, background: '#0e1219', border: '1px solid #233', borderRadius: 8, padding: 12, color: '#cdd9e5' }}>
+              <div style={{ color: '#fff', fontSize: 14, marginBottom: 6 }}>{selected.name}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 10px', fontSize: 12, opacity: 0.85 }}>
+                <span style={{ opacity: 0.6 }}>compartment</span>
+                <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: LAYERS[(selected.layer - 1) % 8]?.color, marginRight: 6, verticalAlign: 'middle' }} />{LAYERS[(selected.layer - 1) % 8]?.name}</span>
+                <span style={{ opacity: 0.6 }}>material</span>
+                <span>{selected.material.replace(/_/g, ' ')}</span>
+                <span style={{ opacity: 0.6 }}>row</span>
+                <span>#{selected.row}</span>
+                <span style={{ opacity: 0.6 }}>centroid</span>
+                <span>{selected.centroid.map((v) => v.toFixed(2)).join(', ')}</span>
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
+                <button style={btn(false)} onClick={() => { stRef.current.focus = { t: selected.centroid, d: 0.6 }; }}>re-center</button>
+                <button style={btn(false)} onClick={() => { setSelected(null); stRef.current.focus = null; }}>close</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div style={{ position: 'absolute', top: '46%', width: '100%', textAlign: 'center', color: '#ff8095', font: '13px ui-monospace, monospace' }}>
