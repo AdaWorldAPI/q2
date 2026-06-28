@@ -202,10 +202,14 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
   geom.setIndex(new THREE.BufferAttribute(d.index, 1));
   geom.computeVertexNormals();
 
-  // server-LOD action texture: 1 px per concept, R8, init 255 (= show all until the
-  // first /api/body/lod response arrives — never cull on a cold start).
-  const lodData = new Uint8Array(d.nConcepts).fill(255);
-  const lodTex = new THREE.DataTexture(lodData, d.nConcepts, 1, THREE.RedFormat, THREE.UnsignedByteType);
+  // server-LOD action texture: 1 px per concept, init 255 (= show all). RGBA8 (not R8 /
+  // RedFormat) so it's a complete, universally-supported sampler — an incomplete R8
+  // texture samples as 0, which the shader reads as Reject ⇒ EVERYTHING discarded ⇒
+  // black screen. Action byte lives in .r; nearest filter (no interpolation across
+  // concept cells).
+  const lodData = new Uint8Array(d.nConcepts * 4).fill(255);
+  const lodTex = new THREE.DataTexture(lodData, d.nConcepts, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+  lodTex.magFilter = THREE.NearestFilter; lodTex.minFilter = THREE.NearestFilter;
   lodTex.needsUpdate = true;
   // two draw groups over the partitioned index: [0]=opaque solids (fast),
   // [1]=translucent vessels (blended, drawn after).
@@ -237,7 +241,7 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
 
   // throttled server-LOD poll: post the live camera (in display space — block bounds
   // are baked in the same space), write the per-concept action bytes into lodTex.
-  let lodNext = 0, lodInflight = false, lodFail = false;
+  let lodNext = 0, lodInflight = false, lodFail = false, lodReady = false, lodWarned = false;
   const postLod = (now: number) => {
     if (!st.lodOn || lodFail || lodInflight || now < lodNext) return;
     lodInflight = true; lodNext = now + 220;
@@ -254,9 +258,15 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
     };
     fetch('/api/body/lod', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((j: { actions: number[] }) => {
+      .then((j: { actions: number[]; n_concepts?: number; tally?: number[] }) => {
         const a = j.actions;
-        for (let i = 0; i < lodData.length && i < a.length; i++) lodData[i] = a[i];
+        const visible = (j.n_concepts ?? a.length) - (j.tally?.[0] ?? 0);
+        // all (or nearly all) Reject ⇒ the cascade culled the whole body, which only
+        // happens if the camera mapping is off. Don't black out — show everything.
+        const degenerate = visible <= Math.max(1, a.length * 0.02);
+        if (degenerate && !lodWarned) { console.warn('[body LOD] cascade rejected ~all concepts — showing all (camera mapping suspect)'); lodWarned = true; }
+        for (let i = 0; i < d.nConcepts && i < a.length; i++) lodData[i * 4] = degenerate ? 255 : a[i];
+        lodReady = true;
         lodTex.needsUpdate = true;
       })
       .catch(() => { lodFail = true; })   // endpoint absent (old deploy) → silently keep full render
@@ -272,7 +282,7 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
     if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
     uniforms.uEnabled.value = st.enabled;          // shared by both materials
     uniforms.uGlobalAlpha.value = st.alpha;
-    uniforms.uLodOn.value = st.lodOn && !lodFail ? 1 : 0;
+    uniforms.uLodOn.value = st.lodOn && !lodFail && lodReady ? 1 : 0;   // only cull after a real response
     if (st.focus) {                                 // search-pick zoom: glide to the organ
       tmp.set(st.focus.t[0], st.focus.t[1], st.focus.t[2]);
       controls.target.lerp(tmp, 0.12);
