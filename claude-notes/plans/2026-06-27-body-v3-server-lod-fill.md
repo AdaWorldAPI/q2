@@ -94,6 +94,33 @@ Rules that fell out of review:
 - compute server-side (ndarray native SIMD); deno_core/V8 is the *document* JS
   engine, never in the 3D path.
 
+## Shipped increments (2026-06-28)
+
+### Vessel "inflatable tube" fix — `fill_body_soa.py`
+The slicer-fill cores ballooned where vessels curve: the radius was the
+perpendicular distance from the **global** PCA axis, so a point on a bend sits
+far off the straight axis → radius inflates. Fixed: bin the points along the
+axis, then derive each ring from its **own bin** — centroid = bin's local centre
+(follows the curve), radius = **median** perpendicular distance from *that* bin
+centroid (robust to outliers), clamped to an **absolute** `[RMIN, RMAX]`
+diameter boundary (`RMAX=0.020` ≈ 34 mm dia, covers the aorta, kills balloons).
+662 vessels → +71,872 core verts / +133,152 tris.
+
+### BF16 positions — BSO2 **ver 4** (the "A" brick)
+Per-vertex `pos` column is now **BF16** (3× u16 LE = 6 B/vertex), half of ver 3's
+12 B f32. Conversion via ndarray's sanctioned RNE batch path
+(`f32_to_bf16_batch_rne`) on the native bake host (AVX-512/AMX). The renderer
+widens back to f32 client-side (`bits << 16` — BF16 is the top 16 bits of f32, so
+the widening is exact). Verified round-trip ≈ 1.4 mm error on a 1.7 m body — below
+the visual + cascade (screen-space-error) floor. Wire 176 MB → 150 MB; gz 80 MB →
+57.5 MB. `BodyV3.tsx` reads both ver 3 and ver 4. Asset replaced in release
+`fma-body-soa-v3-v1` (Dockerfile pulls it same-origin, unchanged).
+
+### Next — "B": server-side HHTL-O(1) LOD endpoint
+`cockpit-server` `/api/body/lod`: HHTL `cascade_blocks` over the 1658 baked
+`BlockBounds` (O(1) reference, not O(verts)), `bf16_16x16` for block-bounds × view,
+stream selected concept v-ranges. Blind-deploy brick (unverifiable in-sandbox).
+
 ## Constraints
 - Big baked assets (LOD pyramid, fill) → GitHub Releases (q2 `fma-body-soa-v3-*`),
   never git. `cockpit/public/body.soa*` gitignored.

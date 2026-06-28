@@ -7,10 +7,12 @@
 // and an 8-LAYER compartment menu (skin/muscle/organ/skeleton/vessel/nerve/connective/
 // other) so the skin shell can be toggled away to reveal the anatomy.
 //
-// BSO2 v3 (LE): magic "BSO2" | ver u16 | nC u32 | nV u32 | nT u32
+// BSO2 (LE): magic "BSO2" | ver u16 | nC u32 | nV u32 | nT u32
 //   | GUID[16·nC] | material u8[nC] | LAYER u8[nC] | label u32[nC] | centroid 3f[nC]
-//   | (vstart,vcount) 2u32[nC] | pos 3f[nV] | helix 6B[nV] | row u32[nV] | idx 3u32[nT]
+//   | (vstart,vcount) 2u32[nC] | pos[nV] | helix 6B[nV] | row u32[nV] | idx 3u32[nT]
 //   | labels_json (u32 len + utf8) | materials_json (u32 len + utf8)
+// pos column: ver 3 = 3×f32 (12 B/vertex); ver 4 = 3×BF16 (6 B/vertex, widened
+// to f32 client-side by bits<<16). This decoder reads both.
 //
 // Data: BodyParts3D, (c) The Database Center for Life Science, CC-BY 4.0.
 import { useEffect, useRef, useState } from 'react';
@@ -52,6 +54,9 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
   if (magic !== 'BSO2') throw new Error(`bad magic "${magic}" (expected BSO2)`);
+  const ver = dv.getUint16(4, true);
+  const posBf16 = ver >= 4;             // ver 4: pos is BF16 (6 B/vertex) not f32 (12 B)
+  const posBytes = posBf16 ? 6 : 12;
   const nC = dv.getUint32(6, true), nV = dv.getUint32(10, true), nT = dv.getUint32(14, true);
   let o = 18;
   const guidOff = o; o += 16 * nC;
@@ -60,7 +65,7 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const labOff = o; o += 4 * nC;        // label codebook index u32
   o += 12 * nC;                         // centroid (server LOD)
   o += 8 * nC;                          // (vstart,vcount)
-  const posOff = o; o += 12 * nV;
+  const posOff = o; o += posBytes * nV;
   o += 6 * nV;                          // helix (server-side)
   const rowOff = o; o += 4 * nV;
   const idxOff = o; o += 12 * nT;
@@ -73,10 +78,20 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const cMat = new Uint8Array(buf.slice(matOff, matOff + nC));
   const cLayer = new Uint8Array(buf.slice(layerOff, layerOff + nC));
 
-  // buf.slice → a fresh 4-aligned buffer (posOff isn't guaranteed 4-aligned: the
-  // 18-byte header + 1-byte material/layer columns can land it off a word boundary,
-  // and a Float32Array *view* requires 4-alignment). slice copies but always aligns.
-  const srcPos = new Float32Array(buf.slice(posOff, posOff + nV * 12));
+  // pos → f32 working array. ver 4 stores BF16 (u16): widen via bits<<16 (BF16 is
+  // the top 16 bits of an IEEE-754 f32, so a left-shift into the high half is the
+  // exact, lossless widening — 8-bit mantissa, no rounding back). ver 3 is raw f32;
+  // buf.slice → a fresh 4-aligned buffer (posOff isn't guaranteed 4-aligned, and a
+  // Float32Array *view* requires 4-alignment; slice copies but always aligns).
+  let srcPos: Float32Array;
+  if (posBf16) {
+    const bf = new Uint16Array(buf.slice(posOff, posOff + nV * 6));
+    const widened = new Uint32Array(nV * 3);
+    for (let k = 0; k < bf.length; k++) widened[k] = bf[k] << 16;
+    srcPos = new Float32Array(widened.buffer);
+  } else {
+    srcPos = new Float32Array(buf.slice(posOff, posOff + nV * 12));
+  }
   const rowArr = new Uint32Array(buf.slice(rowOff, rowOff + 4 * nV));
   const positions = new Float32Array(nV * 3);
   const colors = new Uint8Array(nV * 3);

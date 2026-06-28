@@ -23,7 +23,10 @@ import sys
 
 K = 8          # ring resolution (octagon core)
 BINS = 14      # centerline segments along the axis
-CORE = 0.55    # inner-core radius fraction (under the wall)
+CORE = 0.62    # inner-core radius fraction (under the wall)
+RMAX = 0.020   # ABSOLUTE diameter boundary: max cross-section radius in normalized
+               # [-1,1] body units (~34 mm dia — covers the aorta; clamps balloons).
+RMIN = 0.0008  # floor so capillaries still get a visible core
 VESSEL_MATERIALS = {0, 1, 2, 3}
 
 
@@ -84,18 +87,29 @@ def main(d):
         ts = [(p[0]-mean[0])*axis[0] + (p[1]-mean[1])*axis[1] + (p[2]-mean[2])*axis[2] for p in pts]
         tmin, tmax = min(ts), max(ts)
         span = (tmax - tmin) or 1e-4
-        # per-bin centroid + radius
-        acc = [[0.0,0.0,0.0,0.0,0.0] for _ in range(BINS)]  # sumx,sumy,sumz,sumr,count
+        # bin the points along the axis, THEN derive each ring from its own bin —
+        # centroid = bin's local centre (follows the curve), radius = MEDIAN
+        # perpendicular distance from THAT bin centroid (robust to outliers / curl),
+        # clamped to the absolute [RMIN, RMAX] diameter boundary (no balloons).
+        binned = [[] for _ in range(BINS)]
         for p, t in zip(pts, ts):
             b = min(BINS-1, int((t - tmin)/span*BINS))
-            r = math.sqrt(((p[0]-mean[0])*u[0]+(p[1]-mean[1])*u[1]+(p[2]-mean[2])*u[2])**2 +
-                          ((p[0]-mean[0])*w[0]+(p[1]-mean[1])*w[1]+(p[2]-mean[2])*w[2])**2)
-            a = acc[b]; a[0]+=p[0]; a[1]+=p[1]; a[2]+=p[2]; a[3]+=r; a[4]+=1
+            binned[b].append(p)
         rings = []
-        for a in acc:
-            if a[4] < 1: continue
-            cen = [a[0]/a[4], a[1]/a[4], a[2]/a[4]]
-            rad = (a[3]/a[4]) * CORE
+        for bp in binned:
+            if len(bp) < 1: continue
+            n = len(bp)
+            cen = [sum(q[k] for q in bp)/n for k in range(3)]
+            # perpendicular (off-axis) distance from the BIN centroid, not the global axis
+            dists = []
+            for q in bp:
+                dx, dy, dz = q[0]-cen[0], q[1]-cen[1], q[2]-cen[2]
+                axial = dx*axis[0] + dy*axis[1] + dz*axis[2]
+                perp2 = (dx*dx + dy*dy + dz*dz) - axial*axial
+                dists.append(math.sqrt(perp2) if perp2 > 0.0 else 0.0)
+            dists.sort()
+            med = dists[len(dists)//2]
+            rad = min(RMAX, max(RMIN, med * CORE))
             rings.append((cen, rad))
         if len(rings) < 2: continue
         vessels += 1
