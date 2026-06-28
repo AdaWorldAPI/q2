@@ -50,6 +50,15 @@ COPY . /build/q2
 # so include_dir! can embed it at compile time
 COPY --from=frontend /build/dist/ /build/q2/cockpit/dist/
 
+# Pull the big FMA body wire (BSO2) from the q2 release into dist/ so include_dir!
+# embeds it and the server serves it SAME-ORIGIN at /body.soa.gz. The browser cannot
+# fetch the release URL directly (github.com/.../releases/download sends no CORS
+# header on its redirect → "TypeError: Failed to fetch"), so /body fetches the
+# same-origin copy. The asset stays in the release (downloaded at build), never git.
+RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.soa.gz \
+      -o /build/q2/cockpit/dist/body.soa.gz \
+ && ls -lh /build/q2/cockpit/dist/body.soa.gz
+
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
 #
