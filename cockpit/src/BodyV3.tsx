@@ -42,7 +42,7 @@ const MATERIAL_ALPHA_LEVEL: Record<string, number> = {
 
 interface Decoded {
   nConcepts: number; nVerts: number; nTris: number; classid: number;
-  positions: Float32Array; index: Uint32Array;
+  positions: Float32Array; index: Uint32Array; opaqueTris: number;
   colors: Uint8Array; alpha: Float32Array; layer: Float32Array;
   materials: Material[]; labels: string[];
 }
@@ -92,8 +92,20 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
     alpha[i] = P17(MATERIAL_ALPHA_LEVEL[m.name] ?? 16);
     layer[i] = cLayer[row] || 8;
   }
-  const index = new Uint32Array(buf.slice(idxOff, idxOff + 12 * nT));
-  return { nConcepts: nC, nVerts: nV, nTris: nT, classid, positions, index, colors, alpha, layer, materials, labels };
+  // partition triangles: opaque (all 3 verts α≈1 — solids) first, then transparent
+  // (vessels/#17 α<1). Lets the renderer draw opaque fast (early-Z, no blend) and
+  // only blend the ~translucent minority — ~2× fps without dropping any triangle.
+  const raw = new Uint32Array(buf.slice(idxOff, idxOff + 12 * nT));
+  const index = new Uint32Array(nT * 3);
+  let op = 0, tr = nT * 3;
+  for (let t = 0; t < nT; t++) {
+    const a = t * 3, x = raw[a], y = raw[a + 1], z = raw[a + 2];
+    const opaque = alpha[x] >= 0.999 && alpha[y] >= 0.999 && alpha[z] >= 0.999;
+    if (opaque) { index[op] = x; index[op + 1] = y; index[op + 2] = z; op += 3; }
+    else { tr -= 3; index[tr] = x; index[tr + 1] = y; index[tr + 2] = z; }
+  }
+  const opaqueTris = op / 3;
+  return { nConcepts: nC, nVerts: nV, nTris: nT, classid, positions, index, opaqueTris, colors, alpha, layer, materials, labels };
 }
 
 const VERT = `
@@ -130,13 +142,21 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
   geom.setAttribute('aLayer', new THREE.BufferAttribute(d.layer, 1));
   geom.setIndex(new THREE.BufferAttribute(d.index, 1));
   geom.computeVertexNormals();
-
-  const mat = new THREE.ShaderMaterial({
-    vertexShader: VERT, fragmentShader: FRAG,
-    uniforms: { uEnabled: { value: st.enabled }, uGlobalAlpha: { value: st.alpha } },
-    side: THREE.DoubleSide, transparent: true, depthWrite: true,
+  // two draw groups over the partitioned index: [0]=opaque solids (fast),
+  // [1]=translucent vessels (blended, drawn after).
+  geom.clearGroups();
+  geom.addGroup(0, d.opaqueTris * 3, 0);
+  geom.addGroup(d.opaqueTris * 3, (d.nTris - d.opaqueTris) * 3, 1);
+  const uniforms = { uEnabled: { value: st.enabled }, uGlobalAlpha: { value: st.alpha } };
+  const opaqueMat = new THREE.ShaderMaterial({
+    vertexShader: VERT, fragmentShader: FRAG, uniforms,
+    side: THREE.DoubleSide, transparent: false, depthWrite: true,
   });
-  scene.add(new THREE.Mesh(geom, mat));
+  const transMat = new THREE.ShaderMaterial({
+    vertexShader: VERT, fragmentShader: FRAG, uniforms,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+  });
+  scene.add(new THREE.Mesh(geom, [opaqueMat, transMat]));
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
@@ -149,9 +169,9 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
     const now = performance.now(); ema = ema * 0.9 + (now - last) * 0.1; last = now;
     const pr = ema > 30 ? 1 : Math.min(window.devicePixelRatio, 2);
     if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
-    mat.uniforms.uEnabled.value = st.enabled;
-    mat.uniforms.uGlobalAlpha.value = st.alpha;
-    if (st.transparent !== wasT) { mat.depthWrite = !st.transparent; mat.needsUpdate = true; wasT = st.transparent; }
+    uniforms.uEnabled.value = st.enabled;          // shared by both materials
+    uniforms.uGlobalAlpha.value = st.alpha;
+    if (st.transparent !== wasT) { transMat.depthWrite = !st.transparent; wasT = st.transparent; }
     controls.update(); renderer.render(scene, camera);
     if (++since >= 20) { since = 0; onStats({ fps: Math.round(1000 / Math.max(ema, 1)) }); }
   };
@@ -163,7 +183,7 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
   const ro = new ResizeObserver(onResize); ro.observe(container);
   return () => {
     cancelAnimationFrame(raf); ro.disconnect(); controls.dispose();
-    geom.dispose(); mat.dispose(); renderer.dispose();
+    geom.dispose(); opaqueMat.dispose(); transMat.dispose(); renderer.dispose();
     if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
   };
 }
