@@ -61,9 +61,35 @@ cp "$STAMP.soa.gz" body.soa.gz                 # re-point /body, old stamps reta
 Never `rm` a prior stamp. Disk is cheap; a black-screen deploy from a clobbered
 artifact is not.
 
-## Note: `/helix` needs no rebake today
+## `/helix` needs the canonical bake (`helixbake`), NOT the old artifact
 
-The current production `body.soa.gz` already carries the helix-normal bytes
-(`pos3|nrm3` per vertex); `/body` simply skips them. `/helix` reads them as-is, so
-the experimental viewer runs against the existing artifact with **zero rebake**. A
-stamped `v5f16h2` build is only needed if the helix encoding itself is retuned.
+The production `body.soa.gz` stores its per-vertex normal with the OLD ndarray
+`helix_orient` codec (a place-blind 3-byte golden-spiral cascade). The canonical
+`/helix` viewer decodes the **place-coupled `lance-graph::helix::Signed360`**
+(6-byte: rim endpoint pair + signed polar lift + golden azimuth), so it CANNOT read
+the old bytes — it would render garbage. `/helix` therefore reads only the stamped
+canonical artifact named by `helix_latest`, and shows "no canonical helix bake yet"
+until one is published.
+
+Produce it with the **separate** bake crate `scratch-fma/helixbake` (soabake — the
+`/body` bake — is left byte-identical; helixbake is its own crate so the old
+pipeline never resolves helix):
+
+```sh
+cd scratch-fma/helixbake
+STAMP="body.$(date +%Y%m%d).v6helix"
+cargo run --release -- /path/to/soa "$STAMP.soa"   # writes $STAMP.soa (BSO2 ver 6) + .blocks
+gzip -k "$STAMP.soa"                                 # → $STAMP.soa.gz
+# then add to body.manifest.json:  "helix_latest": "$STAMP.soa.gz"
+```
+
+The normal is generated via `helix::ResidueEncoder::encode_signed(place, n, sign)`
+— `place` = the concept's HHTL path, `n` = the nearest spherical-Fibonacci index of
+the world normal, `sign` = its hemisphere. `cargo test` in that crate runs the
+encode↔decode round-trip (the same decode BodyHelix.tsx uses) on synthetic normals,
+no FMA data required.
+
+(Build note: `helix` depends on `ndarray` via git; `helixbake/Cargo.toml` patches it
+to the local `../../../ndarray` fork. A bake host that can't fetch the git source
+relies on that patch; this sandbox's proxy blocks the fetch, so the crate is
+validated by the round-trip test on a network-enabled host, not here.)
