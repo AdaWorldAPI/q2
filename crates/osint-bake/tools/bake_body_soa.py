@@ -158,6 +158,14 @@ def main(scratch, out_dir):
         r = row_of[c]
         nm = canon.get(c, name.get(c, c))
         tissue = tissue_of(c, parent_isa, name, canon, tcache)
+        # Liver parenchyma is modelled as Couinaud "hepatovenous segment N" — named for
+        # its venous drainage, so tissue_of tags it 'vein'. That coloured the whole liver
+        # blue and slicer-filled it as a tube (it read as a blue vessel blob above the
+        # colon). It is solid liver tissue; only the true hepatic/portal *veins* (which
+        # all carry 'vein' in their name) stay vessels. Reclassify to liver → solid
+        # organ colour + the organ compartment.
+        if "hepatovenous segment" in nm.lower():
+            tissue = "liver"
         material = TISSUE_MATERIAL.get(tissue, 4)
         v_start = len(px)
         for fj in meshes_of[c]:
