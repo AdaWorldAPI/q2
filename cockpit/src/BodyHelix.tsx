@@ -189,7 +189,7 @@ void main(){
   gl_FragColor = vec4(vColor * shade, 1.0);
 }`;
 
-function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array): () => void {
+function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }): () => void {
   let w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(PAGE_BG);
   const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 100); camera.position.set(0, 0.05, 3.0);
@@ -211,30 +211,39 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array): ()
   // minimal orbit: drag = rotate, wheel = dolly.
   let az = 0, el = 0.1, dist = 3.0, dragging = false, px = 0, py = 0;
   const target = new THREE.Vector3(0, 0, 0);
-  const onDown = (e: PointerEvent) => { dragging = true; px = e.clientX; py = e.clientY; };
-  const onUp = () => { dragging = false; };
+  const onDown = (e: PointerEvent) => { dragging = true; px = e.clientX; py = e.clientY; dirty.current = true; };
+  const onUp = () => { dragging = false; dirty.current = true; };
   const onMove = (e: PointerEvent) => {
     if (!dragging) return;
     az -= (e.clientX - px) * 0.005; el = Math.max(-1.5, Math.min(1.5, el + (e.clientY - py) * 0.005));
-    px = e.clientX; py = e.clientY;
+    px = e.clientX; py = e.clientY; dirty.current = true;
   };
-  const onWheel = (e: WheelEvent) => { e.preventDefault(); dist = Math.max(0.3, Math.min(8, dist * (1 + Math.sign(e.deltaY) * 0.1))); };
+  const onWheel = (e: WheelEvent) => { e.preventDefault(); dist = Math.max(0.3, Math.min(8, dist * (1 + Math.sign(e.deltaY) * 0.1))); dirty.current = true; };
   const el2 = renderer.domElement;
   el2.addEventListener('pointerdown', onDown); window.addEventListener('pointerup', onUp);
   window.addEventListener('pointermove', onMove); el2.addEventListener('wheel', onWheel, { passive: false });
 
-  let raf = 0;
+  let raf = 0, ema = 16.6, last = performance.now();
   const onResize = () => {
     w = container.clientWidth || window.innerWidth; h = container.clientHeight || window.innerHeight;
-    camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+    camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); dirty.current = true;
   };
   window.addEventListener('resize', onResize);
   const tick = () => {
+    raf = requestAnimationFrame(tick);
+    // render ON DEMAND: a static body (no drag/zoom/toggle) costs nothing — 6.8 M tris are
+    // only redrawn when something actually changes, which is what makes idle + heat sane.
+    if (!dirty.current && !dragging) { last = performance.now(); return; }
+    const now = performance.now(); ema = ema * 0.9 + (now - last) * 0.1; last = now;
+    // adaptive DPR: drop to 1× when a frame is slow (>~30 fps budget). On a retina phone
+    // this is the single biggest lever — quarters/ninths the fragment load while dragging.
+    const pr = ema > 33 ? 1 : Math.min(window.devicePixelRatio, 2);
+    if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
     uniforms.uEnabled.value = enabled;
     camera.position.set(target.x + dist * Math.cos(el) * Math.sin(az), target.y + dist * Math.sin(el), target.z + dist * Math.cos(el) * Math.cos(az));
     camera.lookAt(target);
     renderer.render(scene, camera);
-    raf = requestAnimationFrame(tick);
+    dirty.current = false;
   };
   tick();
   return () => {
@@ -278,6 +287,7 @@ export default function BodyHelix() {
   const [error, setError] = useState('');
   const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: false, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
   const enabledRef = useRef(new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]));
+  const dirtyRef = useRef(true);   // request a redraw (the render loop is on-demand)
 
   useEffect(() => {
     let cancelled = false;
@@ -285,11 +295,12 @@ export default function BodyHelix() {
     return () => { cancelled = true; };
   }, []);
   useEffect(() => {
-    const e = new Float32Array(9);
-    for (let i = 1; i <= 8; i++) e[i] = on[i] ? 1 : 0;
-    enabledRef.current = e;
+    // Mutate IN PLACE — mount captured THIS array; reassigning a new one leaves the
+    // renderer reading the stale array (the dead-toggles bug). Then request a redraw.
+    for (let i = 1; i <= 8; i++) enabledRef.current[i] = on[i] ? 1 : 0;
+    dirtyRef.current = true;
   }, [on]);
-  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current); }, [d]);
+  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef); }, [d]);
 
   const btn = (active: boolean): React.CSSProperties => ({
     padding: '5px 10px', borderRadius: 6, cursor: 'pointer', border: '1px solid #2a3242',
