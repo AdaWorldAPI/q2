@@ -14,6 +14,7 @@ import { TorsoRender } from './TorsoRender';
 import { TorsoMap } from './TorsoMap';
 import { FmaBody } from './FmaBody';
 import { BodyV3 } from './BodyV3';
+import BodyHelix from './BodyHelix';
 import { CpicCockpit } from './CpicCockpit';
 import { ReasoningPage } from './ReasoningPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -105,6 +106,11 @@ createRoot(document.getElementById('root')!).render(
               cockpit/public/body.soa (BSO1 = V3 node table + SPM1 geometry). Polygons,
               not surfels — the successor to /torso-live's decimated 2k-concept torso. */}
           <Route path="/body" element={<BodyV3 />} />
+          {/* /helix — EXPERIMENTAL sibling of /body. Same baked wire, but shades from the
+              per-vertex helix-normal bytes (Fisher-2z geodesic codes) via a 256×256 LUT
+              materialized once at load: one vertex-shader fetch/vert, no per-vertex decode,
+              no rebake. Standalone (BodyHelix.tsx) so it can never break /body (#64). */}
+          <Route path="/helix" element={<BodyHelix />} />
           {/* /cpic — CPIC pharmacogenomics cockpit (gene-first): {gene, diplotype, drug}
               → phenotype → recommendation, 2-hop NARS deduction over the real CPIC tables
               via POST /api/cpic/reason (the standalone cpic crate). Additive, gene-first
