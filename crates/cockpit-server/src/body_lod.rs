@@ -72,8 +72,9 @@ pub async fn body_lod_handler(Json(cam): Json<LodCamera>) -> Json<LodResponse> {
         position: cam.position,
     };
     let budget = DepthCascadeBudget::default();
-    let mut decisions = Vec::with_capacity(BLOCKS.len());
-    cascade_blocks(&camera, &BLOCKS, &budget, &mut decisions);
+    let blocks: &[BlockBounds] = &BLOCKS;
+    let mut decisions = Vec::with_capacity(blocks.len());
+    cascade_blocks(&camera, blocks, &budget, &mut decisions);
 
     let mut actions = vec![0u8; BLOCKS.len()];
     let mut tally = [0usize; 5];
