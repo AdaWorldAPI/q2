@@ -158,14 +158,19 @@ def main(scratch, out_dir):
         r = row_of[c]
         nm = canon.get(c, name.get(c, c))
         tissue = tissue_of(c, parent_isa, name, canon, tcache)
-        # Liver parenchyma is modelled as Couinaud "hepatovenous segment N" — named for
-        # its venous drainage, so tissue_of tags it 'vein'. That coloured the whole liver
-        # blue and slicer-filled it as a tube (it read as a blue vessel blob above the
-        # colon). It is solid liver tissue; only the true hepatic/portal *veins* (which
-        # all carry 'vein' in their name) stay vessels. Reclassify to liver → solid
-        # organ colour + the organ compartment.
-        if "hepatovenous segment" in nm.lower():
+        # ── semantic-class corrections: structures named for their vasculature that
+        #    tissue_of mis-tags as vessels, turning whole ORGANS blue + slicer-filled ──
+        nm_l = nm.lower()
+        # Liver parenchyma = Couinaud "hepatovenous segment N" (named for venous
+        # drainage) → was tagged 'vein'. It's solid liver; only the true hepatic/portal
+        # *veins* (all carry 'vein' in their name) stay vessels.
+        if "hepatovenous segment" in nm_l:
             tissue = "liver"
+        # Eyeball vascular layers — iris + choroid — were tagged 'vessel', so the eyes
+        # rendered blue. They're part of a sense ORGAN → solid/organ. NB the brain's
+        # "choroid plexus" is NOT the eye, so it is excluded.
+        elif "iris" in nm_l or ("choroid" in nm_l and "plexus" not in nm_l):
+            tissue = "viscus"
         material = TISSUE_MATERIAL.get(tissue, 4)
         v_start = len(px)
         for fj in meshes_of[c]:

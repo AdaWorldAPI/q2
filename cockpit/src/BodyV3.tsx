@@ -29,7 +29,7 @@ const LAYERS: { id: number; name: string; color: string }[] = [
   { id: 3, name: 'organ', color: '#cc9484' },
   { id: 4, name: 'skeleton', color: '#ebe0c7' },
   { id: 5, name: 'vessel', color: '#cc3838' },
-  { id: 6, name: 'nerve', color: '#ebd152' },
+  { id: 6, name: 'nervous', color: '#ebd152' },
   { id: 7, name: 'connective', color: '#e0dbcc' },
   { id: 8, name: 'other', color: '#9696a0' },
 ];
