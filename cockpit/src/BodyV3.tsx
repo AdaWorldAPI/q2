@@ -11,8 +11,9 @@
 //   | GUID[16·nC] | material u8[nC] | LAYER u8[nC] | label u32[nC] | centroid 3f[nC]
 //   | (vstart,vcount) 2u32[nC] | pos[nV] | helix 6B[nV] | row u32[nV] | idx 3u32[nT]
 //   | labels_json (u32 len + utf8) | materials_json (u32 len + utf8)
-// pos column: ver 3 = 3×f32 (12 B/vertex); ver 4 = 3×BF16 (6 B/vertex, widened
-// to f32 client-side by bits<<16). This decoder reads both.
+// pos column: ver 3 = 3×f32 (12 B/vertex); ver 4 = 3×BF16; ver 5 = 3×F16 / IEEE
+// half (6 B/vertex, widened to f32 client-side via a 64K LUT). F16's 10-bit mantissa
+// avoids the BF16 staircase (~3 mm steps near the head). This decoder reads all three.
 //
 // Data: BodyParts3D, (c) The Database Center for Life Science, CC-BY 4.0.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -62,6 +63,19 @@ function conceptColor(layerId: number, matRgb: [number, number, number], row: nu
 
 interface ConceptInfo { row: number; name: string; centroid: [number, number, number]; layer: number; material: string }
 
+// 64K IEEE-half → f32 lookup (built once): ver-5 wire stores positions as F16
+// (10-bit mantissa, ~0.2 mm here — no BF16 staircase). LUT keeps decode O(1)/vertex.
+const HALF_LUT: Float32Array = (() => {
+  const t = new Float32Array(65536);
+  for (let h = 0; h < 65536; h++) {
+    const s = (h & 0x8000) ? -1 : 1, e = (h & 0x7c00) >> 10, f = h & 0x03ff;
+    t[h] = e === 0 ? s * Math.pow(2, -14) * (f / 1024)
+      : e === 0x1f ? (f ? NaN : s * Infinity)
+        : s * Math.pow(2, e - 15) * (1 + f / 1024);
+  }
+  return t;
+})();
+
 interface Decoded {
   nConcepts: number; nVerts: number; nTris: number; classid: number;
   positions: Float32Array; index: Uint32Array; opaqueTris: number;
@@ -75,8 +89,7 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
   if (magic !== 'BSO2') throw new Error(`bad magic "${magic}" (expected BSO2)`);
   const ver = dv.getUint16(4, true);
-  const posBf16 = ver >= 4;             // ver 4: pos is BF16 (6 B/vertex) not f32 (12 B)
-  const posBytes = posBf16 ? 6 : 12;
+  const posBytes = ver >= 4 ? 6 : 12;   // ver 4 (BF16) / ver 5 (F16) = 2 B/comp; ver 3 = f32
   const nC = dv.getUint32(6, true), nV = dv.getUint32(10, true), nT = dv.getUint32(14, true);
   let o = 18;
   const guidOff = o; o += 16 * nC;
@@ -113,13 +126,16 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
     };
   }
 
-  // pos → f32 working array. ver 4 stores BF16 (u16): widen via bits<<16 (BF16 is
-  // the top 16 bits of an IEEE-754 f32, so a left-shift into the high half is the
-  // exact, lossless widening — 8-bit mantissa, no rounding back). ver 3 is raw f32;
-  // buf.slice → a fresh 4-aligned buffer (posOff isn't guaranteed 4-aligned, and a
-  // Float32Array *view* requires 4-alignment; slice copies but always aligns).
+  // pos → f32 working array. ver 5 = F16 (IEEE half) widened via the 64K LUT; ver 4 =
+  // BF16 widened via bits<<16 (BF16 is the top 16 bits of an f32 — exact widening);
+  // ver 3 = raw f32. buf.slice → a fresh 4-aligned buffer (posOff isn't guaranteed
+  // 4-aligned, and a Float32Array *view* requires 4-alignment; slice copies + aligns).
   let srcPos: Float32Array;
-  if (posBf16) {
+  if (ver >= 5) {
+    const hf = new Uint16Array(buf.slice(posOff, posOff + nV * 6));
+    srcPos = new Float32Array(nV * 3);
+    for (let k = 0; k < hf.length; k++) srcPos[k] = HALF_LUT[hf[k]];
+  } else if (ver === 4) {
     const bf = new Uint16Array(buf.slice(posOff, posOff + nV * 6));
     const widened = new Uint32Array(nV * 3);
     for (let k = 0; k < bf.length; k++) widened[k] = bf[k] << 16;

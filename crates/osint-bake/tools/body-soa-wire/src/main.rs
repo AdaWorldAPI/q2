@@ -7,18 +7,22 @@
 //! BSO2 layout (LE): magic | ver u16 | n_concepts u32 | n_verts u32 | n_tris u32
 //!   | concept GUID col [16·NC] | material u8 [NC] | label u32 [NC]
 //!   | centroid 3f [NC] | (v_start,v_count) 2u32 [NC]
-//!   | pos 3×BF16 [NV] | helix 6B [NV] (pos3|nrm3) | row u32 [NV] | idx 3u32 [NT]
+//!   | pos 3×F16 [NV] | helix 6B [NV] (pos3|nrm3) | row u32 [NV] | idx 3u32 [NT]
 //!   | labels_json u32 len + bytes | materials_json u32 len + bytes
 //!
-//! ver=4: per-vertex `pos` is **BF16** (3× u16 LE = 6 B/vertex, half of ver=3's
-//! 12 B f32). BF16's 8-bit mantissa ≈ 0.4% on [-1,1] (~7 mm on a 1.7 m body) —
-//! below the visual + cascade (screen-space-error) floor; the renderer widens
-//! back to f32 for the GPU. The small per-concept `centroid` column stays f32
-//! (nc≈1658, negligible). Conversion uses ndarray's sanctioned RNE batch path
-//! (`f32_to_bf16_batch_rne`), never a hand-rolled truncation.
+//! Position precision history (per-vertex `pos`, all 6 B/vertex below ver 3):
+//!   ver 3 = 3× f32 (12 B).
+//!   ver 4 = 3× BF16 (7-bit mantissa). HALF the size, but BF16's step is ~2⁻⁸ of a
+//!     coordinate's magnitude → ~3 mm near the head (y≈0.85) → a visible STAIRCASE
+//!     (Treppeneffekt) on small smooth structures like the eye/brain. REJECTED for
+//!     quality.
+//!   ver 5 = 3× F16 / IEEE half (10-bit mantissa). SAME 6 B/vertex as BF16, but the
+//!     step is ~2⁻¹¹ of magnitude → ~0.4 mm near the head, sub-visual — no staircase.
+//!     Coords are all in [-1,1], well inside F16's range. The renderer widens back to
+//!     f32 via a 64K half→f32 LUT. Conversion uses ndarray's tested `F16::from_f32`.
 use lance_graph_contract::canonical_node::{classid_read_mode, NodeGuid};
+use ndarray::hpc::quantized::F16;
 use ndarray::hpc::splat3d::helix_orient;
-use ndarray::simd::f32_to_bf16_batch_rne;
 
 const CLASSID_FMA: u32 = NodeGuid::CLASSID_FMA_V3; // 0x1000_0A01
 
@@ -148,16 +152,15 @@ fn main() {
     // ── assemble BSO2 ──
     let mut o = Vec::with_capacity(nc * 40 + nv * 22 + idx.len() + 64);
     o.extend_from_slice(b"BSO2");
-    o.extend_from_slice(&4u16.to_le_bytes()); // ver 4 = BF16 positions
+    o.extend_from_slice(&5u16.to_le_bytes()); // ver 5 = F16 (IEEE half) positions
     o.extend_from_slice(&(nc as u32).to_le_bytes());
     o.extend_from_slice(&(nv as u32).to_le_bytes());
     o.extend_from_slice(&(nt as u32).to_le_bytes());
     o.extend_from_slice(&guid); o.extend_from_slice(&material); o.extend_from_slice(&layer);
     o.extend_from_slice(&label); o.extend_from_slice(&centroid); o.extend_from_slice(&vrange);
-    // pos → BF16 (RNE batch; ndarray native AVX-512/AMX path on the bake host)
-    let mut pos_bf16 = vec![0u16; nv * 3];
-    f32_to_bf16_batch_rne(&pos[..nv * 3], &mut pos_bf16);
-    o.extend_from_slice(&pos_bf16.iter().flat_map(|h| h.to_le_bytes()).collect::<Vec<u8>>());
+    // pos → F16 / IEEE half (10-bit mantissa; ndarray's tested F16::from_f32 RNE)
+    let pos_f16: Vec<u8> = pos[..nv * 3].iter().flat_map(|&f| F16::from_f32(f).0.to_le_bytes()).collect();
+    o.extend_from_slice(&pos_f16);
     o.extend_from_slice(&helix);
     o.extend_from_slice(&row[..nv].iter().flat_map(|r| r.to_le_bytes()).collect::<Vec<u8>>());
     o.extend_from_slice(&idx[..nt * 12]);
@@ -175,7 +178,7 @@ fn main() {
     println!("  address GUID[0]: classid={:#010x} heel(po:isa)={:#06x} hip={:#06x} identity={}",
         u32::from_le_bytes(guid[0..4].try_into().unwrap()), le16(4), le16(6), le16(14));
     println!("  helix: 2× 3-byte/vertex ({} B col); max normal angle err ~{:.3}°", helix.len(), max_norm_err);
-    println!("  pos: BF16 (ver 4) — {} B col (was {} B as f32)", nv * 6, nv * 12);
+    println!("  pos: F16 (ver 5) — {} B col (was {} B as f32); 10-bit mantissa, no staircase", nv * 6, nv * 12);
     println!("  blocks: wrote {blocks_out} ({} B = {nc}×16 BlockBounds)", blocks.len());
     println!("  wrote {out} ({} B)", o.len());
 }
