@@ -11,6 +11,11 @@ rim endpoint pair (the Fisher-Z metric carrier) is NOT used by the renderer, so 
 is left zero here; the full metric-coupled artifact is helixbake's job once the FMA
 columns + a helix build are available. This makes /helix RENDER, faithfully.
 
+Output is ONE SoA wire (ver 6): the Signed360 normals are a COLUMN of the same
+struct-of-arrays as the F16 positions and indices — never a separate sidecar file.
+The artifact is published to a GitHub release (not committed); the Dockerfile pulls
+it same-origin like body.soa.gz.
+
 Usage: transcode_helix_signed360.py in.soa.gz out.soa   (writes out.soa + out.soa.gz)
 """
 import sys, gzip, math
@@ -90,20 +95,17 @@ def main():
     err = np.degrees(np.arccos(dot))
     print(f"verts {nV}  decode-back err: mean {err.mean():.3f}°  p99 {np.percentile(err,99):.3f}°  max {err.max():.3f}°")
 
-    # ── emit a vertex-aligned SIDECAR: 3 bytes/vert (polar, az_lo, az_hi) ──
-    # /helix reuses body.soa.gz for geometry (pos/idx/row/concepts) — same-origin, already
-    # served — and reads ONLY this sidecar for the Signed360 render coords. Magic "HXN1" |
-    # nV u32 | (polar, az_lo, az_hi)[nV]. The rim (metric) is not shipped: render uses only
-    # (polar, azimuth). ~3·nV bytes, gzips small (rim was the bulky/incompressible part).
-    import os, struct
-    side = bytearray(b"HXN1")
-    side += struct.pack("<I", nV)
-    side += s360[:, 3:6].tobytes()   # (polar, az_lo, az_hi) per vertex
+    # ── reassemble ONE SoA wire: ver 5->6, splice the Signed360 helix column in place,
+    # everything else (concept cols, F16 pos, row, idx, json) verbatim. The normals stay a
+    # COLUMN of the same struct-of-arrays as the positions — not a separate file. ──
+    raw[4:6] = (6).to_bytes(2, "little")           # ver 6 = F16 pos + Signed360 helix column
+    raw[helix_off:helix_off + 6 * nV] = s360.tobytes()
+    import os
     with open(out, "wb") as f:
-        f.write(side)
-    with gzip.open(out + ".gz", "wb", compresslevel=9) as f:
-        f.write(side)
-    print(f"wrote sidecar {out} ({len(side)} B) + {out}.gz ({os.path.getsize(out+'.gz')} B)")
+        f.write(raw)
+    with gzip.open(out + ".gz", "wb", compresslevel=6) as f:
+        f.write(raw)
+    print(f"wrote {out} ({len(raw)} B) + {out}.gz ({os.path.getsize(out+'.gz')} B)")
 
 if __name__ == "__main__":
     main()

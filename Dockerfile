@@ -59,6 +59,13 @@ RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v
       -o /build/q2/cockpit/dist/body.soa.gz \
  && ls -lh /build/q2/cockpit/dist/body.soa.gz
 
+# Same for the /helix wire: one SoA (BSO2 ver 6) = F16 pos + a canonical Signed360
+# NORMAL column in the same struct-of-arrays. Same-origin for the same CORS reason;
+# named by cockpit/public/body.manifest.json (helix_latest). Stays in the release.
+RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260628.v6helix.soa.gz \
+      -o /build/q2/cockpit/dist/body.20260628.v6helix.soa.gz \
+ && ls -lh /build/q2/cockpit/dist/body.20260628.v6helix.soa.gz
+
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
 #

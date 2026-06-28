@@ -100,10 +100,7 @@ interface Decoded {
   concepts: number;
 }
 
-// `buf` is the SHARED /body.soa.gz wire (geometry: pos/idx/row/concepts) — its own helix
-// column (old codec) is ignored. `sidecar` is the canonical render normals: "HXN1" | nV u32
-// | (polar, az_lo, az_hi)[nV], vertex-aligned to the wire.
-function decode(buf: ArrayBuffer, sidecar: Uint8Array): Decoded {
+function decode(buf: ArrayBuffer): Decoded {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
   if (magic !== 'BSO2') throw new Error(`bad magic "${magic}"`);
@@ -118,7 +115,7 @@ function decode(buf: ArrayBuffer, sidecar: Uint8Array): Decoded {
   o += 12 * nC;                       // centroid
   o += 8 * nC;                        // vrange
   const posOff = o; o += posBytes * nV;
-  o += 6 * nV;                        // wire's own helix column (old codec) — skipped; normals come from the sidecar
+  const helixOff = o; o += 6 * nV;    // pos3 | nrm3 — we read the nrm half
   const rowOff = o; o += 4 * nV;
   const idxOff = o; o += 12 * nT;
   void matOff;
@@ -139,18 +136,12 @@ function decode(buf: ArrayBuffer, sidecar: Uint8Array): Decoded {
   } else {
     srcPos = new Float32Array(buf.slice(posOff, posOff + nV * 12));
   }
+  const helix = new Uint8Array(buf.slice(helixOff, helixOff + 6 * nV));
   const rowArr = new Uint32Array(buf.slice(rowOff, rowOff + 4 * nV));
-  // sidecar: "HXN1" | nV u32 | (polar,az_lo,az_hi)[nV]. Validate + locate the normals.
-  const sdv = new DataView(sidecar.buffer, sidecar.byteOffset, sidecar.byteLength);
-  if (String.fromCharCode(sidecar[0], sidecar[1], sidecar[2], sidecar[3]) !== 'HXN1')
-    throw new Error('bad helix sidecar magic (expected HXN1)');
-  const sideNV = sdv.getUint32(4, true);
-  if (sideNV !== nV) throw new Error(`sidecar nV ${sideNV} ≠ wire nV ${nV}`);
-  const sNrm = sidecar.subarray(8, 8 + 3 * nV);
 
   const positions = new Float32Array(nV * 3);
   const colors = new Uint8Array(nV * 3);
-  const polAz = sNrm.slice();              // (polar, az_lo, az_hi) per vertex — straight from the sidecar
+  const polAz = new Uint8Array(nV * 3);    // (polar, az_lo, az_hi) — normalized LUT key, NO trig
   const layer = new Float32Array(nV);
   for (let i = 0; i < nV; i++) {
     positions[i * 3] = -srcPos[i * 3];
@@ -159,6 +150,10 @@ function decode(buf: ArrayBuffer, sidecar: Uint8Array): Decoded {
     const r = rowArr[i], li = cLayer[r] || 8;
     const rgb = conceptColor(li, r);
     colors[i * 3] = rgb[0]; colors[i * 3 + 1] = rgb[1]; colors[i * 3 + 2] = rgb[2];
+    // just copy the Signed360 normalized coords — the LUT does the (one-time) materialization.
+    polAz[i * 3] = helix[i * 6 + 3];       // polar
+    polAz[i * 3 + 1] = helix[i * 6 + 4];   // azimuth_lo
+    polAz[i * 3 + 2] = helix[i * 6 + 5];   // azimuth_hi
     layer[i] = li;
   }
   const raw = new Uint32Array(buf.slice(idxOff, idxOff + 12 * nT));
@@ -260,26 +255,21 @@ const inflate = async (r: Response): Promise<ArrayBuffer> => {
   return new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
 };
 
-// /helix loads TWO same-origin files: the SHARED body.soa.gz (geometry — pos/idx/row/
-// concepts, already served for /body) and a small canonical normals SIDECAR named by the
-// manifest's `helix_latest` ("HXN1" + Signed360 polar/azimuth per vertex). The wire's own
-// (old helix_orient) normals are never read. No sidecar ⇒ /helix says so rather than guess.
-async function fetchGeom(): Promise<ArrayBuffer> {
-  const local = await fetch('/body.soa.gz').catch(() => null);
-  if (local && local.ok) return inflate(local);
-  const rel = await fetch(`${REL}/body.soa.gz`);
-  if (!rel.ok) throw new Error(`HTTP ${rel.status} fetching body.soa.gz`);
-  return inflate(rel);
-}
-async function fetchSidecar(): Promise<Uint8Array> {
+// CANONICAL-ONLY: read the stamped helix bake (Signed360 normals) named by the manifest.
+// We deliberately do NOT fall back to the shared body.soa.gz — that artifact carries the
+// OLD helix_orient codec (a different, place-blind encoding), and reading its bytes as
+// Signed360 would render garbage. Until a canonical bake is published, /helix says so.
+async function fetchSoa(): Promise<ArrayBuffer> {
   const man = await fetch('/body.manifest.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const stamped: string | undefined = man?.helix_latest;
-  if (!stamped) throw new Error('no canonical helix normals yet — set helix_latest in /body.manifest.json (transcode_helix_signed360.py → HXN1 sidecar)');
+  if (!stamped) {
+    throw new Error('no canonical helix bake yet — set helix_latest in /body.manifest.json (soabake → helix::encode_signed)');
+  }
   const s = await fetch(`/${stamped}`).catch(() => null);
-  if (s && s.ok) return new Uint8Array(await inflate(s));
+  if (s && s.ok) return inflate(s);
   const rel = await fetch(`${REL}/${stamped}`);
   if (!rel.ok) throw new Error(`HTTP ${rel.status} fetching ${stamped}`);
-  return new Uint8Array(await inflate(rel));
+  return inflate(rel);
 }
 
 export default function BodyHelix() {
@@ -291,7 +281,7 @@ export default function BodyHelix() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([fetchGeom(), fetchSidecar()]).then(([b, s]) => decode(b, s)).then((x) => { if (!cancelled) setD(x); }).catch((e) => { if (!cancelled) setError(String(e)); });
+    fetchSoa().then((b) => decode(b)).then((x) => { if (!cancelled) setD(x); }).catch((e) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
   }, []);
   useEffect(() => {

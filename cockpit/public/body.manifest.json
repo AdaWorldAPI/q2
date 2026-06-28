@@ -1,6 +1,5 @@
 {
-  "helix_latest": "body.20260628.helixn.bin.gz",
-  "note": "Canonical helix::Signed360 render normals (HXN1 sidecar) for /helix. Geometry is the shared body.soa.gz. Transcoded from the ver-5 release artifact via transcode_helix_signed360.py (decode-back err: mean 0.205 deg, p99 1.37 deg).",
-  "verts": 4283525,
-  "format": "HXN1: magic | nV u32 | (polar,az_lo,az_hi)[nV]"
+  "helix_latest": "body.20260628.v6helix.soa.gz",
+  "note": "Single SoA wire (BSO2 ver 6): F16 positions + a Signed360 NORMAL column in the same struct-of-arrays. Published to the fma-body-soa-v3-v1 release; the Dockerfile pulls it same-origin like body.soa.gz. Transcoded from the ver-5 artifact via transcode_helix_signed360.py (decode-back err: mean 0.205 deg, p99 1.37 deg).",
+  "verts": 4283525
 }
