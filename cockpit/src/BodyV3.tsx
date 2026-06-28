@@ -73,7 +73,10 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const cMat = new Uint8Array(buf.slice(matOff, matOff + nC));
   const cLayer = new Uint8Array(buf.slice(layerOff, layerOff + nC));
 
-  const srcPos = new Float32Array(buf, posOff, nV * 3);
+  // buf.slice → a fresh 4-aligned buffer (posOff isn't guaranteed 4-aligned: the
+  // 18-byte header + 1-byte material/layer columns can land it off a word boundary,
+  // and a Float32Array *view* requires 4-alignment). slice copies but always aligns.
+  const srcPos = new Float32Array(buf.slice(posOff, posOff + nV * 12));
   const rowArr = new Uint32Array(buf.slice(rowOff, rowOff + 4 * nV));
   const positions = new Float32Array(nV * 3);
   const colors = new Uint8Array(nV * 3);
