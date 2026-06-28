@@ -180,9 +180,13 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
     uEnabled: { value: st.enabled }, uGlobalAlpha: { value: st.alpha },
     uLod: { value: lodTex }, uLodN: { value: d.nConcepts }, uLodOn: { value: 0 },
   };
+  // solid mode: opaque solids draw fast (transparent:false), #17 vessels blend over
+  // them. transparent mode (port of /fma-body's uniform-uAlpha x-ray): BOTH groups go
+  // translucent — uGlobalAlpha (0.42) drops the whole body to see-through, not just
+  // the #17-alpha organs. depthWrite off when translucent so interior shows through.
   const opaqueMat = new THREE.ShaderMaterial({
     vertexShader: VERT, fragmentShader: FRAG, uniforms,
-    side: THREE.DoubleSide, transparent: false, depthWrite: true,
+    side: THREE.DoubleSide, transparent: st.transparent, depthWrite: !st.transparent,
   });
   const transMat = new THREE.ShaderMaterial({
     vertexShader: VERT, fragmentShader: FRAG, uniforms,
@@ -232,7 +236,12 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
     uniforms.uEnabled.value = st.enabled;          // shared by both materials
     uniforms.uGlobalAlpha.value = st.alpha;
     uniforms.uLodOn.value = st.lodOn && !lodFail ? 1 : 0;
-    if (st.transparent !== wasT) { transMat.depthWrite = !st.transparent; wasT = st.transparent; }
+    if (st.transparent !== wasT) {
+      // flip the solid group into the x-ray (whole-body translucent) and back
+      opaqueMat.transparent = st.transparent; opaqueMat.depthWrite = !st.transparent; opaqueMat.needsUpdate = true;
+      transMat.depthWrite = !st.transparent;
+      wasT = st.transparent;
+    }
     postLod(now);
     controls.update(); renderer.render(scene, camera);
     if (++since >= 20) { since = 0; onStats({ fps: Math.round(1000 / Math.max(ema, 1)) }); }
@@ -259,16 +268,18 @@ export function BodyV3() {
   const [stats, setStats] = useState<{ fps: number } | null>(null);
   // skin (1) off by default so the anatomy shows.
   const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
-  const [transparent, setTransparent] = useState(true);
+  const [transparent, setTransparent] = useState(false);   // default solid (like /fma-body)
   const [lod, setLod] = useState(false);   // server HHTL LOD — opt-in (off = today's full render)
-  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: true, lodOn: false });
+  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: false, lodOn: false });
 
   useEffect(() => {
     const e = new Float32Array(9);
     for (let i = 1; i <= 8; i++) e[i] = on[i] ? 1 : 0;
     stRef.current.enabled = e;
     stRef.current.transparent = transparent;
-    stRef.current.alpha = transparent ? 1.0 : 1.0; // alpha comes from #17 material; toggle flips depthWrite
+    // /fma-body translucency model: one uniform alpha for the WHOLE body. transparent
+    // ⇒ 0.42 x-ray (see through skin/muscle to organs); solid ⇒ 1.0 (#17 vessels only).
+    stRef.current.alpha = transparent ? 0.42 : 1.0;
     stRef.current.lodOn = lod;
   }, [on, transparent, lod]);
 
@@ -313,7 +324,7 @@ export function BodyV3() {
               : <span style={{ color: '#ff8095' }}>classid 0x{d.classid.toString(16)}</span>}
           </div>
         )}
-        {stats && <div style={{ opacity: 0.5, marginTop: 2 }}>{stats.fps} fps · vessels translucent (#17 alpha)</div>}
+        {stats && <div style={{ opacity: 0.5, marginTop: 2 }}>{stats.fps} fps · {transparent ? 'x-ray (whole body 0.42)' : 'solid · #17 vessels'}</div>}
       </div>
 
       {error && (
@@ -332,7 +343,7 @@ export function BodyV3() {
             </button>
           ))}
         </div>
-        <button style={btn(transparent)} onClick={() => setTransparent((v) => !v)}>{transparent ? 'translucent' : 'solid'} ⇄</button>
+        <button style={btn(transparent)} onClick={() => setTransparent((v) => !v)}>{transparent ? 'x-ray' : 'solid'} ⇄</button>
         <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="server HHTL depth-cascade: culls off-frustum concepts when zoomed in">server LOD {lod ? 'on' : 'off'}</button>
         <a href="/fma-body" style={{ color: '#7fa6c4', textDecoration: 'none', font: '12px ui-monospace, monospace' }}>2k layered →</a>
       </div>
