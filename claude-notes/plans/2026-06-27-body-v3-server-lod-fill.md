@@ -59,6 +59,41 @@ KeepCoarse/Refine/ProjectExact/RenderExact), cascade_blocks}`, `project::Camera`
 - [ ] `BodyV3.tsx`: thin — throttled orbit posts the camera; swap the streamed mesh.
   Drop the full 168 MB client fetch.
 
+## LOCKED design (operator review, 2026-06-27) — supersedes the BSO1 AoS bake
+
+The wire is **SoA columns** (`MultiLaneColumn`, 64-byte aligned, `Arc<[u8]>`),
+joined by ONE SoA row identity. **Store identities/indices, never raw values;
+ClassView dereferences.** Three separate 16-byte GUID columns (cheap: 16 B ×
+100k = 1.6 MB; × 396k surfels = 6.4 MB — separation beats bit-packing):
+
+| column | 16-B GUID / value | content | resolves via |
+|---|---|---|---|
+| **address** | `classid 0x1000` + `(part_of:is_a)` **8:8** cascade + identity tier | the node key (unique; routable prefix) | ClassView / registry |
+| **location** | `XYZ` standard 3D | position — GPU/slicer native; Z = slice, X·Y = in-slice 256² grid (256=4⁴ hierarchical) | direct |
+| **helix** | **2 helices** + reserved | helix-pos (dir from origin 0,0,0, 3 B) · helix-normal (self orientation, 3 B) · depth derivable by trig from XYZ | direct decode |
+| material | **codebook index** | Doppler flow class (low-res artery / high-res artery / portal / hepatic-vein / caval) | ClassView → material prototype |
+| label | **codebook index** | never raw text | ClassView → text + synonyms |
+| edges | **SoA-row refs** | part_of parent / branches / supplies / synonym alias | ClassView |
+
+Rules that fell out of review:
+- **Collusion = a location collision = same geometry ⇒ a ClassView resolution,
+  not a bug.** (`celiac trunk ≡ celiac artery` = same lumen → ClassView aliases;
+  the 3 celiac branches have distinct XYZ → distinct, linked as children.)
+  Bilateral pairs are unique by x-sign for free.
+- **Relationships reference the SoA row (linked identity), never embed a
+  neighbour's location/helix.** Edge says *who*; row says *where/what/oriented*.
+- **64k⁶ = (256³)⁴** — same space; XYZ-bytes factoring is the slicer-native one.
+- **Tubes:** normal is radial from the centerline ⇒ helix-normal derivable by trig
+  from XYZ + the part_of branch-tree centerline; slicer fills cylindrically
+  (depth-along-axis · helix-angle · radius). Explicit helix bytes only for
+  non-radial surfaces (sheets/capsules).
+- **Material fill** densifies the *surface* (slicer-style), per Doppler class.
+- **Render:** Gouraud shading; **bgz17/Base17 (#17) palette drives the alpha /
+  transparency** channel (17 levels). Keep **6+ M polygons** (NO decimation to
+  1.6 M yet — LOD pyramid is later).
+- compute server-side (ndarray native SIMD); deno_core/V8 is the *document* JS
+  engine, never in the 3D path.
+
 ## Constraints
 - Big baked assets (LOD pyramid, fill) → GitHub Releases (q2 `fma-body-soa-v3-*`),
   never git. `cockpit/public/body.soa*` gitignored.
