@@ -176,11 +176,13 @@ function mount(container: HTMLDivElement, scroll: { current: number },
   const onResize = () => { w = container.clientWidth; h = container.clientHeight; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); dirty.current = true; };
   window.addEventListener('resize', onResize);
 
-  let raf = 0, lastScroll = NaN;
+  layout();                                          // static helix — laid out once, no auto-motion
+  let raf = 0;
   const tick = () => {
     raf = requestAnimationFrame(tick);
-    scroll.current += 0.022;                        // gentle endless travel up the strand
-    if (scroll.current !== lastScroll) { layout(); lastScroll = scroll.current; }
+    // ON DEMAND: no auto-spin. (Auto-travelling the coil made it read as a fast barber-pole
+    // rotation.) Redraw only when the user orbits / zooms / resizes.
+    if (!dirty.current) return;
     camera.position.set(dist * Math.cos(el) * Math.sin(az), dist * Math.sin(el), dist * Math.cos(el) * Math.cos(az));
     camera.lookAt(0, 0, 0);
     renderer.render(scene, camera);
