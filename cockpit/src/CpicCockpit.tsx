@@ -71,7 +71,8 @@ function levelColor(level: string | null): string {
 
 export function CpicCockpit() {
   const [catalog, setCatalog] = useState<Catalog>({ genes: [], drugs: [] });
-  const [gene, setGene] = useState('CYP2C19');
+  // honor a ?gene= deep-link (e.g. from /genome's locus click); falls back to the default.
+  const [gene, setGene] = useState(() => new URLSearchParams(window.location.search).get('gene') || 'CYP2C19');
   const [input, setInput] = useState('*2/*2');
   const [drug, setDrug] = useState('clopidogrel');
   const [outcome, setOutcome] = useState<Outcome | null>(null);

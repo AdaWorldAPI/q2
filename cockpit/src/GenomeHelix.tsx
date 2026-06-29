@@ -36,12 +36,25 @@ const BASE_RGB = [
 const baseAt = (step: number) => ((step * 2654435761) >>> 0) & 3; // cheap hash → 0..3, stable per step
 
 // Sparse CPIC loci: real pharmacogenes lit up at fixed addresses in the endless scaffold.
-// (Placeholder set — the canonical CPIC level-A genes. Wiring /api/cpic/reason replaces this.)
-const GENES = ['CYP2D6', 'CYP2C19', 'CYP2C9', 'CYP3A5', 'TPMT', 'DPYD', 'SLCO1B1', 'UGT1A1',
-  'NUDT15', 'VKORC1', 'CYP4F2', 'G6PD', 'HLA-B', 'IFNL3', 'CFTR', 'RYR1'];
-// place each gene at a stable, spread-out step (golden-ratio scatter over a wide range)
-const LOCI = GENES.map((g, i) => ({ gene: g, step: Math.round(((i + 1) * 0.6180339887 % 1) * 4096) }));
-const LOCUS_BY_STEP = new Map(LOCI.map((l) => [l.step, l.gene]));
+// The gene list is pulled LIVE from GET /api/cpic/catalog; this canonical CPIC level-A set
+// is only the fallback when the endpoint is absent (old deploy) so /genome still renders.
+const FALLBACK_GENES = ['CYP2D6', 'CYP2C19', 'CYP2C9', 'CYP3A5', 'TPMT', 'DPYD', 'SLCO1B1',
+  'UGT1A1', 'NUDT15', 'VKORC1', 'CYP4F2', 'G6PD', 'HLA-B', 'IFNL3', 'CFTR', 'RYR1'];
+type Locus = { step: number; gene: string };
+// Each gene gets a STABLE address from a hash of its name (FNV-1a) → a step in [0,4096).
+// Same gene ⇒ same locus forever (addressability without storage), spread across the tier.
+function lociFrom(genes: string[]): Locus[] {
+  const seen = new Map<number, string>();
+  const out: Locus[] = [];
+  for (const g of genes) {
+    let hsh = 2166136261;
+    for (let i = 0; i < g.length; i++) { hsh ^= g.charCodeAt(i); hsh = Math.imul(hsh, 16777619); }
+    let step = (hsh >>> 0) % 4096;
+    while (seen.has(step)) step = (step + 1) % 4096;   // linear-probe the rare collision
+    seen.set(step, g); out.push({ step, gene: g });
+  }
+  return out;
+}
 
 function labelSprite(text: string): THREE.Sprite {
   const c = document.createElement('canvas'); c.width = 256; c.height = 64;
@@ -55,7 +68,7 @@ function labelSprite(text: string): THREE.Sprite {
 }
 
 function mount(container: HTMLDivElement, scroll: { current: number }, density: { current: number },
-  dirty: { current: boolean }): () => void {
+  dirty: { current: boolean }, locusByStep: Map<number, string>): () => void {
   let w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(PAGE_BG);
   scene.fog = new THREE.Fog(PAGE_BG, 6, 16);   // ends fade into the dark → reads as endless
@@ -78,6 +91,7 @@ function mount(container: HTMLDivElement, scroll: { current: number }, density: 
   const rungs = new THREE.InstancedMesh(rung, rungMat, WINDOW);
   rungs.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(WINDOW * 3), 3);
   scene.add(strandA, strandB, rungs);
+  const geneOf: (string | null)[] = new Array(WINDOW).fill(null); // instance k → gene (for picking)
 
   // a small pool of reusable locus labels (only the few visible in the window)
   const LABELS = 10;
@@ -105,7 +119,9 @@ function mount(container: HTMLDivElement, scroll: { current: number }, density: 
       // strand B bead (opposite side)
       pos.set(-ax, y, -az); m.compose(pos, q, scl); strandB.setMatrixAt(k, m);
       // rung: midpoint, scaled to span 2·RADIUS, rotated to point along the strand pair
-      const isLoc = LOCUS_BY_STEP.has(((step % 4096) + 4096) % 4096);
+      const addr = ((step % 4096) + 4096) % 4096;
+      const isLoc = locusByStep.has(addr);
+      geneOf[k] = isLoc ? locusByStep.get(addr)! : null;
       const b = baseAt(step), col = BASE_RGB[b];
       cA.setRGB(col[0] / 255, col[1] / 255, col[2] / 255);
       strandA.setColorAt(k, cA.clone().multiplyScalar(0.8));
@@ -115,7 +131,7 @@ function mount(container: HTMLDivElement, scroll: { current: number }, density: 
       rungs.setColorAt(k, cR);
       // locus label
       if (isLoc && li < LABELS) {
-        const g = LOCUS_BY_STEP.get(((step % 4096) + 4096) % 4096)!;
+        const g = geneOf[k]!;
         const L = labels[li++]; if (L.text !== g) { L.sprite.material.map = labelSprite(g).material.map; L.text = g; }
         L.sprite.position.set(0, y + 0.16, 0); L.sprite.visible = true;
       }
@@ -133,10 +149,26 @@ function mount(container: HTMLDivElement, scroll: { current: number }, density: 
   }
 
   // controls: drag = orbit, wheel = descend/ascend tiers (fractal zoom), auto-drift = endless travel
-  let az = 0, el = 0.0, dragging = false, px = 0, py = 0, dist = 6.2;
-  const onDown = (e: PointerEvent) => { dragging = true; px = e.clientX; py = e.clientY; };
-  const onUp = () => { dragging = false; };
-  const onMove = (e: PointerEvent) => { if (!dragging) return; az -= (e.clientX - px) * 0.005; el = Math.max(-1.2, Math.min(1.2, el + (e.clientY - py) * 0.005)); px = e.clientX; py = e.clientY; dirty.current = true; };
+  // click (no drag) on a lit locus = hand off to the working /cpic reasoner for that gene.
+  let az = 0, el = 0.0, dragging = false, moved = 0, px = 0, py = 0, dist = 6.2;
+  const ray = new THREE.Raycaster(); const ndc = new THREE.Vector2();
+  const pick = (e: PointerEvent): string | null => {
+    const r = el2.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObject(rungs)[0];
+    return hit && hit.instanceId != null ? geneOf[hit.instanceId] : null;
+  };
+  const onDown = (e: PointerEvent) => { dragging = true; moved = 0; px = e.clientX; py = e.clientY; };
+  const onUp = (e: PointerEvent) => {
+    dragging = false;
+    if (moved < 5) { const g = pick(e); if (g) window.location.assign(`/cpic?gene=${encodeURIComponent(g)}`); }
+  };
+  const onMove = (e: PointerEvent) => {
+    if (!dragging) return;
+    moved += Math.abs(e.clientX - px) + Math.abs(e.clientY - py);
+    az -= (e.clientX - px) * 0.005; el = Math.max(-1.2, Math.min(1.2, el + (e.clientY - py) * 0.005)); px = e.clientX; py = e.clientY; dirty.current = true;
+  };
   const onWheel = (e: WheelEvent) => { e.preventDefault(); density.current = Math.max(1, Math.min(4096, density.current * (1 - Math.sign(e.deltaY) * 0.06))); dirty.current = true; };
   const el2 = renderer.domElement;
   el2.addEventListener('pointerdown', onDown); window.addEventListener('pointerup', onUp);
@@ -170,8 +202,30 @@ export default function GenomeHelix() {
   const scroll = useRef(0);
   const density = useRef(1);
   const dirty = useRef(true);
+  const [genes, setGenes] = useState<string[] | null>(null);   // null = still loading the catalog
+  const [live, setLive] = useState(false);                     // true = real /api/cpic/catalog
   const [, force] = useState(0);
-  useEffect(() => { const c = ref.current; if (!c) return; return mount(c, scroll, density, dirty); }, []);
+
+  // pull the REAL CPIC gene catalogue; fall back to the canonical list if the endpoint is
+  // absent (old deploy) so /genome always renders. Same graceful-degradation as /helix LOD.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/cpic/catalog')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((j: { genes?: string[] }) => {
+        if (cancelled) return;
+        const gs = (j.genes ?? []).filter(Boolean);
+        if (gs.length) { setGenes(gs); setLive(true); } else { setGenes(FALLBACK_GENES); }
+      })
+      .catch(() => { if (!cancelled) setGenes(FALLBACK_GENES); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const c = ref.current; if (!c || !genes) return;
+    const locusByStep = new Map(lociFrom(genes).map((l) => [l.step, l.gene]));
+    return mount(c, scroll, density, dirty, locusByStep);
+  }, [genes]);
   // light re-render so the tier readout updates as you zoom
   useEffect(() => { const id = setInterval(() => force((n) => n + 1), 250); return () => clearInterval(id); }, []);
   const tier = Math.log(density.current) / Math.log(16);
@@ -180,11 +234,11 @@ export default function GenomeHelix() {
       <div ref={ref} style={{ position: 'absolute', inset: 0 }} />
       <div style={{ position: 'absolute', top: 12, left: 16, color: '#cdd9e5', font: '13px ui-monospace, monospace', pointerEvents: 'none' }}>
         <div style={{ color: '#fff', fontSize: 15 }}>/genome — endless pharmacogenomic helix</div>
-        <div style={{ opacity: 0.62, marginTop: 3, maxWidth: 340 }}>
-          {WINDOW} instanced base-pairs · golden-angle scaffold · {GENES.length} CPIC loci lit ·
-          tier {tier.toFixed(2)} (16<sup>{tier.toFixed(1)}</sup> bp/step)
+        <div style={{ opacity: 0.62, marginTop: 3, maxWidth: 360 }}>
+          {genes ? `${WINDOW} instanced base-pairs · golden-angle scaffold · ${genes.length} CPIC gene loci ${live ? 'lit (live /api/cpic)' : 'lit (fallback list)'} · tier ${tier.toFixed(2)}`
+            : 'loading CPIC gene catalogue…'}
         </div>
-        <div style={{ opacity: 0.4, marginTop: 4 }}>drag = orbit · wheel = descend the 16-ary cascade</div>
+        <div style={{ opacity: 0.4, marginTop: 4 }}>drag = orbit · wheel = descend the 16-ary cascade · click a lit gene → /cpic</div>
       </div>
     </div>
   );
