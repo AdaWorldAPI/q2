@@ -85,7 +85,11 @@ NAMEKEYS = [
     ("muscle", ["muscle", "pectoralis", "oblique", "transversus", "diaphragm",
                 "sphincter", "psoas", "piriformis", "obturator"]),
     ("bone", ["vertebra", "rib", "sternum", "clavicle", "scapula", "ilium",
-              "ischium", "pubis", "sacrum", "manubrium", "xiphoid"]),
+              "ischium", "pubis", "sacrum", "manubrium", "xiphoid",
+              # teeth are not is_a bone in FMA (dentin/enamel, not skeletal element), so
+              # they fell through to "flesh" → layer 1 (skin), hidden in the skeleton view
+              # (toothless skull). Bucket them with the skeleton; gingiva stays flesh.
+              "tooth", "molar", "incisor", "canine", "premolar", "cuspid"]),
     ("artery", ["aorta", "artery", "arterial", "trunk"]),
     ("vein", ["vein", "vena", "venous"]),
     ("nerve", ["nerve", "plexus", "ganglion"]),
