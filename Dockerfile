@@ -55,16 +55,19 @@ COPY --from=frontend /build/dist/ /build/q2/cockpit/dist/
 # fetch the release URL directly (github.com/.../releases/download sends no CORS
 # header on its redirect → "TypeError: Failed to fetch"), so /body fetches the
 # same-origin copy. The asset stays in the release (downloaded at build), never git.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.soa.gz \
+# 20260629b re-bake: teeth → skeleton + per-vessel diameter boundary (no stray fat
+# branches). Pulled under its stamped name, served same-origin AS body.soa.gz so /body
+# picks it up; the old body.soa.gz stays in the release untouched.
+RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629b.soa.gz \
       -o /build/q2/cockpit/dist/body.soa.gz \
  && ls -lh /build/q2/cockpit/dist/body.soa.gz
 
 # Same for the /helix wire: one SoA (BSO2 ver 6) = F16 pos + a canonical Signed360
 # NORMAL column in the same struct-of-arrays. Same-origin for the same CORS reason;
 # named by cockpit/public/body.manifest.json (helix_latest). Stays in the release.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629.v6helix.soa.gz \
-      -o /build/q2/cockpit/dist/body.20260629.v6helix.soa.gz \
- && ls -lh /build/q2/cockpit/dist/body.20260629.v6helix.soa.gz
+RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629b.v6helix.soa.gz \
+      -o /build/q2/cockpit/dist/body.20260629b.v6helix.soa.gz \
+ && ls -lh /build/q2/cockpit/dist/body.20260629b.v6helix.soa.gz
 
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
