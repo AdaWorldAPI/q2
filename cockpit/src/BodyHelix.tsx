@@ -210,14 +210,12 @@ function decode(buf: ArrayBuffer): Decoded {
 
 const VERT = `
 precision highp float;
-attribute vec3 aColor; attribute vec3 aNormal; attribute float aLayer;
-varying vec3 vColor; varying float vLayer;
+attribute vec3 aColor; attribute vec3 aNormal;
+varying vec3 vColor;
 void main(){
-  vLayer = aLayer;
   // GOURAUD: shade per-vertex from the cheap rim normal, interpolate the COLOUR across the
   // face. At 6.8 M sub-pixel tris this matches per-fragment lighting visually but leaves the
-  // fragment shader trivial — the lever that removes the 12 s/frame fragment cost. The two-
-  // sided ambient (n.y term + floor) keeps back faces lit without a per-fragment flip.
+  // fragment shader trivial. Two-sided ambient keeps any back faces lit without a flip.
   vec3 n = normalize(normalMatrix * aNormal);
   const vec3 L = vec3(-0.401, 0.783, 0.476);
   float ndl = max(abs(dot(n, L)), 0.0);
@@ -227,13 +225,9 @@ void main(){
 }`;
 const FRAG = `
 precision mediump float;
-uniform float uEnabled[9];
-varying vec3 vColor; varying float vLayer;
-void main(){
-  int li = int(vLayer + 0.5);
-  if(li < 1 || li > 8 || uEnabled[li] < 0.5) discard;
-  gl_FragColor = vec4(vColor, 1.0);   // pre-shaded (Gouraud) — no per-fragment lighting.
-}`;
+varying vec3 vColor;
+void main(){ gl_FragColor = vec4(vColor, 1.0); }`;   // visible layers are pre-filtered into the
+// draw range (NOT a discard) → early-Z survives; the GPU never touches hidden triangles.
 
 function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }): () => void {
   let w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
@@ -247,11 +241,30 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   geom.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
   geom.setAttribute('aColor', new THREE.Uint8BufferAttribute(d.colors, 3, true));
   geom.setAttribute('aNormal', new THREE.Int8BufferAttribute(d.normals, 3, true)); // rim normal, normalized i8
-  geom.setAttribute('aLayer', new THREE.BufferAttribute(d.layer, 1));
-  geom.setIndex(new THREE.BufferAttribute(d.index, 1));
 
-  const uniforms = { uEnabled: { value: enabled } };
-  const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide });
+  // Draw ONLY enabled layers, as GEOMETRY (rebuild the index on toggle) — never a
+  // fragment discard. A discard still rasterises every triangle, then throws the pixels
+  // away (kills early-Z); excluding them from the index means the GPU never touches them.
+  // Default skin+muscle-off removes the body's largest surfaces — the real lever against
+  // "won't rotate", with backface culling (FrontSide) halving the rest.
+  const fullIdx = d.index;
+  const nTriAll = fullIdx.length / 3;
+  const triLayer = new Uint8Array(nTriAll);
+  for (let t = 0; t < nTriAll; t++) triLayer[t] = d.layer[fullIdx[t * 3]];
+  const active = new Uint32Array(fullIdx.length);
+  const rebuild = (): number => {
+    let n = 0;
+    for (let t = 0; t < nTriAll; t++) {
+      if (enabled[triLayer[t]] >= 0.5) { const o = t * 3; active[n++] = fullIdx[o]; active[n++] = fullIdx[o + 1]; active[n++] = fullIdx[o + 2]; }
+    }
+    return n;
+  };
+  const idxAttr = new THREE.BufferAttribute(active, 1);
+  idxAttr.setUsage(THREE.DynamicDrawUsage);
+  geom.setIndex(idxAttr);
+  geom.setDrawRange(0, rebuild());
+
+  const mat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
   // minimal orbit: drag = rotate, wheel = dolly.
@@ -269,7 +282,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   el2.addEventListener('pointerdown', onDown); window.addEventListener('pointerup', onUp);
   window.addEventListener('pointermove', onMove); el2.addEventListener('wheel', onWheel, { passive: false });
 
-  let raf = 0, ema = 16.6, last = performance.now();
+  let raf = 0, ema = 16.6, last = performance.now(), sig = enabled.join(',');
   const onResize = () => {
     w = container.clientWidth || window.innerWidth; h = container.clientHeight || window.innerHeight;
     camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); dirty.current = true;
@@ -285,7 +298,9 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     // this is the single biggest lever — quarters/ninths the fragment load while dragging.
     const pr = ema > 33 ? 1 : Math.min(window.devicePixelRatio, 2);
     if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
-    uniforms.uEnabled.value = enabled;
+    // layer toggled → rebuild the active index (geometry exclusion, not discard)
+    const ns = enabled.join(',');
+    if (ns !== sig) { sig = ns; geom.setDrawRange(0, rebuild()); idxAttr.needsUpdate = true; }
     camera.position.set(target.x + dist * Math.cos(el) * Math.sin(az), target.y + dist * Math.sin(el), target.z + dist * Math.cos(el) * Math.cos(az));
     camera.lookAt(target);
     renderer.render(scene, camera);
