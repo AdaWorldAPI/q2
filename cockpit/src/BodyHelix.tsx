@@ -169,9 +169,43 @@ function decode(buf: ArrayBuffer): Decoded {
     normals[i * 3 + 2] = Math.max(-127, Math.min(127, Math.round(yw * 127)));
     layer[i] = li;
   }
+  // ── per-concept "maximum diameter" clamp (parity with /body's vessel sizing) ──
+  // Decimation can orphan a few triangles far outside a concept's real extent — the
+  // classic tell is an aorta splat that lands under the soles. /body hides such bulk
+  // behind its translucent vessel pass; /helix draws everything opaque, so it shows.
+  // Robust per concept: component-median centre + p95 radius × margin; any triangle
+  // touching an out-of-bounds vertex is dropped. Adapts to each concept's true size.
+  const byC: number[][] = Array.from({ length: nC }, () => []);
+  for (let i = 0; i < nV; i++) { const c = rowArr[i]; if (c < nC) byC[c].push(i); }
+  const median = (a: number[]) => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
+  const outlier = new Uint8Array(nV);
+  let nOut = 0, worst = 0;
+  for (let c = 0; c < nC; c++) {
+    const vs = byC[c];
+    if (vs.length < 8) continue;
+    const cx = median(vs.map((i) => positions[i * 3]));
+    const cy = median(vs.map((i) => positions[i * 3 + 1]));
+    const cz = median(vs.map((i) => positions[i * 3 + 2]));
+    const dist = vs.map((i) => Math.hypot(positions[i * 3] - cx, positions[i * 3 + 1] - cy, positions[i * 3 + 2] - cz));
+    const ds = dist.slice().sort((a, b) => a - b);
+    const p95 = ds[Math.min(ds.length - 1, Math.floor(ds.length * 0.95))];
+    const thr = Math.max(p95 * 1.8, 1e-3);   // generous margin → only true far strays drop
+    for (let k = 0; k < vs.length; k++) {
+      if (dist[k] > thr) { outlier[vs[k]] = 1; nOut++; worst = Math.max(worst, dist[k] / Math.max(p95, 1e-4)); }
+    }
+  }
+  // index: drop triangles touching an out-of-bounds vertex
   const raw = new Uint32Array(buf.slice(idxOff, idxOff + 12 * nT));
-  const index = new Uint32Array(raw);     // straight copy (no opaque/transparent split)
-  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, concepts: nC };
+  const kept = new Uint32Array(raw.length);
+  let w = 0;
+  for (let t = 0; t < nT; t++) {
+    const a = raw[t * 3], b = raw[t * 3 + 1], cc = raw[t * 3 + 2];
+    if (outlier[a] || outlier[b] || outlier[cc]) continue;
+    kept[w++] = a; kept[w++] = b; kept[w++] = cc;
+  }
+  const index = kept.slice(0, w);
+  if (nOut) console.log(`/helix max-diameter clamp: ${nOut} stray verts (worst ${worst.toFixed(1)}× p95), dropped ${(nT - w / 3).toLocaleString()} tris`);
+  return { nVerts: nV, nTris: w / 3, positions, index, colors, normals, layer, concepts: nC };
 }
 
 const VERT = `
