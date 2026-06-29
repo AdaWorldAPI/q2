@@ -58,16 +58,16 @@ COPY --from=frontend /build/dist/ /build/q2/cockpit/dist/
 # 20260629b re-bake: teeth → skeleton + per-vessel diameter boundary (no stray fat
 # branches). Pulled under its stamped name, served same-origin AS body.soa.gz so /body
 # picks it up; the old body.soa.gz stays in the release untouched.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629b.soa.gz \
+RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629c.soa.gz \
       -o /build/q2/cockpit/dist/body.soa.gz \
  && ls -lh /build/q2/cockpit/dist/body.soa.gz
 
 # Same for the /helix wire: one SoA (BSO2 ver 6) = F16 pos + a canonical Signed360
 # NORMAL column in the same struct-of-arrays. Same-origin for the same CORS reason;
 # named by cockpit/public/body.manifest.json (helix_latest). Stays in the release.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629b.v6helix.soa.gz \
-      -o /build/q2/cockpit/dist/body.20260629b.v6helix.soa.gz \
- && ls -lh /build/q2/cockpit/dist/body.20260629b.v6helix.soa.gz
+RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629c.v6helix.soa.gz \
+      -o /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz \
+ && ls -lh /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz
 
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed

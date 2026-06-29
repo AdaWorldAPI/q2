@@ -50,6 +50,7 @@ LAYER_OF = {
     "bone": 4, "cartilage": 4,
     "artery": 5, "vein": 5, "vessel": 5,
     "nerve": 6,
+    "connective": 7,  # ligaments / tendons / membranes / fascia / aponeuroses / retinacula
 }  # default → 8 "other"
 
 
