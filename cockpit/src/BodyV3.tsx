@@ -61,7 +61,11 @@ function conceptColor(layerId: number, matRgb: [number, number, number], row: nu
   return [Math.min(255, out[0]), Math.min(255, out[1]), Math.min(255, out[2])];
 }
 
-interface ConceptInfo { row: number; name: string; centroid: [number, number, number]; layer: number; material: string }
+interface ConceptInfo { row: number; name: string; centroid: [number, number, number]; layer: number; material: string; verts: number }
+
+// semantic x-ray opacity per compartment (id 1..8): skin/muscle fade, organ mid,
+// skeleton mid, vessel + nervous opaque so they pop through the body. index 0 unused.
+const LAYER_XRAY_ALPHA = new Float32Array([1, 0.10, 0.20, 0.45, 0.50, 1.0, 1.0, 0.22, 0.30]);
 
 // 64K IEEE-half → f32 lookup (built once): ver-5 wire stores positions as F16
 // (10-bit mantissa, ~0.2 mm here — no BF16 staircase). LUT keeps decode O(1)/vertex.
@@ -82,7 +86,7 @@ interface Decoded {
   colors: Uint8Array; alpha: Float32Array; layer: Float32Array; row: Float32Array;
   materials: Material[]; labels: string[]; concepts: ConceptInfo[];
 }
-interface RenderState { enabled: Float32Array; alpha: number; transparent: boolean; lodOn: boolean; focus: { t: [number, number, number]; d: number } | null }
+interface RenderState { enabled: Float32Array; alpha: number; transparent: boolean; lodOn: boolean; selRow: number; focus: { t: [number, number, number]; d: number } | null }
 
 function decodeBso2(buf: ArrayBuffer): Decoded {
   const dv = new DataView(buf);
@@ -97,7 +101,7 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const layerOff = o; o += nC;          // LAYER index u8 (1..8)
   const labOff = o; o += 4 * nC;        // label codebook index u32
   const cenOff = o; o += 12 * nC;       // per-concept centroid 3×f32 (search zoom + server LOD)
-  o += 8 * nC;                          // (vstart,vcount)
+  const vrOff = o; o += 8 * nC;         // (vstart,vcount) — vcount = mesh size for the popup
   const posOff = o; o += posBytes * nV;
   o += 6 * nV;                          // helix (server-side)
   const rowOff = o; o += 4 * nV;
@@ -112,6 +116,7 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
   const cLayer = new Uint8Array(buf.slice(layerOff, layerOff + nC));
   const cNameIdx = new Uint32Array(buf.slice(labOff, labOff + 4 * nC));
   const cCen = new Float32Array(buf.slice(cenOff, cenOff + 12 * nC));  // bake-space; remap below
+  const cVR = new Uint32Array(buf.slice(vrOff, vrOff + 8 * nC));       // [vstart,vcount]×nC
 
   // per-concept colour (precompute once) + searchable concept table (name + centroid).
   const conceptRgb: [number, number, number][] = new Array(nC);
@@ -123,6 +128,7 @@ function decodeBso2(buf: ArrayBuffer): Decoded {
     concepts[cI] = {
       row: cI, name: labels[cNameIdx[cI]] ?? `concept ${cI}`, layer: li, material: mat.name,
       centroid: [-cCen[cI * 3], cCen[cI * 3 + 2], cCen[cI * 3 + 1]],  // (x,y,z)->(-x,z,y) display
+      verts: cVR[cI * 2 + 1],
     };
   }
 
@@ -186,6 +192,7 @@ const FRAG = `
 precision mediump float;
 uniform float uEnabled[9]; uniform float uGlobalAlpha;
 uniform sampler2D uLod; uniform highp float uLodN; uniform float uLodOn;  // server HHTL LOD gate
+uniform float uXray; uniform float uLayerAlpha[9]; uniform highp float uSelRow;  // semantic opacity
 varying vec3 vNormal; varying vec3 vColor; varying float vAlpha; varying float vLayer;
 varying highp float vRow;   // highp: concept IDs up to ~1658 + the texel-center divide must
                             // resolve exactly; mediump's min precision aliases adjacent rows.
@@ -201,7 +208,11 @@ void main(){
   const vec3 L = vec3(-0.401,0.783,0.476);
   float ndl = max(dot(n,L),0.0);
   float shade = min(0.34 + 0.20*(n.y*0.5+0.5) + 0.12*(-n.x*0.5+0.5) + 0.92*ndl, 1.3);
-  gl_FragColor = vec4(vColor*shade, vAlpha * uGlobalAlpha);   // #17 alpha × solid/transparent
+  // x-ray: per-compartment semantic opacity (skin faint → vessel/nerve opaque);
+  // solid mode keeps the legacy uniform alpha. Selected concept always pops to 1.0.
+  float a = uXray > 0.5 ? uLayerAlpha[li] : (vAlpha * uGlobalAlpha);
+  if(uSelRow >= 0.0 && abs(vRow - uSelRow) < 0.5) a = 1.0;
+  gl_FragColor = vec4(vColor*shade, a);
 }`;
 
 function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: (s: { fps: number }) => void): () => void {
@@ -238,6 +249,7 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
   const uniforms = {
     uEnabled: { value: st.enabled }, uGlobalAlpha: { value: st.alpha },
     uLod: { value: lodTex }, uLodN: { value: d.nConcepts }, uLodOn: { value: 0 },
+    uXray: { value: 0 }, uLayerAlpha: { value: LAYER_XRAY_ALPHA }, uSelRow: { value: -1 },
   };
   // solid mode: opaque solids draw fast (transparent:false), #17 vessels blend over
   // them. transparent mode (port of /fma-body's uniform-uAlpha x-ray): BOTH groups go
@@ -301,6 +313,8 @@ function mount(container: HTMLDivElement, d: Decoded, st: RenderState, onStats: 
     if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
     uniforms.uEnabled.value = st.enabled;          // shared by both materials
     uniforms.uGlobalAlpha.value = st.alpha;
+    uniforms.uXray.value = st.transparent ? 1 : 0;   // x-ray ⇒ per-compartment semantic opacity
+    uniforms.uSelRow.value = st.selRow;              // selected concept pops to full alpha
     if (!st.lodOn) lodFail = false;   // toggling LOD off clears a transient failure → re-enabling retries
     uniforms.uLodOn.value = st.lodOn && !lodFail && lodReady ? 1 : 0;   // only cull after a real response
     if (st.focus) {                                 // search-pick zoom: glide to the organ
@@ -346,16 +360,17 @@ export function BodyV3() {
   const [lod, setLod] = useState(false);   // server HHTL LOD — opt-in (off = today's full render)
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ConceptInfo | null>(null);
-  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: false, lodOn: false, focus: null });
+  const stRef = useRef<RenderState>({ enabled: new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]), alpha: 1, transparent: false, lodOn: false, selRow: -1, focus: null });
 
   useEffect(() => {
     const e = new Float32Array(9);
     for (let i = 1; i <= 8; i++) e[i] = on[i] ? 1 : 0;
     stRef.current.enabled = e;
     stRef.current.transparent = transparent;
-    // /fma-body translucency model: one uniform alpha for the WHOLE body. transparent
-    // ⇒ 0.42 x-ray (see through skin/muscle to organs); solid ⇒ 1.0 (#17 vessels only).
-    stRef.current.alpha = transparent ? 0.42 : 1.0;
+    // x-ray opacity is now SEMANTIC (per-compartment uLayerAlpha in the shader), so the
+    // whole-body uGlobalAlpha stays at 1.0 in both modes — it only scales #17 vessel
+    // blending in solid mode; x-ray ignores it entirely.
+    stRef.current.alpha = 1.0;
     stRef.current.lodOn = lod;
   }, [on, transparent, lod]);
 
@@ -397,6 +412,7 @@ export function BodyV3() {
   function pick(c: ConceptInfo) {
     setSelected(c);
     stRef.current.focus = { t: c.centroid, d: 0.6 };   // glide the camera to the organ
+    stRef.current.selRow = c.row;                       // pop the selected concept to full alpha
   }
 
   const btn = (active: boolean): React.CSSProperties => ({
@@ -438,7 +454,9 @@ export function BodyV3() {
             <div style={{ marginTop: 4, background: '#0e1219', border: '1px solid #1c2530', borderRadius: 6, overflow: 'hidden', maxHeight: 320, overflowY: 'auto' }}>
               {matches.map((c) => (
                 <button type="button" key={c.row} onClick={() => { pick(c); setQuery(''); }} style={{ width: '100%', textAlign: 'left', padding: '6px 9px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 8, border: 'none', borderBottom: '1px solid #141b24', background: 'transparent', color: '#cdd9e5', font: '13px ui-monospace, monospace' }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: LAYERS[(c.layer - 1) % 8]?.color, marginRight: 6, verticalAlign: 'middle' }} />{c.name}
+                  </span>
                   <span style={{ opacity: 0.5, flexShrink: 0 }}>{LAYERS[(c.layer - 1) % 8]?.name}</span>
                 </button>
               ))}
@@ -454,12 +472,14 @@ export function BodyV3() {
                 <span>{selected.material.replace(/_/g, ' ')}</span>
                 <span style={{ opacity: 0.6 }}>row</span>
                 <span>#{selected.row}</span>
+                <span style={{ opacity: 0.6 }}>mesh</span>
+                <span>{selected.verts.toLocaleString()} verts</span>
                 <span style={{ opacity: 0.6 }}>centroid</span>
                 <span>{selected.centroid.map((v) => v.toFixed(2)).join(', ')}</span>
               </div>
               <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
                 <button style={btn(false)} onClick={() => { stRef.current.focus = { t: selected.centroid, d: 0.6 }; }}>re-center</button>
-                <button style={btn(false)} onClick={() => { setSelected(null); stRef.current.focus = null; }}>close</button>
+                <button style={btn(false)} onClick={() => { setSelected(null); stRef.current.focus = null; stRef.current.selRow = -1; }}>close</button>
               </div>
             </div>
           )}

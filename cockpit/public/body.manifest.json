@@ -1,0 +1,5 @@
+{
+  "helix_latest": "body.20260629.v6helix.soa.gz",
+  "note": "Single SoA wire (BSO2 ver 6): F16 positions + a Signed360 NORMAL column in the same struct-of-arrays, plus an HXFL floor trailer (the RollingFloor lo,hi). Baked by helixbake using the REAL lance-graph::helix::ResidueEncoder::encode_signed against the local ndarray fork — the Fisher-Z rim is populated (not zeroed). Published to the fma-body-soa-v3-v1 release; the Dockerfile pulls it same-origin. Decode: rim r=sinθ -> int8 normal at load, Gouraud per-vertex shading (no per-fragment lighting). Sampled round-trip err: mean 0.21 deg, p99 0.85 deg, grid-worst ~1.83 deg.",
+  "verts": 4283525
+}
