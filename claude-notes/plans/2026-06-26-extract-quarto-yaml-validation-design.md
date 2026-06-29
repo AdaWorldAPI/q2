@@ -18,6 +18,15 @@
 > Q4, and Q5 below describe `error-reporting-core`/façade/json-relocation, defer to
 > the foundation plan. Step ordering is also foundation-first (source-map →
 > error-reporting → *then* this YAML work).
+>
+> **➡️ For execution, use the handoff note
+> `claude-notes/plans/2026-06-29-yaml-stack-extraction-handoff.md`** — it is the
+> up-to-date, self-contained plan: the YAML stack ships as **one repo
+> `posit-dev/quarto-yaml`, a workspace with two crates** (decided 2026-06-29; the
+> foundation crates' "one repo per crate" rule does *not* apply here), and the
+> foundation extraction it depends on is **done** (source-map + error-reporting
+> published, PRs #348/#349/#350). This design doc remains the rationale for the
+> error-code discipline applied to YAML.
 
 This document moves the extraction from *current-state architecture* to
 *chosen design*. It resolves the seven open questions the research doc left

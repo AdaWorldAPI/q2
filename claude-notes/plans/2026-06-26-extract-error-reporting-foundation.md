@@ -371,11 +371,17 @@ YAML stack (`quarto-yaml` + `quarto-yaml-validation`) per the sibling plan.
 
 ## Decisions
 
-1. **Repo granularity — DECIDED (2026-06-27): two repos**, one per crate. The
-   crates split naturally (leaf source-location utility vs. diagnostics host) and
-   already have independent dependent sets (14 vs. 9); co-locating buys only weak
-   CI cohesion and needlessly couples their release cadences. (The YAML stack is a
-   third, separate repo in step 2.)
+1. **Repo granularity — DECIDED (2026-06-27): two repos**, one per *foundation*
+   crate. The foundation crates split naturally (leaf source-location utility vs.
+   diagnostics host) and already have independent dependent sets (14 vs. 9);
+   co-locating buys only weak CI cohesion and needlessly couples their release
+   cadences. **The YAML stack is different — DECIDED (2026-06-29): one repo,
+   `posit-dev/quarto-yaml`, a Rust *workspace* with two crates** (`quarto-yaml` +
+   `quarto-yaml-validation`). They are tightly coupled (validation depends on the
+   parser) and both Quarto-dialect-specific, so a shared workspace fits. Both still
+   publish to crates.io independently (leaf-first: `quarto-yaml`, then
+   `quarto-yaml-validation`). Execution handoff:
+   `claude-notes/plans/2026-06-29-yaml-stack-extraction-handoff.md`.
 
 2. **Crate names — DECIDED (2026-06-27): keep current names.** Both externalized
    crates stay `quarto-source-map` and `quarto-error-reporting` (and `quarto-yaml`
