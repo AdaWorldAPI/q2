@@ -91,9 +91,10 @@ function buildRLut(flo: number, fhi: number): Float32Array {
 interface Decoded {
   nVerts: number; nTris: number;
   positions: Float32Array; index: Uint32Array;
-  colors: Uint8Array; normals: Int8Array; layer: Float32Array;
-  concepts: number;
+  colors: Uint8Array; normals: Int8Array; layer: Float32Array; vrow: Uint32Array;
+  concepts: number; conceptList: ConceptMeta[];
 }
+interface ConceptMeta { row: number; name: string; layer: number; cx: number; cy: number; cz: number; }
 
 function decode(buf: ArrayBuffer): Decoded {
   const dv = new DataView(buf);
@@ -106,8 +107,8 @@ function decode(buf: ArrayBuffer): Decoded {
   o += 16 * nC;                       // guid
   const matOff = o; o += nC;          // material u8 (unused here)
   const layerOff = o; o += nC;        // LAYER u8
-  o += 4 * nC;                        // label idx
-  o += 12 * nC;                       // centroid
+  const labelOff = o; o += 4 * nC;    // label idx (u32 → name in labels_json)
+  const cenOff = o; o += 12 * nC;     // centroid 3f
   o += 8 * nC;                        // vrange
   const posOff = o; o += posBytes * nV;
   const helixOff = o; o += 6 * nV;    // pos3 | nrm3 — we read the nrm half
@@ -205,7 +206,20 @@ function decode(buf: ArrayBuffer): Decoded {
   }
   const index = kept.slice(0, w);
   if (nOut) console.log(`/helix max-diameter clamp: ${nOut} stray verts (worst ${worst.toFixed(1)}× p95), dropped ${(nT - w / 3).toLocaleString()} tris`);
-  return { nVerts: nV, nTris: w / 3, positions, index, colors, normals, layer, concepts: nC };
+
+  // per-concept metadata for the browser: name (label→labels_json), layer, display centroid.
+  let to = idxOff + 12 * nT;
+  const labLen = dv.getUint32(to, true); to += 4;
+  let names: string[] = [];
+  try { const lj = JSON.parse(new TextDecoder().decode(new Uint8Array(buf.slice(to, to + labLen)))); names = lj.names ?? lj; } catch { /* names optional */ }
+  const labelIdx = new Uint32Array(buf.slice(labelOff, labelOff + 4 * nC));
+  const cen = new Float32Array(buf.slice(cenOff, cenOff + 12 * nC));
+  const conceptList: ConceptMeta[] = [];
+  for (let c = 0; c < nC; c++) {
+    conceptList.push({ row: c, name: names[labelIdx[c]] ?? `concept ${c}`, layer: cLayer[c] || 8,
+      cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: cen[c * 3 + 1] });   // source → display (-x,z,y)
+  }
+  return { nVerts: nV, nTris: w / 3, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList };
 }
 
 const VERT = `
@@ -225,11 +239,13 @@ void main(){
 }`;
 const FRAG = `
 precision mediump float;
+uniform float uAlpha;                                // 1 = solid · <1 = x-ray (whole-body translucent)
 varying vec3 vColor;
-void main(){ gl_FragColor = vec4(vColor, 1.0); }`;   // visible layers are pre-filtered into the
+void main(){ gl_FragColor = vec4(vColor, uAlpha); }`;   // visible layers are pre-filtered into the
 // draw range (NOT a discard) → early-Z survives; the GPU never touches hidden triangles.
+type Focus = { x: number; y: number; z: number; d: number };
 
-function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }): () => void {
+function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }, focus: { current: Focus | null }, xray: { current: boolean }, lod: { current: boolean }): () => void {
   let w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(PAGE_BG);
   const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 100); camera.position.set(0, 0.05, 3.0);
@@ -250,27 +266,33 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   const fullIdx = d.index;
   const nTriAll = fullIdx.length / 3;
   const triLayer = new Uint8Array(nTriAll);
-  for (let t = 0; t < nTriAll; t++) triLayer[t] = d.layer[fullIdx[t * 3]];
+  const triConcept = new Uint32Array(nTriAll);   // concept (row) of each triangle → server-LOD gate
+  for (let t = 0; t < nTriAll; t++) { triLayer[t] = d.layer[fullIdx[t * 3]]; triConcept[t] = d.vrow[fullIdx[t * 3]]; }
+  // server-LOD action per concept: 255 = show (the default until the cascade answers), 0 = the
+  // HHTL depth-cascade rejected this concept as off-frustum. Folded into the index rebuild below.
+  const lodAction = new Uint8Array(d.concepts).fill(255);
   const active = new Uint32Array(fullIdx.length);
   const rebuild = (): number => {
     let n = 0;
     for (let t = 0; t < nTriAll; t++) {
-      if (enabled[triLayer[t]] >= 0.5) { const o = t * 3; active[n++] = fullIdx[o]; active[n++] = fullIdx[o + 1]; active[n++] = fullIdx[o + 2]; }
+      if (enabled[triLayer[t]] >= 0.5 && lodAction[triConcept[t]] !== 0) { const o = t * 3; active[n++] = fullIdx[o]; active[n++] = fullIdx[o + 1]; active[n++] = fullIdx[o + 2]; }
     }
     return n;
   };
   const idxAttr = new THREE.BufferAttribute(active, 1);
   idxAttr.setUsage(THREE.DynamicDrawUsage);
   geom.setIndex(idxAttr);
+  const applyIndex = () => { geom.setDrawRange(0, rebuild()); idxAttr.needsUpdate = true; };
   geom.setDrawRange(0, rebuild());
 
-  const mat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
+  const uniforms = { uAlpha: { value: 1 } };
+  const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
   // minimal orbit: drag = rotate, wheel = dolly.
   let az = 0, el = 0.1, dist = 3.0, dragging = false, px = 0, py = 0;
   const target = new THREE.Vector3(0, 0, 0);
-  const onDown = (e: PointerEvent) => { dragging = true; px = e.clientX; py = e.clientY; dirty.current = true; };
+  const onDown = (e: PointerEvent) => { dragging = true; px = e.clientX; py = e.clientY; focus.current = null; dirty.current = true; };
   const onUp = () => { dragging = false; dirty.current = true; };
   const onMove = (e: PointerEvent) => {
     if (!dragging) return;
@@ -282,6 +304,36 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   el2.addEventListener('pointerdown', onDown); window.addEventListener('pointerup', onUp);
   window.addEventListener('pointermove', onMove); el2.addEventListener('wheel', onWheel, { passive: false });
 
+  // server HHTL LOD (opt-in): post the live camera to /api/body/lod; the depth-cascade returns
+  // a per-concept action (0 = off-frustum reject). We fold the cull into the SAME geometry index
+  // rebuild as the layer toggles — NOT a fragment discard — so early-Z survives and the GPU draws
+  // strictly fewer triangles when zoomed in (the mobile lever, working WITH the database). Absent
+  // endpoint (old deploy) → silently keep the full render. This is the living DB reasoning the view.
+  let lodNext = 0, lodInflight = false, lodFail = false, lodDirty = false, lodWasOn = false;
+  const postLod = (now: number) => {
+    if (lodFail || lodInflight || now < lodNext) return;
+    lodInflight = true; lodNext = now + 220;
+    camera.updateMatrixWorld();
+    const e = camera.matrixWorldInverse.elements;   // column-major → row-major view rows
+    const view = [
+      [e[0], e[4], e[8], e[12]], [e[1], e[5], e[9], e[13]],
+      [e[2], e[6], e[10], e[14]], [e[3], e[7], e[11], e[15]],
+    ];
+    const fy = (h / 2) / Math.tan((camera.fov * Math.PI) / 360);
+    const body = { view, fx: fy, fy, cx: w / 2, cy: h / 2, near: camera.near, far: camera.far, width: w, height: h, position: [camera.position.x, camera.position.y, camera.position.z] };
+    fetch('/api/body/lod', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((j: { actions: number[]; n_concepts?: number; tally?: number[] }) => {
+        const a = j.actions;
+        const visible = (j.n_concepts ?? a.length) - (j.tally?.[0] ?? 0);
+        const degenerate = visible <= Math.max(1, a.length * 0.02);   // cascade culled ~all ⇒ camera map suspect → show all
+        for (let i = 0; i < d.concepts && i < a.length; i++) lodAction[i] = degenerate ? 255 : a[i];
+        lodDirty = true; dirty.current = true;
+      })
+      .catch(() => { lodFail = true; })   // endpoint absent (old deploy) → keep full render
+      .finally(() => { lodInflight = false; });
+  };
+
   let raf = 0, ema = 16.6, last = performance.now(), sig = enabled.join(',');
   const onResize = () => {
     w = container.clientWidth || window.innerWidth; h = container.clientHeight || window.innerHeight;
@@ -290,6 +342,11 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   window.addEventListener('resize', onResize);
   const tick = () => {
     raf = requestAnimationFrame(tick);
+    // server-LOD lifecycle runs even on idle frames (the cascade tracks the static view too);
+    // turning LOD off restores the full geometry. Both are cheap and bounded by the 220 ms poll.
+    const tnow = performance.now();
+    if (lod.current) { postLod(tnow); lodWasOn = true; }
+    else if (lodWasOn) { lodWasOn = false; lodFail = false; lodAction.fill(255); lodDirty = true; dirty.current = true; }
     // render ON DEMAND: a static body (no drag/zoom/toggle) costs nothing — 6.8 M tris are
     // only redrawn when something actually changes, which is what makes idle + heat sane.
     if (!dirty.current && !dragging) { last = performance.now(); return; }
@@ -298,9 +355,22 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     // this is the single biggest lever — quarters/ninths the fragment load while dragging.
     const pr = ema > 33 ? 1 : Math.min(window.devicePixelRatio, 2);
     if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
-    // layer toggled → rebuild the active index (geometry exclusion, not discard)
+    // layer toggled OR server-LOD answered → rebuild the active index (geometry exclusion, not
+    // discard): one linear pass folds both the layer mask and the per-concept LOD action.
     const ns = enabled.join(',');
-    if (ns !== sig) { sig = ns; geom.setDrawRange(0, rebuild()); idxAttr.needsUpdate = true; }
+    if (ns !== sig || lodDirty) { sig = ns; lodDirty = false; applyIndex(); }
+    // x-ray: whole-body translucency (depthWrite off; cheap, unsorted-blend is fine here)
+    const wantX = xray.current;
+    if (mat.transparent !== wantX) { mat.transparent = wantX; mat.depthWrite = !wantX; mat.needsUpdate = true; }
+    uniforms.uAlpha.value = wantX ? 0.4 : 1.0;
+    // browser pick → glide the orbit target + dolly onto the chosen concept
+    if (focus.current) {
+      const f = focus.current;
+      target.lerp(new THREE.Vector3(f.x, f.y, f.z), 0.12);
+      dist += (f.d - dist) * 0.12;
+      if (Math.abs(dist - f.d) < 0.02) focus.current = null;
+      dirty.current = true;
+    }
     camera.position.set(target.x + dist * Math.cos(el) * Math.sin(az), target.y + dist * Math.sin(el), target.z + dist * Math.cos(el) * Math.cos(az));
     camera.lookAt(target);
     renderer.render(scene, camera);
@@ -347,8 +417,15 @@ export default function BodyHelix() {
   const [d, setD] = useState<Decoded | null>(null);
   const [error, setError] = useState('');
   const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: false, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
+  const [xray, setXray] = useState(false);
+  const [lod, setLod] = useState(false);   // server HHTL LOD — opt-in (off = full render)
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState<Record<number, boolean>>({ 4: true });  // expanded layer groups
   const enabledRef = useRef(new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]));
   const dirtyRef = useRef(true);   // request a redraw (the render loop is on-demand)
+  const focusRef = useRef<Focus | null>(null);
+  const xrayRef = useRef(false);
+  const lodRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -361,31 +438,75 @@ export default function BodyHelix() {
     for (let i = 1; i <= 8; i++) enabledRef.current[i] = on[i] ? 1 : 0;
     dirtyRef.current = true;
   }, [on]);
-  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef); }, [d]);
+  useEffect(() => { xrayRef.current = xray; dirtyRef.current = true; }, [xray]);
+  useEffect(() => { lodRef.current = lod; dirtyRef.current = true; }, [lod]);
+  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef, focusRef, xrayRef, lodRef); }, [d]);
+
+  const focusOn = (c: ConceptMeta) => {
+    focusRef.current = { x: c.cx, y: c.cy, z: c.cz, d: 0.6 };
+    if (!enabledRef.current[c.layer]) setOn((p) => ({ ...p, [c.layer]: true }));  // reveal its layer
+    dirtyRef.current = true;
+  };
 
   const btn = (active: boolean): React.CSSProperties => ({
     padding: '5px 10px', borderRadius: 6, cursor: 'pointer', border: '1px solid #2a3242',
     background: active ? '#1c2738' : '#0e1219', color: active ? '#cdd9e5' : '#6b7686', font: '12px ui-monospace, monospace',
   });
+  const q = query.trim().toLowerCase();
+  const groups = LAYERS.map((l) => ({
+    l, items: d ? d.conceptList.filter((c) => c.layer === l.id && (!q || c.name.toLowerCase().includes(q))) : [],
+  })).filter((g) => g.items.length > 0 || !q);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: `#${PAGE_BG.toString(16).padStart(6, '0')}` }}>
       <div ref={ref} style={{ position: 'absolute', inset: 0 }} />
-      <div style={{ position: 'absolute', top: 12, left: 16, color: '#cdd9e5', font: '13px ui-monospace, monospace' }}>
-        <div style={{ color: '#fff', fontSize: 15 }}>/helix — surfel-normal viewer (experimental)</div>
-        <div style={{ opacity: 0.65, marginTop: 2, maxWidth: 440 }}>
+      <div style={{ position: 'absolute', top: 12, left: 16, color: '#cdd9e5', font: '13px ui-monospace, monospace', pointerEvents: 'none' }}>
+        <div style={{ color: '#fff', fontSize: 15 }}>/helix — living anatomy browser</div>
+        <div style={{ opacity: 0.6, marginTop: 2, maxWidth: 300 }}>
           {error ? <span style={{ color: '#e06c6c' }}>{error}</span>
-            : d ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} concepts — canonical helix::Signed360 normals: Fisher-Z rim → r=sinθ decoded once into a normalized int8 normal; Gouraud shading (per-vertex), trivial fragment shader.`
-              : 'loading canonical helix bake (Signed360 normals)…'}
+            : d ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · helix::Signed360 normals (Fisher-Z rim)`
+              : 'loading canonical helix bake…'}
         </div>
       </div>
       {d && (
-        <div style={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: 360, justifyContent: 'flex-end' }}>
+        <div style={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: 380, justifyContent: 'flex-end' }}>
+          <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
+          <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what's worth drawing">LOD {lod ? 'on' : 'off'}</button>
           {LAYERS.map((l) => (
             <button key={l.id} style={btn(on[l.id])} onClick={() => setOn((p) => ({ ...p, [l.id]: !p[l.id] }))}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: l.color, marginRight: 5, verticalAlign: 'middle' }} />{l.name}
             </button>
           ))}
+        </div>
+      )}
+      {d && (
+        <div style={{ position: 'absolute', left: 16, top: 66, bottom: 16, width: 290, display: 'flex', flexDirection: 'column', background: 'rgba(11,15,22,0.92)', border: '1px solid #1c2530', borderRadius: 10, overflow: 'hidden' }}>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`search ${d.concepts.toLocaleString()} structures…`}
+            style={{ margin: 10, padding: '8px 10px', borderRadius: 7, border: '1px solid #243244', background: '#0e1219', color: '#cdd9e5', font: '13px ui-monospace, monospace', outline: 'none' }} />
+          <div style={{ overflowY: 'auto', padding: '0 6px 8px' }}>
+            {groups.map(({ l, items }) => {
+              const expanded = !!open[l.id] || !!q;
+              return (
+                <div key={l.id}>
+                  <div onClick={() => setOpen((p) => ({ ...p, [l.id]: !expanded }))}
+                    style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 8px', cursor: 'pointer', color: '#cdd9e5', font: '12px ui-monospace, monospace', userSelect: 'none' }}>
+                    <span style={{ width: 8, opacity: 0.7 }}>{expanded ? '▾' : '▸'}</span>
+                    <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 5, background: l.color }} />
+                    <span style={{ flex: 1 }}>{l.name}</span>
+                    <span style={{ opacity: 0.45 }}>{items.length}</span>
+                  </div>
+                  {expanded && items.slice(0, 500).map((c) => (
+                    <div key={c.row} onClick={() => focusOn(c)} title={c.name}
+                      style={{ padding: '4px 8px 4px 30px', cursor: 'pointer', color: '#9fb0c2', font: '12px ui-monospace, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', borderRadius: 5 }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#152030'; e.currentTarget.style.color = '#dce6f0'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9fb0c2'; }}>
+                      {c.name}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
