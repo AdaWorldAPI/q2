@@ -15,6 +15,7 @@ import { TorsoMap } from './TorsoMap';
 import { FmaBody } from './FmaBody';
 import { BodyV3 } from './BodyV3';
 import BodyHelix from './BodyHelix';
+import GenomeHelix from './GenomeHelix';
 import { CpicCockpit } from './CpicCockpit';
 import { ReasoningPage } from './ReasoningPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -116,6 +117,13 @@ createRoot(document.getElementById('root')!).render(
               via POST /api/cpic/reason (the standalone cpic crate). Additive, gene-first
               alternative to the organ-first /fma-body. */}
           <Route path="/cpic" element={<CpicCockpit />} />
+          {/* /genome — EXPERIMENTAL endless procedural double helix (GenomeHelix.tsx,
+              standalone so it can never break /cpic). The GUID address space is billions
+              of slots; CPIC fills almost none — so this is an infinite golden-angle
+              scaffold (one instanced base-pair placed by a function of the step, windowed)
+              with the real pharmacogenes lit as sparse loci. Wheel descends the 16-ary
+              cascade (self-similar). Next: feed loci from /api/cpic/reason. */}
+          <Route path="/genome" element={<GenomeHelix />} />
           {/* The Palantir JSON-graph cockpit (221 aiwar nodes) stays reachable
               at /palantir and as the catch-all for its own sub-routes. */}
           <Route path="/palantir" element={<PalantirApp />} />
