@@ -35,6 +35,12 @@ CORE = 0.62    # inner-core radius fraction (under the wall)
 RMAX = 0.020   # ABSOLUTE diameter boundary: max cross-section radius in normalized
                # [-1,1] body units (~34 mm dia — covers the aorta; clamps balloons).
 RMIN = 0.0008  # floor so capillaries still get a visible core
+CAP = 2.0      # PER-VESSEL diameter boundary: a ring may not exceed this vessel's own
+               # caliber × CAP. RMAX alone lets a finger artery balloon to aorta size at
+               # a bend; this keeps a capillary a capillary through its bends.
+PCTL = 0.30    # per-bin radius percentile (NOT the median): at a strong bend two arms
+               # share one axial bin and the median perp-distance is ~half the gap (a
+               # balloon); the low percentile picks the near wall = the true radius.
 CELL = 0.015   # connected-component grid cell (~13 mm). A continuous vessel keeps
                # adjacent cells occupied (26-neighbour reach ~26 mm bridges sampling
                # gaps); blobs farther apart (hands ~300 mm, thigh→toe >100 mm) split.
@@ -112,7 +118,9 @@ def fill_one(pts, crow, fpx, fnx, frow, ftri, base):
     for p, t in zip(pts, ts):
         b = min(BINS-1, int((t - tmin)/span*BINS))
         binned[b].append(p)
-    rings = []
+    # pass 1: per-bin centroid + a LOW-percentile perpendicular radius (resists the bend
+    # failure mode where two arms share one axial bin and the median balloons).
+    raw = []
     for bp in binned:
         if len(bp) < 1:
             continue
@@ -125,10 +133,17 @@ def fill_one(pts, crow, fpx, fnx, frow, ftri, base):
             perp2 = (dx*dx + dy*dy + dz*dz) - axial*axial
             dists.append(math.sqrt(perp2) if perp2 > 0.0 else 0.0)
         dists.sort()
-        rad = min(RMAX, max(RMIN, dists[len(dists)//2] * CORE))
-        rings.append((cen, rad))
-    if len(rings) < 2:
+        raw.append((cen, dists[int(len(dists)*PCTL)] * CORE))
+    if len(raw) < 2:
         return 0
+    # pass 2: PER-VESSEL diameter boundary. Clamp every ring to this vessel's OWN caliber
+    # (robust median of the bin radii) × CAP, then the absolute RMAX. A capillary stays a
+    # capillary through its bends; the aorta still reaches RMAX. This is what stops the
+    # "stray fat children" — a ballooned bend bin can no longer exceed the vessel's caliber.
+    rr = sorted(r for (_, r) in raw if r > RMIN)
+    caliber = rr[len(rr)//2] if rr else RMIN
+    cap = min(RMAX, caliber * CAP)
+    rings = [(cen, min(cap, max(RMIN, r))) for (cen, r) in raw]
     ring_start = []
     for (cen, rad) in rings:
         ring_start.append(base + len(fpx)//3)
