@@ -357,12 +357,18 @@ fn register_quarto_utils(lua: &Lua, quarto: &Table) -> Result<()> {
         "resolve_path",
         lua.create_function(|lua, path: String| {
             let p = Path::new(&path);
-            if p.is_absolute() {
-                return Ok(path);
+            // Rooted paths (including WASM `/project/...` VFS paths) are
+            // returned as-is. Use `is_rooted`, not `is_absolute`: on wasm32,
+            // and on Windows for drive-less rooted paths like `/project/x`,
+            // `is_absolute` is `false` and the path would wrongly join onto the
+            // script dir (bd-picv). Output is forward-slash normalized so the
+            // Lua-visible result is platform-independent.
+            if quarto_util::is_rooted(p) {
+                return Ok(quarto_util::to_forward_slashes(p));
             }
             let script_dir = current_script_dir(lua)?;
             if script_dir.is_empty() {
-                return Ok(path);
+                return Ok(quarto_util::to_forward_slashes(p));
             }
             let resolved = PathBuf::from(&script_dir).join(&path);
             Ok(normalize_path(&resolved))
@@ -492,7 +498,9 @@ fn normalize_path(path: &Path) -> String {
         }
     }
     let result: PathBuf = components.iter().collect();
-    result.to_string_lossy().to_string()
+    // Forward-slash normalize so the Lua-visible path is identical on all
+    // platforms (matches quarto-cli's pathWithForwardSlashes convention).
+    quarto_util::to_forward_slashes(&result)
 }
 
 #[cfg(test)]
@@ -669,6 +677,40 @@ mod tests {
             .eval()
             .unwrap();
         assert_eq!(result, "/some/extension/shared/data.json");
+    }
+
+    // resolve_path must return forward slashes even when the pushed script dir
+    // carries native (backslash) separators. On Windows the production callers
+    // (filter.rs / shortcode.rs) push `filter_path.parent().to_string_lossy()`,
+    // which is a native path like `C:\ext\dir` — without normalization the
+    // joined result leaks backslashes into the Lua-visible path.
+    #[test]
+    fn test_quarto_utils_resolve_path_backslash_script_dir() {
+        let lua = create_test_lua();
+        push_script_dir(&lua, "C:\\ext\\dir").unwrap();
+        let result: String = lua
+            .load(r#"return quarto.utils.resolve_path("data.json")"#)
+            .eval()
+            .unwrap();
+        assert_eq!(result, "C:/ext/dir/data.json");
+    }
+
+    // A rooted input must be returned as-is, never joined onto the script dir,
+    // even when a script dir is active. This pins the `is_rooted` (not
+    // `is_absolute`) gate: on Windows `/abs/x.json` is rooted but NOT absolute
+    // (no drive prefix), so the old `is_absolute` gate let it fall through and
+    // join onto the script dir — leaking the script dir's drive prefix
+    // (`C:\abs\x.json`). On WASM the same gate would mis-join `/project/...`
+    // VFS paths. `is_rooted` fixes both. Output must also be forward-slashed.
+    #[test]
+    fn test_quarto_utils_resolve_path_rooted_ignores_script_dir() {
+        let lua = create_test_lua();
+        push_script_dir(&lua, "C:\\some\\dir").unwrap();
+        let result: String = lua
+            .load(r#"return quarto.utils.resolve_path("/abs/x.json")"#)
+            .eval()
+            .unwrap();
+        assert_eq!(result, "/abs/x.json");
     }
 
     // =========================================================================

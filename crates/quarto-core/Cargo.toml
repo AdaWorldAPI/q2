@@ -38,7 +38,7 @@ quarto-system-runtime.workspace = true
 quarto-pandoc-types.workspace = true
 quarto-source-map.workspace = true
 quarto-doctemplate.workspace = true
-quarto-error-reporting.workspace = true
+quarto-error-reporting = { workspace = true, features = ["json"] }
 quarto-config.workspace = true
 quarto-yaml.workspace = true
 quarto-ast-reconcile.workspace = true
@@ -110,6 +110,7 @@ uuid.workspace = true
 [dev-dependencies]
 flate2.workspace = true
 insta.workspace = true
+quarto-error-catalog = { workspace = true }
 tempfile = "3"
 walkdir.workspace = true
 tokio = { version = "1", features = ["rt", "macros"] }

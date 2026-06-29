@@ -7,7 +7,7 @@
 // This is a LINTING diagnostic - the document parses successfully but
 // likely has a semantic error (the indented paragraph is NOT part of the footnote).
 //
-// Error catalog entry: crates/quarto-error-reporting/error_catalog.json
+// Error catalog entry: crates/quarto-error-catalog/error_catalog.json
 // Error code: Q-2-30
 // Title: "Multi-Paragraph Footnote Indentation Not Supported"
 //

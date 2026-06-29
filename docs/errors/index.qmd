@@ -29,7 +29,7 @@ the per-code reference page. Use the filter above to narrow by
 subsystem or status.
 
 The catalog of codes lives in
-[`crates/quarto-error-reporting/error_catalog.json`](../../crates/quarto-error-reporting/error_catalog.json).
+[`crates/quarto-error-catalog/error_catalog.json`](../../crates/quarto-error-catalog/error_catalog.json).
 The pages here are the prose layer over that catalog: where the
 catalog says *which* codes exist, the pages explain them.
 

@@ -7998,6 +7998,7 @@ dependencies = [
  "pollster",
  "quarto-core",
  "quarto-doctemplate",
+ "quarto-error-catalog",
  "quarto-error-reporting",
  "quarto-hub",
  "quarto-lsp",
@@ -8114,6 +8115,7 @@ dependencies = [
  "quarto-ast-reconcile",
  "quarto-config",
  "quarto-doctemplate",
+ "quarto-error-catalog",
  "quarto-error-reporting",
  "quarto-highlight",
  "quarto-navigation",
@@ -8174,6 +8176,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "quarto-error-catalog"
+version = "0.7.0"
+dependencies = [
+ "once_cell",
+ "quarto-error-reporting",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "quarto-error-message-macros"
 version = "0.1.0"
 dependencies = [
@@ -8186,10 +8198,11 @@ dependencies = [
 
 [[package]]
 name = "quarto-error-reporting"
-version = "0.7.0"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2aa95153b93fea9754e121137d5a6e38e30dd1184c73d2266958f698b8cb9503"
 dependencies = [
  "ariadne",
- "once_cell",
  "quarto-source-map",
  "schemars 1.2.1",
  "serde",
@@ -8459,7 +8472,9 @@ dependencies = [
 
 [[package]]
 name = "quarto-source-map"
-version = "0.7.0"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e3d29b1ef6088d016dfe84d831e5aa3daaba4624e23621364c2aef6d593114f"
 dependencies = [
  "serde",
  "serde_json",

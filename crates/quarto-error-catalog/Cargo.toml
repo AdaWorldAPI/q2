@@ -1,0 +1,19 @@
+[package]
+name = "quarto-error-catalog"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Quarto's centralized Q-* error-code catalog: the data plus a CatalogProvider for quarto-error-reporting."
+
+[dependencies]
+# The catalog-agnostic host: provides ErrorCodeInfo, CatalogProvider, install_catalog.
+quarto-error-reporting = { workspace = true }
+
+once_cell = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

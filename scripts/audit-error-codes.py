@@ -241,7 +241,7 @@ class ErrorCodeAuditor:
 
     def __init__(self, repo_root: Path):
         self.repo_root = repo_root
-        self.catalog_path = repo_root / "crates/quarto-error-reporting/error_catalog.json"
+        self.catalog_path = repo_root / "crates/quarto-error-catalog/error_catalog.json"
 
     def run(self) -> AuditResults:
         """Run the complete audit."""

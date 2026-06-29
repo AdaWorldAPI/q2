@@ -3,7 +3,7 @@
 // This conversion rule fixes Q-2-28 errors by removing line breaks
 // immediately before the escaped shortcode closing delimiter >}}}
 //
-// Error catalog entry: crates/quarto-error-reporting/error_catalog.json
+// Error catalog entry: crates/quarto-error-catalog/error_catalog.json
 // Error code: Q-2-28
 // Title: "Line Break Before Escaped Shortcode Close"
 // Message: "Line breaks are not allowed immediately before the escaped shortcode closing delimiter `>}}}`."

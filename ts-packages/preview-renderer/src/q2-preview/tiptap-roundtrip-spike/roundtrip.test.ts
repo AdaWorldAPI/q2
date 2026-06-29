@@ -3,7 +3,11 @@
 // Bucket each fixture: exact / equivalent (reformatted) / broken. Prints a findings
 // table. See claude-notes/plans/2026-06-23-tiptap-rich-text-block-editor.md.
 //
-// Run: npx vitest run src/q2-preview/tiptap-roundtrip-spike/roundtrip.test.ts
+// DISABLED BY DEFAULT (bd-d8nol0xn): this is a measurement spike, not a routine
+// gate, and it shells out to the native `pampa` binary (build + per-fixture
+// subprocess over temp files) — slow, and intermittently flaky under the parallel
+// load of a full `vitest run` / `cargo xtask verify`. Opt in to run it:
+//   QUARTO_RUN_PAMPA_ROUNDTRIP=1 npx vitest run src/q2-preview/tiptap-roundtrip-spike/roundtrip.test.ts
 // (from ts-packages/preview-renderer). Requires a buildable native `pampa`.
 
 import { writeFileSync } from 'node:fs';
@@ -43,7 +47,7 @@ function roundtrip(qmd: string): { row: Omit<Row, 'name'>; } {
   return { row: { verdict, chips: chips.length, unknown, mdOut } };
 }
 
-describe('tiptap markdown round-trip spike', () => {
+describe.skipIf(!process.env.QUARTO_RUN_PAMPA_ROUNDTRIP)('tiptap markdown round-trip spike', () => {
   const rows: Row[] = [];
 
   for (const fx of FIXTURES) {

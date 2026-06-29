@@ -78,6 +78,15 @@ const CSS = `
   font-size: 0.8rem;
   line-height: 1;
 }
+/* bd-pvcnea83: flip below the edit box when there is no room above (e.g. the
+   first block of a title-less document, flush against the viewport top — the
+   default bottom:100% placement would clip the toolbar above the scroll area). */
+.q2-rt-toolbar.q2-rt-toolbar-below {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 4px;
+}
 .q2-rt-tb-btn {
   appearance: none;
   border: none;

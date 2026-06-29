@@ -4,8 +4,12 @@
 //
 //   qmd -> pampa AST -> astToDoc -> docToMarkdown -> pampa AST -> compare
 //
-// Skips when native pampa can't be built (Rust-less CI). Run locally:
-//   cd ts-packages/preview-renderer && npx vitest run src/q2-preview/richtext/
+// DISABLED BY DEFAULT (bd-d8nol0xn): shells out to the native `pampa` binary via
+// the test-utils oracle (slow, and intermittently flaky under the parallel load of
+// a full `vitest run` / `cargo xtask verify`). This is a fidelity oracle, not a
+// routine gate. Opt in (and only runs when native pampa is buildable):
+//   QUARTO_RUN_PAMPA_ROUNDTRIP=1 npx vitest run src/q2-preview/richtext/roundtrip.test.ts
+// (from ts-packages/preview-renderer).
 
 import { describe, it, expect } from 'vitest';
 import { astToDoc } from './astToProseMirror';
@@ -34,7 +38,7 @@ const FIXTURES: { name: string; qmd: string }[] = [
 // nodes. Byte-exact round-tripping is a nice-to-have, not required (cosmetic
 // reformatting like `***x***` -> `**_x_**`, or `-` -> `*` bullets, is acceptable);
 // we log it for visibility but do not fail on it.
-describe.skipIf(!pampaAvailable())('rich-text bridge round-trip', () => {
+describe.skipIf(!process.env.QUARTO_RUN_PAMPA_ROUNDTRIP || !pampaAvailable())('rich-text bridge round-trip', () => {
   for (const fx of FIXTURES) {
     it(`preserves semantics: ${fx.name}`, () => {
       const astIn = parseUntransformed(fx.qmd);

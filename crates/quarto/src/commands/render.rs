@@ -1096,7 +1096,7 @@ fn emit_parse_error_json(parse_error: &quarto_core::ParseError, input: Option<&P
 /// `Q-7-N` code, then emit on stderr as one JSON line.
 ///
 /// Codes are catalog entries in
-/// `crates/quarto-error-reporting/error_catalog.json` — keep them
+/// `crates/quarto-error-catalog/error_catalog.json` — keep them
 /// in sync.
 fn emit_dispatch_error_json(e: &DispatchError) {
     emit_json_line(&diagnostic_to_json(

@@ -1,145 +1,100 @@
-//! Error code catalog and lookup.
+//! Quarto's centralized `Q-*` error-code catalog.
 //!
-//! This module provides access to the centralized error catalog, which maps
-//! error codes (like "Q-1-1") to their metadata (title, message template, docs URL, etc.).
+//! `quarto-error-reporting` is catalog-agnostic — it defines the catalog
+//! *shape* and the [`CatalogProvider`] seam but ships no data. This crate
+//! carries Quarto's *policy*: the `Q-<subsystem>-<n>` codes, their titles and
+//! `quarto.org` documentation URLs (`error_catalog.json`), and a
+//! [`CatalogProvider`] implementation over them.
+//!
+//! An embedding binary installs this catalog once, early (e.g. at the top of
+//! `main`), via [`install`]:
+//!
+//! ```no_run
+//! quarto_error_catalog::install();
+//! // From here, quarto_error_reporting::get_docs_url("Q-0-1") resolves.
+//! ```
+//!
+//! See `claude-notes/designs/cross-package-error-codes.md` for the discipline
+//! this implements (this crate is the q2 *presentation*-code policy).
 
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use quarto_error_reporting::{CatalogProvider, ErrorCodeInfo, install_catalog};
 use std::collections::HashMap;
 
-/// Metadata for an error code.
+/// The Quarto `Q-*` error catalog, loaded once from the embedded
+/// `error_catalog.json`.
 ///
-/// Each entry in the error catalog describes a specific error code,
-/// including its subsystem, title, default message, and documentation URL.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ErrorCodeInfo {
-    /// Subsystem name (e.g., "yaml", "markdown", "engine")
-    pub subsystem: String,
-
-    /// Short title for the error
-    pub title: String,
-
-    /// Default message template (may include placeholders)
-    pub message_template: String,
-
-    /// URL to documentation (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub docs_url: Option<String>,
-
-    /// When this error was introduced (version)
-    pub since_version: String,
-}
-
-/// Global error catalog, loaded lazily from JSON at compile time.
-///
-/// The catalog is loaded from `error_catalog.json` using `include_str!()`,
-/// which embeds the JSON at compile time. This means no runtime file I/O.
+/// The JSON is embedded at compile time via `include_str!`, so there is no
+/// runtime file I/O.
 ///
 /// # Panics
 ///
-/// Panics if the embedded JSON is invalid. This should only happen during
-/// development if someone manually edits the catalog incorrectly.
+/// Panics if the embedded JSON is invalid — only possible if someone edits the
+/// catalog incorrectly during development.
 pub static ERROR_CATALOG: Lazy<HashMap<String, ErrorCodeInfo>> = Lazy::new(|| {
     let json_data = include_str!("../error_catalog.json");
     serde_json::from_str(json_data).expect("Invalid error catalog JSON - this is a bug in Quarto")
 });
 
-/// Look up error code information.
-///
-/// Returns `None` if the error code is not found in the catalog.
-///
-/// # Example
-///
-/// ```
-/// use quarto_error_reporting::catalog::get_error_info;
-///
-/// if let Some(info) = get_error_info("Q-0-1") {
-///     println!("Error: {} - {}", info.title, info.message_template);
-/// }
-/// ```
-pub fn get_error_info(code: &str) -> Option<&ErrorCodeInfo> {
-    ERROR_CATALOG.get(code)
+/// A [`CatalogProvider`] backed by Quarto's embedded `Q-*` catalog.
+pub struct QuartoCatalog;
+
+impl CatalogProvider for QuartoCatalog {
+    fn lookup(&self, code: &str) -> Option<&ErrorCodeInfo> {
+        // `ERROR_CATALOG` is `'static`; the returned reference outlives `&self`.
+        ERROR_CATALOG.get(code)
+    }
 }
 
-/// Get documentation URL for an error code.
+/// Install Quarto's `Q-*` catalog as the process-wide
+/// [`CatalogProvider`](quarto_error_reporting::CatalogProvider).
 ///
-/// Returns `None` if the error code is not found or has no documentation URL.
-///
-/// # Example
-///
-/// ```
-/// use quarto_error_reporting::catalog::get_docs_url;
-///
-/// if let Some(url) = get_docs_url("Q-0-1") {
-///     println!("See {} for more information", url);
-/// }
-/// ```
-pub fn get_docs_url(code: &str) -> Option<&str> {
-    ERROR_CATALOG
-        .get(code)
-        .and_then(|info| info.docs_url.as_deref())
-}
-
-/// Get the subsystem name for an error code.
-///
-/// Returns `None` if the error code is not found.
-///
-/// # Example
-///
-/// ```
-/// use quarto_error_reporting::catalog::get_subsystem;
-///
-/// assert_eq!(get_subsystem("Q-0-1"), Some("internal"));
-/// ```
-pub fn get_subsystem(code: &str) -> Option<&str> {
-    ERROR_CATALOG.get(code).map(|info| info.subsystem.as_str())
+/// Idempotent (first install wins). Call once, as early as possible, from a
+/// binary's `main` / the WASM bootstrap, before any diagnostic's docs URL is
+/// resolved. Behaviour is unaffected if called multiple times.
+pub fn install() {
+    install_catalog(Box::new(QuartoCatalog));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // ─── Catalog data presence (ported from quarto-error-reporting) ──────────
+    //
+    // These assert the *data* in `error_catalog.json` directly via the embedded
+    // map, so they do not depend on the installed-global state.
+
     #[test]
-    fn test_catalog_loads() {
-        // Just accessing ERROR_CATALOG will trigger loading
-        // If the JSON is invalid, this will panic
+    fn catalog_loads_and_is_nonempty() {
         assert!(!ERROR_CATALOG.is_empty());
     }
 
     #[test]
-    fn test_internal_error_exists() {
-        let info = get_error_info("Q-0-1");
-        assert!(info.is_some());
-
-        let info = info.unwrap();
+    fn internal_error_q_0_1_exists() {
+        let info = ERROR_CATALOG.get("Q-0-1").expect("Q-0-1 must exist");
         assert_eq!(info.subsystem, "internal");
         assert_eq!(info.title, "Internal Error");
         assert!(info.docs_url.is_some());
+        assert!(
+            info.docs_url
+                .as_deref()
+                .unwrap()
+                .starts_with("https://quarto.org/docs/errors/")
+        );
     }
 
     #[test]
-    fn test_get_docs_url() {
-        let url = get_docs_url("Q-0-1");
-        assert!(url.is_some());
-        assert!(url.unwrap().starts_with("https://quarto.org/docs/errors/"));
+    fn nonexistent_code_is_absent() {
+        assert!(ERROR_CATALOG.get("Q-999-999").is_none()); // quarto-error-code-audit-ignore
     }
 
-    #[test]
-    fn test_get_subsystem() {
-        assert_eq!(get_subsystem("Q-0-1"), Some("internal"));
-        assert_eq!(get_subsystem("Q-999-999"), None); // quarto-error-code-audit-ignore
-    }
-
-    #[test]
-    fn test_nonexistent_code() {
-        assert!(get_error_info("Q-999-999").is_none()); // quarto-error-code-audit-ignore
-        assert!(get_docs_url("Q-999-999").is_none()); // quarto-error-code-audit-ignore
-    }
-
-    // L8 / bd-rqgx test #1: Q-12-14 catalog presence.
+    // L8 / bd-rqgx: Q-12-14 catalog presence.
     #[test]
     fn error_catalog_has_q_12_14() {
-        let info = get_error_info("Q-12-14").expect("Q-12-14 must be in the catalog");
+        let info = ERROR_CATALOG
+            .get("Q-12-14")
+            .expect("Q-12-14 must be in the catalog");
         assert_eq!(info.subsystem, "listing");
         assert_eq!(info.title, "Listing Type custom Without template Path");
         assert!(
@@ -154,14 +109,7 @@ mod tests {
         );
     }
 
-    // bd-8d6rk: Q-13-1..6 navigation subsystem catalog presence.
-    //
-    // These six codes back the structured-diagnostic migration of the
-    // sidebar / navbar / page-footer / body-link / sidebar `auto:`
-    // warnings (previously plain `DiagnosticMessage::warning(format!())`
-    // strings without codes). See
-    // `claude-notes/plans/2026-05-20-bd-8d6rk-navigation-diagnostics.md`
-    // for the per-code title/problem/hint table.
+    // bd-8d6rk: Q-13-1..7 navigation subsystem catalog presence.
     #[test]
     fn error_catalog_has_q_13_navigation_codes() {
         let cases: &[(&str, &str, &str)] = &[
@@ -174,8 +122,9 @@ mod tests {
             ("Q-13-7", "Page navigation", "missing document"),
         ];
         for (code, title_substr, message_substr) in cases {
-            let info =
-                get_error_info(code).unwrap_or_else(|| panic!("{} must be in the catalog", code));
+            let info = ERROR_CATALOG
+                .get(*code)
+                .unwrap_or_else(|| panic!("{} must be in the catalog", code));
             assert_eq!(
                 info.subsystem, "navigation",
                 "{} should be in the navigation subsystem; got: {}",
@@ -205,10 +154,12 @@ mod tests {
         }
     }
 
-    // L9 / bd-o90m test #1: Q-12-15 + Q-12-16 catalog presence.
+    // L9 / bd-o90m: Q-12-15 + Q-12-16 catalog presence.
     #[test]
     fn error_catalog_has_q_12_15_and_q_12_16() {
-        let q15 = get_error_info("Q-12-15").expect("Q-12-15 must be in the catalog");
+        let q15 = ERROR_CATALOG
+            .get("Q-12-15")
+            .expect("Q-12-15 must be in the catalog");
         assert_eq!(q15.subsystem, "listing");
         assert!(
             q15.title.to_lowercase().contains("feed"),
@@ -221,7 +172,9 @@ mod tests {
             q15.message_template
         );
 
-        let q16 = get_error_info("Q-12-16").expect("Q-12-16 must be in the catalog");
+        let q16 = ERROR_CATALOG
+            .get("Q-12-16")
+            .expect("Q-12-16 must be in the catalog");
         assert_eq!(q16.subsystem, "listing");
         assert!(
             q16.title.to_lowercase().contains("feed"),
@@ -236,16 +189,11 @@ mod tests {
     }
 
     // bd-bxrkxblx: Q-5-6 / Q-5-7 resource-copy diagnostics.
-    //
-    // Q-5-6 is the span-aware *warning* for a referenced resource
-    // whose source file is missing (detected before the copy is
-    // attempted). Q-5-7 is the hard *error* for a copy/write that
-    // fails at flush for an environment reason (permission denied,
-    // disk full). See
-    // `claude-notes/plans/2026-06-19-resource-copy-error-diagnostic.md`.
     #[test]
     fn error_catalog_has_q_5_6_and_q_5_7() {
-        let q6 = get_error_info("Q-5-6").expect("Q-5-6 must be in the catalog");
+        let q6 = ERROR_CATALOG
+            .get("Q-5-6")
+            .expect("Q-5-6 must be in the catalog");
         assert_eq!(q6.subsystem, "project");
         assert!(
             q6.title.to_lowercase().contains("resource"),
@@ -265,7 +213,9 @@ mod tests {
             q6.docs_url
         );
 
-        let q7 = get_error_info("Q-5-7").expect("Q-5-7 must be in the catalog");
+        let q7 = ERROR_CATALOG
+            .get("Q-5-7")
+            .expect("Q-5-7 must be in the catalog");
         assert_eq!(q7.subsystem, "project");
         assert!(
             q7.title.to_lowercase().contains("copy")
@@ -285,11 +235,12 @@ mod tests {
         );
     }
 
-    // bd-rr6qzcvu: Q-15-1 — the new `crossref` subsystem's first code,
-    // for a duplicate crossref identifier.
+    // bd-rr6qzcvu: Q-15-1 — the crossref subsystem's first code.
     #[test]
     fn error_catalog_has_q_15_1_crossref() {
-        let info = get_error_info("Q-15-1").expect("Q-15-1 must be in the catalog");
+        let info = ERROR_CATALOG
+            .get("Q-15-1")
+            .expect("Q-15-1 must be in the catalog");
         assert_eq!(info.subsystem, "crossref");
         assert!(
             info.title.to_lowercase().contains("duplicate")
@@ -313,5 +264,43 @@ mod tests {
             "Q-15-1 docs_url must end with the code; got: {:?}",
             info.docs_url
         );
+    }
+
+    // ─── Integration: install() wires this catalog into quarto-error-reporting ─
+    //
+    // These exercise the installed-global delegation path end-to-end. Each calls
+    // `install()` (idempotent); under nextest every test is its own process, and
+    // they all install the *same* QuartoCatalog, so there is no conflict.
+
+    #[test]
+    fn install_makes_get_docs_url_resolve() {
+        install();
+        let url = quarto_error_reporting::get_docs_url("Q-0-1")
+            .expect("Q-0-1 should resolve after install()");
+        assert!(url.starts_with("https://quarto.org/docs/errors/"));
+        assert!(url.contains("Q-0-1"));
+    }
+
+    #[test]
+    fn install_makes_get_subsystem_resolve() {
+        install();
+        assert_eq!(
+            quarto_error_reporting::get_subsystem("Q-0-1"),
+            Some("internal")
+        );
+        assert!(quarto_error_reporting::get_subsystem("Q-999-999").is_none()); // quarto-error-code-audit-ignore
+    }
+
+    // Relocated from quarto-error-reporting's `diagnostic.rs::test_docs_url`:
+    // a DiagnosticMessage's `docs_url()` resolves once the Q-* catalog is installed.
+    #[test]
+    fn diagnostic_docs_url_resolves_after_install() {
+        install();
+        let msg =
+            quarto_error_reporting::DiagnosticMessage::error("Internal Error").with_code("Q-0-1");
+        let url = msg
+            .docs_url()
+            .expect("docs_url should resolve after install()");
+        assert!(url.contains("Q-0-1"));
     }
 }

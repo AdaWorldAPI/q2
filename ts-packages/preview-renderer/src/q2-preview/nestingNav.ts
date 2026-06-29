@@ -743,6 +743,36 @@ export function buildAncestorPath(
   }));
 }
 
+// ── currentSourceNodeType ───────────────────────────────────────────────────────
+
+/**
+ * The Pandoc node type (`t`) of the non-Opaque source-index entry whose range
+ * exactly matches `[r0, r1]` — i.e. the node currently being edited. Returns
+ * null when no entry matches or the match has no string `t`.
+ *
+ * Used by the breadcrumb to decide whether the active edit target is a
+ * rich-text-supported block: when it is (and the rich editor is showing), the
+ * standalone floating chip defers to the breadcrumb rendered INLINE in the
+ * rich-text toolbar row (bd-9x3zbuj8 Task 2). Pure (no DOM).
+ */
+export function currentSourceNodeType(
+  sourceIndex: Map<string, SourceIndexEntry> | null | undefined,
+  r0: number,
+  r1: number,
+): string | null {
+  if (!sourceIndex) return null;
+  for (const [key, entry] of sourceIndex) {
+    if (entry.reachabilityClass === 'Opaque') continue;
+    const parsed = parseSiKey(key);
+    if (!parsed) continue;
+    if (parsed.r0 === r0 && parsed.r1 === r1) {
+      const t = (entry.sourceNode as { t?: unknown }).t;
+      return typeof t === 'string' ? t : null;
+    }
+  }
+  return null;
+}
+
 // ── buildNestingCommitDestination ───────────────────────────────────────────────
 
 /**
