@@ -64,6 +64,15 @@ TYPEKEYS = [
     ("cartilage", ["cartilage"]),
     ("bone", ["bone organ", "bone", "skeletal element"]),
     ("muscle", ["muscle organ", "muscle"]),
+    # Connective tissue (ligaments / tendons / membranes / fascia / aponeuroses /
+    # retinacula). FMA files these under /viscera/solid_organ/ligament_organ/ and
+    # /membrane_organ/, so without this the is_a walk reaches the "viscus" key and
+    # tags them as ORGANs — limb ligaments (interosseous membrane of leg/forearm,
+    # calcaneal tendon, long plantar ligament) then floated in the organ view as
+    # tan limb-shaped strays. Placed AFTER muscle (a real muscle has none of these
+    # in its type chain) and BEFORE the organ-group keys so it wins over viscus.
+    ("connective", ["ligament organ", "membrane organ", "tendon", "aponeurosis",
+                    "fascia", "retinaculum"]),
     ("heart", ["cardiac", "heart", "myocardi"]),
     ("artery", ["arterial", "artery"]),
     ("vein", ["venous", "vein"]),
@@ -103,6 +112,7 @@ SYSTEM_OF = {
     "liver": "alimentary", "gland": "alimentary", "viscus": "viscera",
     "kidney": "urinary", "nerve": "nervous", "bone": "musculoskeletal",
     "cartilage": "musculoskeletal", "muscle": "musculoskeletal",
+    "connective": "musculoskeletal",
     "skin": "integument", "flesh": "integument",
 }
 TISSUE_RGB = {
@@ -111,17 +121,17 @@ TISSUE_RGB = {
     "heart": (168, 72, 71), "lung": (211, 152, 156), "liver": (139, 82, 76),
     "kidney": (150, 86, 80), "gi": (201, 167, 131), "gland": (206, 179, 150),
     "viscus": (188, 132, 120), "vessel": (180, 90, 110), "skin": (214, 178, 162),
-    "flesh": (199, 160, 150),
+    "flesh": (199, 160, 150), "connective": (224, 219, 204),
 }
 TISSUE_OPACITY = {
     "skin": 0.14, "flesh": 0.45, "muscle": 0.55, "cartilage": 0.70,
     "bone": 0.92, "heart": 0.90, "lung": 0.82, "liver": 0.92, "kidney": 0.92,
     "gi": 0.90, "gland": 0.90, "viscus": 0.90, "artery": 0.96, "vein": 0.96,
-    "vessel": 0.94, "nerve": 0.97,
+    "vessel": 0.94, "nerve": 0.97, "connective": 0.60,
 }
 TISSUE_CONTAINERS = ["bone", "cartilage", "muscle", "artery", "vein", "vessel",
                      "heart", "lung", "liver", "kidney", "gi", "gland", "viscus",
-                     "nerve", "skin", "flesh"]
+                     "nerve", "skin", "flesh", "connective"]
 CONTAINER_ID = {t: i for i, t in enumerate(TISSUE_CONTAINERS)}
 
 

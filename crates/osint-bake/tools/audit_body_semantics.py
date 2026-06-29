@@ -31,6 +31,7 @@ LAYER_OF = {
     "skin": 1, "flesh": 1, "muscle": 2,
     "heart": 3, "lung": 3, "liver": 3, "kidney": 3, "gi": 3, "gland": 3, "viscus": 3,
     "bone": 4, "cartilage": 4, "artery": 5, "vein": 5, "vessel": 5, "nerve": 6,
+    "connective": 7,
 }
 LAYER_NAME = {1: "skin", 2: "muscle", 3: "organ", 4: "skeleton", 5: "vessel", 6: "nervous", 7: "connective", 8: "other"}
 
@@ -173,7 +174,9 @@ def main(d):
     # liver parenchyma → organ (exclude the true hepatic/portal vessels)
     assert_layer(r"hepatovenous segment|caudate lobe of liver", {3})
     # eyeball structures → organ (skin-layer flesh ok too); must NOT be vessel
-    assert_layer(r"sclera|cornea|retina|vitreous|^.*\biris\b|choroid(?! plexus)|eyeball", {1, 3}, exclude=r"plexus")
+    # \bretina\b (not bare "retina") so it does not match "retinaculum" — the wrist/ankle
+    # retinacula are connective (layer 7), not the eye's retina.
+    assert_layer(r"sclera|cornea|\bretina\b|vitreous|^.*\biris\b|choroid(?! plexus)|eyeball", {1, 3}, exclude=r"plexus")
     # brain → nervous
     assert_layer(r"\bbrain\b|cerebral cortex|cerebellum", {6}, exclude=r"artery|vein|vessel")
     # femur → skeleton
@@ -183,6 +186,11 @@ def main(d):
     # aorta / vena cava trunks → vessel (exclude organ-supply *branches* of the aorta,
     # which correctly carry their target organ's tissue)
     assert_layer(r"\baorta\b|vena cava", {5}, exclude=r"branch|oesophageal|bronchial")
+    # connective → connective layer 7, NEVER organ. FMA files ligament/tendon/membrane
+    # under /viscera/solid_organ/ligament_organ, so without the connective TYPEKEY the
+    # is_a walk tags them viscus→organ and limb ligaments float in the organ view.
+    assert_layer(r"interosseous membrane|calcaneal tendon|long plantar ligament|iliotibial tract",
+                 {7})
 
     print(f"\nsummary: QA-1 flagged {len(q1)} · QA-2 flagged {q2} · QA-3 {'FAILED ' + str(fails) if fails else 'passed'}")
     sys.exit(1 if fails else 0)
