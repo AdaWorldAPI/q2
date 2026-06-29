@@ -18,11 +18,15 @@ import * as THREE from 'three';
 
 const PAGE_BG = 0x05070d;
 const WINDOW = 240;             // base-pairs instanced at once (the visible turns); constant
-const RISE = 0.34;             // vertical gap between successive base-pairs
+const RISE = 0.34;             // vertical gap between successive base-pairs (B-DNA: 0.34nm)
 const RADIUS = 1.0;            // helix radius (strand centre to axis)
-const TWIST = 2.399963;        // radians/step = the GOLDEN ANGLE → the pattern never exactly
-// repeats (aperiodic, the "fractal endlessness" — same most-irrational step the φ-spiral uses).
+const TWIST = Math.PI / 5;     // radians/step = 36° → 10 base-pairs per turn, the canonical B-DNA
+// pitch. (An earlier build used the golden angle for "aperiodic endlessness" — but 137°/step
+// scatters the backbone into a cloud instead of coiling it; the cliché helix needs the steady
+// small twist. Endlessness now comes purely from the infinite scroll, not the angle.)
 const TAU = Math.PI * 2;
+const STRAND_A = [0x6f, 0x9e, 0xd6];   // steady backbone colours (cool / warm) so the DOUBLE
+const STRAND_B = [0xd6, 0x7f, 0x96];   // helix reads at a glance; only the RUNGS carry base colour.
 
 // The four bases as a deterministic repeating palette (A·T·G·C). Real DNA isn't periodic,
 // but the SCAFFOLD is: the base at a step is a pure function of the step index, so the same
@@ -67,7 +71,7 @@ function labelSprite(text: string): THREE.Sprite {
   s.scale.set(0.9, 0.225, 1); return s;
 }
 
-function mount(container: HTMLDivElement, scroll: { current: number }, density: { current: number },
+function mount(container: HTMLDivElement, scroll: { current: number },
   dirty: { current: boolean }, locusByStep: Map<number, string>): () => void {
   let w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(PAGE_BG);
@@ -79,18 +83,18 @@ function mount(container: HTMLDivElement, scroll: { current: number }, density: 
   scene.add(new THREE.AmbientLight(0xffffff, 0.55));
   const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(2, 3, 4); scene.add(key);
 
-  // ── instanced geometry: 2 strands of sugar beads + 1 set of base-pair rungs ──
-  const bead = new THREE.SphereGeometry(0.085, 10, 8);
-  const beadMat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.1 });
-  const strandA = new THREE.InstancedMesh(bead, beadMat, WINDOW);
-  const strandB = new THREE.InstancedMesh(bead, beadMat, WINDOW);
-  strandA.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(WINDOW * 3), 3);
-  strandB.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(WINDOW * 3), 3);
-  const rung = new THREE.CylinderGeometry(0.028, 0.028, 1, 6); rung.rotateZ(Math.PI / 2); // lie along X
-  const rungMat = new THREE.MeshStandardMaterial({ roughness: 0.6 });
+  // ── instanced geometry: 2 ribbon backbones (bead joints + connector segments) + base rungs ──
+  const matStd = (c: number[]) => new THREE.MeshStandardMaterial({ color: new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255), roughness: 0.45, metalness: 0.05 });
+  const bead = new THREE.SphereGeometry(0.11, 12, 10);
+  const link = new THREE.CylinderGeometry(0.075, 0.075, 1, 8);     // unit cylinder along Y = a backbone segment
+  const matA = matStd(STRAND_A), matB = matStd(STRAND_B);
+  const beadA = new THREE.InstancedMesh(bead, matA, WINDOW), beadB = new THREE.InstancedMesh(bead, matB, WINDOW);
+  const linkA = new THREE.InstancedMesh(link, matA, WINDOW), linkB = new THREE.InstancedMesh(link, matB, WINDOW);
+  const rung = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);       // base-pair rung (along Y, scaled to span)
+  const rungMat = new THREE.MeshStandardMaterial({ roughness: 0.55 });
   const rungs = new THREE.InstancedMesh(rung, rungMat, WINDOW);
   rungs.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(WINDOW * 3), 3);
-  scene.add(strandA, strandB, rungs);
+  scene.add(beadA, beadB, linkA, linkB, rungs);
   const geneOf: (string | null)[] = new Array(WINDOW).fill(null); // instance k → gene (for picking)
 
   // a small pool of reusable locus labels (only the few visible in the window)
@@ -98,54 +102,50 @@ function mount(container: HTMLDivElement, scroll: { current: number }, density: 
   const labels: { sprite: THREE.Sprite; text: string }[] = [];
   for (let i = 0; i < LABELS; i++) { const s = labelSprite(''); s.visible = false; scene.add(s); labels.push({ sprite: s, text: '' }); }
 
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), scl = new THREE.Vector3(1, 1, 1);
-  const cA = new THREE.Color(), cB = new THREE.Color(), cR = new THREE.Color();
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), cR = new THREE.Color();
+  const one = new THREE.Vector3(1, 1, 1), scl3 = new THREE.Vector3();
+  const p0 = new THREE.Vector3(), p1 = new THREE.Vector3(), pn0 = new THREE.Vector3(), pn1 = new THREE.Vector3();
+  const mid = new THREE.Vector3(), dir = new THREE.Vector3();
+  const beadAt = (mesh: THREE.InstancedMesh, k: number, p: THREE.Vector3) => { m.compose(p, q.identity(), one); mesh.setMatrixAt(k, m); };
+  // place a unit-Y cylinder spanning a→b on instance k (radius baked into the geometry).
+  const span = (mesh: THREE.InstancedMesh, k: number, a: THREE.Vector3, b: THREE.Vector3) => {
+    mid.addVectors(a, b).multiplyScalar(0.5); dir.subVectors(b, a);
+    const len = dir.length() || 1e-4; dir.multiplyScalar(1 / len);
+    q.setFromUnitVectors(up, dir); scl3.set(1, len, 1); m.compose(mid, q, scl3); mesh.setMatrixAt(k, m);
+  };
 
-  // place the window. step k (0..WINDOW) maps to ABSOLUTE address = base + k/dens, so as
-  // `scroll` advances the same WINDOW instances slide along an infinite strand (no realloc),
-  // and as `density` grows the spacing subdivides ×16 per tier (the fractal cascade zoom).
+  // place the window. step k maps to ABSOLUTE address = scroll + k, so as `scroll` advances the
+  // same WINDOW instances slide along an infinite strand (no realloc) — the helix is endless.
+  // Two backbones (bead joint + segment to the next step = a ribbon) + one base-pair rung per step.
   function layout() {
-    const dens = density.current;                 // base-pairs per unit step (16^tierFrac)
-    const base = scroll.current;
-    const rise = RISE / dens, twist = TWIST;      // finer tiers pack tighter (self-similar)
+    const base = Math.floor(scroll.current), frac = scroll.current - base;
     let li = 0;
     for (let k = 0; k < WINDOW; k++) {
-      const step = base + k;                       // integer address in this tier
-      const ang = step * twist;
-      const y = (k - WINDOW / 2) * rise;
-      const ax = Math.cos(ang) * RADIUS, az = Math.sin(ang) * RADIUS;
-      // strand A bead
-      pos.set(ax, y, az); m.compose(pos, q, scl); strandA.setMatrixAt(k, m);
-      // strand B bead (opposite side)
-      pos.set(-ax, y, -az); m.compose(pos, q, scl); strandB.setMatrixAt(k, m);
-      // rung: midpoint, scaled to span 2·RADIUS, rotated to point along the strand pair
+      const step = base + k;
+      const y = (k - WINDOW / 2 - frac) * RISE;        // sub-step glide for smooth travel
+      const ang = step * TWIST, ax = Math.cos(ang) * RADIUS, az = Math.sin(ang) * RADIUS;
+      p0.set(ax, y, az); beadAt(beadA, k, p0);          // strand A point
+      p1.set(-ax, y, -az); beadAt(beadB, k, p1);        // strand B point (antiparallel)
+      const angN = (step + 1) * TWIST, yN = y + RISE, axN = Math.cos(angN) * RADIUS, azN = Math.sin(angN) * RADIUS;
+      pn0.set(axN, yN, azN); span(linkA, k, p0, pn0);   // backbone ribbon segment → next step
+      pn1.set(-axN, yN, -azN); span(linkB, k, p1, pn1);
+      span(rungs, k, p0, p1);                            // base-pair rung across the two strands
       const addr = ((step % 4096) + 4096) % 4096;
       const isLoc = locusByStep.has(addr);
       geneOf[k] = isLoc ? locusByStep.get(addr)! : null;
-      const b = baseAt(step), col = BASE_RGB[b];
-      cA.setRGB(col[0] / 255, col[1] / 255, col[2] / 255);
-      strandA.setColorAt(k, cA.clone().multiplyScalar(0.8));
-      strandB.setColorAt(k, cB.setRGB(col[2] / 255, col[1] / 255, col[0] / 255).multiplyScalar(0.8));
-      rungPlace(k, ax, y, az);
-      if (isLoc) cR.setRGB(1, 1, 1); else cR.copy(cA).multiplyScalar(0.65);
+      if (isLoc) cR.setRGB(1, 1, 1);                     // a lit gene = bright white rung
+      else { const c = BASE_RGB[baseAt(step)]; cR.setRGB(c[0] / 255, c[1] / 255, c[2] / 255); }
       rungs.setColorAt(k, cR);
-      // locus label
       if (isLoc && li < LABELS) {
         const g = geneOf[k]!;
         const L = labels[li++]; if (L.text !== g) { L.sprite.material.map = labelSprite(g).material.map; L.text = g; }
-        L.sprite.position.set(0, y + 0.16, 0); L.sprite.visible = true;
+        L.sprite.position.set(0, y + 0.28, 0); L.sprite.visible = true;
       }
     }
     for (; li < LABELS; li++) labels[li].sprite.visible = false;
-    strandA.instanceMatrix.needsUpdate = strandB.instanceMatrix.needsUpdate = rungs.instanceMatrix.needsUpdate = true;
-    strandA.instanceColor!.needsUpdate = strandB.instanceColor!.needsUpdate = rungs.instanceColor!.needsUpdate = true;
-  }
-  const rq = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
-  function rungPlace(k: number, ax: number, y: number, az: number) {
-    pos.set(0, y, 0);
-    const len = Math.hypot(ax, az) * 2 || 1e-3;
-    rq.setFromUnitVectors(up, new THREE.Vector3(ax, 0, az).normalize()); // align rung to the A↔B chord
-    m.compose(pos, rq, new THREE.Vector3(1, len, 1)); rungs.setMatrixAt(k, m);
+    beadA.instanceMatrix.needsUpdate = beadB.instanceMatrix.needsUpdate = true;
+    linkA.instanceMatrix.needsUpdate = linkB.instanceMatrix.needsUpdate = rungs.instanceMatrix.needsUpdate = true;
+    rungs.instanceColor!.needsUpdate = true;
   }
 
   // controls: drag = orbit, wheel = descend/ascend tiers (fractal zoom), auto-drift = endless travel
@@ -169,18 +169,18 @@ function mount(container: HTMLDivElement, scroll: { current: number }, density: 
     moved += Math.abs(e.clientX - px) + Math.abs(e.clientY - py);
     az -= (e.clientX - px) * 0.005; el = Math.max(-1.2, Math.min(1.2, el + (e.clientY - py) * 0.005)); px = e.clientX; py = e.clientY; dirty.current = true;
   };
-  const onWheel = (e: WheelEvent) => { e.preventDefault(); density.current = Math.max(1, Math.min(4096, density.current * (1 - Math.sign(e.deltaY) * 0.06))); dirty.current = true; };
+  const onWheel = (e: WheelEvent) => { e.preventDefault(); dist = Math.max(2.6, Math.min(13, dist * (1 + Math.sign(e.deltaY) * 0.08))); dirty.current = true; };
   const el2 = renderer.domElement;
   el2.addEventListener('pointerdown', onDown); window.addEventListener('pointerup', onUp);
   window.addEventListener('pointermove', onMove); el2.addEventListener('wheel', onWheel, { passive: false });
   const onResize = () => { w = container.clientWidth; h = container.clientHeight; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); dirty.current = true; };
   window.addEventListener('resize', onResize);
 
-  let raf = 0, lastScroll = NaN, lastDens = NaN;
+  let raf = 0, lastScroll = NaN;
   const tick = () => {
     raf = requestAnimationFrame(tick);
-    scroll.current += 0.06;                        // gentle endless travel up the strand
-    if (scroll.current !== lastScroll || density.current !== lastDens) { layout(); lastScroll = scroll.current; lastDens = density.current; }
+    scroll.current += 0.022;                        // gentle endless travel up the strand
+    if (scroll.current !== lastScroll) { layout(); lastScroll = scroll.current; }
     camera.position.set(dist * Math.cos(el) * Math.sin(az), dist * Math.sin(el), dist * Math.cos(el) * Math.cos(az));
     camera.lookAt(0, 0, 0);
     renderer.render(scene, camera);
@@ -192,7 +192,7 @@ function mount(container: HTMLDivElement, scroll: { current: number }, density: 
     el2.removeEventListener('pointerdown', onDown); window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointermove', onMove); el2.removeEventListener('wheel', onWheel);
     window.removeEventListener('resize', onResize);
-    bead.dispose(); rung.dispose(); beadMat.dispose(); rungMat.dispose(); renderer.dispose();
+    bead.dispose(); link.dispose(); rung.dispose(); matA.dispose(); matB.dispose(); rungMat.dispose(); renderer.dispose();
     if (el2.parentElement === container) container.removeChild(el2);
   };
 }
@@ -200,11 +200,9 @@ function mount(container: HTMLDivElement, scroll: { current: number }, density: 
 export default function GenomeHelix() {
   const ref = useRef<HTMLDivElement>(null);
   const scroll = useRef(0);
-  const density = useRef(1);
   const dirty = useRef(true);
   const [genes, setGenes] = useState<string[] | null>(null);   // null = still loading the catalog
   const [live, setLive] = useState(false);                     // true = real /api/cpic/catalog
-  const [, force] = useState(0);
 
   // pull the REAL CPIC gene catalogue; fall back to the canonical list if the endpoint is
   // absent (old deploy) so /genome always renders. Same graceful-degradation as /helix LOD.
@@ -224,21 +222,18 @@ export default function GenomeHelix() {
   useEffect(() => {
     const c = ref.current; if (!c || !genes) return;
     const locusByStep = new Map(lociFrom(genes).map((l) => [l.step, l.gene]));
-    return mount(c, scroll, density, dirty, locusByStep);
+    return mount(c, scroll, dirty, locusByStep);
   }, [genes]);
-  // light re-render so the tier readout updates as you zoom
-  useEffect(() => { const id = setInterval(() => force((n) => n + 1), 250); return () => clearInterval(id); }, []);
-  const tier = Math.log(density.current) / Math.log(16);
   return (
     <div style={{ position: 'fixed', inset: 0, background: `#${PAGE_BG.toString(16).padStart(6, '0')}` }}>
       <div ref={ref} style={{ position: 'absolute', inset: 0 }} />
       <div style={{ position: 'absolute', top: 12, left: 16, color: '#cdd9e5', font: '13px ui-monospace, monospace', pointerEvents: 'none' }}>
-        <div style={{ color: '#fff', fontSize: 15 }}>/genome — endless pharmacogenomic helix</div>
+        <div style={{ color: '#fff', fontSize: 15 }}>/genome — pharmacogenomic double helix</div>
         <div style={{ opacity: 0.62, marginTop: 3, maxWidth: 360 }}>
-          {genes ? `${WINDOW} instanced base-pairs · golden-angle scaffold · ${genes.length} CPIC gene loci ${live ? 'lit (live /api/cpic)' : 'lit (fallback list)'} · tier ${tier.toFixed(2)}`
+          {genes ? `B-DNA helix (10 bp/turn) · ${genes.length} CPIC genes ${live ? 'lit (live /api/cpic)' : 'lit (fallback)'} as white rungs`
             : 'loading CPIC gene catalogue…'}
         </div>
-        <div style={{ opacity: 0.4, marginTop: 4 }}>drag = orbit · wheel = descend the 16-ary cascade · click a lit gene → /cpic</div>
+        <div style={{ opacity: 0.4, marginTop: 4 }}>drag = orbit · wheel = zoom · click a lit gene → /cpic</div>
       </div>
     </div>
   );
