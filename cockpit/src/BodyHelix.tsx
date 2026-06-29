@@ -2,17 +2,18 @@
 // working /body can never break. Shades from the per-vertex helix NORMAL.
 //
 // The normal is the canonical lance-graph::helix::Signed360 (6 bytes, place-coupled to the
-// HHTL address): rim endpoint pair + signed polar lift + golden azimuth. The (polar,
-// azimuth) are the NORMALIZED angular coordinates — we do NOT reconstruct the Cartesian
-// normal per vertex (no √/sin/cos, and never the rim's Fisher-Z/atanh). Instead a direction
-// LUT is PRE-MATERIALIZED once (the trig runs LUT_W·256 times) and every vertex is a single
-// normalized-index lookup: a CPU-SIMD gather / one GPU texture fetch / works with no GPU.
-// REQUIRES the canonical helix bake (helixbake → helix::encode_signed, BSO2 ver 6); the old
-// helix_orient artifact is a different codec and is NOT read here.
+// HHTL address): rim endpoint pair (Fisher-Z radial) + signed polar lift + golden azimuth.
+// At LOAD (once) we invert the Fisher-Z rim → r=sinθ and bake each vertex to a normalized
+// int8 NORMAL — the cheapest possible carrier. Per frame the GPU just normalize()s it and
+// GOURAUD-shades per vertex; the fragment shader is trivial. That is the lever against the
+// 12 s/frame cost: the quality is carried by per-vertex shading + interpolation, not by
+// expensive per-fragment lighting. REQUIRES the canonical helix bake (helixbake →
+// helix::encode_signed, BSO2 ver 6 + HXFL floor trailer); the old helix_orient artifact is
+// a different codec and is NOT read here.
 //
-// Reads an optional stamped artifact first (`/body.helix.<stamp>.soa.gz` via
-// `/body.manifest.json`) then falls back to the shared `/body.soa.gz`, so a future
-// helix-tuned bake can be swapped in without deleting the working one.
+// Reads the stamped artifact named by `/body.manifest.json` (`helix_latest`), local first
+// then the GitHub release — so a new bake is swapped in by bumping the manifest, never by
+// deleting the working one.
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
@@ -55,48 +56,42 @@ const HALF_LUT: Float32Array = (() => {
 
 // ── canonical lance-graph::helix::Signed360 (6 bytes, full sphere) ──
 // Wire (LE): [rim.start, rim.end, rim.floor_version, polar, azimuth_lo, azimuth_hi].
-//  polar   → signed lift y: |y| in 7 bits, sign in the PARTITION (≥128 upper, <128 lower).
-//  azimuth → φ = az_u16 / 65536 · 2π   (golden angle n·φ over the full 360°).
-// These are the NORMALIZED angular coordinates — they are NOT reconstructed per vertex.
-// Instead we PRE-MATERIALISE a direction LUT once (the trig/√ runs LUT_W·256 times, not
-// per the 4.2 M verts) and every vertex is a single normalized-index lookup (CPU-SIMD
-// gather / one GPU fetch / works with no GPU). The rim (Fisher-Z / atanh endpoints) is the
-// metric carrier and is NEVER materialised here — only (polar, azimuth) drive the render.
-type V3 = [number, number, number];
+//  rim.end → the Fisher-Z RADIAL: r = sinθ, quantised as arctanh(r) into the 256-palette
+//            (densest at the equator — Δθ = cosθ·Δz → 0 at θ=90°). This is the STRENGTH the
+//            place-blind transcoder used to zero; we decode it. palette256 = the angle.
+//  polar   → hemisphere SIGN (partition) + a coarse |y|, used only on the r→1 saturation cliff.
+//  azimuth → φ = az_u16 / 65536 · 2π.
+// We decode the normal ONCE at load into a normalized int8 attribute (the rim inversion's
+// only atanh/tanh runs 256× building the r-LUT — never per vertex, never per frame). The
+// vertex itself is then the cheapest possible carrier: a 3-byte normal the GPU reads with
+// one normalize(). Quality is carried by GOURAUD shading (lighting per-vertex, colour
+// interpolated) — at 6.8 M sub-pixel tris that is visually identical to per-fragment
+// lighting but leaves the fragment shader trivial. The HXFL trailer carries the exact
+// RollingFloor (lo,hi) the bake used so this dequantiser matches the encoder.
 const TAU = Math.PI * 2;
-const LUT_W = 1024;   // azimuth columns (top 10 bits of az_u16 → ~0.35°); rows = polar (256)
-// direction for one (polar, az_u16) cell, in display space (-x,z,y). Called ONLY at
-// LUT-build time — the one place trig is allowed.
-function dirFromPolarAz(polar: number, az16: number): V3 {
-  const y = polar >= 128 ? (polar - 128) / 127 : -(127 - polar) / 127;
-  const az = (az16 / 65536) * TAU;
-  const r = Math.sqrt(Math.max(0, 1 - y * y));
-  const X = r * Math.sin(az), Z = r * Math.cos(az);   // world (X, y, Z), up-axis = y
-  return [-X, Z, y];                                   // (x,y,z)->(-x,z,y) display remap
-}
-// 256×LUT_W RGBA8 direction LUT (normal*0.5+0.5). Built ONCE; the only materialization.
-function buildDirLut(): THREE.DataTexture {
-  const data = new Uint8Array(256 * LUT_W * 4);
-  for (let p = 0; p < 256; p++) {
-    for (let a = 0; a < LUT_W; a++) {
-      const n = dirFromPolarAz(p, a << 6);            // a is the top 10 bits of az_u16
-      const o = (p * LUT_W + a) * 4;
-      data[o] = Math.round((n[0] * 0.5 + 0.5) * 255);
-      data[o + 1] = Math.round((n[1] * 0.5 + 0.5) * 255);
-      data[o + 2] = Math.round((n[2] * 0.5 + 0.5) * 255);
-      data[o + 3] = 255;
-    }
+const STRIDE = 4, GAMMA = 0.5772156649015329, LN17 = 2.833213344056216;
+const atanh = (s: number) => 0.5 * Math.log((1 + s) / (1 - s));
+// aligned(r) = arctanh(r)·STRIDE + γ·(r² − ln17)  — helix::ResidueEncoder::aligned_for_residue
+// with the rank u = r². Monotone in r → invert by bisection. r = sinθ.
+function rFromAligned(aligned: number): number {
+  let lo = 0, hi = 1 - 1e-9;
+  for (let it = 0; it < 40; it++) {
+    const m = 0.5 * (lo + hi);
+    if (atanh(m) * STRIDE + GAMMA * (m * m - LN17) < aligned) lo = m; else hi = m;
   }
-  const tex = new THREE.DataTexture(data, LUT_W, 256, THREE.RGBAFormat);
-  tex.minFilter = THREE.NearestFilter; tex.magFilter = THREE.NearestFilter;
-  tex.needsUpdate = true;
-  return tex;
+  return 0.5 * (lo + hi);
+}
+// 256-entry r-LUT from the bake's RollingFloor (lo,hi): bucket_center(e) → aligned → r=sinθ.
+function buildRLut(flo: number, fhi: number): Float32Array {
+  const t = new Float32Array(256);
+  for (let e = 0; e < 256; e++) t[e] = rFromAligned(flo + ((e + 0.5) / 256) * (fhi - flo));
+  return t;
 }
 
 interface Decoded {
   nVerts: number; nTris: number;
   positions: Float32Array; index: Uint32Array;
-  colors: Uint8Array; polAz: Uint8Array; layer: Float32Array;
+  colors: Uint8Array; normals: Int8Array; layer: Float32Array;
   concepts: number;
 }
 
@@ -139,54 +134,71 @@ function decode(buf: ArrayBuffer): Decoded {
   const helix = new Uint8Array(buf.slice(helixOff, helixOff + 6 * nV));
   const rowArr = new Uint32Array(buf.slice(rowOff, rowOff + 4 * nV));
 
+  // HXFL trailer (last 12 B): the RollingFloor (lo,hi) the bake used → the rim dequantiser.
+  let flo = -2.2567945, fhi = 11.535854;   // fallback = the 2026-06-29 bake's floor
+  if (buf.byteLength >= 12) {
+    const t0 = buf.byteLength - 12;
+    const tag = String.fromCharCode(dv.getUint8(t0), dv.getUint8(t0 + 1), dv.getUint8(t0 + 2), dv.getUint8(t0 + 3));
+    if (tag === 'HXFL') { flo = dv.getFloat32(t0 + 4, true); fhi = dv.getFloat32(t0 + 8, true); }
+  }
+  const rLut = buildRLut(flo, fhi);
+
   const positions = new Float32Array(nV * 3);
   const colors = new Uint8Array(nV * 3);
-  const polAz = new Uint8Array(nV * 3);    // (polar, az_lo, az_hi) — normalized LUT key, NO trig
+  const normals = new Int8Array(nV * 3);   // rim-decoded unit normal (display frame), cheap i8
   const layer = new Float32Array(nV);
   for (let i = 0; i < nV; i++) {
     positions[i * 3] = -srcPos[i * 3];
     positions[i * 3 + 1] = srcPos[i * 3 + 2];
     positions[i * 3 + 2] = srcPos[i * 3 + 1];
-    const r = rowArr[i], li = cLayer[r] || 8;
-    const rgb = conceptColor(li, r);
+    const r0 = rowArr[i], li = cLayer[r0] || 8;
+    const rgb = conceptColor(li, r0);
     colors[i * 3] = rgb[0]; colors[i * 3 + 1] = rgb[1]; colors[i * 3 + 2] = rgb[2];
-    // just copy the Signed360 normalized coords — the LUT does the (one-time) materialization.
-    polAz[i * 3] = helix[i * 6 + 3];       // polar
-    polAz[i * 3 + 1] = helix[i * 6 + 4];   // azimuth_lo
-    polAz[i * 3 + 2] = helix[i * 6 + 5];   // azimuth_hi
+    // Signed360 → unit normal: r=sinθ from the Fisher-Z RIM (its strength; saturated cliff
+    // falls back to the polar partition), hemisphere sign from polar, φ from azimuth. Same
+    // display remap as the position (-X, Z, yw). One-time at load; never per frame.
+    const end = helix[i * 6 + 1], polar = helix[i * 6 + 3];
+    const az16 = helix[i * 6 + 4] | (helix[i * 6 + 5] << 8);
+    const sgn = polar >= 128 ? 1 : -1;
+    const yp = polar >= 128 ? (polar - 128) / 127 : -(127 - polar) / 127;
+    const rr = end >= 255 ? Math.sqrt(Math.max(0, 1 - yp * yp)) : rLut[end];
+    const yw = sgn * Math.sqrt(Math.max(0, 1 - rr * rr));
+    const az = (az16 / 65536) * TAU;
+    normals[i * 3] = Math.max(-127, Math.min(127, Math.round(-rr * Math.sin(az) * 127)));
+    normals[i * 3 + 1] = Math.max(-127, Math.min(127, Math.round(rr * Math.cos(az) * 127)));
+    normals[i * 3 + 2] = Math.max(-127, Math.min(127, Math.round(yw * 127)));
     layer[i] = li;
   }
   const raw = new Uint32Array(buf.slice(idxOff, idxOff + 12 * nT));
   const index = new Uint32Array(raw);     // straight copy (no opaque/transparent split)
-  return { nVerts: nV, nTris: nT, positions, index, colors, polAz, layer, concepts: nC };
+  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, concepts: nC };
 }
 
 const VERT = `
 precision highp float;
-attribute vec3 aColor; attribute vec3 aPolAz; attribute float aLayer;
-uniform sampler2D uDirLut;                         // pre-materialized (polar × azimuth) → dir
-varying vec3 vNormal; varying vec3 vColor; varying float vLayer;
+attribute vec3 aColor; attribute vec3 aNormal; attribute float aLayer;
+varying vec3 vColor; varying float vLayer;
 void main(){
-  vColor = aColor; vLayer = aLayer;
-  // normalized-index lookup — NO trig per vertex. aPolAz = (polar, az_lo, az_hi) in [0,255].
-  float az = aPolAz.y + aPolAz.z * 256.0;          // az_u16 ∈ [0,65535]
-  vec2 uv = vec2((az + 0.5) / 65536.0, (aPolAz.x + 0.5) / 256.0);
-  vec3 n = texture2D(uDirLut, uv).xyz * 2.0 - 1.0;
-  vNormal = normalMatrix * n;
+  vLayer = aLayer;
+  // GOURAUD: shade per-vertex from the cheap rim normal, interpolate the COLOUR across the
+  // face. At 6.8 M sub-pixel tris this matches per-fragment lighting visually but leaves the
+  // fragment shader trivial — the lever that removes the 12 s/frame fragment cost. The two-
+  // sided ambient (n.y term + floor) keeps back faces lit without a per-fragment flip.
+  vec3 n = normalize(normalMatrix * aNormal);
+  const vec3 L = vec3(-0.401, 0.783, 0.476);
+  float ndl = max(abs(dot(n, L)), 0.0);
+  float shade = min(0.34 + 0.20*(abs(n.y)*0.5+0.5) + 0.12*(-n.x*0.5+0.5) + 0.92*ndl, 1.3);
+  vColor = aColor * shade;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 const FRAG = `
 precision mediump float;
 uniform float uEnabled[9];
-varying vec3 vNormal; varying vec3 vColor; varying float vLayer;
+varying vec3 vColor; varying float vLayer;
 void main(){
   int li = int(vLayer + 0.5);
   if(li < 1 || li > 8 || uEnabled[li] < 0.5) discard;
-  vec3 n = normalize(vNormal); if(!gl_FrontFacing) n = -n;
-  const vec3 L = vec3(-0.401, 0.783, 0.476);
-  float ndl = max(dot(n, L), 0.0);
-  float shade = min(0.34 + 0.20*(n.y*0.5+0.5) + 0.12*(-n.x*0.5+0.5) + 0.92*ndl, 1.3);
-  gl_FragColor = vec4(vColor * shade, 1.0);
+  gl_FragColor = vec4(vColor, 1.0);   // pre-shaded (Gouraud) — no per-fragment lighting.
 }`;
 
 function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }): () => void {
@@ -200,11 +212,11 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
   geom.setAttribute('aColor', new THREE.Uint8BufferAttribute(d.colors, 3, true));
-  geom.setAttribute('aPolAz', new THREE.Uint8BufferAttribute(d.polAz, 3, false)); // raw 0..255 LUT key
+  geom.setAttribute('aNormal', new THREE.Int8BufferAttribute(d.normals, 3, true)); // rim normal, normalized i8
   geom.setAttribute('aLayer', new THREE.BufferAttribute(d.layer, 1));
   geom.setIndex(new THREE.BufferAttribute(d.index, 1));
 
-  const uniforms = { uEnabled: { value: enabled }, uDirLut: { value: buildDirLut() } };
+  const uniforms = { uEnabled: { value: enabled } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -251,7 +263,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     el2.removeEventListener('pointerdown', onDown); window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointermove', onMove); el2.removeEventListener('wheel', onWheel);
     window.removeEventListener('resize', onResize);
-    geom.dispose(); mat.dispose(); uniforms.uDirLut.value.dispose(); renderer.dispose();
+    geom.dispose(); mat.dispose(); renderer.dispose();
     if (el2.parentElement === container) container.removeChild(el2);
   };
 }
@@ -314,7 +326,7 @@ export default function BodyHelix() {
         <div style={{ color: '#fff', fontSize: 15 }}>/helix — surfel-normal viewer (experimental)</div>
         <div style={{ opacity: 0.65, marginTop: 2, maxWidth: 440 }}>
           {error ? <span style={{ color: '#e06c6c' }}>{error}</span>
-            : d ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} concepts — canonical helix::Signed360 normals (place-coupled to HHTL); per vertex is a normalized (polar,azimuth) lookup into a pre-materialized direction LUT — no per-vertex trig/atanh.`
+            : d ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} concepts — canonical helix::Signed360 normals: Fisher-Z rim → r=sinθ decoded once into a normalized int8 normal; Gouraud shading (per-vertex), trivial fragment shader.`
               : 'loading canonical helix bake (Signed360 normals)…'}
         </div>
       </div>
