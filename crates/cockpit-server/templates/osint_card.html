@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>OSINT {{ classid_hex }} card</title>
+<style>
+body{background:#0a0e17;color:#cfe7ff;font:13px ui-monospace,monospace;padding:18px}
+h1{font-size:14px;color:#7fd1ff;font-weight:400}
+table{border-collapse:collapse;margin-top:10px}
+td{padding:4px 12px;border-bottom:1px solid #1b2c3e;white-space:nowrap}
+.r{color:#7fd1ff}.l{color:#eaf4ff}.p{color:#5a6b7f}
+</style>
+{# The mask carves, the loop renders. Zero per-field conditionals: the
+   ViewFilter (FieldMask) already selected the rows in Rust; this template is
+   the XSLT that draws the projection. See OGAR
+   docs/CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK.md. #}
+<h1>OSINT · classid {{ classid_hex }} · {{ concept }} · FieldMask {{ mask_hex }} · {{ shown }} / {{ total }} fields shown</h1>
+<table>
+<tr><td class="r">role</td><td class="l">field</td><td class="p">predicate</td></tr>
+{% for row in rows %}<tr><td class="r">{{ row.role }}</td><td class="l">{{ row.label }}</td><td class="p">{{ row.predicate }}</td></tr>
+{% endfor %}</table>

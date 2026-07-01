@@ -23,6 +23,13 @@ futures-core.workspace = true
 serde.workspace = true
 serde_json = "1"
 
+# Server-side templating — the OSINT ClassView card is rendered via a compile-
+# time-checked askama template (the "XSLT" over the FieldMask projection, per
+# OGAR docs/CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK.md). Core crate only (render to
+# String); the handler keeps its `Html<String>` axum idiom, so no askama_axum ↔
+# axum version coupling. Matches woa-rs's askama pin.
+askama = "0.12"
+
 # ── The engine: lance-graph ──────────────────────────────────────────
 # Parser, DataFusion planner, LanceDB storage, blasgraph columnar,
 # semiring algebra, HHTL cascade. ALL queries route through here.
