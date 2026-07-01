@@ -52,7 +52,7 @@ const REL_NAME = [
   'militaryUse', 'civicUse', 'airo:type', 'MLType', 'purpose', 'capacity',
 ];
 const REL_COLOR = [
-  '#223040', '#223040', '#4dd0e1', '#ffb547', '#35d07f',
+  '#4a6a8c', '#3f5a78', '#4dd0e1', '#ffb547', '#35d07f',
   '#ff637d', '#9b8cff', '#c792ea', '#7fd1c7', '#8fa6c4',
   '#ff637d', '#35d07f', '#c792ea', '#7fd1ff', '#ffb547', '#9b8cff',
 ];
@@ -359,12 +359,24 @@ export function OsintGraph() {
     };
   }, []);
 
-  // The semantic VIEW: only the real neo4j relations (rel ≥ 2) and the nodes
-  // they touch — the connected entity graph, not the schema scaffold.
+  // The semantic VIEW: entity↔entity relations only — the real neo4j relations
+  // (2..7, 9) PLUS the basin tissue (member-of 0 / interfaces 1, now docked to real
+  // ANCHOR entities, not synthetic hubs). Schema property-nodes (cls 5/6) and their
+  // facet spokes (VALID_FOR 8, facets 10..20) are NOT rendered: a dimension is a
+  // prefix carried ON the node (read live by the facet lens), never a node to spoke
+  // into. That is what dissolves the islands — no "look up a property as a node".
   const view = useMemo(() => {
     if (!soa) return null;
     const semantic = soa.edges
-      .filter((e) => e.r >= 2 && e.s < soa.nodeCount && e.t < soa.nodeCount)
+      .filter(
+        (e) =>
+          e.s < soa.nodeCount &&
+          e.t < soa.nodeCount &&
+          soa.cls[e.s] < 5 &&
+          soa.cls[e.t] < 5 &&
+          e.r !== 8 &&
+          e.r < 10,
+      )
       .map((e, id) => ({ ...e, id }));
     const degree = new Map<number, number>();
     const touched = new Set<number>();
