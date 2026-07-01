@@ -39,6 +39,7 @@ mod style_state;
 mod dto_bridge;
 mod codebook;
 mod mock_driver;
+mod osint_classview;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
 // The cockpit/ directory is built by `cd cockpit && npm run build` which
@@ -222,6 +223,10 @@ async fn main() {
         // Pre-baked enriched OSINT SoA bytes — the 3D view (/osint3d) fetches
         // these and decodes each GUID → xyz client-side (no JSON).
         .route("/osint.soa", get(osint_soa_handler))
+        // The canonical OSINT card (classid 0x0700) projected through a FieldMask —
+        // the Redmine-style ViewFilter, server-side (`?mask=<bits>`, omitted = FULL).
+        .route("/api/osint/card", get(osint_classview::osint_card_handler))
+        .route("/api/osint/card.html", get(osint_classview::osint_card_html_handler))
         // /body server-side HHTL LOD — POST camera → per-concept HhtlAction byte
         // (cascade over 1658 baked BlockBounds; native SIMD; client gates draw by it).
         .route("/api/body/lod", post(body_lod::body_lod_handler))

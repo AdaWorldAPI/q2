@@ -77,25 +77,32 @@ const AX = {
   militaryUse: 0, civicUse: 1, airoRole: 2, mlTask: 3, purpose: 4,
   capacity: 5, currentStatus: 6, type: 7, output: 8, impact: 9, stakeholder: 10,
 };
-// McClelland motive — and its adjacency to Freud's developmental gradient.
-// demand (need) and intent are INHERENT in the motive: the motive is the source
-// of both reasoning axes. The POWER motive (nPow) isn't flat — it's a 4-level
-// control-directionality scale (Freud's psychosexual stages), and it sits
-// ADJACENT to airo:type: the actor role IS the power level.
-//   P1 Oral    "consume from others to myself"   → extraction        (the consumed = AISubject)
-//   P2 Anal    "control myself"                  → self-control      (internal systems)
-//   P3 Phallic "control OTHERS"                  → AIDeployer/AIOperator (fields the tool)
-//   P4 Genital "empower OTHERS to control others"→ AIDeveloper/AIProvider/AISupplier (builds it)
+// McClelland's nPow motive — with the 4-level developmental POWER gradient
+// (Freud's psychosexual stages; taught in Falko Rheinberg's Potsdam motivation
+// lectures). demand (need) and intent are INHERENT in the motive. The gradient
+// is a control-directionality ladder, ADJACENT to airo:type — the actor role IS
+// the power level. ALL FOUR levels are reachable:
+//   P1 Oral    "I consume from others to myself"          → AISubject (the consumed end)
+//   P2 Anal    "I control myself"                         → AIOperator (controls the operation itself)
+//   P3 Phallic "I control others"                         → AIDeployer (fields the tool AT others)
+//   P4 Genital "I empower others/stakeholders to control" → AIDeveloper/AIProvider/AISupplier (builds/supplies it)
 // airo:type bits: 0=Subject(1) 1=Deployer(2) 2=Developer(4) 3=Provider(8)
 // 4=Operator(16) 5=Supplier(32).
 const MOTIVE = ['nPow', 'nAch', 'nAff'];
-const POWER_LEVEL = ['—', 'P1·oral·consume', 'P2·anal·self', 'P3·phallic·control-others', 'P4·genital·empower'];
-// Power level (0..4) read straight from the airo:type bitset — the adjacency.
+const POWER_LEVEL = [
+  '—',
+  'P1·oral·consume from others',
+  'P2·anal·control myself',
+  'P3·phallic·control others',
+  'P4·genital·empower others to control',
+];
+// Power level (0..4) from the airo:type bitset — the adjacency, all four levels.
 // The boomerang (Deployer ∧ Subject) is P3 that has become P1's object.
 const powerOfAiro = (bits: number): number => {
-  if (bits & (4 | 8 | 32)) return 4; // Developer | Provider | Supplier — empower others
-  if (bits & (2 | 16)) return 3; // Deployer | Operator — control others
-  if (bits & 1) return 1; // Subject — the consumed
+  if (bits & (4 | 8 | 32)) return 4; // Developer | Provider | Supplier — empower others to control
+  if (bits & 2) return 3; // Deployer — control others (fields the tool at them)
+  if (bits & 16) return 2; // Operator — control the operation itself (self-control)
+  if (bits & 1) return 1; // Subject — consumed from
   return 0;
 };
 // nAch / nAff still come from the intent/use LABELS (keyword heuristic); nPow is
@@ -921,7 +928,14 @@ export function OsintGraph() {
     // builds to prove the harm the companies deny. The PERSON is the trait
     // (POWER_LEVEL from airo:type, else the McClelland motive) reasoned against it:
     // the divergence is trait-driven, not incidental to a "neutral" dual-use.
-    const lines = duModel.rows.slice(0, 40).map((r) => {
+    // P4 backdoor-networking platforms first (the Epstein archetype — power as
+    // brokerage between circles), then the per-capability causal chains.
+    const brokerLines = duModel.brokers.map((b) => ({
+      text: `◆ P4 backdoor platform · ${b.label} — broker ${b.brk.toFixed(1)} (empowers others to control)`,
+      conf: 1,
+      survived: true,
+    }));
+    const chainLines = duModel.rows.slice(0, 40).map((r) => {
       const trait = r.pow ? POWER_LEVEL[r.pow] : r.motive >= 0 ? MOTIVE[r.motive] : '—';
       return {
         text: `${r.label} → [mil ${r.mil}/civ ${r.civ}] → ${r.expl || '—'} ⟹ ${r.impl || '—'}  │  ${trait}`,
@@ -929,6 +943,7 @@ export function OsintGraph() {
         survived: r.divergence >= 0.5,
       };
     });
+    const lines = [...brokerLines, ...chainLines];
     // Person→Situation attribution: how much of the high-divergence (the situational
     // intent→impact drift) is carried by a power trait (P3/P4 or nPow). High % = the
     // harm is trait-driven — the causal chain the "can't prove it's harmful" defense denies.
@@ -1044,7 +1059,71 @@ export function OsintGraph() {
       nmeth.set(ax, m);
     }
     const nameOf = (ax: number, code: number) => nmeth.get(ax)?.get(code) ?? '';
-    const powerOf = (i: number) => powerOfAiro(T[i * stride + AX.airoRole]);
+    // adjacency (undirected) + directed degree over the rendered entity edges —
+    // the SOCIAL power reading. The backdoor-networker (Epstein) has no AIRO role;
+    // his power is GRAPH POSITION: he brokers between otherwise-separate clusters.
+    const adj = new Map<number, Set<number>>();
+    const outDeg = new Map<number, number>();
+    const inDeg = new Map<number, number>();
+    for (const e of view.semantic) {
+      let a = adj.get(e.s);
+      if (!a) {
+        a = new Set();
+        adj.set(e.s, a);
+      }
+      a.add(e.t);
+      let b = adj.get(e.t);
+      if (!b) {
+        b = new Set();
+        adj.set(e.t, b);
+      }
+      b.add(e.s);
+      outDeg.set(e.s, (outDeg.get(e.s) ?? 0) + 1);
+      inDeg.set(e.t, (inDeg.get(e.t) ?? 0) + 1);
+    }
+    // Burt structural-hole brokerage: degree × openness (neighbours that DON'T
+    // know each other). High = a node bridging distinct power circles — the
+    // backdoor-networking platform ("empower others to control", P4).
+    const brkCache = new Map<number, number>();
+    const brokerage = (i: number): number => {
+      const c = brkCache.get(i);
+      if (c !== undefined) return c;
+      const nb = adj.get(i);
+      let v = 0;
+      if (nb && nb.size >= 2) {
+        const arr = [...nb];
+        const cap = Math.min(arr.length, 24); // bound the O(d²) pair scan
+        let links = 0;
+        let pairs = 0;
+        for (let x = 0; x < cap; x++) {
+          for (let y = x + 1; y < cap; y++) {
+            pairs += 1;
+            if (adj.get(arr[x])?.has(arr[y])) links += 1;
+          }
+        }
+        const cc = pairs ? links / pairs : 0;
+        v = nb.size * (1 - cc);
+      }
+      brkCache.set(i, v);
+      return v;
+    };
+    // Person(2)/Stakeholder(1) power from graph POSITION; AI actors from airo:type.
+    const powerOfActor = (i: number): number => {
+      const brk = brokerage(i);
+      const o = outDeg.get(i) ?? 0;
+      const inn = inDeg.get(i) ?? 0;
+      if (brk >= 6 && (adj.get(i)?.size ?? 0) >= 4) return 4; // P4 backdoor platform (broker)
+      if (o > inn * 1.5 && o >= 3) return 3; // P3 controls others (out-edges)
+      if (inn > o * 1.5 && inn >= 2) return 1; // P1 consumed from (in-edges)
+      return 0; // affiliation / peripheral
+    };
+    // combined: an AIRO actor role wins; else a social actor reads from position.
+    const powerOf = (i: number): number => {
+      const airo = T[i * stride + AX.airoRole];
+      if (airo) return powerOfAiro(airo);
+      const c = soa.cls[i];
+      return c === 1 || c === 2 ? powerOfActor(i) : 0;
+    };
     const motiveOf = (i: number): number => {
       if (powerOf(i) > 0) return 0; // nPow is carried by the power level
       const txt = [
@@ -1165,7 +1244,15 @@ export function OsintGraph() {
       const d = capDiv.get(T[i * stride + AX.capacity]);
       if (d != null) nodeDiv.set(i, d);
     });
-    return { rows, nodeDiv };
+    // the P4 backdoor-networking platforms — Person/Stakeholder brokers, ranked by
+    // structural-hole brokerage. This is the Epstein archetype the model exists to
+    // explain: power as being the connective tissue between power circles.
+    const brokers = Array.from(view.touched)
+      .filter((i) => (soa.cls[i] === 1 || soa.cls[i] === 2) && powerOfActor(i) === 4)
+      .map((i) => ({ label: soa.labels[i] || `#${i}`, brk: brokerage(i) }))
+      .sort((a, b) => b.brk - a.brk)
+      .slice(0, 8);
+    return { rows, nodeDiv, brokers };
   }, [soa, view]);
 
   const lensChip = (i: number): CSSProperties => ({
