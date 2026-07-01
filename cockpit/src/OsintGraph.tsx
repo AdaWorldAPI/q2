@@ -928,7 +928,14 @@ export function OsintGraph() {
     // builds to prove the harm the companies deny. The PERSON is the trait
     // (POWER_LEVEL from airo:type, else the McClelland motive) reasoned against it:
     // the divergence is trait-driven, not incidental to a "neutral" dual-use.
-    const lines = duModel.rows.slice(0, 40).map((r) => {
+    // P4 backdoor-networking platforms first (the Epstein archetype — power as
+    // brokerage between circles), then the per-capability causal chains.
+    const brokerLines = duModel.brokers.map((b) => ({
+      text: `◆ P4 backdoor platform · ${b.label} — broker ${b.brk.toFixed(1)} (empowers others to control)`,
+      conf: 1,
+      survived: true,
+    }));
+    const chainLines = duModel.rows.slice(0, 40).map((r) => {
       const trait = r.pow ? POWER_LEVEL[r.pow] : r.motive >= 0 ? MOTIVE[r.motive] : '—';
       return {
         text: `${r.label} → [mil ${r.mil}/civ ${r.civ}] → ${r.expl || '—'} ⟹ ${r.impl || '—'}  │  ${trait}`,
@@ -936,6 +943,7 @@ export function OsintGraph() {
         survived: r.divergence >= 0.5,
       };
     });
+    const lines = [...brokerLines, ...chainLines];
     // Person→Situation attribution: how much of the high-divergence (the situational
     // intent→impact drift) is carried by a power trait (P3/P4 or nPow). High % = the
     // harm is trait-driven — the causal chain the "can't prove it's harmful" defense denies.
@@ -1051,7 +1059,71 @@ export function OsintGraph() {
       nmeth.set(ax, m);
     }
     const nameOf = (ax: number, code: number) => nmeth.get(ax)?.get(code) ?? '';
-    const powerOf = (i: number) => powerOfAiro(T[i * stride + AX.airoRole]);
+    // adjacency (undirected) + directed degree over the rendered entity edges —
+    // the SOCIAL power reading. The backdoor-networker (Epstein) has no AIRO role;
+    // his power is GRAPH POSITION: he brokers between otherwise-separate clusters.
+    const adj = new Map<number, Set<number>>();
+    const outDeg = new Map<number, number>();
+    const inDeg = new Map<number, number>();
+    for (const e of view.semantic) {
+      let a = adj.get(e.s);
+      if (!a) {
+        a = new Set();
+        adj.set(e.s, a);
+      }
+      a.add(e.t);
+      let b = adj.get(e.t);
+      if (!b) {
+        b = new Set();
+        adj.set(e.t, b);
+      }
+      b.add(e.s);
+      outDeg.set(e.s, (outDeg.get(e.s) ?? 0) + 1);
+      inDeg.set(e.t, (inDeg.get(e.t) ?? 0) + 1);
+    }
+    // Burt structural-hole brokerage: degree × openness (neighbours that DON'T
+    // know each other). High = a node bridging distinct power circles — the
+    // backdoor-networking platform ("empower others to control", P4).
+    const brkCache = new Map<number, number>();
+    const brokerage = (i: number): number => {
+      const c = brkCache.get(i);
+      if (c !== undefined) return c;
+      const nb = adj.get(i);
+      let v = 0;
+      if (nb && nb.size >= 2) {
+        const arr = [...nb];
+        const cap = Math.min(arr.length, 24); // bound the O(d²) pair scan
+        let links = 0;
+        let pairs = 0;
+        for (let x = 0; x < cap; x++) {
+          for (let y = x + 1; y < cap; y++) {
+            pairs += 1;
+            if (adj.get(arr[x])?.has(arr[y])) links += 1;
+          }
+        }
+        const cc = pairs ? links / pairs : 0;
+        v = nb.size * (1 - cc);
+      }
+      brkCache.set(i, v);
+      return v;
+    };
+    // Person(2)/Stakeholder(1) power from graph POSITION; AI actors from airo:type.
+    const powerOfActor = (i: number): number => {
+      const brk = brokerage(i);
+      const o = outDeg.get(i) ?? 0;
+      const inn = inDeg.get(i) ?? 0;
+      if (brk >= 6 && (adj.get(i)?.size ?? 0) >= 4) return 4; // P4 backdoor platform (broker)
+      if (o > inn * 1.5 && o >= 3) return 3; // P3 controls others (out-edges)
+      if (inn > o * 1.5 && inn >= 2) return 1; // P1 consumed from (in-edges)
+      return 0; // affiliation / peripheral
+    };
+    // combined: an AIRO actor role wins; else a social actor reads from position.
+    const powerOf = (i: number): number => {
+      const airo = T[i * stride + AX.airoRole];
+      if (airo) return powerOfAiro(airo);
+      const c = soa.cls[i];
+      return c === 1 || c === 2 ? powerOfActor(i) : 0;
+    };
     const motiveOf = (i: number): number => {
       if (powerOf(i) > 0) return 0; // nPow is carried by the power level
       const txt = [
@@ -1172,7 +1244,15 @@ export function OsintGraph() {
       const d = capDiv.get(T[i * stride + AX.capacity]);
       if (d != null) nodeDiv.set(i, d);
     });
-    return { rows, nodeDiv };
+    // the P4 backdoor-networking platforms — Person/Stakeholder brokers, ranked by
+    // structural-hole brokerage. This is the Epstein archetype the model exists to
+    // explain: power as being the connective tissue between power circles.
+    const brokers = Array.from(view.touched)
+      .filter((i) => (soa.cls[i] === 1 || soa.cls[i] === 2) && powerOfActor(i) === 4)
+      .map((i) => ({ label: soa.labels[i] || `#${i}`, brk: brokerage(i) }))
+      .sort((a, b) => b.brk - a.brk)
+      .slice(0, 8);
+    return { rows, nodeDiv, brokers };
   }, [soa, view]);
 
   const lensChip = (i: number): CSSProperties => ({
