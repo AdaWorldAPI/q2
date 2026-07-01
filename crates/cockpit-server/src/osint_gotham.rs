@@ -1136,13 +1136,26 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         push_label(&mut labels, nm);
     }
 
-    let mut out = Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len());
+    // tenant tail (OSO1 additive): node_count × 11 facet bytes = value[1..=11], the
+    // dual-use dimensions carried ON each node (militaryUse..stakeholder). This is
+    // what lets the client filter/colour by any facet PREFIX without a schema node
+    // — explicit-prefix retrieval, no property-as-node hub. Old readers stop after
+    // the labels; new readers consume this tail (11-wide; a legacy 6-wide asset is
+    // still decodable — the client picks the stride that fits).
+    let mut tenants: Vec<u8> = Vec::with_capacity(node_count * FACET_STAKEHOLDER);
+    for r in &rows {
+        tenants.extend_from_slice(&r.value[1..=FACET_STAKEHOLDER]);
+    }
+
+    let mut out =
+        Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len() + tenants.len());
     out.extend_from_slice(&OSINT_SOA_MAGIC);
     out.extend_from_slice(&(node_count as u32).to_le_bytes());
     out.extend_from_slice(&(edge_count as u32).to_le_bytes());
     out.extend_from_slice(&nodes);
     out.extend_from_slice(&edges);
     out.extend_from_slice(&labels);
+    out.extend_from_slice(&tenants);
     out
 }
 
