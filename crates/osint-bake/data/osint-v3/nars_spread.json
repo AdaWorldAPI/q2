@@ -1,0 +1,26 @@
+{
+ "seed": "AnthropicBan",
+ "theories": [
+  {
+   "s": "AnthropicBan",
+   "p": "output",
+   "o": "Decision",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "s": "AnthropicBan",
+   "p": "stakeholder",
+   "o": "TechCompany",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "s": "AnthropicBan",
+   "p": "airo_type",
+   "o": "AIProvider",
+   "f": 0.9,
+   "c": 0.45
+  }
+ ]
+}
