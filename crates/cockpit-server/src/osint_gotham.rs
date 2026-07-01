@@ -111,7 +111,7 @@ fn label_of_order(order: u8) -> &'static str {
 const FACET_MILITARY: usize = 1; // militaryUse — primary token, u8 code
 const FACET_CIVIC: usize = 2; // civicUse    — primary token, u8 code
 const FACET_AIRO_ROLE: usize = 3; // airo:type   — u8 bitset (compound)
-const FACET_MLTYPE: usize = 4; // MLTask/MLTasks primary token, u8 code
+const FACET_MLTASK: usize = 4; // MLTask/MLTasks (the NEED) primary token, u8 code
 const FACET_PURPOSE: usize = 5; // purpose / purpose:vair — u8 code
 const FACET_CAPACITY: usize = 6; // capacity / capacity:airo — u8 code
 // V3 6×(8:8) completion (bytes 7..=11) — the six AIRO/VAIR dimensions the
@@ -429,7 +429,7 @@ fn write_facet_tenant(value: &mut [u8; 480], props: &HashMap<String, Value>) {
         value[FACET_AIRO_ROLE] = airo_role_bits(v);
     }
     if let Some(v) = s("MLTask").or_else(|| s("MLTasks")) {
-        value[FACET_MLTYPE] = facet_code(ML_TYPE, v);
+        value[FACET_MLTASK] = facet_code(ML_TYPE, v);
     }
     if let Some(v) = s("purpose").or_else(|| s("purpose:vair")) {
         value[FACET_PURPOSE] = facet_code(PURPOSE_VAIR, v);
@@ -980,7 +980,7 @@ fn push_edge(buf: &mut Vec<u8>, s: usize, t: usize, rel: u8) {
 const REL_FACET_MILITARY: u8 = 10;
 const REL_FACET_CIVIC: u8 = 11;
 const REL_FACET_AIRO: u8 = 12;
-const REL_FACET_MLTYPE: u8 = 13;
+const REL_FACET_MLTASK: u8 = 13;
 const REL_FACET_PURPOSE: u8 = 14;
 const REL_FACET_CAPACITY: u8 = 15;
 // V3 6×(8:8) completion — the remaining stacked dimensions as traversable facet
@@ -998,7 +998,7 @@ const FACET_AXES: &[(&[&str], u8)] = &[
     (&["militaryUse"], REL_FACET_MILITARY),
     (&["civicUse"], REL_FACET_CIVIC),
     (&["airo:type"], REL_FACET_AIRO),
-    (&["MLTask", "MLTasks"], REL_FACET_MLTYPE),
+    (&["MLTask", "MLTasks"], REL_FACET_MLTASK),
     (&["purpose", "purpose:vair"], REL_FACET_PURPOSE),
     (&["capacity", "capacity:airo"], REL_FACET_CAPACITY),
     (&["currentStatus", "currentStatus:airo"], REL_FACET_STATUS),
@@ -1298,7 +1298,7 @@ mod tests {
         // civicUse primary token "RecommenderSystem" coded; the compound second
         // token is dropped at v1.
         assert_ne!(lv[FACET_CIVIC], 0, "civicUse primary token coded");
-        assert_ne!(lv[FACET_MLTYPE], 0, "MLTask coded");
+        assert_ne!(lv[FACET_MLTASK], 0, "MLTask coded");
         assert_ne!(lv[FACET_PURPOSE], 0, "purpose coded");
         assert_ne!(lv[FACET_CAPACITY], 0, "capacity coded");
         assert_eq!(lv[FACET_AIRO_ROLE], 0, "a System carries no AIRO actor role");

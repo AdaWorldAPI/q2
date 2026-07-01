@@ -49,7 +49,7 @@ const ANGLES: Array<{ name: string; cls: number }> = [
 const REL_NAME = [
   'member-of', 'interfaces', 'CONNECTED_TO', 'DEVELOPED_BY', 'DEPLOYED_BY',
   'PERSON_LINK', 'USED_IN', 'HIERARCHICAL', 'VALID_FOR', 'related',
-  'militaryUse', 'civicUse', 'airo:type', 'MLType', 'purpose', 'capacity',
+  'militaryUse', 'civicUse', 'airo:type', 'MLTask', 'purpose', 'capacity',
 ];
 const REL_COLOR = [
   '#4a6a8c', '#3f5a78', '#4dd0e1', '#ffb547', '#35d07f',
@@ -65,7 +65,7 @@ const isFacetRel = (r: number) => r === 8 || (r >= 10 && r <= 15);
 // value byte = 1 + axis index. Order MUST match FACET_AXES / REL_FACET_* in
 // osint_gotham.rs. The first 6 are the original dual-use pairs; 7..11 the enrichment.
 const FACET_AXES_UI = [
-  'militaryUse', 'civicUse', 'airo:type', 'MLType', 'purpose', 'capacity',
+  'militaryUse', 'civicUse', 'airo:type', 'MLTask', 'purpose', 'capacity',
   'currentStatus', 'type', 'output', 'impact', 'stakeholder',
 ];
 
@@ -74,7 +74,7 @@ const FACET_AXES_UI = [
 //   DEMAND    = offer ⟷ need     (does supply meet demand)
 //   CAUSALITY = intent ⟷ impact  (how far the outcome drifted from the goal → divergence)
 const AX = {
-  militaryUse: 0, civicUse: 1, airoRole: 2, mlType: 3, purpose: 4,
+  militaryUse: 0, civicUse: 1, airoRole: 2, mlTask: 3, purpose: 4,
   capacity: 5, currentStatus: 6, type: 7, output: 8, impact: 9, stakeholder: 10,
 };
 // McClelland motive — and its adjacency to Freud's developmental gradient.
