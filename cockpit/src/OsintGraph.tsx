@@ -77,25 +77,32 @@ const AX = {
   militaryUse: 0, civicUse: 1, airoRole: 2, mlTask: 3, purpose: 4,
   capacity: 5, currentStatus: 6, type: 7, output: 8, impact: 9, stakeholder: 10,
 };
-// McClelland motive — and its adjacency to Freud's developmental gradient.
-// demand (need) and intent are INHERENT in the motive: the motive is the source
-// of both reasoning axes. The POWER motive (nPow) isn't flat — it's a 4-level
-// control-directionality scale (Freud's psychosexual stages), and it sits
-// ADJACENT to airo:type: the actor role IS the power level.
-//   P1 Oral    "consume from others to myself"   → extraction        (the consumed = AISubject)
-//   P2 Anal    "control myself"                  → self-control      (internal systems)
-//   P3 Phallic "control OTHERS"                  → AIDeployer/AIOperator (fields the tool)
-//   P4 Genital "empower OTHERS to control others"→ AIDeveloper/AIProvider/AISupplier (builds it)
+// McClelland's nPow motive — with the 4-level developmental POWER gradient
+// (Freud's psychosexual stages; taught in Falko Rheinberg's Potsdam motivation
+// lectures). demand (need) and intent are INHERENT in the motive. The gradient
+// is a control-directionality ladder, ADJACENT to airo:type — the actor role IS
+// the power level. ALL FOUR levels are reachable:
+//   P1 Oral    "I consume from others to myself"          → AISubject (the consumed end)
+//   P2 Anal    "I control myself"                         → AIOperator (controls the operation itself)
+//   P3 Phallic "I control others"                         → AIDeployer (fields the tool AT others)
+//   P4 Genital "I empower others/stakeholders to control" → AIDeveloper/AIProvider/AISupplier (builds/supplies it)
 // airo:type bits: 0=Subject(1) 1=Deployer(2) 2=Developer(4) 3=Provider(8)
 // 4=Operator(16) 5=Supplier(32).
 const MOTIVE = ['nPow', 'nAch', 'nAff'];
-const POWER_LEVEL = ['—', 'P1·oral·consume', 'P2·anal·self', 'P3·phallic·control-others', 'P4·genital·empower'];
-// Power level (0..4) read straight from the airo:type bitset — the adjacency.
+const POWER_LEVEL = [
+  '—',
+  'P1·oral·consume from others',
+  'P2·anal·control myself',
+  'P3·phallic·control others',
+  'P4·genital·empower others to control',
+];
+// Power level (0..4) from the airo:type bitset — the adjacency, all four levels.
 // The boomerang (Deployer ∧ Subject) is P3 that has become P1's object.
 const powerOfAiro = (bits: number): number => {
-  if (bits & (4 | 8 | 32)) return 4; // Developer | Provider | Supplier — empower others
-  if (bits & (2 | 16)) return 3; // Deployer | Operator — control others
-  if (bits & 1) return 1; // Subject — the consumed
+  if (bits & (4 | 8 | 32)) return 4; // Developer | Provider | Supplier — empower others to control
+  if (bits & 2) return 3; // Deployer — control others (fields the tool at them)
+  if (bits & 16) return 2; // Operator — control the operation itself (self-control)
+  if (bits & 1) return 1; // Subject — consumed from
   return 0;
 };
 // nAch / nAff still come from the intent/use LABELS (keyword heuristic); nPow is
