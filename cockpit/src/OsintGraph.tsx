@@ -68,6 +68,44 @@ const FACET_AXES_UI = [
   'militaryUse', 'civicUse', 'airo:type', 'MLType', 'purpose', 'capacity',
   'currentStatus', 'type', 'output', 'impact', 'stakeholder',
 ];
+
+// ── Semantic typing of the 12-item mask (tenant index = value byte − 1) ───────
+// Reasoning measures DISTANCE along two ORTHOGONAL axes, never materialised:
+//   DEMAND    = offer ⟷ need     (does supply meet demand)
+//   CAUSALITY = intent ⟷ impact  (how far the outcome drifted from the goal → divergence)
+const AX = {
+  militaryUse: 0, civicUse: 1, airoRole: 2, mlType: 3, purpose: 4,
+  capacity: 5, currentStatus: 6, type: 7, output: 8, impact: 9, stakeholder: 10,
+};
+// McClelland motive — and its adjacency to Freud's developmental gradient.
+// demand (need) and intent are INHERENT in the motive: the motive is the source
+// of both reasoning axes. The POWER motive (nPow) isn't flat — it's a 4-level
+// control-directionality scale (Freud's psychosexual stages), and it sits
+// ADJACENT to airo:type: the actor role IS the power level.
+//   P1 Oral    "consume from others to myself"   → extraction        (the consumed = AISubject)
+//   P2 Anal    "control myself"                  → self-control      (internal systems)
+//   P3 Phallic "control OTHERS"                  → AIDeployer/AIOperator (fields the tool)
+//   P4 Genital "empower OTHERS to control others"→ AIDeveloper/AIProvider/AISupplier (builds it)
+// airo:type bits: 0=Subject(1) 1=Deployer(2) 2=Developer(4) 3=Provider(8)
+// 4=Operator(16) 5=Supplier(32).
+const MOTIVE = ['nPow', 'nAch', 'nAff'];
+const POWER_LEVEL = ['—', 'P1·oral·consume', 'P2·anal·self', 'P3·phallic·control-others', 'P4·genital·empower'];
+// Power level (0..4) read straight from the airo:type bitset — the adjacency.
+// The boomerang (Deployer ∧ Subject) is P3 that has become P1's object.
+const powerOfAiro = (bits: number): number => {
+  if (bits & (4 | 8 | 32)) return 4; // Developer | Provider | Supplier — empower others
+  if (bits & (2 | 16)) return 3; // Deployer | Operator — control others
+  if (bits & 1) return 1; // Subject — the consumed
+  return 0;
+};
+// nAch / nAff still come from the intent/use LABELS (keyword heuristic); nPow is
+// carried by the power level above.
+const MOTIVE_KEYS = [
+  /risk|offend|criminal|detect|monitor|surveil|control|identif|backgroundcheck|lie|privacy|freedom|power|escalat|policy|weapon|command|intel|target/i,
+  /evaluat|candidate|performance|predict|mapping|recommend|assess|optimi|rank|classif|generat|research|achiev/i,
+  /advertis|social|welfare|assist|chat|consumer|market|delivery|smart|game|connect|translat|affili/i,
+];
+
 // categorical palette for facet codes (code 0 = absent → dim slate).
 const FACET_PALETTE = [
   '#4dd0e1', '#ffb547', '#35d07f', '#9b8cff', '#ff637d', '#c792ea',
@@ -128,6 +166,7 @@ interface GraphApi {
   setDims: (show: boolean) => void;
   setFacet: (axis: number | null) => void;
   setPropFilter: (keys: Set<string>) => number; // → count of surviving nodes
+  heatNodes: (heat: Map<number, number> | null) => void; // divergence heat overlay
 }
 
 // Decode the OSO1 wire: magic(4) | nodeCount u32 | edgeCount u32 |
@@ -351,7 +390,7 @@ export function OsintGraph() {
   const [readout, setReadout] = useState<Readout | null>(null);
   const [search, setSearch] = useState('');
   const [angle, setAngle] = useState<number | null>(null);
-  const [showDims, setShowDims] = useState(true);
+  const showDims = true; // dimension-layer scaffold is inert now (schema nodes de-rendered)
   // active facet lens (0..N = a FACET_AXES_UI axis, or null = colour by class).
   const [facetAxis, setFacetAxis] = useState<number | null>(null);
   // property FILTER: selected "axis:code" keys — a node survives if, for every axis
@@ -360,6 +399,7 @@ export function OsintGraph() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const selectedRef = useRef<Set<string>>(selected); // mirror for the build closures
   const [openAxis, setOpenAxis] = useState<number | null>(null); // expanded palette axis
+  const [divOn, setDivOn] = useState(false); // dual-use divergence lens active
 
   // Fetch + decode the SoA once.
   useEffect(() => {
@@ -774,6 +814,28 @@ export function OsintGraph() {
       );
       return match.size;
     };
+    // heat overlay: colour each touched node by a [0,1] score (null = restore to
+    // base). Used by the dual-use divergence lens — the causality distance of the
+    // capability the node offers, painted cool→hot.
+    const heatNodes = (heat: Map<number, number> | null) => {
+      const ids = Array.from(touched);
+      if (!heat) {
+        visNodes.update(ids.map(baseNode));
+        return;
+      }
+      visNodes.update(
+        ids.map((i) => {
+          const t = heat.get(i);
+          if (t == null) return { id: i, color: DIM_NODE, font: { color: '#4a5766' } };
+          const col = `rgb(${Math.round(70 + 185 * t)},${Math.round(205 - 155 * t)},${Math.round(255 - 210 * t)})`;
+          return {
+            id: i,
+            color: { background: 'rgba(10,14,23,0.92)', border: col },
+            font: { color: '#eaf4ff' },
+          };
+        }),
+      );
+    };
     // apply the current toggle/lens/filter state on (re)build — covers a control
     // that landed before the network (and apiRef) existed, so nothing desyncs.
     setDims(showDims);
@@ -808,6 +870,7 @@ export function OsintGraph() {
       setDims,
       setFacet,
       setPropFilter: applyPropFilter,
+      heatNodes,
     };
 
     net.on('click', (params: { nodes: unknown[] }) => {
@@ -834,12 +897,39 @@ export function OsintGraph() {
   };
   const clearReason = () => {
     setAngle(null);
+    setDivOn(false);
+    apiRef.current?.heatNodes(null);
     apiRef.current?.clear();
   };
-  const toggleDims = () => {
-    const next = !showDims;
-    setShowDims(next);
-    apiRef.current?.setDims(next);
+  // dual-use divergence lens: paint every node by the causality distance of the
+  // capability it offers, and stream the ranked capabilities (demand fork ·
+  // Δimpact · power level · motive) into the readout. Toggle off to restore.
+  const fireDivergence = () => {
+    if (divOn) {
+      setDivOn(false);
+      apiRef.current?.heatNodes(null);
+      setReadout(null);
+      return;
+    }
+    if (!duModel) return;
+    setDivOn(true);
+    setAngle(null);
+    apiRef.current?.heatNodes(duModel.nodeDiv);
+    const lines = duModel.rows.slice(0, 40).map((r) => ({
+      text: `${r.label} · mil ${r.mil}/civ ${r.civ} · Δimpact ${r.jac.toFixed(2)}${
+        r.pow ? ` · ${POWER_LEVEL[r.pow]}` : ''
+      }${r.motive >= 0 ? ` · ${MOTIVE[r.motive]}` : ''}`,
+      conf: r.divergence,
+      survived: r.divergence >= 0.5,
+    }));
+    const hi = duModel.rows.filter((r) => r.divergence >= 0.5);
+    const macht = hi.length ? hi.filter((r) => r.motive === 0 || r.pow >= 3).length / hi.length : 0;
+    setReadout({
+      seed: `dual-use divergence · Macht-adjacency ${Math.round(macht * 100)}%`,
+      kind: 'spread',
+      lines,
+      theories: hi.length,
+    });
   };
   const toggleFacet = (axis: number) => {
     const next = facetAxis === axis ? null : axis;
@@ -918,6 +1008,114 @@ export function OsintGraph() {
     });
     return n;
   }, [soa, selected, view]);
+
+  // dual-use reasoning model — the two orthogonal distances + the McClelland/Freud
+  // power flow, all measured over the tenant (nothing materialised).
+  //   CAUSALITY distance = intent→impact drift, per capability = the divergence,
+  //     computed as the Jaccard distance of the impact sets between the militaryUse
+  //     branch and the civicUse branch of the SAME offer (the shared pivot).
+  //   DEMAND fork = mil vs civ count for that offer.
+  //   POWER level = airo:type bits (Freud gradient), the adjacency to nPow.
+  const duModel = useMemo(() => {
+    if (!soa || !soa.tenants || !soa.tenantStride || !view) return null;
+    const T = soa.tenants;
+    const stride = soa.tenantStride;
+    // naming per axis (code → label) from the facet edges still in the wire.
+    const nmeth = new Map<number, Map<number, string>>();
+    for (let ax = 0; ax < Math.min(stride, FACET_AXES_UI.length); ax++) {
+      const m = new Map<number, string>();
+      const rel = 10 + ax;
+      for (const e of soa.edges) {
+        if (e.r === rel && e.s < soa.nodeCount && e.t < soa.nodeCount) {
+          const code = T[e.s * stride + ax];
+          if (code && !m.has(code)) m.set(code, soa.labels[e.t] || `code ${code}`);
+        }
+      }
+      nmeth.set(ax, m);
+    }
+    const nameOf = (ax: number, code: number) => nmeth.get(ax)?.get(code) ?? '';
+    const powerOf = (i: number) => powerOfAiro(T[i * stride + AX.airoRole]);
+    const motiveOf = (i: number): number => {
+      if (powerOf(i) > 0) return 0; // nPow is carried by the power level
+      const txt = [
+        nameOf(AX.purpose, T[i * stride + AX.purpose]),
+        nameOf(AX.militaryUse, T[i * stride + AX.militaryUse]),
+        nameOf(AX.civicUse, T[i * stride + AX.civicUse]),
+        nameOf(AX.impact, T[i * stride + AX.impact]),
+      ].join(' ');
+      let best = -1;
+      let hi = 0;
+      MOTIVE_KEYS.forEach((re, mi) => {
+        const c = (txt.match(re) || []).length;
+        if (c > hi) {
+          hi = c;
+          best = mi;
+        }
+      });
+      return best;
+    };
+    const byCap = new Map<
+      number,
+      { mil: Set<number>; civ: Set<number>; milImp: Set<number>; civImp: Set<number>; pow: number[]; mot: Map<number, number> }
+    >();
+    view.touched.forEach((i) => {
+      const c = T[i * stride + AX.capacity];
+      if (!c) return;
+      const mil = T[i * stride + AX.militaryUse] !== 0;
+      const civ = T[i * stride + AX.civicUse] !== 0;
+      if (!mil && !civ) return;
+      let r = byCap.get(c);
+      if (!r) {
+        r = { mil: new Set(), civ: new Set(), milImp: new Set(), civImp: new Set(), pow: [], mot: new Map() };
+        byCap.set(c, r);
+      }
+      const imp = T[i * stride + AX.impact];
+      if (mil) {
+        r.mil.add(i);
+        if (imp) r.milImp.add(imp);
+      }
+      if (civ) {
+        r.civ.add(i);
+        if (imp) r.civImp.add(imp);
+      }
+      const p = powerOf(i);
+      if (p) r.pow.push(p);
+      const mo = motiveOf(i);
+      if (mo >= 0) r.mot.set(mo, (r.mot.get(mo) ?? 0) + 1);
+    });
+    let rows = Array.from(byCap.entries())
+      .map(([code, r]) => {
+        const mil = r.mil.size;
+        const civ = r.civ.size;
+        const forked = mil > 0 && civ > 0;
+        const balance = forked ? Math.min(mil, civ) / Math.max(mil, civ) : 0;
+        const uni = new Set<number>([...r.milImp, ...r.civImp]);
+        const inter = [...r.milImp].filter((x) => r.civImp.has(x)).length;
+        const jac = uni.size ? 1 - inter / uni.size : 0; // causality distance
+        const divergence = forked ? balance * (0.4 + 0.6 * jac) : 0;
+        const pow = r.pow.length ? Math.round(r.pow.reduce((a, b) => a + b, 0) / r.pow.length) : 0;
+        let dom = -1;
+        let dv = 0;
+        r.mot.forEach((n, m) => {
+          if (n > dv) {
+            dv = n;
+            dom = m;
+          }
+        });
+        return { code, label: nameOf(AX.capacity, code) || `cap ${code}`, mil, civ, jac, divergence, pow, motive: dom };
+      })
+      .filter((r) => r.divergence > 0);
+    const max = rows.reduce((m, r) => Math.max(m, r.divergence), 0) || 1;
+    rows = rows.map((r) => ({ ...r, divergence: r.divergence / max })).sort((a, b) => b.divergence - a.divergence);
+    const capDiv = new Map<number, number>();
+    rows.forEach((r) => capDiv.set(r.code, r.divergence));
+    const nodeDiv = new Map<number, number>();
+    view.touched.forEach((i) => {
+      const d = capDiv.get(T[i * stride + AX.capacity]);
+      if (d != null) nodeDiv.set(i, d);
+    });
+    return { rows, nodeDiv };
+  }, [soa, view]);
 
   const lensChip = (i: number): CSSProperties => ({
     fontFamily: 'monospace',
@@ -1015,21 +1213,21 @@ export function OsintGraph() {
             </button>
           ))}
           <button
-            onClick={toggleDims}
-            title="show/hide the dimension layer — militaryUse · civicUse · airo:type · MLType · purpose · capacity"
+            onClick={fireDivergence}
+            title="dual-use divergence — the CAUSALITY distance (intent→impact drift) across the militaryUse/civicUse fork of each shared capability, with the McClelland/Freud power flow (P1 consume · P3 control-others · P4 empower)"
             style={{
               fontFamily: 'monospace',
               fontSize: 11,
-              color: showDims ? '#0a0e17' : '#9fb4c8',
-              background: showDims ? '#c792ea' : 'rgba(17,32,48,0.6)',
-              border: '1px solid #c792ea',
+              color: divOn ? '#0a0e17' : '#ffb0a0',
+              background: divOn ? '#ff8f6a' : 'rgba(17,32,48,0.6)',
+              border: '1px solid #ff8f6a',
               borderRadius: 6,
               padding: '5px 9px',
               cursor: 'pointer',
-              fontWeight: showDims ? 700 : 400,
+              fontWeight: divOn ? 700 : 400,
             }}
           >
-            ◇ dimensions
+            ◆ dual-use
           </button>
           {readout && (
             <button
