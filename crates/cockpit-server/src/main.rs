@@ -51,17 +51,57 @@ use include_dir::{include_dir, Dir};
 #[cfg(feature = "embed-cockpit")]
 static COCKPIT_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../cockpit/dist");
 
-/// Pre-baked enriched OSINT SoA wire buffer (`osint_gotham::osint_soa_bytes`,
-/// baked offline via the `bake_osint_soa` test). Served at `/osint.soa` and
-/// decoded to a 3D scene client-side — no cypher at runtime, no JSON.
-static OSINT_SOA: &[u8] =
+/// Committed fallback OSINT SoA (used only if the harvest graph isn't on disk).
+static OSINT_SOA_FALLBACK: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/osint_scene.soa"));
 
-/// Serve the pre-baked OSINT SoA as raw bytes (octet-stream) for `/osint3d`.
+/// OSINT SoA wire buffer, **baked at startup from the on-disk enriched harvest**
+/// (`osint_gotham::osint_soa_bytes`) so the served 3D scene reflects the CURRENT
+/// `aiwar_graph.json` — the full 11-dim V3 stacked cascade (militaryUse:civicUse,
+/// MLTask:MLType, purpose:capacity, output:impact, currentStatus:type,
+/// stakeholder:airo:type), not a stale pre-bake. Falls back to the committed
+/// asset when the harvest is absent (e.g. a minimal image). One-time init.
+static OSINT_SOA: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
+    let candidates = [
+        // Anchored on the crate dir (baked at build) so it resolves regardless
+        // of the runtime cwd Railway launches from.
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../cockpit/public/aiwar_graph.json"),
+        "cockpit/public/aiwar_graph.json",
+        "/home/user/aiwar-neo4j-harvest/data/aiwar_graph.json",
+        "../aiwar-neo4j-harvest/data/aiwar_graph.json",
+    ];
+    let Some(path) = candidates.iter().find(|p| std::path::Path::new(p).exists()) else {
+        tracing::warn!("osint: no aiwar_graph.json on disk — serving committed fallback asset");
+        return OSINT_SOA_FALLBACK.to_vec();
+    };
+    let cypher = std::path::Path::new(path)
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|r| r.join("cypher"));
+    let graph = match &cypher {
+        Some(d) if d.is_dir() => aiwar_ingest::load_with_enrichment(path, d),
+        _ => aiwar_ingest::load_from_file(path),
+    };
+    let Ok(graph) = graph else {
+        tracing::warn!("osint: harvest at {path} failed to load — serving fallback asset");
+        return OSINT_SOA_FALLBACK.to_vec();
+    };
+    let rounds = cypher
+        .as_ref()
+        .and_then(|d| aiwar_ingest::encounter_round::load_encounter_rounds(d).ok())
+        .unwrap_or_default();
+    tracing::info!(
+        "osint: baked {} nodes from {path} (11-dim V3 stacked cascade)",
+        graph.nodes.len()
+    );
+    osint_gotham::osint_soa_bytes(&graph, &rounds)
+});
+
+/// Serve the baked OSINT SoA as raw bytes (octet-stream) for `/osint3d`.
 async fn osint_soa_handler() -> impl axum::response::IntoResponse {
     (
         [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
-        OSINT_SOA,
+        OSINT_SOA.as_slice(),
     )
 }
 

@@ -114,6 +114,16 @@ const FACET_AIRO_ROLE: usize = 3; // airo:type   — u8 bitset (compound)
 const FACET_MLTYPE: usize = 4; // MLTask/MLTasks primary token, u8 code
 const FACET_PURPOSE: usize = 5; // purpose / purpose:vair — u8 code
 const FACET_CAPACITY: usize = 6; // capacity / capacity:airo — u8 code
+// V3 6×(8:8) completion (bytes 7..=11) — the six AIRO/VAIR dimensions the
+// original 1..=6 tenant left unstacked. Additive: byte offsets 1..=6 are
+// unchanged (client + committed asset stay compatible); these complete the
+// stacked cascade so every used property is a hot, groupable value tenant —
+// HEEL currentStatus:type · family output:impact · identity stakeholder:airo.
+const FACET_STATUS: usize = 7; // currentStatus — lifecycle stage, u8 code
+const FACET_TYPE: usize = 8; // type          — system/actor class, u8 code
+const FACET_OUTPUT: usize = 9; // output:airo   — u8 code
+const FACET_IMPACT: usize = 10; // impact:vair   — primary harm token, u8 code
+const FACET_STAKEHOLDER: usize = 11; // stakeholder — owning actor class, u8 code
 
 /// `airo:type` actor roles in bit order. The four canonical AIRO players plus
 /// the two rare variants the harvest carries; the game-theory structure is
@@ -275,6 +285,107 @@ const CAPACITY_AIRO: &[&str] = &[
     "SignalTracking",
 ];
 
+/// `currentStatus:airo` lifecycle stage (aiwc.ods column ∪ actor states).
+const CURRENT_STATUS: &[&str] = &[
+    "Development",
+    "Deployment",
+    "Operation",
+    "Retirement",
+    "Active",
+    "Historical",
+    "Deployed",
+];
+
+/// `type` — the system/actor class (aiwc.ods `type` column ∪ common instances).
+const NODE_TYPE: &[&str] = &[
+    "IntelligentControlSystem",
+    "GenerativeModel",
+    "GenerativeAI",
+    "NarrowAI",
+    "TrainingDatabase",
+    "ExpertSystem",
+    "ServiceRobot",
+    "MultiAgentSystem",
+    "Dashboard",
+    "Nation",
+    "TechCompany",
+    "DefenseCompany",
+    "Military",
+    "Investor",
+    "Institution",
+    "Utility",
+    "SurveillanceSystem",
+    "FacialRecognition",
+    "AutonomousWeapon",
+    "TargetingSystem",
+    "RoboticSystem",
+    "LoiteringMunition",
+    "PredictiveAnalytics",
+    "DataAnalyticsCompany",
+    "FoundationModelProvider",
+    "SurveillanceVendor",
+    "AILab",
+    "GovernmentOfficial",
+    "HeadOfState",
+    "Investor",
+    "Financier",
+    "TechExecutive",
+];
+
+/// `output:airo` — what the system emits.
+const OUTPUT_AIRO: &[&str] = &[
+    "Action",
+    "Content",
+    "Decision",
+    "Prediction",
+    "Recommendation",
+    "Detection",
+    "Monitoring",
+    "Identification",
+    "Generation",
+    "Investment",
+    "Influence",
+];
+
+/// `impact:vair` — the VAIR harm (primary token of a compound list).
+const IMPACT_VAIR: &[&str] = &[
+    "PsychologicalHarm",
+    "PhysicalInjury",
+    "PhysicalHarm",
+    "WellbeingImpact",
+    "DistortionInHumanBehavior",
+    "Overreliance",
+    "UnderminingFreedom",
+    "LossOfLife",
+    "LossOfHumanControl",
+    "LossOfPrivacy",
+    "DiscriminationBias",
+    "ConcentrationOfPower",
+    "Escalation",
+    "PolicyCapture",
+    "Deregulation",
+];
+
+/// `stakeholder` — the owning/operating actor class.
+const STAKEHOLDER: &[&str] = &[
+    "Nation",
+    "TechCompany",
+    "DefenseCompany",
+    "Institution",
+    "Military",
+    "Police",
+    "Company",
+    "Investor",
+    "Utility",
+    "Owner",
+    "CEO",
+    "Politician",
+    "Agency",
+    "Person",
+    "NGO",
+    "Consortium",
+];
+
 /// Code a single facet value (`1 + index` in its codebook; `0` = absent /
 /// unknown). Compound axes (comma-joined) code their **primary** token; the
 /// match is case-insensitive so harvest casing drift never silently drops.
@@ -325,6 +436,22 @@ fn write_facet_tenant(value: &mut [u8; 480], props: &HashMap<String, Value>) {
     }
     if let Some(v) = s("capacity").or_else(|| s("capacity:airo")) {
         value[FACET_CAPACITY] = facet_code(CAPACITY_AIRO, v);
+    }
+    // V3 6×(8:8) completion — the six dims the original tenant left unstacked.
+    if let Some(v) = s("currentStatus").or_else(|| s("currentStatus:airo")) {
+        value[FACET_STATUS] = facet_code(CURRENT_STATUS, v);
+    }
+    if let Some(v) = s("type") {
+        value[FACET_TYPE] = facet_code(NODE_TYPE, v);
+    }
+    if let Some(v) = s("output").or_else(|| s("output:airo")) {
+        value[FACET_OUTPUT] = facet_code(OUTPUT_AIRO, v);
+    }
+    if let Some(v) = s("impact").or_else(|| s("impact:vair")) {
+        value[FACET_IMPACT] = facet_code(IMPACT_VAIR, v);
+    }
+    if let Some(v) = s("stakeholder") {
+        value[FACET_STAKEHOLDER] = facet_code(STAKEHOLDER, v);
     }
 }
 
@@ -858,6 +985,14 @@ const REL_FACET_AIRO: u8 = 12;
 const REL_FACET_MLTYPE: u8 = 13;
 const REL_FACET_PURPOSE: u8 = 14;
 const REL_FACET_CAPACITY: u8 = 15;
+// V3 6×(8:8) completion — the remaining stacked dimensions as traversable facet
+// edges (rel 16..20). Same distinct-layer contract as 10..15 (toggleable in the
+// client); together the eleven rels put the WHOLE cascade in the schema graph.
+const REL_FACET_STATUS: u8 = 16;
+const REL_FACET_TYPE: u8 = 17;
+const REL_FACET_OUTPUT: u8 = 18;
+const REL_FACET_IMPACT: u8 = 19;
+const REL_FACET_STAKEHOLDER: u8 = 20;
 
 /// (property-key candidates, facet rel) per dual-use axis. First matching key
 /// wins (e.g. `MLTask` before `MLTasks`). Mirrors the facet tenant axes.
@@ -868,6 +1003,11 @@ const FACET_AXES: &[(&[&str], u8)] = &[
     (&["MLTask", "MLTasks"], REL_FACET_MLTYPE),
     (&["purpose", "purpose:vair"], REL_FACET_PURPOSE),
     (&["capacity", "capacity:airo"], REL_FACET_CAPACITY),
+    (&["currentStatus", "currentStatus:airo"], REL_FACET_STATUS),
+    (&["type"], REL_FACET_TYPE),
+    (&["output", "output:airo"], REL_FACET_OUTPUT),
+    (&["impact", "impact:vair"], REL_FACET_IMPACT),
+    (&["stakeholder"], REL_FACET_STAKEHOLDER),
 ];
 
 /// Entity → `SchemaValue` facet edges: for each node carrying a dual-use facet
