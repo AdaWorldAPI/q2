@@ -1,0 +1,521 @@
+{
+ "engine": "NARS \u27e8f,c\u27e9 deduction+revision over baked V3 SoA edges",
+ "seed": "US",
+ "seed_out_degree": 29,
+ "n_theories": 64,
+ "total_edges": 3396,
+ "theories": [
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "stakeholder",
+   "o": "Nation",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "airo_type",
+   "o": "AIDeployer",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "connection",
+   "o": "ICE",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "connection",
+   "o": "NATO",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDevelopedBy",
+   "o": "PolygraphPlus",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDevelopedBy",
+   "o": "LAW",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDevelopedBy",
+   "o": "Skynet-US",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDevelopedBy",
+   "o": "PRISM",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDevelopedBy",
+   "o": "EagleEye",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "LargeGeospatialModels",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "PolygraphPlus",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "AIP",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "MetaConstellation",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Clearview",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "JEDI",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Starshield",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Starlink",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "URSA",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Maven",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "PackBot",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Skynet-US",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Pegasus",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "PRISM",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "DynaSpeak",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "CALO",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Lattice",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Medicare",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Hivemind",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 0,
+   "s": "US",
+   "p": "isDeployedBy",
+   "o": "Donovan",
+   "f": 0.9,
+   "c": 0.45
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "militaryUse",
+   "o": "Intel",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "civicUse",
+   "o": "BorderPatrol",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "MLTask",
+   "o": "Recognize",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "MLType",
+   "o": "FaceRecognition",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "purpose",
+   "o": "IdentifyingIndividuals",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "capacity",
+   "o": "BiometricIdentification",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "output",
+   "o": "Decision",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "impact",
+   "o": "PsychologicalHarm",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "stakeholder",
+   "o": "Institution",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "airo_type",
+   "o": "AIDeployer",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "isDeployedBy",
+   "o": "Foundry",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "isDeployedBy",
+   "o": "Fortify",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "ICE",
+   "p": "isDeployedBy",
+   "o": "Axon",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "NATO",
+   "p": "militaryUse",
+   "o": "Command",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "NATO",
+   "p": "output",
+   "o": "Decision",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "NATO",
+   "p": "stakeholder",
+   "o": "Military",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "NATO",
+   "p": "airo_type",
+   "o": "AIDeployer",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "NATO",
+   "p": "connection",
+   "o": "DIANA",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "militaryUse",
+   "o": "Intel",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "civicUse",
+   "o": "BehaviorEvaluation",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "MLTask",
+   "o": "Recognize",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "MLType",
+   "o": "SignalAnalysis",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "purpose",
+   "o": "DetectingLies",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "capacity",
+   "o": "LieDetection",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "output",
+   "o": "Decision",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "impact",
+   "o": "PsychologicalHarm",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "stakeholder",
+   "o": "Institution",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "PolygraphPlus",
+   "p": "airo_type",
+   "o": "AIProvider",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "LAW",
+   "p": "militaryUse",
+   "o": "Robot",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "LAW",
+   "p": "MLTask",
+   "o": "Automate",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "LAW",
+   "p": "MLType",
+   "o": "ObjectDetection",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "LAW",
+   "p": "capacity",
+   "o": "ObjectDetection",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "LAW",
+   "p": "output",
+   "o": "Action",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "LAW",
+   "p": "impact",
+   "o": "PhysicalInjury",
+   "f": 0.81,
+   "c": 0.164
+  },
+  {
+   "depth": 1,
+   "s": "LAW",
+   "p": "stakeholder",
+   "o": "Military",
+   "f": 0.81,
+   "c": 0.164
+  }
+ ]
+}

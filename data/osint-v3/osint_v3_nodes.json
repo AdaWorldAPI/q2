@@ -1,0 +1,5501 @@
+[
+ {
+  "row": 0,
+  "id": "201V",
+  "name": "201 Ventures",
+  "source": "N_Stakeholders",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 1,
+  "id": "972Mag",
+  "name": "972Mag",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000020204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 2,
+  "id": "AFRS",
+  "name": "Automated Facial Recognition System",
+  "source": "N_Systems",
+  "guid1": "00070010010201000304090a01030106",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 3,
+  "id": "AIP",
+  "name": "Artificial Intelligence Platform",
+  "source": "N_Systems",
+  "guid1": "00070010010209081d030d0500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 4,
+  "id": "AIVerse",
+  "name": "AIVerse",
+  "source": "N_Systems",
+  "guid1": "00070010070102000907060000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 5,
+  "id": "ARCA",
+  "name": "Assault Rifle Combat Application System",
+  "source": "N_Systems",
+  "guid1": "00070010010200030b06100000030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 6,
+  "id": "ARPANET",
+  "name": "ARPANET",
+  "source": "N_Historical",
+  "guid1": "000700100f04000b0000000000000303",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 7,
+  "id": "ARX",
+  "name": "ARX Robotics",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0200010208100000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 8,
+  "id": "AWS",
+  "name": "Amazon Web Services",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300041c02000000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 9,
+  "id": "Accenture",
+  "name": "Accenture",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300040000000000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 10,
+  "id": "AdnanKhashoggi",
+  "name": "AdnanKhashoggi",
+  "source": "cypher:Person",
+  "guid1": "000700100d0400040000000000000208",
+  "guid2": "01070010010503010005000000000000",
+  "is_person": true
+ },
+ {
+  "row": 11,
+  "id": "AhmedAltantawy",
+  "name": "AhmedAltantawy",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": "01070010030201050004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 12,
+  "id": "Airbus",
+  "name": "Airbus",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300040000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 13,
+  "id": "Alchemist",
+  "name": "Alchemist",
+  "source": "N_Systems",
+  "guid1": "00070010010200030b030d0500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 14,
+  "id": "AlexKarp",
+  "name": "AlexKarp",
+  "source": "cypher:Person",
+  "guid1": "000700100a030903000000000003030b",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 15,
+  "id": "AllInE263",
+  "name": "AllInE263",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100104000219030d0500030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 16,
+  "id": "AllInEpsteinSpecial",
+  "name": "AllInEpsteinSpecial",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080400000000000000020104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 17,
+  "id": "Allende",
+  "name": "Allende",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000000010c",
+  "guid2": "01070010010504030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 18,
+  "id": "Alphabet",
+  "name": "Alphabet",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0305000000000000000302",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 19,
+  "id": "Altec",
+  "name": "Altec",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300040000000000000203",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 20,
+  "id": "Altman",
+  "name": "Altman",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000003030b",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 21,
+  "id": "Altra",
+  "name": "Altra",
+  "source": "N_Systems",
+  "guid1": "00070010030100010208100000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 22,
+  "id": "Amazon",
+  "name": "Amazon",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0306040a050d0300050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 23,
+  "id": "Amesys",
+  "name": "Amesys",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0401020801140501040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 24,
+  "id": "AminA",
+  "name": "AminA",
+  "source": "cypher:Person",
+  "guid1": "0007001003030000000000000000010b",
+  "guid2": "01070010010202020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 25,
+  "id": "AmnestyLab",
+  "name": "AmnestyLab",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e03030014040d0400050204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 26,
+  "id": "Andrew",
+  "name": "Andrew",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": "01070010010302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 27,
+  "id": "AndrewArrest2026",
+  "name": "AndrewArrest2026",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010050401000000000400030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 28,
+  "id": "Anduril",
+  "name": "Anduril",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0310030908100600010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 29,
+  "id": "AndurilEurope",
+  "name": "AndurilEurope",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0310010908100600010303",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 30,
+  "id": "AnshuJain",
+  "name": "AnshuJain",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000003020b",
+  "guid2": "01070010020404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 31,
+  "id": "Anthropic",
+  "name": "Anthropic",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300001807000000020302",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 32,
+  "id": "AnthropicBan",
+  "name": "AnthropicBan",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010030400000000000000030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 33,
+  "id": "AnthropicComplianceArc",
+  "name": "AnthropicComplianceArc",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080400000000000000000302",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 34,
+  "id": "AnthropicControlPlane",
+  "name": "AnthropicControlPlane",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010400030b080d0500030202",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 35,
+  "id": "AnthropicMilitaryUse",
+  "name": "AnthropicMilitaryUse",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100202000818070d0000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 36,
+  "id": "Apollo",
+  "name": "Apollo",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 37,
+  "id": "AppRegistration",
+  "name": "AppRegistration",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0309001c020d0800030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 38,
+  "id": "Apple",
+  "name": "Apple",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0306000703000000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 39,
+  "id": "ArcticWolf",
+  "name": "ArcticWolf",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309020404000500030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 40,
+  "id": "ArcticWolfMetrics",
+  "name": "ArcticWolfMetrics",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309020404140500040407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 41,
+  "id": "Arlington",
+  "name": "Arlington Capital",
+  "source": "N_Stakeholders",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 42,
+  "id": "AssafRappaport",
+  "name": "AssafRappaport",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000030b",
+  "guid2": "01070010020403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 43,
+  "id": "AsymmetricClassification",
+  "name": "AsymmetricClassification",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010050300020703130000030104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 44,
+  "id": "Atlas",
+  "name": "Atlas",
+  "source": "N_Systems",
+  "guid1": "00070010060200040c08120000010102",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 45,
+  "id": "AutocraticEnablement",
+  "name": "AutocraticEnablement",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "0007001001040003100513050403020c",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 46,
+  "id": "AutomatedKillChain",
+  "name": "AutomatedKillChain",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010400090b08000002010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 47,
+  "id": "AxelSpringer",
+  "name": "AxelSpringer",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a030a000000000000020207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 48,
+  "id": "Axon",
+  "name": "Axon",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0201000104100400030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 49,
+  "id": "AymanNour",
+  "name": "AymanNour",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010c",
+  "guid2": "01070010010303030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 50,
+  "id": "Azerbaijan",
+  "name": "Azerbaijan",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090309090000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 51,
+  "id": "Azure",
+  "name": "Azure",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a02050419020d0000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 52,
+  "id": "BCCI",
+  "name": "BCCI",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0400000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 53,
+  "id": "BKA",
+  "name": "BKA",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0301020303040400030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 54,
+  "id": "BWPolice",
+  "name": "BWPolice",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0301000000000400030206",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 55,
+  "id": "BabElMandeb",
+  "name": "BabElMandeb",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100f03000400000a0000000101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 56,
+  "id": "BailleGifford",
+  "name": "Baillie Gifford",
+  "source": "N_Stakeholders",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 57,
+  "id": "BankOfAmerica",
+  "name": "BankOfAmerica",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 58,
+  "id": "Bannon",
+  "name": "Bannon",
+  "source": "cypher:Person",
+  "guid1": "000700100e030a00000000000000020c",
+  "guid2": "01070010010404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 59,
+  "id": "Barak",
+  "name": "Barak",
+  "source": "cypher:Person",
+  "guid1": "00070010010309021b05140600040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 60,
+  "id": "Barrack",
+  "name": "Barrack",
+  "source": "cypher:Person",
+  "guid1": "000700100d030000000000000003020b",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 61,
+  "id": "BavariaPolice",
+  "name": "BavariaPolice",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0301000000000400030206",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 62,
+  "id": "BearStearns",
+  "name": "BearStearns",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0400000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 63,
+  "id": "BeccaBalint",
+  "name": "BeccaBalint",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010c",
+  "guid2": "01070010030303030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 64,
+  "id": "Bezos",
+  "name": "Bezos",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000020b",
+  "guid2": "01070010010404020001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 65,
+  "id": "Bilderberg2024",
+  "name": "Bilderberg2024",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 66,
+  "id": "Bilderberg2025",
+  "name": "Bilderberg2025",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 67,
+  "id": "BlackRock",
+  "name": "BlackRock",
+  "source": "N_Stakeholders",
+  "guid1": "000700100d0300000b05000000040208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 68,
+  "id": "BlueCoat",
+  "name": "BlueCoat",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0409020801140501000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 69,
+  "id": "BlueWolf",
+  "name": "BlueWolf",
+  "source": "N_Systems",
+  "guid1": "00070010010200020304040900030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 70,
+  "id": "BoazGorodissky",
+  "name": "BoazGorodissky",
+  "source": "cypher:Person",
+  "guid1": "000700100a030002000000000000030b",
+  "guid2": "01070010020403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 71,
+  "id": "Booz",
+  "name": "Booz Allen Hamilton",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300020000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 72,
+  "id": "BradleyEdwards",
+  "name": "BradleyEdwards",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": "01070010030302030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 73,
+  "id": "BrendanCarr",
+  "name": "BrendanCarr",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000020c",
+  "guid2": "01070010010303020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 74,
+  "id": "BrianSchimpf",
+  "name": "BrianSchimpf",
+  "source": "cypher:Person",
+  "guid1": "000700100a030003000000000003030b",
+  "guid2": "01070010020403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 75,
+  "id": "Bridgewater",
+  "name": "Bridgewater",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 76,
+  "id": "BrigGenYS",
+  "name": "BrigGenYS",
+  "source": "cypher:Person",
+  "guid1": "000700100c0300030000000000030205",
+  "guid2": "01070010010403010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 77,
+  "id": "Brin",
+  "name": "Brin",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000030b",
+  "guid2": "01070010020403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 78,
+  "id": "ButterflyTrust",
+  "name": "ButterflyTrust",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 79,
+  "id": "Bylina",
+  "name": "Bylina",
+  "source": "N_Systems",
+  "guid1": "00070010030100050405000000040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 80,
+  "id": "ByteDance",
+  "name": "ByteDance",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0305000a05110305050302",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 81,
+  "id": "CALO",
+  "name": "CALO",
+  "source": "N_Systems",
+  "guid1": "00070010070400020b060d0000050303",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 82,
+  "id": "CBP",
+  "name": "US Customs and Border Patrol",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0310020304040901030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 83,
+  "id": "CENTCOM",
+  "name": "CENTCOM",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100c0300030000000000030205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 84,
+  "id": "CEREBRO",
+  "name": "CEREBRO",
+  "source": "cypher:System",
+  "guid1": "00070010010200020304040900030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 85,
+  "id": "CameronStanley",
+  "name": "CameronStanley",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000020c",
+  "guid2": "01070010030302050002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 86,
+  "id": "Campelli",
+  "name": "Campelli",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": "01070010030201050004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 87,
+  "id": "Candiru",
+  "name": "Candiru",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309020000000900000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 88,
+  "id": "Carbyne",
+  "name": "Carbyne",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a03090b08010a0500040402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 89,
+  "id": "CarbynePipeline",
+  "name": "CarbynePipeline",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100103090b0803140500050404",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 90,
+  "id": "Catz",
+  "name": "Catz",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000003020b",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 91,
+  "id": "CaymanEntity",
+  "name": "CaymanEntity",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 92,
+  "id": "Cellebrite",
+  "name": "Cellebrite",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0301021d04040800030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 93,
+  "id": "CellebriteMetrics",
+  "name": "CellebriteMetrics",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010080201021d030d0800050403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 94,
+  "id": "Centaur",
+  "name": "Centaur",
+  "source": "N_Systems",
+  "guid1": "00070010010300030b06000000030205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 95,
+  "id": "CerberusCapital",
+  "name": "CerberusCapital",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000030208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 96,
+  "id": "Cerebro",
+  "name": "Cerebro",
+  "source": "cypher:System",
+  "guid1": "00070010010309020404040900030205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 97,
+  "id": "Chamath",
+  "name": "Chamath",
+  "source": "cypher:Person",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": "01070010010303020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 98,
+  "id": "ChatGPT",
+  "name": "ChatGPT",
+  "source": "N_Civic",
+  "guid1": "00070010020305001507000005020102",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 99,
+  "id": "ChatGPTMil",
+  "name": "ChatGPTMil",
+  "source": "cypher:System",
+  "guid1": "000700100202000a1507000005020105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 100,
+  "id": "CheckPoint",
+  "name": "CheckPoint",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309020404140500040407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 101,
+  "id": "CheckPointMetrics",
+  "name": "CheckPointMetrics",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a03090004030d0500030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 102,
+  "id": "China",
+  "name": "China",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090301030000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 103,
+  "id": "ChinaContainment",
+  "name": "ChinaContainment",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100903000a0000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 104,
+  "id": "ChinaGDPSignal",
+  "name": "ChinaGDPSignal",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080300000e05000000040101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 105,
+  "id": "Citizen",
+  "name": "Citizen",
+  "source": "N_Civic",
+  "guid1": "00070010030300000000000000000101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 106,
+  "id": "CitizenLab",
+  "name": "CitizenLab",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0309000000000500020204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 107,
+  "id": "Claude",
+  "name": "Claude",
+  "source": "N_Civic",
+  "guid1": "00070010020305001507000300020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 108,
+  "id": "ClaudeAI",
+  "name": "ClaudeAI",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010020200001507000000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 109,
+  "id": "ClaudeMil",
+  "name": "ClaudeMil",
+  "source": "cypher:System",
+  "guid1": "000700100202000818070d0005020403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 110,
+  "id": "Clearview",
+  "name": "Clearview",
+  "source": "N_Systems",
+  "guid1": "00070010030201020304090901030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 111,
+  "id": "ClearviewAI",
+  "name": "Clearview AI",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0201020304090a01030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 112,
+  "id": "CogitoEB2015",
+  "name": "CogitoEB2015",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010030403000706130100030404",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 113,
+  "id": "ComplianceAsValuation",
+  "name": "ComplianceAsValuation",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080400000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 114,
+  "id": "ConfirmedKillChain",
+  "name": "ConfirmedKillChain",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010400090b05000002030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 115,
+  "id": "ContractualEthicsTrap",
+  "name": "ContractualEthicsTrap",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010050300001000000004030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 116,
+  "id": "Convergence2026",
+  "name": "Convergence2026",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100303090204050d0500040104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 117,
+  "id": "Corsight",
+  "name": "Corsight.AI",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0301020304090a00030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 118,
+  "id": "CoworkMoment",
+  "name": "CoworkMoment",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0300000000000000000107",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 119,
+  "id": "Cybereason",
+  "name": "Cybereason",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309020404030400030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 120,
+  "id": "CytroxIntellexa",
+  "name": "CytroxIntellexa",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309020404040601050403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 121,
+  "id": "D3",
+  "name": "D3",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300000000000000000202",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 122,
+  "id": "DARPA",
+  "name": "DARPA",
+  "source": "N_Stakeholders",
+  "guid1": "000700100c0300050000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 123,
+  "id": "DARPABioMineral",
+  "name": "DARPABioMineral",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010030400020803140500040305",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 124,
+  "id": "DIANA",
+  "name": "DIANA",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300020000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 125,
+  "id": "DIAS",
+  "name": "Dialect Recognition Assistant (DIAS)",
+  "source": "N_Systems",
+  "guid1": "00070010030210020804070801030404",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 126,
+  "id": "DIU",
+  "name": "US Defense Innovation Unit",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300090000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 127,
+  "id": "DOD",
+  "name": "DOD",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100c0300030000000000030205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 128,
+  "id": "DOGE",
+  "name": "DOGE",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0308000b03130804030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 129,
+  "id": "DOGEDatabase",
+  "name": "DOGEDatabase",
+  "source": "cypher:System",
+  "guid1": "00070010040306001c02000800000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 130,
+  "id": "DOJ",
+  "name": "DOJ",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0301000000000400030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 131,
+  "id": "DanCaine",
+  "name": "DanCaine",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": "01070010030201050004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 132,
+  "id": "DanishNP",
+  "name": "Danish Police",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0301000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 133,
+  "id": "DarioAmodei",
+  "name": "DarioAmodei",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000030b",
+  "guid2": "01070010020404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 134,
+  "id": "DarkMatter",
+  "name": "DarkMatter",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309020804140500030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 135,
+  "id": "Databricks",
+  "name": "Databricks",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300001c020d0000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 136,
+  "id": "DavidBoies",
+  "name": "DavidBoies",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000020b",
+  "guid2": "01070010010403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 137,
+  "id": "DavidEllison",
+  "name": "DavidEllison",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000020b",
+  "guid2": "01070010010403010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 138,
+  "id": "DavidFriedman",
+  "name": "DavidFriedman",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010c",
+  "guid2": "01070010010303020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 139,
+  "id": "DavidKimche",
+  "name": "DavidKimche",
+  "source": "cypher:Person",
+  "guid1": "000700100e0400000000000000000104",
+  "guid2": "01070010010404040004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 140,
+  "id": "DavidStern",
+  "name": "DavidStern",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000003020b",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 141,
+  "id": "DefenseTechVC",
+  "name": "DefenseTechVC",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 142,
+  "id": "Dehomag",
+  "name": "IBM Dehomag",
+  "source": "N_Historical",
+  "guid1": "000700100a0400070603000902030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 143,
+  "id": "Delian",
+  "name": "Delian",
+  "source": "N_Stakeholders",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 144,
+  "id": "Deloitte",
+  "name": "Deloitte",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300040000000000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 145,
+  "id": "Denmark",
+  "name": "Denmark",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300030000000000000101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 146,
+  "id": "Dershowitz",
+  "name": "Dershowitz",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010b",
+  "guid2": "01070010010403010003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 147,
+  "id": "DeutscheBank",
+  "name": "DeutscheBank",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 148,
+  "id": "DianaDeathParis",
+  "name": "DianaDeathParis",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400000000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 149,
+  "id": "DiplomaticChoreography2026",
+  "name": "DiplomaticChoreography2026",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080300000000000000000101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 150,
+  "id": "Discombobulator",
+  "name": "Discombobulator",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100104000b0807140500010204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 151,
+  "id": "Disney",
+  "name": "Disney",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a030a000000000000020207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 152,
+  "id": "DoDAAM",
+  "name": "DoDAAM",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300010000000000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 153,
+  "id": "DoW",
+  "name": "DoW",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100c0300030000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 154,
+  "id": "DodiFayed",
+  "name": "DodiFayed",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000000010a",
+  "guid2": "01070010030302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 155,
+  "id": "Doepfner",
+  "name": "Doepfner",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000003020b",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 156,
+  "id": "DoepfnerCapital",
+  "name": "DoepfnerCapital",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 157,
+  "id": "Donovan",
+  "name": "Donovan",
+  "source": "N_Systems",
+  "guid1": "00070010050400020f05000500040105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 158,
+  "id": "DoorDash",
+  "name": "DoorDash",
+  "source": "N_Civic",
+  "guid1": "000700100a030d000a06000300050207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 159,
+  "id": "DraftOneAI",
+  "name": "DraftOneAI",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010020401001507000005020106",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 160,
+  "id": "DreamSecurity",
+  "name": "DreamSecurity",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309021e04040900030407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 161,
+  "id": "DroneRecordDeployment",
+  "name": "DroneRecordDeployment",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010200010208100500010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 162,
+  "id": "DualUseShell",
+  "name": "DualUseShell",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100a0400040000000000000207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 163,
+  "id": "DynaSpeak",
+  "name": "DynaSpeak",
+  "source": "N_Systems",
+  "guid1": "000700100302000b1304070900030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 164,
+  "id": "ELIZA",
+  "name": "ELIZA",
+  "source": "N_Historical",
+  "guid1": "00070010030400001507000005020404",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 165,
+  "id": "EagleEye",
+  "name": "Eagle Eye / SBMC Next",
+  "source": "N_Systems",
+  "guid1": "00070010010301020304090900030206",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 166,
+  "id": "Egypt",
+  "name": "Egypt",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010090310090000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 167,
+  "id": "EgyptGIS",
+  "name": "EgyptGIS",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0309020000000500000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 168,
+  "id": "EgyptSurveillanceState",
+  "name": "EgyptSurveillanceState",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010090309020403040501030201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 169,
+  "id": "EgyptVendorStack",
+  "name": "EgyptVendorStack",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010030409021c02000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 170,
+  "id": "Ek",
+  "name": "Daniel Ek",
+  "source": "N_People",
+  "guid1": "000700100a030000000000000003020b",
+  "guid2": "01070010020404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 171,
+  "id": "Elbit",
+  "name": "Elbit Systems",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0210010208100602010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 172,
+  "id": "Ellison",
+  "name": "Larry Ellison",
+  "source": "N_People",
+  "guid1": "000700100a030000000000000000020b",
+  "guid2": "01070010010304010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 173,
+  "id": "EmilMichael",
+  "name": "EmilMichael",
+  "source": "cypher:Person",
+  "guid1": "000700100b030004000000000003020b",
+  "guid2": "01070010010403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 174,
+  "id": "Endeavor",
+  "name": "Endeavor",
+  "source": "N_Stakeholders",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 175,
+  "id": "EpicFury",
+  "name": "EpicFury",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0300020000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 176,
+  "id": "Epstein",
+  "name": "Epstein",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000100010a",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 177,
+  "id": "EpsteinHinge",
+  "name": "EpsteinHinge",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400000000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 178,
+  "id": "EpsteinSettlementIndustry",
+  "name": "EpsteinSettlementIndustry",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 179,
+  "id": "EraCommercial",
+  "name": "EraCommercial",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080300000000000000000102",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 180,
+  "id": "EraCovert",
+  "name": "EraCovert",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010400021d030d0500030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 181,
+  "id": "EraOpenBazaar",
+  "name": "EraOpenBazaar",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080400000000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 182,
+  "id": "ErgoEB2014",
+  "name": "ErgoEB2014",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0400000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 183,
+  "id": "EthicsAsBrandStrategy",
+  "name": "EthicsAsBrandStrategy",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "0007001008040a000000000000000302",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 184,
+  "id": "EuroCloudTenants",
+  "name": "EuroCloudTenants",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100f0300000002000000000209",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 185,
+  "id": "EuroEnterpriseCustomers",
+  "name": "EuroEnterpriseCustomers",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000107",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 186,
+  "id": "EuroGagOrderScope",
+  "name": "EuroGagOrderScope",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0309000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 187,
+  "id": "EuropeanMSPs",
+  "name": "EuropeanMSPs",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e030000000000000000020c",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 188,
+  "id": "FBI",
+  "name": "FBI",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0301020303040400030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 189,
+  "id": "FBIFieldOffices",
+  "name": "FBIFieldOffices",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0301020304040600030206",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 190,
+  "id": "FCBayern",
+  "name": "FCBayern",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e030a000000000000000207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 191,
+  "id": "FCC",
+  "name": "FCC",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 192,
+  "id": "FIDF",
+  "name": "FIDF",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300070000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 193,
+  "id": "Facebook",
+  "name": "Facebook",
+  "source": "N_Civic",
+  "guid1": "000700100a0306000a05170304050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 194,
+  "id": "Faeser",
+  "name": "Faeser",
+  "source": "cypher:Person",
+  "guid1": "000700100e030100000000000003020c",
+  "guid2": "01070010010404040004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 195,
+  "id": "Fascitelli",
+  "name": "Fascitelli",
+  "source": "cypher:Person",
+  "guid1": "000700100d030000000000000003020b",
+  "guid2": "01070010020404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 196,
+  "id": "Feinberg",
+  "name": "Feinberg",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000020b",
+  "guid2": "01070010010403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 197,
+  "id": "Ferguson",
+  "name": "Ferguson",
+  "source": "cypher:Person",
+  "guid1": "000700100e040100000000000000010c",
+  "guid2": "01070010010302040004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 198,
+  "id": "FinFisher",
+  "name": "FinFisher",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0409020801140501020403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 199,
+  "id": "FinSpy",
+  "name": "FinSpy",
+  "source": "cypher:System",
+  "guid1": "00070010030209021b04040901030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 200,
+  "id": "Fink",
+  "name": "Larry Fink",
+  "source": "N_People",
+  "guid1": "000700100d030000000000000003020b",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 201,
+  "id": "FireFactory",
+  "name": "Fire Factory",
+  "source": "N_Systems",
+  "guid1": "00070010010200050d05060200050405",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 202,
+  "id": "FireWeaver",
+  "name": "Fire Weaver",
+  "source": "N_Systems",
+  "guid1": "00070010010100030d05100000030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 203,
+  "id": "FirstPOVDrones",
+  "name": "First  Person View Drones",
+  "source": "N_Systems",
+  "guid1": "00070010010200010208100002010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 204,
+  "id": "Fortify",
+  "name": "(Mobile) Fortify",
+  "source": "N_Systems",
+  "guid1": "0007001006020f000104100500010107",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 205,
+  "id": "FoundersFund",
+  "name": "FoundersFund",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 206,
+  "id": "Foundry",
+  "name": "Foundry",
+  "source": "N_Systems",
+  "guid1": "00070010010309021c060d0500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 207,
+  "id": "France",
+  "name": "France",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010090301030000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 208,
+  "id": "Fraunhofer",
+  "name": "Fraunhofer Institutes",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300020407000000000304",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 209,
+  "id": "FreebergSelfExclusion",
+  "name": "FreebergSelfExclusion",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080300000000000000000108",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 210,
+  "id": "Friedberg",
+  "name": "Friedberg",
+  "source": "cypher:Person",
+  "guid1": "000700100d0300000000000000030208",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 211,
+  "id": "FriedrichMerz",
+  "name": "FriedrichMerz",
+  "source": "cypher:Person",
+  "guid1": "0007001009030000000000000003020c",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 212,
+  "id": "GDIT",
+  "name": "General Dynamics Information Technologies",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300040000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 213,
+  "id": "GFF",
+  "name": "GFF",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 214,
+  "id": "GISArta",
+  "name": "GIS Arta",
+  "source": "N_Systems",
+  "guid1": "00070010010200060d050a0200040205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 215,
+  "id": "GTR",
+  "name": "Global Technical Reality Data Centers",
+  "source": "N_Stakeholders",
+  "guid1": "000700100f0300001c02000000000209",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 216,
+  "id": "GammaFinFisher",
+  "name": "GammaFinFisher",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b02090214030d0501030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 217,
+  "id": "GammaGroup",
+  "name": "GammaGroup",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309020801140501020403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 218,
+  "id": "Gates",
+  "name": "Gates",
+  "source": "cypher:Person",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": "01070010010404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 219,
+  "id": "GazaLavenderDeployment",
+  "name": "GazaLavenderDeployment",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010400020b05130102030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 220,
+  "id": "GazaWar2012",
+  "name": "GazaWar2012",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100c0400090000000002010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 221,
+  "id": "Gemini",
+  "name": "Gemini/Bard",
+  "source": "N_Civic",
+  "guid1": "000700100202050018070d0300020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 222,
+  "id": "GermanDroneDeal",
+  "name": "GermanDroneDeal",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100b0400010000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 223,
+  "id": "GermanGov",
+  "name": "GermanGov",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100903090a0000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 224,
+  "id": "Germany",
+  "name": "Germany",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090301030000000000030201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 225,
+  "id": "GhislaineMaxwell",
+  "name": "GhislaineMaxwell",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000015080100020a",
+  "guid2": "01070010010405010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 226,
+  "id": "GilDolev",
+  "name": "GilDolev",
+  "source": "cypher:Person",
+  "guid1": "000700100b030000000000000000020b",
+  "guid2": "01070010010302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 227,
+  "id": "GilShwed",
+  "name": "GilShwed",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000030b",
+  "guid2": "01070010020403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 228,
+  "id": "Giuliani",
+  "name": "Giuliani",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010c",
+  "guid2": "01070010010303010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 229,
+  "id": "GlobalCounsel",
+  "name": "GlobalCounsel",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 230,
+  "id": "GlobalPrecisionResearch",
+  "name": "GlobalPrecisionResearch",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0300020000000000000303",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 231,
+  "id": "GoldenDome",
+  "name": "GoldenDome",
+  "source": "cypher:System",
+  "guid1": "00070010010100030d05140200030205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 232,
+  "id": "GoldenDomeDisclosure",
+  "name": "GoldenDomeDisclosure",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010100030d05000000030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 233,
+  "id": "GoldenShield",
+  "name": "Golden Shield",
+  "source": "N_Systems",
+  "guid1": "00070010010201020304040901040101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 234,
+  "id": "Google",
+  "name": "Google",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0305000a05000300050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 235,
+  "id": "GoogleCloud",
+  "name": "Google Cloud",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0305041c020d0000020407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 236,
+  "id": "GoogleMavenWithdrawal",
+  "name": "GoogleMavenWithdrawal",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010070400020204100600000302",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 237,
+  "id": "GoogleWorkspaceAgents",
+  "name": "GoogleWorkspaceAgents",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100702050018080d0000010102",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 238,
+  "id": "GordonBrown",
+  "name": "GordonBrown",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000000020c",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 239,
+  "id": "Gospel",
+  "name": "The Gospel",
+  "source": "N_Systems",
+  "guid1": "00070010010300050405130601050405",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 240,
+  "id": "Gotham",
+  "name": "Gotham",
+  "source": "N_Systems",
+  "guid1": "00070010010301021c03150400050403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 241,
+  "id": "Greece",
+  "name": "Greece",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300000000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 242,
+  "id": "GreenlandLeverage",
+  "name": "GreenlandLeverage",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100901000a0000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 243,
+  "id": "Grok",
+  "name": "Grok",
+  "source": "cypher:System",
+  "guid1": "00070010020200001507000000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 244,
+  "id": "Group11",
+  "name": "Group11",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 245,
+  "id": "HackingTeam",
+  "name": "HackingTeam",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b04090200000d0501020403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 246,
+  "id": "HamburgMeeting1985",
+  "name": "HamburgMeeting1985",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 247,
+  "id": "HanwhaTechwin-Samsung",
+  "name": "Hanwha Techwin (formerly Samsung)",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0309010104110600010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 248,
+  "id": "Hegseth",
+  "name": "Hegseth",
+  "source": "cypher:Person",
+  "guid1": "000700100c030003000000000003020c",
+  "guid2": "01070010010403010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 249,
+  "id": "Helsing",
+  "name": "Helsing",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300020104100500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 250,
+  "id": "HessenPolice",
+  "name": "HessenPolice",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100c0301000304090900030206",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 251,
+  "id": "Hessendata",
+  "name": "Hessendata",
+  "source": "cypher:System",
+  "guid1": "00070010010201020405130100040406",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 252,
+  "id": "Hikvision",
+  "name": "Hikvision",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0301020304090a00030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 253,
+  "id": "HillaryClinton",
+  "name": "HillaryClinton",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000000020c",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 254,
+  "id": "Hivemind",
+  "name": "Hivemind",
+  "source": "N_Systems",
+  "guid1": "00070010070200010d08100000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 255,
+  "id": "Hoffman",
+  "name": "Hoffman",
+  "source": "cypher:Person",
+  "guid1": "000700100d0300000000000000030208",
+  "guid2": "01070010010404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 256,
+  "id": "HoffmanPartisanWeapon",
+  "name": "HoffmanPartisanWeapon",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010400090000000002010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 257,
+  "id": "Hololens",
+  "name": "Hololens 2",
+  "source": "N_Civic",
+  "guid1": "00070010060202060d04120000020102",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 258,
+  "id": "Horizon",
+  "name": "Horizon Europe",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 259,
+  "id": "HyperionEB2013",
+  "name": "HyperionEB2013",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0400000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 260,
+  "id": "Hyperoptic",
+  "name": "Hyperoptic",
+  "source": "N_Stakeholders",
+  "guid1": "000700100f0300000000000000000209",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 261,
+  "id": "IBM",
+  "name": "IBM",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0305041c020d0000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 262,
+  "id": "ICE",
+  "name": "US Immigration (ICE)",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0310020304040901030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 263,
+  "id": "ICM",
+  "name": "ICM",
+  "source": "cypher:System",
+  "guid1": "00070010010300030b05000500030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 264,
+  "id": "IDF",
+  "name": "IDF",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100c0300090000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 265,
+  "id": "IRGC",
+  "name": "IRGC",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100c0300030000000002010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 266,
+  "id": "IRS",
+  "name": "IRS",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 267,
+  "id": "IlyaSutskever",
+  "name": "IlyaSutskever",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000030b",
+  "guid2": "01070010020404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 268,
+  "id": "InQTel",
+  "name": "InQTel",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300020000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 269,
+  "id": "India",
+  "name": "India",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090301030000000000030201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 270,
+  "id": "Instagram",
+  "name": "Instagram",
+  "source": "N_Civic",
+  "guid1": "000700100a0306000a05170305050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 271,
+  "id": "InstitutionalRecurrence",
+  "name": "InstitutionalRecurrence",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400000000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 272,
+  "id": "Intellexa",
+  "name": "Intellexa",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309020803140601030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 273,
+  "id": "Iran",
+  "name": "Iran",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010090309080403040501030201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 274,
+  "id": "IranContra",
+  "name": "IranContra",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400030000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 275,
+  "id": "IranStrikes2026",
+  "name": "IranStrikes2026",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100c0300090d050a0202010205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 276,
+  "id": "IranWar2026",
+  "name": "IranWar2026",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010090300090000000002000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 277,
+  "id": "IrisGuard",
+  "name": "IrisGuard",
+  "source": "N_Systems",
+  "guid1": "00070010030210000304040b00030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 278,
+  "id": "Israel",
+  "name": "Israel",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300030000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 279,
+  "id": "IsraelCyberDirectorate",
+  "name": "IsraelCyberDirectorate",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0309020000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 280,
+  "id": "IsraeliCyberAlumniPool",
+  "name": "IsraeliCyberAlumniPool",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0300020000000000000305",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 281,
+  "id": "Italy",
+  "name": "Italy",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300000000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 282,
+  "id": "JEDI",
+  "name": "JEDI",
+  "source": "N_Systems",
+  "guid1": "00070010010400030000000000030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 283,
+  "id": "JNF",
+  "name": "JNF",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 284,
+  "id": "JPMorgan",
+  "name": "JPMorgan",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0306000705000800050208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 285,
+  "id": "JamalKhashoggi",
+  "name": "JamalKhashoggi",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000200010c",
+  "guid2": "01070010020303030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 286,
+  "id": "JanFord",
+  "name": "JanFord",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000020a",
+  "guid2": "01070010020302030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 287,
+  "id": "JasonCalacanis",
+  "name": "JasonCalacanis",
+  "source": "cypher:Person",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": "01070010020403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 288,
+  "id": "Jericho",
+  "name": "Jericho, StrikeWeb",
+  "source": "N_Systems",
+  "guid1": "00070010010200030d050a0200040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 289,
+  "id": "Jordan",
+  "name": "Jordan",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090310090000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 290,
+  "id": "JulieKBrown",
+  "name": "JulieKBrown",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000002010c",
+  "guid2": "01070010020403030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 291,
+  "id": "Junkermann",
+  "name": "Junkermann",
+  "source": "cypher:Person",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": "01070010020303020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 292,
+  "id": "KKR",
+  "name": "KKR Investments",
+  "source": "N_Stakeholders",
+  "guid1": "000700100d0300000b05000000040208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 293,
+  "id": "Karp",
+  "name": "Alex Karp",
+  "source": "N_People",
+  "guid1": "000700100a030000000000000003020b",
+  "guid2": "01070010010404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 294,
+  "id": "KelaAI",
+  "name": "KelaAI",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0300020404000500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 295,
+  "id": "KevinBass",
+  "name": "KevinBass",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000020b",
+  "guid2": "01070010020302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 296,
+  "id": "KhashoggiMurder",
+  "name": "KhashoggiMurder",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010030400020000000002000101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 297,
+  "id": "KimbalMusk",
+  "name": "KimbalMusk",
+  "source": "cypher:Person",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": "01070010020302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 298,
+  "id": "Koren",
+  "name": "Koren",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000000207",
+  "guid2": "01070010030303050004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 299,
+  "id": "KyonggiUniversity",
+  "name": "Kyonggi University",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 300,
+  "id": "LAW",
+  "name": "Lethal Autonomous Weapons",
+  "source": "N_Systems",
+  "guid1": "00070010070100010208100002010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 301,
+  "id": "LUCAS",
+  "name": "LUCAS",
+  "source": "cypher:System",
+  "guid1": "00070010050301000705130104040106",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 302,
+  "id": "LakeResources",
+  "name": "LakeResources",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 303,
+  "id": "Landeskriminalamt",
+  "name": "German State Police-NRW, Hesse, Bavaria",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0301001d030d0800030206",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 304,
+  "id": "LargeGeospatialModels",
+  "name": "Large Geospatial Models",
+  "source": "N_Systems",
+  "guid1": "00070010020100060d070a0200040402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 305,
+  "id": "LarryEllison",
+  "name": "LarryEllison",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000003020b",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 306,
+  "id": "Lattice",
+  "name": "Lattice",
+  "source": "N_Systems",
+  "guid1": "00070010030200040b060d0300050403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 307,
+  "id": "LatticeOS",
+  "name": "LatticeOS",
+  "source": "cypher:System",
+  "guid1": "00070010010200030d05100000030103",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 308,
+  "id": "Lavender",
+  "name": "Lavender",
+  "source": "N_Systems",
+  "guid1": "00070010010200020404130602040105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 309,
+  "id": "Lebanon",
+  "name": "Lebanon",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300000000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 310,
+  "id": "LegionX",
+  "name": "LegionX",
+  "source": "N_Systems",
+  "guid1": "000700100b0309020000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 311,
+  "id": "Leidos",
+  "name": "Leidos",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300020000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 312,
+  "id": "LeonBlack",
+  "name": "LeonBlack",
+  "source": "cypher:Person",
+  "guid1": "000700100d030000000000000000020b",
+  "guid2": "01070010010305010005000000000000",
+  "is_person": true
+ },
+ {
+  "row": 313,
+  "id": "Leonardo",
+  "name": "Leonardo",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300010208110000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 314,
+  "id": "Libya",
+  "name": "Libya",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300030000000000000101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 315,
+  "id": "LinkedIn",
+  "name": "LinkedIn",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0305000a05130c00050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 316,
+  "id": "LiorDiv",
+  "name": "LiorDiv",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000020b",
+  "guid2": "01070010010403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 317,
+  "id": "LisaPhillips",
+  "name": "LisaPhillips",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010a",
+  "guid2": "01070010030201050004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 318,
+  "id": "Llama",
+  "name": "Llama",
+  "source": "N_Civic",
+  "guid1": "00070010020205001507000000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 319,
+  "id": "Lockheed",
+  "name": "Lockheed Martin",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300090000000000000203",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 320,
+  "id": "Luckey",
+  "name": "Palmer Luckey",
+  "source": "N_People",
+  "guid1": "000700100b030000000000000003030b",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 321,
+  "id": "MAPLE",
+  "name": "MAPLE",
+  "source": "N_Systems",
+  "guid1": "00070010030100050405060000040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 322,
+  "id": "MBS",
+  "name": "MBS",
+  "source": "cypher:Person",
+  "guid1": "0007001009030000000000000000020c",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 323,
+  "id": "MDA",
+  "name": "MDA",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100c0300050000000000030205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 324,
+  "id": "MGX",
+  "name": "MGX",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 325,
+  "id": "MIT",
+  "name": "MIT",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300051807000000020304",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 326,
+  "id": "MITMediaLab",
+  "name": "MITMediaLab",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000304",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 327,
+  "id": "Mabat2000",
+  "name": "Mabat 2000",
+  "source": "N_Systems",
+  "guid1": "00070010010309000204100600030106",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 328,
+  "id": "MacquarieCapital",
+  "name": "MacquarieCapital",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 329,
+  "id": "Maduro",
+  "name": "Maduro",
+  "source": "cypher:Person",
+  "guid1": "0007001009030003000000000003020c",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 330,
+  "id": "MaduroCapture",
+  "name": "MaduroCapture",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010400020304090902030201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 331,
+  "id": "Mamram",
+  "name": "Mamram",
+  "source": "N_Stakeholders",
+  "guid1": "000700100c0300020000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 332,
+  "id": "ManagedSpectrumPattern",
+  "name": "ManagedSpectrumPattern",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100304000b0803140000040105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 333,
+  "id": "Mandelson",
+  "name": "Mandelson",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010c",
+  "guid2": "01070010010303020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 334,
+  "id": "Mantacus",
+  "name": "Mantacus",
+  "source": "N_Systems",
+  "guid1": "00070010030100010208100000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 335,
+  "id": "ManucherGhorbanifar",
+  "name": "ManucherGhorbanifar",
+  "source": "cypher:Person",
+  "guid1": "000700100e040002000000000000010c",
+  "guid2": "01070010010403040004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 336,
+  "id": "MarALagoVideo1986",
+  "name": "MarALagoVideo1986",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 337,
+  "id": "MaritimeInsuranceCapture",
+  "name": "MaritimeInsuranceCapture",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100304000008050a0000040407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 338,
+  "id": "Maven",
+  "name": "Maven Smart System",
+  "source": "N_Systems",
+  "guid1": "00070010010200020104110600040103",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 339,
+  "id": "MavenNATO",
+  "name": "MavenNATO",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010010200020104100500030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 340,
+  "id": "MavenSmartSystem",
+  "name": "MavenSmartSystem",
+  "source": "cypher:System",
+  "guid1": "00070010010200020204100602040105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 341,
+  "id": "Maxwell",
+  "name": "Maxwell",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000100010a",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 342,
+  "id": "McKinsey",
+  "name": "McKinsey",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300000000000000050204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 343,
+  "id": "MediaCapture2025",
+  "name": "MediaCapture2025",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e030a000000000004000102",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 344,
+  "id": "Medicare",
+  "name": "US Medicare Fraud Detection (CMS)",
+  "source": "N_Civic",
+  "guid1": "000700100f0308000703000400030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 345,
+  "id": "MensClubToOpenBazaar",
+  "name": "MensClubToOpenBazaar",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010400000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 346,
+  "id": "Merz",
+  "name": "Merz",
+  "source": "cypher:Person",
+  "guid1": "0007001009030000000000000003020c",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 347,
+  "id": "Meta",
+  "name": "Meta",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0305000a03000304050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 348,
+  "id": "MetaConstellation",
+  "name": "Meta Constellation",
+  "source": "N_Systems",
+  "guid1": "00070010070106000a05130300050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 349,
+  "id": "MichaelTracy",
+  "name": "MichaelTracy",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": "01070010020302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 350,
+  "id": "Microsoft",
+  "name": "Microsoft",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a03090318080d0000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 351,
+  "id": "MicrosoftGraphAPI",
+  "name": "MicrosoftGraphAPI",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0306001d020d0000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 352,
+  "id": "MidnightHammer",
+  "name": "MidnightHammer",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100c0400090000000002010205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 353,
+  "id": "Mithra",
+  "name": "MithraOS",
+  "source": "N_Systems",
+  "guid1": "00070010010109020405030500040103",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 354,
+  "id": "MohamedAlFayed",
+  "name": "MohamedAlFayed",
+  "source": "cypher:Person",
+  "guid1": "000700100d040000000000000000020a",
+  "guid2": "01070010010304020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 355,
+  "id": "MojtabaKhamenei",
+  "name": "MojtabaKhamenei",
+  "source": "cypher:Person",
+  "guid1": "000700100e030003000000000000020c",
+  "guid2": "01070010010404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 356,
+  "id": "MorganStanley",
+  "name": "MorganStanley",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 357,
+  "id": "Mossad",
+  "name": "Mossad",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300020000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 358,
+  "id": "Mubarak",
+  "name": "Mubarak",
+  "source": "cypher:Person",
+  "guid1": "0007001009040003000000000000020c",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 359,
+  "id": "MuhammadKhashoggi",
+  "name": "MuhammadKhashoggi",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000200010c",
+  "guid2": "01070010030303030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 360,
+  "id": "Musk",
+  "name": "Elon Musk",
+  "source": "N_People",
+  "guid1": "000700100a030000000000000003020b",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 361,
+  "id": "NATO",
+  "name": "NATO",
+  "source": "N_Stakeholders",
+  "guid1": "000700100c0300030000000000030205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 362,
+  "id": "NATODIANA",
+  "name": "NATODIANA",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100c0100030000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 363,
+  "id": "NHS",
+  "name": "UK NHS",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0308001c03000000030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 364,
+  "id": "NHSEngland",
+  "name": "NHSEngland",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0308000703000000030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 365,
+  "id": "NIF",
+  "name": "Nato Innovation Fund",
+  "source": "N_Stakeholders",
+  "guid1": "000700100d0300050000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 366,
+  "id": "NRWPolice",
+  "name": "NRWPolice",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0301000000000400000206",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 367,
+  "id": "NSO",
+  "name": "NSO Group",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0309020801140501020403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 368,
+  "id": "NSOGroup",
+  "name": "NSOGroup",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309020801140501000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 369,
+  "id": "NSOMetrics",
+  "name": "NSOMetrics",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309020803140500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 370,
+  "id": "NYDFS",
+  "name": "NYDFS",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000800030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 371,
+  "id": "NarcissismAsOpsec",
+  "name": "NarcissismAsOpsec",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010030303001a04130e04040104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 372,
+  "id": "NasdaqVentures",
+  "name": "NasdaqVentures",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 373,
+  "id": "NegotiationsDesignedToFail",
+  "name": "NegotiationsDesignedToFail",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 374,
+  "id": "Neko",
+  "name": "Neko Health",
+  "source": "N_Civic",
+  "guid1": "000700100a0303000901040500050407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 375,
+  "id": "Netanyahu",
+  "name": "Netanyahu",
+  "source": "cypher:Person",
+  "guid1": "0007001009030003000000000003020c",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 376,
+  "id": "NexaAmesys",
+  "name": "NexaAmesys",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309020000140500000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 377,
+  "id": "NexaTech",
+  "name": "NexaTech",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0300000000000000000407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 378,
+  "id": "NexaTechnologies",
+  "name": "NexaTechnologies",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0209020801140501020403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 379,
+  "id": "Niantic",
+  "name": "Niantic Spatial",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0302000d070a0000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 380,
+  "id": "NightlineTranscript1986",
+  "name": "NightlineTranscript1986",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400001402000000020104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 381,
+  "id": "Nimbus",
+  "name": "Project Nimbus",
+  "source": "N_Systems",
+  "guid1": "00070010030200041d020d0000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 382,
+  "id": "NirZuk",
+  "name": "NirZuk",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000020b",
+  "guid2": "01070010020303020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 383,
+  "id": "NoTechForApartheid",
+  "name": "NoTechForApartheid",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 384,
+  "id": "NoamErez",
+  "name": "NoamErez",
+  "source": "cypher:Person",
+  "guid1": "000700100e030002000000000000020b",
+  "guid2": "01070010010303010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 385,
+  "id": "Novact",
+  "name": "Novact",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 386,
+  "id": "OSC",
+  "name": "OSC",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 387,
+  "id": "OTCyberConsortium",
+  "name": "OTCyberConsortium",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0309000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 388,
+  "id": "Oculus",
+  "name": "Oculus Rift",
+  "source": "N_Civic",
+  "guid1": "000700100a0402000c04120000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 389,
+  "id": "OfficeStrategicCapital",
+  "name": "OfficeStrategicCapital",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e03000a0000000000030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 390,
+  "id": "Oldfield",
+  "name": "Oldfield",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000003020b",
+  "guid2": "01070010020404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 391,
+  "id": "OliverNorth",
+  "name": "OliverNorth",
+  "source": "cypher:Person",
+  "guid1": "000700100c0400090000000000000205",
+  "guid2": "01070010010403030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 392,
+  "id": "OmarAbdulaziz",
+  "name": "OmarAbdulaziz",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000100010c",
+  "guid2": "01070010030302030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 393,
+  "id": "Onavo",
+  "name": "Onavo",
+  "source": "N_Historical",
+  "guid1": "00070010030406000801140500020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 394,
+  "id": "OpenAI",
+  "name": "OpenAI",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0305001807000005020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 395,
+  "id": "OpenAIComplianceArc",
+  "name": "OpenAIComplianceArc",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100a0300000000000000030302",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 396,
+  "id": "OpenAIDistraction",
+  "name": "OpenAIDistraction",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100a0400000000000000000202",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 397,
+  "id": "OpenAIPentagonDeal",
+  "name": "OpenAIPentagonDeal",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010020200021807000000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 398,
+  "id": "OperationCondor",
+  "name": "OperationCondor",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100c0400020000000002000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 399,
+  "id": "OperationSouthernSpear",
+  "name": "OperationSouthernSpear",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010310090d050a0500030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 400,
+  "id": "Oracle",
+  "name": "Oracle",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0305041c020d0000020407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 401,
+  "id": "Outlier",
+  "name": "Outlier & Remotetasks",
+  "source": "N_Civic",
+  "guid1": "000700100a0305000703000000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 402,
+  "id": "PEGACommittee",
+  "name": "PEGACommittee",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0400000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 403,
+  "id": "PG",
+  "name": "PG Robotics",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300010108110000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 404,
+  "id": "PLA-PRC",
+  "name": "People's Liberation Army",
+  "source": "N_Stakeholders",
+  "guid1": "000700100c0300030000000000030205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 405,
+  "id": "PRISM",
+  "name": "PRISM/XKEYSCORE",
+  "source": "N_Systems",
+  "guid1": "00070010010309020801140501040204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 406,
+  "id": "PackBot",
+  "name": "PackBot",
+  "source": "N_Systems",
+  "guid1": "00070010060200010000000000010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 407,
+  "id": "Packard",
+  "name": "Packard",
+  "source": "cypher:Person",
+  "guid1": "000700100a040000000000000000030b",
+  "guid2": "01070010020403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 408,
+  "id": "Palantir",
+  "name": "Palantir",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0301021d030d0500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 409,
+  "id": "PalantirAndurilConsortium",
+  "name": "PalantirAndurilConsortium",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b03090804050d0500040203",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 410,
+  "id": "PalantirMetrics",
+  "name": "PalantirMetrics",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010080201020403130e04040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 411,
+  "id": "PalantirSublicense",
+  "name": "PalantirSublicense",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100b0400020000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 412,
+  "id": "Palestine",
+  "name": "Palestine",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300000000000000000101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 413,
+  "id": "PalmerLuckey",
+  "name": "PalmerLuckey",
+  "source": "cypher:Person",
+  "guid1": "000700100b030000000000000003020b",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 414,
+  "id": "PaloAlto",
+  "name": "PaloAlto",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309020404000500030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 415,
+  "id": "PaloAltoMetrics",
+  "name": "PaloAltoMetrics",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309020404140500040407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 416,
+  "id": "PamBondi",
+  "name": "PamBondi",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010c",
+  "guid2": "01070010010403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 417,
+  "id": "Pantir-SM",
+  "name": "Pantir-SM",
+  "source": "N_Systems",
+  "guid1": "000700100c0300090000000000010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 418,
+  "id": "ParadigmCognitiveAccess",
+  "name": "ParadigmCognitiveAccess",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0300020000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 419,
+  "id": "ParadigmOSINT",
+  "name": "ParadigmOSINT",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010309021d030d0500050404",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 420,
+  "id": "ParadigmSurveillance",
+  "name": "ParadigmSurveillance",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010409020801140501040204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 421,
+  "id": "ParamountSkydance",
+  "name": "ParamountSkydance",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a030a000000000000020207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 422,
+  "id": "Parnas",
+  "name": "Parnas",
+  "source": "cypher:Person",
+  "guid1": "000700100e0400000000000000000104",
+  "guid2": "01070010020404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 423,
+  "id": "Patel",
+  "name": "Patel",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010c",
+  "guid2": "01070010010303040004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 424,
+  "id": "PatternZero",
+  "name": "PatternZero",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010030400020404000500040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 425,
+  "id": "PaulMorris",
+  "name": "PaulMorris",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010c",
+  "guid2": "01070010030303050004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 426,
+  "id": "PayPalMafia",
+  "name": "PayPalMafia",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 427,
+  "id": "Paypal",
+  "name": "Paypal",
+  "source": "N_Civic",
+  "guid1": "000700100a0306000405160e00030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 428,
+  "id": "Pegasus",
+  "name": "Pegasus",
+  "source": "N_Systems",
+  "guid1": "00070010030309020801140501000103",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 429,
+  "id": "PentagonComplex",
+  "name": "PentagonComplex",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300030000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 430,
+  "id": "Petraeus",
+  "name": "Petraeus",
+  "source": "cypher:Person",
+  "guid1": "000700100c0400030000000000000205",
+  "guid2": "01070010010504010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 431,
+  "id": "Pezeshkian",
+  "name": "Pezeshkian",
+  "source": "cypher:Person",
+  "guid1": "0007001009030000000000000000010c",
+  "guid2": "01070010010404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 432,
+  "id": "Pinochet",
+  "name": "Pinochet",
+  "source": "cypher:Person",
+  "guid1": "000700100e040003000000000000020c",
+  "guid2": "01070010010305010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 433,
+  "id": "PodcastAsDealRoom",
+  "name": "PodcastAsDealRoom",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e030a000000000000000107",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 434,
+  "id": "Pokemon",
+  "name": "Pokemon Go",
+  "source": "N_Civic",
+  "guid1": "00070010030307000a050a0305050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 435,
+  "id": "PolygraphPlus",
+  "name": "Polygraph+",
+  "source": "N_Systems",
+  "guid1": "000700100502030208040e0701030404",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 436,
+  "id": "Portugal",
+  "name": "Portugal",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300000000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 437,
+  "id": "PostInformationWar",
+  "name": "PostInformationWar",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010090300080000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 438,
+  "id": "Predator",
+  "name": "Predator",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010030409020801140501020403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 439,
+  "id": "Presage",
+  "name": "Presage",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300050405000000040402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 440,
+  "id": "PrinceAndrew",
+  "name": "PrinceAndrew",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000000010c",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 441,
+  "id": "PrincessDiana",
+  "name": "PrincessDiana",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000000010c",
+  "guid2": "01070010030304050003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 442,
+  "id": "PrisonGuard",
+  "name": "Prison Guard",
+  "source": "N_Systems",
+  "guid1": "00070010060201000104110500010104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 443,
+  "id": "ProductizationPipeline",
+  "name": "ProductizationPipeline",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080400000008000000000202",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 444,
+  "id": "ProjectMaven",
+  "name": "ProjectMaven",
+  "source": "cypher:System",
+  "guid1": "00070010010200020104100500030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 445,
+  "id": "ProxySG",
+  "name": "ProxySG",
+  "source": "cypher:System",
+  "guid1": "000700100302060b0803140500030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 446,
+  "id": "QS",
+  "name": "Quantum Systems",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300010208100500010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 447,
+  "id": "QinetiQ",
+  "name": "QinetiQ",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300020000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 448,
+  "id": "Radiflow",
+  "name": "Radiflow",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309020403140500040402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 449,
+  "id": "Rafael",
+  "name": "Rafael",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300010208100000010303",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 450,
+  "id": "RafaelDefense",
+  "name": "RafaelDefense",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0300010208100002010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 451,
+  "id": "Ramstein",
+  "name": "Ramstein",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100c0300030000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 452,
+  "id": "Rappaport",
+  "name": "Assaf Rappaport",
+  "source": "N_People",
+  "guid1": "000700100a030000000000000000030b",
+  "guid2": "01070010020403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 453,
+  "id": "ReasoningEngineProblem",
+  "name": "ReasoningEngineProblem",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010050400000000000000000302",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 454,
+  "id": "RedRiver",
+  "name": "RedRiver",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 455,
+  "id": "RedWolf",
+  "name": "Red Wolf",
+  "source": "N_Systems",
+  "guid1": "00070010010200010208100002010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 456,
+  "id": "Reil",
+  "name": "Torsten Reil",
+  "source": "N_People",
+  "guid1": "000700100a0300010c0812000000030b",
+  "guid2": "01070010020403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 457,
+  "id": "Rheinmetall",
+  "name": "Rheinmetall",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300010208100002010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 458,
+  "id": "RichardSecord",
+  "name": "RichardSecord",
+  "source": "cypher:Person",
+  "guid1": "000700100c0400090000000000030205",
+  "guid2": "01070010010403010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 459,
+  "id": "Ring",
+  "name": "Ring",
+  "source": "N_Civic",
+  "guid1": "00070010060309000204100600010107",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 460,
+  "id": "RiyadhSummit2017",
+  "name": "RiyadhSummit2017",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400000000000000000101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 461,
+  "id": "RobertMaxwell",
+  "name": "RobertMaxwell",
+  "source": "cypher:Person",
+  "guid1": "000700100e040002000000000100010a",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 462,
+  "id": "RobertMcFarlane",
+  "name": "RobertMcFarlane",
+  "source": "cypher:Person",
+  "guid1": "000700100e040003000000000000020c",
+  "guid2": "01070010010305040004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 463,
+  "id": "Roboneers",
+  "name": "Roboneers",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300010108110000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 464,
+  "id": "RobotRiotControl",
+  "name": "Robot Riot Control",
+  "source": "N_Systems",
+  "guid1": "0007001006020e090208100002010106",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 465,
+  "id": "RonKessler",
+  "name": "RonKessler",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000020207",
+  "guid2": "01070010020303020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 466,
+  "id": "Roomba",
+  "name": "Roomba",
+  "source": "N_Civic",
+  "guid1": "00070010060200000d04100000010107",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 467,
+  "id": "Rosen",
+  "name": "Guy Rosen",
+  "source": "N_People",
+  "guid1": "000700100a030000000000000000020b",
+  "guid2": "01070010010302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 468,
+  "id": "Rubio",
+  "name": "Rubio",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010c",
+  "guid2": "01070010010303030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 469,
+  "id": "RulesOfEngagement",
+  "name": "RulesOfEngagement",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400030000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 470,
+  "id": "Russia",
+  "name": "Russia",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090309090000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 471,
+  "id": "SRI",
+  "name": "SRI: Stanford Research Institute",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300020000000000000304",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 472,
+  "id": "STACKIT",
+  "name": "STACKIT",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0300001c02000000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 473,
+  "id": "STIHL",
+  "name": "STIHL",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0300000000000000000207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 474,
+  "id": "Sacks",
+  "name": "Sacks",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000020c",
+  "guid2": "01070010010303030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 475,
+  "id": "SacksWhoopsTweet",
+  "name": "SacksWhoopsTweet",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "0007001008040a001500170000020108",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 476,
+  "id": "SafariClub",
+  "name": "SafariClub",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400020000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 477,
+  "id": "SagarEnjeti",
+  "name": "SagarEnjeti",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000020104",
+  "guid2": "01070010020302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 478,
+  "id": "SamiraKhashoggi",
+  "name": "SamiraKhashoggi",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010a",
+  "guid2": "01070010030302050004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 479,
+  "id": "Sandvine",
+  "name": "Sandvine",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309020803140500030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 480,
+  "id": "SandvinePacketLogic",
+  "name": "SandvinePacketLogic",
+  "source": "cypher:System",
+  "guid1": "000700100303090b0803140500010402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 481,
+  "id": "SankarShyam",
+  "name": "SankarShyam",
+  "source": "cypher:Person",
+  "guid1": "000700100a030000000000000000020b",
+  "guid2": "01070010020302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 482,
+  "id": "Saudi",
+  "name": "Saudi Arabia",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090309020000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 483,
+  "id": "SaudiArabia",
+  "name": "SaudiArabia",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010090309080403040501030201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 484,
+  "id": "ScaleAI",
+  "name": "ScaleAI",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300020703000000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 485,
+  "id": "Scherf",
+  "name": "Gundbert Scherf",
+  "source": "N_People",
+  "guid1": "000700100b030000000000000003030b",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 486,
+  "id": "SchwarzDigits",
+  "name": "SchwarzDigits",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0306001d020d0000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 487,
+  "id": "SchwarzGroup",
+  "name": "SchwarzGroup",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0306001c02000000000207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 488,
+  "id": "Scopley",
+  "name": "Scopley Games",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0307000a05000000050207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 489,
+  "id": "ScottBessent",
+  "name": "ScottBessent",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000020c",
+  "guid2": "01070010010303020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 490,
+  "id": "SebastianKurz",
+  "name": "SebastianKurz",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000000020c",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 491,
+  "id": "SelectiveEvidentiarism",
+  "name": "SelectiveEvidentiarism",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010030303001403150804030104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 492,
+  "id": "SentinelOne",
+  "name": "SentinelOne",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309000405140500040402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 493,
+  "id": "Sentry",
+  "name": "Sentry",
+  "source": "N_Systems",
+  "guid1": "00070010010209020204100500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 494,
+  "id": "SentryRobot",
+  "name": "Sentry Robot",
+  "source": "N_Systems",
+  "guid1": "00070010060209010204100602010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 495,
+  "id": "SentryTech",
+  "name": "Sentry-Tech",
+  "source": "N_Systems",
+  "guid1": "00070010010210010204100602010205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 496,
+  "id": "ShalevHulio",
+  "name": "ShalevHulio",
+  "source": "cypher:Person",
+  "guid1": "000700100b030002000000000000020b",
+  "guid2": "01070010010403020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 497,
+  "id": "SharonChurcher",
+  "name": "SharonChurcher",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000020104",
+  "guid2": "01070010020302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 498,
+  "id": "SharpEyes",
+  "name": "Sharp Eyes",
+  "source": "N_Systems",
+  "guid1": "00070010010201000304090901030401",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 499,
+  "id": "ShieldAI",
+  "name": "Shield AI",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0200010208100000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 500,
+  "id": "ShieldAIHivemind",
+  "name": "ShieldAIHivemind",
+  "source": "cypher:System",
+  "guid1": "00070010070200011008100002010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 501,
+  "id": "ShinBet",
+  "name": "ShinBet",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0309020404130501030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 502,
+  "id": "Shoebox",
+  "name": "Shoebox",
+  "source": "N_Historical",
+  "guid1": "000700100504110213050e0700030105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 503,
+  "id": "ShyamSankar",
+  "name": "ShyamSankar",
+  "source": "cypher:Person",
+  "guid1": "000700100b030000000000000003020b",
+  "guid2": "01070010010404020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 504,
+  "id": "SignalChatIncident",
+  "name": "SignalChatIncident",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100804000b0000000001000105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 505,
+  "id": "SilverLake",
+  "name": "SilverLake",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 506,
+  "id": "Sinofsky",
+  "name": "Sinofsky",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000000108",
+  "guid2": "01070010020302020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 507,
+  "id": "Siri",
+  "name": "Siri",
+  "source": "N_Civic",
+  "guid1": "00070010030302001107000000020102",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 508,
+  "id": "Sisi",
+  "name": "Sisi",
+  "source": "cypher:Person",
+  "guid1": "0007001009030003000000000000020c",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 509,
+  "id": "Skyeton",
+  "name": "Skyeton",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300010d08100000010303",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 510,
+  "id": "Skynet-PRC",
+  "name": "Skynet-PRC",
+  "source": "N_Systems",
+  "guid1": "00070010010301020405030601040201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 511,
+  "id": "Skynet-US",
+  "name": "Skynet-US",
+  "source": "N_Systems",
+  "guid1": "00070010010300020405140600040105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 512,
+  "id": "Snowden",
+  "name": "Snowden",
+  "source": "cypher:Person",
+  "guid1": "000700100e0400080000000000000104",
+  "guid2": "01070010020504030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 513,
+  "id": "Snowflake",
+  "name": "Snowflake",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300001c02000000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 514,
+  "id": "Sondland",
+  "name": "Sondland",
+  "source": "cypher:Person",
+  "guid1": "000700100e040000000000000000010c",
+  "guid2": "01070010010303020002000000000000",
+  "is_person": true
+ },
+ {
+  "row": 515,
+  "id": "SouthKorea",
+  "name": "South Korea",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090309090000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 516,
+  "id": "SouthernTrust",
+  "name": "SouthernTrust",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 517,
+  "id": "SpaceX",
+  "name": "SpaceX",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b03000b0d080a0000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 518,
+  "id": "Spain",
+  "name": "Spain",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300000000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 519,
+  "id": "Spotify",
+  "name": "Spotify",
+  "source": "N_Civic",
+  "guid1": "000700100a0305000a05000300050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 520,
+  "id": "Stanford",
+  "name": "Stanford University",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300051807000000020304",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 521,
+  "id": "StarkDefence",
+  "name": "StarkDefence",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0300010208100500010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 522,
+  "id": "Starlink",
+  "name": "Starlink",
+  "source": "N_Systems",
+  "guid1": "000700100f03000b0000000000000409",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 523,
+  "id": "Starshield",
+  "name": "Starshield",
+  "source": "N_Systems",
+  "guid1": "000700100102000208010a0500040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 524,
+  "id": "StraitOfHormuz",
+  "name": "StraitOfHormuz",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080300060000000000000101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 525,
+  "id": "SubCom",
+  "name": "SubCom",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0300040000000000000407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 526,
+  "id": "SubmarineTorpedoKill",
+  "name": "SubmarineTorpedoKill",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010010400090b08000002010105",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 527,
+  "id": "SuezCanal",
+  "name": "SuezCanal",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100f0300040000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 528,
+  "id": "SumEB2015",
+  "name": "SumEB2015",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0400000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 529,
+  "id": "SuperAegis",
+  "name": "Super Aegis",
+  "source": "N_Systems",
+  "guid1": "00070010010200010204100602010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 530,
+  "id": "Swarmer",
+  "name": "Swarmer",
+  "source": "N_Stakeholders",
+  "guid1": "00070010070200010d08100002010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 531,
+  "id": "SwarthGroup",
+  "name": "SwarthGroup",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 532,
+  "id": "SwissInstitute",
+  "name": "Swiss Institute",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 533,
+  "id": "Syria",
+  "name": "Syria",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300000000000002000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 534,
+  "id": "TKH",
+  "name": "TKH Security",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0309000104100500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 535,
+  "id": "TRD_Egypt",
+  "name": "TRD_Egypt",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0301020000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 536,
+  "id": "TacNet",
+  "name": "TacNet",
+  "source": "N_Systems",
+  "guid1": "00070010010200030d060a0500030405",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 537,
+  "id": "TalDilian",
+  "name": "TalDilian",
+  "source": "cypher:Person",
+  "guid1": "000700100b030000000000000000030b",
+  "guid2": "01070010010403010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 538,
+  "id": "TamirPardo",
+  "name": "TamirPardo",
+  "source": "cypher:Person",
+  "guid1": "000700100e0400020000000000000204",
+  "guid2": "01070010010404040004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 539,
+  "id": "TariffCourtDefiance",
+  "name": "TariffCourtDefiance",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0300000000000000030104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 540,
+  "id": "Tekever",
+  "name": "Tekever",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0310060204100600040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 541,
+  "id": "Teledyne",
+  "name": "Teledyne FLIR",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0309060000000000000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 542,
+  "id": "ThamesValleyPolice",
+  "name": "ThamesValleyPolice",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0301000304090400030206",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 543,
+  "id": "TheEnterprise",
+  "name": "TheEnterprise",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 544,
+  "id": "Thiel",
+  "name": "Peter Thiel",
+  "source": "N_People",
+  "guid1": "000700100d030000000000000000020b",
+  "guid2": "01070010010404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 545,
+  "id": "ThielCapital",
+  "name": "ThielCapital",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000030208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 546,
+  "id": "ThielEpsteinTimeline",
+  "name": "ThielEpsteinTimeline",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 547,
+  "id": "Thunderforge",
+  "name": "Project Thunderforge",
+  "source": "N_Systems",
+  "guid1": "000700100701000a1005000000050103",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 548,
+  "id": "TikTok",
+  "name": "TikTok",
+  "source": "N_Civic",
+  "guid1": "000700100a0306000a04170305050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 549,
+  "id": "Toka",
+  "name": "Toka",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309020803140500030403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 550,
+  "id": "TorCircumvention",
+  "name": "TorCircumvention",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100303000b0000000000010104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 551,
+  "id": "Translator",
+  "name": "IBM Simultaneous Translator",
+  "source": "N_Historical",
+  "guid1": "000700100304000b1107000000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 552,
+  "id": "Trovicor",
+  "name": "Trovicor",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309020800140500000403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 553,
+  "id": "Trump",
+  "name": "Trump",
+  "source": "cypher:Person",
+  "guid1": "0007001009030003000000000000020c",
+  "guid2": "01070010010404010001000000000000",
+  "is_person": true
+ },
+ {
+  "row": 554,
+  "id": "Turkey",
+  "name": "Turkey",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300030000000000030201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 555,
+  "id": "Twitter",
+  "name": "Twitter/X",
+  "source": "N_Civic",
+  "guid1": "000700100a0306001a05170304050402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 556,
+  "id": "UAE",
+  "name": "UAE",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010090309090000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 557,
+  "id": "UK",
+  "name": "United Kingdom",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090309080000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 558,
+  "id": "UKDES",
+  "name": "UKDE&S",
+  "source": "N_Stakeholders",
+  "guid1": "000700100c0300040000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 559,
+  "id": "UKDSTL",
+  "name": "UKDSTL",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0300020000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 560,
+  "id": "UNHCR",
+  "name": "UNHCR",
+  "source": "N_Stakeholders",
+  "guid1": "000700100e0308000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 561,
+  "id": "URSA",
+  "name": "URSA",
+  "source": "N_Systems",
+  "guid1": "00070010030100060d050a0200040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 562,
+  "id": "US",
+  "name": "United States",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300000000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 563,
+  "id": "USArmy",
+  "name": "USArmy",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100c0300090000000000030205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 564,
+  "id": "USCongress",
+  "name": "USCongress",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0300000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 565,
+  "id": "USPD",
+  "name": "US Local Police",
+  "source": "N_Stakeholders",
+  "guid1": "000700100c0301000304090900030206",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 566,
+  "id": "Ukraine",
+  "name": "Ukraine",
+  "source": "N_Stakeholders",
+  "guid1": "00070010090300000000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 567,
+  "id": "Unit8200",
+  "name": "Unit 8200",
+  "source": "N_Stakeholders",
+  "guid1": "000700100c0300020000000000000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 568,
+  "id": "VRGRecantations",
+  "name": "VRGRecantations",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0300000000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 569,
+  "id": "ValarVentures",
+  "name": "ValarVentures",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000050208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 570,
+  "id": "Vance",
+  "name": "JD Vance",
+  "source": "N_People",
+  "guid1": "0007001009030003000000000003020c",
+  "guid2": "01070010010404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 571,
+  "id": "Vanguard",
+  "name": "Vanguard",
+  "source": "N_Stakeholders",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 572,
+  "id": "Vannier",
+  "name": "Vannier",
+  "source": "cypher:Person",
+  "guid1": "000700100e0400000000000000000104",
+  "guid2": "01070010020302030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 573,
+  "id": "Vantage",
+  "name": "Vantage Towers",
+  "source": "N_Stakeholders",
+  "guid1": "000700100f0300000000000000000209",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 574,
+  "id": "Vector",
+  "name": "Vector",
+  "source": "N_Systems",
+  "guid1": "00070010030100001d020d0000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 575,
+  "id": "Venezuela",
+  "name": "Venezuela",
+  "source": "cypher:Stakeholder",
+  "guid1": "00070010090309090000000000000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 576,
+  "id": "VenezuelaCapture",
+  "name": "VenezuelaCapture",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010090300090000000002000201",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 577,
+  "id": "VenezuelaOilReserves",
+  "name": "VenezuelaOilReserves",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100f0300060d050a0200040101",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 578,
+  "id": "VenezuelaRaidDetails",
+  "name": "VenezuelaRaidDetails",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010080400090000000002000205",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 579,
+  "id": "Vertex",
+  "name": "Vertex",
+  "source": "N_Civic",
+  "guid1": "000700100a0300001808000000020402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 580,
+  "id": "VfBStuttgart",
+  "name": "VfBStuttgart",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e030a000000000000000207",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 581,
+  "id": "VictimDiscreditingFunction",
+  "name": "VictimDiscreditingFunction",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "00070010030303001a03130e04030104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 582,
+  "id": "VirginiaGiuffre",
+  "name": "VirginiaGiuffre",
+  "source": "cypher:Person",
+  "guid1": "000700100e0400000000000001000104",
+  "guid2": "01070010030404030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 583,
+  "id": "VirginiaRobertsGiuffre",
+  "name": "VirginiaRobertsGiuffre",
+  "source": "cypher:Person",
+  "guid1": "000700100e0400000000000001000104",
+  "guid2": "01070010030404040004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 584,
+  "id": "Vyriy",
+  "name": "Vyriy",
+  "source": "N_Stakeholders",
+  "guid1": "000700100b0300010208100000010303",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 585,
+  "id": "WashingtonPostCapture",
+  "name": "WashingtonPostCapture",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100104000014030d050402020a",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 586,
+  "id": "WaterfallSecurity",
+  "name": "WaterfallSecurity",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100b0309000000000000000407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 587,
+  "id": "Watergate",
+  "name": "Watergate",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e040000000000000000010c",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 588,
+  "id": "WebbSecretSociety",
+  "name": "WebbSecretSociety",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "000700100e0400000000000000000204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 589,
+  "id": "WesternEnterpriseIT",
+  "name": "WesternEnterpriseIT",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100f0300000002000000000202",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 590,
+  "id": "WesternGovAgencies",
+  "name": "WesternGovAgencies",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e03090800000d0500030204",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 591,
+  "id": "WhatsApp",
+  "name": "WhatsApp",
+  "source": "N_Civic",
+  "guid1": "000700100a03060b0000000000000402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 592,
+  "id": "WheresDaddy",
+  "name": "Where's Daddy",
+  "source": "N_Systems",
+  "guid1": "00070010030201000304090901030406",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 593,
+  "id": "WhitneyWebb",
+  "name": "WhitneyWebb",
+  "source": "cypher:Person",
+  "guid1": "000700100e0300000000000000020208",
+  "guid2": "01070010020302030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 594,
+  "id": "WilliamCasey",
+  "name": "WilliamCasey",
+  "source": "cypher:Person",
+  "guid1": "000700100e040002000000000000020b",
+  "guid2": "01070010010303040004000000000000",
+  "is_person": true
+ },
+ {
+  "row": 595,
+  "id": "WindsorCastle",
+  "name": "WindsorCastle",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e0309000000000000000104",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 596,
+  "id": "WithoutMeChaos",
+  "name": "WithoutMeChaos",
+  "source": "cypher:HistoricalSystem",
+  "guid1": "0007001003030000000000000400010a",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 597,
+  "id": "Wiz",
+  "name": "Wiz",
+  "source": "N_Historical",
+  "guid1": "000700100a0409000404000000040402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 598,
+  "id": "WizMetrics",
+  "name": "WizMetrics",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0300001403000000030402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 599,
+  "id": "WolfPack",
+  "name": "Wolf Pack",
+  "source": "N_Systems",
+  "guid1": "00070010070200010d08100000010403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 600,
+  "id": "Wolly",
+  "name": "Wolly",
+  "source": "N_Systems",
+  "guid1": "0007001006010d000d08110000010402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 601,
+  "id": "XMCyber",
+  "name": "XMCyber",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309000405000500040407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 602,
+  "id": "XMCyberMetrics",
+  "name": "XMCyberMetrics",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a0309000405000e00040407",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 603,
+  "id": "XMCyberPlatform",
+  "name": "XMCyberPlatform",
+  "source": "cypher:System",
+  "guid1": "00070010030209020405140500040403",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 604,
+  "id": "YaronRosen",
+  "name": "YaronRosen",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000000010a",
+  "guid2": "01070010020302010005000000000000",
+  "is_person": true
+ },
+ {
+  "row": 605,
+  "id": "YuvalAbraham",
+  "name": "YuvalAbraham",
+  "source": "cypher:Person",
+  "guid1": "000700100e030000000000000002010c",
+  "guid2": "01070010020403030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 606,
+  "id": "Zelenskyy",
+  "name": "Zelenskyy",
+  "source": "cypher:Person",
+  "guid1": "0007001009030003000000000000020c",
+  "guid2": "01070010010504030003000000000000",
+  "is_person": true
+ },
+ {
+  "row": 607,
+  "id": "ZorroRanch",
+  "name": "ZorroRanch",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100e040000000000000000010a",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 608,
+  "id": "a16z",
+  "name": "a16z",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100d0300000000000000000208",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 609,
+  "id": "iRobot",
+  "name": "iRobot",
+  "source": "N_Stakeholders",
+  "guid1": "000700100a0300010d08000000010402",
+  "guid2": null,
+  "is_person": false
+ },
+ {
+  "row": 610,
+  "id": "xAI",
+  "name": "xAI",
+  "source": "cypher:Stakeholder",
+  "guid1": "000700100a01050018070d0005020302",
+  "guid2": null,
+  "is_person": false
+ }
+]

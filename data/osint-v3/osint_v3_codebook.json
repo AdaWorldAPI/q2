@@ -1,0 +1,226 @@
+{
+  "format": "OSINT-V3 SoA \u00b7 6x(8:8) part_of:is_a centroid cascade (CAM-PQ-shaped)",
+  "classid_system": "0x10000700",
+  "classid_person": "0x10000701",
+  "record": "row_id(u32 LE) | GUID1(16B: classid u32 + 6x u16 tiers) | GUID2(16B McClelland, persons)",
+  "guid1_tiers": {
+    "HEEL": "currentStatus:type",
+    "HIP": "militaryUse:civicUse",
+    "TWIG": "MLTask:MLType",
+    "LEAF": "purpose:capacity",
+    "family": "output:impact",
+    "identity": "stakeholder:airo_type"
+  },
+  "guid2_tiers": {
+    "HEEL": "stage:need",
+    "HIP": "receptor:rubicon",
+    "TWIG": "motive:_"
+  },
+  "airo_vocab": {
+    "currentStatus": {
+      "Development": 1,
+      "Deployment": 2,
+      "Operation": 3,
+      "Retirement": 4
+    },
+    "type": {
+      "IntelligentControlSystem": 1,
+      "GenerativeModel": 2,
+      "NarrowAI": 3,
+      "TrainingDatabase": 4,
+      "ExpertSystem": 5,
+      "ServiceRobot": 6,
+      "MultiAgentSystem": 7,
+      "Dashboard": 8,
+      "Nation": 9,
+      "TechCompany": 10,
+      "DefenseCompany": 11,
+      "Military": 12,
+      "Investor": 13,
+      "Institution": 14,
+      "Utility": 15
+    },
+    "militaryUse": {
+      "Robot": 1,
+      "Intel": 2,
+      "Command": 3,
+      "Logistics": 4,
+      "Prediction": 5,
+      "Mapping": 6,
+      "Personnel": 7,
+      "Intelligence": 8,
+      "Operations": 9,
+      "Planning": 10,
+      "Communications": 11
+    },
+    "civicUse": {
+      "Policing": 1,
+      "AR": 2,
+      "BehaviorEvaluation": 3,
+      "Logistics": 4,
+      "RecommenderSystems": 5,
+      "ConsumerTracking": 6,
+      "Games": 7,
+      "SocialWelfareSystems": 8,
+      "Security": 9,
+      "Marketing": 10,
+      "Advertising": 11,
+      "Robot": 12,
+      "Delivery": 13,
+      "CrowdControl": 14,
+      "PrivateSecurity": 15,
+      "BorderPatrol": 16
+    },
+    "MLTask": {
+      "Capture": 1,
+      "Store": 2,
+      "Sort": 3,
+      "Recognize": 4,
+      "Predict": 5,
+      "Assign": 6,
+      "Generate": 7,
+      "Automate": 8
+    },
+    "MLType": {
+      "ObjectRecognition": 1,
+      "ObjectDetection": 2,
+      "FaceRecognition": 3,
+      "PatternRecognition": 4,
+      "Ranking": 5,
+      "SortingAlgorithm": 6,
+      "Classification": 7,
+      "SignalAnalysis": 8,
+      "ComputerVision": 9,
+      "Recommendation": 10,
+      "DecisionTree": 11,
+      "PoseEstimation": 12,
+      "SpatialReasoning": 13,
+      "TemporalReasoning": 14,
+      "CommonSenseReasoning": 15,
+      "PolicyReasoning": 16,
+      "SpeechSynthesis": 17,
+      "SpeechAnalysis": 18,
+      "VoiceRecognition": 19,
+      "TextAnalysis": 20,
+      "TextGeneration": 21,
+      "ImageGeneration": 22,
+      "Photogrammetry": 23,
+      "TransformerModel": 24,
+      "Clustering": 25,
+      "SentimentAnalysis": 26,
+      "SignalTracking": 27,
+      "KnowledgeBase": 28,
+      "InformationRetrieval": 29
+    },
+    "purpose": {
+      "AssessingRiskOfOffending": 1,
+      "PredictiveMapping": 2,
+      "ProducingRecommendation": 3,
+      "DetectingCriminalOffences": 4,
+      "Monitoring": 5,
+      "DetectingIndividuals": 6,
+      "DetectingLies": 7,
+      "PerformingBackgroundChecks": 8,
+      "IdentifyingIndividuals": 9,
+      "RecognizingIndividuals": 10,
+      "RemoteIdentification": 11,
+      "EvaluatingJobCandidates": 12,
+      "EvaluatingEmployeePerformance": 13,
+      "AssessingPeopleRelatedRisk": 14
+    },
+    "capacity": {
+      "BiometricsBasedEmotionRecognition": 1,
+      "AudioProcessing": 2,
+      "BehaviourAnalysis": 3,
+      "BiometricIdentification": 4,
+      "BiometricCategorisation": 5,
+      "ComputerVision": 6,
+      "DialectRecognition": 7,
+      "EmotionRecognition": 8,
+      "FaceRecognition": 9,
+      "Geolocation": 10,
+      "GestureRecognition": 11,
+      "ImageGeneration": 12,
+      "InformationRetrieval": 13,
+      "LieDetection": 14,
+      "NamedEntityRecognition": 15,
+      "ObjectDetection": 16,
+      "ObjectRecognition": 17,
+      "PoseEstimation": 18,
+      "Profiling": 19,
+      "SignalTracking": 20,
+      "RelationshipExtraction": 21,
+      "SensitiveAttributeInference": 22,
+      "SentimentAnalysis": 23
+    },
+    "output": {
+      "Action": 1,
+      "Content": 2,
+      "Decision": 3,
+      "Prediction": 4,
+      "Recommendation": 5
+    },
+    "impact": {
+      "PsychologicalHarm": 1,
+      "PhysicalInjury": 2,
+      "WellbeingImpact": 3,
+      "DistortionInHumanBehavior": 4,
+      "Overreliance": 5
+    },
+    "stakeholder": {
+      "Nation": 1,
+      "TechCompany": 2,
+      "DefenseCompany": 3,
+      "Institution": 4,
+      "Military": 5,
+      "Police": 6,
+      "Company": 7,
+      "Investor": 8,
+      "Utility": 9,
+      "Owner": 10,
+      "CEO": 11,
+      "Politician": 12
+    },
+    "airo_type": {
+      "AISubject": 1,
+      "AIDeployer": 2,
+      "AIDeveloper": 3,
+      "AIProvider": 4
+    }
+  },
+  "mcclelland_vocab": {
+    "stage": [
+      "I",
+      "II",
+      "III",
+      "IV",
+      "IV_performed"
+    ],
+    "need": [
+      "nPow",
+      "nAch",
+      "nAff"
+    ],
+    "receptor": [
+      "DOMINANCE",
+      "STATUS",
+      "IDEOLOGY",
+      "SECURITY",
+      "AFFILIATION"
+    ],
+    "rubicon": [
+      "PREDECISIONAL",
+      "PLANNING",
+      "ACTIONAL",
+      "IDENTITY_INTEGRATED",
+      "LOCKED"
+    ],
+    "motive": [
+      "DOMINANCE",
+      "STATUS",
+      "IDEOLOGY",
+      "SECURITY",
+      "GREED"
+    ]
+  }
+}
