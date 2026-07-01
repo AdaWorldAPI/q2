@@ -915,17 +915,27 @@ export function OsintGraph() {
     setDivOn(true);
     setAngle(null);
     apiRef.current?.heatNodes(duModel.nodeDiv);
-    const lines = duModel.rows.slice(0, 40).map((r) => ({
-      text: `${r.label} · mil ${r.mil}/civ ${r.civ} · Δimpact ${r.jac.toFixed(2)}${
-        r.pow ? ` · ${POWER_LEVEL[r.pow]}` : ''
-      }${r.motive >= 0 ? ` · ${MOTIVE[r.motive]}` : ''}`,
-      conf: r.divergence,
-      survived: r.divergence >= 0.5,
-    }));
+    // Person × Situation (Lewin/Atkinson/Rheinberg). The SITUATION is the causal
+    // chain of the 4 outside factors — capability → (mil/civ demand) → declared
+    // purpose (explicit intent) ⟹ revealed impact (implicit) — the chain AIwar
+    // builds to prove the harm the companies deny. The PERSON is the trait
+    // (POWER_LEVEL from airo:type, else the McClelland motive) reasoned against it:
+    // the divergence is trait-driven, not incidental to a "neutral" dual-use.
+    const lines = duModel.rows.slice(0, 40).map((r) => {
+      const trait = r.pow ? POWER_LEVEL[r.pow] : r.motive >= 0 ? MOTIVE[r.motive] : '—';
+      return {
+        text: `${r.label} → [mil ${r.mil}/civ ${r.civ}] → ${r.expl || '—'} ⟹ ${r.impl || '—'}  │  ${trait}`,
+        conf: r.divergence,
+        survived: r.divergence >= 0.5,
+      };
+    });
+    // Person→Situation attribution: how much of the high-divergence (the situational
+    // intent→impact drift) is carried by a power trait (P3/P4 or nPow). High % = the
+    // harm is trait-driven — the causal chain the "can't prove it's harmful" defense denies.
     const hi = duModel.rows.filter((r) => r.divergence >= 0.5);
     const macht = hi.length ? hi.filter((r) => r.motive === 0 || r.pow >= 3).length / hi.length : 0;
     setReadout({
-      seed: `dual-use divergence · Macht-adjacency ${Math.round(macht * 100)}%`,
+      seed: `Person×Situation · chain ⟹ impact · Macht-driven ${Math.round(macht * 100)}%`,
       kind: 'spread',
       lines,
       theories: hi.length,
@@ -1056,7 +1066,16 @@ export function OsintGraph() {
     };
     const byCap = new Map<
       number,
-      { mil: Set<number>; civ: Set<number>; milImp: Set<number>; civImp: Set<number>; pow: number[]; mot: Map<number, number> }
+      {
+        mil: Set<number>;
+        civ: Set<number>;
+        milImp: Set<number>;
+        civImp: Set<number>;
+        pow: number[];
+        mot: Map<number, number>;
+        pur: Map<number, number>;
+        imp: Map<number, number>;
+      }
     >();
     view.touched.forEach((i) => {
       const c = T[i * stride + AX.capacity];
@@ -1066,7 +1085,7 @@ export function OsintGraph() {
       if (!mil && !civ) return;
       let r = byCap.get(c);
       if (!r) {
-        r = { mil: new Set(), civ: new Set(), milImp: new Set(), civImp: new Set(), pow: [], mot: new Map() };
+        r = { mil: new Set(), civ: new Set(), milImp: new Set(), civImp: new Set(), pow: [], mot: new Map(), pur: new Map(), imp: new Map() };
         byCap.set(c, r);
       }
       const imp = T[i * stride + AX.impact];
@@ -1078,6 +1097,9 @@ export function OsintGraph() {
         r.civ.add(i);
         if (imp) r.civImp.add(imp);
       }
+      if (imp) r.imp.set(imp, (r.imp.get(imp) ?? 0) + 1); // implicit: the revealed impact
+      const pur = T[i * stride + AX.purpose]; // explicit: the declared purpose
+      if (pur) r.pur.set(pur, (r.pur.get(pur) ?? 0) + 1);
       const p = powerOf(i);
       if (p) r.pow.push(p);
       const mo = motiveOf(i);
@@ -1102,7 +1124,36 @@ export function OsintGraph() {
             dom = m;
           }
         });
-        return { code, label: nameOf(AX.capacity, code) || `cap ${code}`, mil, civ, jac, divergence, pow, motive: dom };
+        // the causal-chain links: declared purpose (explicit) and revealed impact
+        // (implicit) — the two ends AIwar chains to prove the harm.
+        let ep = -1;
+        let epv = 0;
+        r.pur.forEach((n, cc) => {
+          if (n > epv) {
+            epv = n;
+            ep = cc;
+          }
+        });
+        let im = -1;
+        let imv = 0;
+        r.imp.forEach((n, cc) => {
+          if (n > imv) {
+            imv = n;
+            im = cc;
+          }
+        });
+        return {
+          code,
+          label: nameOf(AX.capacity, code) || `cap ${code}`,
+          mil,
+          civ,
+          jac,
+          divergence,
+          pow,
+          motive: dom,
+          expl: ep >= 0 ? nameOf(AX.purpose, ep) : '',
+          impl: im >= 0 ? nameOf(AX.impact, im) : '',
+        };
       })
       .filter((r) => r.divergence > 0);
     const max = rows.reduce((m, r) => Math.max(m, r.divergence), 0) || 1;
@@ -1214,7 +1265,7 @@ export function OsintGraph() {
           ))}
           <button
             onClick={fireDivergence}
-            title="dual-use divergence — the CAUSALITY distance (intent→impact drift) across the militaryUse/civicUse fork of each shared capability, with the McClelland/Freud power flow (P1 consume · P3 control-others · P4 empower)"
+            title="dual-use causal chain — Person × Situation. SITUATION: capability → mil/civ demand → explicit purpose ⟹ implicit impact (the intent→impact drift AIwar chains to prove harm). PERSON: the McClelland/Freud power trait (P1 consume · P3 control-others · P4 empower) reasoned against it."
             style={{
               fontFamily: 'monospace',
               fontSize: 11,
