@@ -20,6 +20,7 @@
 
 use std::sync::LazyLock;
 
+use axum::response::Html;
 use axum::{extract::Query, Json};
 use lance_graph_contract::class_view::{ClassId, ClassView, FieldMask};
 use lance_graph_contract::ontology::{DisplayTemplate, FieldRef};
@@ -97,6 +98,44 @@ pub async fn osint_card_handler(Query(q): Query<CardQuery>) -> Json<serde_json::
         "shown": rows.len(),
         "rows": rows,
     }))
+}
+
+/// `GET /api/osint/card.html?mask=<bits>` — the same ViewFilter, rendered
+/// server-side as HTML (the Redmine ERB view, in this codebase's `Html<String>`
+/// idiom). `render_rows` is template-agnostic, so this is a drop-in swap for an
+/// askama template once a version is pinned; the *projection* (mask → rows) is
+/// identical either way. Each row shows its reasoning role (parsed from the
+/// predicate prefix), the field label, and the predicate key.
+pub async fn osint_card_html_handler(Query(q): Query<CardQuery>) -> Html<String> {
+    let mask = q.mask.map(FieldMask).unwrap_or(FieldMask::FULL);
+    let cv = OsintClassView;
+    let rows = cv.render_rows(OSINT_CLASS, mask);
+    let mut body = String::new();
+    for r in &rows {
+        // predicate = "aiwar:<role>/<field>" — the reasoning role is the prefix.
+        let role = r
+            .predicate
+            .strip_prefix("aiwar:")
+            .and_then(|s| s.split('/').next())
+            .unwrap_or("");
+        body.push_str(&format!(
+            "<tr><td class=r>{role}</td><td class=l>{}</td><td class=p>{}</td></tr>",
+            r.label, r.predicate
+        ));
+    }
+    Html(format!(
+        "<!doctype html><meta charset=utf-8><title>OSINT 0x0700 card</title>\
+<style>body{{background:#0a0e17;color:#cfe7ff;font:13px ui-monospace,monospace;padding:18px}}\
+h1{{font-size:14px;color:#7fd1ff;font-weight:400}}table{{border-collapse:collapse;margin-top:10px}}\
+td{{padding:4px 12px;border-bottom:1px solid #1b2c3e;white-space:nowrap}}\
+.r{{color:#7fd1ff}}.l{{color:#eaf4ff}}.p{{color:#5a6b7f}}</style>\
+<h1>OSINT · classid 0x0700 · FieldMask 0x{:03x} · {} / {} fields shown</h1>\
+<table><tr><td class=r>role</td><td class=l>field</td><td class=p>predicate</td></tr>{}</table>",
+        mask.0,
+        rows.len(),
+        cv.field_count(OSINT_CLASS),
+        body
+    ))
 }
 
 #[cfg(test)]
