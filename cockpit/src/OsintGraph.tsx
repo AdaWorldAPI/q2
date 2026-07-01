@@ -49,20 +49,63 @@ const ANGLES: Array<{ name: string; cls: number }> = [
 const REL_NAME = [
   'member-of', 'interfaces', 'CONNECTED_TO', 'DEVELOPED_BY', 'DEPLOYED_BY',
   'PERSON_LINK', 'USED_IN', 'HIERARCHICAL', 'VALID_FOR', 'related',
-  'militaryUse', 'civicUse', 'airo:type', 'MLType', 'purpose', 'capacity',
+  'militaryUse', 'civicUse', 'airo:type', 'MLTask', 'purpose', 'capacity',
 ];
 const REL_COLOR = [
-  '#223040', '#223040', '#4dd0e1', '#ffb547', '#35d07f',
+  '#4a6a8c', '#3f5a78', '#4dd0e1', '#ffb547', '#35d07f',
   '#ff637d', '#9b8cff', '#c792ea', '#7fd1c7', '#8fa6c4',
   '#ff637d', '#35d07f', '#c792ea', '#7fd1ff', '#ffb547', '#9b8cff',
 ];
 // rel codes that make up the dimension layer: VALID_FOR (8) + the facets (10..15).
 const isFacetRel = (r: number) => r === 8 || (r >= 10 && r <= 15);
 
-// The 6 dual-use facet AXES in tenant-byte order (value[1..=6]). The SoA tenant
-// tail ships one code per axis per node; the facet lens groups nodes by them
-// LIVE (the dynamic/residual layer — the twin of the materialized facet edges).
-const FACET_AXES_UI = ['militaryUse', 'civicUse', 'airo:type', 'MLType', 'purpose', 'capacity'];
+// The dual-use facet AXES in tenant-byte order (value[1..=stride]). The SoA tenant
+// tail ships one code per axis per node; the facet lens / property filter group
+// nodes by them LIVE (the dynamic layer — the twin of the materialized facet edges).
+// value byte = 1 + axis index. Order MUST match FACET_AXES / REL_FACET_* in
+// osint_gotham.rs. The first 6 are the original dual-use pairs; 7..11 the enrichment.
+const FACET_AXES_UI = [
+  'militaryUse', 'civicUse', 'airo:type', 'MLTask', 'purpose', 'capacity',
+  'currentStatus', 'type', 'output', 'impact', 'stakeholder',
+];
+
+// ── Semantic typing of the 12-item mask (tenant index = value byte − 1) ───────
+// Reasoning measures DISTANCE along two ORTHOGONAL axes, never materialised:
+//   DEMAND    = offer ⟷ need     (does supply meet demand)
+//   CAUSALITY = intent ⟷ impact  (how far the outcome drifted from the goal → divergence)
+const AX = {
+  militaryUse: 0, civicUse: 1, airoRole: 2, mlTask: 3, purpose: 4,
+  capacity: 5, currentStatus: 6, type: 7, output: 8, impact: 9, stakeholder: 10,
+};
+// McClelland motive — and its adjacency to Freud's developmental gradient.
+// demand (need) and intent are INHERENT in the motive: the motive is the source
+// of both reasoning axes. The POWER motive (nPow) isn't flat — it's a 4-level
+// control-directionality scale (Freud's psychosexual stages), and it sits
+// ADJACENT to airo:type: the actor role IS the power level.
+//   P1 Oral    "consume from others to myself"   → extraction        (the consumed = AISubject)
+//   P2 Anal    "control myself"                  → self-control      (internal systems)
+//   P3 Phallic "control OTHERS"                  → AIDeployer/AIOperator (fields the tool)
+//   P4 Genital "empower OTHERS to control others"→ AIDeveloper/AIProvider/AISupplier (builds it)
+// airo:type bits: 0=Subject(1) 1=Deployer(2) 2=Developer(4) 3=Provider(8)
+// 4=Operator(16) 5=Supplier(32).
+const MOTIVE = ['nPow', 'nAch', 'nAff'];
+const POWER_LEVEL = ['—', 'P1·oral·consume', 'P2·anal·self', 'P3·phallic·control-others', 'P4·genital·empower'];
+// Power level (0..4) read straight from the airo:type bitset — the adjacency.
+// The boomerang (Deployer ∧ Subject) is P3 that has become P1's object.
+const powerOfAiro = (bits: number): number => {
+  if (bits & (4 | 8 | 32)) return 4; // Developer | Provider | Supplier — empower others
+  if (bits & (2 | 16)) return 3; // Deployer | Operator — control others
+  if (bits & 1) return 1; // Subject — the consumed
+  return 0;
+};
+// nAch / nAff still come from the intent/use LABELS (keyword heuristic); nPow is
+// carried by the power level above.
+const MOTIVE_KEYS = [
+  /risk|offend|criminal|detect|monitor|surveil|control|identif|backgroundcheck|lie|privacy|freedom|power|escalat|policy|weapon|command|intel|target/i,
+  /evaluat|candidate|performance|predict|mapping|recommend|assess|optimi|rank|classif|generat|research|achiev/i,
+  /advertis|social|welfare|assist|chat|consumer|market|delivery|smart|game|connect|translat|affili/i,
+];
+
 // categorical palette for facet codes (code 0 = absent → dim slate).
 const FACET_PALETTE = [
   '#4dd0e1', '#ffb547', '#35d07f', '#9b8cff', '#ff637d', '#c792ea',
@@ -84,9 +127,11 @@ export interface Soa {
   cls: Uint8Array;
   edges: Array<{ s: number; t: number; r: number }>;
   labels: string[];
-  // per-node facet tenant: 6 codes (value[1..=6]) × nodeCount, or null if the
-  // asset predates the tenant tail. The dynamic attribute the facet lens groups by.
+  // per-node facet tenant: `tenantStride` codes (value[1..=stride]) × nodeCount, or
+  // null if the asset predates the tenant tail. The dynamic attributes the facet
+  // lens / property filter group by. Stride is 11 (current) or 6 (legacy).
   tenants: Uint8Array | null;
+  tenantStride: number;
   // per-node global-category flag (HEEL=HIP=0xFFFF ceiling pole): 1 = cross-cutting.
   ceiling: Uint8Array;
   // per-node GUID identity field (bytes 14-15 LE) — the stable node id.
@@ -120,6 +165,8 @@ interface GraphApi {
   clear: () => void;
   setDims: (show: boolean) => void;
   setFacet: (axis: number | null) => void;
+  setPropFilter: (keys: Set<string>) => number; // → count of surviving nodes
+  heatNodes: (heat: Map<number, number> | null) => void; // divergence heat overlay
 }
 
 // Decode the OSO1 wire: magic(4) | nodeCount u32 | edgeCount u32 |
@@ -179,15 +226,23 @@ export function decodeSoa(buf: ArrayBuffer): Soa {
       off += len;
     }
   }
-  // optional tenant tail (OSO1 additive): node_count × 6 facet bytes (value[1..=6]).
-  // Old assets stop after the labels; new ones carry the per-node attribute here.
+  // optional tenant tail (OSO1 additive): node_count × STRIDE facet bytes
+  // (value[1..=STRIDE]). The current bake is 11-wide (militaryUse..stakeholder);
+  // a legacy asset is 6-wide. Old readers stop after the labels; here we pick the
+  // widest stride that fits so both assets decode.
   let tenants: Uint8Array | null = null;
-  if (off + nodeCount * 6 <= dv.byteLength) {
-    tenants = new Uint8Array(buf, off, nodeCount * 6);
-    off += nodeCount * 6;
+  let tenantStride = 0;
+  if (off + nodeCount * 11 <= dv.byteLength) {
+    tenantStride = 11;
+  } else if (off + nodeCount * 6 <= dv.byteLength) {
+    tenantStride = 6;
+  }
+  if (tenantStride) {
+    tenants = new Uint8Array(buf, off, nodeCount * tenantStride);
+    off += nodeCount * tenantStride;
   }
   return {
-    nodeCount, edgeCount, cls, edges, labels, tenants, ceiling, identity,
+    nodeCount, edgeCount, cls, edges, labels, tenants, tenantStride, ceiling, identity,
     heel: heelA, hip: hipA, twig: twigA, leaf: leafA, family: familyA,
   };
 }
@@ -335,9 +390,16 @@ export function OsintGraph() {
   const [readout, setReadout] = useState<Readout | null>(null);
   const [search, setSearch] = useState('');
   const [angle, setAngle] = useState<number | null>(null);
-  const [showDims, setShowDims] = useState(true);
-  // active facet lens (0..5 = a FACET_AXES_UI axis, or null = colour by class).
+  const showDims = true; // dimension-layer scaffold is inert now (schema nodes de-rendered)
+  // active facet lens (0..N = a FACET_AXES_UI axis, or null = colour by class).
   const [facetAxis, setFacetAxis] = useState<number | null>(null);
+  // property FILTER: selected "axis:code" keys — a node survives if, for every axis
+  // that has ≥1 selected code, its code on that axis is in the set (AND across axes,
+  // OR within an axis). The explicit prefix; the graph filters to matches live.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const selectedRef = useRef<Set<string>>(selected); // mirror for the build closures
+  const [openAxis, setOpenAxis] = useState<number | null>(null); // expanded palette axis
+  const [divOn, setDivOn] = useState(false); // dual-use divergence lens active
 
   // Fetch + decode the SoA once.
   useEffect(() => {
@@ -359,12 +421,24 @@ export function OsintGraph() {
     };
   }, []);
 
-  // The semantic VIEW: only the real neo4j relations (rel ≥ 2) and the nodes
-  // they touch — the connected entity graph, not the schema scaffold.
+  // The semantic VIEW: entity↔entity relations only — the real neo4j relations
+  // (2..7, 9) PLUS the basin tissue (member-of 0 / interfaces 1, now docked to real
+  // ANCHOR entities, not synthetic hubs). Schema property-nodes (cls 5/6) and their
+  // facet spokes (VALID_FOR 8, facets 10..20) are NOT rendered: a dimension is a
+  // prefix carried ON the node (read live by the facet lens), never a node to spoke
+  // into. That is what dissolves the islands — no "look up a property as a node".
   const view = useMemo(() => {
     if (!soa) return null;
     const semantic = soa.edges
-      .filter((e) => e.r >= 2 && e.s < soa.nodeCount && e.t < soa.nodeCount)
+      .filter(
+        (e) =>
+          e.s < soa.nodeCount &&
+          e.t < soa.nodeCount &&
+          soa.cls[e.s] < 5 &&
+          soa.cls[e.t] < 5 &&
+          e.r !== 8 &&
+          e.r < 10,
+      )
       .map((e, id) => ({ ...e, id }));
     const degree = new Map<number, number>();
     const touched = new Set<number>();
@@ -389,7 +463,7 @@ export function OsintGraph() {
     const nodeBorder = (i: number) => {
       if (soa.ceiling[i]) return CEILING_COLOR; // global hubs stay prominent in every mode
       const ax = facetAxisRef.current;
-      if (ax != null && soa.tenants) return facetColor(soa.tenants[i * 6 + ax]);
+      if (ax != null && soa.tenants) return facetColor(soa.tenants[i * soa.tenantStride + ax]);
       return classColor(soa.cls[i]);
     };
     const nodeKind = (i: number) =>
@@ -694,12 +768,79 @@ export function OsintGraph() {
     const setFacet = (axis: number | null) => {
       facetAxisRef.current = axis != null && soa.tenants ? axis : null;
       visNodes.update(Array.from(touched).map(baseNode));
+      if (selectedRef.current.size) applyPropFilter(selectedRef.current);
     };
-    // apply the current toggle/lens state on (re)build — covers a toggle that
-    // landed before the network (and apiRef) existed, so the buttons and graph
-    // never desync.
+    // property filter: a node survives if, for every axis carrying ≥1 selected
+    // code, its tenant code on that axis is selected (AND across axes, OR within an
+    // axis). The explicit prefix — matches stay lit, the rest dim, edges survive
+    // only between two matches. Returns the surviving count.
+    const matchesFilter = (i: number, byAxis: Map<number, Set<number>>): boolean => {
+      if (!soa.tenants) return true;
+      for (const [ax, codes] of byAxis) {
+        if (!codes.has(soa.tenants[i * soa.tenantStride + ax])) return false;
+      }
+      return true;
+    };
+    const applyPropFilter = (keys: Set<string>): number => {
+      selectedRef.current = keys;
+      const byAxis = new Map<number, Set<number>>();
+      keys.forEach((k) => {
+        const [ax, code] = k.split(':').map(Number);
+        const s = byAxis.get(ax) ?? new Set<number>();
+        s.add(code);
+        byAxis.set(ax, s);
+      });
+      const ids = Array.from(touched);
+      if (!byAxis.size) {
+        visNodes.update(ids.map(baseNode));
+        visEdges.update(semantic.map(baseEdge));
+        return ids.length;
+      }
+      const match = new Set<number>();
+      ids.forEach((i) => {
+        if (matchesFilter(i, byAxis)) match.add(i);
+      });
+      visNodes.update(
+        ids.map((i) =>
+          match.has(i) ? baseNode(i) : { id: i, color: DIM_NODE, font: { color: '#4a5766' } },
+        ),
+      );
+      visEdges.update(
+        semantic.map((e) =>
+          match.has(e.s) && match.has(e.t)
+            ? baseEdge(e)
+            : { id: e.id, color: { color: DIM_EDGE }, width: 0.5, font: { color: 'rgba(0,0,0,0)' } },
+        ),
+      );
+      return match.size;
+    };
+    // heat overlay: colour each touched node by a [0,1] score (null = restore to
+    // base). Used by the dual-use divergence lens — the causality distance of the
+    // capability the node offers, painted cool→hot.
+    const heatNodes = (heat: Map<number, number> | null) => {
+      const ids = Array.from(touched);
+      if (!heat) {
+        visNodes.update(ids.map(baseNode));
+        return;
+      }
+      visNodes.update(
+        ids.map((i) => {
+          const t = heat.get(i);
+          if (t == null) return { id: i, color: DIM_NODE, font: { color: '#4a5766' } };
+          const col = `rgb(${Math.round(70 + 185 * t)},${Math.round(205 - 155 * t)},${Math.round(255 - 210 * t)})`;
+          return {
+            id: i,
+            color: { background: 'rgba(10,14,23,0.92)', border: col },
+            font: { color: '#eaf4ff' },
+          };
+        }),
+      );
+    };
+    // apply the current toggle/lens/filter state on (re)build — covers a control
+    // that landed before the network (and apiRef) existed, so nothing desyncs.
     setDims(showDims);
     setFacet(facetAxis);
+    if (selectedRef.current.size) applyPropFilter(selectedRef.current);
 
     apiRef.current = {
       query: (text) => {
@@ -728,6 +869,8 @@ export function OsintGraph() {
       },
       setDims,
       setFacet,
+      setPropFilter: applyPropFilter,
+      heatNodes,
     };
 
     net.on('click', (params: { nodes: unknown[] }) => {
@@ -754,50 +897,276 @@ export function OsintGraph() {
   };
   const clearReason = () => {
     setAngle(null);
+    setDivOn(false);
+    apiRef.current?.heatNodes(null);
     apiRef.current?.clear();
   };
-  const toggleDims = () => {
-    const next = !showDims;
-    setShowDims(next);
-    apiRef.current?.setDims(next);
+  // dual-use divergence lens: paint every node by the causality distance of the
+  // capability it offers, and stream the ranked capabilities (demand fork ·
+  // Δimpact · power level · motive) into the readout. Toggle off to restore.
+  const fireDivergence = () => {
+    if (divOn) {
+      setDivOn(false);
+      apiRef.current?.heatNodes(null);
+      setReadout(null);
+      return;
+    }
+    if (!duModel) return;
+    setDivOn(true);
+    setAngle(null);
+    apiRef.current?.heatNodes(duModel.nodeDiv);
+    // Person × Situation (Lewin/Atkinson/Rheinberg). The SITUATION is the causal
+    // chain of the 4 outside factors — capability → (mil/civ demand) → declared
+    // purpose (explicit intent) ⟹ revealed impact (implicit) — the chain AIwar
+    // builds to prove the harm the companies deny. The PERSON is the trait
+    // (POWER_LEVEL from airo:type, else the McClelland motive) reasoned against it:
+    // the divergence is trait-driven, not incidental to a "neutral" dual-use.
+    const lines = duModel.rows.slice(0, 40).map((r) => {
+      const trait = r.pow ? POWER_LEVEL[r.pow] : r.motive >= 0 ? MOTIVE[r.motive] : '—';
+      return {
+        text: `${r.label} → [mil ${r.mil}/civ ${r.civ}] → ${r.expl || '—'} ⟹ ${r.impl || '—'}  │  ${trait}`,
+        conf: r.divergence,
+        survived: r.divergence >= 0.5,
+      };
+    });
+    // Person→Situation attribution: how much of the high-divergence (the situational
+    // intent→impact drift) is carried by a power trait (P3/P4 or nPow). High % = the
+    // harm is trait-driven — the causal chain the "can't prove it's harmful" defense denies.
+    const hi = duModel.rows.filter((r) => r.divergence >= 0.5);
+    const macht = hi.length ? hi.filter((r) => r.motive === 0 || r.pow >= 3).length / hi.length : 0;
+    setReadout({
+      seed: `Person×Situation · chain ⟹ impact · Macht-driven ${Math.round(macht * 100)}%`,
+      kind: 'spread',
+      lines,
+      theories: hi.length,
+    });
   };
   const toggleFacet = (axis: number) => {
     const next = facetAxis === axis ? null : axis;
     setFacetAxis(next);
     apiRef.current?.setFacet(next);
   };
+  // keep the build-closure mirror in sync with the selection state.
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+  // toggle one "axis:code" property in/out of the filter, then re-apply live.
+  const toggleProp = (axis: number, code: number) => {
+    const key = `${axis}:${code}`;
+    const next = new Set(selected);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setSelected(next);
+    apiRef.current?.setPropFilter(next);
+  };
+  const clearProps = () => {
+    const empty = new Set<string>();
+    setSelected(empty);
+    apiRef.current?.setPropFilter(empty);
+  };
 
-  // live legend for the active facet lens: value→count computed across every
-  // rendered node from the tenant column, named via the materialized facet
-  // edges (the two layers reinforcing each other). airo:type is a bitset, so its
-  // codes read as raw role-masks rather than single values.
-  const facetLegend = useMemo(() => {
-    if (!soa || !soa.tenants || facetAxis == null || !view) return null;
+  // property CATALOG: for every facet axis, the value-set carried ON the nodes —
+  // code → {label (named via the facet edges), count across rendered nodes}. This
+  // powers the expandable lower-right palette; selecting values filters the graph
+  // by that explicit prefix. airo:type is a bitset, so its codes read as role-masks.
+  const catalog = useMemo(() => {
+    if (!soa || !soa.tenants || !soa.tenantStride || !view) return null;
     const tenants = soa.tenants;
-    const axis = facetAxis;
-    const rel = 10 + axis;
-    const name = new Map<number, string>();
-    for (const e of soa.edges) {
-      if (e.r === rel && e.s < soa.nodeCount && e.t < soa.nodeCount) {
-        const code = tenants[e.s * 6 + axis];
-        if (code !== 0 && !name.has(code)) name.set(code, soa.labels[e.t] || `code ${code}`);
+    const stride = soa.tenantStride;
+    return Array.from({ length: Math.min(stride, FACET_AXES_UI.length) }, (_, axis) => {
+      const rel = 10 + axis;
+      const name = new Map<number, string>();
+      for (const e of soa.edges) {
+        if (e.r === rel && e.s < soa.nodeCount && e.t < soa.nodeCount) {
+          const code = tenants[e.s * stride + axis];
+          if (code !== 0 && !name.has(code)) name.set(code, soa.labels[e.t] || `code ${code}`);
+        }
       }
-    }
-    const count = new Map<number, number>();
-    let present = 0;
-    view.touched.forEach((i) => {
-      const code = tenants[i * 6 + axis];
-      if (code !== 0) {
-        count.set(code, (count.get(code) ?? 0) + 1);
-        present += 1;
-      }
+      const count = new Map<number, number>();
+      view.touched.forEach((i) => {
+        const code = tenants[i * stride + axis];
+        if (code !== 0) count.set(code, (count.get(code) ?? 0) + 1);
+      });
+      const values = Array.from(count.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([code, n]) => ({ code, n, label: name.get(code) ?? `code ${code}` }));
+      return { axis, name: FACET_AXES_UI[axis], values };
+    }).filter((a) => a.values.length);
+  }, [soa, view]);
+
+  // live count of nodes surviving the current filter (AND across axes, OR within).
+  const matchCount = useMemo(() => {
+    if (!soa || !soa.tenants || !selected.size || !view) return null;
+    const stride = soa.tenantStride;
+    const byAxis = new Map<number, Set<number>>();
+    selected.forEach((k) => {
+      const [ax, code] = k.split(':').map(Number);
+      const s = byAxis.get(ax) ?? new Set<number>();
+      s.add(code);
+      byAxis.set(ax, s);
     });
-    const rows = Array.from(count.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([code, n]) => ({ code, n, label: name.get(code) ?? `code ${code}` }));
-    return { rows, present, distinct: count.size };
-  }, [soa, facetAxis, view]);
+    let n = 0;
+    view.touched.forEach((i) => {
+      let ok = true;
+      for (const [ax, codes] of byAxis) {
+        if (!codes.has(soa.tenants![i * stride + ax])) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) n += 1;
+    });
+    return n;
+  }, [soa, selected, view]);
+
+  // dual-use reasoning model — the two orthogonal distances + the McClelland/Freud
+  // power flow, all measured over the tenant (nothing materialised).
+  //   CAUSALITY distance = intent→impact drift, per capability = the divergence,
+  //     computed as the Jaccard distance of the impact sets between the militaryUse
+  //     branch and the civicUse branch of the SAME offer (the shared pivot).
+  //   DEMAND fork = mil vs civ count for that offer.
+  //   POWER level = airo:type bits (Freud gradient), the adjacency to nPow.
+  const duModel = useMemo(() => {
+    if (!soa || !soa.tenants || !soa.tenantStride || !view) return null;
+    const T = soa.tenants;
+    const stride = soa.tenantStride;
+    // naming per axis (code → label) from the facet edges still in the wire.
+    const nmeth = new Map<number, Map<number, string>>();
+    for (let ax = 0; ax < Math.min(stride, FACET_AXES_UI.length); ax++) {
+      const m = new Map<number, string>();
+      const rel = 10 + ax;
+      for (const e of soa.edges) {
+        if (e.r === rel && e.s < soa.nodeCount && e.t < soa.nodeCount) {
+          const code = T[e.s * stride + ax];
+          if (code && !m.has(code)) m.set(code, soa.labels[e.t] || `code ${code}`);
+        }
+      }
+      nmeth.set(ax, m);
+    }
+    const nameOf = (ax: number, code: number) => nmeth.get(ax)?.get(code) ?? '';
+    const powerOf = (i: number) => powerOfAiro(T[i * stride + AX.airoRole]);
+    const motiveOf = (i: number): number => {
+      if (powerOf(i) > 0) return 0; // nPow is carried by the power level
+      const txt = [
+        nameOf(AX.purpose, T[i * stride + AX.purpose]),
+        nameOf(AX.militaryUse, T[i * stride + AX.militaryUse]),
+        nameOf(AX.civicUse, T[i * stride + AX.civicUse]),
+        nameOf(AX.impact, T[i * stride + AX.impact]),
+      ].join(' ');
+      let best = -1;
+      let hi = 0;
+      MOTIVE_KEYS.forEach((re, mi) => {
+        const c = (txt.match(re) || []).length;
+        if (c > hi) {
+          hi = c;
+          best = mi;
+        }
+      });
+      return best;
+    };
+    const byCap = new Map<
+      number,
+      {
+        mil: Set<number>;
+        civ: Set<number>;
+        milImp: Set<number>;
+        civImp: Set<number>;
+        pow: number[];
+        mot: Map<number, number>;
+        pur: Map<number, number>;
+        imp: Map<number, number>;
+      }
+    >();
+    view.touched.forEach((i) => {
+      const c = T[i * stride + AX.capacity];
+      if (!c) return;
+      const mil = T[i * stride + AX.militaryUse] !== 0;
+      const civ = T[i * stride + AX.civicUse] !== 0;
+      if (!mil && !civ) return;
+      let r = byCap.get(c);
+      if (!r) {
+        r = { mil: new Set(), civ: new Set(), milImp: new Set(), civImp: new Set(), pow: [], mot: new Map(), pur: new Map(), imp: new Map() };
+        byCap.set(c, r);
+      }
+      const imp = T[i * stride + AX.impact];
+      if (mil) {
+        r.mil.add(i);
+        if (imp) r.milImp.add(imp);
+      }
+      if (civ) {
+        r.civ.add(i);
+        if (imp) r.civImp.add(imp);
+      }
+      if (imp) r.imp.set(imp, (r.imp.get(imp) ?? 0) + 1); // implicit: the revealed impact
+      const pur = T[i * stride + AX.purpose]; // explicit: the declared purpose
+      if (pur) r.pur.set(pur, (r.pur.get(pur) ?? 0) + 1);
+      const p = powerOf(i);
+      if (p) r.pow.push(p);
+      const mo = motiveOf(i);
+      if (mo >= 0) r.mot.set(mo, (r.mot.get(mo) ?? 0) + 1);
+    });
+    let rows = Array.from(byCap.entries())
+      .map(([code, r]) => {
+        const mil = r.mil.size;
+        const civ = r.civ.size;
+        const forked = mil > 0 && civ > 0;
+        const balance = forked ? Math.min(mil, civ) / Math.max(mil, civ) : 0;
+        const uni = new Set<number>([...r.milImp, ...r.civImp]);
+        const inter = [...r.milImp].filter((x) => r.civImp.has(x)).length;
+        const jac = uni.size ? 1 - inter / uni.size : 0; // causality distance
+        const divergence = forked ? balance * (0.4 + 0.6 * jac) : 0;
+        const pow = r.pow.length ? Math.round(r.pow.reduce((a, b) => a + b, 0) / r.pow.length) : 0;
+        let dom = -1;
+        let dv = 0;
+        r.mot.forEach((n, m) => {
+          if (n > dv) {
+            dv = n;
+            dom = m;
+          }
+        });
+        // the causal-chain links: declared purpose (explicit) and revealed impact
+        // (implicit) — the two ends AIwar chains to prove the harm.
+        let ep = -1;
+        let epv = 0;
+        r.pur.forEach((n, cc) => {
+          if (n > epv) {
+            epv = n;
+            ep = cc;
+          }
+        });
+        let im = -1;
+        let imv = 0;
+        r.imp.forEach((n, cc) => {
+          if (n > imv) {
+            imv = n;
+            im = cc;
+          }
+        });
+        return {
+          code,
+          label: nameOf(AX.capacity, code) || `cap ${code}`,
+          mil,
+          civ,
+          jac,
+          divergence,
+          pow,
+          motive: dom,
+          expl: ep >= 0 ? nameOf(AX.purpose, ep) : '',
+          impl: im >= 0 ? nameOf(AX.impact, im) : '',
+        };
+      })
+      .filter((r) => r.divergence > 0);
+    const max = rows.reduce((m, r) => Math.max(m, r.divergence), 0) || 1;
+    rows = rows.map((r) => ({ ...r, divergence: r.divergence / max })).sort((a, b) => b.divergence - a.divergence);
+    const capDiv = new Map<number, number>();
+    rows.forEach((r) => capDiv.set(r.code, r.divergence));
+    const nodeDiv = new Map<number, number>();
+    view.touched.forEach((i) => {
+      const d = capDiv.get(T[i * stride + AX.capacity]);
+      if (d != null) nodeDiv.set(i, d);
+    });
+    return { rows, nodeDiv };
+  }, [soa, view]);
 
   const lensChip = (i: number): CSSProperties => ({
     fontFamily: 'monospace',
@@ -895,21 +1264,21 @@ export function OsintGraph() {
             </button>
           ))}
           <button
-            onClick={toggleDims}
-            title="show/hide the dimension layer — militaryUse · civicUse · airo:type · MLType · purpose · capacity"
+            onClick={fireDivergence}
+            title="dual-use causal chain — Person × Situation. SITUATION: capability → mil/civ demand → explicit purpose ⟹ implicit impact (the intent→impact drift AIwar chains to prove harm). PERSON: the McClelland/Freud power trait (P1 consume · P3 control-others · P4 empower) reasoned against it."
             style={{
               fontFamily: 'monospace',
               fontSize: 11,
-              color: showDims ? '#0a0e17' : '#9fb4c8',
-              background: showDims ? '#c792ea' : 'rgba(17,32,48,0.6)',
-              border: '1px solid #c792ea',
+              color: divOn ? '#0a0e17' : '#ffb0a0',
+              background: divOn ? '#ff8f6a' : 'rgba(17,32,48,0.6)',
+              border: '1px solid #ff8f6a',
               borderRadius: 6,
               padding: '5px 9px',
               cursor: 'pointer',
-              fontWeight: showDims ? 700 : 400,
+              fontWeight: divOn ? 700 : 400,
             }}
           >
-            ◇ dimensions
+            ◆ dual-use
           </button>
           {readout && (
             <button
@@ -960,8 +1329,11 @@ export function OsintGraph() {
 
       {readout && <ReasonBox readout={readout} onClose={clearReason} />}
 
-      {/* facet-lens legend — the live group-by over the tenant column */}
-      {facetLegend && facetAxis != null && (
+      {/* property palette — expandable per-axis value catalogue. Select N values
+          to filter the graph by that explicit prefix (AND across axes, OR within an
+          axis). e.g. militaryUse=* + stakeholder=* + a purpose value = the
+          quid-pro-quo query, live. */}
+      {catalog && catalog.length > 0 && (
         <div
           style={{
             position: 'absolute',
@@ -971,38 +1343,101 @@ export function OsintGraph() {
             fontFamily: 'monospace',
             fontSize: 11,
             color: '#cfe7ff',
-            background: 'rgba(8,12,20,0.86)',
+            background: 'rgba(8,12,20,0.9)',
             border: '1px solid #2a4a6a',
             borderRadius: 8,
             padding: '8px 10px',
-            maxWidth: 230,
-            maxHeight: '42%',
+            width: 250,
+            maxHeight: '58%',
             overflowY: 'auto',
             pointerEvents: 'auto',
           }}
         >
-          <div style={{ color: '#7fd1ff', marginBottom: 5 }}>
-            ◐ {FACET_AXES_UI[facetAxis]} · {facetLegend.present} nodes · {facetLegend.distinct} values
-          </div>
-          {facetLegend.rows.map((r) => (
-            <div
-              key={r.code}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
-            >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 6,
+            }}
+          >
+            <span style={{ color: '#7fd1ff' }}>
+              ◧ properties{matchCount != null ? ` · ${matchCount} match` : ''}
+            </span>
+            {selected.size > 0 && (
               <span
-                style={{
-                  display: 'inline-block',
-                  width: 9,
-                  height: 9,
-                  borderRadius: 9,
-                  border: `2px solid ${facetColor(r.code)}`,
-                  flex: '0 0 auto',
-                }}
-              />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</span>
-              <span style={{ color: '#7f97b0', marginLeft: 'auto' }}>{r.n}</span>
-            </div>
-          ))}
+                onClick={clearProps}
+                title="clear filter"
+                style={{ cursor: 'pointer', color: '#9fb4c8' }}
+              >
+                clear ✕
+              </span>
+            )}
+          </div>
+          {catalog.map((ax) => {
+            const sel = ax.values.filter((v) => selected.has(`${ax.axis}:${v.code}`)).length;
+            const open = openAxis === ax.axis;
+            return (
+              <div key={ax.axis} style={{ marginBottom: 3 }}>
+                <div
+                  onClick={() => setOpenAxis(open ? null : ax.axis)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    cursor: 'pointer',
+                    padding: '2px 0',
+                    color: sel ? '#6cf0ff' : '#b7c8db',
+                  }}
+                >
+                  <span style={{ width: 10, color: '#6f87a0' }}>{open ? '▾' : '▸'}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{ax.name}</span>
+                  <span style={{ marginLeft: 'auto', color: '#7f97b0' }}>
+                    {sel ? `${sel}/` : ''}
+                    {ax.values.length}
+                  </span>
+                </div>
+                {open && (
+                  <div style={{ paddingLeft: 14 }}>
+                    {ax.values.map((v) => {
+                      const on = selected.has(`${ax.axis}:${v.code}`);
+                      return (
+                        <div
+                          key={v.code}
+                          onClick={() => toggleProp(ax.axis, v.code)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            padding: '1px 0',
+                            color: on ? '#eaf4ff' : '#8ba0b6',
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              width: 9,
+                              height: 9,
+                              borderRadius: 9,
+                              border: `2px solid ${facetColor(v.code)}`,
+                              background: on ? facetColor(v.code) : 'transparent',
+                              flex: '0 0 auto',
+                            }}
+                          />
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {v.label}
+                          </span>
+                          <span style={{ color: '#7f97b0', marginLeft: 'auto' }}>{v.n}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

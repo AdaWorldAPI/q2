@@ -111,7 +111,7 @@ fn label_of_order(order: u8) -> &'static str {
 const FACET_MILITARY: usize = 1; // militaryUse — primary token, u8 code
 const FACET_CIVIC: usize = 2; // civicUse    — primary token, u8 code
 const FACET_AIRO_ROLE: usize = 3; // airo:type   — u8 bitset (compound)
-const FACET_MLTYPE: usize = 4; // MLTask/MLTasks primary token, u8 code
+const FACET_MLTASK: usize = 4; // MLTask/MLTasks (the NEED) primary token, u8 code
 const FACET_PURPOSE: usize = 5; // purpose / purpose:vair — u8 code
 const FACET_CAPACITY: usize = 6; // capacity / capacity:airo — u8 code
 // V3 6×(8:8) completion (bytes 7..=11) — the six AIRO/VAIR dimensions the
@@ -429,7 +429,7 @@ fn write_facet_tenant(value: &mut [u8; 480], props: &HashMap<String, Value>) {
         value[FACET_AIRO_ROLE] = airo_role_bits(v);
     }
     if let Some(v) = s("MLTask").or_else(|| s("MLTasks")) {
-        value[FACET_MLTYPE] = facet_code(ML_TYPE, v);
+        value[FACET_MLTASK] = facet_code(ML_TYPE, v);
     }
     if let Some(v) = s("purpose").or_else(|| s("purpose:vair")) {
         value[FACET_PURPOSE] = facet_code(PURPOSE_VAIR, v);
@@ -944,12 +944,10 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
 //   node_count × [ len: u8 | utf8 name ]           (label tail, node order)
 // The client decodes each 16-byte GUID → xyz (the `position()` logic ported to
 // JS); `class` drives colour; edges are u16 indices into the node array; the
-// label tail names each node (members in graph.nodes order, then basin hubs).
+// label tail names each node (members in graph.nodes order — no hub nodes).
 
 /// Magic header for the OSINT SoA wire buffer.
 pub const OSINT_SOA_MAGIC: [u8; 4] = *b"OSO1";
-/// Class sentinel marking a basin / family hub node.
-const SOA_HUB_CLASS: u8 = 0xFF;
 
 /// Edge-type → 1-byte code (the client colours by this).
 fn rel_code(label: &str) -> u8 {
@@ -982,7 +980,7 @@ fn push_edge(buf: &mut Vec<u8>, s: usize, t: usize, rel: u8) {
 const REL_FACET_MILITARY: u8 = 10;
 const REL_FACET_CIVIC: u8 = 11;
 const REL_FACET_AIRO: u8 = 12;
-const REL_FACET_MLTYPE: u8 = 13;
+const REL_FACET_MLTASK: u8 = 13;
 const REL_FACET_PURPOSE: u8 = 14;
 const REL_FACET_CAPACITY: u8 = 15;
 // V3 6×(8:8) completion — the remaining stacked dimensions as traversable facet
@@ -1000,7 +998,7 @@ const FACET_AXES: &[(&[&str], u8)] = &[
     (&["militaryUse"], REL_FACET_MILITARY),
     (&["civicUse"], REL_FACET_CIVIC),
     (&["airo:type"], REL_FACET_AIRO),
-    (&["MLTask", "MLTasks"], REL_FACET_MLTYPE),
+    (&["MLTask", "MLTasks"], REL_FACET_MLTASK),
     (&["purpose", "purpose:vair"], REL_FACET_PURPOSE),
     (&["capacity", "capacity:airo"], REL_FACET_CAPACITY),
     (&["currentStatus", "currentStatus:airo"], REL_FACET_STATUS),
@@ -1050,39 +1048,19 @@ fn entity_facet_edges(graph: &AiWarGraph) -> Vec<(usize, usize, u8)> {
 pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8> {
     let plan = plan_basins(graph, rounds);
     let rows = osint_node_rows(graph, &plan);
-    let n_members = rows.len();
-
-    let mut basins: Vec<u8> = rows
-        .iter()
-        .map(|r| (r.key.family_v2() & 0xFF) as u8)
-        .collect::<std::collections::BTreeSet<u8>>()
-        .into_iter()
-        .collect();
-    basins.sort_unstable();
-    let hub_index: HashMap<u8, usize> = basins
-        .iter()
-        .enumerate()
-        .map(|(k, &b)| (b, n_members + k))
-        .collect();
-    let node_count = n_members + basins.len();
+    // Members ONLY — no synthetic basin/family hub nodes. The basin lives in the
+    // node's own detail (GUID `family` byte + the EdgeBlock mixin adapters); its
+    // membership is reasoned as a logical edge to the basin's ANCHOR ENTITY (a real
+    // node with its own docking logic), never a property-as-node hub. A materialized
+    // hub cannot dock as an edge — it only invites "look up a property as a node",
+    // the island failure mode this dissolves. Retrieval stays explicit-prefix: to
+    // gather a basin you filter the `family` prefix, you don't chase a hub.
+    let node_count = rows.len();
 
     let mut nodes: Vec<u8> = Vec::with_capacity(node_count * 17);
     for r in &rows {
         nodes.extend_from_slice(r.key.as_bytes());
         nodes.push(r.value[CLASS_ORDER_TENANT]);
-    }
-    for &b in &basins {
-        let hub = NodeGuid::new_v2(
-            NodeGuid::CLASSID_OSINT,
-            u16::from(b >> 4),
-            u16::from(b & 0x0F),
-            0,
-            0,
-            u16::from(b),
-            0,
-        );
-        nodes.extend_from_slice(hub.as_bytes());
-        nodes.push(SOA_HUB_CLASS);
     }
 
     let idx_of: HashMap<&str, usize> = graph
@@ -1090,6 +1068,14 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         .iter()
         .enumerate()
         .map(|(i, n)| (n.id.as_str(), i))
+        .collect();
+    // basin byte → the graph index of its ANCHOR entity (the real top-degree node
+    // that names the basin — the prefix's representative). Members and interfaces
+    // dock here instead of a synthetic hub, so every edge lands on connecting tissue.
+    let anchor_idx: HashMap<u8, usize> = plan
+        .anchor_of_basin
+        .iter()
+        .filter_map(|(&b, id)| idx_of.get(id.as_str()).map(|&i| (b, i)))
         .collect();
     let mut edges: Vec<u8> = Vec::new();
     for e in &graph.edges {
@@ -1104,10 +1090,16 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
     for (s, t, rel) in entity_facet_edges(graph) {
         push_edge(&mut edges, s, t, rel);
     }
+    // Basin membership as connecting tissue: dock each member to its basin's
+    // ANCHOR ENTITY (member-of), and to the anchor of every OTHER basin it relays
+    // through (interfaces). Both targets are real entities the reasoner can walk on
+    // — no synthetic hub, no self-loop on the anchor itself.
     for (i, r) in rows.iter().enumerate() {
         let basin = (r.key.family_v2() & 0xFF) as u8;
-        if let Some(&h) = hub_index.get(&basin) {
-            push_edge(&mut edges, i, h, rel_code("member-of"));
+        if let Some(&a) = anchor_idx.get(&basin) {
+            if a != i {
+                push_edge(&mut edges, i, a, rel_code("member-of"));
+            }
         }
         let ifaces: std::collections::BTreeSet<u8> = r
             .edges
@@ -1118,8 +1110,10 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
             .filter(|&b| b != 0 && b != basin)
             .collect();
         for b in ifaces {
-            if let Some(&h) = hub_index.get(&b) {
-                push_edge(&mut edges, i, h, rel_code("interfaces"));
+            if let Some(&a) = anchor_idx.get(&b) {
+                if a != i {
+                    push_edge(&mut edges, i, a, rel_code("interfaces"));
+                }
             }
         }
     }
@@ -1141,22 +1135,27 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         let nm = if n.label.is_empty() { n.id.as_str() } else { n.label.as_str() };
         push_label(&mut labels, nm);
     }
-    for &b in &basins {
-        let nm = plan
-            .anchor_of_basin
-            .get(&b)
-            .cloned()
-            .unwrap_or_else(|| format!("family {b:02x}"));
-        push_label(&mut labels, &nm);
+
+    // tenant tail (OSO1 additive): node_count × 11 facet bytes = value[1..=11], the
+    // dual-use dimensions carried ON each node (militaryUse..stakeholder). This is
+    // what lets the client filter/colour by any facet PREFIX without a schema node
+    // — explicit-prefix retrieval, no property-as-node hub. Old readers stop after
+    // the labels; new readers consume this tail (11-wide; a legacy 6-wide asset is
+    // still decodable — the client picks the stride that fits).
+    let mut tenants: Vec<u8> = Vec::with_capacity(node_count * FACET_STAKEHOLDER);
+    for r in &rows {
+        tenants.extend_from_slice(&r.value[1..=FACET_STAKEHOLDER]);
     }
 
-    let mut out = Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len());
+    let mut out =
+        Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len() + tenants.len());
     out.extend_from_slice(&OSINT_SOA_MAGIC);
     out.extend_from_slice(&(node_count as u32).to_le_bytes());
     out.extend_from_slice(&(edge_count as u32).to_le_bytes());
     out.extend_from_slice(&nodes);
     out.extend_from_slice(&edges);
     out.extend_from_slice(&labels);
+    out.extend_from_slice(&tenants);
     out
 }
 
@@ -1299,7 +1298,7 @@ mod tests {
         // civicUse primary token "RecommenderSystem" coded; the compound second
         // token is dropped at v1.
         assert_ne!(lv[FACET_CIVIC], 0, "civicUse primary token coded");
-        assert_ne!(lv[FACET_MLTYPE], 0, "MLTask coded");
+        assert_ne!(lv[FACET_MLTASK], 0, "MLTask coded");
         assert_ne!(lv[FACET_PURPOSE], 0, "purpose coded");
         assert_ne!(lv[FACET_CAPACITY], 0, "capacity coded");
         assert_eq!(lv[FACET_AIRO_ROLE], 0, "a System carries no AIRO actor role");
@@ -1717,8 +1716,9 @@ mod tests {
         assert_eq!(&bytes[0..4], &OSINT_SOA_MAGIC);
         let nodes = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
         let edges = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
-        // members + at least one basin hub; size matches the fixed records.
-        assert!(nodes > g.node_count());
-        assert_eq!(bytes.len(), 12 + nodes * 17 + edges * 5);
+        // members ONLY — one wire node per graph node, no synthetic hubs.
+        assert_eq!(nodes, g.node_count());
+        // fixed header + node/edge records, then the additive label tail.
+        assert!(bytes.len() >= 12 + nodes * 17 + edges * 5);
     }
 }
