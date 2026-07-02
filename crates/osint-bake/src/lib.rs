@@ -51,8 +51,10 @@ pub mod morton;
 /// inside the one class (not sprinkled across classids). The function defined at
 /// order *i* carries label *i*; an instance inherits its label by the order it
 /// carries in its value tenant. This is the consumer-side home of the schema for
-/// the single OSINT class `0x0700`; the AR-native home is `ogar-vocab`'s `0x0700`
-/// `ObjectView` (an upstream OGAR change, out of this repo's push scope).
+/// the single OSINT class `0x0700` (the canon id — the HIGH half of the composed
+/// `u32` classid since the 2026-07-02 half-order flip); the AR-native home is
+/// `ogar-vocab`'s `0x0700` `ObjectView` (an upstream OGAR change, out of this
+/// repo's push scope).
 /// The complete label↔order row: every label an item can carry has a slot, so
 /// no item falls through to "Other" (an item with a label but no order would be
 /// missing its label↔identity pairing). Orders 0-4 are the entity types; 5-6 are
@@ -604,7 +606,7 @@ pub fn osint_node_rows(graph: &AiWarGraph, plan: &BasinPlan) -> Vec<NodeRow> {
 
             NodeRow {
                 key: NodeGuid::new_v2(
-                    NodeGuid::CLASSID_OSINT, // classid 0x0700 — the ONE OSINT class
+                    NodeGuid::CLASSID_OSINT, // classid 0x0700_0000 — canon 0x0700 (HIGH half) — the ONE OSINT class
                     heel,                    // HEEL — theme, or 0xFFFF ceiling for a dimension
                     hip,                     // HIP  — anchor, or 0xFFFF ceiling for a dimension
                     twig,                    // TWIG — axis grain for a ceiling-pole dimension
@@ -898,9 +900,14 @@ mod tests {
         let rows = osint_node_rows(&g, &plan);
         assert_eq!(rows.len(), g.node_count(), "one OSINT row per entity");
         for (i, row) in rows.iter().enumerate() {
-            // classid 0x0700 (the OSINT domain byte is 0x07)
+            // classid 0x0700_0000 (canon 0x0700 sits in the HIGH half since
+            // the 2026-07-02 flip; route through the contract helper rather
+            // than deriving the domain byte via a raw shift).
             assert_eq!(row.key.classid(), NodeGuid::CLASSID_OSINT);
-            assert_eq!(row.key.classid() >> 8, 0x07);
+            assert_eq!(
+                lance_graph_contract::ogar_codebook::classid_canon(row.key.classid()) >> 8,
+                0x07
+            );
             // GUID-v2 tail: identity == index, family == basin byte (high byte 0)
             assert_eq!(row.key.identity_v2(), i as u16);
             assert_eq!(row.key.family_v2() >> 8, 0, "basin is an 8-bit byte");

@@ -1,5 +1,9 @@
 //! OSINT / Palantir-Gotham domain (classid `0x0700`) — the aiwar harvest as a
 //! CANON family-basin graph, rendered through the OGAR Active-Record `ClassView`.
+//! `0x0700` is the canon concept id: since the 2026-07-02 half-order flip it is
+//! the HIGH u16 of the composed `u32` classid (`0x0700_0000`, `NodeGuid::CLASSID_OSINT`);
+//! the pre-flip stored form `0x0000_0700` still resolves via `CLASSID_OSINT_LEGACY`.
+//! Bare `0x0700` below always means the canon value, not the full composed classid.
 //!
 //! The corrected model (operator-locked this session):
 //!
@@ -500,9 +504,12 @@ pub fn osint_graph() -> &'static Arc<RwLock<GraphSnapshot>> {
     OSINT_GRAPH.get_or_init(|| Arc::new(RwLock::new(GraphSnapshot::empty())))
 }
 
-/// The ClassView ClassId for the OSINT domain (low u16 of `CLASSID_OSINT`).
+/// The ClassView ClassId for the OSINT domain — the concept id, i.e. the CANON
+/// half of `CLASSID_OSINT` (the HIGH u16 since the 2026-07-02 half-order flip;
+/// `classid & 0xFFFF` would now read the CUSTOM half and silently return the
+/// wrong value).
 fn osint_class_id() -> u16 {
-    (NodeGuid::CLASSID_OSINT & 0xFFFF) as u16
+    lance_graph_contract::classid_concept(NodeGuid::CLASSID_OSINT)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -826,7 +833,13 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
         let class_label = label_of_order(order);
         let mut props: HashMap<String, Value> = src.properties.clone();
         props.insert("guid".to_string(), Value::String(r.key.to_hex_v2()));
-        props.insert("classid".to_string(), Value::String("00000700".to_string()));
+        // Compose dynamically rather than hardcoding the stored form — the
+        // 2026-07-02 half-order flip moved canon 0x0700 into the HIGH half,
+        // so this now yields "07000000" (was "00000700" pre-flip).
+        props.insert(
+            "classid".to_string(),
+            Value::String(format!("{:08x}", NodeGuid::CLASSID_OSINT)),
+        );
         props.insert("class_order".to_string(), Value::from(order));
         props.insert("class".to_string(), Value::String(class_label.to_string()));
         props.insert("basin".to_string(), Value::String(format!("{basin:02x}")));
@@ -1249,9 +1262,14 @@ mod tests {
         let rows = osint_node_rows(&g, &plan);
         assert_eq!(rows.len(), g.node_count(), "one OSINT row per entity");
         for (i, row) in rows.iter().enumerate() {
-            // classid 0x0700 (the OSINT domain byte is 0x07)
+            // classid 0x0700_0000 (canon 0x0700 sits in the HIGH half since
+            // the 2026-07-02 flip; route through the contract helper rather
+            // than deriving the domain byte via a raw shift).
             assert_eq!(row.key.classid(), NodeGuid::CLASSID_OSINT);
-            assert_eq!(row.key.classid() >> 8, 0x07);
+            assert_eq!(
+                lance_graph_contract::ogar_codebook::classid_canon(row.key.classid()) >> 8,
+                0x07
+            );
             // GUID-v2 tail: identity == index, family == basin byte (high byte 0)
             assert_eq!(row.key.identity_v2(), i as u16);
             assert_eq!(row.key.family_v2() >> 8, 0, "basin is an 8-bit byte");

@@ -5,9 +5,11 @@
 //   * COLOR  — each mesh is colored by its FMA's `tissue` byte (the is_a low byte of
 //              the converged GUID), read straight from `converge`'s manifest.
 //   * SELECT — an optional GUID **prefix** picks which triangles to draw: pass
-//              `00000a01-0901-0702` and only the parts whose canonical key starts with
+//              `0a010000-0901-0702` and only the parts whose canonical key starts with
 //              it render (one part_of/is_a subtree). Prefix-routing the key, made
 //              visible — the address selects the geometry. `all` draws the whole body.
+//              (Prefix example uses the post-2026-07-02-flip classid form — canon
+//              0x0A01 in the HIGH half; `converge.rs` mints this order.)
 //
 // This is "70k nodes connecting via relationships → 16M triangles": the relationships
 // (part_of/is_a) ARE the address, and the address drives which triangles light up.
@@ -258,7 +260,7 @@ fn main() {
         tris.len()
     );
     if tris.is_empty() {
-        eprintln!("[graph] nothing matched '{sel}' — try `all`, a tissue (bone/vessel/...), or a guid prefix like 00000a01-0901");
+        eprintln!("[graph] nothing matched '{sel}' — try `all`, a tissue (bone/vessel/...), or a guid prefix like 0a010000-0901");
         return;
     }
 

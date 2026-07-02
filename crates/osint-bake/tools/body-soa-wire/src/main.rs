@@ -24,7 +24,7 @@ use lance_graph_contract::canonical_node::{classid_read_mode, NodeGuid};
 use ndarray::hpc::quantized::F16;
 use ndarray::hpc::splat3d::helix_orient;
 
-const CLASSID_FMA: u32 = NodeGuid::CLASSID_FMA_V3; // 0x1000_0A01
+const CLASSID_FMA: u32 = NodeGuid::CLASSID_FMA_V3; // 0x0A01_1000 (canon HIGH, V3 marker LOW — 2026-07-02 flip; pre-flip 0x1000_0A01)
 
 fn tile(part_of: u8, is_a: u8) -> u16 { ((part_of as u16) << 8) | is_a as u16 }
 

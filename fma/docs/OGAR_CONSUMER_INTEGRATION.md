@@ -171,7 +171,10 @@ reimplements the canonical 16-byte layout byte-for-byte:
 - It realizes the **two ontological axes in one key**: each 8:8 HHTL tier is
   `(place : tissue)` — high byte = PLACE (Morton spatial cell for skeletal nodes
   classid `0x0A02`, or `part_of` sibling-rank for soft tissue `0x0A01`); low byte
-  = TISSUE (`is_a` taxonomy sibling-rank). The high-byte chain prefix-routes the
+  = TISSUE (`is_a` taxonomy sibling-rank). (Order flipped 2026-07-02 — canon HIGH
+  / custom LOW: `converge.rs` stores these as `0x0A02_0000` / `0x0A01_0000` in the
+  composed `u32` classid; see `V3_SOA_WIRING.md` §2.1 for the worked GUIDs.) The
+  high-byte chain prefix-routes the
   body, the low-byte chain prefix-routes the type taxonomy — **both hierarchies,
   one key**. `family` (u24) is the `(part_of:is_a)` level-3 ontological basin.
   `connected_to` lands in the EdgeBlock shape: `part_of` siblings = in-family

@@ -58,16 +58,18 @@ use std::path::{Path, PathBuf};
 
 /// The CEILING global-category pole (HEEL=HIP=0xFFFF; sentinel through TWIG = leaf-grain).
 const CEILING: u16 = 0xFFFF;
-/// FMA classid — the **V3 cascade-key** `CLASSID_FMA_V3` (`0x1000_0A01`): the V3
-/// generation marker `0x1000` in the HIGH (custom) u16, the canon `anatomical_structure`
-/// concept `0x0A01` preserved in the LOW u16 (so `classid_concept_domain` still routes
-/// OGAR's `ConceptDomain::Anatomy`, high byte `0x0A`). V3 is a *reading* of the SAME
+/// FMA classid — the **V3 cascade-key** `CLASSID_FMA_V3` (`0x0A01_1000` since the
+/// 2026-07-02 half-order flip): the canon `anatomical_structure` concept `0x0A01`
+/// in the HIGH (canon) u16, the V3 generation marker `0x1000` preserved in the LOW
+/// (custom) u16 (so `classid_concept_domain` still routes OGAR's
+/// `ConceptDomain::Anatomy`, high byte `0x0A`). V3 is a *reading* of the SAME
 /// leaf·family·identity tail v2 mints — the `(part_of:is_a)` cascade reinterprets the
 /// 8:8 tiers, never re-carves — so the node still mints through `new_v2` (via
 /// `mint_for`'s V3 arm), resolving to `ReadMode::FMA_V3`. Migrated from the legacy V2
 /// `0x0000_0A01`; the heart slice is soft-tissue anatomy (universal-root concept;
 /// OGAR reserves `0x0A02..0x0A04` for skeleton/bone/joint). See OGAR PR #116
 /// (`docs/FMA-SKELETON-CONVERGENCE-ANCHOR.md`) and the V3 set in `canonical_node.rs`.
+/// Pre-flip stored form: `0x1000_0A01` (`CLASSID_FMA_V3_LEGACY`).
 const CLASSID_FMA: u32 = NodeGuid::CLASSID_FMA_V3;
 
 // class bytes → cockpit colour/label (see FmaGraph.tsx).

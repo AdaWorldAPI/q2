@@ -40,19 +40,32 @@ Both hierarchies are *already in the CPIC columns* — nothing is invented:
 partonomy is the `part_of` axis, and ATC drug codes are a second ready-made `is_a`
 cascade.
 
-## classid — pharmacogenomics domain `0x0C`
+## classid — pharmacogenomics, Genetics domain `0x0E01` (re-minted 2026-07-02)
 
-`classid` prefix-routes the entity kind (the OGAR `ClassView` dispatch). We use domain
-`0x0C` (anatomy was `0x0A`):
+> **Note (2026-07-02):** `SAMPLE_GUIDS.tsv` was regenerated from a fresh
+> `cargo run --release --bin ingest -- data out 4000` run against this
+> re-mint — every row's tail (HEEL/HIP/TWIG/family/identity) is byte-identical
+> to the pre-flip sample; only the classid prefix changed.
+
+`classid` prefix-routes the entity kind (the OGAR `ClassView` dispatch). The
+original local scheme used domain `0x0C`, which collides with the Automation
+domain (`lance-graph-contract::ogar_codebook::ConceptDomain::Automation`) and
+predates the operator's Genetics ruling. Re-minted as INTERIM canon-high
+Genetics:q2 ids, matching the `lance-graph-contract` classid half-order flip
+(canon HIGH / custom LOW): canon `0x0E01` = Genetics domain (`0x0E`) + appid
+`0x01` (q2); the LOW half is this crate's local kind slot. This crate is
+dep-free and does not pull the real `lance-graph-contract` ClassView
+catalogue — the full contract-pull re-mint that dissolves this local scheme
+entirely is the tracked follow-up.
 
 | classid | entity | part_of (high) | is_a (low) |
 |---|---|---|---|
-| `0x000C0001` | gene | `pharmacogenome / CYP / CYP2 / CYP2C / CYP2C19` | `entity / gene` |
-| `0x000C0002` | allele (`*2`) | gene partonomy ++ allele | `allele / no_function` |
-| `0x000C0003` | diplotype (`*2/*2`) | gene ++ `diplotypes` ++ dip | `diplotype / homozygous` |
-| `0x000C0004` | phenotype | gene ++ `phenotypes` ++ result | `phenotype / poor_metabolizer` |
-| `0x000C0005` | drug | `pharmacogenome / drugs / name` | `drug / N / N06 / N06A / N06AA` |
-| `0x000C0006` | recommendation | `recommendations / g{id} / drug` | `recommendation / strong` |
+| `0x0E010001` | gene | `pharmacogenome / CYP / CYP2 / CYP2C / CYP2C19` | `entity / gene` |
+| `0x0E010002` | allele (`*2`) | gene partonomy ++ allele | `allele / no_function` |
+| `0x0E010003` | diplotype (`*2/*2`) | gene ++ `diplotypes` ++ dip | `diplotype / homozygous` |
+| `0x0E010004` | phenotype | gene ++ `phenotypes` ++ result | `phenotype / poor_metabolizer` |
+| `0x0E010005` | drug | `pharmacogenome / drugs / name` | `drug / N / N06 / N06A / N06AA` |
+| `0x0E010006` | recommendation | `recommendations / g{id} / drug` | `recommendation / strong` |
 
 - **family (u24)** = the basin: the gene symbol (gene/allele/diplotype/phenotype), the
   ATC root letter (drug), or `rec:g{id}` (recommendation). Groups all of a gene's
@@ -66,10 +79,10 @@ cascade.
 
 ```text
 allele         guid                                  HEEL  HIP   TWIG  family
-CYP2C19 *2     000c0002-c358-ec6f-f76f-d69bfe558274  c358  ec6f  f76f  d69bfe   (No function)
-CYP2C9  *2     000c0002-c358-ecd8-f7d8-fbd6cbd5c622  c358  ecd8  f7d8  fbd6cb   (Decreased function)
-CYP2C19 *1     000c0002-c358-ec07-f707-d69bfe3c1176  c358  ec07  f707  d69bfe   (Normal function)
-CYP2D6  *4     000c0002-c358-ec6f-f76f-1066f96f7ace  c358  ec6f  f76f  1066f9   (No function)
+CYP2C19 *2     0e010002-c358-ec6f-f76f-d69bfe558274  c358  ec6f  f76f  d69bfe   (No function)
+CYP2C9  *2     0e010002-c358-ecd8-f7d8-fbd6cbd5c622  c358  ecd8  f7d8  fbd6cb   (Decreased function)
+CYP2C19 *1     0e010002-c358-ec07-f707-d69bfe3c1176  c358  ec07  f707  d69bfe   (Normal function)
+CYP2D6  *4     0e010002-c358-ec6f-f76f-1066f96f7ace  c358  ec6f  f76f  1066f9   (No function)
 ```
 
 - **part_of HIGH bytes** `c3 / ec / f7` = `pharmacogenome → CYP → CYP2`, shared by all

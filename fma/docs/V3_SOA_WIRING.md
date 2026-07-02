@@ -125,9 +125,14 @@ as u32) << 8) | ia_rank3` — `(part_of:is_a)` one level deeper.
 
 `converge.rs` classifies each FMA node into `ConceptDomain::Anatomy` (`0x0A`):
 
-- `classid 0x0000_0A02` — **skeleton** (bone / cartilage / vertebra / rib / femur /
+> Order flipped 2026-07-02 — canon HIGH / custom LOW (matches the
+> `lance-graph-contract` classid half-order flip; `converge.rs` is dep-free and
+> mints this order directly). The pre-flip stored form was `0x0000_0A01` /
+> `0x0000_0A02`; every worked example below uses the post-flip form.
+
+- `classid 0x0A02_0000` — **skeleton** (bone / cartilage / vertebra / rib / femur /
   skull, via `is_skeletal()`).
-- `classid 0x0000_0A01` — **soft tissue** (everything else).
+- `classid 0x0A01_0000` — **soft tissue** (everything else).
 
 The `place` bytes are then dispatched on classid:
 
@@ -158,8 +163,8 @@ Located skeleton — **thoracic vertebrae T9/T10/T11**, `classid 0x0A02`, mode
 Located:
 
 ```text
-  FMA10014  00000a02-ce01-fe02-7b02-…   ↔ T10,T11,T12,…   shared Morton HEEL ce = same spatial octant
-  FMA10059  00000a02-ce01-d602-eb02-…   ↔ T9,T10,T12,…    HIP/TWIG descend as the centroid descends (z 1164→1107)
+  FMA10014  0a020000-ce01-fe02-7b02-…   ↔ T10,T11,T12,…   shared Morton HEEL ce = same spatial octant
+  FMA10059  0a020000-ce01-d602-eb02-…   ↔ T9,T10,T12,…    HIP/TWIG descend as the centroid descends (z 1164→1107)
 ```
 
 Both vertebrae share `classid 0x0A02` and the **same HEEL high byte `ce`** — they
@@ -170,7 +175,7 @@ spatial group. HIP and TWIG diverge as the centroid descends. The low bytes (`01
 Cascade soft tissue — **aortic segments**, `classid 0x0A01`, mode Cascade:
 
 ```text
-  FMA3736  ascending aorta  00000a01-0901-0702-0e02-…   ↔ arch, descending   part_of siblings = the connected segments
+  FMA3736  ascending aorta  0a010000-0901-0702-0e02-…   ↔ arch, descending   part_of siblings = the connected segments
 ```
 
 The ascending aorta, the arch, and the descending aorta are `part_of` siblings of
@@ -178,8 +183,8 @@ the same aorta; they share the leading `part_of` high-byte groups (`09`, `07`, `
 …) and are connected to each other (§3). The `connected_to` column lists exactly the
 sibling segments that physically continue the vessel.
 
-The upshot, made visible in `graph.rs`: a single key prefix `00000a01-0901-0702`
-selects "one `part_of`/`is_a` subtree" of triangles; `00000a02` selects the whole
+The upshot, made visible in `graph.rs`: a single key prefix `0a010000-0901-0702`
+selects "one `part_of`/`is_a` subtree" of triangles; `0a020000` selects the whole
 skeleton. **The address is the query.**
 
 ---
@@ -216,8 +221,8 @@ value column (`Vec<[u8; 480]>`), separate allocations. Two scans over 1 M synthe
 rows (seeded by the FMA distribution: ~25 % skeleton classid, the rest soft tissue):
 
 - **key-only (prefix-route / render-select):** read only the key column; decode
-  `classid` from bytes `[0..4)`; count the skeleton subtree (`== 0x0000_0A02`). This
-  is exactly the work the `/fma-body` skeleton button and `graph 00000a02` do.
+  `classid` from bytes `[0..4)`; count the skeleton subtree (`== 0x0A02_0000`). This
+  is exactly the work the `/fma-body` skeleton button and `graph 0a020000` do.
 - **value (decode the slab):** read the whole value column; sum all 480 bytes per
   row — the work a value/tenant materialization does.
 
@@ -251,7 +256,7 @@ Why this falls out of the layout, not a trick:
 `graph.rs` is the same routing at render time, not at scan time: it reads the
 converged manifest, and a `sel` that is all-hex-or-dash is treated as a GUID prefix —
 `guid.starts_with(&sel)` selects which meshes' triangles to rasterize. `graph …
-00000a02` renders ~922 K skeleton triangles; `graph all` / `tissues` / `vessel`
+0a020000` renders ~922 K skeleton triangles; `graph all` / `tissues` / `vessel`
 render the whole body / inner tissues / vascular tree. The address selects the
 geometry; the prefix is the query — and it never decodes a value slab to decide.
 
@@ -353,7 +358,7 @@ holds for mechanical/data-shaped leaf methods and remains CONJECTURE until
 | value tenants / schemas / `classid → ReadMode`   | same — `ValueTenant`, `ValueSchema`, `classid_read_mode`         |
 | `(place:tissue)` 8:8 tier, Located/Cascade, mint | `q2/fma/src/bin/converge.rs`                                       |
 | `connected_to` EdgeBlock from `part_of` siblings | `q2/fma/src/bin/converge.rs` (`siblings`, edge emit)              |
-| prefix-routed render (`graph 00000a02`)          | `q2/fma/src/bin/graph.rs`                                          |
+| prefix-routed render (`graph 0a020000`)          | `q2/fma/src/bin/graph.rs`                                          |
 | key-only vs value scan, 89–130×, flat            | `q2/fma/src/bin/soa_scan.rs`                                       |
 | three coexisting v1/v2/v3 addressings            | `q2/fma/README.md`                                                 |
 | GUID-is-key, key-prerenders, classid adapters    | `OGAR/CLAUDE.md`, `core-first-transcode-doctrine`                 |

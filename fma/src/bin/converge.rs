@@ -25,6 +25,11 @@
 // `lance_graph_contract::canonical_node::NodeGuid::new(classid, heel, hip, twig,
 // family, identity)` (OGAR canon, 2026-06-13). classid in ConceptDomain::Anatomy
 // (0x0A): 0x0A01 soft tissue, 0x0A02 skeleton — same space as the other session's bake.
+// (Order flipped 2026-07-02 — canon HIGH / custom LOW: this crate stores the
+// canon 0x0A01/0x0A02 value directly in the classid `u32`'s high half, i.e.
+// `0x0A01_0000` / `0x0A02_0000`, matching `lance-graph-contract`'s
+// `CLASSID_ORDER = CanonHigh`. This crate is dep-free and mints the value
+// itself — it does not call the contract's `compose_classid`.)
 //
 //   usage: converge [inclusion.txt] [isa_inclusion.txt] [out_dir] [parts_dir] [element_parts]
 //   (parts_dir optional — present ⇒ Located skeleton + spatial edges + render-ready
@@ -467,9 +472,9 @@ fn main() {
         let names = po.dn(fma) + " " + &ia.dn(fma);
         let skeletal_node = is_skeletal(&names);
         let classid = if skeletal_node {
-            0x0000_0A02
+            0x0A02_0000
         } else {
-            0x0000_0A01
+            0x0A01_0000
         };
         if skeletal_node {
             skeletal += 1;
