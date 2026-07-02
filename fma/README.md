@@ -21,6 +21,11 @@ BodyParts3D meshes ──tissue (is_a tree)──► triangle rasterizer (z-buff
                                          (prefix-routable cascade + golden-stride identity mint)
 ```
 
+> Order flipped 2026-07-02 — canon HIGH / custom LOW. The worked GUID examples
+> below use the post-flip classid form (`0x0A01_0000` soft tissue,
+> `0x0A02_0000` skeleton, printed as `0a010000…` / `0a020000…`), matching the
+> `lance-graph-contract` half-order flip even though this crate is dep-free.
+
 - **Geometry** is the real mesh triangles (not gaussian splats): per-triangle
   z-buffered fill with smooth per-vertex (Gouraud) normals, two-sided shading,
   FMA-tissue color (bone ivory, muscle red, vessel red, nerve yellow, …).
@@ -40,7 +45,7 @@ BodyParts3D meshes ──tissue (is_a tree)──► triangle rasterizer (z-buff
 | `serve` | dep-free std HTTP server, all routes under `/FMA` (binds `0.0.0.0:$PORT`) |
 | `guid` | mint the part_of GUID per FMA node → `guid/guid_manifest.tsv`, `guid/fj_guid.tsv` |
 | `converge` | **v3**: cascading-HHTL `(place:tissue)` **canonical NodeGuid** + `connected_to` edges → `guid/{guid_converged,nodes,edges}.tsv` |
-| `graph` | **v3 render**: SOLID triangle surface colored by `tissue`, with a GUID **prefix** that selects the subtree (`graph … 00000a02` = skeleton) → `graph/graph_<sel>.png` |
+| `graph` | **v3 render**: SOLID triangle surface colored by `tissue`, with a GUID **prefix** that selects the subtree (`graph … 0a020000` = skeleton) → `graph/graph_<sel>.png` |
 | `cockpit_bake` | bake the full body → `cockpit/public/fma_body.mesh` (SPM1, opacity = layer id) for the **`/fma-body`** cockpit page (layer toggles + transparency) |
 | `soa_scan` | 1M-row SoA scalability PoC: key-only **prefix-route** scan vs full **value-decode** scan (~90× at 1M — the canon's *"prerender with zero value decode"*) |
 | `anchor` | compression study: cascade vs raw-cartesian vs Cartesian-Skeleton hybrid |
@@ -95,15 +100,15 @@ Three things make `place` and the render converge (`classid`-dispatched, OGAR `H
 
 ```text
 Located skeleton (thoracic vertebrae T9/T10/T11, classid 0x0A02, mode Located):
-  FMA10014  00000a02-ce01-fe02-7b02-…   ↔ T10,T11,T12,…   shared Morton HEEL ce = same spatial octant
-  FMA10059  00000a02-ce01-d602-eb02-…   ↔ T9,T10,T12,…    HIP/TWIG descend as the centroid descends (z 1164→1107)
+  FMA10014  0a020000-ce01-fe02-7b02-…   ↔ T10,T11,T12,…   shared Morton HEEL ce = same spatial octant
+  FMA10059  0a020000-ce01-d602-eb02-…   ↔ T9,T10,T12,…    HIP/TWIG descend as the centroid descends (z 1164→1107)
 Cascade soft tissue (aortic segments, 0x0A01, mode Cascade):
-  FMA3736 ascending  00000a01-0901-0702-0e02-…  ↔ arch, descending   part_of siblings = the connected segments
+  FMA3736 ascending  0a010000-0901-0702-0e02-…  ↔ arch, descending   part_of siblings = the connected segments
 ```
 
 ![FMA skeleton, selected by GUID prefix](docs/graph_skeleton.png)
 
-*`graph … 00000a02` — the canonical key SELECTS the geometry: the `0x0A02` (skeleton)
+*`graph … 0a020000` — the canonical key SELECTS the geometry: the `0x0A02` (skeleton)
 classid prefix renders just the bones as solid triangles (922K), colored by the `tissue`
 byte (is_a). The address is the render; the prefix is the query. `graph all` / `tissues`
 / `vessel` render the whole body / inner tissues / vascular tree.*

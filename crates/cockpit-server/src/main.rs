@@ -217,7 +217,8 @@ async fn main() {
         // CPIC pharmacogenomics for the /cpic cockpit (cpic::reason over the baked CPIC tables)
         .route("/api/cpic/reason", post(pgx::cpic_reason_handler))
         .route("/api/cpic/catalog", get(pgx::cpic_catalog_handler))
-        // OSINT domain (classid 0x0700): the harvest as a CANON family-basin graph
+        // OSINT domain (canon classid 0x0700 — HIGH half since the 2026-07-02
+        // flip): the harvest as a CANON family-basin graph
         // (round→anchor basins, GUID-v2 tail), displayed via the OGAR ClassView.
         .route("/api/graph/osint", get(osint_gotham::osint_graph_handler))
         // Pre-baked enriched OSINT SoA bytes — the 3D view (/osint3d) fetches

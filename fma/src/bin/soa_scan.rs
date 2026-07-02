@@ -3,9 +3,11 @@
 // Proves the OGAR canon's "the key prerenders nodes with ZERO value decode": when the
 // canonical NodeRow (512 B = key 16 + edges 16 + value 480) is laid out COLUMNAR
 // (struct-of-arrays) — a contiguous key column + a contiguous value column — a key-only
-// scan (prefix-route / render-select, e.g. "draw the skeleton subtree" = classid 0x0A02)
+// scan (prefix-route / render-select, e.g. "draw the skeleton subtree" = classid 0x0A02
+// — canon 0x0A02 in the HIGH half of the composed u32, `0x0A02_0000`, since the
+// 2026-07-02 half-order flip)
 // touches ~30x less memory than materializing the value slab, and stays flat as N grows.
-// This is the same prefix routing the /fma-body skeleton button and `graph 00000a02` do,
+// This is the same prefix routing the /fma-body skeleton button and `graph 0a020000` do,
 // measured at scale.
 //
 // 1M is SYNTHETIC — real FMA is ~1368 placed meshes / ~75K terms; the scan throughput is
@@ -17,8 +19,11 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-const CLASSID_SOFT: u32 = 0x0000_0A01;
-const CLASSID_SKELETON: u32 = 0x0000_0A02;
+// Order flipped 2026-07-02 — canon HIGH / custom LOW (matches the
+// lance-graph-contract classid half-order flip; this crate is dep-free and
+// mints its own local scheme, kept consistent with the canonical order).
+const CLASSID_SOFT: u32 = 0x0A01_0000;
+const CLASSID_SKELETON: u32 = 0x0A02_0000;
 
 /// Columnar SoA: the 16-byte GUID key column and the 480-byte value-slab column, kept
 /// in separate contiguous allocations (the "SoA > tenant view" split).

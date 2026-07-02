@@ -6,13 +6,23 @@
 //!
 //! POC over published CPIC rules — NOT clinical decision support.
 
-// ── classid: pharmacogenomics domain 0x0C (cf. anatomy 0x0A used by fma/converge) ──
-pub const CID_GENE: u32 = 0x000C_0001;
-pub const CID_ALLELE: u32 = 0x000C_0002;
-pub const CID_DIPLOTYPE: u32 = 0x000C_0003;
-pub const CID_PHENOTYPE: u32 = 0x000C_0004;
-pub const CID_DRUG: u32 = 0x000C_0005;
-pub const CID_REC: u32 = 0x000C_0006;
+// ── classid: pharmacogenomics — re-minted 2026-07-02. The original local scheme
+// (`0x000C_000N`) predated the operator's Genetics ruling and collided with the
+// Automation domain (0x0C is Automation, not Genetics — see
+// `lance-graph-contract::ogar_codebook::ConceptDomain::Automation`). Re-minted as
+// INTERIM canon-high Genetics:q2 ids, matching the `lance-graph-contract` classid
+// half-order flip (canon in the HIGH half, custom in the LOW half): canon `0x0E01`
+// = Genetics domain (`0x0E`) + appid `0x01` (q2); the LOW half is this crate's
+// local kind slot (GENE=1, ALLELE=2, DIPLOTYPE=3, PHENOTYPE=4, DRUG=5, REC=6).
+// This is dep-free and does NOT pull the real `lance-graph-contract` ClassView
+// catalogue — the full contract-pull re-mint that dissolves this local scheme
+// entirely is the tracked follow-up (see `docs/INGEST.md`).
+pub const CID_GENE: u32 = 0x0E01_0001;
+pub const CID_ALLELE: u32 = 0x0E01_0002;
+pub const CID_DIPLOTYPE: u32 = 0x0E01_0003;
+pub const CID_PHENOTYPE: u32 = 0x0E01_0004;
+pub const CID_DRUG: u32 = 0x0E01_0005;
+pub const CID_REC: u32 = 0x0E01_0006;
 
 // ── FNV-1a (the same prefix-cascade generator the fma converge bin uses) ──
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;

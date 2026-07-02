@@ -21,7 +21,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const PAGE_BG = 0x0a0e17;
-const FMA_V3_CLASSID = 0x10000a01;
+// Post-flip form (canon 0x0A01 HIGH, V3 marker 0x1000 LOW — 2026-07-02).
+const FMA_V3_CLASSID = 0x0a011000;
+// Pre-flip stored form — the body.soa GitHub-Release asset
+// (fma-body-soa-v3-v1) still carries it until re-baked + re-released.
+const FMA_V3_CLASSID_LEGACY = 0x10000a01;
 
 const LAYERS: { id: number; name: string; color: string }[] = [
   { id: 1, name: 'skin', color: '#dba88a' },
@@ -433,7 +437,7 @@ export function BodyV3() {
         {d && (
           <div style={{ opacity: 0.6, marginTop: 2 }}>
             {d.nConcepts.toLocaleString()} concepts ·{' '}
-            {d.classid === FMA_V3_CLASSID
+            {(d.classid === FMA_V3_CLASSID || d.classid === FMA_V3_CLASSID_LEGACY)
               ? <span style={{ color: '#7fdca0' }}>classid 0x{d.classid.toString(16)} ✓ V3 (part_of:is_a)</span>
               : <span style={{ color: '#ff8095' }}>classid 0x{d.classid.toString(16)}</span>}
           </div>

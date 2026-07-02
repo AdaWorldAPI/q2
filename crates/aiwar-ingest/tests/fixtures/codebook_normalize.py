@@ -3,7 +3,10 @@
 into ONE codebook-based, non-serialized Gotham/neo4j test fixture.
 
 CANON model (lance-graph contract::aiwar + E-FAMILY-ADAPTER + OGAR codebook):
-  - classid OSINT = 0x0700  (NodeGuid::CLASSID_OSINT, >>8 == 0x07)
+  - classid OSINT = 0x0700  (NodeGuid::CLASSID_OSINT, >>8 == 0x07) — this is the
+    bare u16 canon id, the HIGH half of the composed u32 classid since the
+    2026-07-02 half-order flip (NodeGuid::CLASSID_OSINT == 0x0700_0000); this
+    fixture never composes the full u32, so no functional change from the flip.
   - a node is its HEAD only: classid | family(mixin) | identity(u16) | edge-adapters
   - mixin: an entity inherits its category by REFERENCE (family-node id), never a copy
   - identity = 4 nibbles (u16)
@@ -13,6 +16,9 @@ CANON model (lance-graph contract::aiwar + E-FAMILY-ADAPTER + OGAR codebook):
 import json, re, sys, glob, os
 
 ROOT = os.environ.get("AIWAR_HARVEST", "/home/user/aiwar-neo4j-harvest")
+# u16 canon id — the HIGH half of the composed u32 classid since the
+# 2026-07-02 flip (NodeGuid::CLASSID_OSINT == 0x0700_0000). This script only
+# ever emits the bare u16 (see @meta below), never the composed u32.
 OSINT_CLASSID = 0x0700
 
 # JSON N_<group> -> canonical family label (matches the cypher node labels)

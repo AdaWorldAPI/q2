@@ -37,8 +37,10 @@
 use lance_graph_contract::canonical_node::{classid_read_mode, NodeGuid};
 use std::path::{Path, PathBuf};
 
-/// FMA V3 cascade key (`0x1000_0A01`) — same constant `bin/fma.rs` uses; the V3
-/// generation marker `0x1000` over the canon `anatomical_structure` concept `0x0A01`.
+/// FMA V3 cascade key (`0x0A01_1000` since the 2026-07-02 half-order flip; pre-flip
+/// stored form `0x1000_0A01`) — same constant `bin/fma.rs` uses; the canon
+/// `anatomical_structure` concept `0x0A01` (HIGH half) paired with the V3
+/// generation marker `0x1000` (LOW half).
 const CLASSID_FMA: u32 = NodeGuid::CLASSID_FMA_V3;
 
 /// One 8:8 HHTL tier: `[container-mixin : identity]` (mirrors `fma.rs::tier`).
