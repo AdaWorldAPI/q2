@@ -1,7 +1,7 @@
 {
   "format": "OSINT-V3 SoA \u00b7 6x(8:8) part_of:is_a centroid cascade (CAM-PQ-shaped)",
-  "classid_system": "0x10000700",
-  "classid_person": "0x10000701",
+  "classid_system": "0x07011000",
+  "classid_person": "0x07011000",
   "record": "row_id(u32 LE) | GUID1(16B: classid u32 + 6x u16 tiers) | GUID2(16B McClelland, persons)",
   "guid1_tiers": {
     "HEEL": "currentStatus:type",

@@ -1,8 +1,39 @@
 # OSINT-V3 SoA Bake — aiwar-neo4j-harvest → 6×(8:8) substrate
 
 Baked from `AdaWorldAPI/aiwar-neo4j-harvest` (611 nodes) into the V3 SoA
-`6×(8:8) part_of:is_a` centroid cascade (CAM-PQ-shaped) under classid
-`0x1000_0700` (System) / `0x1000_0701` (Person, McClelland).
+`6×(8:8) part_of:is_a` centroid cascade (CAM-PQ-shaped) under the canonical
+V3 classid `0x0701_1000` (`CLASSID_OSINT_V3` — OSINT domain `0x07`, appid
+`:01` q2, V3 marker `0x1000` LOW).
+
+**ONE OSINT class, deliberately.** Stakeholder/institution nodes and person
+nodes share this single classid so the *instrument-of-power* edge — a
+stakeholder supplying a person the means to execute power (McClelland nPow) —
+and all stakeholder↔person interaction reasoning live *inside* the class,
+never blocked by a class boundary. GUID1 is the situational/institutional
+facet (AIRO need/offer/impact); GUID2 is the personal facet (McClelland
+need/motive/Rubicon). Facets scale by **adding a GUID**, never by splitting
+the class.
+
+## GUID1 is 12× is_a — kind is read by position, never labelled
+
+GUID1's 12 bytes are **12 orthogonal is_a dimensions**, one per position; the
+schema (the ClassView field card) knows which position is which field. A node
+stores only the **value** at each position — never a label. So kind (person /
+institution / system) is not a separate property to add: it is already read
+off the 12-is_a vector by position. There is no "garbage" byte — a value at any
+position is that dimension's is_a value for the node. (An earlier pass wrongly
+declared 423 nodes "misclassified" by assuming a node's kind restricts which
+positions apply; it does not — every node carries a value in every dimension.)
+
+> **classid flip (2026-07-04).** Rebaked to the post-2026-07-02 canon-high
+> order. Legacy stored forms were `0x1000_0700` (System) / `0x1000_0701`
+> (Person); both normalize to the single `0x0701_1000` (position swap + appid
+> `:00→:01`), collapsing the wrong stakeholder/person **class split** into the
+> one OSINT class. **Only the classid u32 changed** — every rail byte
+> (`6×(8:8)` tiers) is byte-identical to the original bake. Reference artifact;
+> the runtime OSINT path (`osint_gotham.rs` → `osint_scene.soa`) does not yet
+> read these rails — wiring it (facet by GUID slot, kind by reading the 12×
+> is_a per position) is the follow-up this flip clears the way for.
 
 ## Assets
 - `osint_v3.soa` — binary SoA. Header `OSINTV3\0` + `ver(u16=3) count(u32) stride(u16=36)`,
