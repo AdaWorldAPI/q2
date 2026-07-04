@@ -1,8 +1,16 @@
 //! The canonical **OSINT ClassView** — the `0x07XX` AIRO/AIwar domain.
 //!
-//! `0x07XX` is the operator-ratified canonical OSINT domain; the low byte (the
-//! slot) is the owner's to assign. Two concepts are minted, mirroring the V3 SoA
-//! bake (`data/osint-v3/`, `(APP_PREFIX 0x1000)<<16 | concept`):
+//! `0x07XX` is the operator-ratified canonical OSINT domain. There is **ONE
+//! OSINT node class** — the V3 SoA bake (`data/osint-v3/`) stamps a single
+//! classid `0x0701_1000` (`CLASSID_OSINT_V3`) on stakeholder AND person nodes
+//! alike, so the stakeholder↔person edges (an institution supplying a person
+//! the instrument of power) live inside the class, never blocked by a class
+//! boundary. The two ids below (`0x0700` / `0x0701`) are **facet card keys**,
+//! not node classes: `0x0700` selects the situational/institutional card
+//! (GUID1 AIRO dims), `0x0701` the personal card (GUID2 McClelland dims). A
+//! consumer picks the card by GUID slot (GUID1 vs GUID2), not by a node's
+//! classid. Node KIND (person vs institution) is an `is_a` rail *property*, not
+//! a class — see `data/osint-v3/OSINT_V3_BAKE_README.md` "is_a-kind gap".
 //!
 //! - [`OSINT_SYSTEM_CLASS`] `0x0700` — the **AI system** card: the 12 AIRO/VAIR
 //!   dims packed into GUID1's `6×(8:8)` tier cascade (HEEL `currentStatus:type`,
