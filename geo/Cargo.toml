@@ -23,12 +23,30 @@ license = "Apache-2.0"
 # Own workspace root — isolated from the q2 Quarto workspace, exactly like fma.
 [workspace]
 
-# The lib is dep-free (pure std). The `osm_bake` bin needs to read compressed
-# protobuf `.osm.pbf`, which is not hand-rollable without an inflate+protobuf
-# dep; `osmpbf` is the standard reader (crates.io leaf, no AdaWorldAPI fork).
-# Contained in this isolated crate's own workspace — never touches Quarto.
+# The lib core (hhtl/extrude/spm1) is dep-free (pure std). Two optional layers:
+#   `osm`   — the `.osm.pbf` reader (compressed protobuf; needs `osmpbf`).
+#   `helix` — the BSO2 /helix wire: F16 pos + helix_orient normal (ndarray) +
+#             NodeGuid concept keys (lance-graph-contract) — the SAME encoders
+#             body-soa-wire uses, so BodyHelix.tsx decodes an OSM bake unchanged.
+# ndarray/contract are path-deps to the sibling clones (../../ndarray, ../../lance-graph).
+[features]
+default = []
+osm = ["dep:osmpbf"]
+helix = ["dep:ndarray", "dep:lance-graph-contract"]
+
 [dependencies]
-osmpbf = "0.3"
+osmpbf = { version = "0.3", optional = true }
+ndarray = { path = "../../ndarray", default-features = false, features = ["std", "splat3d"], optional = true }
+lance-graph-contract = { path = "../../lance-graph/crates/lance-graph-contract", features = ["guid-v3-tail"], optional = true }
+
+# osm_bake → SPM1 (dep-free lib + osm reader). osm_helix → BSO2 /helix wire.
+[[bin]]
+name = "osm_bake"
+required-features = ["osm"]
+
+[[bin]]
+name = "osm_helix"
+required-features = ["osm", "helix"]
 
 [profile.release]
 opt-level = 3

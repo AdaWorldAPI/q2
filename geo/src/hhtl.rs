@@ -27,6 +27,48 @@ pub struct Hhtl {
     pub twig: u16,
 }
 
+/// Native 4-tier depth: 4 tiers × 8 quadtree levels = 32 zoom levels. Fills the
+/// V3 facet's four spatial tiers (`heel|hip|twig|leaf`) so the address localizes
+/// a feature to a ~cm tile — leaving `family`/`identity` for basin + instance.
+pub const HHTL_DEPTH4: u32 = 32;
+
+/// The four spatial tiers of the V3 facet (`heel|hip|twig|leaf`), each a
+/// 256×256 centroid tile, together a 32-level quadtree address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Hhtl4 {
+    /// Coarsest tier (zoom 0..8).
+    pub heel: u16,
+    /// zoom 8..16.
+    pub hip: u16,
+    /// zoom 16..24.
+    pub twig: u16,
+    /// Finest tier, zoom 24..32 (the ~cm cascade terminal).
+    pub leaf: u16,
+}
+
+/// A geographic point at zoom `z` → its 4-tier HHTL key (`heel|hip|twig|leaf`),
+/// a 64-bit Morton code of the left-aligned `z32` tile split into four `u16`
+/// tiers. This is the spatial half of the V3 facet — deep enough that a
+/// building centroid resolves to a near-unique tile.
+#[must_use]
+pub fn point_to_hhtl4(lon: f64, lat: f64, z: u32) -> Hhtl4 {
+    let z = z.min(HHTL_DEPTH4);
+    let (x, y) = lonlat_to_tile(lon, lat, z);
+    let shift = HHTL_DEPTH4 - z;
+    let (xa, ya) = (x << shift, y << shift);
+    let mut code = 0u64;
+    for i in 0..HHTL_DEPTH4 {
+        code |= u64::from((xa >> i) & 1) << (2 * i);
+        code |= u64::from((ya >> i) & 1) << (2 * i + 1);
+    }
+    Hhtl4 {
+        heel: (code >> 48) as u16,
+        hip: (code >> 32) as u16,
+        twig: (code >> 16) as u16,
+        leaf: code as u16,
+    }
+}
+
 /// WebMercator (EPSG:3857) forward: `(lon, lat)` → slippy tile `(x, y)` at zoom
 /// `z`. `x` grows east, `y` grows south. Clamped to the valid `0..2^z` range.
 #[must_use]

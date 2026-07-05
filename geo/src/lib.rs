@@ -19,6 +19,14 @@ pub mod extrude;
 pub mod hhtl;
 pub mod spm1;
 
+/// `.osm.pbf` ingestion (feature `osm`; pulls `osmpbf`).
+#[cfg(feature = "osm")]
+pub mod osm_read;
+
+/// BSO2 `/helix` wire encoder (feature `helix`; pulls `ndarray` + `lance-graph-contract`).
+#[cfg(feature = "helix")]
+pub mod bso2;
+
 pub use extrude::{extrude_into, Footprint, Layer};
 pub use hhtl::{point_to_hhtl, tile_to_hhtl, Hhtl, GEO_DOMAIN, HHTL_DEPTH};
 pub use spm1::{Mesh, Vertex};
