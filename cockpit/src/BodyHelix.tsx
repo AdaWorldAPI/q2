@@ -404,7 +404,9 @@ async function fetchSoa(): Promise<ArrayBuffer> {
   // /helix → anatomy body (helix_latest). /helix?scene=osm → the OSM bake
   // (osm_latest) through the SAME Signed360 decoder. The body's data slot and
   // the separate /osm slippy-map page are both untouched.
-  const scene = new URLSearchParams(window.location.search).get('scene');
+  const scene =
+    new URLSearchParams(window.location.search).get('scene') ??
+    (window.location.pathname === '/geo' ? 'osm' : null);
   const key = scene === 'osm' ? 'osm_latest' : 'helix_latest';
   const stamped: string | undefined = man?.[key];
   if (!stamped) {
