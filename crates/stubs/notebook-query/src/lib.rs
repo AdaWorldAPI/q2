@@ -100,9 +100,16 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
     // %%think magic: route through 10-layer cognitive stack
     #[cfg(feature = "orchestrator")]
     if source.trim().starts_with("%%think") {
-        let query = source.trim().strip_prefix("%%think").unwrap_or("").trim();
-        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-        let result = rt.block_on(thinking::execute_think(query))?;
+        let query = source
+            .trim()
+            .strip_prefix("%%think")
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        // Run on a fresh OS thread so `Runtime::new().block_on()` doesn't nest
+        // inside the caller's tokio runtime (which would panic with "Cannot
+        // start a runtime from within a runtime"). See `block_on_new_thread`.
+        let result = block_on_new_thread(async move { thinking::execute_think(&query).await })??;
         return Ok(QueryResult {
             language,
             raw_output: result.output.clone(),
@@ -127,9 +134,7 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
 
     match language {
         QueryLanguage::Cypher => execute_cypher(source),
-        QueryLanguage::Gremlin | QueryLanguage::Sparql => {
-            execute_graph_query(source, language)
-        }
+        QueryLanguage::Gremlin | QueryLanguage::Sparql => execute_graph_query(source, language),
         QueryLanguage::R => Ok(QueryResult {
             language,
             raw_output: format!("R output for: {}", source),
@@ -151,20 +156,44 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
 
 // ── Cypher hot path via lance-graph ──
 
+/// Drive a `Send + 'static` future to completion from a synchronous caller,
+/// safely, regardless of whether the caller is inside a tokio runtime.
+///
+/// `notebook_query::execute` is a plain `fn` but wraps async DataFusion /
+/// orchestrator code. When called from an async handler (e.g. cockpit-server's
+/// `data_status_handler`), naïvely doing `Runtime::new().block_on(fut)` panics
+/// with `Cannot start a runtime from within a runtime.` — the ambient runtime
+/// context is still set on the worker thread. Running the future on a **fresh
+/// OS thread** (no tokio TLS) lets us build a runtime and `block_on` without
+/// nesting. Cost: one thread + runtime per call, acceptable for the heavy
+/// paths that use this (Cypher/DataFusion, `%%think` orchestration).
+fn block_on_new_thread<F, T>(fut: F) -> Result<T, String>
+where
+    F: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        Ok::<T, String>(rt.block_on(fut))
+    })
+    .join()
+    .map_err(|_| "notebook_query worker thread panicked".to_string())?
+}
+
 /// Execute a Cypher query against the aiwar Arrow datasets via lance-graph's
 /// real DataFusion path. Shared by the Cypher cell and the Gremlin transpiler.
 fn run_cypher_on_aiwar(source: &str) -> Result<RecordBatch, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
+    let source = source.to_string();
+    block_on_new_thread(async move {
         let (datasets, config) = load_aiwar_datasets()?;
-        let query = CypherQuery::new(source)
+        let query = CypherQuery::new(&source)
             .map_err(|e| format!("Cypher parse error: {e}"))?
             .with_config(config.clone());
         query
             .execute(datasets.clone(), None)
             .await
             .map_err(|e| format!("lance-graph execution error: {e}"))
-    })
+    })?
 }
 
 fn execute_cypher(source: &str) -> Result<QueryResult, String> {
@@ -619,8 +648,8 @@ fn load_aiwar_datasets() -> Result<&'static (HashMap<String, RecordBatch>, Graph
         if path.is_empty() {
             return Err("Cannot find aiwar_graph.json — set AIWAR_DATA_PATH".to_string());
         }
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read {path}: {e}"))?;
+        let content =
+            std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {path}: {e}"))?;
         let data: AiWarGraphJson =
             serde_json::from_str(&content).map_err(|e| format!("JSON parse error: {e}"))?;
 
@@ -1229,7 +1258,8 @@ fn aiwar_graph_json() -> Result<String, String> {
             let id_idx = schema.index_of("id").ok();
             let name_idx = schema.index_of("name").ok();
             // Pre-collect field names once per table — avoids clone per row×column
-            let field_names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
+            let field_names: Vec<&str> =
+                schema.fields().iter().map(|f| f.name().as_str()).collect();
 
             for row in 0..batch.num_rows() {
                 let id_val = id_idx
@@ -1353,7 +1383,9 @@ fn get_string_value(batch: &RecordBatch, col: usize, row: usize) -> Option<Strin
         }
         DataType::Dictionary(_, _) => {
             // codebook column: resolve the u16 index back to its string value.
-            let dict = col_data.as_any().downcast_ref::<DictionaryArray<UInt16Type>>()?;
+            let dict = col_data
+                .as_any()
+                .downcast_ref::<DictionaryArray<UInt16Type>>()?;
             let values = dict.values().as_any().downcast_ref::<StringArray>()?;
             let key = dict.keys().value(row) as usize;
             Some(values.value(key).to_string())
@@ -1388,7 +1420,9 @@ fn get_json_value(batch: &RecordBatch, col: usize, row: usize) -> Option<serde_j
         }
         DataType::Dictionary(_, _) => {
             // codebook column: resolve the u16 index back to its string value.
-            let dict = col_data.as_any().downcast_ref::<DictionaryArray<UInt16Type>>()?;
+            let dict = col_data
+                .as_any()
+                .downcast_ref::<DictionaryArray<UInt16Type>>()?;
             let values = dict.values().as_any().downcast_ref::<StringArray>()?;
             let key = dict.keys().value(row) as usize;
             Some(serde_json::Value::String(values.value(key).to_string()))
@@ -1436,12 +1470,28 @@ pub fn extract_graph_truth_edges() -> Result<Vec<reasoning::TruthEdge>, String> 
 
             if let (Some(si), Some(ti)) = (src_idx, tgt_idx) {
                 for row in 0..batch.num_rows() {
-                    let src = batch.column(si).as_any()
+                    let src = batch
+                        .column(si)
+                        .as_any()
                         .downcast_ref::<StringArray>()
-                        .and_then(|a| if a.is_null(row) { None } else { Some(a.value(row).to_string()) });
-                    let tgt = batch.column(ti).as_any()
+                        .and_then(|a| {
+                            if a.is_null(row) {
+                                None
+                            } else {
+                                Some(a.value(row).to_string())
+                            }
+                        });
+                    let tgt = batch
+                        .column(ti)
+                        .as_any()
                         .downcast_ref::<StringArray>()
-                        .and_then(|a| if a.is_null(row) { None } else { Some(a.value(row).to_string()) });
+                        .and_then(|a| {
+                            if a.is_null(row) {
+                                None
+                            } else {
+                                Some(a.value(row).to_string())
+                            }
+                        });
 
                     if let (Some(source), Some(target)) = (src, tgt) {
                         // Check for weight column
@@ -1478,29 +1528,35 @@ pub fn extract_graph_truth_edges() -> Result<Vec<reasoning::TruthEdge>, String> 
 /// rendering instructions.
 pub fn get_graph_truth_summary(min_confidence: f64) -> Result<serde_json::Value, String> {
     let edges = extract_graph_truth_edges()?;
-    let filtered: Vec<&reasoning::TruthEdge> = edges.iter()
+    let filtered: Vec<&reasoning::TruthEdge> = edges
+        .iter()
         .filter(|e| e.truth.confidence >= min_confidence)
         .collect();
 
     // Summary by relationship type
-    let mut by_type: std::collections::HashMap<&str, Vec<(f64, f64)>> = std::collections::HashMap::new();
+    let mut by_type: std::collections::HashMap<&str, Vec<(f64, f64)>> =
+        std::collections::HashMap::new();
     for e in &filtered {
-        by_type.entry(&e.rel_type)
+        by_type
+            .entry(&e.rel_type)
             .or_default()
             .push((e.truth.frequency, e.truth.confidence));
     }
 
-    let type_summaries: Vec<serde_json::Value> = by_type.iter().map(|(rel_type, values)| {
-        let avg_freq = values.iter().map(|(f, _)| f).sum::<f64>() / values.len() as f64;
-        let avg_conf = values.iter().map(|(_, c)| c).sum::<f64>() / values.len() as f64;
-        serde_json::json!({
-            "rel_type": rel_type,
-            "count": values.len(),
-            "avg_frequency": (avg_freq * 1000.0).round() / 1000.0,
-            "avg_confidence": (avg_conf * 1000.0).round() / 1000.0,
-            "avg_expectation": ((avg_conf * (avg_freq - 0.5) + 0.5) * 1000.0).round() / 1000.0,
+    let type_summaries: Vec<serde_json::Value> = by_type
+        .iter()
+        .map(|(rel_type, values)| {
+            let avg_freq = values.iter().map(|(f, _)| f).sum::<f64>() / values.len() as f64;
+            let avg_conf = values.iter().map(|(_, c)| c).sum::<f64>() / values.len() as f64;
+            serde_json::json!({
+                "rel_type": rel_type,
+                "count": values.len(),
+                "avg_frequency": (avg_freq * 1000.0).round() / 1000.0,
+                "avg_confidence": (avg_conf * 1000.0).round() / 1000.0,
+                "avg_expectation": ((avg_conf * (avg_freq - 0.5) + 0.5) * 1000.0).round() / 1000.0,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(serde_json::json!({
         "total_edges": edges.len(),
