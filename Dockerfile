@@ -77,6 +77,20 @@ RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v
 RUN cp /build/q2/.claude/maps/iceland.helix.soa.gz /build/q2/cockpit/dist/iceland.helix.soa.gz \
  && ls -lh /build/q2/cockpit/dist/iceland.helix.soa.gz
 
+# Berlin OSM helix bake — the artifact for `/geo` and `/helix?scene=osm` (manifest
+# `osm_latest`). It IS on the fma-body-soa-v3-v1 release (baked by the bake-osm CI
+# workflow), but the browser can't fetch the release URL directly: GitHub's asset
+# redirect (release-assets.githubusercontent.com) sends no CORS header on the 302,
+# so a cross-origin fetch from `q2.oga.red` fails with "TypeError: Failed to fetch"
+# even though the asset itself is 200. Same CORS trap the `body.soa.gz` / v6helix
+# steps above dodge by downloading server-side at build time. Do the same here so
+# BodyHelix resolves /berlin.helix.soa.gz same-origin, no release fallback needed.
+# (The .osm.pbf source ships under .claude/maps/ for reproducibility; the *baked*
+# .soa.gz is 88 MB — kept out of git, pulled from the release at build time.)
+RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/berlin.helix.soa.gz \
+      -o /build/q2/cockpit/dist/berlin.helix.soa.gz \
+ && ls -lh /build/q2/cockpit/dist/berlin.helix.soa.gz
+
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
 #
