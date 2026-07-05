@@ -28,6 +28,13 @@ on:
         description: "Upload to the fma-body-soa-v3-v1 release (untick for a dry-run bake)"
         type: boolean
         default: true
+  # Self-trigger arm: the Claude sandbox token has no actions:write, so it
+  # cannot POST a workflow_dispatch. A push that touches THIS file on the
+  # berlin work branch bakes the defaults (region=berlin, upload). The branch
+  # filter never matches main, so merging is trigger-inert.
+  push:
+    branches: ["claude/q2-pr-76-berlin*"]
+    paths: [".github/workflows/bake-osm.yml"]
 
 permissions:
   contents: write # gh release upload
@@ -55,15 +62,17 @@ jobs:
       # (bd-at72) at build time.
       - uses: dtolnay/rust-toolchain@nightly
 
-      - name: bake ${{ inputs.region }}
+      # On the push arm the `inputs` context is empty, so every default is
+      # spelled out here rather than relying on the dispatch-input defaults.
+      - name: bake ${{ inputs.region || 'berlin' }}
         working-directory: q2
         env:
-          REGION: ${{ inputs.region }}
-          STAMP: ${{ inputs.stamp || format('{0}.helix.soa.gz', inputs.region) }}
+          REGION: ${{ inputs.region || 'berlin' }}
+          STAMP: ${{ inputs.stamp || format('{0}.helix.soa.gz', inputs.region || 'berlin') }}
           GH_TOKEN: ${{ github.token }} # gh release upload in bake_bremen.sh
         run: |
           args=()
-          if [ "${{ inputs.upload }}" != "true" ]; then
+          if [ "${{ github.event_name == 'push' || inputs.upload }}" != "true" ]; then
             args+=(--local-only)
           fi
           ./geo/bake_bremen.sh "${args[@]}"
