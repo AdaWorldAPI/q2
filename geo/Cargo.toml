@@ -1,0 +1,53 @@
+# geo — OSM-addressed geography, baked into the HHTL substrate and emitted as the
+# SAME SPM1 mesh wire the cockpit already decodes for the FMA anatomy body.
+#
+# The geo twin of the `fma` crate (this repo, standalone): `fma` renders human
+# anatomy from HHTL GUIDs; `geo` renders OSM features from HHTL GUIDs. Same
+# decode, same wire, different domain binding of the 256×256 centroid-tile
+# cascade — OSM binds the tier axes to literal WebMercator x/y (OGAR canon
+# "Tier interpretation — 256×256 CENTROID TILE": "domains bind the axes (OSM:
+# literal x/y; semantic: PQ subspace pairs); the algebra is identical").
+#
+# Deliberately zero-dep (only std), like `fma` (which carries only `png`): the
+# HHTL address math, the SPM1 writer, and the footprint extruder are all pure.
+# The OSM `.osm.pbf` ingestion — the only part needing an external reader — is
+# intentionally NOT in this lib; it lands in a `bin` once the reader is chosen.
+[package]
+name = "geo-hhtl"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "OSM geography baked into the HHTL substrate, emitted as SPM1 (the geo twin of the fma anatomy crate)."
+license = "Apache-2.0"
+
+# Own workspace root — isolated from the q2 Quarto workspace, exactly like fma.
+[workspace]
+
+# The lib core (hhtl/extrude/spm1) is dep-free (pure std). Two optional layers:
+#   `osm`   — the `.osm.pbf` reader (compressed protobuf; needs `osmpbf`).
+#   `helix` — the BSO2 /helix wire: F16 pos + helix_orient normal (ndarray) +
+#             NodeGuid concept keys (lance-graph-contract) — the SAME encoders
+#             body-soa-wire uses, so BodyHelix.tsx decodes an OSM bake unchanged.
+# ndarray/contract are path-deps to the sibling clones (../../ndarray, ../../lance-graph).
+[features]
+default = []
+osm = ["dep:osmpbf"]
+helix = ["dep:ndarray", "dep:lance-graph-contract"]
+
+[dependencies]
+osmpbf = { version = "0.3", optional = true }
+ndarray = { path = "../../ndarray", default-features = false, features = ["std", "splat3d"], optional = true }
+lance-graph-contract = { path = "../../lance-graph/crates/lance-graph-contract", features = ["guid-v3-tail"], optional = true }
+
+# osm_bake → SPM1 (dep-free lib + osm reader). osm_helix → BSO2 /helix wire.
+[[bin]]
+name = "osm_bake"
+required-features = ["osm"]
+
+[[bin]]
+name = "osm_helix"
+required-features = ["osm", "helix"]
+
+[profile.release]
+opt-level = 3
+codegen-units = 1

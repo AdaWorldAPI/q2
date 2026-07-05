@@ -310,8 +310,15 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // strictly fewer triangles when zoomed in (the mobile lever, working WITH the database). Absent
   // endpoint (old deploy) → silently keep the full render. This is the living DB reasoning the view.
   let lodNext = 0, lodInflight = false, lodFail = false, lodDirty = false, lodWasOn = false;
+  // /geo (scene=osm) shares the /api/body/lod endpoint, but that cascade runs
+  // over the BODY's compile-time block-bounds — it would cull OSM concepts with
+  // anatomy bounds. Disable server LOD for the OSM scene (full render); a geo
+  // LOD that reads the OSM .blocks sidecar is future work.
+  const isOsmScene =
+    new URLSearchParams(window.location.search).get('scene') === 'osm' ||
+    window.location.pathname === '/geo';
   const postLod = (now: number) => {
-    if (lodFail || lodInflight || now < lodNext) return;
+    if (isOsmScene || lodFail || lodInflight || now < lodNext) return;
     lodInflight = true; lodNext = now + 220;
     camera.updateMatrixWorld();
     const e = camera.matrixWorldInverse.elements;   // column-major → row-major view rows
@@ -401,9 +408,16 @@ const inflate = async (r: Response): Promise<ArrayBuffer> => {
 // Signed360 would render garbage. Until a canonical bake is published, /helix says so.
 async function fetchSoa(): Promise<ArrayBuffer> {
   const man = await fetch('/body.manifest.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  const stamped: string | undefined = man?.helix_latest;
+  // /helix → anatomy body (helix_latest). /helix?scene=osm → the OSM bake
+  // (osm_latest) through the SAME Signed360 decoder. The body's data slot and
+  // the separate /osm slippy-map page are both untouched.
+  const scene =
+    new URLSearchParams(window.location.search).get('scene') ??
+    (window.location.pathname === '/geo' ? 'osm' : null);
+  const key = scene === 'osm' ? 'osm_latest' : 'helix_latest';
+  const stamped: string | undefined = man?.[key];
   if (!stamped) {
-    throw new Error('no canonical helix bake yet — set helix_latest in /body.manifest.json (soabake → helix::encode_signed)');
+    throw new Error(`no bake for scene="${scene ?? 'body'}" — set ${key} in /body.manifest.json (soabake → helix::encode_signed; osm → geo/osm_helix)`);
   }
   const s = await fetch(`/${stamped}`).catch(() => null);
   if (s && s.ok) return inflate(s);

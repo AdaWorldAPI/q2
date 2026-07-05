@@ -112,6 +112,10 @@ createRoot(document.getElementById('root')!).render(
               materialized once at load: one vertex-shader fetch/vert, no per-vertex decode,
               no rebake. Standalone (BodyHelix.tsx) so it can never break /body (#64). */}
           <Route path="/helix" element={<BodyHelix />} />
+          {/* /geo — the OSM bake through the same BodyHelix decoder (osm_latest).
+              Equivalent to /helix?scene=osm; a dedicated address so the map has a
+              home without touching /helix's body slot or the /osm slippy map. */}
+          <Route path="/geo" element={<BodyHelix />} />
           {/* /cpic — CPIC pharmacogenomics cockpit (gene-first): {gene, diplotype, drug}
               → phenotype → recommendation, 2-hop NARS deduction over the real CPIC tables
               via POST /api/cpic/reason (the standalone cpic crate). Additive, gene-first
