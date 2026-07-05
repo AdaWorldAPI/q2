@@ -135,9 +135,65 @@ pub fn point_to_hhtl(lon: f64, lat: f64, z: u32) -> Hhtl {
     tile_to_hhtl(z, x, y)
 }
 
+// ── Cesium TMS addressing (the ratified key for the substrate path) ──────────
+//
+// The `cesium-osm-substrate-v1` plan (Q2) keys OSM identity by the **Cesium TMS
+// quadkey**, NOT the OSM-XYZ slippy key this module's `tile_to_hhtl` uses. The
+// two differ only in the Y axis: OSM-XYZ counts Y top-down (web standard),
+// Cesium's `implicit_tiling` counts Y bottom-up (TMS). Q3 mandates the flip at
+// the ingest boundary (one subtract per feature); the runtime then sees one key.
+
+/// OSM-XYZ tile `y` → Cesium TMS `y` at zoom `z` (the boundary Y-flip, Q3).
+#[must_use]
+pub fn xyz_to_tms_y(z: u32, y: u32) -> u32 {
+    let n = 2u32.saturating_pow(z);
+    n.saturating_sub(1).saturating_sub(y)
+}
+
+/// A geographic point → its Cesium TMS quadkey Morton index at zoom `z` — the
+/// subtree coordinate `crates/cesium/src/implicit_tiling.rs` consumes. Aligning
+/// OSM identity with this makes "all OSM features inside this Cesium tile" a
+/// single NiblePath prefix scan (the HHTL payoff, on the *Cesium* key). This is
+/// the addressing seed for D-OSM-2/3 of `cesium-osm-substrate-v1`.
+#[must_use]
+pub fn point_to_tms_morton(lon: f64, lat: f64, z: u32) -> u64 {
+    let z = z.min(HHTL_DEPTH4);
+    let (x, y_xyz) = lonlat_to_tile(lon, lat, z);
+    let y_tms = xyz_to_tms_y(z, y_xyz);
+    // Interleave the full-depth-aligned lanes (same Morton as the HHTL path, but
+    // over the TMS-flipped Y — a different key, by construction).
+    let shift = HHTL_DEPTH4 - z;
+    morton_interleave(x << shift, y_tms << shift)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tms_y_flip_is_its_own_inverse() {
+        for z in [0, 4, 12, 20] {
+            for y in [0u32, 1, 7, 100] {
+                let n = 2u32.saturating_pow(z);
+                if y < n {
+                    assert_eq!(xyz_to_tms_y(z, xyz_to_tms_y(z, y)), y);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tms_and_xyz_morton_differ() {
+        // The Cesium TMS key must NOT equal the OSM-XYZ key (Q2/Q3): same point,
+        // different Y ordering ⇒ different Morton (except on the equator row).
+        let tms = point_to_tms_morton(8.807, 53.075, 16);
+        let (x, y) = lonlat_to_tile(8.807, 53.075, 16);
+        let xyz = {
+            let shift = HHTL_DEPTH4 - 16;
+            morton_interleave(x << shift, y << shift)
+        };
+        assert_ne!(tms, xyz, "TMS and XYZ keys must diverge off the equator row");
+    }
 
     #[test]
     fn morton_roundtrips_the_bremen_tile() {
