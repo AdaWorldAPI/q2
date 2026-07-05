@@ -25,9 +25,9 @@
 set -euo pipefail
 
 # ── config (env-overridable) ──────────────────────────────────────────────
-REGION="${REGION:-bremen}"
+REGION="${REGION:-berlin}"
 PBF_URL="${PBF_URL:-https://download.geofabrik.de/europe/germany/${REGION}-latest.osm.pbf}"
-STAMP="${STAMP:-bremen.helix.soa.gz}"          # MUST match body.manifest.json osm_latest
+STAMP="${STAMP:-berlin.helix.soa.gz}"          # MUST match body.manifest.json osm_latest
 RELEASE_TAG="${RELEASE_TAG:-fma-body-soa-v3-v1}"  # MUST match BodyHelix.tsx REL constant
 REPO="${REPO:-AdaWorldAPI/q2}"
 

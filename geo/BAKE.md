@@ -1,47 +1,44 @@
 # Baking the `/geo` + `/helix?scene=osm` artifact
 
-## Why the routes were "not working"
+## Status (2026-07-05)
+
+**Resolved.** `berlin.helix.soa.gz` (91.8 MB, 534k Berlin buildings) is
+published on the `fma-body-soa-v3-v1` release. `body.manifest.json` points
+`osm_latest` → `berlin.helix.soa.gz`. Both `/geo` and `/helix?scene=osm`
+resolve the artifact from the release via BodyHelix's client-side fetch.
+
+## Root cause (PR #75)
 
 PR #75 shipped the **code** for the OSM viewer but never shipped its **data**:
 
 - `cockpit/src/main.tsx` registers `<Route path="/geo">` and `/helix`;
 - `cockpit/src/BodyHelix.tsx` reads `scene=osm` / pathname `/geo` and fetches
-  the manifest key `osm_latest` → `bremen.helix.soa.gz`;
+  the manifest key `osm_latest`;
 - `geo/src/bso2.rs` encodes that artifact (BSO2 ver 6, `Signed360` normals, the
   exact inverse of BodyHelix's decoder — see the round-trip test);
-- `body.manifest.json` sets `"osm_latest": "bremen.helix.soa.gz"`.
+- `body.manifest.json` sets `"osm_latest": "berlin.helix.soa.gz"`.
 
-But **`bremen.helix.soa.gz` was never produced or published.** It is
-`.gitignore`d (like every big bake) and is *not* among the
-`fma-body-soa-v3-v1` release assets (which are all `body.*`). So BodyHelix's
-fetch 404s twice — same-origin `cockpit/public/` (git-ignored, absent) *and*
-the release fallback — and the page renders `HTTP 404 fetching
-bremen.helix.soa.gz`. `/helix` (the anatomy body) works because its artifact,
-`body.20260629c.v6helix.soa.gz`, *is* in that release.
+The fix was running the bake (from Berlin OSM data, since Geofabrik was
+proxy-blocked in the cloud sandbox) and publishing the result to the release.
 
-This is the same delivery model as the body bake: big binaries live in the
-GitHub **release**, and BodyHelix fetches them client-side (browser → release,
-no server involvement). The missing step was simply running the bake and
-uploading the result.
+## Re-baking (for a different city or to refresh)
 
-## The fix: run the bake once
-
-`./geo/bake_bremen.sh` automates it — download the Bremen extract, build
-`osm_helix`, bake, gzip, and upload `bremen.helix.soa.gz` to the release.
+`./geo/bake_bremen.sh` automates it — download the extract, build
+`osm_helix`, bake, gzip, and upload to the release.
 
 ```bash
 # from the q2 repo root, where OSM data is reachable (a dev machine or CI):
 GITHUB_TOKEN=ghp_...  ./geo/bake_bremen.sh          # bake + publish to the release
 ./geo/bake_bremen.sh --local-only                   # bake into cockpit/public only
-PBF=/path/to/bremen-latest.osm.pbf ./geo/bake_bremen.sh   # bake from a local extract
+PBF=/path/to/berlin-latest.osm.pbf ./geo/bake_bremen.sh   # bake from a local extract
 ```
 
-> **The q2 cloud sandbox cannot run this.** Its egress proxy denies
-> `download.geofabrik.de` (HTTP 403 policy denial), and no Bremen extract is on
-> disk. Run it from a machine that can reach Geofabrik (or pass a pre-downloaded
-> `PBF=…`). The upload targets the `fma-body-soa-v3-v1` release, which the
-> deployed cockpit already falls back to — so end users get the data with no
-> proxy in the path.
+> **The q2 cloud sandbox cannot run the upload step.** Its egress proxy blocks
+> `download.geofabrik.de` (HTTP 403 policy denial) and the session type lacks
+> release-asset upload permission. Run it from a machine that can reach Geofabrik
+> and has write access to the release. The upload targets the `fma-body-soa-v3-v1`
+> release, which the deployed cockpit already falls back to — so end users get the
+> data with no proxy in the path.
 
 ## Verifying
 
