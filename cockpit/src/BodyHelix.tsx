@@ -408,13 +408,14 @@ const inflate = async (r: Response): Promise<ArrayBuffer> => {
 // Signed360 would render garbage. Until a canonical bake is published, /helix says so.
 async function fetchSoa(): Promise<ArrayBuffer> {
   const man = await fetch('/body.manifest.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  // /helix → anatomy body (helix_latest). /helix?scene=osm → the OSM bake
-  // (osm_latest) through the SAME Signed360 decoder. The body's data slot and
-  // the separate /osm slippy-map page are both untouched.
+  // /helix → anatomy body (helix_latest). /helix?scene=<name> → that scene's
+  // bake (<name>_latest, e.g. osm_latest, iceland_latest) through the SAME
+  // Signed360 decoder. /geo is shorthand for scene=osm. The body's data slot
+  // and the separate /osm slippy-map page are both untouched.
   const scene =
     new URLSearchParams(window.location.search).get('scene') ??
     (window.location.pathname === '/geo' ? 'osm' : null);
-  const key = scene === 'osm' ? 'osm_latest' : 'helix_latest';
+  const key = scene ? `${scene}_latest` : 'helix_latest';
   const stamped: string | undefined = man?.[key];
   if (!stamped) {
     throw new Error(`no bake for scene="${scene ?? 'body'}" — set ${key} in /body.manifest.json (soabake → helix::encode_signed; osm → geo/osm_helix)`);
