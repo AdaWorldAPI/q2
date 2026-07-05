@@ -310,8 +310,15 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // strictly fewer triangles when zoomed in (the mobile lever, working WITH the database). Absent
   // endpoint (old deploy) → silently keep the full render. This is the living DB reasoning the view.
   let lodNext = 0, lodInflight = false, lodFail = false, lodDirty = false, lodWasOn = false;
+  // /geo (scene=osm) shares the /api/body/lod endpoint, but that cascade runs
+  // over the BODY's compile-time block-bounds — it would cull OSM concepts with
+  // anatomy bounds. Disable server LOD for the OSM scene (full render); a geo
+  // LOD that reads the OSM .blocks sidecar is future work.
+  const isOsmScene =
+    new URLSearchParams(window.location.search).get('scene') === 'osm' ||
+    window.location.pathname === '/geo';
   const postLod = (now: number) => {
-    if (lodFail || lodInflight || now < lodNext) return;
+    if (isOsmScene || lodFail || lodInflight || now < lodNext) return;
     lodInflight = true; lodNext = now + 220;
     camera.updateMatrixWorld();
     const e = camera.matrixWorldInverse.elements;   // column-major → row-major view rows

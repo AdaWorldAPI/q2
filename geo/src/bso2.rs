@@ -95,6 +95,16 @@ fn extrude32(
         return;
     }
     let top = f.height.max(0.0);
+    // OSM footprints have no guaranteed winding. The shoelace signed area gives
+    // the ring's orientation; multiplying the edge-perp normal by its sign makes
+    // every wall face consistently outward regardless of CW/CCW input.
+    let mut area2 = 0.0f32;
+    for i in 0..n {
+        let a = f.ring[i];
+        let b = f.ring[(i + 1) % n];
+        area2 += a[0] * b[1] - b[0] * a[1];
+    }
+    let wind = if area2 >= 0.0 { 1.0 } else { -1.0 };
     let mut push = |p: [f32; 3], nn: [f32; 3]| -> u32 {
         let i = pos.len() as u32;
         pos.push(p);
@@ -109,7 +119,7 @@ fn extrude32(
             let b = f.ring[(i + 1) % n];
             let (ex, ez) = (b[0] - a[0], b[1] - a[1]);
             let len = (ex * ex + ez * ez).sqrt().max(1e-6);
-            let nn = [ez / len, 0.0, -ex / len];
+            let nn = [wind * ez / len, 0.0, -wind * ex / len];
             let v0 = push([a[0], 0.0, a[1]], nn);
             let v1 = push([b[0], 0.0, b[1]], nn);
             let v2 = push([b[0], top, b[1]], nn);
@@ -249,7 +259,10 @@ pub fn encode_bso2(scene: &GeoScene) -> (Vec<u8>, Vec<u8>) {
         o.extend_from_slice(&0u32.to_le_bytes()); // label idx → names[0] = "building"
     }
     for f in &feats {
-        for c in f.centroid {
+        // srcPos frame (-Dx, Dz, Dy): BodyHelix applies the same (-x, z, y) remap
+        // to this centroid column as to the vertex positions, so store it
+        // pre-remap or focus targets land Y/Z-swapped from the mesh.
+        for c in [-f.centroid[0], f.centroid[2], f.centroid[1]] {
             o.extend_from_slice(&c.to_le_bytes());
         }
     }

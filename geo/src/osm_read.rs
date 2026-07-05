@@ -104,6 +104,11 @@ pub fn read_buildings(path: &str) -> Result<GeoScene, Box<dyn std::error::Error>
             }
         }
     }
+    if cnt == 0 {
+        // A clipped/partial extract whose building ways reference nodes outside
+        // the bbox — dividing by 0 would poison lon0/lat0 (NaN) into every ring.
+        return Err("building ways reference no indexed nodes".into());
+    }
     let (lon0, lat0) = (sum_lon / cnt as f64, sum_lat / cnt as f64);
     let cos_lat0 = lat0.to_radians().cos();
     let project = |lon: f64, lat: f64| -> [f32; 2] {
@@ -145,6 +150,11 @@ pub fn read_buildings(path: &str) -> Result<GeoScene, Box<dyn std::error::Error>
         });
     }
 
+    if features.is_empty() {
+        // Ways existed but none resolved to a ≥3-point ring — treat as failure
+        // so a caller doesn't write a valid-but-empty artifact.
+        return Err("no building ways with resolvable geometry".into());
+    }
     Ok(GeoScene {
         features,
         lon0,

@@ -103,6 +103,16 @@ fn run(input: &str, output: &str, zoom: u32) -> Result<(), Box<dyn std::error::E
             }
         }
     }
+    if cnt == 0 {
+        return Err("building ways reference no indexed nodes".into());
+    }
+    if ways.len() > usize::from(u16::MAX) {
+        eprintln!(
+            "warning: {} ways exceed SPM1 node_row's u16 range — rows >65535 \
+             saturate to 65535 (use osm_helix / BSO2 for a u32 feature id)",
+            ways.len()
+        );
+    }
     let (lon0, lat0) = (sum_lon / cnt as f64, sum_lat / cnt as f64);
     let cos_lat0 = lat0.to_radians().cos();
     // Equirectangular projection of (lon, lat) → local ground-plane metres.
@@ -140,12 +150,17 @@ fn run(input: &str, output: &str, zoom: u32) -> Result<(), Box<dyn std::error::E
         let footprint = Footprint {
             ring,
             height: way.height,
+            // SPM1 node_row is u16; saturate (don't wrap) past 65535 — a lossy
+            // back-ref for the throwaway SPM1 path. BSO2 carries a u32 row.
             layer: Layer::Building,
-            node_row: row as u16,
+            node_row: u16::try_from(row).unwrap_or(u16::MAX),
         };
         features.push((footprint, clon / n, clat / n));
     }
 
+    if features.is_empty() {
+        return Err("no building ways with resolvable geometry".into());
+    }
     let (mesh, baked) = bake(&features, zoom);
 
     // Distinct HHTL keys = how many tiles the city spreads across at this zoom

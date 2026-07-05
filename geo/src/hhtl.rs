@@ -50,17 +50,30 @@ pub struct Hhtl4 {
 /// a 64-bit Morton code of the left-aligned `z32` tile split into four `u16`
 /// tiers. This is the spatial half of the V3 facet — deep enough that a
 /// building centroid resolves to a near-unique tile.
+/// Interleave two `bits`-wide lanes into a Morton code (`x`→even, `y`→odd).
+/// `bits` up to 32 → a full 64-bit code, so the 32-level HHTL4/TMS depth is not
+/// truncated the way the 24-bit [`morton_interleave`] would.
+fn morton64(x: u32, y: u32, bits: u32) -> u64 {
+    let mut code = 0u64;
+    for i in 0..bits {
+        code |= u64::from((x >> i) & 1) << (2 * i);
+        code |= u64::from((y >> i) & 1) << (2 * i + 1);
+    }
+    code
+}
+
+/// Left-align a tile coordinate by `shift` without a `<<32` panic: `z == 0` (one
+/// world tile, coord 0) gives `shift == 32`, which `checked_shl` maps to 0.
+fn align_shift(coord: u32, shift: u32) -> u32 {
+    coord.checked_shl(shift).unwrap_or(0)
+}
+
 #[must_use]
 pub fn point_to_hhtl4(lon: f64, lat: f64, z: u32) -> Hhtl4 {
     let z = z.min(HHTL_DEPTH4);
     let (x, y) = lonlat_to_tile(lon, lat, z);
     let shift = HHTL_DEPTH4 - z;
-    let (xa, ya) = (x << shift, y << shift);
-    let mut code = 0u64;
-    for i in 0..HHTL_DEPTH4 {
-        code |= u64::from((xa >> i) & 1) << (2 * i);
-        code |= u64::from((ya >> i) & 1) << (2 * i + 1);
-    }
+    let code = morton64(align_shift(x, shift), align_shift(y, shift), HHTL_DEPTH4);
     Hhtl4 {
         heel: (code >> 48) as u16,
         hip: (code >> 32) as u16,
@@ -160,10 +173,10 @@ pub fn point_to_tms_morton(lon: f64, lat: f64, z: u32) -> u64 {
     let z = z.min(HHTL_DEPTH4);
     let (x, y_xyz) = lonlat_to_tile(lon, lat, z);
     let y_tms = xyz_to_tms_y(z, y_xyz);
-    // Interleave the full-depth-aligned lanes (same Morton as the HHTL path, but
-    // over the TMS-flipped Y — a different key, by construction).
+    // Full 32-level (64-bit) interleave over the TMS-flipped Y — same depth as
+    // point_to_hhtl4, so the two keys are comparable and neither is truncated.
     let shift = HHTL_DEPTH4 - z;
-    morton_interleave(x << shift, y_tms << shift)
+    morton64(align_shift(x, shift), align_shift(y_tms, shift), HHTL_DEPTH4)
 }
 
 #[cfg(test)]
@@ -190,7 +203,7 @@ mod tests {
         let (x, y) = lonlat_to_tile(8.807, 53.075, 16);
         let xyz = {
             let shift = HHTL_DEPTH4 - 16;
-            morton_interleave(x << shift, y << shift)
+            morton64(align_shift(x, shift), align_shift(y, shift), HHTL_DEPTH4)
         };
         assert_ne!(tms, xyz, "TMS and XYZ keys must diverge off the equator row");
     }
