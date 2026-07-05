@@ -77,6 +77,16 @@ RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v
 RUN cp /build/q2/.claude/maps/iceland.helix.soa.gz /build/q2/cockpit/dist/iceland.helix.soa.gz \
  && ls -lh /build/q2/cockpit/dist/iceland.helix.soa.gz
 
+# The Berlin OSM helix bake — the /geo + /helix?scene=osm scene (manifest osm_latest).
+# It's 92 MB, so it lives in the release, not git; download it into dist/ so BodyHelix
+# resolves /berlin.helix.soa.gz SAME-ORIGIN. Without this, the same-origin fetch 404s
+# and BodyHelix falls back to the release URL — which the browser blocks on the
+# github releases redirect (no CORS header) → the "TypeError: Failed to fetch" seen
+# live on /geo. Same CORS reason the body wires are pulled same-origin above.
+RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/berlin.helix.soa.gz \
+      -o /build/q2/cockpit/dist/berlin.helix.soa.gz \
+ && ls -lh /build/q2/cockpit/dist/berlin.helix.soa.gz
+
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
 #
