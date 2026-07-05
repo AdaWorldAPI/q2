@@ -69,6 +69,14 @@ RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v
       -o /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz \
  && ls -lh /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz
 
+# The Iceland OSM helix bake (BSO2 ver 6) ships IN-REPO under .claude/maps/, not from
+# the release — this session type can't upload release assets, so the artifact is
+# version-controlled instead. BodyHelix fetches /iceland.helix.soa.gz same-origin
+# (manifest iceland_latest); include_dir! embeds cockpit/dist/, so copy it there. The
+# build context already carries .claude/maps via `COPY . /build/q2` above.
+RUN cp /build/q2/.claude/maps/iceland.helix.soa.gz /build/q2/cockpit/dist/iceland.helix.soa.gz \
+ && ls -lh /build/q2/cockpit/dist/iceland.helix.soa.gz
+
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
 #
