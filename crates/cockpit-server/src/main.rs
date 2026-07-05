@@ -40,6 +40,7 @@ mod dto_bridge;
 mod codebook;
 mod mock_driver;
 mod osint_classview;
+mod osm_tiles;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
 // The cockpit/ directory is built by `cd cockpit && npm run build` which
@@ -231,6 +232,10 @@ async fn main() {
         // /body server-side HHTL LOD — POST camera → per-concept HhtlAction byte
         // (cascade over 1658 baked BlockBounds; native SIMD; client gates draw by it).
         .route("/api/body/lod", post(body_lod::body_lod_handler))
+        // OSM tile material (Geo domain 0x0F): WebMercator z/x/y ↔ HHTL key +
+        // the OSM slippy-tile source URL. /locate maps a lon/lat to its tile.
+        .route("/api/osm/locate", get(osm_tiles::osm_locate_handler))
+        .route("/api/osm/tile/:z/:x/:y", get(osm_tiles::osm_tile_meta_handler))
         // Health
         .route("/health", get(health_handler));
 
