@@ -93,10 +93,16 @@ pub struct Hhtl {
 /// native 24-level depth so the **coarsest** quadtree bit lands in HEEL's high
 /// bit (`tier = level >> 3`); the fine bits fall into TWIG.
 ///
-/// Zoom is clamped to `0..=HHTL_DEPTH`; deeper zooms are the hierarchy's job
-/// (registry resolve / ref-escape, per the OGAR canon).
+/// A zoom **deeper** than the native depth resolves to its `z=24` **ancestor**
+/// tile — the excess low bits of `x`/`y` are dropped (`x >> (z-24)`), NOT kept
+/// in the low Morton lane. So two children of the same z=24 tile share an HHTL
+/// key (a correct prefix), and the key is always a valid ancestor of the
+/// requested tile. Beyond 24 native levels, depth is the hierarchy's job
+/// (registry resolve / ref-escape, per the OGAR canon). [`resolved_tile`]
+/// returns the same-granularity `z/x/y` the key actually encodes.
 #[must_use]
 pub fn tile_to_hhtl(z: u32, x: u32, y: u32) -> Hhtl {
+    let (_, x, y) = resolved_tile(z, x, y);
     let z = z.min(HHTL_DEPTH);
     let shift = HHTL_DEPTH - z;
     let code = morton_interleave(x << shift, y << shift);
@@ -104,6 +110,20 @@ pub fn tile_to_hhtl(z: u32, x: u32, y: u32) -> Hhtl {
         heel: (code >> 32) as u16,
         hip: (code >> 16) as u16,
         twig: code as u16,
+    }
+}
+
+/// The `z/x/y` the HHTL key actually encodes: identity for `z <= 24`, else the
+/// `z=24` ancestor (`z=24`, `x >> (z-24)`, `y >> (z-24)`). Lets a handler report
+/// a tile address that matches its own HHTL key instead of echoing an
+/// over-depth `x/y` the key can't represent.
+#[must_use]
+pub fn resolved_tile(z: u32, x: u32, y: u32) -> (u32, u32, u32) {
+    if z > HHTL_DEPTH {
+        let excess = z - HHTL_DEPTH;
+        (HHTL_DEPTH, x >> excess, y >> excess)
+    } else {
+        (z, x, y)
     }
 }
 
@@ -137,15 +157,20 @@ pub async fn osm_locate_handler(Query(q): Query<LocateQuery>) -> Json<serde_json
 }
 
 /// `GET /api/osm/tile/:z/:x/:y` — a tile address → its source URL + HHTL key.
+/// For an over-native-depth zoom (`z > 24`) the HHTL key encodes the `z=24`
+/// ancestor; `resolved` names that ancestor explicitly so the key and the
+/// address never silently describe different tiles.
 pub async fn osm_tile_meta_handler(
     Path((z, x, y)): Path<(u32, u32, u32)>,
 ) -> Json<serde_json::Value> {
     let hhtl = tile_to_hhtl(z, x, y);
+    let (rz, rx, ry) = resolved_tile(z, x, y);
     Json(serde_json::json!({
         "z": z, "x": x, "y": y,
         "tile_url": tile_url(z, x, y),
         "source": OSM_TILE_URL,
         "hhtl": hhtl,
+        "resolved": { "z": rz, "x": rx, "y": ry },
         "geo_domain": "0x0F",
     }))
 }
@@ -208,6 +233,19 @@ mod tests {
         assert_ne!(h.heel, 0, "coarse zoom must occupy HEEL");
         assert_eq!(h.hip, 0);
         assert_eq!(h.twig, 0);
+    }
+
+    #[test]
+    fn over_depth_zoom_folds_to_its_native_ancestor() {
+        // z=25 x=2 y=3 → its z=24 parent is x=1 y=1; the HHTL key + resolved
+        // tile must agree, and NOT use the low-24-bit garbage the old code did.
+        assert_eq!(resolved_tile(25, 2, 3), (24, 1, 1));
+        assert_eq!(resolved_tile(26, 4, 8), (24, 1, 2));
+        assert_eq!(tile_to_hhtl(25, 2, 3), tile_to_hhtl(24, 1, 1));
+        // two children of the same z=24 parent share the key (a correct prefix).
+        assert_eq!(tile_to_hhtl(25, 2, 2), tile_to_hhtl(25, 3, 3));
+        // in-range zooms are untouched.
+        assert_eq!(resolved_tile(14, 8802, 5373), (14, 8802, 5373));
     }
 
     #[test]
