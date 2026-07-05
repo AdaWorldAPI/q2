@@ -402,6 +402,19 @@ jupyter-protocol = { git = "https://github.com/cscheid/runtimed", rev = "fc58eb4
 [patch."https://github.com/AdaWorldAPI/lance-graph"]
 lance-graph-contract = { path = "../lance-graph/crates/lance-graph-contract" }
 
+# No pins. OGAR is a fork we track at HEAD, exactly like lance-graph + ndarray.
+# Pulling ogar-vocab & friends as git deps means Cargo.lock freezes them at a SHA
+# that goes stale against lance-graph's codebook mirror → COUNT_FUSE (E0080) breaks.
+# Fold the OGAR git source onto a fresh sibling clone (../OGAR — cloned in the
+# Dockerfile at build, present locally as a sibling checkout). Path deps carry no
+# lock SHA, so there is nothing to pin and nothing to chase; each build resolves the
+# OGAR clone's current HEAD, the same treatment lance-graph + ndarray already get.
+[patch."https://github.com/AdaWorldAPI/OGAR"]
+ogar-vocab = { path = "../OGAR/crates/ogar-vocab" }
+ogar-class-view = { path = "../OGAR/crates/ogar-class-view" }
+ogar-ontology = { path = "../OGAR/crates/ogar-ontology" }
+ogar-adapter-surrealql = { path = "../OGAR/crates/ogar-adapter-surrealql" }
+
 # Profiles must be set at the workspace level
 [profile.dev]
 # Tell `rustc` to optimize for small code size to
