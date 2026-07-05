@@ -521,9 +521,18 @@ async fn handle_tool_call(
                 notebook_query::detect_language(code)
             };
 
-            // ALL queries route through lance-graph (DataFusion + LanceDB)
-            let result =
-                notebook_query::execute(code, language).map_err(|e| format!("lance-graph: {e}"))?;
+            // ALL queries route through lance-graph (DataFusion + LanceDB).
+            // `notebook_query::execute` is synchronous and drives its own async
+            // work internally, so run it on the blocking pool rather than this
+            // async worker (keeps the request executor free and never blocks a
+            // Tokio worker for the whole DataFusion query).
+            let code_owned = code.to_string();
+            let result = tokio::task::spawn_blocking(move || {
+                notebook_query::execute(&code_owned, language)
+            })
+            .await
+            .map_err(|e| format!("query task panicked: {e}"))?
+            .map_err(|e| format!("lance-graph: {e}"))?;
 
             let cell = serde_json::json!({
                 "id": format!("cell-{}", std::time::SystemTime::now()
@@ -1012,11 +1021,19 @@ async fn analyst_full_handler() -> Json<serde_json::Value> {
 async fn data_status_handler() -> Json<serde_json::Value> {
     let mut sources: Vec<serde_json::Value> = Vec::new();
 
-    // 1. Aiwar Graph JSON — the official 221-node dataset
-    let aiwar_status = match notebook_query::execute(
-        "MATCH (n) RETURN count(n) AS total",
-        notebook_query::QueryLanguage::Cypher,
-    ) {
+    // 1. Aiwar Graph JSON — the official 221-node dataset.
+    // `notebook_query::execute` is synchronous and blocks on its own async
+    // work; run it on the blocking pool so it never blocks (or panics on) the
+    // async request worker.
+    let aiwar_query = tokio::task::spawn_blocking(|| {
+        notebook_query::execute(
+            "MATCH (n) RETURN count(n) AS total",
+            notebook_query::QueryLanguage::Cypher,
+        )
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("query task panicked: {e}")));
+    let aiwar_status = match aiwar_query {
         Ok(result) => serde_json::json!({
             "name": "Aiwar Graph",
             "file": "aiwar_graph.json",

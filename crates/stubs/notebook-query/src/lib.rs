@@ -101,8 +101,7 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
     #[cfg(feature = "orchestrator")]
     if source.trim().starts_with("%%think") {
         let query = source.trim().strip_prefix("%%think").unwrap_or("").trim();
-        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-        let result = rt.block_on(thinking::execute_think(query))?;
+        let result = block_on_sync(thinking::execute_think(query))??;
         return Ok(QueryResult {
             language,
             raw_output: result.output.clone(),
@@ -151,11 +150,34 @@ pub fn execute(source: &str, language: QueryLanguage) -> Result<QueryResult, Str
 
 // ── Cypher hot path via lance-graph ──
 
+/// Drive a future to completion from a **synchronous** entry point that may (or
+/// may not) already be running inside a Tokio runtime.
+///
+/// `execute` is a synchronous API, but it is reached from the cockpit server's
+/// Axum request handlers, which run on Tokio worker threads. The previous
+/// `Runtime::new().block_on(..)` path panicked there with "Cannot start a
+/// runtime from within a runtime" — a thread that is already driving async
+/// tasks cannot spin up a second runtime and block on it. When an ambient
+/// runtime is present we reuse it via `block_in_place` (which parks the current
+/// worker so the scheduler keeps making progress on other tasks); otherwise we
+/// build a private runtime exactly as before.
+///
+/// The ambient path assumes a multi-thread runtime, which is what every caller
+/// uses (`#[tokio::main]` defaults to multi-thread, as does `Runtime::new()`).
+fn block_on_sync<F: std::future::Future>(fut: F) -> Result<F::Output, String> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => Ok(tokio::task::block_in_place(move || handle.block_on(fut))),
+        Err(_) => {
+            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+            Ok(rt.block_on(fut))
+        }
+    }
+}
+
 /// Execute a Cypher query against the aiwar Arrow datasets via lance-graph's
 /// real DataFusion path. Shared by the Cypher cell and the Gremlin transpiler.
 fn run_cypher_on_aiwar(source: &str) -> Result<RecordBatch, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
+    block_on_sync(async {
         let (datasets, config) = load_aiwar_datasets()?;
         let query = CypherQuery::new(source)
             .map_err(|e| format!("Cypher parse error: {e}"))?
@@ -164,7 +186,7 @@ fn run_cypher_on_aiwar(source: &str) -> Result<RecordBatch, String> {
             .execute(datasets.clone(), None)
             .await
             .map_err(|e| format!("lance-graph execution error: {e}"))
-    })
+    })?
 }
 
 fn execute_cypher(source: &str) -> Result<QueryResult, String> {
@@ -1524,4 +1546,44 @@ fn demo_r_table() -> String {
 <tr><td>web-server-04</td><td>0.81</td><td>29.8 GB</td></tr>
 </table>"#
         .to_string()
+}
+
+#[cfg(test)]
+mod runtime_context_tests {
+    use super::block_on_sync;
+
+    // Regression for the "Cannot start a runtime from within a runtime" panic.
+    //
+    // `block_on_sync` is the synchronous bridge used by `execute` /
+    // `run_cypher_on_aiwar` / the `%%think` path. The cockpit server reaches
+    // those from Axum request handlers running on Tokio worker threads (e.g.
+    // `/api/data/status`, the `cell_execute` MCP tool). The old
+    // `Runtime::new().block_on(..)` bridge panicked in that context; this test
+    // pins the fix by driving a future to completion from *inside* a running
+    // multi-thread runtime and asserting it does not panic.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn does_not_panic_inside_async_runtime() {
+        let v = block_on_sync(async { 7u32 }).expect("bridge must not fail");
+        assert_eq!(v, 7);
+    }
+
+    // The cockpit handlers may additionally offload to `spawn_blocking`; the
+    // bridge must stay panic-free there too (blocking-pool threads still report
+    // an ambient runtime via `Handle::try_current`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn does_not_panic_inside_spawn_blocking() {
+        let v = tokio::task::spawn_blocking(|| block_on_sync(async { 8u32 }))
+            .await
+            .expect("blocking task joined")
+            .expect("bridge must not fail");
+        assert_eq!(v, 8);
+    }
+
+    // With no ambient runtime (a plain notebook-cell call), the bridge builds
+    // its own runtime and still resolves the future.
+    #[test]
+    fn builds_runtime_when_none_present() {
+        let v = block_on_sync(async { 9u32 }).expect("bridge must not fail");
+        assert_eq!(v, 9);
+    }
 }
