@@ -32,7 +32,12 @@ license = "Apache-2.0"
 [features]
 default = []
 osm = ["dep:osmpbf"]
-helix = ["dep:ndarray", "dep:lance-graph-contract"]
+# `helix` bakes a `GeoScene` (defined in the `osm`-gated `osm_read`) into the
+# BSO2 wire, so `bso2.rs` unconditionally imports `crate::osm_read`. That makes
+# `helix` a strict superset of `osm`; declare the implication so `--features
+# helix` (and `cargo test --features helix`) compiles on its own instead of only
+# when `osm` happens to be co-enabled by the `osm_helix` bin's `required-features`.
+helix = ["osm", "dep:ndarray", "dep:lance-graph-contract"]
 
 [dependencies]
 osmpbf = { version = "0.3", optional = true }
