@@ -314,12 +314,13 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // endpoint, but that cascade runs over the BODY's compile-time block-bounds —
   // it would cull the OSM/geo concepts with anatomy bounds. Disable server LOD
   // for EVERY non-body scene (full render), not just osm; a geo LOD that reads
-  // the scene's own .blocks sidecar is future work. Mirrors the artifact
-  // resolver below: a present `scene` param (or /geo) is a geo view, `scene`
-  // absent is the anatomy body.
-  const isGeoScene =
-    new URLSearchParams(window.location.search).get('scene') !== null ||
-    window.location.pathname === '/geo';
+  // the scene's own .blocks sidecar is future work. Mirror the artifact resolver
+  // below EXACTLY (same `?? (/geo→osm)` + truthy test) so the two never disagree:
+  // an empty `?scene=` resolves falsy → anatomy body (helix_latest), so LOD stays ON.
+  const sceneParam = new URLSearchParams(window.location.search).get('scene');
+  const isGeoScene = Boolean(
+    sceneParam ?? (window.location.pathname === '/geo' ? 'osm' : null),
+  );
   const postLod = (now: number) => {
     if (isGeoScene || lodFail || lodInflight || now < lodNext) return;
     lodInflight = true; lodNext = now + 220;
