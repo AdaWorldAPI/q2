@@ -81,7 +81,7 @@ RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v
 #
 # Sibling checkouts the path deps resolve against:
 #   /build/lance-graph  → lance-graph @ main HEAD — carries guid-v2-tail +
-#                         guid-v3-tail and the 65-concept ogar_codebook mirror.
+#                         guid-v3-tail and the current ogar_codebook mirror.
 #   /build/ndarray      → the REAL AdaWorldAPI/ndarray fork, consumed by BOTH
 #                         lance-graph (../../../ndarray) AND q2-ndarray
 #                         (../../../../ndarray). `--depth 1` WITHOUT
@@ -90,10 +90,13 @@ RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v
 #                         is never needed — leaving it unfetched is correct.
 #
 # COUNT_FUSE: lance-graph-ogar asserts (E0080 on mismatch)
-# CODEBOOK.len() == ogar_vocab::class_ids::ALL.len(). Both move together at HEAD —
-# lance-graph main's 65-concept codebook mirror matches OGAR main's 65-concept vocab;
-# q2's Cargo.lock pins ogar-vocab to OGAR main HEAD (a1fb170). Always bump the two
-# repos' HEADs together, never one alone.
+# CODEBOOK.len() == ogar_vocab::class_ids::ALL.len(). lance-graph + ndarray are path
+# deps against the fresh clones above, so they always track main HEAD — but ogar-vocab
+# is a GIT dep, and cargo does NOT advance a locked git-branch dep on its own. So the
+# committed Cargo.lock would freeze ogar-vocab at an old SHA while lance-graph main's
+# mirror moves ahead, breaking COUNT_FUSE. Same "no stale pins" rule as the clones:
+# the `cargo update` step below re-resolves the OGAR git deps to main HEAD each build,
+# so the lock's recorded SHA is a don't-care — never something to chase.
 #
 # neo4j-rs is intentionally NOT cloned — a discarded Neo4j-GUI experiment referenced
 # by no manifest; the only neo4j path is the opt-in `neo4j-fallback` (crates.io neo4rs).
@@ -124,6 +127,14 @@ ENV CARGO_BUILD_RUSTFLAGS="-C target-cpu=x86-64-v4"
 
 # Build the q2 binary with embedded frontend
 WORKDIR /build/q2
+
+# Track OGAR main HEAD, don't chase pins: cargo will NOT advance a locked git-branch
+# dep on its own, so re-resolve the OGAR git deps to main HEAD before building. Without
+# this the committed Cargo.lock freezes ogar-vocab at whatever SHA it last recorded and
+# COUNT_FUSE (E0080) breaks the moment lance-graph main's codebook mirror moves ahead.
+# This is the git-dep equivalent of the fresh HEAD clones of lance-graph + ndarray above.
+RUN cargo update -p ogar-vocab -p ogar-class-view -p ogar-ontology -p ogar-adapter-surrealql
+
 RUN cargo build --release -p cockpit-server --features embed-cockpit,planner \
     && ls -lh target/release/q2-cockpit
 
