@@ -43,6 +43,24 @@ PBF=/path/to/bremen-latest.osm.pbf ./geo/bake_bremen.sh   # bake from a local ex
 > deployed cockpit already falls back to — so end users get the data with no
 > proxy in the path.
 
+## The CI arm: `.github/workflows/bake-osm.yml`
+
+GitHub-hosted runners have direct egress, so the bake also ships as a
+`workflow_dispatch` workflow — the "or CI" of "a dev machine or CI". It checks
+out q2 plus the two sibling clones the `helix` feature's path-deps expect
+(`../../ndarray`, `../../lance-graph`), builds `osm_helix`, downloads the
+extract, bakes, and uploads to the release via `gh`.
+
+```
+Actions → bake-osm → Run workflow
+  region: berlin            # any Geofabrik Germany extract name
+  stamp:  (empty)           # defaults to <region>.helix.soa.gz
+  upload: true              # untick for a dry-run bake without publishing
+```
+
+The manifest currently points `osm_latest` at `berlin.helix.soa.gz`, so the
+default inputs produce exactly the asset `/geo` fetches.
+
 ## Verifying
 
 After the upload, hard-load `/geo` (or `/helix?scene=osm`) in the cockpit. The

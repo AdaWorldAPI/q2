@@ -1,0 +1,78 @@
+# bake-osm — run geo/bake_bremen.sh where OSM data is actually reachable.
+#
+# The Claude cloud sandbox cannot bake (its egress proxy denies
+# download.geofabrik.de with a 403 policy denial — see geo/BAKE.md), but
+# GitHub-hosted runners have direct egress. This workflow is the "or CI" arm
+# of BAKE.md's "must run on a dev machine or CI": download the extract, build
+# osm_helix, bake the BSO2, gzip, and upload <region>.helix.soa.gz to the
+# fma-body-soa-v3-v1 release that BodyHelix.tsx falls back to.
+#
+# The geo crate's `helix` feature has path-deps on the sibling clones
+# (../../ndarray and ../../lance-graph/crates/lance-graph-contract), so the
+# job checks out all three repos in the sibling layout the Cargo.toml expects:
+#   $GITHUB_WORKSPACE/q2  +  $GITHUB_WORKSPACE/ndarray  +  $GITHUB_WORKSPACE/lance-graph
+name: bake-osm
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Geofabrik Germany extract (europe/germany/<region>-latest.osm.pbf)"
+        default: "berlin"
+        required: true
+      stamp:
+        description: "Release asset name (empty = <region>.helix.soa.gz; must match body.manifest.json osm_latest)"
+        default: ""
+        required: false
+      upload:
+        description: "Upload to the fma-body-soa-v3-v1 release (untick for a dry-run bake)"
+        type: boolean
+        default: true
+  # Self-trigger arm: the Claude sandbox token has no actions:write, so it
+  # cannot POST a workflow_dispatch. A push that touches THIS file on the
+  # berlin work branch bakes the defaults (region=berlin, upload). The branch
+  # filter never matches main, so merging is trigger-inert.
+  push:
+    branches: ["claude/q2-pr-76-berlin*"]
+    paths: [".github/workflows/bake-osm.yml"]
+
+permissions:
+  contents: write # gh release upload
+
+jobs:
+  bake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: q2
+
+      # Sibling clones for the geo `helix` feature's path-deps (both public).
+      - uses: actions/checkout@v4
+        with:
+          repository: AdaWorldAPI/ndarray
+          path: ndarray
+      - uses: actions/checkout@v4
+        with:
+          repository: AdaWorldAPI/lance-graph
+          path: lance-graph
+
+      # Same pattern as the other workflows: install a nightly rustup, then
+      # cargo picks up the dated nightly pinned in q2's rust-toolchain.toml
+      # (bd-at72) at build time.
+      - uses: dtolnay/rust-toolchain@nightly
+
+      # On the push arm the `inputs` context is empty, so every default is
+      # spelled out here rather than relying on the dispatch-input defaults.
+      - name: bake ${{ inputs.region || 'berlin' }}
+        working-directory: q2
+        env:
+          REGION: ${{ inputs.region || 'berlin' }}
+          STAMP: ${{ inputs.stamp || format('{0}.helix.soa.gz', inputs.region || 'berlin') }}
+          GH_TOKEN: ${{ github.token }} # gh release upload in bake_bremen.sh
+        run: |
+          args=()
+          if [ "${{ github.event_name == 'push' || inputs.upload }}" != "true" ]; then
+            args+=(--local-only)
+          fi
+          ./geo/bake_bremen.sh "${args[@]}"
