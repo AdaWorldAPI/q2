@@ -108,27 +108,33 @@ function render(){
   }
 }
 
-// ── panning ──
-let drag=null;
-map.addEventListener('mousedown',e=>{ drag={x:e.clientX,y:e.clientY}; map.classList.add('drag'); });
+// ── panning ── (moved: a drag that actually panned, so the trailing click is
+// suppressed — mouseup nulls `drag` before `click` fires, so `drag` alone can't
+// gate it)
+let drag=null, moved=false;
+map.addEventListener('mousedown',e=>{ drag={x:e.clientX,y:e.clientY}; moved=false; map.classList.add('drag'); });
 window.addEventListener('mouseup',()=>{ drag=null; map.classList.remove('drag'); });
-window.addEventListener('mousemove',e=>{ if(!drag) return;
+window.addEventListener('mousemove',e=>{ if(!drag) return; moved=true;
   cx-=(e.clientX-drag.x)/256; cy-=(e.clientY-drag.y)/256; drag={x:e.clientX,y:e.clientY}; render(); });
 
-// ── zoom ──
+// ── zoom ── (stopPropagation so the control click doesn't bubble to the map's
+// click→locate handler; the buttons live inside #map)
 function zoom(d){ const nz=Math.max(0,Math.min(19,z+d)); if(nz===z) return;
   const f=Math.pow(2,nz-z); cx*=f; cy*=f; z=nz; render(); }
-document.getElementById('zin').onclick=()=>zoom(1);
-document.getElementById('zout').onclick=()=>zoom(-1);
+document.getElementById('zin').onclick=e=>{ e.stopPropagation(); zoom(1); };
+document.getElementById('zout').onclick=e=>{ e.stopPropagation(); zoom(-1); };
 map.addEventListener('wheel',e=>{ e.preventDefault(); zoom(e.deltaY<0?1:-1); },{passive:false});
 
 // ── click → server-side HHTL key ──
 map.addEventListener('click',async e=>{
-  if(drag) return;
+  if(moved){ moved=false; return; }   // this "click" ended a pan — ignore it
   const r=map.getBoundingClientRect();
   const px=e.clientX-r.left, py=e.clientY-r.top;
   const w=map.clientWidth, h=map.clientHeight;
-  const fx=cx+(px-w/2)/256, fy=cy+(py-h/2)/256;
+  const n=Math.pow(2,z);
+  // wrap the horizontal tile index into [0,2^z) so clicks on a repeated world
+  // copy (low zoom / across ±180°) send an in-range longitude, not an edge-clamped one
+  const fx=(((cx+(px-w/2)/256)%n)+n)%n, fy=cy+(py-h/2)/256;
   const lon=x2lon(fx,z), lat=y2lat(fy,z);
   try{
     const res=await fetch(`/api/osm/locate?lon=${lon}&lat=${lat}&z=${z}`);
