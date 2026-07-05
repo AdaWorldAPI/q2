@@ -25,9 +25,9 @@
 set -euo pipefail
 
 # ── config (env-overridable) ──────────────────────────────────────────────
-REGION="${REGION:-bremen}"
+REGION="${REGION:-berlin}"
 PBF_URL="${PBF_URL:-https://download.geofabrik.de/europe/germany/${REGION}-latest.osm.pbf}"
-STAMP="${STAMP:-bremen.helix.soa.gz}"          # MUST match body.manifest.json osm_latest
+STAMP="${STAMP:-berlin.helix.soa.gz}"          # MUST match body.manifest.json osm_latest
 RELEASE_TAG="${RELEASE_TAG:-fma-body-soa-v3-v1}"  # MUST match BodyHelix.tsx REL constant
 REPO="${REPO:-AdaWorldAPI/q2}"
 
@@ -89,9 +89,17 @@ else
     "https://api.github.com/repos/$REPO/releases/tags/$RELEASE_TAG" | grep -m1 '"id"' | grep -oE '[0-9]+')"
   [[ -n "$rel_id" ]] || { echo "could not resolve release id for tag $RELEASE_TAG"; exit 1; }
   # delete a same-named asset first (the upload API 422s on a duplicate name).
+  # Order-independent scan: remember the most recent `"id":` seen and emit it when
+  # this object's `"name":` matches $STAMP. `"id"` sits before `"name"` inside an
+  # asset object, so the remembered id is that object's; `"node_id":` does NOT
+  # match /"id":/, and the uploader's nested `"id"` comes AFTER `"name"`, so
+  # neither pollutes the result. (A positional `grep -Bn` breaks whenever GitHub
+  # reorders the asset fields — this does not.)
   old="$("${CURL[@]}" -H "Authorization: Bearer $tok" \
     "https://api.github.com/repos/$REPO/releases/$rel_id/assets" \
-    | grep -B1 "\"name\": \"$STAMP\"" | grep -m1 '"id"' | grep -oE '[0-9]+' || true)"
+    | awk -v want="\"name\": \"$STAMP\"" '
+        /"id":/         { id = $0; gsub(/[^0-9]/, "", id) }
+        index($0, want) { print id; exit }' || true)"
   [[ -n "$old" ]] && "${CURL[@]}" -X DELETE -H "Authorization: Bearer $tok" \
     "https://api.github.com/repos/$REPO/releases/assets/$old" || true
   "${CURL[@]}" -H "Authorization: Bearer $tok" -H "Content-Type: application/gzip" \
