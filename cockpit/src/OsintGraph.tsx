@@ -385,6 +385,86 @@ function ReasonBox({ readout, onClose }: { readout: Readout; onClose: () => void
   );
 }
 
+/** Positioned popup for a clicked node: fetches the server-rendered ClassView
+    card fragment (`/api/osint/card.html?name=<label>&fragment=1`) and injects
+    it verbatim. Schema-blind by design — the client never branches on node
+    class, it only injects whatever `<table class="cv-card">` the server
+    sends, so new node classes need zero cockpit rebuild. */
+function NodeDetailPopup({ label, onClose }: { label: string; onClose: () => void }) {
+  const [html, setHtml] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setHtml(null);
+    setErr(null);
+    fetch(`/api/osint/card.html?name=${encodeURIComponent(label)}&fragment=1`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then((text) => {
+        if (!cancelled) setHtml(text);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setErr(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [label]);
+  return (
+    <div
+      className="cv-pop"
+      style={{
+        position: 'fixed',
+        right: 16,
+        top: 72,
+        zIndex: 10,
+        pointerEvents: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: 'monospace',
+        fontSize: 11,
+        color: '#cfe7ff',
+        background: 'rgba(8,12,20,0.86)',
+        border: '1px solid #2a4a6a',
+        borderRadius: 8,
+        padding: '10px 12px',
+        boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+        minWidth: 280,
+      }}
+    >
+      <style>{`
+        .cv-pop table.cv-card { border-collapse: collapse; }
+        .cv-pop td { padding: 3px 10px; border-bottom: 1px solid #1b2c3e; white-space: nowrap; font: 12px ui-monospace, monospace; }
+        .cv-pop .r { color: #7fd1ff; }
+        .cv-pop .l { color: #eaf4ff; }
+        .cv-pop .p { color: #5a6b7f; }
+        .cv-pop .v { color: #ffd479; }
+      `}</style>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ color: '#7fd1ff' }}>{label}</span>
+        <span
+          onClick={onClose}
+          title="close"
+          style={{ cursor: 'pointer', color: '#9fb4c8', padding: '0 4px', fontSize: 13 }}
+        >
+          ✕
+        </span>
+      </div>
+      <div style={{ maxHeight: 340, overflowY: 'auto', minWidth: 280 }}>
+        {err ? (
+          <div style={{ color: '#ff637d' }}>card load failed: {err}</div>
+        ) : html == null ? (
+          <div style={{ color: '#7f97b0' }}>…</div>
+        ) : (
+          <div dangerouslySetInnerHTML={{ __html: html }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Default view: the SoA decoded into the Palantir vis-network renderer + reasoning. */
 export function OsintGraph() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -407,6 +487,8 @@ export function OsintGraph() {
   const selectedRef = useRef<Set<string>>(selected); // mirror for the build closures
   const [openAxis, setOpenAxis] = useState<number | null>(null); // expanded palette axis
   const [divOn, setDivOn] = useState(false); // dual-use divergence lens active
+  // clicked-node detail popup: server-rendered ClassView card fragment.
+  const [detail, setDetail] = useState<{ label: string } | null>(null);
 
   // Fetch + decode the SoA once.
   useEffect(() => {
@@ -881,7 +963,13 @@ export function OsintGraph() {
     };
 
     net.on('click', (params: { nodes: unknown[] }) => {
-      if (params.nodes.length) void reasonFrom(params.nodes[0] as number);
+      if (params.nodes.length) {
+        const i = params.nodes[0] as number;
+        void reasonFrom(i);
+        setDetail({ label: soa.labels[i] || `#${i}` });
+      } else {
+        setDetail(null);
+      }
     });
 
     return () => {
@@ -1415,6 +1503,7 @@ export function OsintGraph() {
       </div>
 
       {readout && <ReasonBox readout={readout} onClose={clearReason} />}
+      {detail && <NodeDetailPopup label={detail.label} onClose={() => setDetail(null)} />}
 
       {/* property palette — expandable per-axis value catalogue. Select N values
           to filter the graph by that explicit prefix (AND across axes, OR within an

@@ -1,0 +1,12 @@
+{# ClassView card fragment — table only, no doctype/head/style/h1.
+   Presentation (theme, color, spacing) is owned by the consuming popup
+   container (the React click-to-inspect panel); this fragment ships zero
+   CSS. Same row-shape branch as the full-page `osint_card.html`: one
+   unified row struct, `has_values` picks whether the value column exists at
+   all, `row.value`/`row.decoded` pick its per-row content. See OGAR
+   docs/CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK.md and
+   claude-notes/plans/2026-07-06-classview-unified-render.md. #}
+<table class="cv-card">
+<tr><td class="r">role</td><td class="l">field</td><td class="p">predicate</td>{% if has_values %}<td class="v">value</td>{% endif %}</tr>
+{% for row in rows %}<tr><td class="r">{{ row.role }}</td><td class="l">{{ row.label }}</td><td class="p">{{ row.predicate }}</td>{% if has_values %}<td class="v">{% if let Some(v) = row.value %}{{ v }}{% if let Some(d) = row.decoded %} ({{ d }}){% endif %}{% endif %}</td>{% endif %}</tr>
+{% endfor %}</table>

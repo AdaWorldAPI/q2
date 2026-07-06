@@ -230,6 +230,11 @@ async fn main() {
         // the Redmine-style ViewFilter, server-side (`?mask=<bits>`, omitted = FULL).
         .route("/api/osint/card", get(osint_classview::osint_card_handler))
         .route("/api/osint/card.html", get(osint_classview::osint_card_html_handler))
+        // The generic, OSINT-agnostic sibling: any well-formed 16-byte node
+        // key renders through the SAME ClassView fieldmask core as the OSINT
+        // route above (`resolve_card` + `render_card_response` in
+        // osint_classview.rs) — different route, same projection.
+        .route("/api/card.html", get(osint_classview::generic_card_handler))
         // /body server-side HHTL LOD — POST camera → per-concept HhtlAction byte
         // (cascade over 1658 baked BlockBounds; native SIMD; client gates draw by it).
         .route("/api/body/lod", post(body_lod::body_lod_handler))
