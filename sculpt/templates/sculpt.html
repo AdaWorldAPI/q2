@@ -1,0 +1,130 @@
+{# The FieldView: ONE loop over the mask-selected fields. No per-field ifs —
+   the mask decided membership in Rust; self.control(f) shaped each widget. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>sculpt — {{ model_name }}</title>
+<style>
+  :root { --bg:#0c0f14; --panel:#131923; --line:#223; --ink:#c7d3dd; --dim:#8aaab8; --on:#2b6cb0; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+              font:14px/1.4 system-ui,sans-serif; overflow:hidden; }
+  #wrap { display:flex; height:100vh; }
+  #stage { flex:1; display:flex; align-items:center; justify-content:center; min-width:0; }
+  #v { max-width:100%; max-height:100vh; touch-action:none; cursor:crosshair; user-select:none; }
+  #panel { width:260px; background:var(--panel); border-left:1px solid var(--line);
+           padding:16px; display:flex; flex-direction:column; gap:14px; overflow-y:auto; }
+  h1 { font-size:15px; margin:0; color:var(--dim); font-weight:600; letter-spacing:.02em; }
+  .field { display:flex; flex-direction:column; gap:5px; }
+  .field > label { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  input[type=range] { width:100%; accent-color:var(--on); }
+  input[type=color] { width:48px; height:28px; padding:0; border:1px solid var(--line); background:none; }
+  .num { color:var(--dim); font-variant-numeric:tabular-nums; font-size:12px; }
+  .tools { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .tb { padding:7px 4px; background:#1b2430; color:var(--ink); border:1px solid var(--line);
+        border-radius:5px; cursor:pointer; font-size:13px; }
+  .tb.on { background:var(--on); border-color:var(--on); color:#fff; }
+  .bar { display:flex; gap:6px; flex-wrap:wrap; }
+  .bar button, .bar a { flex:1; text-align:center; padding:8px 4px; background:#1b2430; color:var(--ink);
+        border:1px solid var(--line); border-radius:5px; cursor:pointer; text-decoration:none; font-size:13px; }
+  .stat { color:var(--dim); font-size:12px; border-top:1px solid var(--line); padding-top:10px; }
+  select { width:100%; background:#1b2430; color:var(--ink); border:1px solid var(--line);
+           border-radius:5px; padding:6px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage"><img id="v" src="/view.png" alt="model" draggable="false"></div>
+  <div id="panel">
+    <h1>sculpt · {{ model_name }}</h1>
+    {% for f in self.selected() %}
+      <div class="field"><label>{{ f.label }}</label>{{ self.control(f)|safe }}</div>
+    {% endfor %}
+    <div class="bar">
+      <button onclick="post('/undo')">undo</button>
+      <button onclick="post('/reset?model='+model)">reset</button>
+      <a href="/model.stl" download="sculpt.stl">STL</a>
+    </div>
+    <div class="field">
+      <label>model</label>
+      <select onchange="model=this.value; post('/reset?model='+model)">
+        <option value="sphere"{% if model_name == "sphere" %} selected{% endif %}>icosphere</option>
+        <option value="cube"{% if model_name == "cube" %} selected{% endif %}>printer cube</option>
+      </select>
+    </div>
+    <div class="stat">{{ verts }} verts · {{ tris }} tris<br>CurveRuler detail = deterministic phase</div>
+  </div>
+</div>
+<script>
+let model = "{{ model_name }}";
+const v = document.getElementById('v');
+// A /stroke response already carries the freshly-rendered PNG; show it directly
+// instead of firing a second GET /view.png (which re-renders and could display
+// a frame from a different point in the drag). Object URLs are revoked as they
+// are replaced so the drag doesn't leak blobs.
+let objUrl = null;
+function showBlob(b) {
+  const u = URL.createObjectURL(b);
+  v.src = u;
+  if (objUrl) URL.revokeObjectURL(objUrl);
+  objUrl = u;
+}
+const bust = () => { v.src = '/view.png?t=' + Date.now(); };
+function post(url, then) { fetch(url, { method:'POST' }).then(() => { if (then!==false) bust(); }); }
+function setBrush(key, val) { post('/brush?' + key + '=' + encodeURIComponent(val), false); }
+function setTool(t) { fetch('/brush?tool=' + t, { method:'POST' }).then(() => location.reload()); }
+function applyStroke(ix, iy, sdx, sdy) {
+  fetch('/stroke?x='+ix+'&y='+iy+'&dx='+sdx+'&dy='+sdy, { method:'POST' })
+    .then(r => r.blob()).then(showBlob);
+}
+
+// Pointer model: primary button / one finger = sculpt stroke; secondary /
+// two-finger / with-shift = orbit; wheel = dolly. The server picks the surface
+// at (x,y) in image pixels, so map client coords through the img's natural size.
+let mode = null, lx = 0, ly = 0, moved = false;
+function imgXY(e) {
+  const r = v.getBoundingClientRect();
+  return [ (e.clientX - r.left) * v.naturalWidth / r.width,
+           (e.clientY - r.top) * v.naturalHeight / r.height ];
+}
+v.addEventListener('pointerdown', e => {
+  v.setPointerCapture(e.pointerId);
+  const orbit = e.button === 2 || e.shiftKey || (e.pointerType === 'touch' && e.isPrimary === false);
+  mode = orbit ? 'orbit' : 'sculpt';
+  [lx, ly] = [e.clientX, e.clientY]; moved = false;
+  e.preventDefault();
+});
+v.addEventListener('pointermove', e => {
+  if (!mode) return;
+  const dx = e.clientX - lx, dy = e.clientY - ly;
+  if (mode === 'orbit') {
+    fetch('/camera?dyaw=' + (-dx*0.008) + '&dpitch=' + (-dy*0.008), { method:'POST' }).then(bust);
+  } else {
+    const [ix, iy] = imgXY(e);
+    const r = v.getBoundingClientRect();
+    const sdx = dx * v.naturalWidth / r.width;
+    const sdy = dy * v.naturalHeight / r.height;
+    applyStroke(ix, iy, sdx, sdy);
+  }
+  [lx, ly] = [e.clientX, e.clientY]; moved = true;
+});
+v.addEventListener('pointerup', e => {
+  if (!mode) return;
+  v.releasePointerCapture(e.pointerId);
+  // A tap/click with no drag still applies the brush once, so the click tools
+  // (Inflate / Smooth / Spray / Ruler) fire on a plain click. Grab with no
+  // drag is a natural no-op (dx=dy=0 → zero pull).
+  if (mode === 'sculpt' && !moved) { const [ix, iy] = imgXY(e); applyStroke(ix, iy, 0, 0); }
+  mode = null;
+});
+v.addEventListener('pointercancel', e => { if (mode) { v.releasePointerCapture(e.pointerId); mode = null; } });
+v.addEventListener('contextmenu', e => e.preventDefault());
+v.addEventListener('wheel', e => {
+  e.preventDefault();
+  fetch('/camera?ddist=' + (e.deltaY * 0.002), { method:'POST' }).then(bust);
+}, { passive:false });
+</script>
+</body>
+</html>
