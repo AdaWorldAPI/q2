@@ -14,6 +14,6 @@ td{padding:4px 12px;border-bottom:1px solid #1b2c3e;white-space:nowrap}
    docs/CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK.md. #}
 <h1>OSINT · classid {{ classid_hex }} · {{ concept }} · FieldMask {{ mask_hex }} · {{ shown }} / {{ total }} fields shown</h1>
 <table>
-<tr><td class="r">role</td><td class="l">field</td><td class="p">predicate</td></tr>
-{% for row in rows %}<tr><td class="r">{{ row.role }}</td><td class="l">{{ row.label }}</td><td class="p">{{ row.predicate }}</td></tr>
+<tr><td class="r">role</td><td class="l">field</td><td class="p">predicate</td>{% if has_values %}<td class="v">value</td>{% endif %}</tr>
+{% for row in rows %}<tr><td class="r">{{ row.role }}</td><td class="l">{{ row.label }}</td><td class="p">{{ row.predicate }}</td>{% if has_values %}<td class="v">{% if let Some(v) = row.value %}{{ v }}{% if let Some(d) = row.decoded %} ({{ d }}){% endif %}{% endif %}</td>{% endif %}</tr>
 {% endfor %}</table>
