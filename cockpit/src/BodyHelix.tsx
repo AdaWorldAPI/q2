@@ -606,7 +606,15 @@ export default function BodyHelix() {
     background: active ? '#1c2738' : '#0e1219', color: active ? '#cdd9e5' : '#6b7686', font: '12px ui-monospace, monospace',
   });
   const q = query.trim().toLowerCase();
-  const groups = LAYERS.map((l) => ({
+  // Geo scenes: the terrain bake stamps a single layer — present it as "terrain" and drop the
+  // empty anatomy layers, so a map never reads as skin/muscle/skeleton (the layer *id* is kept, so
+  // the show/hide toggle still filters the real geometry). Anatomy keeps the full LAYERS taxonomy.
+  const geoUI = Boolean(new URLSearchParams(window.location.search).get('scene') ?? pathScene());
+  const activeLayers =
+    geoUI && d
+      ? LAYERS.filter((l) => d.conceptList.some((c) => c.layer === l.id)).map((l) => ({ ...l, name: 'terrain', color: '#7c8f5c' }))
+      : LAYERS;
+  const groups = activeLayers.map((l) => ({
     l, items: d ? d.conceptList.filter((c) => c.layer === l.id && (!q || c.name.toLowerCase().includes(q))) : [],
   })).filter((g) => g.items.length > 0 || !q);
 
@@ -637,7 +645,7 @@ export default function BodyHelix() {
         <div style={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: 380, justifyContent: 'flex-end' }}>
           <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
           <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what's worth drawing">LOD {lod ? 'on' : 'off'}</button>
-          {LAYERS.map((l) => (
+          {activeLayers.map((l) => (
             <button key={l.id} style={btn(on[l.id])} onClick={() => setOn((p) => ({ ...p, [l.id]: !p[l.id] }))}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: l.color, marginRight: 5, verticalAlign: 'middle' }} />{l.name}
             </button>
