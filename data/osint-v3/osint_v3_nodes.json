@@ -4,7 +4,7 @@
   "id": "201V",
   "name": "201 Ventures",
   "source": "N_Stakeholders",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -13,7 +13,7 @@
   "id": "972Mag",
   "name": "972Mag",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000020204",
+  "guid1": "00100107030e00000000000002000402",
   "guid2": null,
   "is_person": false
  },
@@ -22,7 +22,7 @@
   "id": "AFRS",
   "name": "Automated Facial Recognition System",
   "source": "N_Systems",
-  "guid1": "00100107010201000304090a01030106",
+  "guid1": "001001070201000104030a0903010601",
   "guid2": null,
   "is_person": false
  },
@@ -31,7 +31,7 @@
   "id": "AIP",
   "name": "Artificial Intelligence Platform",
   "source": "N_Systems",
-  "guid1": "00100107010209081d030d0500030403",
+  "guid1": "0010010702010809031d050d03000304",
   "guid2": null,
   "is_person": false
  },
@@ -40,7 +40,7 @@
   "id": "AIVerse",
   "name": "AIVerse",
   "source": "N_Systems",
-  "guid1": "00100107070102000907060000020402",
+  "guid1": "00100107010700020709000602000204",
   "guid2": null,
   "is_person": false
  },
@@ -49,7 +49,7 @@
   "id": "ARCA",
   "name": "Assault Rifle Combat Application System",
   "source": "N_Systems",
-  "guid1": "00100107010200030b06100000030403",
+  "guid1": "0010010702010300060b001003000304",
   "guid2": null,
   "is_person": false
  },
@@ -58,7 +58,7 @@
   "id": "ARPANET",
   "name": "ARPANET",
   "source": "N_Historical",
-  "guid1": "001001070f04000b0000000000000303",
+  "guid1": "00100107040f0b000000000000000303",
   "guid2": null,
   "is_person": false
  },
@@ -67,7 +67,7 @@
   "id": "ARX",
   "name": "ARX Robotics",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0200010208100000010403",
+  "guid1": "00100107020b01000802001001000304",
   "guid2": null,
   "is_person": false
  },
@@ -76,7 +76,7 @@
   "id": "AWS",
   "name": "Amazon Web Services",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300041c02000000000402",
+  "guid1": "00100107030a0400021c000000000204",
   "guid2": null,
   "is_person": false
  },
@@ -85,7 +85,7 @@
   "id": "Accenture",
   "name": "Accenture",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300040000000000000402",
+  "guid1": "00100107030a04000000000000000204",
   "guid2": null,
   "is_person": false
  },
@@ -94,8 +94,8 @@
   "id": "AdnanKhashoggi",
   "name": "AdnanKhashoggi",
   "source": "cypher:Person",
-  "guid1": "001001070d0400040000000000000208",
-  "guid2": "00100107010503010005000000000000",
+  "guid1": "00100107040d04000000000000000802",
+  "guid2": "00100107050101030500000000000000",
   "is_person": true
  },
  {
@@ -103,8 +103,8 @@
   "id": "AhmedAltantawy",
   "name": "AhmedAltantawy",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000000104",
-  "guid2": "00100107030201050004000000000000",
+  "guid1": "00100107030e00000000000000000401",
+  "guid2": "00100107020305010400000000000000",
   "is_person": true
  },
  {
@@ -112,7 +112,7 @@
   "id": "Airbus",
   "name": "Airbus",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300040000000000000403",
+  "guid1": "00100107030b04000000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -121,7 +121,7 @@
   "id": "Alchemist",
   "name": "Alchemist",
   "source": "N_Systems",
-  "guid1": "00100107010200030b030d0500030403",
+  "guid1": "0010010702010300030b050d03000304",
   "guid2": null,
   "is_person": false
  },
@@ -130,8 +130,8 @@
   "id": "AlexKarp",
   "name": "AlexKarp",
   "source": "cypher:Person",
-  "guid1": "001001070a030903000000000003030b",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030a03090000000003000b03",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -139,7 +139,7 @@
   "id": "AllInE263",
   "name": "AllInE263",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070104000219030d0500030204",
+  "guid1": "00100107040102000319050d03000402",
   "guid2": null,
   "is_person": false
  },
@@ -148,7 +148,7 @@
   "id": "AllInEpsteinSpecial",
   "name": "AllInEpsteinSpecial",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080400000000000000020104",
+  "guid1": "00100107040800000000000002000401",
   "guid2": null,
   "is_person": false
  },
@@ -157,8 +157,8 @@
   "id": "Allende",
   "name": "Allende",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000000010c",
-  "guid2": "00100107010504030003000000000000",
+  "guid1": "00100107040e00000000000000000c01",
+  "guid2": "00100107050103040300000000000000",
   "is_person": true
  },
  {
@@ -166,7 +166,7 @@
   "id": "Alphabet",
   "name": "Alphabet",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0305000000000000000302",
+  "guid1": "00100107030a00050000000000000203",
   "guid2": null,
   "is_person": false
  },
@@ -175,7 +175,7 @@
   "id": "Altec",
   "name": "Altec",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300040000000000000203",
+  "guid1": "00100107030b04000000000000000302",
   "guid2": null,
   "is_person": false
  },
@@ -184,8 +184,8 @@
   "id": "Altman",
   "name": "Altman",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000003030b",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107030a00000000000003000b03",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -193,7 +193,7 @@
   "id": "Altra",
   "name": "Altra",
   "source": "N_Systems",
-  "guid1": "00100107030100010208100000010403",
+  "guid1": "00100107010301000802001001000304",
   "guid2": null,
   "is_person": false
  },
@@ -202,7 +202,7 @@
   "id": "Amazon",
   "name": "Amazon",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0306040a050d0300050402",
+  "guid1": "00100107030a0406050a030d05000204",
   "guid2": null,
   "is_person": false
  },
@@ -211,7 +211,7 @@
   "id": "Amesys",
   "name": "Amesys",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0401020801140501040403",
+  "guid1": "00100107040b02010108051404010304",
   "guid2": null,
   "is_person": false
  },
@@ -220,8 +220,8 @@
   "id": "AminA",
   "name": "AminA",
   "source": "cypher:Person",
-  "guid1": "0010010703030000000000000000010b",
-  "guid2": "00100107010202020002000000000000",
+  "guid1": "00100107030300000000000000000b01",
+  "guid2": "00100107020102020200000000000000",
   "is_person": true
  },
  {
@@ -229,7 +229,7 @@
   "id": "AmnestyLab",
   "name": "AmnestyLab",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e03030014040d0400050204",
+  "guid1": "00100107030e00030414040d05000402",
   "guid2": null,
   "is_person": false
  },
@@ -238,8 +238,8 @@
   "id": "Andrew",
   "name": "Andrew",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000000104",
-  "guid2": "00100107010302020002000000000000",
+  "guid1": "00100107030e00000000000000000401",
+  "guid2": "00100107030102020200000000000000",
   "is_person": true
  },
  {
@@ -247,7 +247,7 @@
   "id": "AndrewArrest2026",
   "name": "AndrewArrest2026",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107050401000000000400030204",
+  "guid1": "00100107040500010000040003000402",
   "guid2": null,
   "is_person": false
  },
@@ -256,7 +256,7 @@
   "id": "Anduril",
   "name": "Anduril",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0310030908100600010403",
+  "guid1": "00100107030b03100809061001000304",
   "guid2": null,
   "is_person": false
  },
@@ -265,7 +265,7 @@
   "id": "AndurilEurope",
   "name": "AndurilEurope",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0310010908100600010303",
+  "guid1": "00100107030b01100809061001000303",
   "guid2": null,
   "is_person": false
  },
@@ -274,8 +274,8 @@
   "id": "AnshuJain",
   "name": "AnshuJain",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000003020b",
-  "guid2": "00100107020404020002000000000000",
+  "guid1": "00100107040e00000000000003000b02",
+  "guid2": "00100107040202040200000000000000",
   "is_person": true
  },
  {
@@ -283,7 +283,7 @@
   "id": "Anthropic",
   "name": "Anthropic",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300001807000000020302",
+  "guid1": "00100107030a00000718000002000203",
   "guid2": null,
   "is_person": false
  },
@@ -292,7 +292,7 @@
   "id": "AnthropicBan",
   "name": "AnthropicBan",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107030400000000000000030402",
+  "guid1": "00100107040300000000000003000204",
   "guid2": null,
   "is_person": false
  },
@@ -301,7 +301,7 @@
   "id": "AnthropicComplianceArc",
   "name": "AnthropicComplianceArc",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080400000000000000000302",
+  "guid1": "00100107040800000000000000000203",
   "guid2": null,
   "is_person": false
  },
@@ -310,7 +310,7 @@
   "id": "AnthropicControlPlane",
   "name": "AnthropicControlPlane",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010400030b080d0500030202",
+  "guid1": "0010010704010300080b050d03000202",
   "guid2": null,
   "is_person": false
  },
@@ -319,7 +319,7 @@
   "id": "AnthropicMilitaryUse",
   "name": "AnthropicMilitaryUse",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070202000818070d0000020402",
+  "guid1": "00100107020208000718000d02000204",
   "guid2": null,
   "is_person": false
  },
@@ -328,7 +328,7 @@
   "id": "Apollo",
   "name": "Apollo",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -337,7 +337,7 @@
   "id": "AppRegistration",
   "name": "AppRegistration",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0309001c020d0800030204",
+  "guid1": "00100107030e0009021c080d03000402",
   "guid2": null,
   "is_person": false
  },
@@ -346,7 +346,7 @@
   "id": "Apple",
   "name": "Apple",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0306000703000000000402",
+  "guid1": "00100107030a00060307000000000204",
   "guid2": null,
   "is_person": false
  },
@@ -355,7 +355,7 @@
   "id": "ArcticWolf",
   "name": "ArcticWolf",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309020404000500030402",
+  "guid1": "00100107030a02090404050003000204",
   "guid2": null,
   "is_person": false
  },
@@ -364,7 +364,7 @@
   "id": "ArcticWolfMetrics",
   "name": "ArcticWolfMetrics",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309020404140500040407",
+  "guid1": "00100107030a02090404051404000704",
   "guid2": null,
   "is_person": false
  },
@@ -373,7 +373,7 @@
   "id": "Arlington",
   "name": "Arlington Capital",
   "source": "N_Stakeholders",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -382,8 +382,8 @@
   "id": "AssafRappaport",
   "name": "AssafRappaport",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000030b",
-  "guid2": "00100107020403020002000000000000",
+  "guid1": "00100107030a00000000000000000b03",
+  "guid2": "00100107040202030200000000000000",
   "is_person": true
  },
  {
@@ -391,7 +391,7 @@
   "id": "AsymmetricClassification",
   "name": "AsymmetricClassification",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107050300020703130000030104",
+  "guid1": "00100107030502000307001303000401",
   "guid2": null,
   "is_person": false
  },
@@ -400,7 +400,7 @@
   "id": "Atlas",
   "name": "Atlas",
   "source": "N_Systems",
-  "guid1": "00100107060200040c08120000010102",
+  "guid1": "0010010702060400080c001201000201",
   "guid2": null,
   "is_person": false
  },
@@ -409,7 +409,7 @@
   "id": "AutocraticEnablement",
   "name": "AutocraticEnablement",
   "source": "cypher:HistoricalSystem",
-  "guid1": "0010010701040003100513050403020c",
+  "guid1": "00100107040103000510051303040c02",
   "guid2": null,
   "is_person": false
  },
@@ -418,7 +418,7 @@
   "id": "AutomatedKillChain",
   "name": "AutomatedKillChain",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010400090b08000002010105",
+  "guid1": "0010010704010900080b000001020501",
   "guid2": null,
   "is_person": false
  },
@@ -427,7 +427,7 @@
   "id": "AxelSpringer",
   "name": "AxelSpringer",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a030a000000000000020207",
+  "guid1": "00100107030a000a0000000002000702",
   "guid2": null,
   "is_person": false
  },
@@ -436,7 +436,7 @@
   "id": "Axon",
   "name": "Axon",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0201000104100400030403",
+  "guid1": "00100107020b00010401041003000304",
   "guid2": null,
   "is_person": false
  },
@@ -445,8 +445,8 @@
   "id": "AymanNour",
   "name": "AymanNour",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010c",
-  "guid2": "00100107010303030003000000000000",
+  "guid1": "00100107030e00000000000000000c01",
+  "guid2": "00100107030103030300000000000000",
   "is_person": true
  },
  {
@@ -454,7 +454,7 @@
   "id": "Azerbaijan",
   "name": "Azerbaijan",
   "source": "N_Stakeholders",
-  "guid1": "00100107090309090000000000000201",
+  "guid1": "00100107030909090000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -463,7 +463,7 @@
   "id": "Azure",
   "name": "Azure",
   "source": "N_Stakeholders",
-  "guid1": "001001070a02050419020d0000000402",
+  "guid1": "00100107020a04050219000d00000204",
   "guid2": null,
   "is_person": false
  },
@@ -472,7 +472,7 @@
   "id": "BCCI",
   "name": "BCCI",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0400000000000000000204",
+  "guid1": "00100107040e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -481,7 +481,7 @@
   "id": "BKA",
   "name": "BKA",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0301020303040400030204",
+  "guid1": "00100107030e02010303040403000402",
   "guid2": null,
   "is_person": false
  },
@@ -490,7 +490,7 @@
   "id": "BWPolice",
   "name": "BWPolice",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0301000000000400030206",
+  "guid1": "00100107030e00010000040003000602",
   "guid2": null,
   "is_person": false
  },
@@ -499,7 +499,7 @@
   "id": "BabElMandeb",
   "name": "BabElMandeb",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070f03000400000a0000000101",
+  "guid1": "00100107030f04000000000a00000101",
   "guid2": null,
   "is_person": false
  },
@@ -508,7 +508,7 @@
   "id": "BailleGifford",
   "name": "Baillie Gifford",
   "source": "N_Stakeholders",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -517,7 +517,7 @@
   "id": "BankOfAmerica",
   "name": "BankOfAmerica",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -526,8 +526,8 @@
   "id": "Bannon",
   "name": "Bannon",
   "source": "cypher:Person",
-  "guid1": "001001070e030a00000000000000020c",
-  "guid2": "00100107010404030003000000000000",
+  "guid1": "00100107030e000a0000000000000c02",
+  "guid2": "00100107040103040300000000000000",
   "is_person": true
  },
  {
@@ -535,7 +535,7 @@
   "id": "Barak",
   "name": "Barak",
   "source": "cypher:Person",
-  "guid1": "00100107010309021b05140600040403",
+  "guid1": "0010010703010209051b061404000304",
   "guid2": null,
   "is_person": false
  },
@@ -544,8 +544,8 @@
   "id": "Barrack",
   "name": "Barrack",
   "source": "cypher:Person",
-  "guid1": "001001070d030000000000000003020b",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107030d00000000000003000b02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -553,7 +553,7 @@
   "id": "BavariaPolice",
   "name": "BavariaPolice",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0301000000000400030206",
+  "guid1": "00100107030e00010000040003000602",
   "guid2": null,
   "is_person": false
  },
@@ -562,7 +562,7 @@
   "id": "BearStearns",
   "name": "BearStearns",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0400000000000000000208",
+  "guid1": "00100107040d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -571,8 +571,8 @@
   "id": "BeccaBalint",
   "name": "BeccaBalint",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010c",
-  "guid2": "00100107030303030003000000000000",
+  "guid1": "00100107030e00000000000000000c01",
+  "guid2": "00100107030303030300000000000000",
   "is_person": true
  },
  {
@@ -580,8 +580,8 @@
   "id": "Bezos",
   "name": "Bezos",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000020b",
-  "guid2": "00100107010404020001000000000000",
+  "guid1": "00100107030a00000000000000000b02",
+  "guid2": "00100107040102040100000000000000",
   "is_person": true
  },
  {
@@ -589,7 +589,7 @@
   "id": "Bilderberg2024",
   "name": "Bilderberg2024",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000030204",
+  "guid1": "00100107030e00000000000003000402",
   "guid2": null,
   "is_person": false
  },
@@ -598,7 +598,7 @@
   "id": "Bilderberg2025",
   "name": "Bilderberg2025",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -607,7 +607,7 @@
   "id": "BlackRock",
   "name": "BlackRock",
   "source": "N_Stakeholders",
-  "guid1": "001001070d0300000b05000000040208",
+  "guid1": "00100107030d0000050b000004000802",
   "guid2": null,
   "is_person": false
  },
@@ -616,7 +616,7 @@
   "id": "BlueCoat",
   "name": "BlueCoat",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0409020801140501000402",
+  "guid1": "00100107040a02090108051400010204",
   "guid2": null,
   "is_person": false
  },
@@ -625,7 +625,7 @@
   "id": "BlueWolf",
   "name": "BlueWolf",
   "source": "N_Systems",
-  "guid1": "00100107010200020304040900030105",
+  "guid1": "00100107020102000403090403000501",
   "guid2": null,
   "is_person": false
  },
@@ -634,8 +634,8 @@
   "id": "BoazGorodissky",
   "name": "BoazGorodissky",
   "source": "cypher:Person",
-  "guid1": "001001070a030002000000000000030b",
-  "guid2": "00100107020403020002000000000000",
+  "guid1": "00100107030a02000000000000000b03",
+  "guid2": "00100107040202030200000000000000",
   "is_person": true
  },
  {
@@ -643,7 +643,7 @@
   "id": "Booz",
   "name": "Booz Allen Hamilton",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300020000000000000403",
+  "guid1": "00100107030b02000000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -652,8 +652,8 @@
   "id": "BradleyEdwards",
   "name": "BradleyEdwards",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000000104",
-  "guid2": "00100107030302030003000000000000",
+  "guid1": "00100107030e00000000000000000401",
+  "guid2": "00100107030303020300000000000000",
   "is_person": true
  },
  {
@@ -661,8 +661,8 @@
   "id": "BrendanCarr",
   "name": "BrendanCarr",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000020c",
-  "guid2": "00100107010303020002000000000000",
+  "guid1": "00100107030e00000000000000000c02",
+  "guid2": "00100107030102030200000000000000",
   "is_person": true
  },
  {
@@ -670,8 +670,8 @@
   "id": "BrianSchimpf",
   "name": "BrianSchimpf",
   "source": "cypher:Person",
-  "guid1": "001001070a030003000000000003030b",
-  "guid2": "00100107020403020002000000000000",
+  "guid1": "00100107030a03000000000003000b03",
+  "guid2": "00100107040202030200000000000000",
   "is_person": true
  },
  {
@@ -679,7 +679,7 @@
   "id": "Bridgewater",
   "name": "Bridgewater",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -688,8 +688,8 @@
   "id": "BrigGenYS",
   "name": "BrigGenYS",
   "source": "cypher:Person",
-  "guid1": "001001070c0300030000000000030205",
-  "guid2": "00100107010403010001000000000000",
+  "guid1": "00100107030c03000000000003000502",
+  "guid2": "00100107040101030100000000000000",
   "is_person": true
  },
  {
@@ -697,8 +697,8 @@
   "id": "Brin",
   "name": "Brin",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000030b",
-  "guid2": "00100107020403020002000000000000",
+  "guid1": "00100107030a00000000000000000b03",
+  "guid2": "00100107040202030200000000000000",
   "is_person": true
  },
  {
@@ -706,7 +706,7 @@
   "id": "ButterflyTrust",
   "name": "ButterflyTrust",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -715,7 +715,7 @@
   "id": "Bylina",
   "name": "Bylina",
   "source": "N_Systems",
-  "guid1": "00100107030100050405000000040403",
+  "guid1": "00100107010305000504000004000304",
   "guid2": null,
   "is_person": false
  },
@@ -724,7 +724,7 @@
   "id": "ByteDance",
   "name": "ByteDance",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0305000a05110305050302",
+  "guid1": "00100107030a0005050a031105050203",
   "guid2": null,
   "is_person": false
  },
@@ -733,7 +733,7 @@
   "id": "CALO",
   "name": "CALO",
   "source": "N_Systems",
-  "guid1": "00100107070400020b060d0000050303",
+  "guid1": "0010010704070200060b000d05000303",
   "guid2": null,
   "is_person": false
  },
@@ -742,7 +742,7 @@
   "id": "CBP",
   "name": "US Customs and Border Patrol",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0310020304040901030204",
+  "guid1": "00100107030e02100403090403010402",
   "guid2": null,
   "is_person": false
  },
@@ -751,7 +751,7 @@
   "id": "CENTCOM",
   "name": "CENTCOM",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070c0300030000000000030205",
+  "guid1": "00100107030c03000000000003000502",
   "guid2": null,
   "is_person": false
  },
@@ -760,7 +760,7 @@
   "id": "CEREBRO",
   "name": "CEREBRO",
   "source": "cypher:System",
-  "guid1": "00100107010200020304040900030105",
+  "guid1": "00100107020102000403090403000501",
   "guid2": null,
   "is_person": false
  },
@@ -769,8 +769,8 @@
   "id": "CameronStanley",
   "name": "CameronStanley",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000020c",
-  "guid2": "00100107030302050002000000000000",
+  "guid1": "00100107030e00000000000000000c02",
+  "guid2": "00100107030305020200000000000000",
   "is_person": true
  },
  {
@@ -778,8 +778,8 @@
   "id": "Campelli",
   "name": "Campelli",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000000104",
-  "guid2": "00100107030201050004000000000000",
+  "guid1": "00100107030e00000000000000000401",
+  "guid2": "00100107020305010400000000000000",
   "is_person": true
  },
  {
@@ -787,7 +787,7 @@
   "id": "Candiru",
   "name": "Candiru",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309020000000900000403",
+  "guid1": "00100107030b02090000090000000304",
   "guid2": null,
   "is_person": false
  },
@@ -796,7 +796,7 @@
   "id": "Carbyne",
   "name": "Carbyne",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a03090b08010a0500040402",
+  "guid1": "00100107030a0b090108050a04000204",
   "guid2": null,
   "is_person": false
  },
@@ -805,7 +805,7 @@
   "id": "CarbynePipeline",
   "name": "CarbynePipeline",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070103090b0803140500050404",
+  "guid1": "0010010703010b090308051405000404",
   "guid2": null,
   "is_person": false
  },
@@ -814,8 +814,8 @@
   "id": "Catz",
   "name": "Catz",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000003020b",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030a00000000000003000b02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -823,7 +823,7 @@
   "id": "CaymanEntity",
   "name": "CaymanEntity",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -832,7 +832,7 @@
   "id": "Cellebrite",
   "name": "Cellebrite",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0301021d04040800030403",
+  "guid1": "00100107030b0201041d080403000304",
   "guid2": null,
   "is_person": false
  },
@@ -841,7 +841,7 @@
   "id": "CellebriteMetrics",
   "name": "CellebriteMetrics",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107080201021d030d0800050403",
+  "guid1": "0010010702080201031d080d05000304",
   "guid2": null,
   "is_person": false
  },
@@ -850,7 +850,7 @@
   "id": "Centaur",
   "name": "Centaur",
   "source": "N_Systems",
-  "guid1": "00100107010300030b06000000030205",
+  "guid1": "0010010703010300060b000003000502",
   "guid2": null,
   "is_person": false
  },
@@ -859,7 +859,7 @@
   "id": "CerberusCapital",
   "name": "CerberusCapital",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000030208",
+  "guid1": "00100107030d00000000000003000802",
   "guid2": null,
   "is_person": false
  },
@@ -868,7 +868,7 @@
   "id": "Cerebro",
   "name": "Cerebro",
   "source": "cypher:System",
-  "guid1": "00100107010309020404040900030205",
+  "guid1": "00100107030102090404090403000502",
   "guid2": null,
   "is_person": false
  },
@@ -877,8 +877,8 @@
   "id": "Chamath",
   "name": "Chamath",
   "source": "cypher:Person",
-  "guid1": "001001070d0300000000000000000208",
-  "guid2": "00100107010303020002000000000000",
+  "guid1": "00100107030d00000000000000000802",
+  "guid2": "00100107030102030200000000000000",
   "is_person": true
  },
  {
@@ -886,7 +886,7 @@
   "id": "ChatGPT",
   "name": "ChatGPT",
   "source": "N_Civic",
-  "guid1": "00100107020305001507000005020102",
+  "guid1": "00100107030200050715000002050201",
   "guid2": null,
   "is_person": false
  },
@@ -895,7 +895,7 @@
   "id": "ChatGPTMil",
   "name": "ChatGPTMil",
   "source": "cypher:System",
-  "guid1": "001001070202000a1507000005020105",
+  "guid1": "0010010702020a000715000002050501",
   "guid2": null,
   "is_person": false
  },
@@ -904,7 +904,7 @@
   "id": "CheckPoint",
   "name": "CheckPoint",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309020404140500040407",
+  "guid1": "00100107030a02090404051404000704",
   "guid2": null,
   "is_person": false
  },
@@ -913,7 +913,7 @@
   "id": "CheckPointMetrics",
   "name": "CheckPointMetrics",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a03090004030d0500030402",
+  "guid1": "00100107030a00090304050d03000204",
   "guid2": null,
   "is_person": false
  },
@@ -922,7 +922,7 @@
   "id": "China",
   "name": "China",
   "source": "N_Stakeholders",
-  "guid1": "00100107090301030000000000000201",
+  "guid1": "00100107030903010000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -931,7 +931,7 @@
   "id": "ChinaContainment",
   "name": "ChinaContainment",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070903000a0000000000000201",
+  "guid1": "0010010703090a000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -940,7 +940,7 @@
   "id": "ChinaGDPSignal",
   "name": "ChinaGDPSignal",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080300000e05000000040101",
+  "guid1": "0010010703080000050e000004000101",
   "guid2": null,
   "is_person": false
  },
@@ -958,7 +958,7 @@
   "id": "CitizenLab",
   "name": "CitizenLab",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0309000000000500020204",
+  "guid1": "00100107030e00090000050002000402",
   "guid2": null,
   "is_person": false
  },
@@ -967,7 +967,7 @@
   "id": "Claude",
   "name": "Claude",
   "source": "N_Civic",
-  "guid1": "00100107020305001507000300020402",
+  "guid1": "00100107030200050715030002000204",
   "guid2": null,
   "is_person": false
  },
@@ -976,7 +976,7 @@
   "id": "ClaudeAI",
   "name": "ClaudeAI",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107020200001507000000020402",
+  "guid1": "00100107020200000715000002000204",
   "guid2": null,
   "is_person": false
  },
@@ -985,7 +985,7 @@
   "id": "ClaudeMil",
   "name": "ClaudeMil",
   "source": "cypher:System",
-  "guid1": "001001070202000818070d0005020403",
+  "guid1": "00100107020208000718000d02050304",
   "guid2": null,
   "is_person": false
  },
@@ -994,7 +994,7 @@
   "id": "Clearview",
   "name": "Clearview",
   "source": "N_Systems",
-  "guid1": "00100107030201020304090901030402",
+  "guid1": "00100107020302010403090903010204",
   "guid2": null,
   "is_person": false
  },
@@ -1003,7 +1003,7 @@
   "id": "ClearviewAI",
   "name": "Clearview AI",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0201020304090a01030402",
+  "guid1": "00100107020a020104030a0903010204",
   "guid2": null,
   "is_person": false
  },
@@ -1012,7 +1012,7 @@
   "id": "CogitoEB2015",
   "name": "CogitoEB2015",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107030403000706130100030404",
+  "guid1": "00100107040300030607011303000404",
   "guid2": null,
   "is_person": false
  },
@@ -1021,7 +1021,7 @@
   "id": "ComplianceAsValuation",
   "name": "ComplianceAsValuation",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080400000000000000000208",
+  "guid1": "00100107040800000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -1030,7 +1030,7 @@
   "id": "ConfirmedKillChain",
   "name": "ConfirmedKillChain",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010400090b05000002030105",
+  "guid1": "0010010704010900050b000003020501",
   "guid2": null,
   "is_person": false
  },
@@ -1039,7 +1039,7 @@
   "id": "ContractualEthicsTrap",
   "name": "ContractualEthicsTrap",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107050300001000000004030204",
+  "guid1": "00100107030500000010000003040402",
   "guid2": null,
   "is_person": false
  },
@@ -1048,7 +1048,7 @@
   "id": "Convergence2026",
   "name": "Convergence2026",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070303090204050d0500040104",
+  "guid1": "00100107030302090504050d04000401",
   "guid2": null,
   "is_person": false
  },
@@ -1057,7 +1057,7 @@
   "id": "Corsight",
   "name": "Corsight.AI",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0301020304090a00030402",
+  "guid1": "00100107030a020104030a0903000204",
   "guid2": null,
   "is_person": false
  },
@@ -1066,7 +1066,7 @@
   "id": "CoworkMoment",
   "name": "CoworkMoment",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0300000000000000000107",
+  "guid1": "00100107030e00000000000000000701",
   "guid2": null,
   "is_person": false
  },
@@ -1075,7 +1075,7 @@
   "id": "Cybereason",
   "name": "Cybereason",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309020404030400030402",
+  "guid1": "00100107030a02090404040303000204",
   "guid2": null,
   "is_person": false
  },
@@ -1084,7 +1084,7 @@
   "id": "CytroxIntellexa",
   "name": "CytroxIntellexa",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309020404040601050403",
+  "guid1": "00100107030b02090404060405010304",
   "guid2": null,
   "is_person": false
  },
@@ -1093,7 +1093,7 @@
   "id": "D3",
   "name": "D3",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300000000000000000202",
+  "guid1": "00100107030a00000000000000000202",
   "guid2": null,
   "is_person": false
  },
@@ -1102,7 +1102,7 @@
   "id": "DARPA",
   "name": "DARPA",
   "source": "N_Stakeholders",
-  "guid1": "001001070c0300050000000000000205",
+  "guid1": "00100107030c05000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -1111,7 +1111,7 @@
   "id": "DARPABioMineral",
   "name": "DARPABioMineral",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107030400020803140500040305",
+  "guid1": "00100107040302000308051404000503",
   "guid2": null,
   "is_person": false
  },
@@ -1120,7 +1120,7 @@
   "id": "DIANA",
   "name": "DIANA",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300020000000000000204",
+  "guid1": "00100107030e02000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -1129,7 +1129,7 @@
   "id": "DIAS",
   "name": "Dialect Recognition Assistant (DIAS)",
   "source": "N_Systems",
-  "guid1": "00100107030210020804070801030404",
+  "guid1": "00100107020302100408080703010404",
   "guid2": null,
   "is_person": false
  },
@@ -1138,7 +1138,7 @@
   "id": "DIU",
   "name": "US Defense Innovation Unit",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300090000000000000205",
+  "guid1": "00100107030e09000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -1147,7 +1147,7 @@
   "id": "DOD",
   "name": "DOD",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070c0300030000000000030205",
+  "guid1": "00100107030c03000000000003000502",
   "guid2": null,
   "is_person": false
  },
@@ -1156,7 +1156,7 @@
   "id": "DOGE",
   "name": "DOGE",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0308000b03130804030204",
+  "guid1": "00100107030e0008030b081303040402",
   "guid2": null,
   "is_person": false
  },
@@ -1165,7 +1165,7 @@
   "id": "DOGEDatabase",
   "name": "DOGEDatabase",
   "source": "cypher:System",
-  "guid1": "00100107040306001c02000800000104",
+  "guid1": "0010010703040006021c080000000401",
   "guid2": null,
   "is_person": false
  },
@@ -1174,7 +1174,7 @@
   "id": "DOJ",
   "name": "DOJ",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0301000000000400030204",
+  "guid1": "00100107030e00010000040003000402",
   "guid2": null,
   "is_person": false
  },
@@ -1183,8 +1183,8 @@
   "id": "DanCaine",
   "name": "DanCaine",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000000104",
-  "guid2": "00100107030201050004000000000000",
+  "guid1": "00100107030e00000000000000000401",
+  "guid2": "00100107020305010400000000000000",
   "is_person": true
  },
  {
@@ -1192,7 +1192,7 @@
   "id": "DanishNP",
   "name": "Danish Police",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0301000000000000000204",
+  "guid1": "00100107030e00010000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -1201,8 +1201,8 @@
   "id": "DarioAmodei",
   "name": "DarioAmodei",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000030b",
-  "guid2": "00100107020404030003000000000000",
+  "guid1": "00100107030a00000000000000000b03",
+  "guid2": "00100107040203040300000000000000",
   "is_person": true
  },
  {
@@ -1210,7 +1210,7 @@
   "id": "DarkMatter",
   "name": "DarkMatter",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309020804140500030402",
+  "guid1": "00100107030a02090408051403000204",
   "guid2": null,
   "is_person": false
  },
@@ -1219,7 +1219,7 @@
   "id": "Databricks",
   "name": "Databricks",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300001c020d0000000402",
+  "guid1": "00100107030a0000021c000d00000204",
   "guid2": null,
   "is_person": false
  },
@@ -1228,8 +1228,8 @@
   "id": "DavidBoies",
   "name": "DavidBoies",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000020b",
-  "guid2": "00100107010403020002000000000000",
+  "guid1": "00100107030e00000000000000000b02",
+  "guid2": "00100107040102030200000000000000",
   "is_person": true
  },
  {
@@ -1237,8 +1237,8 @@
   "id": "DavidEllison",
   "name": "DavidEllison",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000020b",
-  "guid2": "00100107010403010001000000000000",
+  "guid1": "00100107030a00000000000000000b02",
+  "guid2": "00100107040101030100000000000000",
   "is_person": true
  },
  {
@@ -1246,8 +1246,8 @@
   "id": "DavidFriedman",
   "name": "DavidFriedman",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010c",
-  "guid2": "00100107010303020002000000000000",
+  "guid1": "00100107030e00000000000000000c01",
+  "guid2": "00100107030102030200000000000000",
   "is_person": true
  },
  {
@@ -1255,8 +1255,8 @@
   "id": "DavidKimche",
   "name": "DavidKimche",
   "source": "cypher:Person",
-  "guid1": "001001070e0400000000000000000104",
-  "guid2": "00100107010404040004000000000000",
+  "guid1": "00100107040e00000000000000000401",
+  "guid2": "00100107040104040400000000000000",
   "is_person": true
  },
  {
@@ -1264,8 +1264,8 @@
   "id": "DavidStern",
   "name": "DavidStern",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000003020b",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107030e00000000000003000b02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -1273,7 +1273,7 @@
   "id": "DefenseTechVC",
   "name": "DefenseTechVC",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -1282,7 +1282,7 @@
   "id": "Dehomag",
   "name": "IBM Dehomag",
   "source": "N_Historical",
-  "guid1": "001001070a0400070603000902030402",
+  "guid1": "00100107040a07000306090003020204",
   "guid2": null,
   "is_person": false
  },
@@ -1291,7 +1291,7 @@
   "id": "Delian",
   "name": "Delian",
   "source": "N_Stakeholders",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -1300,7 +1300,7 @@
   "id": "Deloitte",
   "name": "Deloitte",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300040000000000000402",
+  "guid1": "00100107030a04000000000000000204",
   "guid2": null,
   "is_person": false
  },
@@ -1309,7 +1309,7 @@
   "id": "Denmark",
   "name": "Denmark",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300030000000000000101",
+  "guid1": "00100107030903000000000000000101",
   "guid2": null,
   "is_person": false
  },
@@ -1318,8 +1318,8 @@
   "id": "Dershowitz",
   "name": "Dershowitz",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010b",
-  "guid2": "00100107010403010003000000000000",
+  "guid1": "00100107030e00000000000000000b01",
+  "guid2": "00100107040101030300000000000000",
   "is_person": true
  },
  {
@@ -1327,7 +1327,7 @@
   "id": "DeutscheBank",
   "name": "DeutscheBank",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -1336,7 +1336,7 @@
   "id": "DianaDeathParis",
   "name": "DianaDeathParis",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400000000000000000104",
+  "guid1": "00100107040e00000000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -1345,7 +1345,7 @@
   "id": "DiplomaticChoreography2026",
   "name": "DiplomaticChoreography2026",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080300000000000000000101",
+  "guid1": "00100107030800000000000000000101",
   "guid2": null,
   "is_person": false
  },
@@ -1354,7 +1354,7 @@
   "id": "Discombobulator",
   "name": "Discombobulator",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070104000b0807140500010204",
+  "guid1": "0010010704010b000708051401000402",
   "guid2": null,
   "is_person": false
  },
@@ -1363,7 +1363,7 @@
   "id": "Disney",
   "name": "Disney",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a030a000000000000020207",
+  "guid1": "00100107030a000a0000000002000702",
   "guid2": null,
   "is_person": false
  },
@@ -1372,7 +1372,7 @@
   "id": "DoDAAM",
   "name": "DoDAAM",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300010000000000010403",
+  "guid1": "00100107030b01000000000001000304",
   "guid2": null,
   "is_person": false
  },
@@ -1381,7 +1381,7 @@
   "id": "DoW",
   "name": "DoW",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070c0300030000000000000205",
+  "guid1": "00100107030c03000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -1390,8 +1390,8 @@
   "id": "DodiFayed",
   "name": "DodiFayed",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000000010a",
-  "guid2": "00100107030302020002000000000000",
+  "guid1": "00100107040e00000000000000000a01",
+  "guid2": "00100107030302020200000000000000",
   "is_person": true
  },
  {
@@ -1399,8 +1399,8 @@
   "id": "Doepfner",
   "name": "Doepfner",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000003020b",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107030a00000000000003000b02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -1408,7 +1408,7 @@
   "id": "DoepfnerCapital",
   "name": "DoepfnerCapital",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -1417,7 +1417,7 @@
   "id": "Donovan",
   "name": "Donovan",
   "source": "N_Systems",
-  "guid1": "00100107050400020f05000500040105",
+  "guid1": "0010010704050200050f050004000501",
   "guid2": null,
   "is_person": false
  },
@@ -1426,7 +1426,7 @@
   "id": "DoorDash",
   "name": "DoorDash",
   "source": "N_Civic",
-  "guid1": "001001070a030d000a06000300050207",
+  "guid1": "00100107030a000d060a030005000702",
   "guid2": null,
   "is_person": false
  },
@@ -1435,7 +1435,7 @@
   "id": "DraftOneAI",
   "name": "DraftOneAI",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107020401001507000005020106",
+  "guid1": "00100107040200010715000002050601",
   "guid2": null,
   "is_person": false
  },
@@ -1444,7 +1444,7 @@
   "id": "DreamSecurity",
   "name": "DreamSecurity",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309021e04040900030407",
+  "guid1": "00100107030a0209041e090403000704",
   "guid2": null,
   "is_person": false
  },
@@ -1453,7 +1453,7 @@
   "id": "DroneRecordDeployment",
   "name": "DroneRecordDeployment",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010200010208100500010105",
+  "guid1": "00100107020101000802051001000501",
   "guid2": null,
   "is_person": false
  },
@@ -1462,7 +1462,7 @@
   "id": "DualUseShell",
   "name": "DualUseShell",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070a0400040000000000000207",
+  "guid1": "00100107040a04000000000000000702",
   "guid2": null,
   "is_person": false
  },
@@ -1471,7 +1471,7 @@
   "id": "DynaSpeak",
   "name": "DynaSpeak",
   "source": "N_Systems",
-  "guid1": "001001070302000b1304070900030403",
+  "guid1": "0010010702030b000413090703000304",
   "guid2": null,
   "is_person": false
  },
@@ -1480,7 +1480,7 @@
   "id": "ELIZA",
   "name": "ELIZA",
   "source": "N_Historical",
-  "guid1": "00100107030400001507000005020404",
+  "guid1": "00100107040300000715000002050404",
   "guid2": null,
   "is_person": false
  },
@@ -1489,7 +1489,7 @@
   "id": "EagleEye",
   "name": "Eagle Eye / SBMC Next",
   "source": "N_Systems",
-  "guid1": "00100107010301020304090900030206",
+  "guid1": "00100107030102010403090903000602",
   "guid2": null,
   "is_person": false
  },
@@ -1498,7 +1498,7 @@
   "id": "Egypt",
   "name": "Egypt",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107090310090000000000000201",
+  "guid1": "00100107030909100000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -1507,7 +1507,7 @@
   "id": "EgyptGIS",
   "name": "EgyptGIS",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0309020000000500000204",
+  "guid1": "00100107030e02090000050000000402",
   "guid2": null,
   "is_person": false
  },
@@ -1516,7 +1516,7 @@
   "id": "EgyptSurveillanceState",
   "name": "EgyptSurveillanceState",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107090309020403040501030201",
+  "guid1": "00100107030902090304050403010102",
   "guid2": null,
   "is_person": false
  },
@@ -1525,7 +1525,7 @@
   "id": "EgyptVendorStack",
   "name": "EgyptVendorStack",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107030409021c02000000000201",
+  "guid1": "0010010704030209021c000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -1534,8 +1534,8 @@
   "id": "Ek",
   "name": "Daniel Ek",
   "source": "N_People",
-  "guid1": "001001070a030000000000000003020b",
-  "guid2": "00100107020404020002000000000000",
+  "guid1": "00100107030a00000000000003000b02",
+  "guid2": "00100107040202040200000000000000",
   "is_person": true
  },
  {
@@ -1543,7 +1543,7 @@
   "id": "Elbit",
   "name": "Elbit Systems",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0210010208100602010403",
+  "guid1": "00100107020b01100802061001020304",
   "guid2": null,
   "is_person": false
  },
@@ -1552,8 +1552,8 @@
   "id": "Ellison",
   "name": "Larry Ellison",
   "source": "N_People",
-  "guid1": "001001070a030000000000000000020b",
-  "guid2": "00100107010304010001000000000000",
+  "guid1": "00100107030a00000000000000000b02",
+  "guid2": "00100107030101040100000000000000",
   "is_person": true
  },
  {
@@ -1561,8 +1561,8 @@
   "id": "EmilMichael",
   "name": "EmilMichael",
   "source": "cypher:Person",
-  "guid1": "001001070b030004000000000003020b",
-  "guid2": "00100107010403020002000000000000",
+  "guid1": "00100107030b04000000000003000b02",
+  "guid2": "00100107040102030200000000000000",
   "is_person": true
  },
  {
@@ -1570,7 +1570,7 @@
   "id": "Endeavor",
   "name": "Endeavor",
   "source": "N_Stakeholders",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -1579,7 +1579,7 @@
   "id": "EpicFury",
   "name": "EpicFury",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0300020000000000000403",
+  "guid1": "00100107030b02000000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -1588,8 +1588,8 @@
   "id": "Epstein",
   "name": "Epstein",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000100010a",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107040e00000000000000010a01",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -1597,7 +1597,7 @@
   "id": "EpsteinHinge",
   "name": "EpsteinHinge",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400000000000000000104",
+  "guid1": "00100107040e00000000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -1606,7 +1606,7 @@
   "id": "EpsteinSettlementIndustry",
   "name": "EpsteinSettlementIndustry",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0300000000000000000104",
+  "guid1": "00100107030e00000000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -1615,7 +1615,7 @@
   "id": "EraCommercial",
   "name": "EraCommercial",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080300000000000000000102",
+  "guid1": "00100107030800000000000000000201",
   "guid2": null,
   "is_person": false
  },
@@ -1624,7 +1624,7 @@
   "id": "EraCovert",
   "name": "EraCovert",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010400021d030d0500030204",
+  "guid1": "0010010704010200031d050d03000402",
   "guid2": null,
   "is_person": false
  },
@@ -1633,7 +1633,7 @@
   "id": "EraOpenBazaar",
   "name": "EraOpenBazaar",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080400000000000000000104",
+  "guid1": "00100107040800000000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -1642,7 +1642,7 @@
   "id": "ErgoEB2014",
   "name": "ErgoEB2014",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0400000000000000000204",
+  "guid1": "00100107040e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -1651,7 +1651,7 @@
   "id": "EthicsAsBrandStrategy",
   "name": "EthicsAsBrandStrategy",
   "source": "cypher:HistoricalSystem",
-  "guid1": "0010010708040a000000000000000302",
+  "guid1": "001001070408000a0000000000000203",
   "guid2": null,
   "is_person": false
  },
@@ -1660,7 +1660,7 @@
   "id": "EuroCloudTenants",
   "name": "EuroCloudTenants",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070f0300000002000000000209",
+  "guid1": "00100107030f00000200000000000902",
   "guid2": null,
   "is_person": false
  },
@@ -1669,7 +1669,7 @@
   "id": "EuroEnterpriseCustomers",
   "name": "EuroEnterpriseCustomers",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000107",
+  "guid1": "00100107030e00000000000000000701",
   "guid2": null,
   "is_person": false
  },
@@ -1678,7 +1678,7 @@
   "id": "EuroGagOrderScope",
   "name": "EuroGagOrderScope",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0309000000000000000204",
+  "guid1": "00100107030e00090000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -1687,7 +1687,7 @@
   "id": "EuropeanMSPs",
   "name": "EuropeanMSPs",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e030000000000000000020c",
+  "guid1": "00100107030e00000000000000000c02",
   "guid2": null,
   "is_person": false
  },
@@ -1696,7 +1696,7 @@
   "id": "FBI",
   "name": "FBI",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0301020303040400030204",
+  "guid1": "00100107030e02010303040403000402",
   "guid2": null,
   "is_person": false
  },
@@ -1705,7 +1705,7 @@
   "id": "FBIFieldOffices",
   "name": "FBIFieldOffices",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0301020304040600030206",
+  "guid1": "00100107030e02010403060403000602",
   "guid2": null,
   "is_person": false
  },
@@ -1714,7 +1714,7 @@
   "id": "FCBayern",
   "name": "FCBayern",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e030a000000000000000207",
+  "guid1": "00100107030e000a0000000000000702",
   "guid2": null,
   "is_person": false
  },
@@ -1723,7 +1723,7 @@
   "id": "FCC",
   "name": "FCC",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -1732,7 +1732,7 @@
   "id": "FIDF",
   "name": "FIDF",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300070000000000000204",
+  "guid1": "00100107030e07000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -1741,7 +1741,7 @@
   "id": "Facebook",
   "name": "Facebook",
   "source": "N_Civic",
-  "guid1": "001001070a0306000a05170304050402",
+  "guid1": "00100107030a0006050a031705040204",
   "guid2": null,
   "is_person": false
  },
@@ -1750,8 +1750,8 @@
   "id": "Faeser",
   "name": "Faeser",
   "source": "cypher:Person",
-  "guid1": "001001070e030100000000000003020c",
-  "guid2": "00100107010404040004000000000000",
+  "guid1": "00100107030e00010000000003000c02",
+  "guid2": "00100107040104040400000000000000",
   "is_person": true
  },
  {
@@ -1759,8 +1759,8 @@
   "id": "Fascitelli",
   "name": "Fascitelli",
   "source": "cypher:Person",
-  "guid1": "001001070d030000000000000003020b",
-  "guid2": "00100107020404020002000000000000",
+  "guid1": "00100107030d00000000000003000b02",
+  "guid2": "00100107040202040200000000000000",
   "is_person": true
  },
  {
@@ -1768,8 +1768,8 @@
   "id": "Feinberg",
   "name": "Feinberg",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000020b",
-  "guid2": "00100107010403020002000000000000",
+  "guid1": "00100107030e00000000000000000b02",
+  "guid2": "00100107040102030200000000000000",
   "is_person": true
  },
  {
@@ -1777,8 +1777,8 @@
   "id": "Ferguson",
   "name": "Ferguson",
   "source": "cypher:Person",
-  "guid1": "001001070e040100000000000000010c",
-  "guid2": "00100107010302040004000000000000",
+  "guid1": "00100107040e00010000000000000c01",
+  "guid2": "00100107030104020400000000000000",
   "is_person": true
  },
  {
@@ -1786,7 +1786,7 @@
   "id": "FinFisher",
   "name": "FinFisher",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0409020801140501020403",
+  "guid1": "00100107040b02090108051402010304",
   "guid2": null,
   "is_person": false
  },
@@ -1795,7 +1795,7 @@
   "id": "FinSpy",
   "name": "FinSpy",
   "source": "cypher:System",
-  "guid1": "00100107030209021b04040901030403",
+  "guid1": "0010010702030209041b090403010304",
   "guid2": null,
   "is_person": false
  },
@@ -1804,8 +1804,8 @@
   "id": "Fink",
   "name": "Larry Fink",
   "source": "N_People",
-  "guid1": "001001070d030000000000000003020b",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030d00000000000003000b02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -1813,7 +1813,7 @@
   "id": "FireFactory",
   "name": "Fire Factory",
   "source": "N_Systems",
-  "guid1": "00100107010200050d05060200050405",
+  "guid1": "0010010702010500050d020605000504",
   "guid2": null,
   "is_person": false
  },
@@ -1822,7 +1822,7 @@
   "id": "FireWeaver",
   "name": "Fire Weaver",
   "source": "N_Systems",
-  "guid1": "00100107010100030d05100000030105",
+  "guid1": "0010010701010300050d001003000501",
   "guid2": null,
   "is_person": false
  },
@@ -1831,7 +1831,7 @@
   "id": "FirstPOVDrones",
   "name": "First  Person View Drones",
   "source": "N_Systems",
-  "guid1": "00100107010200010208100002010105",
+  "guid1": "00100107020101000802001001020501",
   "guid2": null,
   "is_person": false
  },
@@ -1840,7 +1840,7 @@
   "id": "Fortify",
   "name": "(Mobile) Fortify",
   "source": "N_Systems",
-  "guid1": "0010010706020f000104100500010107",
+  "guid1": "001001070206000f0401051001000701",
   "guid2": null,
   "is_person": false
  },
@@ -1849,7 +1849,7 @@
   "id": "FoundersFund",
   "name": "FoundersFund",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -1858,7 +1858,7 @@
   "id": "Foundry",
   "name": "Foundry",
   "source": "N_Systems",
-  "guid1": "00100107010309021c060d0500030403",
+  "guid1": "0010010703010209061c050d03000304",
   "guid2": null,
   "is_person": false
  },
@@ -1867,7 +1867,7 @@
   "id": "France",
   "name": "France",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107090301030000000000000201",
+  "guid1": "00100107030903010000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -1876,7 +1876,7 @@
   "id": "Fraunhofer",
   "name": "Fraunhofer Institutes",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300020407000000000304",
+  "guid1": "00100107030e02000704000000000403",
   "guid2": null,
   "is_person": false
  },
@@ -1885,7 +1885,7 @@
   "id": "FreebergSelfExclusion",
   "name": "FreebergSelfExclusion",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080300000000000000000108",
+  "guid1": "00100107030800000000000000000801",
   "guid2": null,
   "is_person": false
  },
@@ -1894,8 +1894,8 @@
   "id": "Friedberg",
   "name": "Friedberg",
   "source": "cypher:Person",
-  "guid1": "001001070d0300000000000000030208",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107030d00000000000003000802",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -1903,8 +1903,8 @@
   "id": "FriedrichMerz",
   "name": "FriedrichMerz",
   "source": "cypher:Person",
-  "guid1": "0010010709030000000000000003020c",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107030900000000000003000c02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -1912,7 +1912,7 @@
   "id": "GDIT",
   "name": "General Dynamics Information Technologies",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300040000000000000403",
+  "guid1": "00100107030b04000000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -1921,7 +1921,7 @@
   "id": "GFF",
   "name": "GFF",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -1930,7 +1930,7 @@
   "id": "GISArta",
   "name": "GIS Arta",
   "source": "N_Systems",
-  "guid1": "00100107010200060d050a0200040205",
+  "guid1": "0010010702010600050d020a04000502",
   "guid2": null,
   "is_person": false
  },
@@ -1939,7 +1939,7 @@
   "id": "GTR",
   "name": "Global Technical Reality Data Centers",
   "source": "N_Stakeholders",
-  "guid1": "001001070f0300001c02000000000209",
+  "guid1": "00100107030f0000021c000000000902",
   "guid2": null,
   "is_person": false
  },
@@ -1948,7 +1948,7 @@
   "id": "GammaFinFisher",
   "name": "GammaFinFisher",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b02090214030d0501030403",
+  "guid1": "00100107020b02090314050d03010304",
   "guid2": null,
   "is_person": false
  },
@@ -1957,7 +1957,7 @@
   "id": "GammaGroup",
   "name": "GammaGroup",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309020801140501020403",
+  "guid1": "00100107030b02090108051402010304",
   "guid2": null,
   "is_person": false
  },
@@ -1966,8 +1966,8 @@
   "id": "Gates",
   "name": "Gates",
   "source": "cypher:Person",
-  "guid1": "001001070d0300000000000000000208",
-  "guid2": "00100107010404030003000000000000",
+  "guid1": "00100107030d00000000000000000802",
+  "guid2": "00100107040103040300000000000000",
   "is_person": true
  },
  {
@@ -1975,7 +1975,7 @@
   "id": "GazaLavenderDeployment",
   "name": "GazaLavenderDeployment",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010400020b05130102030105",
+  "guid1": "0010010704010200050b011303020501",
   "guid2": null,
   "is_person": false
  },
@@ -1984,7 +1984,7 @@
   "id": "GazaWar2012",
   "name": "GazaWar2012",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070c0400090000000002010105",
+  "guid1": "00100107040c09000000000001020501",
   "guid2": null,
   "is_person": false
  },
@@ -1993,7 +1993,7 @@
   "id": "Gemini",
   "name": "Gemini/Bard",
   "source": "N_Civic",
-  "guid1": "001001070202050018070d0300020402",
+  "guid1": "00100107020200050718030d02000204",
   "guid2": null,
   "is_person": false
  },
@@ -2002,7 +2002,7 @@
   "id": "GermanDroneDeal",
   "name": "GermanDroneDeal",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070b0400010000000000000403",
+  "guid1": "00100107040b01000000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -2011,7 +2011,7 @@
   "id": "GermanGov",
   "name": "GermanGov",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070903090a0000000000000201",
+  "guid1": "0010010703090a090000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -2020,7 +2020,7 @@
   "id": "Germany",
   "name": "Germany",
   "source": "N_Stakeholders",
-  "guid1": "00100107090301030000000000030201",
+  "guid1": "00100107030903010000000003000102",
   "guid2": null,
   "is_person": false
  },
@@ -2029,8 +2029,8 @@
   "id": "GhislaineMaxwell",
   "name": "GhislaineMaxwell",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000015080100020a",
-  "guid2": "00100107010405010001000000000000",
+  "guid1": "00100107040e00000000081500010a02",
+  "guid2": "00100107040101050100000000000000",
   "is_person": true
  },
  {
@@ -2038,8 +2038,8 @@
   "id": "GilDolev",
   "name": "GilDolev",
   "source": "cypher:Person",
-  "guid1": "001001070b030000000000000000020b",
-  "guid2": "00100107010302020002000000000000",
+  "guid1": "00100107030b00000000000000000b02",
+  "guid2": "00100107030102020200000000000000",
   "is_person": true
  },
  {
@@ -2047,8 +2047,8 @@
   "id": "GilShwed",
   "name": "GilShwed",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000030b",
-  "guid2": "00100107020403020002000000000000",
+  "guid1": "00100107030a00000000000000000b03",
+  "guid2": "00100107040202030200000000000000",
   "is_person": true
  },
  {
@@ -2056,8 +2056,8 @@
   "id": "Giuliani",
   "name": "Giuliani",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010c",
-  "guid2": "00100107010303010001000000000000",
+  "guid1": "00100107030e00000000000000000c01",
+  "guid2": "00100107030101030100000000000000",
   "is_person": true
  },
  {
@@ -2065,7 +2065,7 @@
   "id": "GlobalCounsel",
   "name": "GlobalCounsel",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -2074,7 +2074,7 @@
   "id": "GlobalPrecisionResearch",
   "name": "GlobalPrecisionResearch",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0300020000000000000303",
+  "guid1": "00100107030b02000000000000000303",
   "guid2": null,
   "is_person": false
  },
@@ -2083,7 +2083,7 @@
   "id": "GoldenDome",
   "name": "GoldenDome",
   "source": "cypher:System",
-  "guid1": "00100107010100030d05140200030205",
+  "guid1": "0010010701010300050d021403000502",
   "guid2": null,
   "is_person": false
  },
@@ -2092,7 +2092,7 @@
   "id": "GoldenDomeDisclosure",
   "name": "GoldenDomeDisclosure",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010100030d05000000030105",
+  "guid1": "0010010701010300050d000003000501",
   "guid2": null,
   "is_person": false
  },
@@ -2101,7 +2101,7 @@
   "id": "GoldenShield",
   "name": "Golden Shield",
   "source": "N_Systems",
-  "guid1": "00100107010201020304040901040101",
+  "guid1": "00100107020102010403090404010101",
   "guid2": null,
   "is_person": false
  },
@@ -2110,7 +2110,7 @@
   "id": "Google",
   "name": "Google",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0305000a05000300050402",
+  "guid1": "00100107030a0005050a030005000204",
   "guid2": null,
   "is_person": false
  },
@@ -2119,7 +2119,7 @@
   "id": "GoogleCloud",
   "name": "Google Cloud",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0305041c020d0000020407",
+  "guid1": "00100107030a0405021c000d02000704",
   "guid2": null,
   "is_person": false
  },
@@ -2128,7 +2128,7 @@
   "id": "GoogleMavenWithdrawal",
   "name": "GoogleMavenWithdrawal",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107070400020204100600000302",
+  "guid1": "00100107040702000402061000000203",
   "guid2": null,
   "is_person": false
  },
@@ -2137,7 +2137,7 @@
   "id": "GoogleWorkspaceAgents",
   "name": "GoogleWorkspaceAgents",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070702050018080d0000010102",
+  "guid1": "00100107020700050818000d01000201",
   "guid2": null,
   "is_person": false
  },
@@ -2146,8 +2146,8 @@
   "id": "GordonBrown",
   "name": "GordonBrown",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000000020c",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107040e00000000000000000c02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -2155,7 +2155,7 @@
   "id": "Gospel",
   "name": "The Gospel",
   "source": "N_Systems",
-  "guid1": "00100107010300050405130601050405",
+  "guid1": "00100107030105000504061305010504",
   "guid2": null,
   "is_person": false
  },
@@ -2164,7 +2164,7 @@
   "id": "Gotham",
   "name": "Gotham",
   "source": "N_Systems",
-  "guid1": "00100107010301021c03150400050403",
+  "guid1": "0010010703010201031c041505000304",
   "guid2": null,
   "is_person": false
  },
@@ -2173,7 +2173,7 @@
   "id": "Greece",
   "name": "Greece",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300000000000000000201",
+  "guid1": "00100107030900000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -2182,7 +2182,7 @@
   "id": "GreenlandLeverage",
   "name": "GreenlandLeverage",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070901000a0000000000000201",
+  "guid1": "0010010701090a000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -2191,7 +2191,7 @@
   "id": "Grok",
   "name": "Grok",
   "source": "cypher:System",
-  "guid1": "00100107020200001507000000020402",
+  "guid1": "00100107020200000715000002000204",
   "guid2": null,
   "is_person": false
  },
@@ -2200,7 +2200,7 @@
   "id": "Group11",
   "name": "Group11",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -2209,7 +2209,7 @@
   "id": "HackingTeam",
   "name": "HackingTeam",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b04090200000d0501020403",
+  "guid1": "00100107040b02090000050d02010304",
   "guid2": null,
   "is_person": false
  },
@@ -2218,7 +2218,7 @@
   "id": "HamburgMeeting1985",
   "name": "HamburgMeeting1985",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400000000000000000204",
+  "guid1": "00100107040e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -2227,7 +2227,7 @@
   "id": "HanwhaTechwin-Samsung",
   "name": "Hanwha Techwin (formerly Samsung)",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0309010104110600010403",
+  "guid1": "00100107030b01090401061101000304",
   "guid2": null,
   "is_person": false
  },
@@ -2236,8 +2236,8 @@
   "id": "Hegseth",
   "name": "Hegseth",
   "source": "cypher:Person",
-  "guid1": "001001070c030003000000000003020c",
-  "guid2": "00100107010403010001000000000000",
+  "guid1": "00100107030c03000000000003000c02",
+  "guid2": "00100107040101030100000000000000",
   "is_person": true
  },
  {
@@ -2245,7 +2245,7 @@
   "id": "Helsing",
   "name": "Helsing",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300020104100500030403",
+  "guid1": "00100107030b02000401051003000304",
   "guid2": null,
   "is_person": false
  },
@@ -2254,7 +2254,7 @@
   "id": "HessenPolice",
   "name": "HessenPolice",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070c0301000304090900030206",
+  "guid1": "00100107030c00010403090903000602",
   "guid2": null,
   "is_person": false
  },
@@ -2263,7 +2263,7 @@
   "id": "Hessendata",
   "name": "Hessendata",
   "source": "cypher:System",
-  "guid1": "00100107010201020405130100040406",
+  "guid1": "00100107020102010504011304000604",
   "guid2": null,
   "is_person": false
  },
@@ -2272,7 +2272,7 @@
   "id": "Hikvision",
   "name": "Hikvision",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0301020304090a00030402",
+  "guid1": "00100107030a020104030a0903000204",
   "guid2": null,
   "is_person": false
  },
@@ -2281,8 +2281,8 @@
   "id": "HillaryClinton",
   "name": "HillaryClinton",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000000020c",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107040e00000000000000000c02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -2290,7 +2290,7 @@
   "id": "Hivemind",
   "name": "Hivemind",
   "source": "N_Systems",
-  "guid1": "00100107070200010d08100000010403",
+  "guid1": "0010010702070100080d001001000304",
   "guid2": null,
   "is_person": false
  },
@@ -2299,8 +2299,8 @@
   "id": "Hoffman",
   "name": "Hoffman",
   "source": "cypher:Person",
-  "guid1": "001001070d0300000000000000030208",
-  "guid2": "00100107010404030003000000000000",
+  "guid1": "00100107030d00000000000003000802",
+  "guid2": "00100107040103040300000000000000",
   "is_person": true
  },
  {
@@ -2308,7 +2308,7 @@
   "id": "HoffmanPartisanWeapon",
   "name": "HoffmanPartisanWeapon",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010400090000000002010105",
+  "guid1": "00100107040109000000000001020501",
   "guid2": null,
   "is_person": false
  },
@@ -2317,7 +2317,7 @@
   "id": "Hololens",
   "name": "Hololens 2",
   "source": "N_Civic",
-  "guid1": "00100107060202060d04120000020102",
+  "guid1": "0010010702060602040d001202000201",
   "guid2": null,
   "is_person": false
  },
@@ -2326,7 +2326,7 @@
   "id": "Horizon",
   "name": "Horizon Europe",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -2335,7 +2335,7 @@
   "id": "HyperionEB2013",
   "name": "HyperionEB2013",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0400000000000000000208",
+  "guid1": "00100107040e00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -2344,7 +2344,7 @@
   "id": "Hyperoptic",
   "name": "Hyperoptic",
   "source": "N_Stakeholders",
-  "guid1": "001001070f0300000000000000000209",
+  "guid1": "00100107030f00000000000000000902",
   "guid2": null,
   "is_person": false
  },
@@ -2353,7 +2353,7 @@
   "id": "IBM",
   "name": "IBM",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0305041c020d0000000402",
+  "guid1": "00100107030a0405021c000d00000204",
   "guid2": null,
   "is_person": false
  },
@@ -2362,7 +2362,7 @@
   "id": "ICE",
   "name": "US Immigration (ICE)",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0310020304040901030204",
+  "guid1": "00100107030e02100403090403010402",
   "guid2": null,
   "is_person": false
  },
@@ -2371,7 +2371,7 @@
   "id": "ICM",
   "name": "ICM",
   "source": "cypher:System",
-  "guid1": "00100107010300030b05000500030105",
+  "guid1": "0010010703010300050b050003000501",
   "guid2": null,
   "is_person": false
  },
@@ -2380,7 +2380,7 @@
   "id": "IDF",
   "name": "IDF",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070c0300090000000000000205",
+  "guid1": "00100107030c09000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -2389,7 +2389,7 @@
   "id": "IRGC",
   "name": "IRGC",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070c0300030000000002010105",
+  "guid1": "00100107030c03000000000001020501",
   "guid2": null,
   "is_person": false
  },
@@ -2398,7 +2398,7 @@
   "id": "IRS",
   "name": "IRS",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -2407,8 +2407,8 @@
   "id": "IlyaSutskever",
   "name": "IlyaSutskever",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000030b",
-  "guid2": "00100107020404030003000000000000",
+  "guid1": "00100107030a00000000000000000b03",
+  "guid2": "00100107040203040300000000000000",
   "is_person": true
  },
  {
@@ -2416,7 +2416,7 @@
   "id": "InQTel",
   "name": "InQTel",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300020000000000000208",
+  "guid1": "00100107030d02000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -2425,7 +2425,7 @@
   "id": "India",
   "name": "India",
   "source": "N_Stakeholders",
-  "guid1": "00100107090301030000000000030201",
+  "guid1": "00100107030903010000000003000102",
   "guid2": null,
   "is_person": false
  },
@@ -2434,7 +2434,7 @@
   "id": "Instagram",
   "name": "Instagram",
   "source": "N_Civic",
-  "guid1": "001001070a0306000a05170305050402",
+  "guid1": "00100107030a0006050a031705050204",
   "guid2": null,
   "is_person": false
  },
@@ -2443,7 +2443,7 @@
   "id": "InstitutionalRecurrence",
   "name": "InstitutionalRecurrence",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400000000000000000104",
+  "guid1": "00100107040e00000000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -2452,7 +2452,7 @@
   "id": "Intellexa",
   "name": "Intellexa",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309020803140601030403",
+  "guid1": "00100107030b02090308061403010304",
   "guid2": null,
   "is_person": false
  },
@@ -2461,7 +2461,7 @@
   "id": "Iran",
   "name": "Iran",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107090309080403040501030201",
+  "guid1": "00100107030908090304050403010102",
   "guid2": null,
   "is_person": false
  },
@@ -2470,7 +2470,7 @@
   "id": "IranContra",
   "name": "IranContra",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400030000000000000201",
+  "guid1": "00100107040e03000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -2479,7 +2479,7 @@
   "id": "IranStrikes2026",
   "name": "IranStrikes2026",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070c0300090d050a0202010205",
+  "guid1": "00100107030c0900050d020a01020502",
   "guid2": null,
   "is_person": false
  },
@@ -2488,7 +2488,7 @@
   "id": "IranWar2026",
   "name": "IranWar2026",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107090300090000000002000201",
+  "guid1": "00100107030909000000000000020102",
   "guid2": null,
   "is_person": false
  },
@@ -2497,7 +2497,7 @@
   "id": "IrisGuard",
   "name": "IrisGuard",
   "source": "N_Systems",
-  "guid1": "00100107030210000304040b00030402",
+  "guid1": "001001070203001004030b0403000204",
   "guid2": null,
   "is_person": false
  },
@@ -2506,7 +2506,7 @@
   "id": "Israel",
   "name": "Israel",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300030000000000000201",
+  "guid1": "00100107030903000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -2515,7 +2515,7 @@
   "id": "IsraelCyberDirectorate",
   "name": "IsraelCyberDirectorate",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0309020000000000000204",
+  "guid1": "00100107030e02090000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -2524,7 +2524,7 @@
   "id": "IsraeliCyberAlumniPool",
   "name": "IsraeliCyberAlumniPool",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0300020000000000000305",
+  "guid1": "00100107030e02000000000000000503",
   "guid2": null,
   "is_person": false
  },
@@ -2533,7 +2533,7 @@
   "id": "Italy",
   "name": "Italy",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300000000000000000201",
+  "guid1": "00100107030900000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -2542,7 +2542,7 @@
   "id": "JEDI",
   "name": "JEDI",
   "source": "N_Systems",
-  "guid1": "00100107010400030000000000030105",
+  "guid1": "00100107040103000000000003000501",
   "guid2": null,
   "is_person": false
  },
@@ -2551,7 +2551,7 @@
   "id": "JNF",
   "name": "JNF",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -2560,7 +2560,7 @@
   "id": "JPMorgan",
   "name": "JPMorgan",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0306000705000800050208",
+  "guid1": "00100107030d00060507080005000802",
   "guid2": null,
   "is_person": false
  },
@@ -2569,8 +2569,8 @@
   "id": "JamalKhashoggi",
   "name": "JamalKhashoggi",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000200010c",
-  "guid2": "00100107020303030003000000000000",
+  "guid1": "00100107040e00000000000000020c01",
+  "guid2": "00100107030203030300000000000000",
   "is_person": true
  },
  {
@@ -2578,8 +2578,8 @@
   "id": "JanFord",
   "name": "JanFord",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000020a",
-  "guid2": "00100107020302030003000000000000",
+  "guid1": "00100107030e00000000000000000a02",
+  "guid2": "00100107030203020300000000000000",
   "is_person": true
  },
  {
@@ -2587,8 +2587,8 @@
   "id": "JasonCalacanis",
   "name": "JasonCalacanis",
   "source": "cypher:Person",
-  "guid1": "001001070d0300000000000000000208",
-  "guid2": "00100107020403020002000000000000",
+  "guid1": "00100107030d00000000000000000802",
+  "guid2": "00100107040202030200000000000000",
   "is_person": true
  },
  {
@@ -2596,7 +2596,7 @@
   "id": "Jericho",
   "name": "Jericho, StrikeWeb",
   "source": "N_Systems",
-  "guid1": "00100107010200030d050a0200040403",
+  "guid1": "0010010702010300050d020a04000304",
   "guid2": null,
   "is_person": false
  },
@@ -2605,7 +2605,7 @@
   "id": "Jordan",
   "name": "Jordan",
   "source": "N_Stakeholders",
-  "guid1": "00100107090310090000000000000201",
+  "guid1": "00100107030909100000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -2614,8 +2614,8 @@
   "id": "JulieKBrown",
   "name": "JulieKBrown",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000002010c",
-  "guid2": "00100107020403030003000000000000",
+  "guid1": "00100107030e00000000000002000c01",
+  "guid2": "00100107040203030300000000000000",
   "is_person": true
  },
  {
@@ -2623,8 +2623,8 @@
   "id": "Junkermann",
   "name": "Junkermann",
   "source": "cypher:Person",
-  "guid1": "001001070d0300000000000000000208",
-  "guid2": "00100107020303020002000000000000",
+  "guid1": "00100107030d00000000000000000802",
+  "guid2": "00100107030202030200000000000000",
   "is_person": true
  },
  {
@@ -2632,7 +2632,7 @@
   "id": "KKR",
   "name": "KKR Investments",
   "source": "N_Stakeholders",
-  "guid1": "001001070d0300000b05000000040208",
+  "guid1": "00100107030d0000050b000004000802",
   "guid2": null,
   "is_person": false
  },
@@ -2641,8 +2641,8 @@
   "id": "Karp",
   "name": "Alex Karp",
   "source": "N_People",
-  "guid1": "001001070a030000000000000003020b",
-  "guid2": "00100107010404030003000000000000",
+  "guid1": "00100107030a00000000000003000b02",
+  "guid2": "00100107040103040300000000000000",
   "is_person": true
  },
  {
@@ -2650,7 +2650,7 @@
   "id": "KelaAI",
   "name": "KelaAI",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0300020404000500030403",
+  "guid1": "00100107030b02000404050003000304",
   "guid2": null,
   "is_person": false
  },
@@ -2659,8 +2659,8 @@
   "id": "KevinBass",
   "name": "KevinBass",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000020b",
-  "guid2": "00100107020302020002000000000000",
+  "guid1": "00100107030e00000000000000000b02",
+  "guid2": "00100107030202020200000000000000",
   "is_person": true
  },
  {
@@ -2668,7 +2668,7 @@
   "id": "KhashoggiMurder",
   "name": "KhashoggiMurder",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107030400020000000002000101",
+  "guid1": "00100107040302000000000000020101",
   "guid2": null,
   "is_person": false
  },
@@ -2677,8 +2677,8 @@
   "id": "KimbalMusk",
   "name": "KimbalMusk",
   "source": "cypher:Person",
-  "guid1": "001001070d0300000000000000000208",
-  "guid2": "00100107020302020002000000000000",
+  "guid1": "00100107030d00000000000000000802",
+  "guid2": "00100107030202020200000000000000",
   "is_person": true
  },
  {
@@ -2686,8 +2686,8 @@
   "id": "Koren",
   "name": "Koren",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000000207",
-  "guid2": "00100107030303050004000000000000",
+  "guid1": "00100107030e00000000000000000702",
+  "guid2": "00100107030305030400000000000000",
   "is_person": true
  },
  {
@@ -2695,7 +2695,7 @@
   "id": "KyonggiUniversity",
   "name": "Kyonggi University",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300000000000000000104",
+  "guid1": "00100107030e00000000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -2704,7 +2704,7 @@
   "id": "LAW",
   "name": "Lethal Autonomous Weapons",
   "source": "N_Systems",
-  "guid1": "00100107070100010208100002010105",
+  "guid1": "00100107010701000802001001020501",
   "guid2": null,
   "is_person": false
  },
@@ -2713,7 +2713,7 @@
   "id": "LUCAS",
   "name": "LUCAS",
   "source": "cypher:System",
-  "guid1": "00100107050301000705130104040106",
+  "guid1": "00100107030500010507011304040601",
   "guid2": null,
   "is_person": false
  },
@@ -2722,7 +2722,7 @@
   "id": "LakeResources",
   "name": "LakeResources",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -2731,7 +2731,7 @@
   "id": "Landeskriminalamt",
   "name": "German State Police-NRW, Hesse, Bavaria",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0301001d030d0800030206",
+  "guid1": "00100107030e0001031d080d03000602",
   "guid2": null,
   "is_person": false
  },
@@ -2740,7 +2740,7 @@
   "id": "LargeGeospatialModels",
   "name": "Large Geospatial Models",
   "source": "N_Systems",
-  "guid1": "00100107020100060d070a0200040402",
+  "guid1": "0010010701020600070d020a04000204",
   "guid2": null,
   "is_person": false
  },
@@ -2749,8 +2749,8 @@
   "id": "LarryEllison",
   "name": "LarryEllison",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000003020b",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030a00000000000003000b02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -2758,7 +2758,7 @@
   "id": "Lattice",
   "name": "Lattice",
   "source": "N_Systems",
-  "guid1": "00100107030200040b060d0300050403",
+  "guid1": "0010010702030400060b030d05000304",
   "guid2": null,
   "is_person": false
  },
@@ -2767,7 +2767,7 @@
   "id": "LatticeOS",
   "name": "LatticeOS",
   "source": "cypher:System",
-  "guid1": "00100107010200030d05100000030103",
+  "guid1": "0010010702010300050d001003000301",
   "guid2": null,
   "is_person": false
  },
@@ -2776,7 +2776,7 @@
   "id": "Lavender",
   "name": "Lavender",
   "source": "N_Systems",
-  "guid1": "00100107010200020404130602040105",
+  "guid1": "00100107020102000404061304020501",
   "guid2": null,
   "is_person": false
  },
@@ -2785,7 +2785,7 @@
   "id": "Lebanon",
   "name": "Lebanon",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300000000000000000201",
+  "guid1": "00100107030900000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -2794,7 +2794,7 @@
   "id": "LegionX",
   "name": "LegionX",
   "source": "N_Systems",
-  "guid1": "001001070b0309020000000000000403",
+  "guid1": "00100107030b02090000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -2803,7 +2803,7 @@
   "id": "Leidos",
   "name": "Leidos",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300020000000000000403",
+  "guid1": "00100107030b02000000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -2812,8 +2812,8 @@
   "id": "LeonBlack",
   "name": "LeonBlack",
   "source": "cypher:Person",
-  "guid1": "001001070d030000000000000000020b",
-  "guid2": "00100107010305010005000000000000",
+  "guid1": "00100107030d00000000000000000b02",
+  "guid2": "00100107030101050500000000000000",
   "is_person": true
  },
  {
@@ -2821,7 +2821,7 @@
   "id": "Leonardo",
   "name": "Leonardo",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300010208110000010403",
+  "guid1": "00100107030b01000802001101000304",
   "guid2": null,
   "is_person": false
  },
@@ -2830,7 +2830,7 @@
   "id": "Libya",
   "name": "Libya",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300030000000000000101",
+  "guid1": "00100107030903000000000000000101",
   "guid2": null,
   "is_person": false
  },
@@ -2839,7 +2839,7 @@
   "id": "LinkedIn",
   "name": "LinkedIn",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0305000a05130c00050402",
+  "guid1": "00100107030a0005050a0c1305000204",
   "guid2": null,
   "is_person": false
  },
@@ -2848,8 +2848,8 @@
   "id": "LiorDiv",
   "name": "LiorDiv",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000020b",
-  "guid2": "00100107010403020002000000000000",
+  "guid1": "00100107030a00000000000000000b02",
+  "guid2": "00100107040102030200000000000000",
   "is_person": true
  },
  {
@@ -2857,8 +2857,8 @@
   "id": "LisaPhillips",
   "name": "LisaPhillips",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010a",
-  "guid2": "00100107030201050004000000000000",
+  "guid1": "00100107030e00000000000000000a01",
+  "guid2": "00100107020305010400000000000000",
   "is_person": true
  },
  {
@@ -2866,7 +2866,7 @@
   "id": "Llama",
   "name": "Llama",
   "source": "N_Civic",
-  "guid1": "00100107020205001507000000020402",
+  "guid1": "00100107020200050715000002000204",
   "guid2": null,
   "is_person": false
  },
@@ -2875,7 +2875,7 @@
   "id": "Lockheed",
   "name": "Lockheed Martin",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300090000000000000203",
+  "guid1": "00100107030b09000000000000000302",
   "guid2": null,
   "is_person": false
  },
@@ -2884,8 +2884,8 @@
   "id": "Luckey",
   "name": "Palmer Luckey",
   "source": "N_People",
-  "guid1": "001001070b030000000000000003030b",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030b00000000000003000b03",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -2893,7 +2893,7 @@
   "id": "MAPLE",
   "name": "MAPLE",
   "source": "N_Systems",
-  "guid1": "00100107030100050405060000040403",
+  "guid1": "00100107010305000504000604000304",
   "guid2": null,
   "is_person": false
  },
@@ -2902,8 +2902,8 @@
   "id": "MBS",
   "name": "MBS",
   "source": "cypher:Person",
-  "guid1": "0010010709030000000000000000020c",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030900000000000000000c02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -2911,7 +2911,7 @@
   "id": "MDA",
   "name": "MDA",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070c0300050000000000030205",
+  "guid1": "00100107030c05000000000003000502",
   "guid2": null,
   "is_person": false
  },
@@ -2920,7 +2920,7 @@
   "id": "MGX",
   "name": "MGX",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -2929,7 +2929,7 @@
   "id": "MIT",
   "name": "MIT",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300051807000000020304",
+  "guid1": "00100107030e05000718000002000403",
   "guid2": null,
   "is_person": false
  },
@@ -2938,7 +2938,7 @@
   "id": "MITMediaLab",
   "name": "MITMediaLab",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000304",
+  "guid1": "00100107030e00000000000000000403",
   "guid2": null,
   "is_person": false
  },
@@ -2947,7 +2947,7 @@
   "id": "Mabat2000",
   "name": "Mabat 2000",
   "source": "N_Systems",
-  "guid1": "00100107010309000204100600030106",
+  "guid1": "00100107030100090402061003000601",
   "guid2": null,
   "is_person": false
  },
@@ -2956,7 +2956,7 @@
   "id": "MacquarieCapital",
   "name": "MacquarieCapital",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -2965,8 +2965,8 @@
   "id": "Maduro",
   "name": "Maduro",
   "source": "cypher:Person",
-  "guid1": "0010010709030003000000000003020c",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030903000000000003000c02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -2974,7 +2974,7 @@
   "id": "MaduroCapture",
   "name": "MaduroCapture",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010400020304090902030201",
+  "guid1": "00100107040102000403090903020102",
   "guid2": null,
   "is_person": false
  },
@@ -2983,7 +2983,7 @@
   "id": "Mamram",
   "name": "Mamram",
   "source": "N_Stakeholders",
-  "guid1": "001001070c0300020000000000000205",
+  "guid1": "00100107030c02000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -2992,7 +2992,7 @@
   "id": "ManagedSpectrumPattern",
   "name": "ManagedSpectrumPattern",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070304000b0803140000040105",
+  "guid1": "0010010704030b000308001404000501",
   "guid2": null,
   "is_person": false
  },
@@ -3001,8 +3001,8 @@
   "id": "Mandelson",
   "name": "Mandelson",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010c",
-  "guid2": "00100107010303020002000000000000",
+  "guid1": "00100107030e00000000000000000c01",
+  "guid2": "00100107030102030200000000000000",
   "is_person": true
  },
  {
@@ -3010,7 +3010,7 @@
   "id": "Mantacus",
   "name": "Mantacus",
   "source": "N_Systems",
-  "guid1": "00100107030100010208100000010403",
+  "guid1": "00100107010301000802001001000304",
   "guid2": null,
   "is_person": false
  },
@@ -3019,8 +3019,8 @@
   "id": "ManucherGhorbanifar",
   "name": "ManucherGhorbanifar",
   "source": "cypher:Person",
-  "guid1": "001001070e040002000000000000010c",
-  "guid2": "00100107010403040004000000000000",
+  "guid1": "00100107040e02000000000000000c01",
+  "guid2": "00100107040104030400000000000000",
   "is_person": true
  },
  {
@@ -3028,7 +3028,7 @@
   "id": "MarALagoVideo1986",
   "name": "MarALagoVideo1986",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400000000000000000204",
+  "guid1": "00100107040e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -3037,7 +3037,7 @@
   "id": "MaritimeInsuranceCapture",
   "name": "MaritimeInsuranceCapture",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070304000008050a0000040407",
+  "guid1": "00100107040300000508000a04000704",
   "guid2": null,
   "is_person": false
  },
@@ -3046,7 +3046,7 @@
   "id": "Maven",
   "name": "Maven Smart System",
   "source": "N_Systems",
-  "guid1": "00100107010200020104110600040103",
+  "guid1": "00100107020102000401061104000301",
   "guid2": null,
   "is_person": false
  },
@@ -3055,7 +3055,7 @@
   "id": "MavenNATO",
   "name": "MavenNATO",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107010200020104100500030105",
+  "guid1": "00100107020102000401051003000501",
   "guid2": null,
   "is_person": false
  },
@@ -3064,7 +3064,7 @@
   "id": "MavenSmartSystem",
   "name": "MavenSmartSystem",
   "source": "cypher:System",
-  "guid1": "00100107010200020204100602040105",
+  "guid1": "00100107020102000402061004020501",
   "guid2": null,
   "is_person": false
  },
@@ -3073,8 +3073,8 @@
   "id": "Maxwell",
   "name": "Maxwell",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000100010a",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107040e00000000000000010a01",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -3082,7 +3082,7 @@
   "id": "McKinsey",
   "name": "McKinsey",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300000000000000050204",
+  "guid1": "00100107030e00000000000005000402",
   "guid2": null,
   "is_person": false
  },
@@ -3091,7 +3091,7 @@
   "id": "MediaCapture2025",
   "name": "MediaCapture2025",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e030a000000000004000102",
+  "guid1": "00100107030e000a0000000000040201",
   "guid2": null,
   "is_person": false
  },
@@ -3100,7 +3100,7 @@
   "id": "Medicare",
   "name": "US Medicare Fraud Detection (CMS)",
   "source": "N_Civic",
-  "guid1": "001001070f0308000703000400030204",
+  "guid1": "00100107030f00080307040003000402",
   "guid2": null,
   "is_person": false
  },
@@ -3109,7 +3109,7 @@
   "id": "MensClubToOpenBazaar",
   "name": "MensClubToOpenBazaar",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010400000000000000000204",
+  "guid1": "00100107040100000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -3118,8 +3118,8 @@
   "id": "Merz",
   "name": "Merz",
   "source": "cypher:Person",
-  "guid1": "0010010709030000000000000003020c",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107030900000000000003000c02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -3127,7 +3127,7 @@
   "id": "Meta",
   "name": "Meta",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0305000a03000304050402",
+  "guid1": "00100107030a0005030a030005040204",
   "guid2": null,
   "is_person": false
  },
@@ -3136,7 +3136,7 @@
   "id": "MetaConstellation",
   "name": "Meta Constellation",
   "source": "N_Systems",
-  "guid1": "00100107070106000a05130300050402",
+  "guid1": "0010010701070006050a031305000204",
   "guid2": null,
   "is_person": false
  },
@@ -3145,8 +3145,8 @@
   "id": "MichaelTracy",
   "name": "MichaelTracy",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000000104",
-  "guid2": "00100107020302020002000000000000",
+  "guid1": "00100107030e00000000000000000401",
+  "guid2": "00100107030202020200000000000000",
   "is_person": true
  },
  {
@@ -3154,7 +3154,7 @@
   "id": "Microsoft",
   "name": "Microsoft",
   "source": "N_Stakeholders",
-  "guid1": "001001070a03090318080d0000020402",
+  "guid1": "00100107030a03090818000d02000204",
   "guid2": null,
   "is_person": false
  },
@@ -3163,7 +3163,7 @@
   "id": "MicrosoftGraphAPI",
   "name": "MicrosoftGraphAPI",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0306001d020d0000000402",
+  "guid1": "00100107030a0006021d000d00000204",
   "guid2": null,
   "is_person": false
  },
@@ -3172,7 +3172,7 @@
   "id": "MidnightHammer",
   "name": "MidnightHammer",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070c0400090000000002010205",
+  "guid1": "00100107040c09000000000001020502",
   "guid2": null,
   "is_person": false
  },
@@ -3181,7 +3181,7 @@
   "id": "Mithra",
   "name": "MithraOS",
   "source": "N_Systems",
-  "guid1": "00100107010109020405030500040103",
+  "guid1": "00100107010102090504050304000301",
   "guid2": null,
   "is_person": false
  },
@@ -3190,8 +3190,8 @@
   "id": "MohamedAlFayed",
   "name": "MohamedAlFayed",
   "source": "cypher:Person",
-  "guid1": "001001070d040000000000000000020a",
-  "guid2": "00100107010304020002000000000000",
+  "guid1": "00100107040d00000000000000000a02",
+  "guid2": "00100107030102040200000000000000",
   "is_person": true
  },
  {
@@ -3199,8 +3199,8 @@
   "id": "MojtabaKhamenei",
   "name": "MojtabaKhamenei",
   "source": "cypher:Person",
-  "guid1": "001001070e030003000000000000020c",
-  "guid2": "00100107010404030003000000000000",
+  "guid1": "00100107030e03000000000000000c02",
+  "guid2": "00100107040103040300000000000000",
   "is_person": true
  },
  {
@@ -3208,7 +3208,7 @@
   "id": "MorganStanley",
   "name": "MorganStanley",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -3217,7 +3217,7 @@
   "id": "Mossad",
   "name": "Mossad",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300020000000000000204",
+  "guid1": "00100107030e02000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -3226,8 +3226,8 @@
   "id": "Mubarak",
   "name": "Mubarak",
   "source": "cypher:Person",
-  "guid1": "0010010709040003000000000000020c",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107040903000000000000000c02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -3235,8 +3235,8 @@
   "id": "MuhammadKhashoggi",
   "name": "MuhammadKhashoggi",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000200010c",
-  "guid2": "00100107030303030003000000000000",
+  "guid1": "00100107040e00000000000000020c01",
+  "guid2": "00100107030303030300000000000000",
   "is_person": true
  },
  {
@@ -3244,8 +3244,8 @@
   "id": "Musk",
   "name": "Elon Musk",
   "source": "N_People",
-  "guid1": "001001070a030000000000000003020b",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030a00000000000003000b02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -3253,7 +3253,7 @@
   "id": "NATO",
   "name": "NATO",
   "source": "N_Stakeholders",
-  "guid1": "001001070c0300030000000000030205",
+  "guid1": "00100107030c03000000000003000502",
   "guid2": null,
   "is_person": false
  },
@@ -3262,7 +3262,7 @@
   "id": "NATODIANA",
   "name": "NATODIANA",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070c0100030000000000000205",
+  "guid1": "00100107010c03000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -3271,7 +3271,7 @@
   "id": "NHS",
   "name": "UK NHS",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0308001c03000000030204",
+  "guid1": "00100107030e0008031c000003000402",
   "guid2": null,
   "is_person": false
  },
@@ -3280,7 +3280,7 @@
   "id": "NHSEngland",
   "name": "NHSEngland",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0308000703000000030204",
+  "guid1": "00100107030e00080307000003000402",
   "guid2": null,
   "is_person": false
  },
@@ -3289,7 +3289,7 @@
   "id": "NIF",
   "name": "Nato Innovation Fund",
   "source": "N_Stakeholders",
-  "guid1": "001001070d0300050000000000000208",
+  "guid1": "00100107030d05000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -3298,7 +3298,7 @@
   "id": "NRWPolice",
   "name": "NRWPolice",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0301000000000400000206",
+  "guid1": "00100107030e00010000040000000602",
   "guid2": null,
   "is_person": false
  },
@@ -3307,7 +3307,7 @@
   "id": "NSO",
   "name": "NSO Group",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0309020801140501020403",
+  "guid1": "00100107030b02090108051402010304",
   "guid2": null,
   "is_person": false
  },
@@ -3316,7 +3316,7 @@
   "id": "NSOGroup",
   "name": "NSOGroup",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309020801140501000403",
+  "guid1": "00100107030b02090108051400010304",
   "guid2": null,
   "is_person": false
  },
@@ -3325,7 +3325,7 @@
   "id": "NSOMetrics",
   "name": "NSOMetrics",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309020803140500030403",
+  "guid1": "00100107030b02090308051403000304",
   "guid2": null,
   "is_person": false
  },
@@ -3334,7 +3334,7 @@
   "id": "NYDFS",
   "name": "NYDFS",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000800030204",
+  "guid1": "00100107030e00000000080003000402",
   "guid2": null,
   "is_person": false
  },
@@ -3343,7 +3343,7 @@
   "id": "NarcissismAsOpsec",
   "name": "NarcissismAsOpsec",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107030303001a04130e04040104",
+  "guid1": "0010010703030003041a0e1304040401",
   "guid2": null,
   "is_person": false
  },
@@ -3352,7 +3352,7 @@
   "id": "NasdaqVentures",
   "name": "NasdaqVentures",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -3361,7 +3361,7 @@
   "id": "NegotiationsDesignedToFail",
   "name": "NegotiationsDesignedToFail",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0300000000000000000104",
+  "guid1": "00100107030e00000000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -3370,7 +3370,7 @@
   "id": "Neko",
   "name": "Neko Health",
   "source": "N_Civic",
-  "guid1": "001001070a0303000901040500050407",
+  "guid1": "00100107030a00030109050405000704",
   "guid2": null,
   "is_person": false
  },
@@ -3379,8 +3379,8 @@
   "id": "Netanyahu",
   "name": "Netanyahu",
   "source": "cypher:Person",
-  "guid1": "0010010709030003000000000003020c",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030903000000000003000c02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -3388,7 +3388,7 @@
   "id": "NexaAmesys",
   "name": "NexaAmesys",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309020000140500000403",
+  "guid1": "00100107030b02090000051400000304",
   "guid2": null,
   "is_person": false
  },
@@ -3397,7 +3397,7 @@
   "id": "NexaTech",
   "name": "NexaTech",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0300000000000000000407",
+  "guid1": "00100107030a00000000000000000704",
   "guid2": null,
   "is_person": false
  },
@@ -3406,7 +3406,7 @@
   "id": "NexaTechnologies",
   "name": "NexaTechnologies",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0209020801140501020403",
+  "guid1": "00100107020b02090108051402010304",
   "guid2": null,
   "is_person": false
  },
@@ -3415,7 +3415,7 @@
   "id": "Niantic",
   "name": "Niantic Spatial",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0302000d070a0000020402",
+  "guid1": "00100107030a0002070d000a02000204",
   "guid2": null,
   "is_person": false
  },
@@ -3424,7 +3424,7 @@
   "id": "NightlineTranscript1986",
   "name": "NightlineTranscript1986",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400001402000000020104",
+  "guid1": "00100107040e00000214000002000401",
   "guid2": null,
   "is_person": false
  },
@@ -3433,7 +3433,7 @@
   "id": "Nimbus",
   "name": "Project Nimbus",
   "source": "N_Systems",
-  "guid1": "00100107030200041d020d0000000402",
+  "guid1": "0010010702030400021d000d00000204",
   "guid2": null,
   "is_person": false
  },
@@ -3442,8 +3442,8 @@
   "id": "NirZuk",
   "name": "NirZuk",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000020b",
-  "guid2": "00100107020303020002000000000000",
+  "guid1": "00100107030a00000000000000000b02",
+  "guid2": "00100107030202030200000000000000",
   "is_person": true
  },
  {
@@ -3451,7 +3451,7 @@
   "id": "NoTechForApartheid",
   "name": "NoTechForApartheid",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -3460,8 +3460,8 @@
   "id": "NoamErez",
   "name": "NoamErez",
   "source": "cypher:Person",
-  "guid1": "001001070e030002000000000000020b",
-  "guid2": "00100107010303010001000000000000",
+  "guid1": "00100107030e02000000000000000b02",
+  "guid2": "00100107030101030100000000000000",
   "is_person": true
  },
  {
@@ -3469,7 +3469,7 @@
   "id": "Novact",
   "name": "Novact",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -3478,7 +3478,7 @@
   "id": "OSC",
   "name": "OSC",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -3487,7 +3487,7 @@
   "id": "OTCyberConsortium",
   "name": "OTCyberConsortium",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0309000000000000000204",
+  "guid1": "00100107030e00090000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -3496,7 +3496,7 @@
   "id": "Oculus",
   "name": "Oculus Rift",
   "source": "N_Civic",
-  "guid1": "001001070a0402000c04120000020402",
+  "guid1": "00100107040a0002040c001202000204",
   "guid2": null,
   "is_person": false
  },
@@ -3505,7 +3505,7 @@
   "id": "OfficeStrategicCapital",
   "name": "OfficeStrategicCapital",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e03000a0000000000030204",
+  "guid1": "00100107030e0a000000000003000402",
   "guid2": null,
   "is_person": false
  },
@@ -3514,8 +3514,8 @@
   "id": "Oldfield",
   "name": "Oldfield",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000003020b",
-  "guid2": "00100107020404020002000000000000",
+  "guid1": "00100107030e00000000000003000b02",
+  "guid2": "00100107040202040200000000000000",
   "is_person": true
  },
  {
@@ -3523,8 +3523,8 @@
   "id": "OliverNorth",
   "name": "OliverNorth",
   "source": "cypher:Person",
-  "guid1": "001001070c0400090000000000000205",
-  "guid2": "00100107010403030003000000000000",
+  "guid1": "00100107040c09000000000000000502",
+  "guid2": "00100107040103030300000000000000",
   "is_person": true
  },
  {
@@ -3532,8 +3532,8 @@
   "id": "OmarAbdulaziz",
   "name": "OmarAbdulaziz",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000100010c",
-  "guid2": "00100107030302030003000000000000",
+  "guid1": "00100107030e00000000000000010c01",
+  "guid2": "00100107030303020300000000000000",
   "is_person": true
  },
  {
@@ -3541,7 +3541,7 @@
   "id": "Onavo",
   "name": "Onavo",
   "source": "N_Historical",
-  "guid1": "00100107030406000801140500020402",
+  "guid1": "00100107040300060108051402000204",
   "guid2": null,
   "is_person": false
  },
@@ -3550,7 +3550,7 @@
   "id": "OpenAI",
   "name": "OpenAI",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0305001807000005020402",
+  "guid1": "00100107030a00050718000002050204",
   "guid2": null,
   "is_person": false
  },
@@ -3559,7 +3559,7 @@
   "id": "OpenAIComplianceArc",
   "name": "OpenAIComplianceArc",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070a0300000000000000030302",
+  "guid1": "00100107030a00000000000003000203",
   "guid2": null,
   "is_person": false
  },
@@ -3568,7 +3568,7 @@
   "id": "OpenAIDistraction",
   "name": "OpenAIDistraction",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070a0400000000000000000202",
+  "guid1": "00100107040a00000000000000000202",
   "guid2": null,
   "is_person": false
  },
@@ -3577,7 +3577,7 @@
   "id": "OpenAIPentagonDeal",
   "name": "OpenAIPentagonDeal",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107020200021807000000020402",
+  "guid1": "00100107020202000718000002000204",
   "guid2": null,
   "is_person": false
  },
@@ -3586,7 +3586,7 @@
   "id": "OperationCondor",
   "name": "OperationCondor",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070c0400020000000002000201",
+  "guid1": "00100107040c02000000000000020102",
   "guid2": null,
   "is_person": false
  },
@@ -3595,7 +3595,7 @@
   "id": "OperationSouthernSpear",
   "name": "OperationSouthernSpear",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010310090d050a0500030105",
+  "guid1": "0010010703010910050d050a03000501",
   "guid2": null,
   "is_person": false
  },
@@ -3604,7 +3604,7 @@
   "id": "Oracle",
   "name": "Oracle",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0305041c020d0000020407",
+  "guid1": "00100107030a0405021c000d02000704",
   "guid2": null,
   "is_person": false
  },
@@ -3613,7 +3613,7 @@
   "id": "Outlier",
   "name": "Outlier & Remotetasks",
   "source": "N_Civic",
-  "guid1": "001001070a0305000703000000020402",
+  "guid1": "00100107030a00050307000002000204",
   "guid2": null,
   "is_person": false
  },
@@ -3622,7 +3622,7 @@
   "id": "PEGACommittee",
   "name": "PEGACommittee",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0400000000000000000204",
+  "guid1": "00100107040e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -3631,7 +3631,7 @@
   "id": "PG",
   "name": "PG Robotics",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300010108110000010403",
+  "guid1": "00100107030b01000801001101000304",
   "guid2": null,
   "is_person": false
  },
@@ -3640,7 +3640,7 @@
   "id": "PLA-PRC",
   "name": "People's Liberation Army",
   "source": "N_Stakeholders",
-  "guid1": "001001070c0300030000000000030205",
+  "guid1": "00100107030c03000000000003000502",
   "guid2": null,
   "is_person": false
  },
@@ -3649,7 +3649,7 @@
   "id": "PRISM",
   "name": "PRISM/XKEYSCORE",
   "source": "N_Systems",
-  "guid1": "00100107010309020801140501040204",
+  "guid1": "00100107030102090108051404010402",
   "guid2": null,
   "is_person": false
  },
@@ -3658,7 +3658,7 @@
   "id": "PackBot",
   "name": "PackBot",
   "source": "N_Systems",
-  "guid1": "00100107060200010000000000010105",
+  "guid1": "00100107020601000000000001000501",
   "guid2": null,
   "is_person": false
  },
@@ -3667,8 +3667,8 @@
   "id": "Packard",
   "name": "Packard",
   "source": "cypher:Person",
-  "guid1": "001001070a040000000000000000030b",
-  "guid2": "00100107020403020002000000000000",
+  "guid1": "00100107040a00000000000000000b03",
+  "guid2": "00100107040202030200000000000000",
   "is_person": true
  },
  {
@@ -3676,7 +3676,7 @@
   "id": "Palantir",
   "name": "Palantir",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0301021d030d0500030403",
+  "guid1": "00100107030b0201031d050d03000304",
   "guid2": null,
   "is_person": false
  },
@@ -3685,7 +3685,7 @@
   "id": "PalantirAndurilConsortium",
   "name": "PalantirAndurilConsortium",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b03090804050d0500040203",
+  "guid1": "00100107030b08090504050d04000302",
   "guid2": null,
   "is_person": false
  },
@@ -3694,7 +3694,7 @@
   "id": "PalantirMetrics",
   "name": "PalantirMetrics",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107080201020403130e04040403",
+  "guid1": "001001070208020103040e1304040304",
   "guid2": null,
   "is_person": false
  },
@@ -3703,7 +3703,7 @@
   "id": "PalantirSublicense",
   "name": "PalantirSublicense",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070b0400020000000000000403",
+  "guid1": "00100107040b02000000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -3712,7 +3712,7 @@
   "id": "Palestine",
   "name": "Palestine",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300000000000000000101",
+  "guid1": "00100107030900000000000000000101",
   "guid2": null,
   "is_person": false
  },
@@ -3721,8 +3721,8 @@
   "id": "PalmerLuckey",
   "name": "PalmerLuckey",
   "source": "cypher:Person",
-  "guid1": "001001070b030000000000000003020b",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107030b00000000000003000b02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -3730,7 +3730,7 @@
   "id": "PaloAlto",
   "name": "PaloAlto",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309020404000500030402",
+  "guid1": "00100107030a02090404050003000204",
   "guid2": null,
   "is_person": false
  },
@@ -3739,7 +3739,7 @@
   "id": "PaloAltoMetrics",
   "name": "PaloAltoMetrics",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309020404140500040407",
+  "guid1": "00100107030a02090404051404000704",
   "guid2": null,
   "is_person": false
  },
@@ -3748,8 +3748,8 @@
   "id": "PamBondi",
   "name": "PamBondi",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010c",
-  "guid2": "00100107010403020002000000000000",
+  "guid1": "00100107030e00000000000000000c01",
+  "guid2": "00100107040102030200000000000000",
   "is_person": true
  },
  {
@@ -3757,7 +3757,7 @@
   "id": "Pantir-SM",
   "name": "Pantir-SM",
   "source": "N_Systems",
-  "guid1": "001001070c0300090000000000010105",
+  "guid1": "00100107030c09000000000001000501",
   "guid2": null,
   "is_person": false
  },
@@ -3766,7 +3766,7 @@
   "id": "ParadigmCognitiveAccess",
   "name": "ParadigmCognitiveAccess",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0300020000000000000104",
+  "guid1": "00100107030e02000000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -3775,7 +3775,7 @@
   "id": "ParadigmOSINT",
   "name": "ParadigmOSINT",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010309021d030d0500050404",
+  "guid1": "0010010703010209031d050d05000404",
   "guid2": null,
   "is_person": false
  },
@@ -3784,7 +3784,7 @@
   "id": "ParadigmSurveillance",
   "name": "ParadigmSurveillance",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010409020801140501040204",
+  "guid1": "00100107040102090108051404010402",
   "guid2": null,
   "is_person": false
  },
@@ -3793,7 +3793,7 @@
   "id": "ParamountSkydance",
   "name": "ParamountSkydance",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a030a000000000000020207",
+  "guid1": "00100107030a000a0000000002000702",
   "guid2": null,
   "is_person": false
  },
@@ -3802,8 +3802,8 @@
   "id": "Parnas",
   "name": "Parnas",
   "source": "cypher:Person",
-  "guid1": "001001070e0400000000000000000104",
-  "guid2": "00100107020404030003000000000000",
+  "guid1": "00100107040e00000000000000000401",
+  "guid2": "00100107040203040300000000000000",
   "is_person": true
  },
  {
@@ -3811,8 +3811,8 @@
   "id": "Patel",
   "name": "Patel",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010c",
-  "guid2": "00100107010303040004000000000000",
+  "guid1": "00100107030e00000000000000000c01",
+  "guid2": "00100107030104030400000000000000",
   "is_person": true
  },
  {
@@ -3820,7 +3820,7 @@
   "id": "PatternZero",
   "name": "PatternZero",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107030400020404000500040403",
+  "guid1": "00100107040302000404050004000304",
   "guid2": null,
   "is_person": false
  },
@@ -3829,8 +3829,8 @@
   "id": "PaulMorris",
   "name": "PaulMorris",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010c",
-  "guid2": "00100107030303050004000000000000",
+  "guid1": "00100107030e00000000000000000c01",
+  "guid2": "00100107030305030400000000000000",
   "is_person": true
  },
  {
@@ -3838,7 +3838,7 @@
   "id": "PayPalMafia",
   "name": "PayPalMafia",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -3847,7 +3847,7 @@
   "id": "Paypal",
   "name": "Paypal",
   "source": "N_Civic",
-  "guid1": "001001070a0306000405160e00030402",
+  "guid1": "00100107030a000605040e1603000204",
   "guid2": null,
   "is_person": false
  },
@@ -3856,7 +3856,7 @@
   "id": "Pegasus",
   "name": "Pegasus",
   "source": "N_Systems",
-  "guid1": "00100107030309020801140501000103",
+  "guid1": "00100107030302090108051400010301",
   "guid2": null,
   "is_person": false
  },
@@ -3865,7 +3865,7 @@
   "id": "PentagonComplex",
   "name": "PentagonComplex",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300030000000000000205",
+  "guid1": "00100107030e03000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -3874,8 +3874,8 @@
   "id": "Petraeus",
   "name": "Petraeus",
   "source": "cypher:Person",
-  "guid1": "001001070c0400030000000000000205",
-  "guid2": "00100107010504010001000000000000",
+  "guid1": "00100107040c03000000000000000502",
+  "guid2": "00100107050101040100000000000000",
   "is_person": true
  },
  {
@@ -3883,8 +3883,8 @@
   "id": "Pezeshkian",
   "name": "Pezeshkian",
   "source": "cypher:Person",
-  "guid1": "0010010709030000000000000000010c",
-  "guid2": "00100107010404030003000000000000",
+  "guid1": "00100107030900000000000000000c01",
+  "guid2": "00100107040103040300000000000000",
   "is_person": true
  },
  {
@@ -3892,8 +3892,8 @@
   "id": "Pinochet",
   "name": "Pinochet",
   "source": "cypher:Person",
-  "guid1": "001001070e040003000000000000020c",
-  "guid2": "00100107010305010001000000000000",
+  "guid1": "00100107040e03000000000000000c02",
+  "guid2": "00100107030101050100000000000000",
   "is_person": true
  },
  {
@@ -3901,7 +3901,7 @@
   "id": "PodcastAsDealRoom",
   "name": "PodcastAsDealRoom",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e030a000000000000000107",
+  "guid1": "00100107030e000a0000000000000701",
   "guid2": null,
   "is_person": false
  },
@@ -3910,7 +3910,7 @@
   "id": "Pokemon",
   "name": "Pokemon Go",
   "source": "N_Civic",
-  "guid1": "00100107030307000a050a0305050402",
+  "guid1": "0010010703030007050a030a05050204",
   "guid2": null,
   "is_person": false
  },
@@ -3919,7 +3919,7 @@
   "id": "PolygraphPlus",
   "name": "Polygraph+",
   "source": "N_Systems",
-  "guid1": "001001070502030208040e0701030404",
+  "guid1": "00100107020502030408070e03010404",
   "guid2": null,
   "is_person": false
  },
@@ -3928,7 +3928,7 @@
   "id": "Portugal",
   "name": "Portugal",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300000000000000000201",
+  "guid1": "00100107030900000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -3937,7 +3937,7 @@
   "id": "PostInformationWar",
   "name": "PostInformationWar",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107090300080000000000000201",
+  "guid1": "00100107030908000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -3946,7 +3946,7 @@
   "id": "Predator",
   "name": "Predator",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107030409020801140501020403",
+  "guid1": "00100107040302090108051402010304",
   "guid2": null,
   "is_person": false
  },
@@ -3955,7 +3955,7 @@
   "id": "Presage",
   "name": "Presage",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300050405000000040402",
+  "guid1": "00100107030a05000504000004000204",
   "guid2": null,
   "is_person": false
  },
@@ -3964,8 +3964,8 @@
   "id": "PrinceAndrew",
   "name": "PrinceAndrew",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000000010c",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107040e00000000000000000c01",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -3973,8 +3973,8 @@
   "id": "PrincessDiana",
   "name": "PrincessDiana",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000000010c",
-  "guid2": "00100107030304050003000000000000",
+  "guid1": "00100107040e00000000000000000c01",
+  "guid2": "00100107030305040300000000000000",
   "is_person": true
  },
  {
@@ -3982,7 +3982,7 @@
   "id": "PrisonGuard",
   "name": "Prison Guard",
   "source": "N_Systems",
-  "guid1": "00100107060201000104110500010104",
+  "guid1": "00100107020600010401051101000401",
   "guid2": null,
   "is_person": false
  },
@@ -3991,7 +3991,7 @@
   "id": "ProductizationPipeline",
   "name": "ProductizationPipeline",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080400000008000000000202",
+  "guid1": "00100107040800000800000000000202",
   "guid2": null,
   "is_person": false
  },
@@ -4000,7 +4000,7 @@
   "id": "ProjectMaven",
   "name": "ProjectMaven",
   "source": "cypher:System",
-  "guid1": "00100107010200020104100500030105",
+  "guid1": "00100107020102000401051003000501",
   "guid2": null,
   "is_person": false
  },
@@ -4009,7 +4009,7 @@
   "id": "ProxySG",
   "name": "ProxySG",
   "source": "cypher:System",
-  "guid1": "001001070302060b0803140500030402",
+  "guid1": "0010010702030b060308051403000204",
   "guid2": null,
   "is_person": false
  },
@@ -4018,7 +4018,7 @@
   "id": "QS",
   "name": "Quantum Systems",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300010208100500010403",
+  "guid1": "00100107030b01000802051001000304",
   "guid2": null,
   "is_person": false
  },
@@ -4027,7 +4027,7 @@
   "id": "QinetiQ",
   "name": "QinetiQ",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300020000000000000403",
+  "guid1": "00100107030b02000000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -4036,7 +4036,7 @@
   "id": "Radiflow",
   "name": "Radiflow",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309020403140500040402",
+  "guid1": "00100107030a02090304051404000204",
   "guid2": null,
   "is_person": false
  },
@@ -4045,7 +4045,7 @@
   "id": "Rafael",
   "name": "Rafael",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300010208100000010303",
+  "guid1": "00100107030b01000802001001000303",
   "guid2": null,
   "is_person": false
  },
@@ -4054,7 +4054,7 @@
   "id": "RafaelDefense",
   "name": "RafaelDefense",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0300010208100002010403",
+  "guid1": "00100107030b01000802001001020304",
   "guid2": null,
   "is_person": false
  },
@@ -4063,7 +4063,7 @@
   "id": "Ramstein",
   "name": "Ramstein",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070c0300030000000000000205",
+  "guid1": "00100107030c03000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -4072,8 +4072,8 @@
   "id": "Rappaport",
   "name": "Assaf Rappaport",
   "source": "N_People",
-  "guid1": "001001070a030000000000000000030b",
-  "guid2": "00100107020403020002000000000000",
+  "guid1": "00100107030a00000000000000000b03",
+  "guid2": "00100107040202030200000000000000",
   "is_person": true
  },
  {
@@ -4081,7 +4081,7 @@
   "id": "ReasoningEngineProblem",
   "name": "ReasoningEngineProblem",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107050400000000000000000302",
+  "guid1": "00100107040500000000000000000203",
   "guid2": null,
   "is_person": false
  },
@@ -4090,7 +4090,7 @@
   "id": "RedRiver",
   "name": "RedRiver",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -4099,7 +4099,7 @@
   "id": "RedWolf",
   "name": "Red Wolf",
   "source": "N_Systems",
-  "guid1": "00100107010200010208100002010403",
+  "guid1": "00100107020101000802001001020304",
   "guid2": null,
   "is_person": false
  },
@@ -4108,8 +4108,8 @@
   "id": "Reil",
   "name": "Torsten Reil",
   "source": "N_People",
-  "guid1": "001001070a0300010c0812000000030b",
-  "guid2": "00100107020403020002000000000000",
+  "guid1": "00100107030a0100080c001200000b03",
+  "guid2": "00100107040202030200000000000000",
   "is_person": true
  },
  {
@@ -4117,7 +4117,7 @@
   "id": "Rheinmetall",
   "name": "Rheinmetall",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300010208100002010403",
+  "guid1": "00100107030b01000802001001020304",
   "guid2": null,
   "is_person": false
  },
@@ -4126,8 +4126,8 @@
   "id": "RichardSecord",
   "name": "RichardSecord",
   "source": "cypher:Person",
-  "guid1": "001001070c0400090000000000030205",
-  "guid2": "00100107010403010001000000000000",
+  "guid1": "00100107040c09000000000003000502",
+  "guid2": "00100107040101030100000000000000",
   "is_person": true
  },
  {
@@ -4135,7 +4135,7 @@
   "id": "Ring",
   "name": "Ring",
   "source": "N_Civic",
-  "guid1": "00100107060309000204100600010107",
+  "guid1": "00100107030600090402061001000701",
   "guid2": null,
   "is_person": false
  },
@@ -4144,7 +4144,7 @@
   "id": "RiyadhSummit2017",
   "name": "RiyadhSummit2017",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400000000000000000101",
+  "guid1": "00100107040e00000000000000000101",
   "guid2": null,
   "is_person": false
  },
@@ -4153,8 +4153,8 @@
   "id": "RobertMaxwell",
   "name": "RobertMaxwell",
   "source": "cypher:Person",
-  "guid1": "001001070e040002000000000100010a",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107040e02000000000000010a01",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -4162,8 +4162,8 @@
   "id": "RobertMcFarlane",
   "name": "RobertMcFarlane",
   "source": "cypher:Person",
-  "guid1": "001001070e040003000000000000020c",
-  "guid2": "00100107010305040004000000000000",
+  "guid1": "00100107040e03000000000000000c02",
+  "guid2": "00100107030104050400000000000000",
   "is_person": true
  },
  {
@@ -4171,7 +4171,7 @@
   "id": "Roboneers",
   "name": "Roboneers",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300010108110000010403",
+  "guid1": "00100107030b01000801001101000304",
   "guid2": null,
   "is_person": false
  },
@@ -4180,7 +4180,7 @@
   "id": "RobotRiotControl",
   "name": "Robot Riot Control",
   "source": "N_Systems",
-  "guid1": "0010010706020e090208100002010106",
+  "guid1": "001001070206090e0802001001020601",
   "guid2": null,
   "is_person": false
  },
@@ -4189,8 +4189,8 @@
   "id": "RonKessler",
   "name": "RonKessler",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000020207",
-  "guid2": "00100107020303020002000000000000",
+  "guid1": "00100107030e00000000000002000702",
+  "guid2": "00100107030202030200000000000000",
   "is_person": true
  },
  {
@@ -4198,7 +4198,7 @@
   "id": "Roomba",
   "name": "Roomba",
   "source": "N_Civic",
-  "guid1": "00100107060200000d04100000010107",
+  "guid1": "0010010702060000040d001001000701",
   "guid2": null,
   "is_person": false
  },
@@ -4207,8 +4207,8 @@
   "id": "Rosen",
   "name": "Guy Rosen",
   "source": "N_People",
-  "guid1": "001001070a030000000000000000020b",
-  "guid2": "00100107010302020002000000000000",
+  "guid1": "00100107030a00000000000000000b02",
+  "guid2": "00100107030102020200000000000000",
   "is_person": true
  },
  {
@@ -4216,8 +4216,8 @@
   "id": "Rubio",
   "name": "Rubio",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010c",
-  "guid2": "00100107010303030003000000000000",
+  "guid1": "00100107030e00000000000000000c01",
+  "guid2": "00100107030103030300000000000000",
   "is_person": true
  },
  {
@@ -4225,7 +4225,7 @@
   "id": "RulesOfEngagement",
   "name": "RulesOfEngagement",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400030000000000000205",
+  "guid1": "00100107040e03000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -4234,7 +4234,7 @@
   "id": "Russia",
   "name": "Russia",
   "source": "N_Stakeholders",
-  "guid1": "00100107090309090000000000000201",
+  "guid1": "00100107030909090000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -4243,7 +4243,7 @@
   "id": "SRI",
   "name": "SRI: Stanford Research Institute",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300020000000000000304",
+  "guid1": "00100107030e02000000000000000403",
   "guid2": null,
   "is_person": false
  },
@@ -4252,7 +4252,7 @@
   "id": "STACKIT",
   "name": "STACKIT",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0300001c02000000000402",
+  "guid1": "00100107030a0000021c000000000204",
   "guid2": null,
   "is_person": false
  },
@@ -4261,7 +4261,7 @@
   "id": "STIHL",
   "name": "STIHL",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0300000000000000000207",
+  "guid1": "00100107030a00000000000000000702",
   "guid2": null,
   "is_person": false
  },
@@ -4270,8 +4270,8 @@
   "id": "Sacks",
   "name": "Sacks",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000020c",
-  "guid2": "00100107010303030003000000000000",
+  "guid1": "00100107030e00000000000000000c02",
+  "guid2": "00100107030103030300000000000000",
   "is_person": true
  },
  {
@@ -4279,7 +4279,7 @@
   "id": "SacksWhoopsTweet",
   "name": "SacksWhoopsTweet",
   "source": "cypher:HistoricalSystem",
-  "guid1": "0010010708040a001500170000020108",
+  "guid1": "001001070408000a0015001702000801",
   "guid2": null,
   "is_person": false
  },
@@ -4288,7 +4288,7 @@
   "id": "SafariClub",
   "name": "SafariClub",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400020000000000000204",
+  "guid1": "00100107040e02000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -4297,8 +4297,8 @@
   "id": "SagarEnjeti",
   "name": "SagarEnjeti",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000020104",
-  "guid2": "00100107020302020002000000000000",
+  "guid1": "00100107030e00000000000002000401",
+  "guid2": "00100107030202020200000000000000",
   "is_person": true
  },
  {
@@ -4306,8 +4306,8 @@
   "id": "SamiraKhashoggi",
   "name": "SamiraKhashoggi",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010a",
-  "guid2": "00100107030302050004000000000000",
+  "guid1": "00100107030e00000000000000000a01",
+  "guid2": "00100107030305020400000000000000",
   "is_person": true
  },
  {
@@ -4315,7 +4315,7 @@
   "id": "Sandvine",
   "name": "Sandvine",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309020803140500030402",
+  "guid1": "00100107030a02090308051403000204",
   "guid2": null,
   "is_person": false
  },
@@ -4324,7 +4324,7 @@
   "id": "SandvinePacketLogic",
   "name": "SandvinePacketLogic",
   "source": "cypher:System",
-  "guid1": "001001070303090b0803140500010402",
+  "guid1": "0010010703030b090308051401000204",
   "guid2": null,
   "is_person": false
  },
@@ -4333,8 +4333,8 @@
   "id": "SankarShyam",
   "name": "SankarShyam",
   "source": "cypher:Person",
-  "guid1": "001001070a030000000000000000020b",
-  "guid2": "00100107020302020002000000000000",
+  "guid1": "00100107030a00000000000000000b02",
+  "guid2": "00100107030202020200000000000000",
   "is_person": true
  },
  {
@@ -4342,7 +4342,7 @@
   "id": "Saudi",
   "name": "Saudi Arabia",
   "source": "N_Stakeholders",
-  "guid1": "00100107090309020000000000000201",
+  "guid1": "00100107030902090000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -4351,7 +4351,7 @@
   "id": "SaudiArabia",
   "name": "SaudiArabia",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107090309080403040501030201",
+  "guid1": "00100107030908090304050403010102",
   "guid2": null,
   "is_person": false
  },
@@ -4360,7 +4360,7 @@
   "id": "ScaleAI",
   "name": "ScaleAI",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300020703000000020402",
+  "guid1": "00100107030a02000307000002000204",
   "guid2": null,
   "is_person": false
  },
@@ -4369,8 +4369,8 @@
   "id": "Scherf",
   "name": "Gundbert Scherf",
   "source": "N_People",
-  "guid1": "001001070b030000000000000003030b",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030b00000000000003000b03",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -4378,7 +4378,7 @@
   "id": "SchwarzDigits",
   "name": "SchwarzDigits",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0306001d020d0000000402",
+  "guid1": "00100107030a0006021d000d00000204",
   "guid2": null,
   "is_person": false
  },
@@ -4387,7 +4387,7 @@
   "id": "SchwarzGroup",
   "name": "SchwarzGroup",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0306001c02000000000207",
+  "guid1": "00100107030a0006021c000000000702",
   "guid2": null,
   "is_person": false
  },
@@ -4396,7 +4396,7 @@
   "id": "Scopley",
   "name": "Scopley Games",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0307000a05000000050207",
+  "guid1": "00100107030a0007050a000005000702",
   "guid2": null,
   "is_person": false
  },
@@ -4405,8 +4405,8 @@
   "id": "ScottBessent",
   "name": "ScottBessent",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000020c",
-  "guid2": "00100107010303020002000000000000",
+  "guid1": "00100107030e00000000000000000c02",
+  "guid2": "00100107030102030200000000000000",
   "is_person": true
  },
  {
@@ -4414,8 +4414,8 @@
   "id": "SebastianKurz",
   "name": "SebastianKurz",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000000020c",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107040e00000000000000000c02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -4423,7 +4423,7 @@
   "id": "SelectiveEvidentiarism",
   "name": "SelectiveEvidentiarism",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107030303001403150804030104",
+  "guid1": "00100107030300030314081503040401",
   "guid2": null,
   "is_person": false
  },
@@ -4432,7 +4432,7 @@
   "id": "SentinelOne",
   "name": "SentinelOne",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309000405140500040402",
+  "guid1": "00100107030a00090504051404000204",
   "guid2": null,
   "is_person": false
  },
@@ -4441,7 +4441,7 @@
   "id": "Sentry",
   "name": "Sentry",
   "source": "N_Systems",
-  "guid1": "00100107010209020204100500030403",
+  "guid1": "00100107020102090402051003000304",
   "guid2": null,
   "is_person": false
  },
@@ -4450,7 +4450,7 @@
   "id": "SentryRobot",
   "name": "Sentry Robot",
   "source": "N_Systems",
-  "guid1": "00100107060209010204100602010105",
+  "guid1": "00100107020601090402061001020501",
   "guid2": null,
   "is_person": false
  },
@@ -4459,7 +4459,7 @@
   "id": "SentryTech",
   "name": "Sentry-Tech",
   "source": "N_Systems",
-  "guid1": "00100107010210010204100602010205",
+  "guid1": "00100107020101100402061001020502",
   "guid2": null,
   "is_person": false
  },
@@ -4468,8 +4468,8 @@
   "id": "ShalevHulio",
   "name": "ShalevHulio",
   "source": "cypher:Person",
-  "guid1": "001001070b030002000000000000020b",
-  "guid2": "00100107010403020002000000000000",
+  "guid1": "00100107030b02000000000000000b02",
+  "guid2": "00100107040102030200000000000000",
   "is_person": true
  },
  {
@@ -4477,8 +4477,8 @@
   "id": "SharonChurcher",
   "name": "SharonChurcher",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000020104",
-  "guid2": "00100107020302020002000000000000",
+  "guid1": "00100107030e00000000000002000401",
+  "guid2": "00100107030202020200000000000000",
   "is_person": true
  },
  {
@@ -4486,7 +4486,7 @@
   "id": "SharpEyes",
   "name": "Sharp Eyes",
   "source": "N_Systems",
-  "guid1": "00100107010201000304090901030401",
+  "guid1": "00100107020100010403090903010104",
   "guid2": null,
   "is_person": false
  },
@@ -4495,7 +4495,7 @@
   "id": "ShieldAI",
   "name": "Shield AI",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0200010208100000010403",
+  "guid1": "00100107020b01000802001001000304",
   "guid2": null,
   "is_person": false
  },
@@ -4504,7 +4504,7 @@
   "id": "ShieldAIHivemind",
   "name": "ShieldAIHivemind",
   "source": "cypher:System",
-  "guid1": "00100107070200011008100002010403",
+  "guid1": "00100107020701000810001001020304",
   "guid2": null,
   "is_person": false
  },
@@ -4513,7 +4513,7 @@
   "id": "ShinBet",
   "name": "ShinBet",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0309020404130501030204",
+  "guid1": "00100107030e02090404051303010402",
   "guid2": null,
   "is_person": false
  },
@@ -4522,7 +4522,7 @@
   "id": "Shoebox",
   "name": "Shoebox",
   "source": "N_Historical",
-  "guid1": "001001070504110213050e0700030105",
+  "guid1": "00100107040502110513070e03000501",
   "guid2": null,
   "is_person": false
  },
@@ -4531,8 +4531,8 @@
   "id": "ShyamSankar",
   "name": "ShyamSankar",
   "source": "cypher:Person",
-  "guid1": "001001070b030000000000000003020b",
-  "guid2": "00100107010404020002000000000000",
+  "guid1": "00100107030b00000000000003000b02",
+  "guid2": "00100107040102040200000000000000",
   "is_person": true
  },
  {
@@ -4540,7 +4540,7 @@
   "id": "SignalChatIncident",
   "name": "SignalChatIncident",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070804000b0000000001000105",
+  "guid1": "0010010704080b000000000000010501",
   "guid2": null,
   "is_person": false
  },
@@ -4549,7 +4549,7 @@
   "id": "SilverLake",
   "name": "SilverLake",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -4558,8 +4558,8 @@
   "id": "Sinofsky",
   "name": "Sinofsky",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000000108",
-  "guid2": "00100107020302020002000000000000",
+  "guid1": "00100107030e00000000000000000801",
+  "guid2": "00100107030202020200000000000000",
   "is_person": true
  },
  {
@@ -4567,7 +4567,7 @@
   "id": "Siri",
   "name": "Siri",
   "source": "N_Civic",
-  "guid1": "00100107030302001107000000020102",
+  "guid1": "00100107030300020711000002000201",
   "guid2": null,
   "is_person": false
  },
@@ -4576,8 +4576,8 @@
   "id": "Sisi",
   "name": "Sisi",
   "source": "cypher:Person",
-  "guid1": "0010010709030003000000000000020c",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030903000000000000000c02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -4585,7 +4585,7 @@
   "id": "Skyeton",
   "name": "Skyeton",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300010d08100000010303",
+  "guid1": "00100107030b0100080d001001000303",
   "guid2": null,
   "is_person": false
  },
@@ -4594,7 +4594,7 @@
   "id": "Skynet-PRC",
   "name": "Skynet-PRC",
   "source": "N_Systems",
-  "guid1": "00100107010301020405030601040201",
+  "guid1": "00100107030102010504060304010102",
   "guid2": null,
   "is_person": false
  },
@@ -4603,7 +4603,7 @@
   "id": "Skynet-US",
   "name": "Skynet-US",
   "source": "N_Systems",
-  "guid1": "00100107010300020405140600040105",
+  "guid1": "00100107030102000504061404000501",
   "guid2": null,
   "is_person": false
  },
@@ -4612,8 +4612,8 @@
   "id": "Snowden",
   "name": "Snowden",
   "source": "cypher:Person",
-  "guid1": "001001070e0400080000000000000104",
-  "guid2": "00100107020504030003000000000000",
+  "guid1": "00100107040e08000000000000000401",
+  "guid2": "00100107050203040300000000000000",
   "is_person": true
  },
  {
@@ -4621,7 +4621,7 @@
   "id": "Snowflake",
   "name": "Snowflake",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300001c02000000000402",
+  "guid1": "00100107030a0000021c000000000204",
   "guid2": null,
   "is_person": false
  },
@@ -4630,8 +4630,8 @@
   "id": "Sondland",
   "name": "Sondland",
   "source": "cypher:Person",
-  "guid1": "001001070e040000000000000000010c",
-  "guid2": "00100107010303020002000000000000",
+  "guid1": "00100107040e00000000000000000c01",
+  "guid2": "00100107030102030200000000000000",
   "is_person": true
  },
  {
@@ -4639,7 +4639,7 @@
   "id": "SouthKorea",
   "name": "South Korea",
   "source": "N_Stakeholders",
-  "guid1": "00100107090309090000000000000201",
+  "guid1": "00100107030909090000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -4648,7 +4648,7 @@
   "id": "SouthernTrust",
   "name": "SouthernTrust",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -4657,7 +4657,7 @@
   "id": "SpaceX",
   "name": "SpaceX",
   "source": "N_Stakeholders",
-  "guid1": "001001070b03000b0d080a0000010403",
+  "guid1": "00100107030b0b00080d000a01000304",
   "guid2": null,
   "is_person": false
  },
@@ -4666,7 +4666,7 @@
   "id": "Spain",
   "name": "Spain",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300000000000000000201",
+  "guid1": "00100107030900000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -4675,7 +4675,7 @@
   "id": "Spotify",
   "name": "Spotify",
   "source": "N_Civic",
-  "guid1": "001001070a0305000a05000300050402",
+  "guid1": "00100107030a0005050a030005000204",
   "guid2": null,
   "is_person": false
  },
@@ -4684,7 +4684,7 @@
   "id": "Stanford",
   "name": "Stanford University",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300051807000000020304",
+  "guid1": "00100107030e05000718000002000403",
   "guid2": null,
   "is_person": false
  },
@@ -4693,7 +4693,7 @@
   "id": "StarkDefence",
   "name": "StarkDefence",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0300010208100500010403",
+  "guid1": "00100107030b01000802051001000304",
   "guid2": null,
   "is_person": false
  },
@@ -4702,7 +4702,7 @@
   "id": "Starlink",
   "name": "Starlink",
   "source": "N_Systems",
-  "guid1": "001001070f03000b0000000000000409",
+  "guid1": "00100107030f0b000000000000000904",
   "guid2": null,
   "is_person": false
  },
@@ -4711,7 +4711,7 @@
   "id": "Starshield",
   "name": "Starshield",
   "source": "N_Systems",
-  "guid1": "001001070102000208010a0500040403",
+  "guid1": "00100107020102000108050a04000304",
   "guid2": null,
   "is_person": false
  },
@@ -4720,7 +4720,7 @@
   "id": "StraitOfHormuz",
   "name": "StraitOfHormuz",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080300060000000000000101",
+  "guid1": "00100107030806000000000000000101",
   "guid2": null,
   "is_person": false
  },
@@ -4729,7 +4729,7 @@
   "id": "SubCom",
   "name": "SubCom",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0300040000000000000407",
+  "guid1": "00100107030a04000000000000000704",
   "guid2": null,
   "is_person": false
  },
@@ -4738,7 +4738,7 @@
   "id": "SubmarineTorpedoKill",
   "name": "SubmarineTorpedoKill",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107010400090b08000002010105",
+  "guid1": "0010010704010900080b000001020501",
   "guid2": null,
   "is_person": false
  },
@@ -4747,7 +4747,7 @@
   "id": "SuezCanal",
   "name": "SuezCanal",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070f0300040000000000000201",
+  "guid1": "00100107030f04000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -4756,7 +4756,7 @@
   "id": "SumEB2015",
   "name": "SumEB2015",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0400000000000000000204",
+  "guid1": "00100107040e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -4765,7 +4765,7 @@
   "id": "SuperAegis",
   "name": "Super Aegis",
   "source": "N_Systems",
-  "guid1": "00100107010200010204100602010403",
+  "guid1": "00100107020101000402061001020304",
   "guid2": null,
   "is_person": false
  },
@@ -4774,7 +4774,7 @@
   "id": "Swarmer",
   "name": "Swarmer",
   "source": "N_Stakeholders",
-  "guid1": "00100107070200010d08100002010403",
+  "guid1": "0010010702070100080d001001020304",
   "guid2": null,
   "is_person": false
  },
@@ -4783,7 +4783,7 @@
   "id": "SwarthGroup",
   "name": "SwarthGroup",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -4792,7 +4792,7 @@
   "id": "SwissInstitute",
   "name": "Swiss Institute",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -4801,7 +4801,7 @@
   "id": "Syria",
   "name": "Syria",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300000000000002000201",
+  "guid1": "00100107030900000000000000020102",
   "guid2": null,
   "is_person": false
  },
@@ -4810,7 +4810,7 @@
   "id": "TKH",
   "name": "TKH Security",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0309000104100500030403",
+  "guid1": "00100107030b00090401051003000304",
   "guid2": null,
   "is_person": false
  },
@@ -4819,7 +4819,7 @@
   "id": "TRD_Egypt",
   "name": "TRD_Egypt",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0301020000000000000204",
+  "guid1": "00100107030e02010000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -4828,7 +4828,7 @@
   "id": "TacNet",
   "name": "TacNet",
   "source": "N_Systems",
-  "guid1": "00100107010200030d060a0500030405",
+  "guid1": "0010010702010300060d050a03000504",
   "guid2": null,
   "is_person": false
  },
@@ -4837,8 +4837,8 @@
   "id": "TalDilian",
   "name": "TalDilian",
   "source": "cypher:Person",
-  "guid1": "001001070b030000000000000000030b",
-  "guid2": "00100107010403010001000000000000",
+  "guid1": "00100107030b00000000000000000b03",
+  "guid2": "00100107040101030100000000000000",
   "is_person": true
  },
  {
@@ -4846,8 +4846,8 @@
   "id": "TamirPardo",
   "name": "TamirPardo",
   "source": "cypher:Person",
-  "guid1": "001001070e0400020000000000000204",
-  "guid2": "00100107010404040004000000000000",
+  "guid1": "00100107040e02000000000000000402",
+  "guid2": "00100107040104040400000000000000",
   "is_person": true
  },
  {
@@ -4855,7 +4855,7 @@
   "id": "TariffCourtDefiance",
   "name": "TariffCourtDefiance",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0300000000000000030104",
+  "guid1": "00100107030e00000000000003000401",
   "guid2": null,
   "is_person": false
  },
@@ -4864,7 +4864,7 @@
   "id": "Tekever",
   "name": "Tekever",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0310060204100600040403",
+  "guid1": "00100107030b06100402061004000304",
   "guid2": null,
   "is_person": false
  },
@@ -4873,7 +4873,7 @@
   "id": "Teledyne",
   "name": "Teledyne FLIR",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0309060000000000000403",
+  "guid1": "00100107030b06090000000000000304",
   "guid2": null,
   "is_person": false
  },
@@ -4882,7 +4882,7 @@
   "id": "ThamesValleyPolice",
   "name": "ThamesValleyPolice",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0301000304090400030206",
+  "guid1": "00100107030e00010403040903000602",
   "guid2": null,
   "is_person": false
  },
@@ -4891,7 +4891,7 @@
   "id": "TheEnterprise",
   "name": "TheEnterprise",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000207",
+  "guid1": "00100107030e00000000000000000702",
   "guid2": null,
   "is_person": false
  },
@@ -4900,8 +4900,8 @@
   "id": "Thiel",
   "name": "Peter Thiel",
   "source": "N_People",
-  "guid1": "001001070d030000000000000000020b",
-  "guid2": "00100107010404030003000000000000",
+  "guid1": "00100107030d00000000000000000b02",
+  "guid2": "00100107040103040300000000000000",
   "is_person": true
  },
  {
@@ -4909,7 +4909,7 @@
   "id": "ThielCapital",
   "name": "ThielCapital",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000030208",
+  "guid1": "00100107030d00000000000003000802",
   "guid2": null,
   "is_person": false
  },
@@ -4918,7 +4918,7 @@
   "id": "ThielEpsteinTimeline",
   "name": "ThielEpsteinTimeline",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400000000000000000204",
+  "guid1": "00100107040e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -4927,7 +4927,7 @@
   "id": "Thunderforge",
   "name": "Project Thunderforge",
   "source": "N_Systems",
-  "guid1": "001001070701000a1005000000050103",
+  "guid1": "0010010701070a000510000005000301",
   "guid2": null,
   "is_person": false
  },
@@ -4936,7 +4936,7 @@
   "id": "TikTok",
   "name": "TikTok",
   "source": "N_Civic",
-  "guid1": "001001070a0306000a04170305050402",
+  "guid1": "00100107030a0006040a031705050204",
   "guid2": null,
   "is_person": false
  },
@@ -4945,7 +4945,7 @@
   "id": "Toka",
   "name": "Toka",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309020803140500030403",
+  "guid1": "00100107030b02090308051403000304",
   "guid2": null,
   "is_person": false
  },
@@ -4954,7 +4954,7 @@
   "id": "TorCircumvention",
   "name": "TorCircumvention",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070303000b0000000000010104",
+  "guid1": "0010010703030b000000000001000401",
   "guid2": null,
   "is_person": false
  },
@@ -4963,7 +4963,7 @@
   "id": "Translator",
   "name": "IBM Simultaneous Translator",
   "source": "N_Historical",
-  "guid1": "001001070304000b1107000000020402",
+  "guid1": "0010010704030b000711000002000204",
   "guid2": null,
   "is_person": false
  },
@@ -4972,7 +4972,7 @@
   "id": "Trovicor",
   "name": "Trovicor",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309020800140500000403",
+  "guid1": "00100107030b02090008051400000304",
   "guid2": null,
   "is_person": false
  },
@@ -4981,8 +4981,8 @@
   "id": "Trump",
   "name": "Trump",
   "source": "cypher:Person",
-  "guid1": "0010010709030003000000000000020c",
-  "guid2": "00100107010404010001000000000000",
+  "guid1": "00100107030903000000000000000c02",
+  "guid2": "00100107040101040100000000000000",
   "is_person": true
  },
  {
@@ -4990,7 +4990,7 @@
   "id": "Turkey",
   "name": "Turkey",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300030000000000030201",
+  "guid1": "00100107030903000000000003000102",
   "guid2": null,
   "is_person": false
  },
@@ -4999,7 +4999,7 @@
   "id": "Twitter",
   "name": "Twitter/X",
   "source": "N_Civic",
-  "guid1": "001001070a0306001a05170304050402",
+  "guid1": "00100107030a0006051a031705040204",
   "guid2": null,
   "is_person": false
  },
@@ -5008,7 +5008,7 @@
   "id": "UAE",
   "name": "UAE",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107090309090000000000000201",
+  "guid1": "00100107030909090000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -5017,7 +5017,7 @@
   "id": "UK",
   "name": "United Kingdom",
   "source": "N_Stakeholders",
-  "guid1": "00100107090309080000000000000201",
+  "guid1": "00100107030908090000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -5026,7 +5026,7 @@
   "id": "UKDES",
   "name": "UKDE&S",
   "source": "N_Stakeholders",
-  "guid1": "001001070c0300040000000000000205",
+  "guid1": "00100107030c04000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -5035,7 +5035,7 @@
   "id": "UKDSTL",
   "name": "UKDSTL",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0300020000000000000204",
+  "guid1": "00100107030e02000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -5044,7 +5044,7 @@
   "id": "UNHCR",
   "name": "UNHCR",
   "source": "N_Stakeholders",
-  "guid1": "001001070e0308000000000000000204",
+  "guid1": "00100107030e00080000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -5053,7 +5053,7 @@
   "id": "URSA",
   "name": "URSA",
   "source": "N_Systems",
-  "guid1": "00100107030100060d050a0200040403",
+  "guid1": "0010010701030600050d020a04000304",
   "guid2": null,
   "is_person": false
  },
@@ -5062,7 +5062,7 @@
   "id": "US",
   "name": "United States",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300000000000000000201",
+  "guid1": "00100107030900000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -5071,7 +5071,7 @@
   "id": "USArmy",
   "name": "USArmy",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070c0300090000000000030205",
+  "guid1": "00100107030c09000000000003000502",
   "guid2": null,
   "is_person": false
  },
@@ -5080,7 +5080,7 @@
   "id": "USCongress",
   "name": "USCongress",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0300000000000000000204",
+  "guid1": "00100107030e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -5089,7 +5089,7 @@
   "id": "USPD",
   "name": "US Local Police",
   "source": "N_Stakeholders",
-  "guid1": "001001070c0301000304090900030206",
+  "guid1": "00100107030c00010403090903000602",
   "guid2": null,
   "is_person": false
  },
@@ -5098,7 +5098,7 @@
   "id": "Ukraine",
   "name": "Ukraine",
   "source": "N_Stakeholders",
-  "guid1": "00100107090300000000000000000201",
+  "guid1": "00100107030900000000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -5107,7 +5107,7 @@
   "id": "Unit8200",
   "name": "Unit 8200",
   "source": "N_Stakeholders",
-  "guid1": "001001070c0300020000000000000205",
+  "guid1": "00100107030c02000000000000000502",
   "guid2": null,
   "is_person": false
  },
@@ -5116,7 +5116,7 @@
   "id": "VRGRecantations",
   "name": "VRGRecantations",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0300000000000000000104",
+  "guid1": "00100107030e00000000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -5125,7 +5125,7 @@
   "id": "ValarVentures",
   "name": "ValarVentures",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000050208",
+  "guid1": "00100107030d00000000000005000802",
   "guid2": null,
   "is_person": false
  },
@@ -5134,8 +5134,8 @@
   "id": "Vance",
   "name": "JD Vance",
   "source": "N_People",
-  "guid1": "0010010709030003000000000003020c",
-  "guid2": "00100107010404030003000000000000",
+  "guid1": "00100107030903000000000003000c02",
+  "guid2": "00100107040103040300000000000000",
   "is_person": true
  },
  {
@@ -5143,7 +5143,7 @@
   "id": "Vanguard",
   "name": "Vanguard",
   "source": "N_Stakeholders",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -5152,8 +5152,8 @@
   "id": "Vannier",
   "name": "Vannier",
   "source": "cypher:Person",
-  "guid1": "001001070e0400000000000000000104",
-  "guid2": "00100107020302030003000000000000",
+  "guid1": "00100107040e00000000000000000401",
+  "guid2": "00100107030203020300000000000000",
   "is_person": true
  },
  {
@@ -5161,7 +5161,7 @@
   "id": "Vantage",
   "name": "Vantage Towers",
   "source": "N_Stakeholders",
-  "guid1": "001001070f0300000000000000000209",
+  "guid1": "00100107030f00000000000000000902",
   "guid2": null,
   "is_person": false
  },
@@ -5170,7 +5170,7 @@
   "id": "Vector",
   "name": "Vector",
   "source": "N_Systems",
-  "guid1": "00100107030100001d020d0000000402",
+  "guid1": "0010010701030000021d000d00000204",
   "guid2": null,
   "is_person": false
  },
@@ -5179,7 +5179,7 @@
   "id": "Venezuela",
   "name": "Venezuela",
   "source": "cypher:Stakeholder",
-  "guid1": "00100107090309090000000000000201",
+  "guid1": "00100107030909090000000000000102",
   "guid2": null,
   "is_person": false
  },
@@ -5188,7 +5188,7 @@
   "id": "VenezuelaCapture",
   "name": "VenezuelaCapture",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107090300090000000002000201",
+  "guid1": "00100107030909000000000000020102",
   "guid2": null,
   "is_person": false
  },
@@ -5197,7 +5197,7 @@
   "id": "VenezuelaOilReserves",
   "name": "VenezuelaOilReserves",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070f0300060d050a0200040101",
+  "guid1": "00100107030f0600050d020a04000101",
   "guid2": null,
   "is_person": false
  },
@@ -5206,7 +5206,7 @@
   "id": "VenezuelaRaidDetails",
   "name": "VenezuelaRaidDetails",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107080400090000000002000205",
+  "guid1": "00100107040809000000000000020502",
   "guid2": null,
   "is_person": false
  },
@@ -5215,7 +5215,7 @@
   "id": "Vertex",
   "name": "Vertex",
   "source": "N_Civic",
-  "guid1": "001001070a0300001808000000020402",
+  "guid1": "00100107030a00000818000002000204",
   "guid2": null,
   "is_person": false
  },
@@ -5224,7 +5224,7 @@
   "id": "VfBStuttgart",
   "name": "VfBStuttgart",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e030a000000000000000207",
+  "guid1": "00100107030e000a0000000000000702",
   "guid2": null,
   "is_person": false
  },
@@ -5233,7 +5233,7 @@
   "id": "VictimDiscreditingFunction",
   "name": "VictimDiscreditingFunction",
   "source": "cypher:HistoricalSystem",
-  "guid1": "00100107030303001a03130e04030104",
+  "guid1": "0010010703030003031a0e1303040401",
   "guid2": null,
   "is_person": false
  },
@@ -5242,8 +5242,8 @@
   "id": "VirginiaGiuffre",
   "name": "VirginiaGiuffre",
   "source": "cypher:Person",
-  "guid1": "001001070e0400000000000001000104",
-  "guid2": "00100107030404030003000000000000",
+  "guid1": "00100107040e00000000000000010401",
+  "guid2": "00100107040303040300000000000000",
   "is_person": true
  },
  {
@@ -5251,8 +5251,8 @@
   "id": "VirginiaRobertsGiuffre",
   "name": "VirginiaRobertsGiuffre",
   "source": "cypher:Person",
-  "guid1": "001001070e0400000000000001000104",
-  "guid2": "00100107030404040004000000000000",
+  "guid1": "00100107040e00000000000000010401",
+  "guid2": "00100107040304040400000000000000",
   "is_person": true
  },
  {
@@ -5260,7 +5260,7 @@
   "id": "Vyriy",
   "name": "Vyriy",
   "source": "N_Stakeholders",
-  "guid1": "001001070b0300010208100000010303",
+  "guid1": "00100107030b01000802001001000303",
   "guid2": null,
   "is_person": false
  },
@@ -5269,7 +5269,7 @@
   "id": "WashingtonPostCapture",
   "name": "WashingtonPostCapture",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070104000014030d050402020a",
+  "guid1": "00100107040100000314050d02040a02",
   "guid2": null,
   "is_person": false
  },
@@ -5278,7 +5278,7 @@
   "id": "WaterfallSecurity",
   "name": "WaterfallSecurity",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070b0309000000000000000407",
+  "guid1": "00100107030b00090000000000000704",
   "guid2": null,
   "is_person": false
  },
@@ -5287,7 +5287,7 @@
   "id": "Watergate",
   "name": "Watergate",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e040000000000000000010c",
+  "guid1": "00100107040e00000000000000000c01",
   "guid2": null,
   "is_person": false
  },
@@ -5296,7 +5296,7 @@
   "id": "WebbSecretSociety",
   "name": "WebbSecretSociety",
   "source": "cypher:HistoricalSystem",
-  "guid1": "001001070e0400000000000000000204",
+  "guid1": "00100107040e00000000000000000402",
   "guid2": null,
   "is_person": false
  },
@@ -5305,7 +5305,7 @@
   "id": "WesternEnterpriseIT",
   "name": "WesternEnterpriseIT",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070f0300000002000000000202",
+  "guid1": "00100107030f00000200000000000202",
   "guid2": null,
   "is_person": false
  },
@@ -5314,7 +5314,7 @@
   "id": "WesternGovAgencies",
   "name": "WesternGovAgencies",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e03090800000d0500030204",
+  "guid1": "00100107030e08090000050d03000402",
   "guid2": null,
   "is_person": false
  },
@@ -5323,7 +5323,7 @@
   "id": "WhatsApp",
   "name": "WhatsApp",
   "source": "N_Civic",
-  "guid1": "001001070a03060b0000000000000402",
+  "guid1": "00100107030a0b060000000000000204",
   "guid2": null,
   "is_person": false
  },
@@ -5332,7 +5332,7 @@
   "id": "WheresDaddy",
   "name": "Where's Daddy",
   "source": "N_Systems",
-  "guid1": "00100107030201000304090901030406",
+  "guid1": "00100107020300010403090903010604",
   "guid2": null,
   "is_person": false
  },
@@ -5341,8 +5341,8 @@
   "id": "WhitneyWebb",
   "name": "WhitneyWebb",
   "source": "cypher:Person",
-  "guid1": "001001070e0300000000000000020208",
-  "guid2": "00100107020302030003000000000000",
+  "guid1": "00100107030e00000000000002000802",
+  "guid2": "00100107030203020300000000000000",
   "is_person": true
  },
  {
@@ -5350,8 +5350,8 @@
   "id": "WilliamCasey",
   "name": "WilliamCasey",
   "source": "cypher:Person",
-  "guid1": "001001070e040002000000000000020b",
-  "guid2": "00100107010303040004000000000000",
+  "guid1": "00100107040e02000000000000000b02",
+  "guid2": "00100107030104030400000000000000",
   "is_person": true
  },
  {
@@ -5359,7 +5359,7 @@
   "id": "WindsorCastle",
   "name": "WindsorCastle",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e0309000000000000000104",
+  "guid1": "00100107030e00090000000000000401",
   "guid2": null,
   "is_person": false
  },
@@ -5368,7 +5368,7 @@
   "id": "WithoutMeChaos",
   "name": "WithoutMeChaos",
   "source": "cypher:HistoricalSystem",
-  "guid1": "0010010703030000000000000400010a",
+  "guid1": "00100107030300000000000000040a01",
   "guid2": null,
   "is_person": false
  },
@@ -5377,7 +5377,7 @@
   "id": "Wiz",
   "name": "Wiz",
   "source": "N_Historical",
-  "guid1": "001001070a0409000404000000040402",
+  "guid1": "00100107040a00090404000004000204",
   "guid2": null,
   "is_person": false
  },
@@ -5386,7 +5386,7 @@
   "id": "WizMetrics",
   "name": "WizMetrics",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0300001403000000030402",
+  "guid1": "00100107030a00000314000003000204",
   "guid2": null,
   "is_person": false
  },
@@ -5395,7 +5395,7 @@
   "id": "WolfPack",
   "name": "Wolf Pack",
   "source": "N_Systems",
-  "guid1": "00100107070200010d08100000010403",
+  "guid1": "0010010702070100080d001001000304",
   "guid2": null,
   "is_person": false
  },
@@ -5404,7 +5404,7 @@
   "id": "Wolly",
   "name": "Wolly",
   "source": "N_Systems",
-  "guid1": "0010010706010d000d08110000010402",
+  "guid1": "001001070106000d080d001101000204",
   "guid2": null,
   "is_person": false
  },
@@ -5413,7 +5413,7 @@
   "id": "XMCyber",
   "name": "XMCyber",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309000405000500040407",
+  "guid1": "00100107030a00090504050004000704",
   "guid2": null,
   "is_person": false
  },
@@ -5422,7 +5422,7 @@
   "id": "XMCyberMetrics",
   "name": "XMCyberMetrics",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a0309000405000e00040407",
+  "guid1": "00100107030a000905040e0004000704",
   "guid2": null,
   "is_person": false
  },
@@ -5431,7 +5431,7 @@
   "id": "XMCyberPlatform",
   "name": "XMCyberPlatform",
   "source": "cypher:System",
-  "guid1": "00100107030209020405140500040403",
+  "guid1": "00100107020302090504051404000304",
   "guid2": null,
   "is_person": false
  },
@@ -5440,8 +5440,8 @@
   "id": "YaronRosen",
   "name": "YaronRosen",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000000010a",
-  "guid2": "00100107020302010005000000000000",
+  "guid1": "00100107030e00000000000000000a01",
+  "guid2": "00100107030201020500000000000000",
   "is_person": true
  },
  {
@@ -5449,8 +5449,8 @@
   "id": "YuvalAbraham",
   "name": "YuvalAbraham",
   "source": "cypher:Person",
-  "guid1": "001001070e030000000000000002010c",
-  "guid2": "00100107020403030003000000000000",
+  "guid1": "00100107030e00000000000002000c01",
+  "guid2": "00100107040203030300000000000000",
   "is_person": true
  },
  {
@@ -5458,8 +5458,8 @@
   "id": "Zelenskyy",
   "name": "Zelenskyy",
   "source": "cypher:Person",
-  "guid1": "0010010709030003000000000000020c",
-  "guid2": "00100107010504030003000000000000",
+  "guid1": "00100107030903000000000000000c02",
+  "guid2": "00100107050103040300000000000000",
   "is_person": true
  },
  {
@@ -5467,7 +5467,7 @@
   "id": "ZorroRanch",
   "name": "ZorroRanch",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070e040000000000000000010a",
+  "guid1": "00100107040e00000000000000000a01",
   "guid2": null,
   "is_person": false
  },
@@ -5476,7 +5476,7 @@
   "id": "a16z",
   "name": "a16z",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070d0300000000000000000208",
+  "guid1": "00100107030d00000000000000000802",
   "guid2": null,
   "is_person": false
  },
@@ -5485,7 +5485,7 @@
   "id": "iRobot",
   "name": "iRobot",
   "source": "N_Stakeholders",
-  "guid1": "001001070a0300010d08000000010402",
+  "guid1": "00100107030a0100080d000001000204",
   "guid2": null,
   "is_person": false
  },
@@ -5494,7 +5494,7 @@
   "id": "xAI",
   "name": "xAI",
   "source": "cypher:Stakeholder",
-  "guid1": "001001070a01050018070d0005020302",
+  "guid1": "00100107010a00050718000d02050203",
   "guid2": null,
   "is_person": false
  }
