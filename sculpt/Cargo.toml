@@ -1,0 +1,41 @@
+# sculpt — STL models under the hand: ZBrush-shaped grab/inflate/smooth/spray
+# sculpting on 3D-printer meshes, server-rendered (software rasterizer → PNG,
+# NO WebGL), driven by an askama FieldView brush panel. The kurvenlineal
+# (helix::CurveRuler, stride-4-over-17) is the detail brush: surface relief is
+# a deterministic phase regenerated from the vertex address — never stored
+# (OGAR canon "phase is convention, not data", D-QUANTGATE).
+#
+# Standalone crate, intentionally isolated from the q2 Quarto workspace
+# (own [workspace], the fma/geo pattern). Small models by design: the whole
+# point is direct experience with the matter — load an STL, push it around,
+# spray it, download it back for the printer.
+#
+#   cargo run --release --bin sculpt_serve     # http://0.0.0.0:8090/
+#   cargo test                                  # unit probes incl. raster round-trip
+
+[package]
+name = "sculpt"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Server-rendered STL sculpting — grab/inflate/smooth/spray + the CurveRuler detail brush, askama FieldView controls, PNG raster out, STL back to the printer."
+license = "Apache-2.0"
+
+[workspace]
+
+[dependencies]
+# PNG encode/decode only (the fma precedent — the raster is our own z-buffer).
+png = "0.17"
+# Compiled templates for the FieldView brush panel (the cockpit-server/woa pin).
+askama = "0.12"
+# The kurvenlineal: helix::CurveRuler (stride-4-over-17 deterministic phase).
+# Path dep to the sibling clone, same convention as geo → ../../lance-graph.
+helix = { path = "../../lance-graph/crates/helix" }
+
+[[bin]]
+name = "sculpt_serve"
+path = "src/bin/serve.rs"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
