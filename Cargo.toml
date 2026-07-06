@@ -279,8 +279,11 @@ version = "0.3"
 # deliberate "better than neo4j" live-cell engine; q2 upstream carries no deno).
 # crates.io deno_core 0.376 is ARCHIVED and its stale temporal_rs won't build
 # against current icu_calendar. Repoint to the AdaWorldAPI/deno fork (deno_core
-# 0.404 at libs/core, current V8). Per .claude/rules/architectural-compliance.md
-# + the workspace fork rule: the fork, NEVER crates.io.
+# at libs/core — track the fork's main HEAD; refresh the lock with
+# `cargo update -p deno_core -p serde_v8 -p deno_ops`, no stale rev pins).
+# NOT the standalone AdaWorldAPI/deno_core repo (outdated, operator-confirmed
+# 2026-07-06). Per .claude/rules/architectural-compliance.md + the workspace
+# fork rule: the fork, NEVER crates.io.
 [workspace.dependencies.deno_core]
 git = "https://github.com/AdaWorldAPI/deno"
 branch = "main"
