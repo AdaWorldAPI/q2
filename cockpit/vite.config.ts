@@ -8,6 +8,7 @@ export default defineConfig({
       '/mcp': 'http://127.0.0.1:2718',
       '/health': 'http://127.0.0.1:2718',
       '/api': 'http://127.0.0.1:2718',
+      '/osint.soa': 'http://127.0.0.1:2718',
     },
   },
   build: {
