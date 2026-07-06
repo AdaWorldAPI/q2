@@ -116,6 +116,11 @@ createRoot(document.getElementById('root')!).render(
               Equivalent to /helix?scene=osm; a dedicated address so the map has a
               home without touching /helix's body slot or the /osm slippy map. */}
           <Route path="/geo" element={<BodyHelix />} />
+          {/* /ice — the Iceland DEM bake (iceland_latest) through the same BodyHelix
+              decoder; equivalent to /helix?scene=iceland, a dedicated home with
+              height-profile beautification (ocean/moss/rock/ice terrain palette +
+              procedural sky dome). Client-side render only — no re-bake. */}
+          <Route path="/ice" element={<BodyHelix />} />
           {/* /cpic — CPIC pharmacogenomics cockpit (gene-first): {gene, diplotype, drug}
               → phenotype → recommendation, 2-hop NARS deduction over the real CPIC tables
               via POST /api/cpic/reason (the standalone cpic crate). Additive, gene-first
