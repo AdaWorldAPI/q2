@@ -54,7 +54,7 @@ CLAUDE.local.md
 
 # FMA body.soa bake scratch (regenerated from uploads; do not commit)
 scratch-fma/
-crates/osint-bake/tools/__pycache__/
+__pycache__/
 
 # big FMA body wire — lives in GitHub Releases, never in git
 cockpit/public/body.soa
