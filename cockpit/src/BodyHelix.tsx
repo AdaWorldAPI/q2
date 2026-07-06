@@ -242,7 +242,24 @@ uniform float uYMin;   // decoded height range (display.y), measured once at loa
 uniform float uYMax;
 uniform float uExag;   // geo relief exaggeration: the Iceland bake is true-scale (span ~0.0074 in the
                        // [-1,1] frame), so raise the geometry to read as terrain. 1 for anatomy (untouched).
+uniform float uTime;   // seconds — drives the Kurvenlineal breathing (0 for anatomy).
+uniform float uRuler;  // Kurvenlineal displacement amplitude (0 for anatomy).
 varying vec3 vColor;
+// THE KURVENLINEAL (helix::CurveRuler) — a GLSL port of the sculpt crate's deterministic
+// stride-4-over-17 phase (gcd(4,17)=1 → a full 17-residue permutation). Not 100% bit-exact to
+// the Rust CurveRuler (that walks a u64 place with integer mixing; here we hash floats), but
+// faithful in spirit: a deterministic bipolar phase in ~[-1,1] regenerated from the vertex's
+// lattice address — "phase is convention, not data" (OGAR D-QUANTGATE). It synthesises relief
+// detail where the sparse DEM bake has gaps, and — animated by uTime — makes the terrain BREATHE.
+float rhash(vec3 p){ return fract(sin(dot(floor(p), vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float kurvenlineal(vec3 pos, float detail){
+  vec3 cell = floor(pos * detail);          // the lattice cell = the address
+  vec3 sub  = floor(pos * detail * 3.0);     // finer sub-lattice picks the step k
+  float place = floor(rhash(cell) * 65536.0);
+  float k     = mod(floor(rhash(sub) * 991.0), 17.0);  // k ∈ [0,17)
+  float idx   = mod(mod(place, 17.0) + 4.0 * k, 17.0);  // stride-4-over-17 coprime walk
+  return idx / 8.0 - 1.0;                                // ~[-1, 1] bipolar
+}
 // Height-profile terrain palette for the geo bakes (Iceland DEM, OSM). Elevation is display.y.
 // In the Iceland bake it is TRUE-SCALE (not vertically exaggerated) → a tiny span (~[0, 0.0074])
 // with ~39% ocean at EXACTLY 0 and a heavily-quantized lowland plateau holding ~58% of verts,
@@ -285,11 +302,16 @@ void main(){
   // uGeo is a dynamically-uniform branch (a uniform, not a varying): coherent, no divergence.
   // uGeo == 0 -> EXACTLY the pre-existing aColor*shade, so anatomy scenes are byte-identical.
   vColor = (uGeo > 0.5) ? terrainColor(position.y) * shade : aColor * shade;
-  // Geo relief: colour is driven by TRUE position.y (above), but the GEOMETRY is raised by uExag
-  // for geo scenes so the true-scale island reads as terrain — glaciers/peaks/volcanic massifs
-  // rise off the y=0 sea plane. Anatomy scenes (uGeo==0, uExag==1) keep position byte-identical.
+  // Geo relief + the KURVENLINEAL: raise the true-scale island by uExag, then add the deterministic
+  // stride-4-over-17 phase as extra relief that BREATHES over uTime — it synthesises detail where the
+  // sparse DEM bake has gaps and gives the horizon a living, breathing motion (not 100% physical: a
+  // mental horizon that motivates the next, DEM-true, improvement). Anatomy (uGeo==0): untouched.
   vec3 dpos = position;
-  dpos.y = (uGeo > 0.5) ? position.y * uExag : position.y;
+  if (uGeo > 0.5) {
+    float rp = kurvenlineal(position, 90.0);
+    float breathe = 0.55 + 0.45 * sin(uTime * 0.5 + rp * 6.2831);
+    dpos.y = position.y * uExag + rp * uRuler * breathe;
+  }
   gl_Position = projectionMatrix * modelViewMatrix * vec4(dpos, 1.0);
 }`;
 const FRAG = `
@@ -375,7 +397,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   const applyIndex = () => { geom.setDrawRange(0, rebuild()); idxAttr.needsUpdate = true; };
   geom.setDrawRange(0, rebuild());
 
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isGeoScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isGeoScene ? 10 : 1 } };
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isGeoScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isGeoScene ? 10 : 1 }, uTime: { value: 0 }, uRuler: { value: isGeoScene ? 0.03 : 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -458,6 +480,9 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   window.addEventListener('resize', onResize);
   const tick = () => {
     raf = requestAnimationFrame(tick);
+    // Kurvenlineal breathing: geo scenes advance uTime and render every frame so the terrain
+    // breathes; anatomy stays fully on-demand (uTime 0, dirty gating untouched — no idle cost).
+    if (isGeoScene) { uniforms.uTime.value = performance.now() / 1000; dirty.current = true; }
     // server-LOD lifecycle runs even on idle frames (the cascade tracks the static view too);
     // turning LOD off restores the full geometry. Both are cheap and bounded by the 220 ms poll.
     const tnow = performance.now();
