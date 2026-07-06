@@ -243,24 +243,35 @@ static OSINT_V3_INDEX: LazyLock<HashMap<String, V3Entry>> = LazyLock::new(|| {
 // `airo_vocab` (guid1 / AI-system facet) is a plain `name -> u8` dict per
 // field, so its reverse map (`u8 -> name`) is mechanical and unambiguous.
 // `mcclelland_vocab` (guid2 / person facet) is a plain ARRAY per field with
-// no explicit value labels — whether array index 0 means byte value 0 or 1
-// is a guess, not a fact read off the codebook, so guid2 positions are left
-// undecoded (`None`) per the "don't guess semantic mappings" rule.
+// no explicit value labels; PR #84 left it undecoded because 0- vs 1-indexing
+// was a guess, not a fact read off the codebook. The PR #86 rebake settled it
+// empirically: person tiers are **1-indexed** — byte value `v` decodes to
+// `vocab[v-1]`. Proof: across all 133 persons every field's observed max
+// equals its vocab length (stage 5/5, need 3/3, receptor 5/5, rubicon 5/5,
+// motive 5/5); 0-indexing would overflow the vocab for 26/133 persons.
+// Byte 0 (unset) and `v > len` stay undecoded (`None`) — never a guess. The
+// guid2 TWIG lo position is the `_` padding byte (0 for all 133 persons); it
+// has no vocab and is never rendered ([`OSINT_PERSON_FIELDS`] declares only
+// positions 0..=4).
 
 /// The subset of `osint_v3_codebook.json` this module actually reads.
 #[derive(Deserialize)]
 struct CodebookRaw {
     guid1_tiers: HashMap<String, String>,
     airo_vocab: HashMap<String, HashMap<String, u8>>,
+    guid2_tiers: HashMap<String, String>,
+    mcclelland_vocab: HashMap<String, Vec<String>>,
 }
 
 fn resolve_codebook_path() -> Option<PathBuf> {
     resolve_data_path("osint_v3_codebook.json")
 }
 
-/// `(slot, position, value) -> name` — slot `1` is the only slot with an
-/// unambiguous reverse mapping (see module doc above); slot `2` never gets
-/// an entry, so `.get()` naturally returns `None` for every guid2 lookup.
+/// `(slot, position, value) -> name` — slot `1` (guid1/system) reverses the
+/// `airo_vocab` `name -> u8` dicts; slot `2` (guid2/person) applies the
+/// #86-ruled 1-indexed rule over the `mcclelland_vocab` arrays (see the
+/// section doc above). A miss (byte 0, out-of-vocab byte, padding position)
+/// returns `None` from `.get()` — undecoded, never guessed.
 static OSINT_DECODE: LazyLock<HashMap<(u8, u8, u8), String>> = LazyLock::new(|| {
     let mut map = HashMap::new();
     let Some(path) = resolve_codebook_path() else {
@@ -292,6 +303,26 @@ static OSINT_DECODE: LazyLock<HashMap<(u8, u8, u8), String>> = LazyLock::new(|| 
             if let Some(vocab) = cb.airo_vocab.get(field) {
                 for (name, value) in vocab {
                     map.insert((1u8, position, *value), name.clone());
+                }
+            }
+            position += 1;
+        }
+    }
+    // guid2 (slot 2) field order: HEEL `stage:need`, HIP `receptor:rubicon`,
+    // TWIG `motive:_` — positions 0..=4 are the five person fields in the
+    // exact order OSINT_PERSON_FIELDS above declares; position 5 is the `_`
+    // padding byte (no vocab entry in mcclelland_vocab, so the loop skips it
+    // mechanically while still advancing the position counter). 1-indexed
+    // per the #86 empirical ruling: byte value v (1..=len) -> vocab[v-1].
+    let mut position: u8 = 0;
+    for tier in ["HEEL", "HIP", "TWIG"] {
+        let Some(pair) = cb.guid2_tiers.get(tier) else {
+            continue;
+        };
+        for field in pair.split(':') {
+            if let Some(vocab) = cb.mcclelland_vocab.get(field) {
+                for (i, name) in vocab.iter().enumerate() {
+                    map.insert((2u8, position, (i + 1) as u8), name.clone());
                 }
             }
             position += 1;
@@ -394,8 +425,8 @@ fn render_rows_to_cardrows(rows: Vec<RenderRow<'_>>) -> Vec<ValueCardRow> {
 
 /// Value-projected rows from a resolved guid/name facet — decode each byte
 /// against [`OSINT_DECODE`] for the given slot (`1` = guid1/system, `2` =
-/// guid2/person); a miss (out-of-vocab byte, or slot 2 which is never
-/// indexed) leaves `decoded: None`, never a guess.
+/// guid2/person, 1-indexed per the #86 ruling); a miss (byte 0, or an
+/// out-of-vocab byte) leaves `decoded: None`, never a guess.
 fn value_rows_to_cardrows(rows: Vec<ValueRow<'_>>, slot: u8) -> Vec<ValueCardRow> {
     rows.into_iter()
         .map(|r| {
@@ -904,5 +935,66 @@ mod tests {
         assert_eq!(parse_guid_hex("not-hex-at-all-zz"), None);
         assert_eq!(parse_guid_hex(&plain[..30]), None, "too short");
         assert_eq!(parse_guid_hex(&(plain.clone() + "ab")), None, "too long");
+    }
+
+    // ── guid2 / McClelland slot-2 decode (1-indexed per the #86 ruling) ────
+
+    /// A known guid2 facet decodes through the full value-row path: byte
+    /// value `v` → `mcclelland_vocab[field][v-1]` at positions 0..=4, and
+    /// the `_` padding byte (position 5) is never rendered as a row — the
+    /// person card declares exactly 5 fields.
+    #[test]
+    fn guid2_person_facet_decodes_one_indexed() {
+        let cv = OsintClassView;
+        // stage=4→IV, need=1→nPow, receptor=2→STATUS, rubicon=3→ACTIONAL,
+        // motive=2→STATUS, padding=0 (+ 6 unused tail bytes).
+        let facet: [u8; 12] = [4, 1, 2, 3, 2, 0, 0, 0, 0, 0, 0, 0];
+        let rows = value_rows_to_cardrows(
+            cv.facet_rows(OSINT_PERSON_CLASS, FieldMask::FULL, &facet),
+            2,
+        );
+        assert_eq!(rows.len(), 5, "5 person fields; padding position absent");
+        let decoded: Vec<Option<&str>> = rows.iter().map(|r| r.decoded.as_deref()).collect();
+        assert_eq!(
+            decoded,
+            vec![
+                Some("IV"),
+                Some("nPow"),
+                Some("STATUS"),
+                Some("ACTIONAL"),
+                Some("STATUS"),
+            ]
+        );
+        assert!(
+            rows.iter().all(|r| r.label != "_"),
+            "the `_` padding byte is never a rendered row"
+        );
+    }
+
+    /// Boundary rule for the 1-indexed slot-2 decode: byte 0 (unset) is
+    /// undecoded, `v == len` reaches the LAST vocab entry, and `v == len+1`
+    /// overflows to undecoded — exactly the #86 empirical ruling (observed
+    /// max == vocab len on every field; 0-indexing would overflow 26/133
+    /// persons).
+    #[test]
+    fn guid2_decode_boundaries_zero_len_and_overflow() {
+        // stage (position 0): 5 entries, vocab[4] = "IV_performed".
+        assert_eq!(OSINT_DECODE.get(&(2, 0, 0)), None, "v=0 stays undecoded");
+        assert_eq!(
+            OSINT_DECODE.get(&(2, 0, 5)).map(String::as_str),
+            Some("IV_performed"),
+            "v == len decodes to the last vocab entry"
+        );
+        assert_eq!(OSINT_DECODE.get(&(2, 0, 6)), None, "v = len+1 overflows");
+        // need (position 1): 3 entries, vocab[2] = "nAff".
+        assert_eq!(
+            OSINT_DECODE.get(&(2, 1, 3)).map(String::as_str),
+            Some("nAff")
+        );
+        assert_eq!(OSINT_DECODE.get(&(2, 1, 4)), None);
+        // padding (position 5, the `_` byte): no vocab, never decoded.
+        for v in 0..=u8::MAX {
+            assert_eq!(OSINT_DECODE.get(&(2, 5, v)), None, "padding never decodes");
+        }
     }
 }
