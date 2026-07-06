@@ -325,6 +325,128 @@ pub fn encode_bso2(scene: &GeoScene) -> (Vec<u8>, Vec<u8>) {
     (o, blocks)
 }
 
+/// One concept (structure) for the generic mesh encoder [`encode_mesh_bso2`]:
+/// its already-minted key, toggle/colour byte, label index, DISPLAY-frame
+/// centroid `(Dx, Dy=up, Dz)`, and its **contiguous** vertex range.
+pub struct MeshConcept {
+    /// The minted `NodeGuid` (geo classid + HHTL tiers).
+    pub key: NodeGuid,
+    /// Layer toggle byte (`4` = the default-on geo group, as the OSM bake uses).
+    pub layer: u8,
+    /// Label index into `labels_json`'s `names[]`.
+    pub label: u32,
+    /// Concept centroid in the DISPLAY frame `(Dx, Dy=up, Dz)`.
+    pub centroid: [f32; 3],
+    /// First vertex index owned by this concept.
+    pub v_start: u32,
+    /// Vertex count (the concept owns `[v_start, v_start + v_count)`).
+    pub v_count: u32,
+}
+
+/// Encode an **arbitrary display-frame triangle mesh** into the exact BSO2 ver-6
+/// `/helix` wire (F16 pos + `Signed360` normals + HXFL trailer) that
+/// `BodyHelix.tsx` decodes — the generalization of [`encode_bso2`] for meshes
+/// that are NOT OSM footprints (e.g. a DEM heightfield grid). The byte layout is
+/// identical to [`encode_bso2`]'s so the same reader renders it unchanged.
+///
+/// `pos`/`nrm` are already the normalized DISPLAY frame `(Dx, Dy=up, Dz)`;
+/// positions are written as `srcPos = (-Dx, Dz, Dy)` (F16) and normals via
+/// [`signed360`], the same remap [`encode_bso2`] applies, so BodyHelix's
+/// `(-x, z, y)` decode lands the mesh upright. `rows[i]` is vertex `i`'s concept
+/// (the client keys its per-vertex layer/clamp off this array, NOT `v_range`).
+/// Returns `(bso2_bytes, blocks_sidecar_bytes)`.
+#[must_use]
+pub fn encode_mesh_bso2(
+    pos: &[[f32; 3]],
+    nrm: &[[f32; 3]],
+    rows: &[u32],
+    tris: &[[u32; 3]],
+    concepts: &[MeshConcept],
+    labels_json: &[u8],
+) -> (Vec<u8>, Vec<u8>) {
+    let nv = pos.len();
+    let nt = tris.len();
+    let nc = concepts.len();
+    assert_eq!(nrm.len(), nv, "nrm len must match pos");
+    assert_eq!(rows.len(), nv, "rows len must match pos");
+
+    let mut o = Vec::with_capacity(nc * 40 + nv * 22 + nt * 12 + labels_json.len() + 64);
+    o.extend_from_slice(b"BSO2");
+    o.extend_from_slice(&6u16.to_le_bytes());
+    o.extend_from_slice(&(nc as u32).to_le_bytes());
+    o.extend_from_slice(&(nv as u32).to_le_bytes());
+    o.extend_from_slice(&(nt as u32).to_le_bytes());
+    // per-concept: guid | material | layer | label | centroid | (v_start,v_count)
+    for c in concepts {
+        o.extend_from_slice(c.key.as_bytes());
+    }
+    o.extend(concepts.iter().map(|_| 4u8)); // material (doppler default)
+    o.extend(concepts.iter().map(|c| c.layer)); // layer (toggle/colour byte)
+    for c in concepts {
+        o.extend_from_slice(&c.label.to_le_bytes());
+    }
+    for c in concepts {
+        // Same (-Dx, Dz, Dy) pre-remap as the vertex positions so focus targets
+        // land upright (BodyHelix applies (-x, z, y) to this column too).
+        for v in [-c.centroid[0], c.centroid[2], c.centroid[1]] {
+            o.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    for c in concepts {
+        o.extend_from_slice(&c.v_start.to_le_bytes());
+        o.extend_from_slice(&c.v_count.to_le_bytes());
+    }
+    // per-vertex: pos 3×F16 (srcPos = -Dx, Dz, Dy) | helix 6B (Signed360) | row u32.
+    for p in pos {
+        for &v in &[-p[0], p[2], p[1]] {
+            o.extend_from_slice(&F16::from_f32(v).0.to_le_bytes());
+        }
+    }
+    for n in nrm {
+        o.extend_from_slice(&signed360(*n));
+    }
+    for r in rows {
+        o.extend_from_slice(&r.to_le_bytes());
+    }
+    for t in tris {
+        for idx in t {
+            o.extend_from_slice(&idx.to_le_bytes());
+        }
+    }
+    // labels_json (names[]) + materials_json (unused by the reader).
+    o.extend_from_slice(&(labels_json.len() as u32).to_le_bytes());
+    o.extend_from_slice(labels_json);
+    let materials = b"{}";
+    o.extend_from_slice(&(materials.len() as u32).to_le_bytes());
+    o.extend_from_slice(materials);
+    // HXFL trailer (12 B, must be the final bytes): the rim-dequant floor. We take
+    // the analytic `end = 255` Signed360 branch, so these are unused, but the
+    // well-formed ver-6 artifact carries the tag BodyHelix reads from the tail.
+    o.extend_from_slice(b"HXFL");
+    o.extend_from_slice(&(-2.256_794_5f32).to_le_bytes());
+    o.extend_from_slice(&11.535_854f32.to_le_bytes());
+
+    // .blocks sidecar: per-concept (center3, radius) in DISPLAY space (unused by
+    // geo scenes — LOD is disabled — but emitted to match the OSM path).
+    let mut blocks = Vec::with_capacity(nc * 16);
+    for c in concepts {
+        let mut rad = 0.0f32;
+        let end = (c.v_start + c.v_count) as usize;
+        for v in &pos[c.v_start as usize..end.min(nv)] {
+            let d = (v[0] - c.centroid[0]).powi(2)
+                + (v[1] - c.centroid[1]).powi(2)
+                + (v[2] - c.centroid[2]).powi(2);
+            rad = rad.max(d);
+        }
+        for v in c.centroid {
+            blocks.extend_from_slice(&v.to_le_bytes());
+        }
+        blocks.extend_from_slice(&rad.sqrt().max(1e-4).to_le_bytes());
+    }
+
+    (o, blocks)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

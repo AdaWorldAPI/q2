@@ -53,6 +53,12 @@ required-features = ["osm"]
 name = "osm_helix"
 required-features = ["osm", "helix"]
 
+# iceland_dem → BSO2 /helix wire from a Terrarium DEM heightfield (no osm reader
+# at runtime; needs `helix` for bso2 + ndarray + lance-graph-contract).
+[[bin]]
+name = "iceland_dem"
+required-features = ["helix"]
+
 [profile.release]
 opt-level = 3
 codegen-units = 1

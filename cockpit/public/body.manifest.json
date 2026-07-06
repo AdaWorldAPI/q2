@@ -1,7 +1,8 @@
 {
   "helix_latest": "body.20260629c.v6helix.soa.gz",
   "osm_latest": "berlin.helix.soa.gz",
-  "iceland_latest": "iceland.helix.soa.gz",
+  "iceland_latest": "iceland_dem.helix.soa.gz",
+  "iceland_note": "iceland_dem.helix.soa.gz = real Terrarium DEM heightfield (z9 keyless terrain-RGB, 1152x896 grid = 1,032,192 verts / 2,060,290 tris, equirectangular, true-scale elevation 0..0.0067 in [-1,1], sea level -> y=0). Solid landmass, replaces the sparse iceland.helix.soa.gz scatter (kept on disk, unreferenced). Baked by geo/src/bin/iceland_dem.rs via bso2::encode_mesh_bso2; DEM fetched by scripts/fetch_iceland_dem.py.",
   "note": "20260629c re-emit from soa_v2 (geometry identical to 20260629b): 39 connective structures (ligaments / tendons / interosseous membranes / fascia / retinacula / iliotibial tract) reclassified out of the ORGAN and SKIN layers into the now-live CONNECTIVE layer 7 — they were FMA-filed under /viscera/solid_organ/ligament_organ, so the is_a walk tagged them viscus->organ and they floated in the organ view as tan limb-shaped strays (interosseous membrane of leg/forearm, calcaneal tendon, long plantar ligament). Carries the 20260629b fixes (teeth->skeleton, per-vessel slicer-fill diameter). BSO2 ver 6 = F16 pos + Signed360 NORMAL + HXFL trailer; Gouraud per-vertex shading. Published to fma-body-soa-v3-v1; Dockerfile pulls same-origin.",
   "verts": 4283525
 }
