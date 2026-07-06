@@ -171,14 +171,43 @@ pub fn apply(mesh: &mut Mesh, s: &Stroke) -> Undo {
             }
         }
         Tool::Ruler => {
-            // pos += nrm * 0.08 * strength * w * phase(OLD pos, detail).
+            // The kurvenlineal engraves a FIXED relief, not an accumulating
+            // push. The vertex is blended toward `base + nrm · AMP · phase`,
+            // where `base` is the adjacency mean (the local surface) and the
+            // phase address is read from that STABLE base — not the drifting
+            // live position. So re-stroking the same spot converges to the
+            // target (contraction by k = strength·w each stroke) instead of
+            // walking outward every stroke. A vertex with no neighbours has no
+            // local surface to anchor to → left untouched (it stays in Undo).
+            const AMP: f32 = 0.12;
             let new: Vec<(u32, [f32; 3])> = touched
                 .iter()
-                .map(|&(i, w)| {
-                    let p = mesh.pos[i as usize];
+                .filter_map(|&(i, w)| {
+                    let nb = &mesh.adj[i as usize];
+                    if nb.is_empty() {
+                        return None;
+                    }
+                    let mut m = [0.0f32; 3];
+                    for &j in nb {
+                        let q = mesh.pos[j as usize];
+                        m[0] += q[0];
+                        m[1] += q[1];
+                        m[2] += q[2];
+                    }
+                    let inv = 1.0 / nb.len() as f32;
+                    let base = [m[0] * inv, m[1] * inv, m[2] * inv];
                     let n = mesh.nrm[i as usize];
-                    let k = 0.08 * s.strength * w * ruler_phase(p, s.detail);
-                    (i, add_scaled(p, n, k))
+                    let target = add_scaled(base, n, AMP * ruler_phase(base, s.detail));
+                    let p = mesh.pos[i as usize];
+                    let k = s.strength * w;
+                    Some((
+                        i,
+                        [
+                            p[0] + (target[0] - p[0]) * k,
+                            p[1] + (target[1] - p[1]) * k,
+                            p[2] + (target[2] - p[2]) * k,
+                        ],
+                    ))
                 })
                 .collect();
             write_pos(mesh, &new);
@@ -410,5 +439,57 @@ mod tests {
         let p1: Vec<[u32; 3]> = m1.pos.iter().map(|p| p.map(f32::to_bits)).collect();
         let p2: Vec<[u32; 3]> = m2.pos.iter().map(|p| p.map(f32::to_bits)).collect();
         assert_eq!(p1, p2);
+    }
+
+    #[test]
+    fn ruler_restroke_does_not_accumulate() {
+        // Re-stroking the SAME spot must converge to a fixed relief, not drift.
+        // strength 0.5 makes each stroke a half-step contraction toward the
+        // address-fixed target, so consecutive steps shrink toward zero. The
+        // old additive relief pushed the apex a fixed amount every stroke.
+        let mut m = weld(&spike_soup());
+        let apex = apex_index(&m);
+        let s = Stroke {
+            tool: Tool::Ruler,
+            center: [0.0, 0.0, 0.5],
+            dir: [0.0; 3],
+            radius: 0.6,
+            strength: 0.5,
+            color: [0, 0, 0],
+            detail: 16.0,
+        };
+        let mut prev = m.pos[apex];
+        let (mut first_step, mut last_step) = (0.0f32, 0.0f32);
+        for n in 0..40 {
+            apply(&mut m, &s);
+            let now = m.pos[apex];
+            let step = dist(prev, now);
+            if n == 0 {
+                first_step = step;
+            }
+            if n == 39 {
+                last_step = step;
+            }
+            prev = now;
+            // A convergent relief stays near the local surface; the old additive
+            // push (~0.024/stroke here) would have drifted the apex far past this.
+            assert!(
+                now[2].abs() < 1.0,
+                "apex ran away to z={} (accumulating)",
+                now[2]
+            );
+        }
+        assert!(first_step > 1e-4, "the brush should move the apex at all");
+        // Strong contraction: the settling step is a tiny fraction of the first,
+        // and small in absolute terms — the hallmark of convergence, not the
+        // fixed-per-stroke drift of the old additive relief.
+        assert!(
+            last_step < 2e-3,
+            "ruler did not converge: last step {last_step}"
+        );
+        assert!(
+            last_step < first_step * 0.05,
+            "steps must contract: {first_step} -> {last_step}"
+        );
     }
 }

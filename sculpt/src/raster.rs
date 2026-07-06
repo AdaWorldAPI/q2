@@ -151,7 +151,11 @@ pub fn render(mesh: &Mesh, cam: &Camera, w: u32, h: u32) -> RenderOut {
                 if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
                     continue;
                 }
-                let vz = w0 * a[2] + w1 * b[2] + w2 * c[2];
+                // Perspective-correct depth: view-space z is NOT linear in
+                // screen barycentrics, but 1/z is. Interpolating reciprocals
+                // keeps the stored depth exact, so pick() unprojects onto the
+                // real surface even on large slanted faces (the printer cube).
+                let vz = 1.0 / (w0 / a[2] + w1 / b[2] + w2 / c[2]);
                 let idx = (py as u32 * w + px as u32) as usize;
                 if vz >= depth[idx] {
                     continue;

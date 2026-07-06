@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use askama::Template;
 use sculpt::mesh::{weld, Mesh};
@@ -113,6 +114,9 @@ struct Req {
 }
 
 fn handle(mut s: TcpStream, app: &Mutex<App>) -> std::io::Result<()> {
+    // Sequential accept loop: a stalled client must not wedge every other one.
+    let _ = s.set_read_timeout(Some(Duration::from_secs(20)));
+    let _ = s.set_write_timeout(Some(Duration::from_secs(20)));
     let Some(req) = read_request(&mut s)? else {
         return Ok(());
     };
@@ -170,7 +174,9 @@ fn handle(mut s: TcpStream, app: &Mutex<App>) -> std::io::Result<()> {
             respond(&mut s, "200 OK", "text/plain", b"ok")
         }
         ("GET", "/model.stl") => {
-            let stl = write_binary_stl(&a.mesh.pos, &a.mesh.tris);
+            // Export at source scale — an uploaded 100 mm part comes back 100 mm,
+            // not shrunk into the unit display box (mesh.denorm inverts the fit).
+            let stl = write_binary_stl(&a.mesh.export_positions(), &a.mesh.tris);
             respond_attach(&mut s, "sculpt.stl", &stl)
         }
         ("POST", "/model.stl") | ("PUT", "/model.stl") => match read_stl(&req.body) {
@@ -250,10 +256,11 @@ fn read_request(s: &mut TcpStream) -> std::io::Result<Option<Req>> {
     // Read until the header terminator, then Content-Length bytes of body.
     let mut buf = Vec::with_capacity(1024);
     let mut tmp = [0u8; 4096];
+    // Linear scan: only search newly-read bytes each round (rewound 3 so a
+    // `\r\n\r\n` split across two reads is still caught), so a terminator-less
+    // stream costs O(n), not O(n²).
+    let mut scanned = 0usize;
     let hdr_end = loop {
-        if let Some(p) = find_crlfcrlf(&buf) {
-            break p;
-        }
         let n = s.read(&mut tmp)?;
         if n == 0 {
             return Ok(None);
@@ -262,6 +269,11 @@ fn read_request(s: &mut TcpStream) -> std::io::Result<Option<Req>> {
         if buf.len() > UPLOAD_CAP + 8192 {
             return Ok(None); // runaway header/body
         }
+        let start = scanned.saturating_sub(3);
+        if let Some(p) = find_crlfcrlf(&buf[start..]) {
+            break start + p;
+        }
+        scanned = buf.len();
     };
     let head = String::from_utf8_lossy(&buf[..hdr_end]).to_string();
     let mut lines = head.split("\r\n");
@@ -315,24 +327,35 @@ fn split_query(target: &str) -> (String, HashMap<String, String>) {
     }
 }
 
-/// Minimal percent + '+' decode — enough for numbers and a `%23`-escaped '#'.
+/// Minimal percent + '+' decode. Works entirely on bytes: a `%XY` escape is
+/// decoded from the raw hex pair (so a multi-byte UTF-8 sequence like `%C3%A9`
+/// reassembles correctly), and the result is lossy-UTF-8'd once at the end.
+/// Never slices `s` at a byte offset, so a `%` before a multibyte char can't
+/// hit a non-char boundary and panic.
 fn url_decode(s: &str) -> String {
     let b = s.as_bytes();
-    let mut out = String::with_capacity(s.len());
+    let mut out: Vec<u8> = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
         match b[i] {
-            b'+' => out.push(' '),
+            b'+' => out.push(b' '),
             b'%' if i + 2 < b.len() => {
-                let h = u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap_or(b'%');
-                out.push(h as char);
-                i += 2;
+                match std::str::from_utf8(&b[i + 1..i + 3])
+                    .ok()
+                    .and_then(|h| u8::from_str_radix(h, 16).ok())
+                {
+                    Some(byte) => {
+                        out.push(byte);
+                        i += 2;
+                    }
+                    None => out.push(b'%'), // malformed escape → literal '%'
+                }
             }
-            c => out.push(c as char),
+            c => out.push(c),
         }
         i += 1;
     }
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn parse_hex(s: &str) -> Option<[u8; 3]> {
@@ -369,4 +392,31 @@ fn respond_attach(s: &mut TcpStream, filename: &str, body: &[u8]) -> std::io::Re
     s.write_all(head.as_bytes())?;
     s.write_all(body)?;
     s.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::url_decode;
+
+    #[test]
+    fn url_decode_basics() {
+        assert_eq!(url_decode("a+b%20c"), "a b c");
+        assert_eq!(url_decode("%23fff"), "#fff");
+        assert_eq!(url_decode("-0.5"), "-0.5");
+    }
+
+    #[test]
+    fn url_decode_multibyte_escape_reassembles() {
+        // Two percent-escaped bytes form one UTF-8 char, decoded as bytes.
+        assert_eq!(url_decode("%C3%A9"), "é");
+    }
+
+    #[test]
+    fn url_decode_percent_before_multibyte_does_not_panic() {
+        // The old `&s[i+1..i+3]` sliced a str by byte offset and panicked when a
+        // '%' sat before a multibyte char. Byte-level decode keeps the '%' literal.
+        assert_eq!(url_decode("%é"), "%é");
+        assert_eq!(url_decode("100%"), "100%");
+        assert_eq!(url_decode("%"), "%");
+    }
 }

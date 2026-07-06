@@ -18,6 +18,11 @@ pub struct Mesh {
     pub nrm: Vec<[f32; 3]>, // per-vertex, area-weighted, unit
     pub col: Vec<[u8; 3]>,  // init 200,200,205
     pub adj: Vec<Vec<u32>>,
+    /// Inverse of the display normalization, `(center, scale)`, such that a
+    /// normalized position maps back to source coords via `p / scale + center`.
+    /// `None` until [`Mesh::normalize_unit`] runs; keeps the STL round-trip
+    /// honest (an uploaded 100 mm part exports at 100 mm, not unit-boxed).
+    pub denorm: Option<([f32; 3], f32)>,
 }
 
 /// Weld the soup: quantize positions to a lattice of 1e-4 × bbox-diagonal,
@@ -63,6 +68,7 @@ pub fn weld(soup: &TriSoup) -> Mesh {
         nrm: vec![[0.0; 3]; n],
         col: vec![[200, 200, 205]; n],
         adj: Vec::new(),
+        denorm: None,
     };
     mesh.recompute_normals();
     mesh.adj = build_adjacency(n, &mesh.tris);
@@ -119,6 +125,24 @@ impl Mesh {
             for a in 0..3 {
                 p[a] = (p[a] - c[a]) * s;
             }
+        }
+        // Remember the inverse so export can restore real-world coordinates.
+        // Called once per loaded mesh; the source transform is `(center, scale)`.
+        self.denorm = Some((c, s));
+    }
+
+    /// Positions mapped back through the inverse of the display normalization,
+    /// so an uploaded part downloads at its original scale/placement (sculpt
+    /// edits scale back proportionally). A mesh that was already unit — or
+    /// never normalized — round-trips unchanged.
+    pub fn export_positions(&self) -> Vec<[f32; 3]> {
+        match self.denorm {
+            Some((c, s)) if s != 0.0 => self
+                .pos
+                .iter()
+                .map(|p| [p[0] / s + c[0], p[1] / s + c[1], p[2] / s + c[2]])
+                .collect(),
+            _ => self.pos.clone(),
         }
     }
 
@@ -276,6 +300,37 @@ mod tests {
             }
         }
         assert!((max_ext - 1.0).abs() < 1e-5, "max half-extent {max_ext}");
+    }
+
+    #[test]
+    fn export_positions_round_trip_source_scale() {
+        // A part far from the origin at ~6-unit scale: display-normalize shrinks
+        // it to the unit box, but export must hand back the source coordinates.
+        let mut soup = tetra_soup();
+        for t in &mut soup.tris {
+            for v in t.iter_mut() {
+                for a in 0..3 {
+                    v[a] = v[a] * 3.0 + 5.0;
+                }
+            }
+        }
+        let mut m = weld(&soup);
+        let source = m.pos.clone(); // welded, pre-normalization coordinates
+        m.normalize_unit();
+        // The live (display) coordinates are unit-boxed …
+        assert!(m.pos.iter().flatten().all(|c| c.abs() <= 1.0 + 1e-5));
+        // … but export inverts the normalization back to the source scale.
+        let exported = m.export_positions();
+        for (e, s) in exported.iter().zip(&source) {
+            for a in 0..3 {
+                assert!(
+                    (e[a] - s[a]).abs() < 1e-3,
+                    "export {} != source {}",
+                    e[a],
+                    s[a]
+                );
+            }
+        }
     }
 
     #[test]

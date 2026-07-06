@@ -50,8 +50,8 @@
     <div class="field">
       <label>model</label>
       <select onchange="model=this.value; post('/reset?model='+model)">
-        <option value="sphere">icosphere</option>
-        <option value="cube">printer cube</option>
+        <option value="sphere"{% if model_name == "sphere" %} selected{% endif %}>icosphere</option>
+        <option value="cube"{% if model_name == "cube" %} selected{% endif %}>printer cube</option>
       </select>
     </div>
     <div class="stat">{{ verts }} verts · {{ tris }} tris<br>CurveRuler detail = deterministic phase</div>
@@ -60,10 +60,25 @@
 <script>
 let model = "{{ model_name }}";
 const v = document.getElementById('v');
+// A /stroke response already carries the freshly-rendered PNG; show it directly
+// instead of firing a second GET /view.png (which re-renders and could display
+// a frame from a different point in the drag). Object URLs are revoked as they
+// are replaced so the drag doesn't leak blobs.
+let objUrl = null;
+function showBlob(b) {
+  const u = URL.createObjectURL(b);
+  v.src = u;
+  if (objUrl) URL.revokeObjectURL(objUrl);
+  objUrl = u;
+}
 const bust = () => { v.src = '/view.png?t=' + Date.now(); };
 function post(url, then) { fetch(url, { method:'POST' }).then(() => { if (then!==false) bust(); }); }
 function setBrush(key, val) { post('/brush?' + key + '=' + encodeURIComponent(val), false); }
 function setTool(t) { fetch('/brush?tool=' + t, { method:'POST' }).then(() => location.reload()); }
+function applyStroke(ix, iy, sdx, sdy) {
+  fetch('/stroke?x='+ix+'&y='+iy+'&dx='+sdx+'&dy='+sdy, { method:'POST' })
+    .then(r => r.blob()).then(showBlob);
+}
 
 // Pointer model: primary button / one finger = sculpt stroke; secondary /
 // two-finger / with-shift = orbit; wheel = dolly. The server picks the surface
@@ -88,15 +103,23 @@ v.addEventListener('pointermove', e => {
     fetch('/camera?dyaw=' + (-dx*0.008) + '&dpitch=' + (-dy*0.008), { method:'POST' }).then(bust);
   } else {
     const [ix, iy] = imgXY(e);
-    const sdx = dx * v.naturalWidth / v.getBoundingClientRect().width;
-    const sdy = dy * v.naturalHeight / v.getBoundingClientRect().height;
-    fetch('/stroke?x='+ix+'&y='+iy+'&dx='+sdx+'&dy='+sdy, { method:'POST' }).then(bust);
+    const r = v.getBoundingClientRect();
+    const sdx = dx * v.naturalWidth / r.width;
+    const sdy = dy * v.naturalHeight / r.height;
+    applyStroke(ix, iy, sdx, sdy);
   }
   [lx, ly] = [e.clientX, e.clientY]; moved = true;
 });
-const end = e => { if (mode) { v.releasePointerCapture(e.pointerId); mode = null; } };
-v.addEventListener('pointerup', end);
-v.addEventListener('pointercancel', end);
+v.addEventListener('pointerup', e => {
+  if (!mode) return;
+  v.releasePointerCapture(e.pointerId);
+  // A tap/click with no drag still applies the brush once, so the click tools
+  // (Inflate / Smooth / Spray / Ruler) fire on a plain click. Grab with no
+  // drag is a natural no-op (dx=dy=0 → zero pull).
+  if (mode === 'sculpt' && !moved) { const [ix, iy] = imgXY(e); applyStroke(ix, iy, 0, 0); }
+  mode = null;
+});
+v.addEventListener('pointercancel', e => { if (mode) { v.releasePointerCapture(e.pointerId); mode = null; } });
 v.addEventListener('contextmenu', e => e.preventDefault());
 v.addEventListener('wheel', e => {
   e.preventDefault();
