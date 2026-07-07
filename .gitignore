@@ -61,3 +61,8 @@ cockpit/public/body.soa
 cockpit/public/body.soa.gz
 scratch-fma/
 cockpit/public/*.blocks
+
+# Iceland DEM bake is 151MB (full z9 + imagery) — over GitHub 100MB; ship via Release asset.
+cockpit/public/iceland_dem.helix.soa.gz
+# in-repo scratch (demgrids, screenshots, harness) — belongs out of git.
+/scratchpad/
