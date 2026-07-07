@@ -60,3 +60,4 @@ __pycache__/
 cockpit/public/body.soa
 cockpit/public/body.soa.gz
 scratch-fma/
+cockpit/public/*.blocks
