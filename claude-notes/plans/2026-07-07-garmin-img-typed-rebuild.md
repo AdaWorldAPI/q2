@@ -1,7 +1,10 @@
 # Garmin IMG typed rebuild — ground-up geo pipeline (canyon / iceland / berlin)
 
 **Status:** format decoder VALIDATED (Python prototype, Grand Canyon renders
-recognizably). Rust port + bake pipeline pending.
+recognizably) **and PORTED to Rust** (`geo/src/garmin/`, byte-for-byte parity
+with the prototype — FNV-1a-64 fold `0xadb368a3b063c74d` over all 120,174
+features of the village tile, plus exact counts on 3 more tiles). Bake pipeline
+(tasks #13–#16) pending.
 
 ## Why (operator direction, 2026-07-07)
 
@@ -121,8 +124,12 @@ or a second draw), since extruded footprints are genuinely non-deterministic.
 
 ## Remaining work (tasks #12-#16)
 
-1. **Rust port** — `geo/src/garmin/` (mirror scripts/garmin_proto.py; the
-   prototype IS the executable spec, diff outputs against it).
+1. **Rust port** — ✅ DONE. `geo/src/garmin/` — `container.rs` (FAT), `tre.rs`
+   (levels + subdivs), `rgn.rs` (points/lines/polys + the CShiftReg delta
+   bitstream), `lbl.rs` (6-bit + 8-bit labels), `mod.rs` (`Img` / `Feature` /
+   `Kind` / `Decoded` API). Dep-free pure `std`, clippy + fmt clean. Parity
+   asserted in-module against the prototype's golden (FNV-1a-64 over every
+   coord + per-kind/per-level counts + a decoded road name).
 2. **Type codes → KIND** — typed lookup table per kind; sweet palette like
    `/ice` `Kind::color()`. One typed polygon = one building/house.
 3. **Contours → heightfield** — grid interpolation (or TIN) from contour

@@ -19,6 +19,11 @@ pub mod extrude;
 pub mod hhtl;
 pub mod spm1;
 
+/// Garmin IMG map decoder (dep-free, pure `std`): typed features + contours
+/// from the banked `.img` sources — the ground-up replacement for raster
+/// colour-guessing in the geo bake pipeline.
+pub mod garmin;
+
 /// Cesium-substrate seed (dep-free): the ratified TMS-quadkey addressing for the
 /// `cesium-osm-substrate-v1` path — the "version 2, for later" the `/helix` bake
 /// is a throwaway proof of.
