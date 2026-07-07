@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y \
     git curl build-essential cmake clang \
     libssl-dev pkg-config python3 \
     protobuf-compiler libprotobuf-dev \
-    ca-certificates lld \
+    ca-certificates lld zip unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Rust 1.94.0
@@ -69,13 +69,21 @@ RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v
       -o /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz \
  && ls -lh /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz
 
-# The Iceland OSM helix bake (BSO2 ver 6) ships IN-REPO under .claude/maps/, not from
-# the release — this session type can't upload release assets, so the artifact is
-# version-controlled instead. BodyHelix fetches /iceland.helix.soa.gz same-origin
-# (manifest iceland_latest); include_dir! embeds cockpit/dist/, so copy it there. The
-# build context already carries .claude/maps via `COPY . /build/q2` above.
-RUN cp /build/q2/.claude/maps/iceland.helix.soa.gz /build/q2/cockpit/dist/iceland.helix.soa.gz \
- && ls -lh /build/q2/cockpit/dist/iceland.helix.soa.gz
+# The Iceland DEM terrain bake (BSO2 ver 7 = F16 pos + Signed360 normal + per-vertex
+# RGB texture): 16,515,072 verts, ESRI imagery draped as KIND × helix-residue colour.
+# It ships IN-REPO under .claude/maps/, not from the release — this session type can't
+# upload release assets, so the 151 MB artifact is version-controlled as a 2-part split
+# zip (iceland_dem_16m.z01 + iceland_dem_16m.zip, each < GitHub's 100 MB blob limit).
+# Reassemble both parts into one full zip, then extract iceland_dem.helix.soa.gz into
+# dist/; include_dir! embeds cockpit/dist/, so BodyHelix resolves it SAME-ORIGIN
+# (manifest iceland_latest = iceland_dem.helix.soa.gz). Same-origin is required for the
+# same CORS reason as the body wires — the github releases redirect sends no CORS header.
+# The build context already carries .claude/maps via `COPY . /build/q2` above.
+RUN cd /build/q2/.claude/maps \
+ && zip -s 0 iceland_dem_16m.zip --out /tmp/iceland_dem_full.zip \
+ && unzip -o /tmp/iceland_dem_full.zip -d /build/q2/cockpit/dist/ \
+ && rm -f /tmp/iceland_dem_full.zip \
+ && ls -lh /build/q2/cockpit/dist/iceland_dem.helix.soa.gz
 
 # The Berlin OSM helix bake — the /geo + /helix?scene=osm scene (manifest osm_latest).
 # It's 92 MB, so it lives in the release, not git; download it into dist/ so BodyHelix

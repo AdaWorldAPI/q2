@@ -16,11 +16,15 @@
 //! ```
 //! Gzip `<out>.soa` afterwards (BodyHelix fetches a gzip'd artifact).
 
-use geo_hhtl::bso2::{encode_mesh_bso2, MeshConcept, CLASSID_GEO_V3};
+use geo_hhtl::bso2::{encode_grid_bso2, encode_mesh_bso2, MeshConcept, CLASSID_GEO_V3};
 use geo_hhtl::hhtl::point_to_hhtl4;
 use geo_hhtl::osm_read::M_PER_DEG;
 
 use lance_graph_contract::canonical_node::{NodeGuid, TailVariant};
+
+// THE KURVENLINEAL — the real golden-spiral curve-ruler (stride-4-over-17). Same crate the
+// `sculpt` tool + the anatomy body use; ported here so the terrain carries the residue.
+use helix::CurveRuler;
 
 /// Deep key zoom for the 4-tier HHTL cascade (matches the OSM bake's KEY_ZOOM).
 const KEY_ZOOM: u32 = 32;
@@ -33,19 +37,21 @@ struct Dem {
     h: usize,
     west: f64,
     east: f64,
-    lats: Vec<f64>,  // len h, row 0 = north
-    elev: Vec<f32>,  // len w*h, row-major, row 0 = north, col 0 = west (metres)
+    lats: Vec<f64>,     // len h, row 0 = north
+    elev: Vec<f32>,     // len w*h, row-major, row 0 = north, col 0 = west (metres)
+    rgb: Vec<[u8; 3]>,  // len w*h (DEMG v2) or empty (v1) — ESRI imagery drape, same order as elev
 }
 
 fn read_demgrid(path: &str) -> Result<Dem, Box<dyn std::error::Error>> {
     let b = std::fs::read(path)?;
-    if b.len() < 24 || &b[0..4] != b"DEMG" {
+    // Need bytes 0..32 for the fixed header (magic/ver/w/h/west/east); `f64_at(24)` reads 24..32.
+    if b.len() < 32 || &b[0..4] != b"DEMG" {
         return Err("not a DEMG file".into());
     }
     let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let f64_at = |o: usize| f64::from_le_bytes(b[o..o + 8].try_into().unwrap());
     let ver = u32_at(4);
-    if ver != 1 {
+    if ver != 1 && ver != 2 {
         return Err(format!("unsupported DEMG version {ver}").into());
     }
     let w = u32_at(8) as usize;
@@ -64,15 +70,98 @@ fn read_demgrid(path: &str) -> Result<Dem, Box<dyn std::error::Error>> {
         elev.push(f32::from_le_bytes(b[o..o + 4].try_into().unwrap()));
         o += 4;
     }
-    Ok(Dem { w, h, west, east, lats, elev })
+    // DEMG v2: a per-cell RGB imagery drape (ESRI World Imagery) after the elevation block,
+    // same row-major order. The baker classifies each cell's colour into a surface KIND.
+    let mut rgb = Vec::new();
+    if ver == 2 {
+        if b.len() < o + n * 3 {
+            return Err("DEMG v2 truncated: rgb block short".into());
+        }
+        rgb.reserve(n);
+        for _ in 0..n {
+            rgb.push([b[o], b[o + 1], b[o + 2]]);
+            o += 3;
+        }
+    }
+    Ok(Dem { w, h, west, east, lats, elev, rgb })
+}
+
+/// Surface KIND — the terrain node's CLASS axis (the "kind" that sits beside the HHTL position
+/// address and the Helix residue). Classified from the ESRI imagery colour + elevation; each kind
+/// carries a canonical palette so the map reads as clean ocean / green / rock / scree / ice / lava
+/// rather than a muddy raw photo.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum Kind {
+    Ocean = 0,
+    Green = 1, // vegetation / moss / tundra
+    Rock = 2,  // brown highland rock
+    Scree = 3, // grey bare
+    Ice = 4,   // snow / glacier
+    Lava = 5,  // dark volcanic basalt / black sand
+}
+
+/// Discriminant order for the ver-8 palette block (index = `Kind as u8`).
+const KIND_ORDER: [Kind; 6] = [
+    Kind::Ocean,
+    Kind::Green,
+    Kind::Rock,
+    Kind::Scree,
+    Kind::Ice,
+    Kind::Lava,
+];
+
+impl Kind {
+    /// Canonical base colour (sRGB, 0..255) for the kind — a SWEET, clean palette (the /helix
+    /// conceptColor look), not the muddy raw satellite tone. The imagery classifies the kind; the
+    /// colour is the kind's own pleasant hue, brightness-varied by the helix residue below.
+    fn color(self) -> [f32; 3] {
+        match self {
+            Kind::Ocean => [26.0, 62.0, 104.0], // clean deep blue
+            Kind::Green => [104.0, 150.0, 70.0], // fresh grass/moss green
+            Kind::Rock => [150.0, 120.0, 88.0],  // warm tan-brown highland
+            Kind::Scree => [166.0, 160.0, 150.0], // light warm grey
+            Kind::Ice => [238.0, 244.0, 252.0],  // bright glacier white
+            Kind::Lava => [66.0, 46.0, 44.0],    // dark basalt (not black)
+        }
+    }
+}
+
+/// Classify a vertex from its imagery colour + elevation. Elevation gates ocean (y == 0); the
+/// imagery luminance/saturation separates ice (bright, low-sat), lava (very dark), green
+/// (green-dominant), scree (bright grey) and rock (the mid-tone default).
+fn classify_kind(rgb: [u8; 3], elev: f32) -> Kind {
+    if elev <= 0.0 {
+        return Kind::Ocean;
+    }
+    let (r, g, b) = (rgb[0] as f32, rgb[1] as f32, rgb[2] as f32);
+    let lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    let mx = r.max(g).max(b);
+    let mn = r.min(g).min(b);
+    let sat = if mx > 0.0 { (mx - mn) / mx } else { 0.0 };
+    if lum > 172.0 && sat < 0.18 {
+        Kind::Ice // bright + desaturated → snow / glacier
+    } else if lum < 60.0 {
+        Kind::Lava // very dark → volcanic basalt / black sand
+    } else if g > r * 1.04 && g > b * 1.10 && g > 58.0 {
+        Kind::Green // green channel clearly dominant → vegetation / moss
+    } else if lum > 128.0 && sat < 0.22 {
+        Kind::Scree // bright-ish grey → scree / bare
+    } else {
+        Kind::Rock // mid-tone default → highland rock
+    }
 }
 
 fn main() {
     let mut args = std::env::args().skip(1);
     let (Some(input), Some(output)) = (args.next(), args.next()) else {
-        eprintln!("usage: iceland_dem <in.demgrid> <out.soa>");
+        eprintln!("usage: iceland_dem <in.demgrid> <out.soa> [--grid]");
         std::process::exit(2);
     };
+    // --grid → the ver-8 radix-grid wire (height F16 + kind u8 only; location /
+    // connectedness / tilt / residue all client-derived from the address).
+    // Default stays the ver-7 mesh wire the deployed artifact uses.
+    let grid_mode = args.next().as_deref() == Some("--grid");
     let dem = match read_demgrid(&input) {
         Ok(d) => d,
         Err(e) => {
@@ -102,7 +191,11 @@ fn main() {
             let i = r * w + c;
             mx[i] = x;
             mz[i] = z;
-            my[i] = dem.elev[i].max(0.0); // sea level & bathymetry → 0
+            // Sea level & bathymetry → 0; clamp the top to Iceland's physical max (Hvannadalshnúkur
+            // ≈ 2110 m) so a Terrarium nodata sentinel or tile-decode outlier can't become a needle
+            // spike in the heightfield. A real heightfield is continuous, so the only way to needle
+            // is an out-of-range vertex — this removes that failure mode at the source.
+            my[i] = dem.elev[i].clamp(0.0, 2200.0);
         }
     }
 
@@ -118,42 +211,47 @@ fn main() {
     let cz = (loz + hiz) * 0.5;
     let half = ((hix - lox).max(hiz - loz) * 0.5).max(1.0);
     let inv = 1.0 / half;
-    // DISPLAY frame (Dx, Dy=up=elevation, Dz). No vertical exaggeration — the
-    // shader raises the true-scale island by uExag=10 + the Kurvenlineal.
+    // DISPLAY frame (Dx, Dy=up=elevation, Dz). No macro exaggeration here — the shader raises the
+    // true-scale island by uExag; the Kurvenlineal golden-spiral residue is baked in below.
     let mut pos = vec![[0.0f32; 3]; w * h];
     for i in 0..w * h {
         pos[i] = [(mx[i] - cx) * inv, my[i] * inv, (mz[i] - cz) * inv];
     }
 
-    // ── Per-vertex normals from the terrain gradient (display frame). ──
-    // du ≈ +east (col+), dv ≈ +north (row-, since row 0 is north). cross(dv,du)
-    // points +Dy on flat ground and tilts with the slope. One-sided at edges.
     let idx = |r: usize, c: usize| r * w + c;
-    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-    let cross = |a: [f32; 3], b: [f32; 3]| {
-        [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-    };
-    let mut nrm = vec![[0.0f32, 1.0, 0.0]; w * h];
-    for r in 0..h {
-        let rn = r.saturating_sub(1); // north neighbour (smaller row)
-        let rs = (r + 1).min(h - 1); // south neighbour
-        for c in 0..w {
-            let cw = c.saturating_sub(1);
-            let ce = (c + 1).min(w - 1);
-            let du = sub(pos[idx(r, ce)], pos[idx(r, cw)]); // east tangent
-            let dv = sub(pos[idx(rn, c)], pos[idx(rs, c)]); // north tangent
-            let mut n = cross(dv, du);
-            let m = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-            if m > 1e-12 {
-                n = [n[0] / m, n[1] / m, n[2] / m];
-                if n[1] < 0.0 {
-                    n = [-n[0], -n[1], -n[2]]; // keep the up-facing hemisphere
-                }
-            } else {
-                n = [0.0, 1.0, 0.0];
-            }
-            nrm[idx(r, c)] = n;
-        }
+
+    // Helix CurveRuler detail frequency — used for the within-KIND colour texture below (NOT the
+    // geometry). At the full 16.5M-vert native resolution the heightfield already carries the fine
+    // relief, so the golden-spiral residue is NOT displaced into the geometry: `ruler_phase` is a
+    // per-cell STEP function, and displacing a dense mesh by it strips the surface into stepped
+    // ridges. The residue instead rides the COLOUR (within-kind variation), where a step reads as
+    // texture, not spikes. (On the sparse/anatomy meshes the geometry displacement is fine — cells
+    // are large relative to the mesh; on this dense grid it is not.)
+    const RES_DETAIL: f32 = 48.0;
+    let nrm = terrain_normals(&pos, w, h);
+
+    // ── Per-vertex COLOUR = the KIND axis. Classify each vertex's surface class from the ESRI
+    //    imagery colour + elevation, take the kind's canonical palette colour, then texture it by
+    //    (a) the real imagery luminance (light/shadow within the kind) and (b) the Helix residue
+    //    phase (deterministic within-kind variation from the address). Together with the HHTL
+    //    address (per-concept key) and the Helix residue (displacement above), this completes the
+    //    node's three axes: WHERE (HHTL) · SURFACE (Helix) · WHAT (kind). No imagery → a neutral
+    //    moss default so a v1 demgrid still bakes. ──
+    let has_img = !dem.rgb.is_empty();
+    let mut colors: Vec<[u8; 3]> = Vec::with_capacity(w * h);
+    for i in 0..w * h {
+        let px = if has_img { dem.rgb[i] } else { [96, 110, 92] };
+        let base = classify_kind(px, my[i]).color();
+        // SWEET brightness: the kind's clean base, varied WITHIN the kind by the helix residue
+        // (the "surfel" texture, ±18%) — this is what makes it read like the /helix body, not a
+        // flat class. Plus a GENTLE, CENTRED imagery light/shadow (±14%, never a muddy darkening):
+        // bright imagery lifts, dark imagery dips, mid stays put. No harsh luminance multiply.
+        let sweet = 0.90 + 0.18 * ruler_phase(pos[i], RES_DETAIL); // helix within-kind variation
+        let lum = (0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32) / 255.0;
+        let light = 1.0 + 0.28 * (lum - 0.5); // centred real light/shadow, keeps the sweet base
+        let m = sweet * light;
+        let q = |c: f32| (c * m).round().clamp(0.0, 255.0) as u8;
+        colors.push([q(base[0]), q(base[1]), q(base[2])]);
     }
 
     // ── Triangles: two per grid cell, shared vertices (watertight surface). ──
@@ -208,13 +306,52 @@ fn main() {
     }
 
     let labels = br#"{"names":["iceland-terrain"]}"#;
-    let (soa, blocks) = encode_mesh_bso2(&pos, &nrm, &rows, &tris, &concepts, labels);
+    let (soa, blocks) = if grid_mode {
+        // ── ver-8 radix-grid: store ONLY height + kind; the client derives
+        //    position (radix x + zrow table), index (grid loop), normals
+        //    (gradient pass) and colour (palette × CurveRuler residue). ──
+        let palette: Vec<[u8; 3]> = KIND_ORDER
+            .iter()
+            .map(|k| {
+                let c = k.color();
+                [c[0] as u8, c[1] as u8, c[2] as u8]
+            })
+            .collect();
+        let mut kinds = Vec::with_capacity(w * h);
+        for i in 0..w * h {
+            let px = if has_img { dem.rgb[i] } else { [96, 110, 92] };
+            kinds.push(classify_kind(px, my[i]) as u8);
+        }
+        // Normalize heights to ≤1 so the F16 mantissa carries full precision
+        // (raw display y spans ~0..0.007 — storing that directly wastes range).
+        let ymax = pos.iter().map(|p| p[1]).fold(0.0f32, f32::max).max(1e-9);
+        let heights: Vec<f32> = pos.iter().map(|p| p[1] / ymax).collect();
+        let x0 = pos[0][0];
+        let dx = if w > 1 { pos[1][0] - pos[0][0] } else { 0.0 };
+        let zrow: Vec<f32> = (0..h).map(|r| pos[r * w][2]).collect();
+        encode_grid_bso2(
+            w as u32, h as u32, x0, dx, ymax, &zrow, &heights, &kinds, &palette, &concepts,
+            labels,
+        )
+    } else {
+        encode_mesh_bso2(&pos, &nrm, &rows, &tris, &concepts, labels, &colors)
+    };
 
     let nc = u32::from_le_bytes(soa[6..10].try_into().unwrap());
-    let nv = u32::from_le_bytes(soa[10..14].try_into().unwrap());
-    let nt = u32::from_le_bytes(soa[14..18].try_into().unwrap());
+    // ver-8 header carries W,H at the ver-7 nV,nT offsets — derive the real counts.
+    let (nv, nt) = if grid_mode {
+        let gw = u32::from_le_bytes(soa[10..14].try_into().unwrap()) as u64;
+        let gh = u32::from_le_bytes(soa[14..18].try_into().unwrap()) as u64;
+        (gw * gh, (gw - 1) * (gh - 1) * 2)
+    } else {
+        (
+            u64::from(u32::from_le_bytes(soa[10..14].try_into().unwrap())),
+            u64::from(u32::from_le_bytes(soa[14..18].try_into().unwrap())),
+        )
+    };
     eprintln!(
-        "BSO2: {nc} concepts · {nv} verts · {nt} tris · {} B soa · {} B blocks",
+        "BSO2 ver{}: {nc} concepts · {nv} verts · {nt} tris · {} B soa · {} B blocks",
+        if grid_mode { 8 } else { 7 },
         soa.len(),
         blocks.len()
     );
@@ -227,4 +364,74 @@ fn main() {
         std::process::exit(1);
     }
     eprintln!("wrote {output} + {blocks_path}");
+}
+
+/// Per-vertex up-facing gradient normals for a `w×h` heightfield in the display frame.
+/// `du ≈ +east` (col+), `dv ≈ +north` (row−, since row 0 is north); `cross(dv, du)` points
+/// +Dy on flat ground and tilts with the slope. One-sided at the edges. Called twice: once for
+/// the residue displacement direction, once to re-derive shading from the displaced surface.
+fn terrain_normals(pos: &[[f32; 3]], w: usize, h: usize) -> Vec<[f32; 3]> {
+    let idx = |r: usize, c: usize| r * w + c;
+    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let cross = |a: [f32; 3], b: [f32; 3]| {
+        [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    };
+    let mut nrm = vec![[0.0f32, 1.0, 0.0]; w * h];
+    for r in 0..h {
+        let rn = r.saturating_sub(1); // north neighbour (smaller row)
+        let rs = (r + 1).min(h - 1); // south neighbour
+        for c in 0..w {
+            let cw = c.saturating_sub(1);
+            let ce = (c + 1).min(w - 1);
+            let du = sub(pos[idx(r, ce)], pos[idx(r, cw)]); // east tangent
+            let dv = sub(pos[idx(rn, c)], pos[idx(rs, c)]); // north tangent
+            let mut n = cross(dv, du);
+            let m = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if m > 1e-12 {
+                n = [n[0] / m, n[1] / m, n[2] / m];
+                if n[1] < 0.0 {
+                    n = [-n[0], -n[1], -n[2]]; // keep the up-facing hemisphere
+                }
+            } else {
+                n = [0.0, 1.0, 0.0];
+            }
+            nrm[idx(r, c)] = n;
+        }
+    }
+    nrm
+}
+
+// ── THE KURVENLINEAL (ported verbatim from `sculpt::sculpt` — the same helix::CurveRuler the
+//    anatomy body uses). Deterministic golden-spiral relief; the phase is regenerated from the
+//    address, NEVER stored. ──
+const MIX_X: u64 = 0x9E37_79B9_7F4A_7C15;
+const MIX_Y: u64 = 0xC2B2_AE3D_27D4_EB4F;
+const MIX_Z: u64 = 0x1656_67B1_9E37_79F9;
+
+/// Decorrelate a lattice cell into a u64 place anchor (wrapping_mul + xor fold).
+fn mix(c: [i64; 3]) -> u64 {
+    (c[0] as u64).wrapping_mul(MIX_X)
+        ^ (c[1] as u64).wrapping_mul(MIX_Y)
+        ^ (c[2] as u64).wrapping_mul(MIX_Z)
+}
+
+/// Deterministic bipolar relief in [-1, 1] from a vertex's lattice address. `cell =
+/// floor(pos·detail)` → `place = mix(cell)`; a finer 3× sub-lattice picks `k = mix(sub) mod 17`;
+/// value = `(CurveRuler::from_place(place).index(k) / 16)·2 − 1`. Same `pos` + `detail` → same
+/// value on every bake, every session (phase is convention, not data — OGAR D-QUANTGATE).
+fn ruler_phase(pos: [f32; 3], detail: f32) -> f32 {
+    let cell = [
+        (pos[0] * detail).floor() as i64,
+        (pos[1] * detail).floor() as i64,
+        (pos[2] * detail).floor() as i64,
+    ];
+    let sub = [
+        (pos[0] * detail * 3.0).floor() as i64,
+        (pos[1] * detail * 3.0).floor() as i64,
+        (pos[2] * detail * 3.0).floor() as i64,
+    ];
+    let k = (mix(sub) % 17) as u32;
+    let idx = CurveRuler::from_place(mix(cell)).index(k);
+    // index ∈ [0,17) → idx/16 ∈ [0,1] → bipolar [-1,1] with 8 → 0.
+    (idx as f32 / 16.0) * 2.0 - 1.0
 }

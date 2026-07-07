@@ -29,6 +29,11 @@ function pathScene(): string | null {
   const p = window.location.pathname;
   if (p === '/geo') return 'osm';
   if (p === '/ice') return 'iceland';
+  // Mod-rewrite style: /garmin/<location> → scene "garmin:<location>". The slug is
+  // resolved SERVER-side (/api/garmin/:location → manifest garmin_scenes → dist file),
+  // so a new scene is a manifest entry + a bake — no client change.
+  const m = p.match(/^\/garmin\/([a-z0-9-]+)$/);
+  if (m) return `garmin:${m[1]}`;
   return null;
 }
 
@@ -108,11 +113,131 @@ interface Decoded {
 }
 interface ConceptMeta { row: number; name: string; layer: number; cx: number; cy: number; cz: number; }
 
+// ── ver-8 radix-grid decode ─────────────────────────────────────────────────
+// The wire stores ONLY height (F16) + kind (u8 → header palette). Everything
+// else is DETERMINISTIC from the address and reconstructed here: position by
+// radix (i → (row, col) → x0 + col·dx, zrow[row]), the triangle index by the
+// grid loop, normals by one gradient pass (true-scale, so display slope =
+// real-world slope), and colour by palette[kind] × the CurveRuler golden-spiral
+// residue (stride-4-over-17, bit-exact 64-bit integer — "phase is convention,
+// not data"). 710 MB (ver-7) → ~50 MB raw for the same 16.5 M-vert Iceland.
+const MIX_X = 0x9E3779B97F4A7C15n, MIX_Y = 0xC2B2AE3D27D4EB4Fn, MIX_Z = 0x165667B19E3779F9n;
+const U64 = (v: bigint) => BigInt.asUintN(64, v);
+/// mix(cell) % 17 — the only reading of the mix the ruler needs (start / k).
+function mix17(cx: number, cy: number, cz: number): number {
+  const m = U64(
+    U64(BigInt.asUintN(64, BigInt(cx)) * MIX_X)
+    ^ U64(BigInt.asUintN(64, BigInt(cy)) * MIX_Y)
+    ^ U64(BigInt.asUintN(64, BigInt(cz)) * MIX_Z));
+  return Number(m % 17n);
+}
+function decodeGrid(buf: ArrayBuffer): Decoded {
+  const dv = new DataView(buf);
+  const nC = dv.getUint32(6, true), W = dv.getUint32(10, true), H = dv.getUint32(14, true);
+  const nV = W * H, nT = (W - 1) * (H - 1) * 2;
+  let o = 18;
+  o += 16 * nC;                     // guid
+  o += nC;                          // material (unused)
+  const layerOff = o; o += nC;      // LAYER u8
+  const labelOff = o; o += 4 * nC;  // label idx
+  const cenOff = o; o += 12 * nC;   // centroid 3f (pre-remapped like ver-6/7)
+  o += 8 * nC;                      // vrange
+  const x0 = dv.getFloat32(o, true), dx = dv.getFloat32(o + 4, true), yscale = dv.getFloat32(o + 8, true);
+  o += 12;
+  const zrow = new Float32Array(buf.slice(o, o + 4 * H)); o += 4 * H;
+  const nK = dv.getUint8(o); o += 1;
+  const pal = new Uint8Array(buf.slice(o, o + 3 * nK)); o += 3 * nK;
+  const hf = new Uint16Array(buf.slice(o, o + 2 * nV)); o += 2 * nV;
+  const kinds = new Uint8Array(buf.slice(o, o + nV)); o += nV;
+  const labLen = dv.getUint32(o, true); o += 4;
+  let names: string[] = [];
+  try { const lj = JSON.parse(new TextDecoder().decode(new Uint8Array(buf.slice(o, o + labLen)))); names = lj.names ?? lj; } catch { /* names optional */ }
+  const cLayer = new Uint8Array(buf.slice(layerOff, layerOff + nC));
+
+  // positions: radix x, tabulated z, decoded F16 height. Display frame DIRECT —
+  // ver-8 synthesizes display coords; no (-x, z, y) source remap round-trip.
+  const heights = new Float32Array(nV);
+  for (let i = 0; i < nV; i++) heights[i] = HALF_LUT[hf[i]] * yscale;
+  const positions = new Float32Array(nV * 3);
+  const rowArr = new Uint32Array(nV);
+  const layer = new Float32Array(nV);
+  for (let r = 0, i = 0; r < H; r++) {
+    const z = zrow[r], cr = Math.min(r, nC - 1), li = cLayer[cr] || 8;
+    for (let c = 0; c < W; c++, i++) {
+      positions[i * 3] = x0 + c * dx;
+      positions[i * 3 + 1] = heights[i];
+      positions[i * 3 + 2] = z;
+      rowArr[i] = cr;
+      layer[i] = li;
+    }
+  }
+  // normals: one central-difference gradient pass (one-sided at edges). True-scale
+  // heights → true-world slopes, byte-parity with the ver-7 baker's terrain_normals.
+  const normals = new Int8Array(nV * 3);
+  for (let r = 0; r < H; r++) {
+    const rm = Math.max(r - 1, 0), rp = Math.min(r + 1, H - 1);
+    const dzr = (zrow[rp] - zrow[rm]) || 1e-6;
+    for (let c = 0; c < W; c++) {
+      const i = r * W + c;
+      const cm = Math.max(c - 1, 0), cp = Math.min(c + 1, W - 1);
+      const gx = (heights[r * W + cp] - heights[r * W + cm]) / (((cp - cm) * dx) || 1e-6);
+      const gz = (heights[rp * W + c] - heights[rm * W + c]) / dzr;
+      const il = 127 / Math.hypot(gx, 1, gz);
+      normals[i * 3] = Math.round(-gx * il);
+      normals[i * 3 + 1] = Math.round(il);
+      normals[i * 3 + 2] = Math.round(-gz * il);
+    }
+  }
+  // colour: palette[kind] × the deterministic CurveRuler residue (±18% within-kind
+  // texture — the /helix surfel look). Lattice mixes cached per cell (≈ tens of
+  // thousands of distinct cells for 16.5 M verts → the BigInt cost is amortized).
+  const colors = new Uint8Array(nV * 3);
+  const DETAIL = 48;
+  const cache = new Map<number, number>();
+  const cell17 = (px: number, py: number, pz: number, d: number): number => {
+    const cx = Math.floor(px * d), cy = Math.floor(py * d), cz = Math.floor(pz * d);
+    const key = (cx + 512) + (cy + 512) * 1024 + (cz + 512) * 1048576;
+    let v = cache.get(key);
+    if (v === undefined) { v = mix17(cx, cy, cz); cache.set(key, v); }
+    return v;
+  };
+  for (let i = 0; i < nV; i++) {
+    const px = positions[i * 3], py = positions[i * 3 + 1], pz = positions[i * 3 + 2];
+    const start = cell17(px, py, pz, DETAIL);
+    const k = cell17(px, py, pz, DETAIL * 3);
+    const phase = (((start + 4 * k) % 17) / 16) * 2 - 1;
+    const sweet = 0.90 + 0.18 * phase;
+    const kb = kinds[i] * 3;
+    colors[i * 3] = Math.max(0, Math.min(255, Math.round(pal[kb] * sweet)));
+    colors[i * 3 + 1] = Math.max(0, Math.min(255, Math.round(pal[kb + 1] * sweet)));
+    colors[i * 3 + 2] = Math.max(0, Math.min(255, Math.round(pal[kb + 2] * sweet)));
+  }
+  // index: the grid loop — connectedness IS the address structure (baker winding).
+  const index = new Uint32Array(nT * 3);
+  let wI = 0;
+  for (let r = 0; r < H - 1; r++) {
+    for (let c = 0; c < W - 1; c++) {
+      const a = r * W + c, b = a + 1, d2 = a + W, e = d2 + 1;
+      index[wI++] = a; index[wI++] = b; index[wI++] = d2;
+      index[wI++] = b; index[wI++] = e; index[wI++] = d2;
+    }
+  }
+  const labelIdx = new Uint32Array(buf.slice(labelOff, labelOff + 4 * nC));
+  const cen = new Float32Array(buf.slice(cenOff, cenOff + 12 * nC));
+  const conceptList: ConceptMeta[] = [];
+  for (let c = 0; c < nC; c++) {
+    conceptList.push({ row: c, name: names[labelIdx[c]] ?? `concept ${c}`, layer: cLayer[c] || 8,
+      cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: cen[c * 3 + 1] });   // source → display (-x,z,y)
+  }
+  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList };
+}
+
 function decode(buf: ArrayBuffer): Decoded {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
   if (magic !== 'BSO2') throw new Error(`bad magic "${magic}"`);
   const ver = dv.getUint16(4, true);
+  if (ver === 8) return decodeGrid(buf);   // radix-grid wire: height + kind only
   const posBytes = ver >= 4 ? 6 : 12;
   const nC = dv.getUint32(6, true), nV = dv.getUint32(10, true), nT = dv.getUint32(14, true);
   let o = 18;
@@ -125,6 +250,8 @@ function decode(buf: ArrayBuffer): Decoded {
   const posOff = o; o += posBytes * nV;
   const helixOff = o; o += 6 * nV;    // pos3 | nrm3 — we read the nrm half
   const rowOff = o; o += 4 * nV;
+  const colorOff = ver >= 7 ? o : -1;   // ver-7: per-vertex RGB drape (real kind/imagery colour)
+  if (ver >= 7) o += 3 * nV;
   const idxOff = o; o += 12 * nT;
   void matOff;
 
@@ -160,12 +287,17 @@ function decode(buf: ArrayBuffer): Decoded {
   const colors = new Uint8Array(nV * 3);
   const normals = new Int8Array(nV * 3);   // rim-decoded unit normal (display frame), cheap i8
   const layer = new Float32Array(nV);
+  // ver-7 carries a real per-vertex colour drape (the DEM baker's kind × imagery × helix texture);
+  // older bakes synthesize the colour from the concept layer. When present, the wire colour wins.
+  const wireColors = ver >= 7 ? new Uint8Array(buf.slice(colorOff, colorOff + nV * 3)) : null;
   for (let i = 0; i < nV; i++) {
     positions[i * 3] = -srcPos[i * 3];
     positions[i * 3 + 1] = srcPos[i * 3 + 2];
     positions[i * 3 + 2] = srcPos[i * 3 + 1];
     const r0 = rowArr[i], li = cLayer[r0] || 8;
-    const rgb = conceptColor(li, r0);
+    const rgb = wireColors
+      ? ([wireColors[i * 3], wireColors[i * 3 + 1], wireColors[i * 3 + 2]] as [number, number, number])
+      : conceptColor(li, r0);
     colors[i * 3] = rgb[0]; colors[i * 3 + 1] = rgb[1]; colors[i * 3 + 2] = rgb[2];
     // Signed360 → unit normal: r=sinθ from the Fisher-Z RIM (its strength; saturated cliff
     // falls back to the polar partition), hemisphere sign from polar, φ from azimuth. Same
@@ -242,24 +374,15 @@ uniform float uYMin;   // decoded height range (display.y), measured once at loa
 uniform float uYMax;
 uniform float uExag;   // geo relief exaggeration: the Iceland bake is true-scale (span ~0.0074 in the
                        // [-1,1] frame), so raise the geometry to read as terrain. 1 for anatomy (untouched).
-uniform float uTime;   // seconds — drives the Kurvenlineal breathing (0 for anatomy).
-uniform float uRuler;  // Kurvenlineal displacement amplitude (0 for anatomy).
+uniform float uTime;   // retained-but-0: the Kurvenlineal residue is baked into the mesh, not animated.
+uniform float uRuler;  // retained-but-0: no shader ruler (the golden-spiral residue is baked in).
 varying vec3 vColor;
-// THE KURVENLINEAL (helix::CurveRuler) — a GLSL port of the sculpt crate's deterministic
-// stride-4-over-17 phase (gcd(4,17)=1 → a full 17-residue permutation). Not 100% bit-exact to
-// the Rust CurveRuler (that walks a u64 place with integer mixing; here we hash floats), but
-// faithful in spirit: a deterministic bipolar phase in ~[-1,1] regenerated from the vertex's
-// lattice address — "phase is convention, not data" (OGAR D-QUANTGATE). It synthesises relief
-// detail where the sparse DEM bake has gaps, and — animated by uTime — makes the terrain BREATHE.
-float rhash(vec3 p){ return fract(sin(dot(floor(p), vec3(127.1, 311.7, 74.7))) * 43758.5453); }
-float kurvenlineal(vec3 pos, float detail){
-  vec3 cell = floor(pos * detail);          // the lattice cell = the address
-  vec3 sub  = floor(pos * detail * 3.0);     // finer sub-lattice picks the step k
-  float place = floor(rhash(cell) * 65536.0);
-  float k     = mod(floor(rhash(sub) * 991.0), 17.0);  // k ∈ [0,17)
-  float idx   = mod(mod(place, 17.0) + 4.0 * k, 17.0);  // stride-4-over-17 coprime walk
-  return idx / 8.0 - 1.0;                                // ~[-1, 1] bipolar
-}
+// THE KURVENLINEAL is now baked into the mesh, not approximated here. The real
+// helix::CurveRuler golden-spiral residue (stride-4-over-17) is applied at BAKE time in
+// geo/src/bin/iceland_dem.rs (::ruler_phase) as per-vertex surface displacement + recomputed
+// normals — so the residue is carried by the decoded position + Signed360 normal the same way
+// the anatomy body carries it. The vertex shader below therefore only lifts the terrain by uExag
+// and Gouraud-shades; the earlier GLSL float-hash approximation of the ruler has been removed.
 // Height-profile terrain palette for the geo bakes (Iceland DEM, OSM). Elevation is display.y.
 // In the Iceland bake it is TRUE-SCALE (not vertically exaggerated) → a tiny span (~[0, 0.0074])
 // with ~39% ocean at EXACTLY 0 and a heavily-quantized lowland plateau holding ~58% of verts,
@@ -299,18 +422,16 @@ void main(){
   const vec3 L = vec3(-0.401, 0.783, 0.476);
   float ndl = max(abs(dot(n, L)), 0.0);
   float shade = min(0.34 + 0.20*(abs(n.y)*0.5+0.5) + 0.12*(-n.x*0.5+0.5) + 0.92*ndl, 1.3);
-  // uGeo is a dynamically-uniform branch (a uniform, not a varying): coherent, no divergence.
-  // uGeo == 0 -> EXACTLY the pre-existing aColor*shade, so anatomy scenes are byte-identical.
-  vColor = (uGeo > 0.5) ? terrainColor(position.y) * shade : aColor * shade;
-  // Geo relief + the KURVENLINEAL: raise the true-scale island by uExag, then add the deterministic
-  // stride-4-over-17 phase as extra relief that BREATHES over uTime — it synthesises detail where the
-  // sparse DEM bake has gaps and gives the horizon a living, breathing motion (not 100% physical: a
-  // mental horizon that motivates the next, DEM-true, improvement). Anatomy (uGeo==0): untouched.
+  // Colour is ALWAYS aColor now: for the DEM terrain aColor is the baked kind × imagery × helix
+  // texture (real green / ice / volcano / rock), for buildings + anatomy it is the concept tint —
+  // the shader no longer guesses colour from height. Gouraud shade applies the 3D lighting form.
+  vColor = aColor * shade;
+  // Geo relief: raise the true-scale island by uExag. The Kurvenlineal golden-spiral residue is
+  // already in position + normal (baked by the DEM baker), so the shader adds no ruler of its own.
+  // Anatomy (uGeo==0): untouched.
   vec3 dpos = position;
   if (uGeo > 0.5) {
-    float rp = kurvenlineal(position, 90.0);
-    float breathe = 0.55 + 0.45 * sin(uTime * 0.5 + rp * 6.2831);
-    dpos.y = position.y * uExag + rp * uRuler * breathe;
+    dpos.y = position.y * uExag;
   }
   gl_Position = projectionMatrix * modelViewMatrix * vec4(dpos, 1.0);
 }`;
@@ -357,6 +478,15 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // sky dome is added. An empty `?scene=` resolves falsy → anatomy body → all three stay off.
   const sceneParam = new URLSearchParams(window.location.search).get('scene');
   const isGeoScene = Boolean(sceneParam ?? pathScene());
+  // TERRAIN vs BUILDINGS. A terrain scene (Iceland DEM) is a dense, watertight heightfield —
+  // the same kind of surface as the anatomy body, so it earns the height-recolour + relief
+  // exaggeration + breathing that make the body read in 3D. A building scene (OSM/Berlin) is
+  // thin extruded footprints: exaggerating those 10x and recolouring them by height turns each
+  // building into a black needle (the #88 regression the operator flagged). So beautification is
+  // gated on TERRAIN, never on "any geo" — buildings render plain baked colours (uGeo/uExag/uRuler
+  // all neutral, exactly as anatomy), which is a solid city, not a needle field.
+  const sceneName = sceneParam ?? pathScene();
+  const isTerrainScene = sceneName === 'iceland' || Boolean(sceneName?.startsWith('garmin:'));
 
   // Height range for the geo palette: measured ONCE from the decoded position buffer (display.y).
   // The Iceland bake is true-scale so the span is tiny — normalizing against [-1,1] would flatten
@@ -397,7 +527,11 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   const applyIndex = () => { geom.setDrawRange(0, rebuild()); idxAttr.needsUpdate = true; };
   geom.setDrawRange(0, rebuild());
 
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isGeoScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isGeoScene ? 10 : 1 }, uTime: { value: 0 }, uRuler: { value: isGeoScene ? 0.03 : 0 } };
+  // uGeo (height-recolour) + uExag (relief) are TERRAIN-only; buildings/anatomy keep uGeo=0 (baked
+  // aColor) + uExag=1. uRuler/uTime are retained-but-0: the Kurvenlineal golden-spiral residue is
+  // now baked into the mesh (geometry + normals), so the shader applies no ruler — the terrain is a
+  // static surface, not a shader-animated one.
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isTerrainScene ? 15 : 1 }, uTime: { value: 0 }, uRuler: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -480,9 +614,8 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   window.addEventListener('resize', onResize);
   const tick = () => {
     raf = requestAnimationFrame(tick);
-    // Kurvenlineal breathing: geo scenes advance uTime and render every frame so the terrain
-    // breathes; anatomy stays fully on-demand (uTime 0, dirty gating untouched — no idle cost).
-    if (isGeoScene) { uniforms.uTime.value = performance.now() / 1000; dirty.current = true; }
+    // Every scene renders on-demand (dirty gating) — no idle redraw. The terrain's Kurvenlineal
+    // residue is baked into the mesh (static surface), so there is no per-frame shader animation.
     // server-LOD lifecycle runs even on idle frames (the cascade tracks the static view too);
     // turning LOD off restores the full geometry. Both are cheap and bounded by the 220 ms poll.
     const tnow = performance.now();
@@ -553,6 +686,18 @@ async function fetchSoa(): Promise<ArrayBuffer> {
   // separate /osm slippy-map page are both untouched.
   const scene =
     new URLSearchParams(window.location.search).get('scene') ?? pathScene();
+  // /garmin/<loc> — mod-rewrite style: the SERVER resolves the slug through the
+  // manifest's garmin_scenes registry (/api/garmin/:location) and serves the bake.
+  // A 404 body lists the available slugs, so surface it verbatim.
+  if (scene?.startsWith('garmin:')) {
+    const loc = scene.slice('garmin:'.length);
+    const r = await fetch(`/api/garmin/${loc}`);
+    if (!r.ok) {
+      const detail = await r.json().then((j) => `${j.error}${j.available ? ` — available: ${j.available.join(', ')}` : ''}`).catch(() => `HTTP ${r.status}`);
+      throw new Error(`garmin scene "${loc}": ${detail}`);
+    }
+    return inflate(r);
+  }
   const key = scene ? `${scene}_latest` : 'helix_latest';
   const stamped: string | undefined = man?.[key];
   if (!stamped) {
@@ -609,10 +754,16 @@ export default function BodyHelix() {
   // Geo scenes: the terrain bake stamps a single layer — present it as "terrain" and drop the
   // empty anatomy layers, so a map never reads as skin/muscle/skeleton (the layer *id* is kept, so
   // the show/hide toggle still filters the real geometry). Anatomy keeps the full LAYERS taxonomy.
-  const geoUI = Boolean(new URLSearchParams(window.location.search).get('scene') ?? pathScene());
+  const geoScene = new URLSearchParams(window.location.search).get('scene') ?? pathScene();
+  const geoUI = Boolean(geoScene);
+  // Geo bakes stamp a single layer; present it with a domain-true name (a MAP must never read as
+  // skin/muscle/skeleton) and drop the empty anatomy layers. Terrain vs buildings gets its own name.
+  const geoTerrain = geoScene === 'iceland' || Boolean(geoScene?.startsWith('garmin:'));
+  const geoLayerName = geoTerrain ? 'terrain' : 'buildings';
+  const geoLayerColor = geoTerrain ? '#7c8f5c' : '#9aa7b4';
   const activeLayers =
     geoUI && d
-      ? LAYERS.filter((l) => d.conceptList.some((c) => c.layer === l.id)).map((l) => ({ ...l, name: 'terrain', color: '#7c8f5c' }))
+      ? LAYERS.filter((l) => d.conceptList.some((c) => c.layer === l.id)).map((l) => ({ ...l, name: geoLayerName, color: geoLayerColor }))
       : LAYERS;
   const groups = activeLayers.map((l) => ({
     l, items: d ? d.conceptList.filter((c) => c.layer === l.id && (!q || c.name.toLowerCase().includes(q))) : [],
@@ -623,14 +774,30 @@ export default function BodyHelix() {
   const scene = new URLSearchParams(window.location.search).get('scene') ?? pathScene();
   const title =
     scene === 'iceland' ? '/ice — Iceland height-profile terrain'
-    : scene === 'osm' ? '/geo — OSM terrain'
+    : scene === 'osm' ? '/geo — OSM buildings'
+    : scene?.startsWith('garmin:') ? `/garmin/${scene.slice(7)} — Garmin terrain`
     : scene ? `/helix?scene=${scene}`
     : '/helix — living anatomy browser';
   const subtitle = d
     ? scene
-      ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · height-profile palette + sky`
+      ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · ${scene === 'iceland' || scene.startsWith('garmin:') ? 'height-profile palette + sky' : 'baked colours + sky'}`
       : `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · helix::Signed360 normals (Fisher-Z rim)`
     : 'loading canonical helix bake…';
+  // Scene menu — the "menu item" leg of the /garmin arc: built-ins + every slug the
+  // manifest's garmin_scenes registry names. Plain navigation (each scene is a page).
+  const [garminScenes, setGarminScenes] = useState<string[]>([]);
+  useEffect(() => {
+    fetch('/body.manifest.json').then((r) => (r.ok ? r.json() : null))
+      .then((m) => { if (m?.garmin_scenes) setGarminScenes(Object.keys(m.garmin_scenes)); })
+      .catch(() => {});
+  }, []);
+  const sceneOptions = [
+    { label: 'body (/helix)', path: '/helix' },
+    { label: 'berlin (/geo)', path: '/geo' },
+    { label: 'iceland (/ice)', path: '/ice' },
+    ...garminScenes.map((s) => ({ label: `garmin: ${s}`, path: `/garmin/${s}` })),
+  ];
+  const herePath = window.location.pathname;
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: `#${PAGE_BG.toString(16).padStart(6, '0')}` }}>
@@ -643,6 +810,13 @@ export default function BodyHelix() {
       </div>
       {d && (
         <div style={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: 380, justifyContent: 'flex-end' }}>
+          <select
+            value={sceneOptions.some((o) => o.path === herePath) ? herePath : '/helix'}
+            onChange={(e) => { window.location.href = e.target.value; }}
+            title="scene: every bake this deploy serves — built-ins plus the manifest's garmin_scenes registry"
+            style={{ background: '#0e1219', color: '#cdd9e5', border: '1px solid #243244', borderRadius: 7, font: '12px ui-monospace, monospace', padding: '4px 6px' }}>
+            {sceneOptions.map((o) => <option key={o.path} value={o.path}>{o.label}</option>)}
+          </select>
           <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
           <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what's worth drawing">LOD {lod ? 'on' : 'off'}</button>
           {activeLayers.map((l) => (

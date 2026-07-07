@@ -37,12 +37,17 @@ osm = ["dep:osmpbf"]
 # `helix` a strict superset of `osm`; declare the implication so `--features
 # helix` (and `cargo test --features helix`) compiles on its own instead of only
 # when `osm` happens to be co-enabled by the `osm_helix` bin's `required-features`.
-helix = ["osm", "dep:ndarray", "dep:lance-graph-contract"]
+helix = ["osm", "dep:ndarray", "dep:lance-graph-contract", "dep:helix"]
 
 [dependencies]
 osmpbf = { version = "0.3", optional = true }
 ndarray = { path = "../../ndarray", default-features = false, features = ["std", "splat3d"], optional = true }
 lance-graph-contract = { path = "../../lance-graph/crates/lance-graph-contract", features = ["guid-v3-tail"], optional = true }
+# THE KURVENLINEAL — the real `helix::CurveRuler` golden-spiral residue (stride-4-over-17),
+# the SAME crate the `sculpt` tool and the anatomy `/helix` body use. The DEM baker regenerates
+# deterministic fine surface relief from each vertex's lattice address so the terrain carries the
+# residue the coarse HHTL grid lacks. Path dep to the sibling clone (like lance-graph-contract).
+helix = { path = "../../lance-graph/crates/helix", optional = true }
 
 # osm_bake → SPM1 (dep-free lib + osm reader). osm_helix → BSO2 /helix wire.
 [[bin]]
