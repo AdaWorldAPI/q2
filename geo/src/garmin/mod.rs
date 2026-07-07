@@ -38,9 +38,11 @@ pub mod classify;
 pub mod container;
 pub mod lbl;
 pub mod rgn;
+pub mod terrain;
 pub mod tre;
 
 pub use classify::GeoKind;
+pub use terrain::HeightField;
 pub use tre::{Bbox, Level, Subdiv, Tre};
 
 // ── shared little-endian byte readers ───────────────────────────────────────
