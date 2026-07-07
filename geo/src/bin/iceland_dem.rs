@@ -101,15 +101,17 @@ enum Kind {
 }
 
 impl Kind {
-    /// Canonical base colour (sRGB, 0..255) for the kind.
+    /// Canonical base colour (sRGB, 0..255) for the kind — a SWEET, clean palette (the /helix
+    /// conceptColor look), not the muddy raw satellite tone. The imagery classifies the kind; the
+    /// colour is the kind's own pleasant hue, brightness-varied by the helix residue below.
     fn color(self) -> [f32; 3] {
         match self {
-            Kind::Ocean => [16.0, 42.0, 74.0],
-            Kind::Green => [74.0, 108.0, 52.0],
-            Kind::Rock => [116.0, 96.0, 74.0],
-            Kind::Scree => [142.0, 140.0, 134.0],
-            Kind::Ice => [234.0, 240.0, 248.0],
-            Kind::Lava => [40.0, 28.0, 26.0],
+            Kind::Ocean => [26.0, 62.0, 104.0], // clean deep blue
+            Kind::Green => [104.0, 150.0, 70.0], // fresh grass/moss green
+            Kind::Rock => [150.0, 120.0, 88.0],  // warm tan-brown highland
+            Kind::Scree => [166.0, 160.0, 150.0], // light warm grey
+            Kind::Ice => [238.0, 244.0, 252.0],  // bright glacier white
+            Kind::Lava => [66.0, 46.0, 44.0],    // dark basalt (not black)
         }
     }
 }
@@ -225,10 +227,15 @@ fn main() {
     for i in 0..w * h {
         let px = if has_img { dem.rgb[i] } else { [96, 110, 92] };
         let base = classify_kind(px, my[i]).color();
+        // SWEET brightness: the kind's clean base, varied WITHIN the kind by the helix residue
+        // (the "surfel" texture, ±18%) — this is what makes it read like the /helix body, not a
+        // flat class. Plus a GENTLE, CENTRED imagery light/shadow (±14%, never a muddy darkening):
+        // bright imagery lifts, dark imagery dips, mid stays put. No harsh luminance multiply.
+        let sweet = 0.90 + 0.18 * ruler_phase(pos[i], RES_DETAIL); // helix within-kind variation
         let lum = (0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32) / 255.0;
-        let lmod = 0.62 + 0.55 * lum; // imagery luminance → light/shadow within the kind
-        let rmod = 1.0 + 0.10 * ruler_phase(pos[i], RES_DETAIL); // helix residue → within-kind texture
-        let q = |c: f32| (c * lmod * rmod).round().clamp(0.0, 255.0) as u8;
+        let light = 1.0 + 0.28 * (lum - 0.5); // centred real light/shadow, keeps the sweet base
+        let m = sweet * light;
+        let q = |c: f32| (c * m).round().clamp(0.0, 255.0) as u8;
         colors.push([q(base[0]), q(base[1]), q(base[2])]);
     }
 
