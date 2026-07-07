@@ -357,6 +357,14 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // sky dome is added. An empty `?scene=` resolves falsy → anatomy body → all three stay off.
   const sceneParam = new URLSearchParams(window.location.search).get('scene');
   const isGeoScene = Boolean(sceneParam ?? pathScene());
+  // TERRAIN vs BUILDINGS. A terrain scene (Iceland DEM) is a dense, watertight heightfield —
+  // the same kind of surface as the anatomy body, so it earns the height-recolour + relief
+  // exaggeration + breathing that make the body read in 3D. A building scene (OSM/Berlin) is
+  // thin extruded footprints: exaggerating those 10x and recolouring them by height turns each
+  // building into a black needle (the #88 regression the operator flagged). So beautification is
+  // gated on TERRAIN, never on "any geo" — buildings render plain baked colours (uGeo/uExag/uRuler
+  // all neutral, exactly as anatomy), which is a solid city, not a needle field.
+  const isTerrainScene = (sceneParam ?? pathScene()) === 'iceland';
 
   // Height range for the geo palette: measured ONCE from the decoded position buffer (display.y).
   // The Iceland bake is true-scale so the span is tiny — normalizing against [-1,1] would flatten
@@ -397,7 +405,9 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   const applyIndex = () => { geom.setDrawRange(0, rebuild()); idxAttr.needsUpdate = true; };
   geom.setDrawRange(0, rebuild());
 
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isGeoScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isGeoScene ? 10 : 1 }, uTime: { value: 0 }, uRuler: { value: isGeoScene ? 0.03 : 0 } };
+  // uGeo (height-recolour), uExag (relief), uRuler (breathing) are TERRAIN-only. Buildings and
+  // anatomy keep uGeo=0 (baked aColor), uExag=1, uRuler=0 → no needles, byte-identical to pre-#88.
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isTerrainScene ? 30 : 1 }, uTime: { value: 0 }, uRuler: { value: isTerrainScene ? 0.008 : 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -480,9 +490,10 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   window.addEventListener('resize', onResize);
   const tick = () => {
     raf = requestAnimationFrame(tick);
-    // Kurvenlineal breathing: geo scenes advance uTime and render every frame so the terrain
-    // breathes; anatomy stays fully on-demand (uTime 0, dirty gating untouched — no idle cost).
-    if (isGeoScene) { uniforms.uTime.value = performance.now() / 1000; dirty.current = true; }
+    // Kurvenlineal breathing: TERRAIN scenes advance uTime and render every frame so the terrain
+    // breathes; buildings + anatomy stay fully on-demand (uTime 0, dirty gating untouched — no idle
+    // cost, and no per-frame redraw of a static building field).
+    if (isTerrainScene) { uniforms.uTime.value = performance.now() / 1000; dirty.current = true; }
     // server-LOD lifecycle runs even on idle frames (the cascade tracks the static view too);
     // turning LOD off restores the full geometry. Both are cheap and bounded by the 220 ms poll.
     const tnow = performance.now();
@@ -609,10 +620,15 @@ export default function BodyHelix() {
   // Geo scenes: the terrain bake stamps a single layer — present it as "terrain" and drop the
   // empty anatomy layers, so a map never reads as skin/muscle/skeleton (the layer *id* is kept, so
   // the show/hide toggle still filters the real geometry). Anatomy keeps the full LAYERS taxonomy.
-  const geoUI = Boolean(new URLSearchParams(window.location.search).get('scene') ?? pathScene());
+  const geoScene = new URLSearchParams(window.location.search).get('scene') ?? pathScene();
+  const geoUI = Boolean(geoScene);
+  // Geo bakes stamp a single layer; present it with a domain-true name (a MAP must never read as
+  // skin/muscle/skeleton) and drop the empty anatomy layers. Terrain vs buildings gets its own name.
+  const geoLayerName = geoScene === 'iceland' ? 'terrain' : 'buildings';
+  const geoLayerColor = geoScene === 'iceland' ? '#7c8f5c' : '#9aa7b4';
   const activeLayers =
     geoUI && d
-      ? LAYERS.filter((l) => d.conceptList.some((c) => c.layer === l.id)).map((l) => ({ ...l, name: 'terrain', color: '#7c8f5c' }))
+      ? LAYERS.filter((l) => d.conceptList.some((c) => c.layer === l.id)).map((l) => ({ ...l, name: geoLayerName, color: geoLayerColor }))
       : LAYERS;
   const groups = activeLayers.map((l) => ({
     l, items: d ? d.conceptList.filter((c) => c.layer === l.id && (!q || c.name.toLowerCase().includes(q))) : [],
@@ -623,12 +639,12 @@ export default function BodyHelix() {
   const scene = new URLSearchParams(window.location.search).get('scene') ?? pathScene();
   const title =
     scene === 'iceland' ? '/ice — Iceland height-profile terrain'
-    : scene === 'osm' ? '/geo — OSM terrain'
+    : scene === 'osm' ? '/geo — OSM buildings'
     : scene ? `/helix?scene=${scene}`
     : '/helix — living anatomy browser';
   const subtitle = d
     ? scene
-      ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · height-profile palette + sky`
+      ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · ${scene === 'iceland' ? 'height-profile palette + sky' : 'baked colours + sky'}`
       : `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · helix::Signed360 normals (Fisher-Z rim)`
     : 'loading canonical helix bake…';
 

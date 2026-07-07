@@ -102,7 +102,11 @@ fn main() {
             let i = r * w + c;
             mx[i] = x;
             mz[i] = z;
-            my[i] = dem.elev[i].max(0.0); // sea level & bathymetry → 0
+            // Sea level & bathymetry → 0; clamp the top to Iceland's physical max (Hvannadalshnúkur
+            // ≈ 2110 m) so a Terrarium nodata sentinel or tile-decode outlier can't become a needle
+            // spike in the heightfield. A real heightfield is continuous, so the only way to needle
+            // is an out-of-range vertex — this removes that failure mode at the source.
+            my[i] = dem.elev[i].clamp(0.0, 2200.0);
         }
     }
 
