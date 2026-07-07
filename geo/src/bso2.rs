@@ -531,3 +531,123 @@ mod tests {
         assert_eq!(blocks.len(), 16); // one concept × 16 B
     }
 }
+
+/// Encode a **radix-grid heightfield** into the BSO2 **ver-8** wire — the collapse the
+/// operator derived (2026-07-07): location, connectedness, tilt, and the kurvenlineal
+/// residue are all DETERMINISTIC from the address, so only the two non-deterministic
+/// per-vertex facts are stored:
+///
+///   height (F16, display units)  — the one coordinate the address can't know
+///   kind   (u8 → header palette) — the surface class
+///
+/// The client reconstructs everything else at decode: positions by radix
+/// (`i → (row, col) → (x0 + col·dx, z0 + row·dz)`), the triangle index by the grid
+/// loop, normals by one gradient pass over the height grid, colour by
+/// `palette[kind] × CurveRuler residue` (bit-exact stride-4-over-17). Iceland at
+/// 16.5 M verts: 710 MB (ver-7) → ~50 MB raw. Layout:
+///
+/// ```text
+/// BSO2 | ver=8 u16 | nC u32 | W u32 | H u32            (nV = W·H, nT derived)
+/// concepts block (guid | material | layer | label | centroid | v_range)  ← ver-6/7 shape
+/// grid: x0 f32 | dx f32 | yscale f32 | zrow f32[H]
+/// palette: nK u8 | nK × rgb(3×u8)
+/// height F16[W·H] | kind u8[W·H]
+/// labels_json | materials_json | HXFL trailer
+/// ```
+///
+/// x is radix-linear (`x = x0 + col·dx`); z is a per-ROW table (`zrow[row]`) because
+/// Mercator-tile rows are not uniform in latitude (~13% spacing drift across Iceland)
+/// — still deterministic-from-address, just tabulated once per row (H·4 B ≈ 14 KB).
+///
+/// `heights[i]` is display-frame Dy BEFORE `yscale` (the client multiplies), row-major,
+/// row 0 = the row at `z0`. The DISPLAY x is stored positive; the client applies its
+/// own `(-x, z, y)` source remap convention internally — ver-8 positions are
+/// synthesized directly in display space, so no remap round-trip is needed.
+/// Returns `(bso2_bytes, blocks_sidecar_bytes)`.
+#[must_use]
+pub fn encode_grid_bso2(
+    w: u32,
+    h: u32,
+    x0: f32,            // display x of col 0
+    dx: f32,            // display x step per col
+    yscale: f32,        // multiplier applied to decoded F16 heights
+    zrow: &[f32],       // len h — display z per row (Mercator rows are non-uniform)
+    heights: &[f32],    // len w·h, display Dy before yscale (normalized ≤ ~1 for F16)
+    kinds: &[u8],       // len w·h, indices into `palette`
+    palette: &[[u8; 3]],
+    concepts: &[MeshConcept],
+    labels_json: &[u8],
+) -> (Vec<u8>, Vec<u8>) {
+    let nv = (w as usize) * (h as usize);
+    let nc = concepts.len();
+    assert_eq!(zrow.len(), h as usize, "zrow len must be h");
+    assert_eq!(heights.len(), nv, "heights len must be w*h");
+    assert_eq!(kinds.len(), nv, "kinds len must be w*h");
+    assert!(palette.len() <= 255, "palette must fit u8 count");
+    assert!(kinds.iter().all(|&k| (k as usize) < palette.len()), "kind out of palette");
+
+    let mut o = Vec::with_capacity(nc * 40 + nv * 3 + labels_json.len() + 96);
+    o.extend_from_slice(b"BSO2");
+    o.extend_from_slice(&8u16.to_le_bytes());
+    o.extend_from_slice(&(nc as u32).to_le_bytes());
+    o.extend_from_slice(&w.to_le_bytes());
+    o.extend_from_slice(&h.to_le_bytes());
+    // per-concept: guid | material | layer | label | centroid | (v_start,v_count) —
+    // byte-identical shape to ver-6/7 so the sidebar/LOD reader is shared.
+    for c in concepts {
+        o.extend_from_slice(c.key.as_bytes());
+    }
+    o.extend(concepts.iter().map(|_| 4u8)); // material (doppler default)
+    o.extend(concepts.iter().map(|c| c.layer));
+    for c in concepts {
+        o.extend_from_slice(&c.label.to_le_bytes());
+    }
+    for c in concepts {
+        // Same (-Dx, Dz, Dy) pre-remap as ver-6/7 focus targets.
+        for v in [-c.centroid[0], c.centroid[2], c.centroid[1]] {
+            o.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    for c in concepts {
+        o.extend_from_slice(&c.v_start.to_le_bytes());
+        o.extend_from_slice(&c.v_count.to_le_bytes());
+    }
+    // grid header: x radix-linear, z tabulated per row
+    for v in [x0, dx, yscale] {
+        o.extend_from_slice(&v.to_le_bytes());
+    }
+    for &z in zrow {
+        o.extend_from_slice(&z.to_le_bytes());
+    }
+    // palette
+    o.push(palette.len() as u8);
+    for p in palette {
+        o.extend_from_slice(p);
+    }
+    // the two stored axes
+    for &y in heights {
+        o.extend_from_slice(&F16::from_f32(y).0.to_le_bytes());
+    }
+    o.extend_from_slice(kinds);
+    // labels_json + materials_json + HXFL (same tail contract as ver-6/7)
+    o.extend_from_slice(&(labels_json.len() as u32).to_le_bytes());
+    o.extend_from_slice(labels_json);
+    let materials = b"{}";
+    o.extend_from_slice(&(materials.len() as u32).to_le_bytes());
+    o.extend_from_slice(materials);
+    o.extend_from_slice(b"HXFL");
+    o.extend_from_slice(&(-2.256_794_5f32).to_le_bytes());
+    o.extend_from_slice(&11.535_854f32.to_le_bytes());
+
+    // .blocks sidecar — same per-concept (center3, radius) shape. Radius from the
+    // concept's grid row span (v_range rows of a w-wide strip).
+    let mut blocks = Vec::with_capacity(nc * 16);
+    let half_row = 0.5 * (w as f32) * dx.abs();
+    for c in concepts {
+        for v in c.centroid {
+            blocks.extend_from_slice(&v.to_le_bytes());
+        }
+        blocks.extend_from_slice(&half_row.max(1e-4).to_le_bytes());
+    }
+    (o, blocks)
+}

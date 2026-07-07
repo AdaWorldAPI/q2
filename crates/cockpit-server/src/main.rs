@@ -244,6 +244,12 @@ async fn main() {
         .route("/api/osm/tile/:z/:x/:y", get(osm_tiles::osm_tile_meta_handler))
         // The /OSM cockpit page — a slippy map over the tile material, HHTL live.
         .route("/osm", get(osm::osm_page_handler))
+        // Garmin terrain scenes, mod-rewrite style: /api/garmin/:location resolves the
+        // location slug through the manifest's `garmin_scenes` map to an embedded dist
+        // bake and serves it. The PAGE /garmin/<loc> is extension-less, so the SPA
+        // fallback serves index.html and BodyHelix parses the path — one param route,
+        // N scenes; adding a scene = Dockerfile bake + one manifest entry, no code.
+        .route("/api/garmin/:location", get(garmin_scene_handler))
         // Health
         .route("/health", get(health_handler));
 
@@ -313,6 +319,91 @@ async fn shutdown_signal() {
         .await
         .expect("failed to listen for ctrl-c");
     tracing::info!("shutting down");
+}
+
+// ── Garmin terrain scenes (/api/garmin/:location — mod-rewrite style) ────────
+
+/// Resolve a `/garmin/:location` slug through the manifest's `garmin_scenes`
+/// map. Pure so it unit-tests without the embedded dist: returns the dist
+/// filename for a known slug, `None` for unknown/malformed ones. Slugs are
+/// lowercase `[a-z0-9-]` — anything else is rejected before the map lookup
+/// (no path traversal into the dist).
+fn resolve_garmin_scene(manifest_json: &str, location: &str) -> Option<String> {
+    if location.is_empty()
+        || !location
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(manifest_json).ok()?;
+    v.get("garmin_scenes")?
+        .get(location)?
+        .as_str()
+        .map(String::from)
+}
+
+/// List the available scene slugs (for the self-documenting 404).
+fn garmin_scene_slugs(manifest_json: &str) -> Vec<String> {
+    serde_json::from_str::<serde_json::Value>(manifest_json)
+        .ok()
+        .and_then(|v| {
+            v.get("garmin_scenes").and_then(|m| {
+                m.as_object()
+                    .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            })
+        })
+        .unwrap_or_default()
+}
+
+/// GET /api/garmin/:location — serve the bake registered for `location`.
+/// The gz bytes are served raw (application/gzip, no Content-Encoding):
+/// BodyHelix inflates client-side via DecompressionStream, same contract as
+/// the same-origin body/berlin/iceland wires.
+async fn garmin_scene_handler(axum::extract::Path(location): axum::extract::Path<String>) -> Response {
+    #[cfg(feature = "embed-cockpit")]
+    {
+        let Some(man) = COCKPIT_DIST
+            .get_file("body.manifest.json")
+            .and_then(|f| std::str::from_utf8(f.contents()).ok())
+        else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "manifest missing from embedded dist").into_response();
+        };
+        if let Some(fname) = resolve_garmin_scene(man, &location) {
+            if let Some(file) = COCKPIT_DIST.get_file(&fname) {
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/gzip")],
+                    file.contents(),
+                )
+                    .into_response();
+            }
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": format!("scene '{location}' is registered as '{fname}' but the file is not in the embedded dist — check the Dockerfile bake step"),
+                })),
+            )
+                .into_response();
+        }
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("unknown garmin scene '{location}'"),
+                "available": garmin_scene_slugs(man),
+            })),
+        )
+            .into_response();
+    }
+    #[cfg(not(feature = "embed-cockpit"))]
+    {
+        let _ = location;
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "garmin scenes need the embed-cockpit build",
+        )
+            .into_response()
+    }
 }
 
 // ── Static file handler with SPA fallback ────────────────────────────────────
@@ -1136,4 +1227,49 @@ async fn health_handler() -> Json<serde_json::Value> {
         "compute": "ndarray (SIMD)",
         "cockpit": if cfg!(feature = "embed-cockpit") { "embedded (Vite React)" } else { "fallback shell" },
     }))
+}
+
+#[cfg(test)]
+mod garmin_scene_tests {
+    use super::{garmin_scene_slugs, resolve_garmin_scene};
+
+    const MAN: &str = r#"{
+        "helix_latest": "body.soa.gz",
+        "garmin_scenes": { "iceland": "iceland_dem.helix.soa.gz", "canyon": "garmin_canyon.helix.soa.gz" }
+    }"#;
+
+    #[test]
+    fn known_slug_resolves_to_dist_filename() {
+        assert_eq!(
+            resolve_garmin_scene(MAN, "iceland").as_deref(),
+            Some("iceland_dem.helix.soa.gz")
+        );
+        assert_eq!(
+            resolve_garmin_scene(MAN, "canyon").as_deref(),
+            Some("garmin_canyon.helix.soa.gz")
+        );
+    }
+
+    #[test]
+    fn unknown_slug_is_none_and_slugs_list_them() {
+        assert_eq!(resolve_garmin_scene(MAN, "atlantis"), None);
+        let mut slugs = garmin_scene_slugs(MAN);
+        slugs.sort();
+        assert_eq!(slugs, ["canyon", "iceland"]);
+    }
+
+    #[test]
+    fn malformed_slugs_rejected_before_lookup() {
+        // path traversal / case / separators never reach the map
+        for bad in ["../index.html", "Iceland", "ice land", "a/b", "", "x_y"] {
+            assert_eq!(resolve_garmin_scene(MAN, bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn manifest_without_registry_is_empty() {
+        assert_eq!(resolve_garmin_scene("{}", "iceland"), None);
+        assert!(garmin_scene_slugs("{}").is_empty());
+        assert_eq!(resolve_garmin_scene("not json", "iceland"), None);
+    }
 }

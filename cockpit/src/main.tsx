@@ -121,6 +121,11 @@ createRoot(document.getElementById('root')!).render(
               height-profile beautification (ocean/moss/rock/ice terrain palette +
               procedural sky dome). Client-side render only — no re-bake. */}
           <Route path="/ice" element={<BodyHelix />} />
+          {/* /garmin/:location — mod-rewrite style Garmin terrain scenes. The slug
+              resolves SERVER-side (/api/garmin/:location → manifest garmin_scenes →
+              embedded bake), so a new scene = one manifest entry + a Dockerfile bake,
+              no client change. BodyHelix parses the slug from the path (pathScene). */}
+          <Route path="/garmin/:location" element={<BodyHelix />} />
           {/* /cpic — CPIC pharmacogenomics cockpit (gene-first): {gene, diplotype, drug}
               → phenotype → recommendation, 2-hop NARS deduction over the real CPIC tables
               via POST /api/cpic/reason (the standalone cpic crate). Additive, gene-first

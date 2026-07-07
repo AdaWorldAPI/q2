@@ -16,7 +16,7 @@
 //! ```
 //! Gzip `<out>.soa` afterwards (BodyHelix fetches a gzip'd artifact).
 
-use geo_hhtl::bso2::{encode_mesh_bso2, MeshConcept, CLASSID_GEO_V3};
+use geo_hhtl::bso2::{encode_grid_bso2, encode_mesh_bso2, MeshConcept, CLASSID_GEO_V3};
 use geo_hhtl::hhtl::point_to_hhtl4;
 use geo_hhtl::osm_read::M_PER_DEG;
 
@@ -91,14 +91,25 @@ fn read_demgrid(path: &str) -> Result<Dem, Box<dyn std::error::Error>> {
 /// carries a canonical palette so the map reads as clean ocean / green / rock / scree / ice / lava
 /// rather than a muddy raw photo.
 #[derive(Clone, Copy)]
+#[repr(u8)]
 enum Kind {
-    Ocean,
-    Green, // vegetation / moss / tundra
-    Rock,  // brown highland rock
-    Scree, // grey bare
-    Ice,   // snow / glacier
-    Lava,  // dark volcanic basalt / black sand
+    Ocean = 0,
+    Green = 1, // vegetation / moss / tundra
+    Rock = 2,  // brown highland rock
+    Scree = 3, // grey bare
+    Ice = 4,   // snow / glacier
+    Lava = 5,  // dark volcanic basalt / black sand
 }
+
+/// Discriminant order for the ver-8 palette block (index = `Kind as u8`).
+const KIND_ORDER: [Kind; 6] = [
+    Kind::Ocean,
+    Kind::Green,
+    Kind::Rock,
+    Kind::Scree,
+    Kind::Ice,
+    Kind::Lava,
+];
 
 impl Kind {
     /// Canonical base colour (sRGB, 0..255) for the kind — a SWEET, clean palette (the /helix
@@ -144,9 +155,13 @@ fn classify_kind(rgb: [u8; 3], elev: f32) -> Kind {
 fn main() {
     let mut args = std::env::args().skip(1);
     let (Some(input), Some(output)) = (args.next(), args.next()) else {
-        eprintln!("usage: iceland_dem <in.demgrid> <out.soa>");
+        eprintln!("usage: iceland_dem <in.demgrid> <out.soa> [--grid]");
         std::process::exit(2);
     };
+    // --grid → the ver-8 radix-grid wire (height F16 + kind u8 only; location /
+    // connectedness / tilt / residue all client-derived from the address).
+    // Default stays the ver-7 mesh wire the deployed artifact uses.
+    let grid_mode = args.next().as_deref() == Some("--grid");
     let dem = match read_demgrid(&input) {
         Ok(d) => d,
         Err(e) => {
@@ -291,13 +306,52 @@ fn main() {
     }
 
     let labels = br#"{"names":["iceland-terrain"]}"#;
-    let (soa, blocks) = encode_mesh_bso2(&pos, &nrm, &rows, &tris, &concepts, labels, &colors);
+    let (soa, blocks) = if grid_mode {
+        // ── ver-8 radix-grid: store ONLY height + kind; the client derives
+        //    position (radix x + zrow table), index (grid loop), normals
+        //    (gradient pass) and colour (palette × CurveRuler residue). ──
+        let palette: Vec<[u8; 3]> = KIND_ORDER
+            .iter()
+            .map(|k| {
+                let c = k.color();
+                [c[0] as u8, c[1] as u8, c[2] as u8]
+            })
+            .collect();
+        let mut kinds = Vec::with_capacity(w * h);
+        for i in 0..w * h {
+            let px = if has_img { dem.rgb[i] } else { [96, 110, 92] };
+            kinds.push(classify_kind(px, my[i]) as u8);
+        }
+        // Normalize heights to ≤1 so the F16 mantissa carries full precision
+        // (raw display y spans ~0..0.007 — storing that directly wastes range).
+        let ymax = pos.iter().map(|p| p[1]).fold(0.0f32, f32::max).max(1e-9);
+        let heights: Vec<f32> = pos.iter().map(|p| p[1] / ymax).collect();
+        let x0 = pos[0][0];
+        let dx = if w > 1 { pos[1][0] - pos[0][0] } else { 0.0 };
+        let zrow: Vec<f32> = (0..h).map(|r| pos[r * w][2]).collect();
+        encode_grid_bso2(
+            w as u32, h as u32, x0, dx, ymax, &zrow, &heights, &kinds, &palette, &concepts,
+            labels,
+        )
+    } else {
+        encode_mesh_bso2(&pos, &nrm, &rows, &tris, &concepts, labels, &colors)
+    };
 
     let nc = u32::from_le_bytes(soa[6..10].try_into().unwrap());
-    let nv = u32::from_le_bytes(soa[10..14].try_into().unwrap());
-    let nt = u32::from_le_bytes(soa[14..18].try_into().unwrap());
+    // ver-8 header carries W,H at the ver-7 nV,nT offsets — derive the real counts.
+    let (nv, nt) = if grid_mode {
+        let gw = u32::from_le_bytes(soa[10..14].try_into().unwrap()) as u64;
+        let gh = u32::from_le_bytes(soa[14..18].try_into().unwrap()) as u64;
+        (gw * gh, (gw - 1) * (gh - 1) * 2)
+    } else {
+        (
+            u64::from(u32::from_le_bytes(soa[10..14].try_into().unwrap())),
+            u64::from(u32::from_le_bytes(soa[14..18].try_into().unwrap())),
+        )
+    };
     eprintln!(
-        "BSO2: {nc} concepts · {nv} verts · {nt} tris · {} B soa · {} B blocks",
+        "BSO2 ver{}: {nc} concepts · {nv} verts · {nt} tris · {} B soa · {} B blocks",
+        if grid_mode { 8 } else { 7 },
         soa.len(),
         blocks.len()
     );

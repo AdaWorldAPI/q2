@@ -77,6 +77,48 @@ Format facts (hard-earned, keep):
   0x0a/0x0b/0x16 trails/walking paths. Polys: 0x3c-0x49 water, 0x50 woods,
   0x14-0x16 park/reserve. Buildings (urban maps): poly 0x13 (+0x6x variants).
 
+## The ver-8 radix-grid wire (operator-derived, 2026-07-07)
+
+Operator insight chain, applied to the wire format:
+
+1. *"helix vector = 'zenith is tilted this axis' — even one hemisphere would
+   suffice"* — terrain normals live strictly in the upper hemisphere
+   (`n_up ∈ [0,1]`); tilt (slope) + azimuth (aspect) is ALL Gouraud needs to
+   reconstruct the polygons from surfels.
+2. *"HHTL provides height + location + connectedness"* — for a grid
+   heightfield, connectedness is the address structure itself: row-major
+   neighbors ARE the topology. The 12 B/tri index (396 MB of Iceland's 710 MB
+   wire = 56%) encodes nothing the addressing doesn't know. Don't ship it.
+3. *"or simply radix-like free cartesian deterministic location"* — the final
+   collapse: position isn't stored either. `i → (row, col)` by radix
+   decomposition; `(row, col) → (x, z)` deterministically from the header
+   bbox. The OGAR canon applied to the wire: the key prerenders the node with
+   zero value decode; location is convention, not data.
+
+What remains stored per vertex: **height (F16, 2 B)** — the one
+non-deterministic coordinate — and **KIND (u8, 1 B)** into a header palette.
+Everything else is derived at decode: positions (radix), index (grid loop),
+normals (one gradient pass — the `terrain_normals` port), color (palette ×
+CurveRuler residue, both deterministic; CurveRuler stride-4-over-17 is
+bit-exact integer, ~25 lines of TS).
+
+Iceland at 16.5 M verts: 710 MB → ~50 MB raw → ~20-30 MB gz (smooth
+heightfields compress well). Single file, no split-zip workaround, 5-7×
+wire collapse. Layout sketch (concept block kept ver-6/7-shaped for the
+sidebar + LOD):
+
+```
+BSO2 | ver=8 u16 | nC u32 | W u32 | H u32          (nV = W·H, nT derived)
+concepts block (guid | material | layer | label | centroid | v_range)
+grid header: x0 f32 | z0 f32 | dx f32 | dz f32 | yscale f32
+palette: nK u8 | nK × rgb u8
+height F16 [W·H] | kind u8 [W·H]
+labels_json | materials_json | HXFL trailer
+```
+
+Buildings (Berlin) ride on top as the one non-grid layer (ver-7 mesh section
+or a second draw), since extruded footprints are genuinely non-deterministic.
+
 ## Remaining work (tasks #12-#16)
 
 1. **Rust port** — `geo/src/garmin/` (mirror scripts/garmin_proto.py; the

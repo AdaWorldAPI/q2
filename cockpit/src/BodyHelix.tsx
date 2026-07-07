@@ -29,6 +29,11 @@ function pathScene(): string | null {
   const p = window.location.pathname;
   if (p === '/geo') return 'osm';
   if (p === '/ice') return 'iceland';
+  // Mod-rewrite style: /garmin/<location> → scene "garmin:<location>". The slug is
+  // resolved SERVER-side (/api/garmin/:location → manifest garmin_scenes → dist file),
+  // so a new scene is a manifest entry + a bake — no client change.
+  const m = p.match(/^\/garmin\/([a-z0-9-]+)$/);
+  if (m) return `garmin:${m[1]}`;
   return null;
 }
 
@@ -108,11 +113,131 @@ interface Decoded {
 }
 interface ConceptMeta { row: number; name: string; layer: number; cx: number; cy: number; cz: number; }
 
+// ── ver-8 radix-grid decode ─────────────────────────────────────────────────
+// The wire stores ONLY height (F16) + kind (u8 → header palette). Everything
+// else is DETERMINISTIC from the address and reconstructed here: position by
+// radix (i → (row, col) → x0 + col·dx, zrow[row]), the triangle index by the
+// grid loop, normals by one gradient pass (true-scale, so display slope =
+// real-world slope), and colour by palette[kind] × the CurveRuler golden-spiral
+// residue (stride-4-over-17, bit-exact 64-bit integer — "phase is convention,
+// not data"). 710 MB (ver-7) → ~50 MB raw for the same 16.5 M-vert Iceland.
+const MIX_X = 0x9E3779B97F4A7C15n, MIX_Y = 0xC2B2AE3D27D4EB4Fn, MIX_Z = 0x165667B19E3779F9n;
+const U64 = (v: bigint) => BigInt.asUintN(64, v);
+/// mix(cell) % 17 — the only reading of the mix the ruler needs (start / k).
+function mix17(cx: number, cy: number, cz: number): number {
+  const m = U64(
+    U64(BigInt.asUintN(64, BigInt(cx)) * MIX_X)
+    ^ U64(BigInt.asUintN(64, BigInt(cy)) * MIX_Y)
+    ^ U64(BigInt.asUintN(64, BigInt(cz)) * MIX_Z));
+  return Number(m % 17n);
+}
+function decodeGrid(buf: ArrayBuffer): Decoded {
+  const dv = new DataView(buf);
+  const nC = dv.getUint32(6, true), W = dv.getUint32(10, true), H = dv.getUint32(14, true);
+  const nV = W * H, nT = (W - 1) * (H - 1) * 2;
+  let o = 18;
+  o += 16 * nC;                     // guid
+  o += nC;                          // material (unused)
+  const layerOff = o; o += nC;      // LAYER u8
+  const labelOff = o; o += 4 * nC;  // label idx
+  const cenOff = o; o += 12 * nC;   // centroid 3f (pre-remapped like ver-6/7)
+  o += 8 * nC;                      // vrange
+  const x0 = dv.getFloat32(o, true), dx = dv.getFloat32(o + 4, true), yscale = dv.getFloat32(o + 8, true);
+  o += 12;
+  const zrow = new Float32Array(buf.slice(o, o + 4 * H)); o += 4 * H;
+  const nK = dv.getUint8(o); o += 1;
+  const pal = new Uint8Array(buf.slice(o, o + 3 * nK)); o += 3 * nK;
+  const hf = new Uint16Array(buf.slice(o, o + 2 * nV)); o += 2 * nV;
+  const kinds = new Uint8Array(buf.slice(o, o + nV)); o += nV;
+  const labLen = dv.getUint32(o, true); o += 4;
+  let names: string[] = [];
+  try { const lj = JSON.parse(new TextDecoder().decode(new Uint8Array(buf.slice(o, o + labLen)))); names = lj.names ?? lj; } catch { /* names optional */ }
+  const cLayer = new Uint8Array(buf.slice(layerOff, layerOff + nC));
+
+  // positions: radix x, tabulated z, decoded F16 height. Display frame DIRECT —
+  // ver-8 synthesizes display coords; no (-x, z, y) source remap round-trip.
+  const heights = new Float32Array(nV);
+  for (let i = 0; i < nV; i++) heights[i] = HALF_LUT[hf[i]] * yscale;
+  const positions = new Float32Array(nV * 3);
+  const rowArr = new Uint32Array(nV);
+  const layer = new Float32Array(nV);
+  for (let r = 0, i = 0; r < H; r++) {
+    const z = zrow[r], cr = Math.min(r, nC - 1), li = cLayer[cr] || 8;
+    for (let c = 0; c < W; c++, i++) {
+      positions[i * 3] = x0 + c * dx;
+      positions[i * 3 + 1] = heights[i];
+      positions[i * 3 + 2] = z;
+      rowArr[i] = cr;
+      layer[i] = li;
+    }
+  }
+  // normals: one central-difference gradient pass (one-sided at edges). True-scale
+  // heights → true-world slopes, byte-parity with the ver-7 baker's terrain_normals.
+  const normals = new Int8Array(nV * 3);
+  for (let r = 0; r < H; r++) {
+    const rm = Math.max(r - 1, 0), rp = Math.min(r + 1, H - 1);
+    const dzr = (zrow[rp] - zrow[rm]) || 1e-6;
+    for (let c = 0; c < W; c++) {
+      const i = r * W + c;
+      const cm = Math.max(c - 1, 0), cp = Math.min(c + 1, W - 1);
+      const gx = (heights[r * W + cp] - heights[r * W + cm]) / (((cp - cm) * dx) || 1e-6);
+      const gz = (heights[rp * W + c] - heights[rm * W + c]) / dzr;
+      const il = 127 / Math.hypot(gx, 1, gz);
+      normals[i * 3] = Math.round(-gx * il);
+      normals[i * 3 + 1] = Math.round(il);
+      normals[i * 3 + 2] = Math.round(-gz * il);
+    }
+  }
+  // colour: palette[kind] × the deterministic CurveRuler residue (±18% within-kind
+  // texture — the /helix surfel look). Lattice mixes cached per cell (≈ tens of
+  // thousands of distinct cells for 16.5 M verts → the BigInt cost is amortized).
+  const colors = new Uint8Array(nV * 3);
+  const DETAIL = 48;
+  const cache = new Map<number, number>();
+  const cell17 = (px: number, py: number, pz: number, d: number): number => {
+    const cx = Math.floor(px * d), cy = Math.floor(py * d), cz = Math.floor(pz * d);
+    const key = (cx + 512) + (cy + 512) * 1024 + (cz + 512) * 1048576;
+    let v = cache.get(key);
+    if (v === undefined) { v = mix17(cx, cy, cz); cache.set(key, v); }
+    return v;
+  };
+  for (let i = 0; i < nV; i++) {
+    const px = positions[i * 3], py = positions[i * 3 + 1], pz = positions[i * 3 + 2];
+    const start = cell17(px, py, pz, DETAIL);
+    const k = cell17(px, py, pz, DETAIL * 3);
+    const phase = (((start + 4 * k) % 17) / 16) * 2 - 1;
+    const sweet = 0.90 + 0.18 * phase;
+    const kb = kinds[i] * 3;
+    colors[i * 3] = Math.max(0, Math.min(255, Math.round(pal[kb] * sweet)));
+    colors[i * 3 + 1] = Math.max(0, Math.min(255, Math.round(pal[kb + 1] * sweet)));
+    colors[i * 3 + 2] = Math.max(0, Math.min(255, Math.round(pal[kb + 2] * sweet)));
+  }
+  // index: the grid loop — connectedness IS the address structure (baker winding).
+  const index = new Uint32Array(nT * 3);
+  let wI = 0;
+  for (let r = 0; r < H - 1; r++) {
+    for (let c = 0; c < W - 1; c++) {
+      const a = r * W + c, b = a + 1, d2 = a + W, e = d2 + 1;
+      index[wI++] = a; index[wI++] = b; index[wI++] = d2;
+      index[wI++] = b; index[wI++] = e; index[wI++] = d2;
+    }
+  }
+  const labelIdx = new Uint32Array(buf.slice(labelOff, labelOff + 4 * nC));
+  const cen = new Float32Array(buf.slice(cenOff, cenOff + 12 * nC));
+  const conceptList: ConceptMeta[] = [];
+  for (let c = 0; c < nC; c++) {
+    conceptList.push({ row: c, name: names[labelIdx[c]] ?? `concept ${c}`, layer: cLayer[c] || 8,
+      cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: cen[c * 3 + 1] });   // source → display (-x,z,y)
+  }
+  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList };
+}
+
 function decode(buf: ArrayBuffer): Decoded {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
   if (magic !== 'BSO2') throw new Error(`bad magic "${magic}"`);
   const ver = dv.getUint16(4, true);
+  if (ver === 8) return decodeGrid(buf);   // radix-grid wire: height + kind only
   const posBytes = ver >= 4 ? 6 : 12;
   const nC = dv.getUint32(6, true), nV = dv.getUint32(10, true), nT = dv.getUint32(14, true);
   let o = 18;
@@ -360,7 +485,8 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // building into a black needle (the #88 regression the operator flagged). So beautification is
   // gated on TERRAIN, never on "any geo" — buildings render plain baked colours (uGeo/uExag/uRuler
   // all neutral, exactly as anatomy), which is a solid city, not a needle field.
-  const isTerrainScene = (sceneParam ?? pathScene()) === 'iceland';
+  const sceneName = sceneParam ?? pathScene();
+  const isTerrainScene = sceneName === 'iceland' || Boolean(sceneName?.startsWith('garmin:'));
 
   // Height range for the geo palette: measured ONCE from the decoded position buffer (display.y).
   // The Iceland bake is true-scale so the span is tiny — normalizing against [-1,1] would flatten
@@ -560,6 +686,18 @@ async function fetchSoa(): Promise<ArrayBuffer> {
   // separate /osm slippy-map page are both untouched.
   const scene =
     new URLSearchParams(window.location.search).get('scene') ?? pathScene();
+  // /garmin/<loc> — mod-rewrite style: the SERVER resolves the slug through the
+  // manifest's garmin_scenes registry (/api/garmin/:location) and serves the bake.
+  // A 404 body lists the available slugs, so surface it verbatim.
+  if (scene?.startsWith('garmin:')) {
+    const loc = scene.slice('garmin:'.length);
+    const r = await fetch(`/api/garmin/${loc}`);
+    if (!r.ok) {
+      const detail = await r.json().then((j) => `${j.error}${j.available ? ` — available: ${j.available.join(', ')}` : ''}`).catch(() => `HTTP ${r.status}`);
+      throw new Error(`garmin scene "${loc}": ${detail}`);
+    }
+    return inflate(r);
+  }
   const key = scene ? `${scene}_latest` : 'helix_latest';
   const stamped: string | undefined = man?.[key];
   if (!stamped) {
@@ -620,8 +758,9 @@ export default function BodyHelix() {
   const geoUI = Boolean(geoScene);
   // Geo bakes stamp a single layer; present it with a domain-true name (a MAP must never read as
   // skin/muscle/skeleton) and drop the empty anatomy layers. Terrain vs buildings gets its own name.
-  const geoLayerName = geoScene === 'iceland' ? 'terrain' : 'buildings';
-  const geoLayerColor = geoScene === 'iceland' ? '#7c8f5c' : '#9aa7b4';
+  const geoTerrain = geoScene === 'iceland' || Boolean(geoScene?.startsWith('garmin:'));
+  const geoLayerName = geoTerrain ? 'terrain' : 'buildings';
+  const geoLayerColor = geoTerrain ? '#7c8f5c' : '#9aa7b4';
   const activeLayers =
     geoUI && d
       ? LAYERS.filter((l) => d.conceptList.some((c) => c.layer === l.id)).map((l) => ({ ...l, name: geoLayerName, color: geoLayerColor }))
@@ -636,13 +775,29 @@ export default function BodyHelix() {
   const title =
     scene === 'iceland' ? '/ice — Iceland height-profile terrain'
     : scene === 'osm' ? '/geo — OSM buildings'
+    : scene?.startsWith('garmin:') ? `/garmin/${scene.slice(7)} — Garmin terrain`
     : scene ? `/helix?scene=${scene}`
     : '/helix — living anatomy browser';
   const subtitle = d
     ? scene
-      ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · ${scene === 'iceland' ? 'height-profile palette + sky' : 'baked colours + sky'}`
+      ? `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · ${scene === 'iceland' || scene.startsWith('garmin:') ? 'height-profile palette + sky' : 'baked colours + sky'}`
       : `${d.nVerts.toLocaleString()} verts · ${d.concepts.toLocaleString()} structures · helix::Signed360 normals (Fisher-Z rim)`
     : 'loading canonical helix bake…';
+  // Scene menu — the "menu item" leg of the /garmin arc: built-ins + every slug the
+  // manifest's garmin_scenes registry names. Plain navigation (each scene is a page).
+  const [garminScenes, setGarminScenes] = useState<string[]>([]);
+  useEffect(() => {
+    fetch('/body.manifest.json').then((r) => (r.ok ? r.json() : null))
+      .then((m) => { if (m?.garmin_scenes) setGarminScenes(Object.keys(m.garmin_scenes)); })
+      .catch(() => {});
+  }, []);
+  const sceneOptions = [
+    { label: 'body (/helix)', path: '/helix' },
+    { label: 'berlin (/geo)', path: '/geo' },
+    { label: 'iceland (/ice)', path: '/ice' },
+    ...garminScenes.map((s) => ({ label: `garmin: ${s}`, path: `/garmin/${s}` })),
+  ];
+  const herePath = window.location.pathname;
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: `#${PAGE_BG.toString(16).padStart(6, '0')}` }}>
@@ -655,6 +810,13 @@ export default function BodyHelix() {
       </div>
       {d && (
         <div style={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: 380, justifyContent: 'flex-end' }}>
+          <select
+            value={sceneOptions.some((o) => o.path === herePath) ? herePath : '/helix'}
+            onChange={(e) => { window.location.href = e.target.value; }}
+            title="scene: every bake this deploy serves — built-ins plus the manifest's garmin_scenes registry"
+            style={{ background: '#0e1219', color: '#cdd9e5', border: '1px solid #243244', borderRadius: 7, font: '12px ui-monospace, monospace', padding: '4px 6px' }}>
+            {sceneOptions.map((o) => <option key={o.path} value={o.path}>{o.label}</option>)}
+          </select>
           <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
           <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what's worth drawing">LOD {lod ? 'on' : 'off'}</button>
           {activeLayers.map((l) => (
