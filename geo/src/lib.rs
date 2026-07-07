@@ -37,6 +37,11 @@ pub mod osm_read;
 #[cfg(feature = "helix")]
 pub mod bso2;
 
+/// The Kurvenlineal — the real `helix::CurveRuler` golden-spiral residue as a
+/// CONTINUOUS INTER-FAMILY field (fixes the per-cell "needle" discontinuity).
+#[cfg(feature = "helix")]
+pub mod kurvenlineal;
+
 pub use extrude::{extrude_into, Footprint, Layer};
 pub use hhtl::{point_to_hhtl, tile_to_hhtl, Hhtl, GEO_DOMAIN, HHTL_DEPTH};
 pub use spm1::{Mesh, Vertex};
