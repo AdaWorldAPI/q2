@@ -343,11 +343,13 @@ pub struct MeshConcept {
     pub v_count: u32,
 }
 
-/// Encode an **arbitrary display-frame triangle mesh** into the exact BSO2 ver-6
-/// `/helix` wire (F16 pos + `Signed360` normals + HXFL trailer) that
-/// `BodyHelix.tsx` decodes — the generalization of [`encode_bso2`] for meshes
-/// that are NOT OSM footprints (e.g. a DEM heightfield grid). The byte layout is
-/// identical to [`encode_bso2`]'s so the same reader renders it unchanged.
+/// Encode an **arbitrary display-frame triangle mesh** into the BSO2 `/helix` wire
+/// (F16 pos + `Signed360` normals + HXFL trailer) that `BodyHelix.tsx` decodes — the
+/// generalization of [`encode_bso2`] for meshes that are NOT OSM footprints (e.g. a DEM
+/// heightfield grid). With an empty `colors` slice the byte layout is identical to
+/// [`encode_bso2`]'s (ver-6); with a per-vertex `colors` drape it is ver-7 — a `rgb[nv]`
+/// block after the row column carrying real satellite texture (the reader paints `aColor`
+/// from it instead of guessing colour from height).
 ///
 /// `pos`/`nrm` are already the normalized DISPLAY frame `(Dx, Dy=up, Dz)`;
 /// positions are written as `srcPos = (-Dx, Dz, Dy)` (F16) and normals via
@@ -363,16 +365,22 @@ pub fn encode_mesh_bso2(
     tris: &[[u32; 3]],
     concepts: &[MeshConcept],
     labels_json: &[u8],
+    colors: &[[u8; 3]],
 ) -> (Vec<u8>, Vec<u8>) {
     let nv = pos.len();
     let nt = tris.len();
     let nc = concepts.len();
     assert_eq!(nrm.len(), nv, "nrm len must match pos");
     assert_eq!(rows.len(), nv, "rows len must match pos");
+    // Optional per-vertex true-colour drape. Empty → ver-6 (no colour block, the OSM-mesh
+    // layout). Non-empty → ver-7 = a `rgb[nv]` block after the row column (before the index),
+    // carrying the real satellite texture the DEM baker samples per vertex.
+    assert!(colors.is_empty() || colors.len() == nv, "colors len must be 0 or match pos");
+    let ver: u16 = if colors.is_empty() { 6 } else { 7 };
 
-    let mut o = Vec::with_capacity(nc * 40 + nv * 22 + nt * 12 + labels_json.len() + 64);
+    let mut o = Vec::with_capacity(nc * 40 + nv * 25 + nt * 12 + labels_json.len() + 64);
     o.extend_from_slice(b"BSO2");
-    o.extend_from_slice(&6u16.to_le_bytes());
+    o.extend_from_slice(&ver.to_le_bytes());
     o.extend_from_slice(&(nc as u32).to_le_bytes());
     o.extend_from_slice(&(nv as u32).to_le_bytes());
     o.extend_from_slice(&(nt as u32).to_le_bytes());
@@ -407,6 +415,11 @@ pub fn encode_mesh_bso2(
     }
     for r in rows {
         o.extend_from_slice(&r.to_le_bytes());
+    }
+    // per-vertex true-colour drape (ver-7 only): 3 bytes RGB, same order as pos. The client
+    // reads this straight into `aColor` for the geo terrain instead of a height-palette guess.
+    for c in colors {
+        o.extend_from_slice(c);
     }
     for t in tris {
         for idx in t {

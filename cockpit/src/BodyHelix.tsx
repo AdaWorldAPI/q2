@@ -125,6 +125,8 @@ function decode(buf: ArrayBuffer): Decoded {
   const posOff = o; o += posBytes * nV;
   const helixOff = o; o += 6 * nV;    // pos3 | nrm3 — we read the nrm half
   const rowOff = o; o += 4 * nV;
+  const colorOff = ver >= 7 ? o : -1;   // ver-7: per-vertex RGB drape (real kind/imagery colour)
+  if (ver >= 7) o += 3 * nV;
   const idxOff = o; o += 12 * nT;
   void matOff;
 
@@ -160,12 +162,17 @@ function decode(buf: ArrayBuffer): Decoded {
   const colors = new Uint8Array(nV * 3);
   const normals = new Int8Array(nV * 3);   // rim-decoded unit normal (display frame), cheap i8
   const layer = new Float32Array(nV);
+  // ver-7 carries a real per-vertex colour drape (the DEM baker's kind × imagery × helix texture);
+  // older bakes synthesize the colour from the concept layer. When present, the wire colour wins.
+  const wireColors = ver >= 7 ? new Uint8Array(buf.slice(colorOff, colorOff + nV * 3)) : null;
   for (let i = 0; i < nV; i++) {
     positions[i * 3] = -srcPos[i * 3];
     positions[i * 3 + 1] = srcPos[i * 3 + 2];
     positions[i * 3 + 2] = srcPos[i * 3 + 1];
     const r0 = rowArr[i], li = cLayer[r0] || 8;
-    const rgb = conceptColor(li, r0);
+    const rgb = wireColors
+      ? ([wireColors[i * 3], wireColors[i * 3 + 1], wireColors[i * 3 + 2]] as [number, number, number])
+      : conceptColor(li, r0);
     colors[i * 3] = rgb[0]; colors[i * 3 + 1] = rgb[1]; colors[i * 3 + 2] = rgb[2];
     // Signed360 → unit normal: r=sinθ from the Fisher-Z RIM (its strength; saturated cliff
     // falls back to the polar partition), hemisphere sign from polar, φ from azimuth. Same
@@ -290,9 +297,10 @@ void main(){
   const vec3 L = vec3(-0.401, 0.783, 0.476);
   float ndl = max(abs(dot(n, L)), 0.0);
   float shade = min(0.34 + 0.20*(abs(n.y)*0.5+0.5) + 0.12*(-n.x*0.5+0.5) + 0.92*ndl, 1.3);
-  // uGeo is a dynamically-uniform branch (a uniform, not a varying): coherent, no divergence.
-  // uGeo == 0 -> EXACTLY the pre-existing aColor*shade, so anatomy scenes are byte-identical.
-  vColor = (uGeo > 0.5) ? terrainColor(position.y) * shade : aColor * shade;
+  // Colour is ALWAYS aColor now: for the DEM terrain aColor is the baked kind × imagery × helix
+  // texture (real green / ice / volcano / rock), for buildings + anatomy it is the concept tint —
+  // the shader no longer guesses colour from height. Gouraud shade applies the 3D lighting form.
+  vColor = aColor * shade;
   // Geo relief: raise the true-scale island by uExag. The Kurvenlineal golden-spiral residue is
   // already in position + normal (baked by the DEM baker), so the shader adds no ruler of its own.
   // Anatomy (uGeo==0): untouched.

@@ -37,8 +37,9 @@ struct Dem {
     h: usize,
     west: f64,
     east: f64,
-    lats: Vec<f64>,  // len h, row 0 = north
-    elev: Vec<f32>,  // len w*h, row-major, row 0 = north, col 0 = west (metres)
+    lats: Vec<f64>,     // len h, row 0 = north
+    elev: Vec<f32>,     // len w*h, row-major, row 0 = north, col 0 = west (metres)
+    rgb: Vec<[u8; 3]>,  // len w*h (DEMG v2) or empty (v1) — ESRI imagery drape, same order as elev
 }
 
 fn read_demgrid(path: &str) -> Result<Dem, Box<dyn std::error::Error>> {
@@ -50,7 +51,7 @@ fn read_demgrid(path: &str) -> Result<Dem, Box<dyn std::error::Error>> {
     let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let f64_at = |o: usize| f64::from_le_bytes(b[o..o + 8].try_into().unwrap());
     let ver = u32_at(4);
-    if ver != 1 {
+    if ver != 1 && ver != 2 {
         return Err(format!("unsupported DEMG version {ver}").into());
     }
     let w = u32_at(8) as usize;
@@ -69,7 +70,73 @@ fn read_demgrid(path: &str) -> Result<Dem, Box<dyn std::error::Error>> {
         elev.push(f32::from_le_bytes(b[o..o + 4].try_into().unwrap()));
         o += 4;
     }
-    Ok(Dem { w, h, west, east, lats, elev })
+    // DEMG v2: a per-cell RGB imagery drape (ESRI World Imagery) after the elevation block,
+    // same row-major order. The baker classifies each cell's colour into a surface KIND.
+    let mut rgb = Vec::new();
+    if ver == 2 {
+        if b.len() < o + n * 3 {
+            return Err("DEMG v2 truncated: rgb block short".into());
+        }
+        rgb.reserve(n);
+        for _ in 0..n {
+            rgb.push([b[o], b[o + 1], b[o + 2]]);
+            o += 3;
+        }
+    }
+    Ok(Dem { w, h, west, east, lats, elev, rgb })
+}
+
+/// Surface KIND — the terrain node's CLASS axis (the "kind" that sits beside the HHTL position
+/// address and the Helix residue). Classified from the ESRI imagery colour + elevation; each kind
+/// carries a canonical palette so the map reads as clean ocean / green / rock / scree / ice / lava
+/// rather than a muddy raw photo.
+#[derive(Clone, Copy)]
+enum Kind {
+    Ocean,
+    Green, // vegetation / moss / tundra
+    Rock,  // brown highland rock
+    Scree, // grey bare
+    Ice,   // snow / glacier
+    Lava,  // dark volcanic basalt / black sand
+}
+
+impl Kind {
+    /// Canonical base colour (sRGB, 0..255) for the kind.
+    fn color(self) -> [f32; 3] {
+        match self {
+            Kind::Ocean => [16.0, 42.0, 74.0],
+            Kind::Green => [74.0, 108.0, 52.0],
+            Kind::Rock => [116.0, 96.0, 74.0],
+            Kind::Scree => [142.0, 140.0, 134.0],
+            Kind::Ice => [234.0, 240.0, 248.0],
+            Kind::Lava => [40.0, 28.0, 26.0],
+        }
+    }
+}
+
+/// Classify a vertex from its imagery colour + elevation. Elevation gates ocean (y == 0); the
+/// imagery luminance/saturation separates ice (bright, low-sat), lava (very dark), green
+/// (green-dominant), scree (bright grey) and rock (the mid-tone default).
+fn classify_kind(rgb: [u8; 3], elev: f32) -> Kind {
+    if elev <= 0.0 {
+        return Kind::Ocean;
+    }
+    let (r, g, b) = (rgb[0] as f32, rgb[1] as f32, rgb[2] as f32);
+    let lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    let mx = r.max(g).max(b);
+    let mn = r.min(g).min(b);
+    let sat = if mx > 0.0 { (mx - mn) / mx } else { 0.0 };
+    if lum > 172.0 && sat < 0.18 {
+        Kind::Ice // bright + desaturated → snow / glacier
+    } else if lum < 60.0 {
+        Kind::Lava // very dark → volcanic basalt / black sand
+    } else if g > r * 1.04 && g > b * 1.10 && g > 58.0 {
+        Kind::Green // green channel clearly dominant → vegetation / moss
+    } else if lum > 128.0 && sat < 0.22 {
+        Kind::Scree // bright-ish grey → scree / bare
+    } else {
+        Kind::Rock // mid-tone default → highland rock
+    }
 }
 
 fn main() {
@@ -162,6 +229,25 @@ fn main() {
     }
     let nrm = terrain_normals(&pos, w, h); // recompute from the displaced surface
 
+    // ── Per-vertex COLOUR = the KIND axis. Classify each vertex's surface class from the ESRI
+    //    imagery colour + elevation, take the kind's canonical palette colour, then texture it by
+    //    (a) the real imagery luminance (light/shadow within the kind) and (b) the Helix residue
+    //    phase (deterministic within-kind variation from the address). Together with the HHTL
+    //    address (per-concept key) and the Helix residue (displacement above), this completes the
+    //    node's three axes: WHERE (HHTL) · SURFACE (Helix) · WHAT (kind). No imagery → a neutral
+    //    moss default so a v1 demgrid still bakes. ──
+    let has_img = !dem.rgb.is_empty();
+    let mut colors: Vec<[u8; 3]> = Vec::with_capacity(w * h);
+    for i in 0..w * h {
+        let px = if has_img { dem.rgb[i] } else { [96, 110, 92] };
+        let base = classify_kind(px, my[i]).color();
+        let lum = (0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32) / 255.0;
+        let lmod = 0.62 + 0.55 * lum; // imagery luminance → light/shadow within the kind
+        let rmod = 1.0 + 0.10 * ruler_phase(pos[i], RES_DETAIL); // helix residue → within-kind texture
+        let q = |c: f32| (c * lmod * rmod).round().clamp(0.0, 255.0) as u8;
+        colors.push([q(base[0]), q(base[1]), q(base[2])]);
+    }
+
     // ── Triangles: two per grid cell, shared vertices (watertight surface). ──
     let mut tris: Vec<[u32; 3]> = Vec::with_capacity((w - 1) * (h - 1) * 2);
     for r in 0..h - 1 {
@@ -214,7 +300,7 @@ fn main() {
     }
 
     let labels = br#"{"names":["iceland-terrain"]}"#;
-    let (soa, blocks) = encode_mesh_bso2(&pos, &nrm, &rows, &tris, &concepts, labels);
+    let (soa, blocks) = encode_mesh_bso2(&pos, &nrm, &rows, &tris, &concepts, labels, &colors);
 
     let nc = u32::from_le_bytes(soa[6..10].try_into().unwrap());
     let nv = u32::from_le_bytes(soa[10..14].try_into().unwrap());
