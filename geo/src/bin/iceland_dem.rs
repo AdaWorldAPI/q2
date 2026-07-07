@@ -203,31 +203,15 @@ fn main() {
 
     let idx = |r: usize, c: usize| r * w + c;
 
-    // First-pass gradient normals — the displacement DIRECTION for the residue below.
-    let nrm0 = terrain_normals(&pos, w, h);
-
-    // ── THE KURVENLINEAL: the real helix::CurveRuler golden-spiral residue. The coarse DEM
-    //    carries only the HHTL *place* (the downsampled grid); this regenerates the fine surface
-    //    *residue* deterministically from each vertex's lattice address (OGAR canon "phase is
-    //    convention, not data") — the detail the anatomy body has and a raw grid lacks. Displace
-    //    each LAND vertex along its normal by a bipolar phase whose amplitude grows with elevation
-    //    (bold relief on the highlands, gentle on the coast); ocean (y == 0) stays a clean flat
-    //    plane. Then RECOMPUTE normals from the displaced surface so the shading SHOWS the detail. ──
-    const RES_DETAIL: f32 = 48.0; // lattice frequency (cells per unit) — meso-scale roughness
-    const RES_AMP: f32 = 0.010; // displacement amplitude in the [-1,1] display frame
-    let max_y = pos.iter().map(|p| p[1]).fold(0.0f32, f32::max).max(1e-6);
-    for i in 0..w * h {
-        if my[i] > 0.0 {
-            let elev_norm = pos[i][1] / max_y; // 0 at the coast → 1 at the highest peak
-            let amp = RES_AMP * (0.35 + 0.65 * elev_norm);
-            let phase = ruler_phase(pos[i], RES_DETAIL); // deterministic bipolar [-1,1]
-            let n = nrm0[i];
-            pos[i][0] += n[0] * amp * phase;
-            pos[i][1] += n[1] * amp * phase;
-            pos[i][2] += n[2] * amp * phase;
-        }
-    }
-    let nrm = terrain_normals(&pos, w, h); // recompute from the displaced surface
+    // Helix CurveRuler detail frequency — used for the within-KIND colour texture below (NOT the
+    // geometry). At the full 16.5M-vert native resolution the heightfield already carries the fine
+    // relief, so the golden-spiral residue is NOT displaced into the geometry: `ruler_phase` is a
+    // per-cell STEP function, and displacing a dense mesh by it strips the surface into stepped
+    // ridges. The residue instead rides the COLOUR (within-kind variation), where a step reads as
+    // texture, not spikes. (On the sparse/anatomy meshes the geometry displacement is fine — cells
+    // are large relative to the mesh; on this dense grid it is not.)
+    const RES_DETAIL: f32 = 48.0;
+    let nrm = terrain_normals(&pos, w, h);
 
     // ── Per-vertex COLOUR = the KIND axis. Classify each vertex's surface class from the ESRI
     //    imagery colour + elevation, take the kind's canonical palette colour, then texture it by
