@@ -108,8 +108,11 @@ def main():
             stitched[gy * TILE:(gy + 1) * TILE, gx * TILE:(gx + 1) * TILE] = elev
             got += 1
     print(f"fetched {got} tiles, {missing} missing", file=sys.stderr)
-    if missing > len(jobs) // 10:
-        print("too many missing tiles — aborting", file=sys.stderr)
+    # A missing tile is left as zero elevation (flat sea) in `stitched` — on LAND that bakes a
+    # synthetic flat-sea rectangle that looks like real data but isn't. After 4 retries each, abort
+    # on ANY missing tile rather than silently emit a doctored heightfield (CodeRabbit, PR #89).
+    if missing > 0:
+        print(f"{missing} tile(s) missing after retries — aborting (would bake synthetic sea)", file=sys.stderr)
         sys.exit(1)
 
     # Geographic extent of the stitched tile grid (tile edges, exact).

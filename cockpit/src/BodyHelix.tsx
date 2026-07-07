@@ -242,24 +242,15 @@ uniform float uYMin;   // decoded height range (display.y), measured once at loa
 uniform float uYMax;
 uniform float uExag;   // geo relief exaggeration: the Iceland bake is true-scale (span ~0.0074 in the
                        // [-1,1] frame), so raise the geometry to read as terrain. 1 for anatomy (untouched).
-uniform float uTime;   // seconds — drives the Kurvenlineal breathing (0 for anatomy).
-uniform float uRuler;  // Kurvenlineal displacement amplitude (0 for anatomy).
+uniform float uTime;   // retained-but-0: the Kurvenlineal residue is baked into the mesh, not animated.
+uniform float uRuler;  // retained-but-0: no shader ruler (the golden-spiral residue is baked in).
 varying vec3 vColor;
-// THE KURVENLINEAL (helix::CurveRuler) — a GLSL port of the sculpt crate's deterministic
-// stride-4-over-17 phase (gcd(4,17)=1 → a full 17-residue permutation). Not 100% bit-exact to
-// the Rust CurveRuler (that walks a u64 place with integer mixing; here we hash floats), but
-// faithful in spirit: a deterministic bipolar phase in ~[-1,1] regenerated from the vertex's
-// lattice address — "phase is convention, not data" (OGAR D-QUANTGATE). It synthesises relief
-// detail where the sparse DEM bake has gaps, and — animated by uTime — makes the terrain BREATHE.
-float rhash(vec3 p){ return fract(sin(dot(floor(p), vec3(127.1, 311.7, 74.7))) * 43758.5453); }
-float kurvenlineal(vec3 pos, float detail){
-  vec3 cell = floor(pos * detail);          // the lattice cell = the address
-  vec3 sub  = floor(pos * detail * 3.0);     // finer sub-lattice picks the step k
-  float place = floor(rhash(cell) * 65536.0);
-  float k     = mod(floor(rhash(sub) * 991.0), 17.0);  // k ∈ [0,17)
-  float idx   = mod(mod(place, 17.0) + 4.0 * k, 17.0);  // stride-4-over-17 coprime walk
-  return idx / 8.0 - 1.0;                                // ~[-1, 1] bipolar
-}
+// THE KURVENLINEAL is now baked into the mesh, not approximated here. The real
+// helix::CurveRuler golden-spiral residue (stride-4-over-17) is applied at BAKE time in
+// geo/src/bin/iceland_dem.rs (::ruler_phase) as per-vertex surface displacement + recomputed
+// normals — so the residue is carried by the decoded position + Signed360 normal the same way
+// the anatomy body carries it. The vertex shader below therefore only lifts the terrain by uExag
+// and Gouraud-shades; the earlier GLSL float-hash approximation of the ruler has been removed.
 // Height-profile terrain palette for the geo bakes (Iceland DEM, OSM). Elevation is display.y.
 // In the Iceland bake it is TRUE-SCALE (not vertically exaggerated) → a tiny span (~[0, 0.0074])
 // with ~39% ocean at EXACTLY 0 and a heavily-quantized lowland plateau holding ~58% of verts,
@@ -302,15 +293,12 @@ void main(){
   // uGeo is a dynamically-uniform branch (a uniform, not a varying): coherent, no divergence.
   // uGeo == 0 -> EXACTLY the pre-existing aColor*shade, so anatomy scenes are byte-identical.
   vColor = (uGeo > 0.5) ? terrainColor(position.y) * shade : aColor * shade;
-  // Geo relief + the KURVENLINEAL: raise the true-scale island by uExag, then add the deterministic
-  // stride-4-over-17 phase as extra relief that BREATHES over uTime — it synthesises detail where the
-  // sparse DEM bake has gaps and gives the horizon a living, breathing motion (not 100% physical: a
-  // mental horizon that motivates the next, DEM-true, improvement). Anatomy (uGeo==0): untouched.
+  // Geo relief: raise the true-scale island by uExag. The Kurvenlineal golden-spiral residue is
+  // already in position + normal (baked by the DEM baker), so the shader adds no ruler of its own.
+  // Anatomy (uGeo==0): untouched.
   vec3 dpos = position;
   if (uGeo > 0.5) {
-    float rp = kurvenlineal(position, 90.0);
-    float breathe = 0.55 + 0.45 * sin(uTime * 0.5 + rp * 6.2831);
-    dpos.y = position.y * uExag + rp * uRuler * breathe;
+    dpos.y = position.y * uExag;
   }
   gl_Position = projectionMatrix * modelViewMatrix * vec4(dpos, 1.0);
 }`;
@@ -405,9 +393,11 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   const applyIndex = () => { geom.setDrawRange(0, rebuild()); idxAttr.needsUpdate = true; };
   geom.setDrawRange(0, rebuild());
 
-  // uGeo (height-recolour), uExag (relief), uRuler (breathing) are TERRAIN-only. Buildings and
-  // anatomy keep uGeo=0 (baked aColor), uExag=1, uRuler=0 → no needles, byte-identical to pre-#88.
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isTerrainScene ? 15 : 1 }, uTime: { value: 0 }, uRuler: { value: isTerrainScene ? 0.008 : 0 } };
+  // uGeo (height-recolour) + uExag (relief) are TERRAIN-only; buildings/anatomy keep uGeo=0 (baked
+  // aColor) + uExag=1. uRuler/uTime are retained-but-0: the Kurvenlineal golden-spiral residue is
+  // now baked into the mesh (geometry + normals), so the shader applies no ruler — the terrain is a
+  // static surface, not a shader-animated one.
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isTerrainScene ? 15 : 1 }, uTime: { value: 0 }, uRuler: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -490,10 +480,8 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   window.addEventListener('resize', onResize);
   const tick = () => {
     raf = requestAnimationFrame(tick);
-    // Kurvenlineal breathing: TERRAIN scenes advance uTime and render every frame so the terrain
-    // breathes; buildings + anatomy stay fully on-demand (uTime 0, dirty gating untouched — no idle
-    // cost, and no per-frame redraw of a static building field).
-    if (isTerrainScene) { uniforms.uTime.value = performance.now() / 1000; dirty.current = true; }
+    // Every scene renders on-demand (dirty gating) — no idle redraw. The terrain's Kurvenlineal
+    // residue is baked into the mesh (static surface), so there is no per-frame shader animation.
     // server-LOD lifecycle runs even on idle frames (the cascade tracks the static view too);
     // turning LOD off restores the full geometry. Both are cheap and bounded by the 220 ms poll.
     const tnow = performance.now();

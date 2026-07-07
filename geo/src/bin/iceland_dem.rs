@@ -22,6 +22,10 @@ use geo_hhtl::osm_read::M_PER_DEG;
 
 use lance_graph_contract::canonical_node::{NodeGuid, TailVariant};
 
+// THE KURVENLINEAL — the real golden-spiral curve-ruler (stride-4-over-17). Same crate the
+// `sculpt` tool + the anatomy body use; ported here so the terrain carries the residue.
+use helix::CurveRuler;
+
 /// Deep key zoom for the 4-tier HHTL cascade (matches the OSM bake's KEY_ZOOM).
 const KEY_ZOOM: u32 = 32;
 /// Terrain basin tier (family) — a natural-area basin, distinct from the OSM
@@ -39,7 +43,8 @@ struct Dem {
 
 fn read_demgrid(path: &str) -> Result<Dem, Box<dyn std::error::Error>> {
     let b = std::fs::read(path)?;
-    if b.len() < 24 || &b[0..4] != b"DEMG" {
+    // Need bytes 0..32 for the fixed header (magic/ver/w/h/west/east); `f64_at(24)` reads 24..32.
+    if b.len() < 32 || &b[0..4] != b"DEMG" {
         return Err("not a DEMG file".into());
     }
     let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -122,43 +127,40 @@ fn main() {
     let cz = (loz + hiz) * 0.5;
     let half = ((hix - lox).max(hiz - loz) * 0.5).max(1.0);
     let inv = 1.0 / half;
-    // DISPLAY frame (Dx, Dy=up=elevation, Dz). No vertical exaggeration — the
-    // shader raises the true-scale island by uExag=10 + the Kurvenlineal.
+    // DISPLAY frame (Dx, Dy=up=elevation, Dz). No macro exaggeration here — the shader raises the
+    // true-scale island by uExag; the Kurvenlineal golden-spiral residue is baked in below.
     let mut pos = vec![[0.0f32; 3]; w * h];
     for i in 0..w * h {
         pos[i] = [(mx[i] - cx) * inv, my[i] * inv, (mz[i] - cz) * inv];
     }
 
-    // ── Per-vertex normals from the terrain gradient (display frame). ──
-    // du ≈ +east (col+), dv ≈ +north (row-, since row 0 is north). cross(dv,du)
-    // points +Dy on flat ground and tilts with the slope. One-sided at edges.
     let idx = |r: usize, c: usize| r * w + c;
-    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-    let cross = |a: [f32; 3], b: [f32; 3]| {
-        [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-    };
-    let mut nrm = vec![[0.0f32, 1.0, 0.0]; w * h];
-    for r in 0..h {
-        let rn = r.saturating_sub(1); // north neighbour (smaller row)
-        let rs = (r + 1).min(h - 1); // south neighbour
-        for c in 0..w {
-            let cw = c.saturating_sub(1);
-            let ce = (c + 1).min(w - 1);
-            let du = sub(pos[idx(r, ce)], pos[idx(r, cw)]); // east tangent
-            let dv = sub(pos[idx(rn, c)], pos[idx(rs, c)]); // north tangent
-            let mut n = cross(dv, du);
-            let m = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-            if m > 1e-12 {
-                n = [n[0] / m, n[1] / m, n[2] / m];
-                if n[1] < 0.0 {
-                    n = [-n[0], -n[1], -n[2]]; // keep the up-facing hemisphere
-                }
-            } else {
-                n = [0.0, 1.0, 0.0];
-            }
-            nrm[idx(r, c)] = n;
+
+    // First-pass gradient normals — the displacement DIRECTION for the residue below.
+    let nrm0 = terrain_normals(&pos, w, h);
+
+    // ── THE KURVENLINEAL: the real helix::CurveRuler golden-spiral residue. The coarse DEM
+    //    carries only the HHTL *place* (the downsampled grid); this regenerates the fine surface
+    //    *residue* deterministically from each vertex's lattice address (OGAR canon "phase is
+    //    convention, not data") — the detail the anatomy body has and a raw grid lacks. Displace
+    //    each LAND vertex along its normal by a bipolar phase whose amplitude grows with elevation
+    //    (bold relief on the highlands, gentle on the coast); ocean (y == 0) stays a clean flat
+    //    plane. Then RECOMPUTE normals from the displaced surface so the shading SHOWS the detail. ──
+    const RES_DETAIL: f32 = 48.0; // lattice frequency (cells per unit) — meso-scale roughness
+    const RES_AMP: f32 = 0.010; // displacement amplitude in the [-1,1] display frame
+    let max_y = pos.iter().map(|p| p[1]).fold(0.0f32, f32::max).max(1e-6);
+    for i in 0..w * h {
+        if my[i] > 0.0 {
+            let elev_norm = pos[i][1] / max_y; // 0 at the coast → 1 at the highest peak
+            let amp = RES_AMP * (0.35 + 0.65 * elev_norm);
+            let phase = ruler_phase(pos[i], RES_DETAIL); // deterministic bipolar [-1,1]
+            let n = nrm0[i];
+            pos[i][0] += n[0] * amp * phase;
+            pos[i][1] += n[1] * amp * phase;
+            pos[i][2] += n[2] * amp * phase;
         }
     }
+    let nrm = terrain_normals(&pos, w, h); // recompute from the displaced surface
 
     // ── Triangles: two per grid cell, shared vertices (watertight surface). ──
     let mut tris: Vec<[u32; 3]> = Vec::with_capacity((w - 1) * (h - 1) * 2);
@@ -231,4 +233,74 @@ fn main() {
         std::process::exit(1);
     }
     eprintln!("wrote {output} + {blocks_path}");
+}
+
+/// Per-vertex up-facing gradient normals for a `w×h` heightfield in the display frame.
+/// `du ≈ +east` (col+), `dv ≈ +north` (row−, since row 0 is north); `cross(dv, du)` points
+/// +Dy on flat ground and tilts with the slope. One-sided at the edges. Called twice: once for
+/// the residue displacement direction, once to re-derive shading from the displaced surface.
+fn terrain_normals(pos: &[[f32; 3]], w: usize, h: usize) -> Vec<[f32; 3]> {
+    let idx = |r: usize, c: usize| r * w + c;
+    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let cross = |a: [f32; 3], b: [f32; 3]| {
+        [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    };
+    let mut nrm = vec![[0.0f32, 1.0, 0.0]; w * h];
+    for r in 0..h {
+        let rn = r.saturating_sub(1); // north neighbour (smaller row)
+        let rs = (r + 1).min(h - 1); // south neighbour
+        for c in 0..w {
+            let cw = c.saturating_sub(1);
+            let ce = (c + 1).min(w - 1);
+            let du = sub(pos[idx(r, ce)], pos[idx(r, cw)]); // east tangent
+            let dv = sub(pos[idx(rn, c)], pos[idx(rs, c)]); // north tangent
+            let mut n = cross(dv, du);
+            let m = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if m > 1e-12 {
+                n = [n[0] / m, n[1] / m, n[2] / m];
+                if n[1] < 0.0 {
+                    n = [-n[0], -n[1], -n[2]]; // keep the up-facing hemisphere
+                }
+            } else {
+                n = [0.0, 1.0, 0.0];
+            }
+            nrm[idx(r, c)] = n;
+        }
+    }
+    nrm
+}
+
+// ── THE KURVENLINEAL (ported verbatim from `sculpt::sculpt` — the same helix::CurveRuler the
+//    anatomy body uses). Deterministic golden-spiral relief; the phase is regenerated from the
+//    address, NEVER stored. ──
+const MIX_X: u64 = 0x9E37_79B9_7F4A_7C15;
+const MIX_Y: u64 = 0xC2B2_AE3D_27D4_EB4F;
+const MIX_Z: u64 = 0x1656_67B1_9E37_79F9;
+
+/// Decorrelate a lattice cell into a u64 place anchor (wrapping_mul + xor fold).
+fn mix(c: [i64; 3]) -> u64 {
+    (c[0] as u64).wrapping_mul(MIX_X)
+        ^ (c[1] as u64).wrapping_mul(MIX_Y)
+        ^ (c[2] as u64).wrapping_mul(MIX_Z)
+}
+
+/// Deterministic bipolar relief in [-1, 1] from a vertex's lattice address. `cell =
+/// floor(pos·detail)` → `place = mix(cell)`; a finer 3× sub-lattice picks `k = mix(sub) mod 17`;
+/// value = `(CurveRuler::from_place(place).index(k) / 16)·2 − 1`. Same `pos` + `detail` → same
+/// value on every bake, every session (phase is convention, not data — OGAR D-QUANTGATE).
+fn ruler_phase(pos: [f32; 3], detail: f32) -> f32 {
+    let cell = [
+        (pos[0] * detail).floor() as i64,
+        (pos[1] * detail).floor() as i64,
+        (pos[2] * detail).floor() as i64,
+    ];
+    let sub = [
+        (pos[0] * detail * 3.0).floor() as i64,
+        (pos[1] * detail * 3.0).floor() as i64,
+        (pos[2] * detail * 3.0).floor() as i64,
+    ];
+    let k = (mix(sub) % 17) as u32;
+    let idx = CurveRuler::from_place(mix(cell)).index(k);
+    // index ∈ [0,17) → idx/16 ∈ [0,1] → bipolar [-1,1] with 8 → 0.
+    (idx as f32 / 16.0) * 2.0 - 1.0
 }

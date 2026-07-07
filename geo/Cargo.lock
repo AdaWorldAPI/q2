@@ -180,8 +180,9 @@ dependencies = [
 name = "geo-hhtl"
 version = "0.1.0"
 dependencies = [
+ "helix",
  "lance-graph-contract",
- "ndarray",
+ "ndarray 0.17.2",
  "osmpbf",
 ]
 
@@ -207,6 +208,13 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "helix"
+version = "0.1.0"
+dependencies = [
+ "ndarray 0.17.2 (git+https://github.com/AdaWorldAPI/ndarray.git?branch=master)",
+]
 
 [[package]]
 name = "home"
@@ -304,6 +312,22 @@ dependencies = [
 [[package]]
 name = "ndarray"
 version = "0.17.2"
+dependencies = [
+ "blake3",
+ "matrixmultiply",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "paste",
+ "portable-atomic",
+ "portable-atomic-util",
+ "rawpointer",
+]
+
+[[package]]
+name = "ndarray"
+version = "0.17.2"
+source = "git+https://github.com/AdaWorldAPI/ndarray.git?branch=master#576028458796724b55ae216a9781d13c44f1781d"
 dependencies = [
  "blake3",
  "matrixmultiply",
