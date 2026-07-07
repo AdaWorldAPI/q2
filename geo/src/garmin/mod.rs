@@ -34,11 +34,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+pub mod classify;
 pub mod container;
 pub mod lbl;
 pub mod rgn;
 pub mod tre;
 
+pub use classify::GeoKind;
 pub use tre::{Bbox, Level, Subdiv, Tre};
 
 // ── shared little-endian byte readers ───────────────────────────────────────
