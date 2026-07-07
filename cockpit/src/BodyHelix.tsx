@@ -407,7 +407,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
 
   // uGeo (height-recolour), uExag (relief), uRuler (breathing) are TERRAIN-only. Buildings and
   // anatomy keep uGeo=0 (baked aColor), uExag=1, uRuler=0 → no needles, byte-identical to pre-#88.
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isTerrainScene ? 30 : 1 }, uTime: { value: 0 }, uRuler: { value: isTerrainScene ? 0.008 : 0 } };
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isTerrainScene ? 15 : 1 }, uTime: { value: 0 }, uRuler: { value: isTerrainScene ? 0.008 : 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
