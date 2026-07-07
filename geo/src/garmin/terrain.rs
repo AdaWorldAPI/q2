@@ -18,7 +18,7 @@
 //! applied downstream by the bake; this module produces the base geometry.
 
 use super::tre::Bbox;
-use super::{Decoded, Feature};
+use super::{Decoded, Feature, GeoKind, Kind};
 
 /// A row-major heightfield over a lon/lat bbox. `z[r*w + c]` is the surface
 /// elevation in metres; row 0 is the north edge (equirectangular, matching the
@@ -51,7 +51,7 @@ impl HeightField {
 
 /// Project a `(lon, lat)` mapunit onto fractional grid `(col, row)` over `bbox`.
 /// Row 0 = north. Degenerate spans collapse to 0.
-fn project(bbox: Bbox, lon: i64, lat: i64, w: usize, h: usize) -> (f32, f32) {
+pub fn project(bbox: Bbox, lon: i64, lat: i64, w: usize, h: usize) -> (f32, f32) {
     let ew = f64::from(bbox.east) - f64::from(bbox.west);
     let ns = f64::from(bbox.north) - f64::from(bbox.south);
     let fx = if ew != 0.0 {
@@ -64,10 +64,7 @@ fn project(bbox: Bbox, lon: i64, lat: i64, w: usize, h: usize) -> (f32, f32) {
     } else {
         0.0
     };
-    (
-        (fx * (w - 1) as f64) as f32,
-        (fy * (h - 1) as f64) as f32,
-    )
+    ((fx * (w - 1) as f64) as f32, (fy * (h - 1) as f64) as f32)
 }
 
 /// Stamp a straight segment `(c0,r0)→(c1,r1)` into the grid at `elev` (DDA walk,
@@ -167,6 +164,64 @@ pub fn grid_from_contours(
     // Relaxation tolerance: ~1 cm of the elevation span is plenty for terrain.
     relax(&mut z, &known, w, h, 400, 0.01);
     HeightField { w, h, z }
+}
+
+/// Stamp a straight segment into a KIND grid with `tag` (DDA walk).
+fn stamp_kind_line(kinds: &mut [u8], w: usize, h: usize, p0: (f32, f32), p1: (f32, f32), tag: u8) {
+    let steps = ((p1.0 - p0.0).abs().max((p1.1 - p0.1).abs())).ceil() as i64;
+    let n = steps.max(1);
+    for i in 0..=n {
+        let t = i as f32 / n as f32;
+        let c = (p0.0 + (p1.0 - p0.0) * t).round() as i64;
+        let r = (p0.1 + (p1.1 - p0.1) * t).round() as i64;
+        if c >= 0 && r >= 0 && (c as usize) < w && (r as usize) < h {
+            kinds[r as usize * w + c as usize] = tag;
+        }
+    }
+}
+
+/// The natural-landcover overlay for a wilderness terrain scene: blue water +
+/// rivers, green forest + park. Roads/paths/buildings are deliberately excluded
+/// — on a mountain scene they clutter; the hypsometric terrain tint carries it.
+pub const LANDCOVER: [GeoKind; 4] = [
+    GeoKind::Water,
+    GeoKind::Stream,
+    GeoKind::Woods,
+    GeoKind::Park,
+];
+
+/// Rasterize selected map features' semantic KIND onto a `W×H` grid, so the
+/// `overlay` classes (e.g. [`LANDCOVER`]) drape onto the terrain heightfield.
+/// Bare terrain stays [`GeoKind::Other`] (the shader tints it hypsometrically by
+/// height). Draw order: areas (polygons) first, then lines on top, so a river on
+/// a lake reads as river. Contours are the height source and are not stamped.
+#[must_use]
+pub fn kind_grid(dec: &Decoded, bbox: Bbox, w: usize, h: usize, overlay: &[GeoKind]) -> Vec<u8> {
+    let mut kinds = vec![GeoKind::Other.tag(); w * h];
+    let mut ordered: Vec<&Feature> = dec
+        .features
+        .iter()
+        .filter(|f| !f.is_contour() && overlay.contains(&f.geo_kind()))
+        .collect();
+    ordered.sort_by_key(|f| match f.kind {
+        Kind::Poly => 0u8,
+        Kind::Line => 1,
+        _ => 2,
+    });
+    for f in ordered {
+        let tag = f.geo_kind().tag();
+        if f.coords.len() == 1 {
+            let p = project(bbox, f.coords[0].0, f.coords[0].1, w, h);
+            stamp_kind_line(&mut kinds, w, h, p, p, tag);
+            continue;
+        }
+        for pair in f.coords.windows(2) {
+            let p0 = project(bbox, pair[0].0, pair[0].1, w, h);
+            let p1 = project(bbox, pair[1].0, pair[1].1, w, h);
+            stamp_kind_line(&mut kinds, w, h, p0, p1, tag);
+        }
+    }
+    kinds
 }
 
 /// Parse a contour label ("6000") to an elevation. `feet` converts US-topo feet
@@ -269,7 +324,11 @@ mod tests {
 
         // Level 4 = the full-detail contour set (50816 contours, 1840..10360 ft).
         let contours = contours_for_level(&dec, &lbl, 4, true);
-        assert!(contours.len() > 40_000, "level 4 contour count: {}", contours.len());
+        assert!(
+            contours.len() > 40_000,
+            "level 4 contour count: {}",
+            contours.len()
+        );
 
         let hf = heightfield_for_level(&dec, &lbl, 4, 256, 256, true);
 
@@ -277,7 +336,11 @@ mod tests {
         // 10360 ft = 3157.7 m), with a little slack for the ramp.
         let (lo, hi) = hf.range();
         assert!(lo >= 540.0 && hi <= 3180.0, "range {lo}..{hi} m");
-        assert!(hi - lo > 1500.0, "canyon has real relief: span {} m", hi - lo);
+        assert!(
+            hi - lo > 1500.0,
+            "canyon has real relief: span {} m",
+            hi - lo
+        );
 
         // CONNECTED, not a needle field. A *cliff* (a large monotone step — the
         // canyon has genuine ~900 m/cell walls) is fine; a *needle* is an
@@ -309,6 +372,31 @@ mod tests {
         );
 
         // Fidelity: the field is finite everywhere (no NaN/inf leaked from relax).
-        assert!(hf.z.iter().all(|v| v.is_finite()), "heightfield has non-finite cells");
+        assert!(
+            hf.z.iter().all(|v| v.is_finite()),
+            "heightfield has non-finite cells"
+        );
+    }
+
+    #[test]
+    fn village_tile_kind_grid_overlays_landcover() {
+        let (dec, _lbl) = village();
+        let kinds = kind_grid(&dec, dec.tre.bbox, 512, 512, &LANDCOVER);
+        assert_eq!(kinds.len(), 512 * 512);
+
+        let n = |g: GeoKind| kinds.iter().filter(|&&k| k == g.tag()).count();
+        // Rivers (streams) drape onto the terrain…
+        assert!(n(GeoKind::Stream) > 0, "streams stamped");
+        // …roads/paths are NOT overlaid (landcover only — no urban clutter).
+        assert_eq!(n(GeoKind::Street), 0, "roads excluded from terrain overlay");
+        assert_eq!(n(GeoKind::Path), 0, "paths excluded from terrain overlay");
+        // The terrain surface still dominates (hypsometric tint carries it).
+        assert!(
+            n(GeoKind::Other) > kinds.len() / 2,
+            "most of the surface is bare terrain: {} of {}",
+            n(GeoKind::Other),
+            kinds.len()
+        );
+        assert!(kinds.iter().all(|&k| (k as usize) < GeoKind::PALETTE.len()));
     }
 }
