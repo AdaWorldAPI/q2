@@ -17,7 +17,7 @@
 //! Usage: `garmin_bake <in.img> <out.soa> [--level N] [--dim WxH] [--metres]`
 
 use geo_hhtl::bso2::{encode_grid_bso2, MeshConcept, CLASSID_GEO_V3};
-use geo_hhtl::garmin::{mu2deg, terrain, Img};
+use geo_hhtl::garmin::{drape, mu2deg, terrain, Img};
 use geo_hhtl::hhtl::point_to_hhtl4;
 use geo_hhtl::osm_read::M_PER_DEG;
 use lance_graph_contract::canonical_node::{NodeGuid, TailVariant};
@@ -201,12 +201,28 @@ fn main() {
         blocks.len()
     );
 
-    let blocks_path = format!("{}.blocks", output.strip_suffix(".soa").unwrap_or(&output));
-    if let Err(e) =
-        std::fs::write(&output, &soa).and_then(|()| std::fs::write(&blocks_path, &blocks))
+    // ── OSM ⊕ Garmin drape: lift the typed line network (roads / trails / rivers)
+    //    onto the SAME terrain surface (`pos`), co-registered with the ver-8 grid.
+    //    Emitted as a separate DRP1 sidecar so the proven grid wire is untouched. ──
+    let drape_lines = drape::build_drape(&dec, bbox, &pos, w, h, level, &drape::DRAPE_KINDS);
+    let drape_bytes = drape::encode_drape(&drape_lines, &palette);
+    let drape_pts: usize = drape_lines.iter().map(|l| l.pts.len()).sum();
+    eprintln!(
+        "DRP1 drape: {} lines · {} pts · {} B (level {level} road/trail/river network)",
+        drape_lines.len(),
+        drape_pts,
+        drape_bytes.len(),
+    );
+
+    let stem = output.strip_suffix(".soa").unwrap_or(&output);
+    let blocks_path = format!("{stem}.blocks");
+    let drape_path = format!("{stem}.drape.soa");
+    if let Err(e) = std::fs::write(&output, &soa)
+        .and_then(|()| std::fs::write(&blocks_path, &blocks))
+        .and_then(|()| std::fs::write(&drape_path, &drape_bytes))
     {
         eprintln!("garmin_bake: write: {e}");
         std::process::exit(1);
     }
-    eprintln!("wrote {output} + {blocks_path}");
+    eprintln!("wrote {output} + {blocks_path} + {drape_path}");
 }

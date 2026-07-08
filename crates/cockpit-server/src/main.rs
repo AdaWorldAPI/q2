@@ -250,6 +250,9 @@ async fn main() {
         // fallback serves index.html and BodyHelix parses the path — one param route,
         // N scenes; adding a scene = Dockerfile bake + one manifest entry, no code.
         .route("/api/garmin/:location", get(garmin_scene_handler))
+        // The DRP1 vector overlay (roads/trails/rivers) for a garmin terrain scene,
+        // resolved through the manifest's `garmin_drapes` map; 404 = no drape.
+        .route("/api/garmin-drape/:location", get(garmin_drape_handler))
         // Health
         .route("/health", get(health_handler));
 
@@ -328,7 +331,7 @@ async fn shutdown_signal() {
 /// filename for a known slug, `None` for unknown/malformed ones. Slugs are
 /// lowercase `[a-z0-9-]` — anything else is rejected before the map lookup
 /// (no path traversal into the dist).
-fn resolve_garmin_scene(manifest_json: &str, location: &str) -> Option<String> {
+fn resolve_garmin_map(manifest_json: &str, map_key: &str, location: &str) -> Option<String> {
     if location.is_empty()
         || !location
             .chars()
@@ -337,10 +340,18 @@ fn resolve_garmin_scene(manifest_json: &str, location: &str) -> Option<String> {
         return None;
     }
     let v: serde_json::Value = serde_json::from_str(manifest_json).ok()?;
-    v.get("garmin_scenes")?
-        .get(location)?
-        .as_str()
-        .map(String::from)
+    v.get(map_key)?.get(location)?.as_str().map(String::from)
+}
+
+fn resolve_garmin_scene(manifest_json: &str, location: &str) -> Option<String> {
+    resolve_garmin_map(manifest_json, "garmin_scenes", location)
+}
+
+/// Resolve a `/garmin-drape/:location` slug through the manifest's `garmin_drapes`
+/// map — the DRP1 vector overlay (roads / trails / rivers) that drapes onto the
+/// `garmin_scenes` terrain of the same slug. Absent = the scene has no drape.
+fn resolve_garmin_drape(manifest_json: &str, location: &str) -> Option<String> {
+    resolve_garmin_map(manifest_json, "garmin_drapes", location)
 }
 
 /// List the available scene slugs (for the self-documenting 404).
@@ -403,6 +414,38 @@ async fn garmin_scene_handler(axum::extract::Path(location): axum::extract::Path
             "garmin scenes need the embed-cockpit build",
         )
             .into_response()
+    }
+}
+
+/// GET /api/garmin-drape/:location — serve the DRP1 vector overlay for `location`
+/// (the roads / trails / rivers that drape onto its terrain). A scene with no
+/// registered drape returns 404 quietly; the client treats that as "no overlay"
+/// and renders the bare terrain (graceful — the drape is purely additive).
+async fn garmin_drape_handler(axum::extract::Path(location): axum::extract::Path<String>) -> Response {
+    #[cfg(feature = "embed-cockpit")]
+    {
+        let Some(man) = COCKPIT_DIST
+            .get_file("body.manifest.json")
+            .and_then(|f| std::str::from_utf8(f.contents()).ok())
+        else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "manifest missing from embedded dist").into_response();
+        };
+        if let Some(fname) = resolve_garmin_drape(man, &location) {
+            if let Some(file) = COCKPIT_DIST.get_file(&fname) {
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/gzip")],
+                    file.contents(),
+                )
+                    .into_response();
+            }
+        }
+        return (StatusCode::NOT_FOUND, "no drape for this scene").into_response();
+    }
+    #[cfg(not(feature = "embed-cockpit"))]
+    {
+        let _ = location;
+        (StatusCode::SERVICE_UNAVAILABLE, "garmin drape needs the embed-cockpit build").into_response()
     }
 }
 
@@ -1231,11 +1274,12 @@ async fn health_handler() -> Json<serde_json::Value> {
 
 #[cfg(test)]
 mod garmin_scene_tests {
-    use super::{garmin_scene_slugs, resolve_garmin_scene};
+    use super::{garmin_scene_slugs, resolve_garmin_drape, resolve_garmin_scene};
 
     const MAN: &str = r#"{
         "helix_latest": "body.soa.gz",
-        "garmin_scenes": { "iceland": "iceland_dem.helix.soa.gz", "canyon": "garmin_canyon.helix.soa.gz" }
+        "garmin_scenes": { "iceland": "iceland_dem.helix.soa.gz", "canyon": "garmin_canyon.helix.soa.gz" },
+        "garmin_drapes": { "grand-canyon": "canyon.v8grid.drape.soa.gz" }
     }"#;
 
     #[test]
@@ -1271,5 +1315,19 @@ mod garmin_scene_tests {
         assert_eq!(resolve_garmin_scene("{}", "iceland"), None);
         assert!(garmin_scene_slugs("{}").is_empty());
         assert_eq!(resolve_garmin_scene("not json", "iceland"), None);
+    }
+
+    #[test]
+    fn drape_resolves_from_its_own_map_and_is_optional() {
+        // The drape map is independent of garmin_scenes: a scene with a drape
+        // resolves; a scene without one is None (client renders bare terrain).
+        assert_eq!(
+            resolve_garmin_drape(MAN, "grand-canyon").as_deref(),
+            Some("canyon.v8grid.drape.soa.gz")
+        );
+        assert_eq!(resolve_garmin_drape(MAN, "iceland"), None); // no drape registered
+        assert_eq!(resolve_garmin_drape(MAN, "atlantis"), None);
+        assert_eq!(resolve_garmin_drape(MAN, "../etc"), None); // traversal rejected
+        assert_eq!(resolve_garmin_drape("{}", "grand-canyon"), None);
     }
 }

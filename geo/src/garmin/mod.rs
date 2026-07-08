@@ -36,6 +36,7 @@ use std::fmt;
 
 pub mod classify;
 pub mod container;
+pub mod drape;
 pub mod lbl;
 pub mod rgn;
 pub mod terrain;
