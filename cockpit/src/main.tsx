@@ -15,6 +15,7 @@ import { TorsoMap } from './TorsoMap';
 import { FmaBody } from './FmaBody';
 import { BodyV3 } from './BodyV3';
 import BodyHelix from './BodyHelix';
+import GeoHelix from './GeoHelix';
 import GenomeHelix from './GenomeHelix';
 import { CpicCockpit } from './CpicCockpit';
 import { ReasoningPage } from './ReasoningPage';
@@ -112,20 +113,13 @@ createRoot(document.getElementById('root')!).render(
               materialized once at load: one vertex-shader fetch/vert, no per-vertex decode,
               no rebake. Standalone (BodyHelix.tsx) so it can never break /body (#64). */}
           <Route path="/helix" element={<BodyHelix />} />
-          {/* /geo — the OSM bake through the same BodyHelix decoder (osm_latest).
-              Equivalent to /helix?scene=osm; a dedicated address so the map has a
-              home without touching /helix's body slot or the /osm slippy map. */}
-          <Route path="/geo" element={<BodyHelix />} />
-          {/* /ice — the Iceland DEM bake (iceland_latest) through the same BodyHelix
-              decoder; equivalent to /helix?scene=iceland, a dedicated home with
-              height-profile beautification (ocean/moss/rock/ice terrain palette +
-              procedural sky dome). Client-side render only — no re-bake. */}
-          <Route path="/ice" element={<BodyHelix />} />
-          {/* /garmin/:location — mod-rewrite style Garmin terrain scenes. The slug
-              resolves SERVER-side (/api/garmin/:location → manifest garmin_scenes →
-              embedded bake), so a new scene = one manifest entry + a Dockerfile bake,
-              no client change. BodyHelix parses the slug from the path (pathScene). */}
-          <Route path="/garmin/:location" element={<BodyHelix />} />
+          {/* /geo, /ice, /garmin/:location — the MAP/TERRAIN scenes, served by the
+              GeoHelix fork (verbatim copy of BodyHelix, #64-style) so map-shader
+              work can never regress the /helix anatomy body. Same BSO2 decoder;
+              GeoHelix parses the slug from the path (pathScene). */}
+          <Route path="/geo" element={<GeoHelix />} />
+          <Route path="/ice" element={<GeoHelix />} />
+          <Route path="/garmin/:location" element={<GeoHelix />} />
           {/* /cpic — CPIC pharmacogenomics cockpit (gene-first): {gene, diplotype, drug}
               → phenotype → recommendation, 2-hop NARS deduction over the real CPIC tables
               via POST /api/cpic/reason (the standalone cpic crate). Additive, gene-first
