@@ -69,6 +69,31 @@ lifts the drape `y` by the same `uExagVal`. Co-registered by construction.
       network + grey roads read ON the surface; `features off` → bare terrain.
       Co-registered, toggleable (fused ↔ Garmin-only).
 
+## Arid drainage recolor (2026-07-08 follow-up)
+
+The dendritic `Stream` network on a desert tile is DRY drainage (washes / gullies
+/ arroyos), not water — painting it river-blue made the Grand Canyon plateau read
+as wet. Fix: reserve blue for the actual `Water` bodies (the Colorado + permanent
+lakes) and recolour the drainage rust-brown.
+
+- [x] `GeoKind::ARID_DRAINAGE = [120,68,44]` + `GeoKind::arid_palette()`
+      (`geo/src/garmin/classify.rs`): the KIND palette with `Stream` browned,
+      every other class (incl. blue `Water`) unchanged. Unit-tested.
+- [x] `garmin_bake --arid` (`geo/src/bin/garmin_bake.rs`): uses `arid_palette()`
+      for the ONE palette that feeds both the ver-8 terrain KIND block AND the DRP1
+      drape → drainage browns consistently across both. Diff vs the non-arid bake is
+      exactly the 3-byte Stream RGB entry in each wire; terrain geometry byte-identical.
+- [x] `GeoHelix.tsx` — `uArid` uniform (1 = non-glacial scene): gates the glacial
+      turquoise OFF (canyon Water stays plain river-blue, not teal) and re-asserts a
+      clean deep river-blue for the (blue-KIND) Water cells so the Colorado survives
+      the 55%-terrain-blend + warm-sunset key as the focal point. Iceland (uArid=0)
+      keeps turquoise. Drainage is browned in the bake → `wet`=0 → shader leaves it.
+- [x] Rebake: `garmin_bake .claude/maps/garmin-grand-canyon/47505316.img
+      canyon.v8grid.soa --arid` → `gzip -9` the `.soa` + `.drape.soa` into
+      `cockpit/public/canyon.v8grid{,.drape}.soa.gz`. Headless `/garmin/grand-canyon`
+      verified: plateau = warm desert earth + brown incised drainage; the Colorado a
+      thin blue ribbon in the canyon depth (pixel-checked: 0 → 475 blue water px).
+
 ## Follow-ups (own PRs)
 
 - **Iceland drape** — same `build_drape` over `otm-iceland.img` line features

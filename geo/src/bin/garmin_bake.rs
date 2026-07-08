@@ -28,18 +28,22 @@ const FAMILY_TERRAIN: u32 = 4;
 fn main() {
     let mut args = std::env::args().skip(1);
     let (Some(input), Some(output)) = (args.next(), args.next()) else {
-        eprintln!("usage: garmin_bake <in.img> <out.soa> [--level N] [--dim WxH] [--metres]");
+        eprintln!(
+            "usage: garmin_bake <in.img> <out.soa> [--level N] [--dim WxH] [--metres] [--arid]"
+        );
         std::process::exit(2);
     };
     let mut level: u8 = 4;
     let mut dim: Option<(usize, usize)> = None;
     let mut feet = true; // US-topo default; --metres for OTM
+    let mut arid = false; // --arid: desert scene — dry-wash drainage is rust-brown, not blue
     let rest: Vec<String> = args.collect();
     let mut it = rest.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--level" => level = it.next().and_then(|s| s.parse().ok()).unwrap_or(4),
             "--metres" | "--meters" => feet = false,
+            "--arid" => arid = true,
             "--dim" => {
                 if let Some(d) = it.next() {
                     if let Some((w, h)) = d.split_once('x') {
@@ -177,11 +181,22 @@ fn main() {
         });
     }
 
-    // ── ver-8 radix-grid encode: height F16 + kind u8 + GeoKind palette. ──
-    let palette: Vec<[u8; 3]> = geo_hhtl::garmin::GeoKind::PALETTE
-        .iter()
-        .map(|k| k.color())
-        .collect();
+    // ── ver-8 radix-grid encode: height F16 + kind u8 + GeoKind palette. On an
+    //    arid desert scene the dendritic `Stream` network is DRY drainage (washes /
+    //    gullies), so recolour it rust-brown and keep blue for the actual `Water`
+    //    bodies (the Colorado). One palette feeds BOTH the terrain KIND block and the
+    //    DRP1 drape below, so the drainage browns consistently across both. ──
+    let palette: Vec<[u8; 3]> = if arid {
+        geo_hhtl::garmin::GeoKind::arid_palette()
+    } else {
+        geo_hhtl::garmin::GeoKind::PALETTE
+            .iter()
+            .map(|k| k.color())
+            .collect()
+    };
+    if arid {
+        eprintln!("arid palette: Stream drainage → rust-brown, Water stays river-blue");
+    }
     let ymax = pos.iter().map(|p| p[1]).fold(1e-9f32, f32::max);
     let heights: Vec<f32> = pos.iter().map(|p| p[1] / ymax).collect();
     let x0 = pos[0][0];

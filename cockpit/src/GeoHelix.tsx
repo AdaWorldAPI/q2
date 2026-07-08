@@ -406,6 +406,8 @@ uniform float uExag;   // geo relief exaggeration: the Iceland bake is true-scal
 uniform float uTime;   // retained-but-0: the Kurvenlineal residue is baked into the mesh, not animated.
 uniform float uRuler;  // retained-but-0: no shader ruler (the golden-spiral residue is baked in).
 uniform float uMoss;   // 1 on vegetated scenes (Iceland) → aspect-based moss; 0 on the desert canyon.
+uniform float uArid;   // 1 on arid/desert scenes → NO glacial turquoise (water stays plain river-blue);
+                       // 0 on the glacial Iceland scene → meltwater teal. Drainage-brown is baked, not here.
 varying vec3 vColor;
 // THE KURVENLINEAL is now baked into the mesh, not approximated here. The real
 // helix::CurveRuler golden-spiral residue (stride-4-over-17) is applied at BAKE time in
@@ -463,8 +465,16 @@ void main(){
     float wet  = smoothstep(0.06, 0.22, aColor.b - max(aColor.r, aColor.g));
     float snow = smoothstep(0.74, 0.88, min(aColor.r, min(aColor.g, aColor.b)));
     // (2) TURQUOISE water — push blue-KIND cells to a vivid glacial-meltwater teal
-    //     (as turquoise as it gets). KIND-gated, so only Iceland's ocean/rivers change.
-    base = mix(base, vec3(0.07, 0.62, 0.66), wet * 0.9);
+    //     (as turquoise as it gets). KIND-gated (only blue cells) AND scene-gated by
+    //     uArid: glacial teal is Iceland's look; on the arid canyon the Water KIND
+    //     (the Colorado) stays a natural deep river-blue, never tropical turquoise.
+    base = mix(base, vec3(0.07, 0.62, 0.66), wet * 0.9 * (1.0 - uArid));
+    // (2b) ARID scenes: the actual Water bodies (the Colorado) are the blue FOCAL
+    //      POINT the user asked to reserve — but the 55% terrain blend + warm sunset
+    //      key wash the thin river cells to neutral copper. Re-assert a clean deep
+    //      river-blue for the (blue-KIND) water cells so the Colorado reads as water,
+    //      not warm rock. Drainage (Stream) is baked rust-brown → wet=0 → untouched.
+    base = mix(base, vec3(0.12, 0.34, 0.60), wet * uArid * 0.9);
     vec3 SUN = normalize(vec3(-0.55, 0.42, 0.72));       // low azimuth, ~25° elevation
     // (3) MOSS by ASPECT — moss/lichen favours the shaded, WEATHER-facing slopes (the
     //     "north-face holds the moisture" rule; ~ aspect × insolation). Tint vivid moss
@@ -700,7 +710,10 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   const EXAG_CAP = 4.2;
   const uExagVal = isTerrainScene ? Math.min(EXAG_CAP, Math.max(1.5, 0.11 / Math.max(yMax - yMin, 1e-6))) : 1;
   const isIcelandScene = sceneName === 'iceland' || sceneName === 'garmin:iceland';   // moss = green Iceland, not the desert canyon
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 }, uMoss: { value: isIcelandScene ? 1 : 0 } };
+  // Glacial turquoise is Iceland's look; every other terrain scene keeps plain river-blue
+  // water (the canyon's Colorado). uArid = "not the glacial Iceland scene".
+  const uAridVal = isTerrainScene && !isIcelandScene ? 1 : 0;
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 }, uMoss: { value: isIcelandScene ? 1 : 0 }, uArid: { value: uAridVal } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
