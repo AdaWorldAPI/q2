@@ -630,7 +630,16 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // value); the Grand Canyon (span ~0.05, far deeper relative to its extent) →
   // ~2.2, so its steep walls read as WALLS, not an over-exaggerated needle
   // curtain (caught on the first /garmin/grand-canyon screenshot). Clamped.
-  const uExagVal = isTerrainScene ? Math.min(20, Math.max(1.5, 0.11 / Math.max(yMax - yMin, 1e-6))) : 1;
+  //
+  // The cap matters MORE than the target for very-flat-span terrain: Iceland's
+  // true-scale span is tiny (~0.0067 in the frame), so 0.11/span ≈ 16× — which
+  // over-verticalizes its genuinely rugged ~100 m fjord/ridge detail into a
+  // needle field (the DEM is NOT quantized — 16.5 M verts, ~zero isolated spikes;
+  // the needles are real terrain × too much exaggeration). Capping at a MODEST
+  // value tames Iceland to read as a clean island; the canyon (0.11/0.05 ≈ 2.2×)
+  // sits below the cap, so it is UNCHANGED.
+  const EXAG_CAP = 4.2;
+  const uExagVal = isTerrainScene ? Math.min(EXAG_CAP, Math.max(1.5, 0.11 / Math.max(yMax - yMin, 1e-6))) : 1;
   const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
