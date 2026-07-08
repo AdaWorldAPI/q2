@@ -845,7 +845,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     // cloud shadows keep moving — THROTTLED to ~15 fps (slow clouds need no more; caps
     // the continuous redraw of a heavy DEM so it's cheap on battery). Anatomy/buildings
     // never enter this branch and stay fully on-demand (no idle cost).
-    if (skyMat && tnow - lastCloud >= 66) { lastCloud = tnow; skyMat.uniforms.uTime.value = (tnow - t0) * 0.001; dirty.current = true; }
+    if (isTerrainScene && skyMat && tnow - lastCloud >= 66) { lastCloud = tnow; skyMat.uniforms.uTime.value = (tnow - t0) * 0.001; dirty.current = true; }
     // render ON DEMAND (non-terrain): a static body (no drag/zoom/toggle) costs nothing —
     // 6.8 M tris are only redrawn when something actually changes (idle + heat sane).
     if (!dirty.current && !dragging) { last = performance.now(); return; }
