@@ -425,18 +425,34 @@ vec3 terrainColor(float h){
 void main(){
   // GOURAUD: shade per-vertex from the cheap rim normal, interpolate the COLOUR across the
   // face. At 6.8 M sub-pixel tris this matches per-fragment lighting visually but leaves the
-  // fragment shader trivial. Two-sided ambient keeps any back faces lit without a flip.
+  // fragment shader trivial.
   vec3 n = normalize(normalMatrix * aNormal);
-  const vec3 L = vec3(-0.401, 0.783, 0.476);
-  float ndl = max(abs(dot(n, L)), 0.0);
-  float shade = min(0.34 + 0.20*(abs(n.y)*0.5+0.5) + 0.12*(-n.x*0.5+0.5) + 0.92*ndl, 1.3);
-  // Colour is ALWAYS aColor now: for the DEM terrain aColor is the baked kind × imagery × helix
-  // texture (real green / ice / volcano / rock), for buildings + anatomy it is the concept tint —
-  // the shader no longer guesses colour from height. Gouraud shade applies the 3D lighting form.
-  vColor = aColor * shade;
-  // Geo relief: raise the true-scale island by uExag. The Kurvenlineal golden-spiral residue is
-  // already in position + normal (baked by the DEM baker), so the shader adds no ruler of its own.
-  // Anatomy (uGeo==0): untouched.
+  vec3 lit;
+  if (uGeo > 0.5) {
+    // (1) HYPSOMETRIC tint — blend the baked KIND colour (aColor: water blue, forest
+    //     green, else bare-terrain grey) with the height ramp so elevation READS as
+    //     colour (green lowland → brown → grey → white peak). terrainColor() normalizes
+    //     by the measured [uYMin,uYMax] and sqrt-spreads the quantized tail.
+    vec3 base = mix(aColor, terrainColor(position.y), 0.55);
+    // (2) SUNSET lighting — a low WARM key + a cool SKY fill. This colours the light
+    //     (lit slopes go golden, shadowed slopes cool-blue), the depth cue that makes a
+    //     range feel alive — instead of the old grey brightness multiplier.
+    vec3 SUN = normalize(vec3(-0.55, 0.42, 0.72));       // low azimuth, ~25° elevation
+    float ndl = max(dot(n, SUN), 0.0);
+    float sky = 0.5 + 0.5 * n.y;                          // hemispheric fill, more from above
+    vec3 light = vec3(1.26, 0.95, 0.66) * (0.16 + 0.95 * ndl)  // warm golden key
+               + vec3(0.40, 0.50, 0.66) * (0.34 * sky);        // cool sky fill
+    lit = base * light;
+  } else {
+    // Anatomy path — DEAD in GeoHelix (only /geo /ice /garmin route here), kept
+    // byte-identical to BodyHelix so the fork stays a faithful copy.
+    const vec3 L = vec3(-0.401, 0.783, 0.476);
+    float ndl = max(abs(dot(n, L)), 0.0);
+    float shade = min(0.34 + 0.20*(abs(n.y)*0.5+0.5) + 0.12*(-n.x*0.5+0.5) + 0.92*ndl, 1.3);
+    lit = aColor * shade;
+  }
+  vColor = min(lit, vec3(1.35));
+  // Geo relief: raise the true-scale terrain by uExag. Anatomy (uGeo==0): untouched.
   vec3 dpos = position;
   if (uGeo > 0.5) {
     dpos.y = position.y * uExag;
@@ -539,7 +555,14 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // aColor) + uExag=1. uRuler/uTime are retained-but-0: the Kurvenlineal golden-spiral residue is
   // now baked into the mesh (geometry + normals), so the shader applies no ruler — the terrain is a
   // static surface, not a shader-animated one.
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: isTerrainScene ? 15 : 1 }, uTime: { value: 0 }, uRuler: { value: 0 } };
+  // Relief exaggeration AUTO-SCALED by the measured height span so every terrain
+  // reads with a consistent vertical presence (~0.11 of the frame) regardless of
+  // its true-scale span. Iceland (span ~0.0074) → ~15 (matches the hand-tuned
+  // value); the Grand Canyon (span ~0.05, far deeper relative to its extent) →
+  // ~2.2, so its steep walls read as WALLS, not an over-exaggerated needle
+  // curtain (caught on the first /garmin/grand-canyon screenshot). Clamped.
+  const uExagVal = isTerrainScene ? Math.min(20, Math.max(1.5, 0.11 / Math.max(yMax - yMin, 1e-6))) : 1;
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
