@@ -405,6 +405,7 @@ uniform float uExag;   // geo relief exaggeration: the Iceland bake is true-scal
                        // [-1,1] frame), so raise the geometry to read as terrain. 1 for anatomy (untouched).
 uniform float uTime;   // retained-but-0: the Kurvenlineal residue is baked into the mesh, not animated.
 uniform float uRuler;  // retained-but-0: no shader ruler (the golden-spiral residue is baked in).
+uniform float uMoss;   // 1 on vegetated scenes (Iceland) → aspect-based moss; 0 on the desert canyon.
 varying vec3 vColor;
 // THE KURVENLINEAL is now baked into the mesh, not approximated here. The real
 // helix::CurveRuler golden-spiral residue (stride-4-over-17) is applied at BAKE time in
@@ -429,8 +430,8 @@ vec3 terrainColor(float h){
   vec3 ocean = vec3(0.05, 0.15, 0.30);
   vec3 coast = vec3(0.28, 0.42, 0.24);   // lowest green coastal fringe
   vec3 moss  = vec3(0.34, 0.36, 0.22);   // khaki moss/tundra — the dominant quantized lowland
-  vec3 rock  = vec3(0.44, 0.38, 0.30);   // brown highland rock
-  vec3 scree = vec3(0.56, 0.55, 0.55);   // grey scree
+  vec3 rock  = vec3(0.49, 0.34, 0.23);   // COPPER volcanic/desert rock (was neutral brown)
+  vec3 scree = vec3(0.61, 0.47, 0.34);   // light copper highlight (was grey scree)
   vec3 ice   = vec3(0.90, 0.93, 0.98);   // snow / glacier cap
   vec3 land = coast;
   land = mix(land, moss,  smoothstep(0.18, 0.30, hs));
@@ -443,15 +444,6 @@ vec3 terrainColor(float h){
   float water = 1.0 - smoothstep(0.002, 0.010, hl);   // ocean is EXACTLY 0; first land ≈ 0.0155 normalized
   return mix(land, ocean, water);
 }
-// Cheap value-noise → drifting cloud shadows (2 octaves, world-fixed xz, scrolled by uTime).
-float hash21(vec2 p){ p = fract(p * vec2(123.34, 345.45)); p += dot(p, p + 34.345); return fract(p.x * p.y); }
-float vnoise(vec2 p){
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  float a = hash21(i), b = hash21(i + vec2(1,0)), c = hash21(i + vec2(0,1)), d = hash21(i + vec2(1,1));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-float clouds(vec2 p){ return 0.65 * vnoise(p) + 0.35 * vnoise(p * 2.03 + 7.1); }
 void main(){
   // GOURAUD: shade per-vertex from the cheap rim normal, interpolate the COLOUR across the
   // face. At 6.8 M sub-pixel tris this matches per-fragment lighting visually but leaves the
@@ -464,35 +456,46 @@ void main(){
   vec4 mvp = modelViewMatrix * vec4(dpos, 1.0);
   vec3 lit;
   if (uGeo > 0.5) {
-    // (1) HYPSOMETRIC tint — blend the baked KIND colour (aColor: water blue, forest
-    //     green, else bare-terrain grey) with the height ramp so elevation READS as
-    //     colour (green lowland → brown → grey → white peak). terrainColor() normalizes
-    //     by the measured [uYMin,uYMax] and sqrt-spreads the quantized tail.
+    // (1) HYPSOMETRIC tint — blend the baked KIND colour (aColor) with the height ramp.
     vec3 base = mix(aColor, terrainColor(position.y), 0.55);
-    // (2) SUNSET lighting — a low WARM key + a cool SKY fill. This colours the light
-    //     (lit slopes go golden, shadowed slopes cool-blue), the depth cue that makes a
-    //     range feel alive — instead of the old grey brightness multiplier.
+    // KIND masks from the RAW aColor (not the render): water = blue-dominant,
+    // snow/ice = near-white. Scene-safe — the canyon's grey terrain matches neither.
+    float wet  = smoothstep(0.06, 0.22, aColor.b - max(aColor.r, aColor.g));
+    float snow = smoothstep(0.74, 0.88, min(aColor.r, min(aColor.g, aColor.b)));
+    // (2) TURQUOISE water — push blue-KIND cells to a vivid glacial-meltwater teal
+    //     (as turquoise as it gets). KIND-gated, so only Iceland's ocean/rivers change.
+    base = mix(base, vec3(0.07, 0.62, 0.66), wet * 0.9);
     vec3 SUN = normalize(vec3(-0.55, 0.42, 0.72));       // low azimuth, ~25° elevation
+    // (3) MOSS by ASPECT — moss/lichen favours the shaded, WEATHER-facing slopes (the
+    //     "north-face holds the moisture" rule; ~ aspect × insolation). Tint vivid moss
+    //     onto the vegetated mid-band where the face turns AWAY from the sun; sun-baked
+    //     faces stay bare copper rock — the mottled green/copper of the reference. uMoss
+    //     gates it to Iceland; the desert canyon (uMoss=0) stays bare rock.
+    float hl  = clamp((position.y - uYMin) / max(uYMax - uYMin, 1e-6), 0.0, 1.0);
+    float veg = smoothstep(0.02, 0.10, hl) * (1.0 - smoothstep(0.34, 0.66, sqrt(hl))); // low-mid, not ocean/ice
+    float lee = smoothstep(-0.05, 0.65, dot(n, -SUN));   // 1 = weather/shaded (lee) side
+    base = mix(base, vec3(0.22, 0.47, 0.12), uMoss * veg * (0.5 + 0.5 * lee) * (1.0 - wet) * 0.95);
+    // (4) SUNSET lighting — a low WARM key + a cool SKY fill (golden lit slopes,
+    //     cool-blue shadows) — the depth cue that makes a range feel alive.
     float ndl = max(dot(n, SUN), 0.0);
     float sky = 0.5 + 0.5 * n.y;                          // hemispheric fill, more from above
     vec3 light = vec3(1.26, 0.95, 0.66) * (0.16 + 0.95 * ndl)  // warm golden key
                + vec3(0.40, 0.50, 0.66) * (0.34 * sky);        // cool sky fill
-    // (3) DRIFTING CLOUD SHADOWS — a world-fixed value-noise field scrolled by uTime
-    //     dapples soft moving shade over the terrain (atmosphere + a real sense of scale).
-    float cl = clouds(position.xz * 2.4 + vec2(uTime * 0.015, uTime * 0.009));
-    float shadow = mix(0.60, 1.0, smoothstep(0.34, 0.72, cl));   // darker under thick cloud
-    lit = base * light * shadow;
-    // (4) MAGIC HIGHLIGHTS — specular sun-glint, gated by KIND (raw aColor, NOT the
-    //     hypsometric render): ocean (blue-dominant) → a tight bright sun-glitter;
-    //     ice/snow (near-white) → a broad soft sheen. The canyon's grey terrain KIND
-    //     triggers neither, so its white peaks stay matte — no false glacier shine.
+    lit = base * light;
+    // (5) VIVID GRADE — boost saturation + a touch of contrast for the electric
+    //     Icelandic-highland look (moss greens pop, volcanic rock deepens, turquoise
+    //     glows). Scene palettes live in aColor, so each scene punches its OWN colours —
+    //     the desert canyon deepens to richer browns, it does NOT go green.
+    float lum = dot(lit, vec3(0.299, 0.587, 0.114));
+    lit = mix(vec3(lum), lit, 1.22);                     // +22% saturation (rich, not radioactive)
+    lit = (lit - 0.5) * 1.06 + 0.5;                      // gentle contrast
+    // (6) MAGIC HIGHLIGHTS — specular sun-glint on water (now turquoise) + ice sheen,
+    //     KIND-gated as above so the canyon's peaks stay matte (no false glacier shine).
     vec3 V = normalize(-mvp.xyz);
     float nh = max(dot(n, normalize(SUN + V)), 0.0);
-    float wet  = smoothstep(0.06, 0.22, aColor.b - max(aColor.r, aColor.g));
-    float snow = smoothstep(0.74, 0.88, min(aColor.r, min(aColor.g, aColor.b)));
-    float glint = pow(nh, 220.0) * wet;   // sharp sun-glitter on water — brighter where clouds part
+    float glint = pow(nh, 220.0) * wet;   // sharp sun-glitter on the turquoise water
     float sheen = pow(nh, 26.0) * snow;   // soft glacier sheen
-    lit += vec3(1.5, 1.28, 0.92) * (glint * 1.4 * (0.4 + 0.6 * shadow) + sheen * 0.45);
+    lit += vec3(1.5, 1.28, 0.92) * (glint * 1.4 + sheen * 0.45);
   } else {
     // Anatomy path — DEAD in GeoHelix (only /geo /ice /garmin route here), kept
     // byte-identical to BodyHelix so the fork stays a faithful copy.
@@ -523,12 +526,44 @@ precision highp float;
 varying vec3 vDir;
 void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const SKY_FRAG = `
-precision mediump float;
+precision highp float;
 varying vec3 vDir;
 uniform vec3 uHorizon; uniform vec3 uZenith;
+uniform float uTime;
+// value-noise
+float h21(vec2 p){ p = fract(p * vec2(123.34, 345.45)); p += dot(p, p + 34.345); return fract(p.x * p.y); }
+float vn(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = h21(i), b = h21(i + vec2(1,0)), c = h21(i + vec2(0,1)), d = h21(i + vec2(1,1));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+// TRIBONACCI constant (Σ of the previous three ≈ 1.8393). Using it as the octave
+// frequency ratio (lacunarity) means successive octaves never land on a repeating
+// lattice → the drifting clouds read ORGANIC and non-repeating — the number-theoretic
+// cousin of the workspace's golden-spiral kurvenlineal.
+const float TRIB = 1.8392867552;
+float fbm(vec2 p){
+  float s = 0.0, a = 0.5, norm = 0.0;
+  for (int i = 0; i < 5; i++){
+    s += a * vn(p);
+    norm += a;
+    p = p * TRIB + vec2(1.7, -2.9);   // tribonacci lacunarity + offset breaks octave alignment
+    a *= 0.5437;                        // 1/TRIB amplitude gain
+  }
+  return s / norm;
+}
 void main(){
-  float t = clamp(normalize(vDir).y * 0.5 + 0.5, 0.0, 1.0);
-  gl_FragColor = vec4(mix(uHorizon, uZenith, smoothstep(0.12, 0.92, t)), 1.0);
+  vec3 dir = normalize(vDir);
+  float t = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
+  vec3 sky = mix(uHorizon, uZenith, smoothstep(0.05, 0.95, t));
+  // project the view direction onto a virtual cloud layer, drift it over time
+  vec2 uv = dir.xz / (abs(dir.y) + 0.30) * 0.9 + vec2(uTime * 0.006, uTime * 0.0042);
+  float c = smoothstep(0.28, 0.86, fbm(uv));                    // billowy structure
+  float cover = mix(0.32, 0.96, smoothstep(0.04, 0.66, t));     // broad cover, thicker higher up
+  float cloud = c * cover;
+  vec3 cloudCol = mix(vec3(0.55, 0.57, 0.62), vec3(0.98, 0.99, 1.0), smoothstep(0.30, 0.95, c)); // shaded → lit tops
+  gl_FragColor = vec4(mix(sky, cloudCol, cloud), 1.0);
 }`;
 type Focus = { x: number; y: number; z: number; d: number };
 
@@ -664,7 +699,8 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // sits below the cap, so it is UNCHANGED.
   const EXAG_CAP = 4.2;
   const uExagVal = isTerrainScene ? Math.min(EXAG_CAP, Math.max(1.5, 0.11 / Math.max(yMax - yMin, 1e-6))) : 1;
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 } };
+  const isIcelandScene = sceneName === 'iceland' || sceneName === 'garmin:iceland';   // moss = green Iceland, not the desert canyon
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 }, uMoss: { value: isIcelandScene ? 1 : 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -709,7 +745,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     skyGeom = new THREE.SphereGeometry(40, 32, 16);   // radius 40 < camera far (100), surrounds the orbit
     skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false,
-      uniforms: { uHorizon: { value: SKY_HORIZON.clone() }, uZenith: { value: SKY_ZENITH.clone() } },
+      uniforms: { uHorizon: { value: SKY_HORIZON.clone() }, uZenith: { value: SKY_ZENITH.clone() }, uTime: { value: 0 } },
       vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
     });
     const sky = new THREE.Mesh(skyGeom, skyMat);
@@ -791,7 +827,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     // cloud shadows keep moving — THROTTLED to ~15 fps (slow clouds need no more; caps
     // the continuous redraw of a heavy DEM so it's cheap on battery). Anatomy/buildings
     // never enter this branch and stay fully on-demand (no idle cost).
-    if (isTerrainScene && tnow - lastCloud >= 66) { lastCloud = tnow; uniforms.uTime.value = (tnow - t0) * 0.001; dirty.current = true; }
+    if (skyMat && tnow - lastCloud >= 66) { lastCloud = tnow; skyMat.uniforms.uTime.value = (tnow - t0) * 0.001; dirty.current = true; }
     // render ON DEMAND (non-terrain): a static body (no drag/zoom/toggle) costs nothing —
     // 6.8 M tris are only redrawn when something actually changes (idle + heat sane).
     if (!dirty.current && !dragging) { last = performance.now(); return; }
