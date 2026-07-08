@@ -64,6 +64,12 @@ required-features = ["osm", "helix"]
 name = "iceland_dem"
 required-features = ["helix"]
 
+# garmin_bake → BSO2 ver-8 wire from a Garmin IMG tile: contours → heightfield
+# + typed KIND overlay. Needs `helix` (bso2 + ndarray + lance-graph-contract).
+[[bin]]
+name = "garmin_bake"
+required-features = ["helix"]
+
 [profile.release]
 opt-level = 3
 codegen-units = 1

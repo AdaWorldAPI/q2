@@ -19,6 +19,11 @@ pub mod extrude;
 pub mod hhtl;
 pub mod spm1;
 
+/// Garmin IMG map decoder (dep-free, pure `std`): typed features + contours
+/// from the banked `.img` sources — the ground-up replacement for raster
+/// colour-guessing in the geo bake pipeline.
+pub mod garmin;
+
 /// Cesium-substrate seed (dep-free): the ratified TMS-quadkey addressing for the
 /// `cesium-osm-substrate-v1` path — the "version 2, for later" the `/helix` bake
 /// is a throwaway proof of.
@@ -31,6 +36,11 @@ pub mod osm_read;
 /// BSO2 `/helix` wire encoder (feature `helix`; pulls `ndarray` + `lance-graph-contract`).
 #[cfg(feature = "helix")]
 pub mod bso2;
+
+/// The Kurvenlineal — the real `helix::CurveRuler` golden-spiral residue as a
+/// CONTINUOUS INTER-FAMILY field (fixes the per-cell "needle" discontinuity).
+#[cfg(feature = "helix")]
+pub mod kurvenlineal;
 
 pub use extrude::{extrude_into, Footprint, Layer};
 pub use hhtl::{point_to_hhtl, tile_to_hhtl, Hhtl, GEO_DOMAIN, HHTL_DEPTH};
