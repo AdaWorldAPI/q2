@@ -47,6 +47,26 @@ impl GeoKind {
         self as u8
     }
 
+    /// Dark rust-brown for DRY drainage (washes / gullies / arroyos) on an **arid**
+    /// desert scene. There, the dendritic `Stream` network is incised earth carved by
+    /// runoff — *not* water — so painting it river-blue makes the plateau read as wet.
+    /// This complements the copper desert rock and reserves blue for the actual
+    /// [`GeoKind::Water`] bodies (the Colorado + permanent lakes), keeping the river the
+    /// visual focal point.
+    pub const ARID_DRAINAGE: [u8; 3] = [120, 68, 44];
+
+    /// The KIND palette with `Stream` recoloured to [`ARID_DRAINAGE`](Self::ARID_DRAINAGE)
+    /// for a desert scene; every other class — including blue [`Water`](Self::Water) —
+    /// is its canonical [`color`](Self::color). Indexed by [`tag`](Self::tag), so it
+    /// drops in wherever the default `PALETTE.map(color)` palette is used (the ver-8
+    /// terrain KIND block AND the DRP1 drape share one palette).
+    #[must_use]
+    pub fn arid_palette() -> Vec<[u8; 3]> {
+        let mut pal: Vec<[u8; 3]> = Self::PALETTE.iter().map(|k| k.color()).collect();
+        pal[GeoKind::Stream.tag() as usize] = Self::ARID_DRAINAGE;
+        pal
+    }
+
     /// A sweet, clean base colour (sRGB 0..255) — the `/helix` look: no muddy
     /// browns, water reads as water, vegetation as vegetation.
     #[must_use]
@@ -81,16 +101,17 @@ impl GeoKind {
         match kind {
             Kind::Poly => match type_code {
                 0x13 | 0x60..=0x6f => GeoKind::Building, // building + urban variants
-                0x3c..=0x4f => GeoKind::Water,           // sea / lake / river-fill
-                0x50 => GeoKind::Woods,                  // woods / forest
-                0x14..=0x1a => GeoKind::Park,            // park / reserve / grass
+                0x4b => GeoKind::Other, // background / definition-area rectangle — NOT water
+                0x3c..=0x4f => GeoKind::Water, // sea / lake / river-fill
+                0x50 => GeoKind::Woods, // woods / forest
+                0x14..=0x1a => GeoKind::Park, // park / reserve / grass
                 _ => GeoKind::Other,
             },
             Kind::Line => match type_code {
-                0x00..=0x07 => GeoKind::Street,         // roads
-                0x0a | 0x0b | 0x16 => GeoKind::Path,    // trails / walking paths
-                0x18 | 0x1f | 0x26 => GeoKind::Stream,  // streams / rivers
-                0x20..=0x25 => GeoKind::Contour,        // land + depth contours
+                0x00..=0x07 => GeoKind::Street,        // roads
+                0x0a | 0x0b | 0x16 => GeoKind::Path,   // trails / walking paths
+                0x18 | 0x1f | 0x26 => GeoKind::Stream, // streams / rivers
+                0x20..=0x25 => GeoKind::Contour,       // land + depth contours
                 _ => GeoKind::Other,
             },
             Kind::Point | Kind::IPoint => GeoKind::Other, // POIs — not a surface
@@ -126,6 +147,25 @@ mod tests {
     }
 
     #[test]
+    fn arid_palette_browns_drainage_keeps_water_blue() {
+        let pal = GeoKind::arid_palette();
+        // Stream (dry wash) → rust-brown: warm (red-dominant), reads as earth.
+        let s = pal[GeoKind::Stream.tag() as usize];
+        assert_eq!(s, GeoKind::ARID_DRAINAGE);
+        assert!(s[0] > s[2], "arid drainage is warm (r>b), not water-blue");
+        // Water (the Colorado) stays clean river blue — unchanged, blue-dominant.
+        let w = pal[GeoKind::Water.tag() as usize];
+        assert_eq!(w, GeoKind::Water.color());
+        assert!(w[2] > w[0], "actual water stays blue-dominant");
+        // Every non-Stream class keeps its canonical colour.
+        for (i, k) in GeoKind::PALETTE.iter().enumerate() {
+            if *k != GeoKind::Stream {
+                assert_eq!(pal[i], k.color(), "{k:?} unchanged by arid remap");
+            }
+        }
+    }
+
+    #[test]
     fn spot_check_type_mappings() {
         // Representative codes from the real tile's histograms.
         assert_eq!(GeoKind::classify(Kind::Line, 0x20), GeoKind::Contour); // minor land contour
@@ -155,8 +195,10 @@ mod tests {
         assert_eq!(count(GeoKind::Street), 32_154);
         assert_eq!(count(GeoKind::Stream), 15_161);
         assert_eq!(count(GeoKind::Path), 3_600);
-        assert_eq!(count(GeoKind::Other), 3_664);
-        assert_eq!(count(GeoKind::Water), 2_255);
+        // Other gained the 4 background/definition-area (0x4b) polys that were
+        // previously mis-classed as Water — they hug the tile boundary, not a lake.
+        assert_eq!(count(GeoKind::Other), 3_668);
+        assert_eq!(count(GeoKind::Water), 2_251);
         assert_eq!(count(GeoKind::Park), 766);
         assert_eq!(count(GeoKind::Building), 0); // wilderness tile — buildings are urban
         assert_eq!(count(GeoKind::Woods), 0);
