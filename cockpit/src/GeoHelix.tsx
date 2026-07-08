@@ -474,7 +474,7 @@ void main(){
     //      key wash the thin river cells to neutral copper. Re-assert a clean deep
     //      river-blue for the (blue-KIND) water cells so the Colorado reads as water,
     //      not warm rock. Drainage (Stream) is baked rust-brown → wet=0 → untouched.
-    base = mix(base, vec3(0.12, 0.34, 0.60), wet * uArid * 0.9);
+    base = mix(base, vec3(0.16, 0.44, 0.66), wet * uArid * 0.92);
     vec3 SUN = normalize(vec3(-0.55, 0.42, 0.72));       // low azimuth, ~25° elevation
     // (3) MOSS by ASPECT — moss/lichen favours the shaded, WEATHER-facing slopes (the
     //     "north-face holds the moisture" rule; ~ aspect × insolation). Tint vivid moss
@@ -506,6 +506,11 @@ void main(){
     float glint = pow(nh, 220.0) * wet;   // sharp sun-glitter on the turquoise water
     float sheen = pow(nh, 26.0) * snow;   // soft glacier sheen
     lit += vec3(1.5, 1.28, 0.92) * (glint * 1.4 + sheen * 0.45);
+    // (7) LUMINOUS RIVER — on arid scenes the warm key would still mute the Colorado;
+    //     lift the water cells (post-grade) toward a bright silvery river-blue so the
+    //     river catches the light and stays the FOCAL POINT against the dark rock, the
+    //     way it dominates the real canyon. Iceland (uArid=0) is untouched.
+    lit = mix(lit, vec3(0.34, 0.58, 0.76), wet * uArid * 0.55);
   } else {
     // Anatomy path — DEAD in GeoHelix (only /geo /ice /garmin route here), kept
     // byte-identical to BodyHelix so the fork stays a faithful copy.

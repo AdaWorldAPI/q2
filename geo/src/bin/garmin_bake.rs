@@ -103,7 +103,23 @@ fn main() {
     // ── KIND overlay: natural landcover (rivers / lakes / forest) on bare
     //    terrain — roads/paths are excluded so the mountain scene reads as
     //    terrain, not a street grid. ──
-    let kinds = terrain::kind_grid(&dec, bbox, w, h, &terrain::LANDCOVER);
+    let mut kinds = terrain::kind_grid(&dec, bbox, w, h, &terrain::LANDCOVER);
+    // On an arid scene the ONE real water body (the Colorado) is the visual focal
+    // point, but its river-fill rasterizes to a ~1-cell hairline at grid resolution.
+    // Widen the Water cells so the river reads as a ribbon, the way it dominates the
+    // real canyon. (Non-arid scenes keep the raw stamp.)
+    if arid {
+        let before = kinds
+            .iter()
+            .filter(|&&k| k == geo_hhtl::garmin::GeoKind::Water.tag())
+            .count();
+        kinds = terrain::dilate_kind(&kinds, w, h, geo_hhtl::garmin::GeoKind::Water.tag(), 2);
+        let after = kinds
+            .iter()
+            .filter(|&&k| k == geo_hhtl::garmin::GeoKind::Water.tag())
+            .count();
+        eprintln!("arid river: Water cells {before} → {after} (dilated ×2 so the Colorado reads)");
+    }
 
     // ── Equirectangular metric projection about the tile centre (matches osm_read /
     //    iceland_dem so the cockpit decoder is shared). ──

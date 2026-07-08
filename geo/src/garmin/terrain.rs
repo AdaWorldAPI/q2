@@ -224,6 +224,36 @@ pub fn kind_grid(dec: &Decoded, bbox: Bbox, w: usize, h: usize, overlay: &[GeoKi
     kinds
 }
 
+/// Grow every cell tagged `tag` by one 4-neighbourhood ring (binary dilation),
+/// repeated `iters` times. Widens a feature that rasterizes to a hairline at coarse
+/// grid resolution — e.g. the Colorado's `Water` cells, which stamp ~1 cell wide and
+/// would otherwise be invisible as the scene's focal point. Growing `Water` over an
+/// adjacent `Other`/`Stream` cell is intended (a bank / confluence is still water);
+/// the pass is a no-op where `iters == 0`.
+#[must_use]
+pub fn dilate_kind(kinds: &[u8], w: usize, h: usize, tag: u8, iters: usize) -> Vec<u8> {
+    let mut cur = kinds.to_vec();
+    for _ in 0..iters {
+        let src = cur.clone();
+        for r in 0..h {
+            for c in 0..w {
+                let idx = r * w + c;
+                if src[idx] == tag {
+                    continue;
+                }
+                let hit = (c > 0 && src[idx - 1] == tag)
+                    || (c + 1 < w && src[idx + 1] == tag)
+                    || (r > 0 && src[idx - w] == tag)
+                    || (r + 1 < h && src[idx + w] == tag);
+                if hit {
+                    cur[idx] = tag;
+                }
+            }
+        }
+    }
+    cur
+}
+
 /// Parse a contour label ("6000") to an elevation. `feet` converts US-topo feet
 /// to metres (OTM labels are already metres).
 fn label_elevation(text: &str, feet: bool) -> Option<f32> {
@@ -269,6 +299,32 @@ pub fn heightfield_for_level(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dilate_kind_widens_a_hairline_river() {
+        // A 1-cell-wide horizontal "river" (tag 1) down the middle of a 7×7 grid.
+        let (w, h, tag) = (7usize, 7usize, 1u8);
+        let mut kinds = vec![0u8; w * h];
+        for c in 0..w {
+            kinds[3 * w + c] = tag; // row 3 = the thread
+        }
+        assert_eq!(kinds.iter().filter(|&&k| k == tag).count(), 7);
+        // One dilation → rows 2,3,4 carry the river (3-wide ribbon) plus the caps.
+        let d1 = dilate_kind(&kinds, w, h, tag, 1);
+        for c in 0..w {
+            assert_eq!(d1[2 * w + c], tag, "row above grew");
+            assert_eq!(d1[3 * w + c], tag, "core stays");
+            assert_eq!(d1[4 * w + c], tag, "row below grew");
+        }
+        assert_eq!(d1[0 * w + 0], 0, "far corner untouched by one ring");
+        // iters = 0 is a no-op.
+        assert_eq!(dilate_kind(&kinds, w, h, tag, 0), kinds);
+        // Two dilations widen further (rows 1..=5 all carry it).
+        let d2 = dilate_kind(&kinds, w, h, tag, 2);
+        for r in 1..=5 {
+            assert_eq!(d2[r * w + 3], tag, "row {r} carries the widened river");
+        }
+    }
 
     #[test]
     fn label_elevation_feet_and_metres() {

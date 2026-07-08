@@ -94,6 +94,25 @@ lakes) and recolour the drainage rust-brown.
       verified: plateau = warm desert earth + brown incised drainage; the Colorado a
       thin blue ribbon in the canyon depth (pixel-checked: 0 → 475 blue water px).
 
+## Colorado as focal point (2026-07-08, from reference photos)
+
+The drainage-brown pass left the Colorado a ~1-cell hairline — present but not the
+FOCAL POINT the real canyon has. Two fixes, both correctness-shaped:
+
+- [x] **Neatline exclusion** — Garmin Poly type `0x4b` (5-pt rectangle spanning
+      98%×99% of the tile) is the background / definition-area, mis-classed as
+      `Water`; its outline drew a blue border around the whole tile. Carved `0x4b →
+      Other` in `classify.rs` (before the `0x3c..=0x4f → Water` range). Golden
+      histogram updated: Water 2255→2251, Other 3664→3668 (the 4 `0x4b` polys).
+- [x] **River widening** — `terrain::dilate_kind()` (tested): binary-dilate the
+      `Water` cells ×2 on `--arid` so the Colorado's thin river-fill reads as a
+      ribbon (5802→13184 cells after the neatline fix). Real lakes/tanks (0x46/0x47)
+      widen too — still discrete blue dots, not a wet plateau.
+- [x] **Luminous river shader** — brighter arid-water base (`0.16,0.44,0.66`) + a
+      post-grade silvery-blue lift (step 7, `wet·uArid·0.55`) so the warm sunset key
+      no longer mutes the river; it catches the light as the focal point. Verified:
+      blue terrain fraction 0.46%→1.31%, interior (canyon + lakes), perimeter clean.
+
 ## Follow-ups (own PRs)
 
 - **Iceland drape** — same `build_drape` over `otm-iceland.img` line features

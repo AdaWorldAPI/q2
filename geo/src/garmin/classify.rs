@@ -101,16 +101,17 @@ impl GeoKind {
         match kind {
             Kind::Poly => match type_code {
                 0x13 | 0x60..=0x6f => GeoKind::Building, // building + urban variants
-                0x3c..=0x4f => GeoKind::Water,           // sea / lake / river-fill
-                0x50 => GeoKind::Woods,                  // woods / forest
-                0x14..=0x1a => GeoKind::Park,            // park / reserve / grass
+                0x4b => GeoKind::Other, // background / definition-area rectangle — NOT water
+                0x3c..=0x4f => GeoKind::Water, // sea / lake / river-fill
+                0x50 => GeoKind::Woods, // woods / forest
+                0x14..=0x1a => GeoKind::Park, // park / reserve / grass
                 _ => GeoKind::Other,
             },
             Kind::Line => match type_code {
-                0x00..=0x07 => GeoKind::Street,         // roads
-                0x0a | 0x0b | 0x16 => GeoKind::Path,    // trails / walking paths
-                0x18 | 0x1f | 0x26 => GeoKind::Stream,  // streams / rivers
-                0x20..=0x25 => GeoKind::Contour,        // land + depth contours
+                0x00..=0x07 => GeoKind::Street,        // roads
+                0x0a | 0x0b | 0x16 => GeoKind::Path,   // trails / walking paths
+                0x18 | 0x1f | 0x26 => GeoKind::Stream, // streams / rivers
+                0x20..=0x25 => GeoKind::Contour,       // land + depth contours
                 _ => GeoKind::Other,
             },
             Kind::Point | Kind::IPoint => GeoKind::Other, // POIs — not a surface
@@ -194,8 +195,10 @@ mod tests {
         assert_eq!(count(GeoKind::Street), 32_154);
         assert_eq!(count(GeoKind::Stream), 15_161);
         assert_eq!(count(GeoKind::Path), 3_600);
-        assert_eq!(count(GeoKind::Other), 3_664);
-        assert_eq!(count(GeoKind::Water), 2_255);
+        // Other gained the 4 background/definition-area (0x4b) polys that were
+        // previously mis-classed as Water — they hug the tile boundary, not a lake.
+        assert_eq!(count(GeoKind::Other), 3_668);
+        assert_eq!(count(GeoKind::Water), 2_251);
         assert_eq!(count(GeoKind::Park), 766);
         assert_eq!(count(GeoKind::Building), 0); // wilderness tile — buildings are urban
         assert_eq!(count(GeoKind::Woods), 0);
