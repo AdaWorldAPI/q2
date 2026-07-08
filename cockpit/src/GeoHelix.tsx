@@ -443,11 +443,25 @@ vec3 terrainColor(float h){
   float water = 1.0 - smoothstep(0.002, 0.010, hl);   // ocean is EXACTLY 0; first land ≈ 0.0155 normalized
   return mix(land, ocean, water);
 }
+// Cheap value-noise → drifting cloud shadows (2 octaves, world-fixed xz, scrolled by uTime).
+float hash21(vec2 p){ p = fract(p * vec2(123.34, 345.45)); p += dot(p, p + 34.345); return fract(p.x * p.y); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i), b = hash21(i + vec2(1,0)), c = hash21(i + vec2(0,1)), d = hash21(i + vec2(1,1));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float clouds(vec2 p){ return 0.65 * vnoise(p) + 0.35 * vnoise(p * 2.03 + 7.1); }
 void main(){
   // GOURAUD: shade per-vertex from the cheap rim normal, interpolate the COLOUR across the
   // face. At 6.8 M sub-pixel tris this matches per-fragment lighting visually but leaves the
   // fragment shader trivial.
   vec3 n = normalize(normalMatrix * aNormal);
+  // Relief FIRST — the specular sun-glint needs the view vector to the final
+  // (exaggerated) vertex position, so compute dpos + the view-space position up front.
+  vec3 dpos = position;
+  if (uGeo > 0.5) { dpos.y = position.y * uExag; }
+  vec4 mvp = modelViewMatrix * vec4(dpos, 1.0);
   vec3 lit;
   if (uGeo > 0.5) {
     // (1) HYPSOMETRIC tint — blend the baked KIND colour (aColor: water blue, forest
@@ -463,7 +477,22 @@ void main(){
     float sky = 0.5 + 0.5 * n.y;                          // hemispheric fill, more from above
     vec3 light = vec3(1.26, 0.95, 0.66) * (0.16 + 0.95 * ndl)  // warm golden key
                + vec3(0.40, 0.50, 0.66) * (0.34 * sky);        // cool sky fill
-    lit = base * light;
+    // (3) DRIFTING CLOUD SHADOWS — a world-fixed value-noise field scrolled by uTime
+    //     dapples soft moving shade over the terrain (atmosphere + a real sense of scale).
+    float cl = clouds(position.xz * 2.4 + vec2(uTime * 0.015, uTime * 0.009));
+    float shadow = mix(0.60, 1.0, smoothstep(0.34, 0.72, cl));   // darker under thick cloud
+    lit = base * light * shadow;
+    // (4) MAGIC HIGHLIGHTS — specular sun-glint, gated by KIND (raw aColor, NOT the
+    //     hypsometric render): ocean (blue-dominant) → a tight bright sun-glitter;
+    //     ice/snow (near-white) → a broad soft sheen. The canyon's grey terrain KIND
+    //     triggers neither, so its white peaks stay matte — no false glacier shine.
+    vec3 V = normalize(-mvp.xyz);
+    float nh = max(dot(n, normalize(SUN + V)), 0.0);
+    float wet  = smoothstep(0.06, 0.22, aColor.b - max(aColor.r, aColor.g));
+    float snow = smoothstep(0.74, 0.88, min(aColor.r, min(aColor.g, aColor.b)));
+    float glint = pow(nh, 220.0) * wet;   // sharp sun-glitter on water — brighter where clouds part
+    float sheen = pow(nh, 26.0) * snow;   // soft glacier sheen
+    lit += vec3(1.5, 1.28, 0.92) * (glint * 1.4 * (0.4 + 0.6 * shadow) + sheen * 0.45);
   } else {
     // Anatomy path — DEAD in GeoHelix (only /geo /ice /garmin route here), kept
     // byte-identical to BodyHelix so the fork stays a faithful copy.
@@ -472,13 +501,8 @@ void main(){
     float shade = min(0.34 + 0.20*(abs(n.y)*0.5+0.5) + 0.12*(-n.x*0.5+0.5) + 0.92*ndl, 1.3);
     lit = aColor * shade;
   }
-  vColor = min(lit, vec3(1.35));
-  // Geo relief: raise the true-scale terrain by uExag. Anatomy (uGeo==0): untouched.
-  vec3 dpos = position;
-  if (uGeo > 0.5) {
-    dpos.y = position.y * uExag;
-  }
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(dpos, 1.0);
+  vColor = min(lit, vec3(1.8));   // headroom so the sun-glint can pop toward white
+  gl_Position = projectionMatrix * mvp;
 }`;
 const FRAG = `
 precision mediump float;
@@ -630,7 +654,16 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // value); the Grand Canyon (span ~0.05, far deeper relative to its extent) →
   // ~2.2, so its steep walls read as WALLS, not an over-exaggerated needle
   // curtain (caught on the first /garmin/grand-canyon screenshot). Clamped.
-  const uExagVal = isTerrainScene ? Math.min(20, Math.max(1.5, 0.11 / Math.max(yMax - yMin, 1e-6))) : 1;
+  //
+  // The cap matters MORE than the target for very-flat-span terrain: Iceland's
+  // true-scale span is tiny (~0.0067 in the frame), so 0.11/span ≈ 16× — which
+  // over-verticalizes its genuinely rugged ~100 m fjord/ridge detail into a
+  // needle field (the DEM is NOT quantized — 16.5 M verts, ~zero isolated spikes;
+  // the needles are real terrain × too much exaggeration). Capping at a MODEST
+  // value tames Iceland to read as a clean island; the canyon (0.11/0.05 ≈ 2.2×)
+  // sits below the cap, so it is UNCHANGED.
+  const EXAG_CAP = 4.2;
+  const uExagVal = isTerrainScene ? Math.min(EXAG_CAP, Math.max(1.5, 0.11 / Math.max(yMax - yMin, 1e-6))) : 1;
   const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
@@ -739,7 +772,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
       .finally(() => { lodInflight = false; });
   };
 
-  let raf = 0, ema = 16.6, last = performance.now(), sig = enabled.join(',');
+  let raf = 0, ema = 16.6, last = performance.now(), sig = enabled.join(','), t0 = performance.now(), lastCloud = 0;
   const onResize = () => {
     w = container.clientWidth || window.innerWidth; h = container.clientHeight || window.innerHeight;
     camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); dirty.current = true;
@@ -754,8 +787,13 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     const tnow = performance.now();
     if (lod.current) { postLod(tnow); lodWasOn = true; }
     else if (lodWasOn) { lodWasOn = false; lodFail = false; lodAction.fill(255); lodDirty = true; dirty.current = true; }
-    // render ON DEMAND: a static body (no drag/zoom/toggle) costs nothing — 6.8 M tris are
-    // only redrawn when something actually changes, which is what makes idle + heat sane.
+    // Drifting clouds: a TERRAIN scene advances uTime and asks for a redraw so the
+    // cloud shadows keep moving — THROTTLED to ~15 fps (slow clouds need no more; caps
+    // the continuous redraw of a heavy DEM so it's cheap on battery). Anatomy/buildings
+    // never enter this branch and stay fully on-demand (no idle cost).
+    if (isTerrainScene && tnow - lastCloud >= 66) { lastCloud = tnow; uniforms.uTime.value = (tnow - t0) * 0.001; dirty.current = true; }
+    // render ON DEMAND (non-terrain): a static body (no drag/zoom/toggle) costs nothing —
+    // 6.8 M tris are only redrawn when something actually changes (idle + heat sane).
     if (!dirty.current && !dragging) { last = performance.now(); return; }
     const now = performance.now(); ema = ema * 0.9 + (now - last) * 0.1; last = now;
     // adaptive DPR: drop to 1× when a frame is slow (>~30 fps budget). On a retina phone
