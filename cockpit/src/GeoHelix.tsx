@@ -120,6 +120,12 @@ interface Decoded {
   concepts: number; conceptList: ConceptMeta[];
 }
 interface ConceptMeta { row: number; name: string; layer: number; cx: number; cy: number; cz: number; }
+/// The draped feature network (DRP1): segment-paired vertices in the terrain's
+/// DISPLAY frame PRE-exaggeration (mount scales `y` by the same `uExag` the grid
+/// shader applies) + a per-vertex KIND colour. Rendered as a `LineSegments` overlay.
+/// Fetched INDEPENDENTLY of the terrain (never blocks the terrain render) and
+/// attached to the live scene via a ref when it arrives.
+interface DrapeData { positions: Float32Array; colors: Uint8Array; segCount: number; kindCount: number; }
 
 // ── ver-8 radix-grid decode ─────────────────────────────────────────────────
 // The wire stores ONLY height (F16) + kind (u8 → header palette). Everything
@@ -502,7 +508,55 @@ void main(){
 }`;
 type Focus = { x: number; y: number; z: number; d: number };
 
-function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }, focus: { current: Focus | null }, xray: { current: boolean }, lod: { current: boolean }): () => void {
+// ── DRP1 drape decode — the OSM ⊕ Garmin vector overlay ──────────────────────
+// b"DRP1" | ver u16 | nLines u32 | nKind u8 | palette(nK×3) | scale f32
+//         | per line: kind u8 | nPts u16 | pts(nPts × 3 i16, coord = i16/scale)
+// Each polyline expands to LineSegments pairs; each vertex is coloured by its
+// KIND from the palette. Positions are the terrain surface point PRE-exag (the
+// bake bilinear-sampled the ver-8 pos grid), so mount lifts y by the same uExag.
+function decodeDrape(buf: ArrayBuffer): DrapeData {
+  const dv = new DataView(buf);
+  if (!(dv.getUint8(0) === 0x44 && dv.getUint8(1) === 0x52 && dv.getUint8(2) === 0x50 && dv.getUint8(3) === 0x31)) {
+    throw new Error('not a DRP1 drape');
+  }
+  const nLines = dv.getUint32(6, true);
+  const nK = dv.getUint8(10);
+  let o = 11;
+  const pal = new Uint8Array(buf.slice(o, o + 3 * nK)); o += 3 * nK;
+  const inv = 1 / dv.getFloat32(o, true); o += 4;
+  const body = o;
+  // Pass 1 — count segments (Σ nPts−1) for exact typed allocation.
+  let segs = 0;
+  for (let l = 0; l < nLines; l++) {
+    const nPts = dv.getUint16(o + 1, true); o += 3 + nPts * 6;
+    if (nPts >= 2) segs += nPts - 1;
+  }
+  const positions = new Float32Array(segs * 2 * 3);
+  const colors = new Uint8Array(segs * 2 * 3);
+  // Pass 2 — fill segment pairs + per-vertex KIND colour.
+  o = body;
+  let w = 0;
+  for (let l = 0; l < nLines; l++) {
+    const kind = dv.getUint8(o); const nPts = dv.getUint16(o + 1, true); o += 3;
+    const cb = (kind * 3) % (nK * 3);
+    const r = pal[cb], g = pal[cb + 1], b = pal[cb + 2];
+    let px = 0, py = 0, pz = 0;
+    for (let p = 0; p < nPts; p++, o += 6) {
+      const x = dv.getInt16(o, true) * inv, y = dv.getInt16(o + 2, true) * inv, z = dv.getInt16(o + 4, true) * inv;
+      if (p > 0) {
+        positions[w] = px; positions[w + 1] = py; positions[w + 2] = pz;
+        positions[w + 3] = x; positions[w + 4] = y; positions[w + 5] = z;
+        colors[w] = r; colors[w + 1] = g; colors[w + 2] = b;
+        colors[w + 3] = r; colors[w + 4] = g; colors[w + 5] = b;
+        w += 6;
+      }
+      px = x; py = y; pz = z;
+    }
+  }
+  return { positions, colors, segCount: segs, kindCount: nK };
+}
+
+function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }, focus: { current: Focus | null }, xray: { current: boolean }, lod: { current: boolean }, features: { current: boolean }, drape: { current: DrapeData | null }): () => void {
   let w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(PAGE_BG);
   const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 100); camera.position.set(0, 0.05, 3.0);
@@ -580,6 +634,39 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
+
+  // ── OSM ⊕ Garmin drape overlay — the semantic vector network (roads / trails /
+  //    rivers) lifted onto the SAME surface. The bake stored the display-frame
+  //    surface point PRE-exaggeration; here we lift y by the identical uExag the
+  //    terrain shader applies (dpos.y = position.y * uExag), plus a hair of offset
+  //    so the lines ride just above the surface instead of z-fighting it. Rendered
+  //    as vertex-coloured LineSegments; toggled live via `features`. ──
+  let drapeGeom: THREE.BufferGeometry | null = null;
+  let drapeMat: THREE.LineBasicMaterial | null = null;
+  let drapeLines: THREE.LineSegments | null = null;
+  // Built LAZILY the first frame the drape ref is populated — so the terrain
+  // renders immediately and the overlay pops in when its (optional) fetch lands,
+  // without blocking the scene or forcing a remount.
+  const buildDrape = (dd: DrapeData) => {
+    if (drapeLines || dd.segCount <= 0) return;
+    const src = dd.positions;
+    const dp = new Float32Array(src.length);
+    const lift = 0.0025;   // display units above the surface (post-exag)
+    for (let i = 0; i < src.length; i += 3) {
+      dp[i] = src[i];
+      dp[i + 1] = src[i + 1] * uExagVal + lift;
+      dp[i + 2] = src[i + 2];
+    }
+    drapeGeom = new THREE.BufferGeometry();
+    drapeGeom.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+    drapeGeom.setAttribute('color', new THREE.Uint8BufferAttribute(dd.colors, 3, true));
+    drapeMat = new THREE.LineBasicMaterial({ vertexColors: true });
+    drapeLines = new THREE.LineSegments(drapeGeom, drapeMat);
+    drapeLines.visible = features.current;
+    scene.add(drapeLines);
+    dirty.current = true;
+  };
+  if (drape.current) buildDrape(drape.current);   // already arrived (warm cache / fast net)
 
   // Sky dome — geo scenes only (anatomy keeps the flat PAGE_BG set above, byte-identical).
   let skyGeom: THREE.SphereGeometry | null = null;
@@ -683,6 +770,10 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     const wantX = xray.current;
     if (mat.transparent !== wantX) { mat.transparent = wantX; mat.depthWrite = !wantX; mat.needsUpdate = true; }
     uniforms.uAlpha.value = wantX ? 0.4 : 1.0;
+    // drape overlay (roads/trails/rivers): build it the frame its optional fetch lands
+    // (never blocked the terrain), then on/off is a cheap visibility flag — no rebuild.
+    if (!drapeLines && drape.current) buildDrape(drape.current);
+    if (drapeLines && drapeLines.visible !== features.current) drapeLines.visible = features.current;
     // browser pick → glide the orbit target + dolly onto the chosen concept
     if (focus.current) {
       const f = focus.current;
@@ -703,6 +794,8 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     window.removeEventListener('pointermove', onMove); el2.removeEventListener('wheel', onWheel);
     window.removeEventListener('resize', onResize);
     geom.dispose(); mat.dispose();
+    if (drapeGeom) drapeGeom.dispose();
+    if (drapeMat) drapeMat.dispose();
     if (skyGeom) skyGeom.dispose();
     if (skyMat) skyMat.dispose();
     renderer.dispose();
@@ -763,6 +856,8 @@ export default function GeoHelix() {
   const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: false, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
   const [xray, setXray] = useState(false);
   const [lod, setLod] = useState(false);   // server HHTL LOD — opt-in (off = full render)
+  const [features, setFeatures] = useState(true);   // OSM ⊕ Garmin drape overlay on/off
+  const [hasDrape, setHasDrape] = useState(false);  // a drape overlay loaded → show its toggle
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<Record<number, boolean>>({ 4: true });  // expanded layer groups
   const enabledRef = useRef(new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]));
@@ -770,10 +865,29 @@ export default function GeoHelix() {
   const focusRef = useRef<Focus | null>(null);
   const xrayRef = useRef(false);
   const lodRef = useRef(false);
+  const featuresRef = useRef(true);
+  const drapeRef = useRef<DrapeData | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    // Terrain: render as soon as it decodes — NEVER gated on the optional drape.
     fetchSoa().then((b) => decode(b)).then((x) => { if (!cancelled) setD(x); }).catch((e) => { if (!cancelled) setError(String(e)); });
+    // OSM ⊕ Garmin drape: fetched INDEPENDENTLY for garmin terrain scenes and
+    // attached to the live scene via drapeRef when it lands (the overlay is purely
+    // additive — a 404 or a slow fetch never blocks or delays the terrain render).
+    const scene = new URLSearchParams(window.location.search).get('scene') ?? pathScene();
+    if (scene?.startsWith('garmin:')) {
+      (async () => {
+        try {
+          const dr = await fetch(`/api/garmin-drape/${scene.slice('garmin:'.length)}`);
+          if (dr.ok && !cancelled) {
+            drapeRef.current = decodeDrape(await inflate(dr));
+            setHasDrape(true);        // reveal the `features` toggle
+            dirtyRef.current = true;  // wake the render loop → mount lazily builds the overlay
+          }
+        } catch { /* no drape overlay → bare terrain */ }
+      })();
+    }
     return () => { cancelled = true; };
   }, []);
   useEffect(() => {
@@ -784,7 +898,8 @@ export default function GeoHelix() {
   }, [on]);
   useEffect(() => { xrayRef.current = xray; dirtyRef.current = true; }, [xray]);
   useEffect(() => { lodRef.current = lod; dirtyRef.current = true; }, [lod]);
-  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef, focusRef, xrayRef, lodRef); }, [d]);
+  useEffect(() => { featuresRef.current = features; dirtyRef.current = true; }, [features]);
+  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef, focusRef, xrayRef, lodRef, featuresRef, drapeRef); }, [d]);
 
   const focusOn = (c: ConceptMeta) => {
     focusRef.current = { x: c.cx, y: c.cy, z: c.cz, d: 0.6 };
@@ -863,6 +978,9 @@ export default function GeoHelix() {
             style={{ background: '#0e1219', color: '#cdd9e5', border: '1px solid #243244', borderRadius: 7, font: '12px ui-monospace, monospace', padding: '4px 6px' }}>
             {sceneOptions.map((o) => <option key={o.path} value={o.path}>{o.label}</option>)}
           </select>
+          {hasDrape && (
+            <button style={btn(features)} onClick={() => setFeatures((v) => !v)} title="features: the OSM ⊕ Garmin vector overlay — roads, trails and rivers draped onto the terrain surface (fused ↔ Garmin-only)">features {features ? 'on' : 'off'}</button>
+          )}
           <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
           <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what's worth drawing">LOD {lod ? 'on' : 'off'}</button>
           {activeLayers.map((l) => (
