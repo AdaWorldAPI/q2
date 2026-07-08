@@ -181,13 +181,16 @@ function decodeGrid(buf: ArrayBuffer): Decoded {
   }
   // normals: one central-difference gradient pass (one-sided at edges). True-scale
   // heights → true-world slopes, byte-parity with the ver-7 baker's terrain_normals.
+  // normals: central-difference gradient over a WIDER (±2) stencil → a smoothed
+  // surfel normal so the shading stops catching every one-cell quantization stair
+  // (the "light on every numeric step" needle look), WITHOUT touching the geometry.
   const normals = new Int8Array(nV * 3);
   for (let r = 0; r < H; r++) {
-    const rm = Math.max(r - 1, 0), rp = Math.min(r + 1, H - 1);
+    const rm = Math.max(r - 2, 0), rp = Math.min(r + 2, H - 1);
     const dzr = (zrow[rp] - zrow[rm]) || 1e-6;
     for (let c = 0; c < W; c++) {
       const i = r * W + c;
-      const cm = Math.max(c - 1, 0), cp = Math.min(c + 1, W - 1);
+      const cm = Math.max(c - 2, 0), cp = Math.min(c + 2, W - 1);
       const gx = (heights[r * W + cp] - heights[r * W + cm]) / (((cp - cm) * dx) || 1e-6);
       const gz = (heights[rp * W + c] - heights[rm * W + c]) / dzr;
       const il = 127 / Math.hypot(gx, 1, gz);
@@ -196,25 +199,37 @@ function decodeGrid(buf: ArrayBuffer): Decoded {
       normals[i * 3 + 2] = Math.round(-gz * il);
     }
   }
-  // colour: palette[kind] × the deterministic CurveRuler residue (±18% within-kind
-  // texture — the /helix surfel look). Lattice mixes cached per cell (≈ tens of
-  // thousands of distinct cells for 16.5 M verts → the BigInt cost is amortized).
+  // colour: palette[kind] × the CONTINUOUS inter-family CurveRuler residue — the
+  // ±18% within-kind /helix surfel texture. The stride-4-over-17 golden-spiral
+  // value is sampled at integer lattice CORNERS and smoothstep-interpolated
+  // between them (value-noise). This is the inter-family fix from
+  // geo/src/kurvenlineal.rs: the old per-cell version STEPPED at every cell
+  // boundary (intra-family discontinuity → blocky texture); this flows
+  // continuously across cells — the surfel the body has. Corner values cached.
   const colors = new Uint8Array(nV * 3);
   const DETAIL = 48;
-  const cache = new Map<number, number>();
-  const cell17 = (px: number, py: number, pz: number, d: number): number => {
-    const cx = Math.floor(px * d), cy = Math.floor(py * d), cz = Math.floor(pz * d);
+  const cornerCache = new Map<number, number>();
+  const corner = (cx: number, cy: number, cz: number): number => {
     const key = (cx + 512) + (cy + 512) * 1024 + (cz + 512) * 1048576;
-    let v = cache.get(key);
-    if (v === undefined) { v = mix17(cx, cy, cz); cache.set(key, v); }
+    let v = cornerCache.get(key);
+    if (v === undefined) {
+      const s = mix17(cx, cy, cz), k = mix17(cx + 7, cy + 13, cz + 29);
+      v = (((s + 4 * k) % 17) / 16) * 2 - 1;
+      cornerCache.set(key, v);
+    }
     return v;
   };
+  const smoothstep = (t: number) => t * t * (3 - 2 * t);
   for (let i = 0; i < nV; i++) {
-    const px = positions[i * 3], py = positions[i * 3 + 1], pz = positions[i * 3 + 2];
-    const start = cell17(px, py, pz, DETAIL);
-    const k = cell17(px, py, pz, DETAIL * 3);
-    const phase = (((start + 4 * k) % 17) / 16) * 2 - 1;
-    const sweet = 0.90 + 0.18 * phase;
+    const X = positions[i * 3] * DETAIL, Y = positions[i * 3 + 1] * DETAIL, Z = positions[i * 3 + 2] * DETAIL;
+    const bx = Math.floor(X), by = Math.floor(Y), bz = Math.floor(Z);
+    const wx = smoothstep(X - bx), wy = smoothstep(Y - by), wz = smoothstep(Z - bz);
+    let res = 0;
+    for (let dz = 0; dz < 2; dz++)
+      for (let dy = 0; dy < 2; dy++)
+        for (let dx = 0; dx < 2; dx++)
+          res += corner(bx + dx, by + dy, bz + dz) * (dx ? wx : 1 - wx) * (dy ? wy : 1 - wy) * (dz ? wz : 1 - wz);
+    const sweet = 0.90 + 0.18 * res;
     const kb = kinds[i] * 3;
     colors[i * 3] = Math.max(0, Math.min(255, Math.round(pal[kb] * sweet)));
     colors[i * 3 + 1] = Math.max(0, Math.min(255, Math.round(pal[kb + 1] * sweet)));
