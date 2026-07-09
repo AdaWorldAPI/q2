@@ -118,6 +118,9 @@ interface Decoded {
   positions: Float32Array; index: Uint32Array;
   colors: Uint8Array; normals: Int8Array; layer: Float32Array; vrow: Uint32Array;
   concepts: number; conceptList: ConceptMeta[];
+  /// ver-8 radix grid (vs an explicit mesh): the wire is a W×H heightfield, so it
+  /// can be re-decoded at a coarser stride — the client-side terrain LOD.
+  isGrid?: boolean;
 }
 interface ConceptMeta { row: number; name: string; layer: number; cx: number; cy: number; cz: number; }
 /// The draped feature network (DRP1): segment-paired vertices in the terrain's
@@ -145,10 +148,21 @@ function mix17(cx: number, cy: number, cz: number): number {
     ^ U64(BigInt.asUintN(64, BigInt(cz)) * MIX_Z));
   return Number(m % 17n);
 }
-function decodeGrid(buf: ArrayBuffer): Decoded {
+function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   const dv = new DataView(buf);
-  const nC = dv.getUint32(6, true), W = dv.getUint32(10, true), H = dv.getUint32(14, true);
-  const nV = W * H, nT = (W - 1) * (H - 1) * 2;
+  const nC = dv.getUint32(6, true), Wf = dv.getUint32(10, true), Hf = dv.getUint32(14, true);
+  // Terrain LOD: sub-sample the radix grid by `stride` at DECODE time. Grid cells are
+  // ADDRESSES, so skipping is exact selection (never resampling) — stride 2 keeps every
+  // other height sample untouched and yields ¼ the verts/tris AND ¼ the decode work
+  // (the mobile fast path; the LOD toggle re-decodes live). Edge row/col clamp to the
+  // last full-grid sample so the tile rim survives.
+  const W = stride > 1 ? Math.ceil(Wf / stride) : Wf;
+  const H = stride > 1 ? Math.ceil(Hf / stride) : Hf;
+  const colF = new Uint32Array(W), rowF = new Uint32Array(H);
+  for (let c = 0; c < W; c++) colF[c] = Math.min(c * stride, Wf - 1);
+  for (let r = 0; r < H; r++) rowF[r] = Math.min(r * stride, Hf - 1);
+  const nVf = Wf * Hf;                                // wire counts (offsets/slices)
+  const nV = W * H, nT = (W - 1) * (H - 1) * 2;       // display counts
   let o = 18;
   o += 16 * nC;                     // guid
   o += nC;                          // material (unused)
@@ -158,11 +172,11 @@ function decodeGrid(buf: ArrayBuffer): Decoded {
   o += 8 * nC;                      // vrange
   const x0 = dv.getFloat32(o, true), dx = dv.getFloat32(o + 4, true), yscale = dv.getFloat32(o + 8, true);
   o += 12;
-  const zrow = new Float32Array(buf.slice(o, o + 4 * H)); o += 4 * H;
+  const zrow = new Float32Array(buf.slice(o, o + 4 * Hf)); o += 4 * Hf;
   const nK = dv.getUint8(o); o += 1;
   const pal = new Uint8Array(buf.slice(o, o + 3 * nK)); o += 3 * nK;
-  const hf = new Uint16Array(buf.slice(o, o + 2 * nV)); o += 2 * nV;
-  const kinds = new Uint8Array(buf.slice(o, o + nV)); o += nV;
+  const hfFull = new Uint16Array(buf.slice(o, o + 2 * nVf)); o += 2 * nVf;
+  const kindsFull = new Uint8Array(buf.slice(o, o + nVf)); o += nVf;
   const labLen = dv.getUint32(o, true); o += 4;
   let names: string[] = [];
   try { const lj = JSON.parse(new TextDecoder().decode(new Uint8Array(buf.slice(o, o + labLen)))); names = lj.names ?? lj; } catch { /* names optional */ }
@@ -171,14 +185,22 @@ function decodeGrid(buf: ArrayBuffer): Decoded {
   // positions: radix x, tabulated z, decoded F16 height. Display frame DIRECT —
   // ver-8 synthesizes display coords; no (-x, z, y) source remap round-trip.
   const heights = new Float32Array(nV);
-  for (let i = 0; i < nV; i++) heights[i] = HALF_LUT[hf[i]] * yscale;
+  const kinds = new Uint8Array(nV);
+  for (let r = 0, i = 0; r < H; r++) {
+    const ro = rowF[r] * Wf;
+    for (let c = 0; c < W; c++, i++) {
+      const fi = ro + colF[c];
+      heights[i] = HALF_LUT[hfFull[fi]] * yscale;
+      kinds[i] = kindsFull[fi];
+    }
+  }
   const positions = new Float32Array(nV * 3);
   const rowArr = new Uint32Array(nV);
   const layer = new Float32Array(nV);
   for (let r = 0, i = 0; r < H; r++) {
-    const z = zrow[r], cr = Math.min(r, nC - 1), li = cLayer[cr] || 8;
+    const z = zrow[rowF[r]], cr = Math.min(rowF[r], nC - 1), li = cLayer[cr] || 8;
     for (let c = 0; c < W; c++, i++) {
-      positions[i * 3] = x0 + c * dx;
+      positions[i * 3] = x0 + colF[c] * dx;
       positions[i * 3 + 1] = heights[i];
       positions[i * 3 + 2] = z;
       rowArr[i] = cr;
@@ -193,11 +215,11 @@ function decodeGrid(buf: ArrayBuffer): Decoded {
   const normals = new Int8Array(nV * 3);
   for (let r = 0; r < H; r++) {
     const rm = Math.max(r - 2, 0), rp = Math.min(r + 2, H - 1);
-    const dzr = (zrow[rp] - zrow[rm]) || 1e-6;
+    const dzr = (zrow[rowF[rp]] - zrow[rowF[rm]]) || 1e-6;
     for (let c = 0; c < W; c++) {
       const i = r * W + c;
       const cm = Math.max(c - 2, 0), cp = Math.min(c + 2, W - 1);
-      const gx = (heights[r * W + cp] - heights[r * W + cm]) / (((cp - cm) * dx) || 1e-6);
+      const gx = (heights[r * W + cp] - heights[r * W + cm]) / (((colF[cp] - colF[cm]) * dx) || 1e-6);
       const gz = (heights[rp * W + c] - heights[rm * W + c]) / dzr;
       const il = 127 / Math.hypot(gx, 1, gz);
       normals[i * 3] = Math.round(-gx * il);
@@ -258,15 +280,15 @@ function decodeGrid(buf: ArrayBuffer): Decoded {
     conceptList.push({ row: c, name: names[labelIdx[c]] ?? `concept ${c}`, layer: cLayer[c] || 8,
       cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: cen[c * 3 + 1] });   // source → display (-x,z,y)
   }
-  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList };
+  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true };
 }
 
-function decode(buf: ArrayBuffer): Decoded {
+function decode(buf: ArrayBuffer, stride = 1): Decoded {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
   if (magic !== 'BSO2') throw new Error(`bad magic "${magic}"`);
   const ver = dv.getUint16(4, true);
-  if (ver === 8) return decodeGrid(buf);   // radix-grid wire: height + kind only
+  if (ver === 8) return decodeGrid(buf, stride);   // radix-grid wire: height + kind only (stride = terrain LOD)
   const posBytes = ver >= 4 ? 6 : 12;
   const nC = dv.getUint32(6, true), nV = dv.getUint32(10, true), nT = dv.getUint32(14, true);
   let o = 18;
@@ -811,23 +833,67 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     scene.add(sky);
   }
 
-  // minimal orbit: drag = rotate, wheel = dolly.
+  // minimal orbit+pan: left-drag = rotate · RIGHT-drag or TWO-FINGER touch = pan the
+  // map · wheel / pinch = dolly. `touch-action: none` is load-bearing: without it the
+  // browser claims two-finger gestures for page zoom/scroll before pointer events ever
+  // fire — which is exactly why two-finger pan "did nothing" on mobile.
   // Geo scenes open on an AERIAL oblique view (el ~35°) so the terrain reads as a landscape under
   // the sky dome, not edge-on; anatomy keeps the near-level body orbit. Target lifts slightly so
   // the raised relief sits in frame. Drag/wheel still free-orbit from there.
-  let az = 0, el = isGeoScene ? 0.62 : 0.1, dist = isGeoScene ? 2.6 : 3.0, dragging = false, px = 0, py = 0;
+  let az = 0, el = isGeoScene ? 0.62 : 0.1, dist = isGeoScene ? 2.6 : 3.0, dragging = false, panning = false, px = 0, py = 0;
   const target = new THREE.Vector3(0, isGeoScene ? 0.08 : 0, 0);
-  const onDown = (e: PointerEvent) => { dragging = true; px = e.clientX; py = e.clientY; focus.current = null; dirty.current = true; };
-  const onUp = () => { dragging = false; dirty.current = true; };
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pinchD = 0, gcx = 0, gcy = 0;   // two-finger gesture state (centroid + pinch span)
+  const panBy = (dx: number, dy: number) => {
+    // world units per screen pixel at the orbit target's depth, along the camera basis
+    const s = (2 * dist * Math.tan((camera.fov * Math.PI) / 360)) / h;
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+    target.addScaledVector(right, -dx * s).addScaledVector(up, dy * s);
+    dirty.current = true;
+  };
+  const onDown = (e: PointerEvent) => {
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {   // second finger down → pan+pinch gesture, init state
+      const [a, b] = [...pointers.values()];
+      gcx = (a.x + b.x) / 2; gcy = (a.y + b.y) / 2; pinchD = Math.hypot(a.x - b.x, a.y - b.y);
+      dragging = panning = false;
+    } else {
+      panning = e.button === 2; dragging = !panning;
+      px = e.clientX; py = e.clientY;
+    }
+    focus.current = null; dirty.current = true;
+  };
+  const onUp = (e: PointerEvent) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchD = 0;
+    if (pointers.size === 0) { dragging = false; panning = false; }
+    dirty.current = true;
+  };
   const onMove = (e: PointerEvent) => {
+    const p = pointers.get(e.pointerId);
+    if (p) { p.x = e.clientX; p.y = e.clientY; }
+    if (pointers.size === 2) {   // two-finger: centroid delta pans, span change dollies
+      const [a, b] = [...pointers.values()];
+      const ncx = (a.x + b.x) / 2, ncy = (a.y + b.y) / 2, nd = Math.hypot(a.x - b.x, a.y - b.y);
+      panBy(ncx - gcx, ncy - gcy);
+      if (pinchD > 0 && nd > 0) dist = Math.max(0.3, Math.min(8, dist * (pinchD / nd)));
+      gcx = ncx; gcy = ncy; pinchD = nd; dirty.current = true;
+      return;
+    }
+    if (panning) { panBy(e.clientX - px, e.clientY - py); px = e.clientX; py = e.clientY; return; }
     if (!dragging) return;
     az -= (e.clientX - px) * 0.005; el = Math.max(-1.5, Math.min(1.5, el + (e.clientY - py) * 0.005));
     px = e.clientX; py = e.clientY; dirty.current = true;
   };
   const onWheel = (e: WheelEvent) => { e.preventDefault(); dist = Math.max(0.3, Math.min(8, dist * (1 + Math.sign(e.deltaY) * 0.1))); dirty.current = true; };
+  const onCtx = (e: MouseEvent) => e.preventDefault();   // right-drag pans; no context menu
   const el2 = renderer.domElement;
+  el2.style.touchAction = 'none';
   el2.addEventListener('pointerdown', onDown); window.addEventListener('pointerup', onUp);
   window.addEventListener('pointermove', onMove); el2.addEventListener('wheel', onWheel, { passive: false });
+  el2.addEventListener('contextmenu', onCtx);
+  window.addEventListener('pointercancel', onUp);   // browser-stolen touches must not leave stale gesture state
 
   // server HHTL LOD (opt-in): post the live camera to /api/body/lod; the depth-cascade returns
   // a per-concept action (0 = off-frustum reject). We fold the cull into the SAME geometry index
@@ -944,7 +1010,11 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     if (tnow >= hudNext) {
       hudNext = tnow + 500;
       const ri = renderer.info.render;
-      const lodTxt = isGeoScene ? 'n/a (terrain: full mesh)' : lod.current ? 'on' : 'off';
+      // Grid scenes have REAL client LOD (stride re-decode); mesh geo scenes don't
+      // (yet); the body scene has the server HHTL cascade. Say which, honestly.
+      const lodTxt = d.isGrid
+        ? (lod.current ? 'on · ½-res grid' : 'off · full grid')
+        : isGeoScene ? 'n/a (mesh scene)' : lod.current ? 'on' : 'off';
       hud.textContent = `tris ${fmtM(ri.triangles)} · lines ${fmtM(ri.lines)} · calls ${ri.calls} · verts ${fmtM(d.nVerts)} · LOD ${lodTxt}`;
     }
   };
@@ -953,6 +1023,8 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     cancelAnimationFrame(raf);
     el2.removeEventListener('pointerdown', onDown); window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointermove', onMove); el2.removeEventListener('wheel', onWheel);
+    el2.removeEventListener('contextmenu', onCtx);
+    window.removeEventListener('pointercancel', onUp);
     window.removeEventListener('resize', onResize);
     geom.dispose(); mat.dispose();
     if (drapeGeom) drapeGeom.dispose();
@@ -1015,11 +1087,23 @@ async function fetchSoa(): Promise<ArrayBuffer> {
 
 export default function GeoHelix() {
   const ref = useRef<HTMLDivElement>(null);
+  // Scene shape decides the UI up-front (same resolution as fetchSoa/mount): terrain
+  // scenes hide the structure sidebar (a grid's rows are strips, not named anatomy);
+  // ver-8 GRID scenes get real client LOD (stride re-decode) — auto-ON on mobile,
+  // where full-res decode of the 16.5M-vert Iceland grid is the "35 seconds".
+  const sceneStr = new URLSearchParams(window.location.search).get('scene') ?? pathScene();
+  const isGeoUi = Boolean(sceneStr);
+  const isTerrainUi = sceneStr === 'iceland' || Boolean(sceneStr?.startsWith('garmin:'));
+  const isGridScene = Boolean(sceneStr?.startsWith('garmin:'));   // ver-8 radix-grid wires
+  const isMobile = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0;
   const [d, setD] = useState<Decoded | null>(null);
   const [error, setError] = useState('');
   const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: false, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
   const [xray, setXray] = useState(false);
-  const [lod, setLod] = useState(false);   // server HHTL LOD — opt-in (off = full render)
+  // LOD: on the anatomy body = the server HHTL cascade (opt-in). On ver-8 GRID
+  // terrain = client stride re-decode (½-res grid, ¼ verts/tris/decode-time) —
+  // auto-ON for mobile so a phone never pays the full-grid decode on first load.
+  const [lod, setLod] = useState(isGridScene && isMobile);
   const [features, setFeatures] = useState(true);   // OSM ⊕ Garmin drape overlay on/off
   const [hasDrape, setHasDrape] = useState(false);  // a drape overlay loaded → show its toggle
   const [showContours, setShowContours] = useState(false);  // topo mode (contours + carto palette) — OFF by default: beauty mode is the skin of the world
@@ -1030,20 +1114,28 @@ export default function GeoHelix() {
   const dirtyRef = useRef(true);   // request a redraw (the render loop is on-demand)
   const focusRef = useRef<Focus | null>(null);
   const xrayRef = useRef(false);
-  const lodRef = useRef(false);
+  const lodRef = useRef(isGridScene && isMobile);
   const featuresRef = useRef(true);
   const drapeRef = useRef<DrapeData | null>(null);
   const showContoursRef = useRef(false);
   const contourRef = useRef<DrapeData | null>(null);
-  // Geo scene (terrain/OSM) vs anatomy body — same resolution as fetchSoa/mount. The
-  // server LOD cascade is body-only (see the HUD note in mount), so geo scenes get an
-  // honestly-disabled LOD button instead of a toggle that silently does nothing.
-  const isGeoUi = Boolean(new URLSearchParams(window.location.search).get('scene') ?? pathScene());
+  // Grid terrain LOD keeps the inflated wire around so toggling re-decodes live at
+  // the other stride (no refetch). decodedStrideRef = what stride `d` was built at.
+  const rawRef = useRef<ArrayBuffer | null>(null);
+  const decodedStrideRef = useRef(1);
 
   useEffect(() => {
     let cancelled = false;
     // Terrain: render as soon as it decodes — NEVER gated on the optional drape.
-    fetchSoa().then((b) => decode(b)).then((x) => { if (!cancelled) setD(x); }).catch((e) => { if (!cancelled) setError(String(e)); });
+    // Grid scenes decode at the LOD stride (mobile auto-½-res) and KEEP the wire
+    // so the LOD toggle re-decodes live without refetching.
+    fetchSoa().then((b) => {
+      const stride = lodRef.current ? 2 : 1;
+      const x = decode(b, stride);
+      if (x.isGrid) rawRef.current = b;
+      decodedStrideRef.current = stride;
+      if (!cancelled) setD(x);
+    }).catch((e) => { if (!cancelled) setError(String(e)); });
     // OSM ⊕ Garmin drape: fetched INDEPENDENTLY for garmin terrain scenes and
     // attached to the live scene via drapeRef when it lands (the overlay is purely
     // additive — a 404 or a slow fetch never blocks or delays the terrain render).
@@ -1080,7 +1172,18 @@ export default function GeoHelix() {
     dirtyRef.current = true;
   }, [on]);
   useEffect(() => { xrayRef.current = xray; dirtyRef.current = true; }, [xray]);
-  useEffect(() => { lodRef.current = lod; dirtyRef.current = true; }, [lod]);
+  useEffect(() => {
+    lodRef.current = lod; dirtyRef.current = true;
+    // Grid terrain LOD: re-decode the kept wire at the new stride (deferred a tick so
+    // the button repaints before the decode blocks). The mount effect remounts on the
+    // new `d`. Body scenes have no rawRef → the server-cascade path is untouched.
+    const want = lod ? 2 : 1;
+    if (rawRef.current && decodedStrideRef.current !== want) {
+      decodedStrideRef.current = want;
+      const raw = rawRef.current;
+      setTimeout(() => { try { setD(decode(raw, want)); } catch { /* keep the current mesh */ } }, 30);
+    }
+  }, [lod]);
   useEffect(() => { featuresRef.current = features; dirtyRef.current = true; }, [features]);
   useEffect(() => { showContoursRef.current = showContours; dirtyRef.current = true; }, [showContours]);
   useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef, focusRef, xrayRef, lodRef, featuresRef, drapeRef, contourRef, showContoursRef); }, [d]);
@@ -1169,7 +1272,16 @@ export default function GeoHelix() {
             <button style={btn(showContours)} onClick={() => setShowContours((v) => !v)} title="topo: OpenTopoMap-style cartographic mode — contour lines over a pale beige-green relief palette. Off = the beauty surfel look (default); the contours are a map layer, not the skin of the world.">topo {showContours ? 'on' : 'off'}</button>
           )}
           <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
-          <button style={{ ...btn(lod), ...(isGeoUi ? { opacity: 0.45, cursor: 'not-allowed' } : {}) }} disabled={isGeoUi} onClick={() => { if (!isGeoUi) setLod((v) => !v); }} title={isGeoUi ? 'LOD is body-only today: the /api/body/lod depth-cascade culls by the anatomy body’s block-bounds, so it is deliberately inert on terrain scenes (full mesh always renders — see the HUD tris count). A per-scene .blocks cascade is future work.' : 'LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what’s worth drawing'}>{isGeoUi ? 'LOD n/a' : `LOD ${lod ? 'on' : 'off'}`}</button>
+          <button
+            style={{ ...btn(lod), ...(isGeoUi && !isGridScene ? { opacity: 0.45, cursor: 'not-allowed' } : {}) }}
+            disabled={isGeoUi && !isGridScene}
+            onClick={() => { if (!(isGeoUi && !isGridScene)) setLod((v) => !v); }}
+            title={isGridScene
+              ? 'terrain LOD: re-decode the ver-8 grid at half resolution — ¼ verts/tris and ¼ decode time (auto-ON on mobile). The HUD shows the live counts.'
+              : isGeoUi
+                ? 'LOD is body-only on mesh scenes: the /api/body/lod depth-cascade culls by the anatomy body’s block-bounds, so it is deliberately inert here (full mesh always renders — see the HUD tris count).'
+                : 'LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what’s worth drawing'}
+          >{isGeoUi && !isGridScene ? 'LOD n/a' : `LOD ${lod ? 'on' : 'off'}`}</button>
           {activeLayers.map((l) => (
             <button key={l.id} style={btn(on[l.id])} onClick={() => setOn((p) => ({ ...p, [l.id]: !p[l.id] }))}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: l.color, marginRight: 5, verticalAlign: 'middle' }} />{l.name}
@@ -1177,7 +1289,10 @@ export default function GeoHelix() {
           ))}
         </div>
       )}
-      {d && (
+      {d && !isTerrainUi && (
+        // Structure sidebar — anatomy/building scenes only. A terrain grid's
+        // "structures" are its row strips (thousands of identical unnamed entries),
+        // so the list is noise there; terrain scenes get the full viewport instead.
         <div style={{ position: 'absolute', left: 16, top: 66, bottom: 16, width: 290, display: 'flex', flexDirection: 'column', background: 'rgba(11,15,22,0.92)', border: '1px solid #1c2530', borderRadius: 10, overflow: 'hidden' }}>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`search ${d.concepts.toLocaleString()} structures…`}
             style={{ margin: 10, padding: '8px 10px', borderRadius: 7, border: '1px solid #243244', background: '#0e1219', color: '#cdd9e5', font: '13px ui-monospace, monospace', outline: 'none' }} />

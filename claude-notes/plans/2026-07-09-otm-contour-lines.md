@@ -62,6 +62,25 @@ Both from data we already bake — no new download.
   `tris 1.73M · lines 265k · calls 3 · verts 864k · LOD n/a (terrain: full mesh)`
   — and toggling topo shows `lines 745k · calls 4`, proving the layers are real.
 
+## UX round (2026-07-09, from user feedback)
+
+- **Sidebar hidden on terrain scenes** — a grid's "structures" are its row strips
+  (1,024–3,584 identical unnamed entries), noise for a map. Anatomy/building
+  scenes keep the searchable list.
+- **Pan restored** — right-drag (desktop) and two-finger drag (touch) pan the
+  target along the camera basis; two-finger span change = pinch dolly; context
+  menu suppressed. Root cause of "two-finger did nothing" on mobile: the canvas
+  had no `touch-action: none`, so the browser claimed multi-touch gestures
+  before pointer events fired.
+- **Real terrain LOD (grid stride)** — `decodeGrid(buf, stride)` sub-samples the
+  ver-8 radix grid at decode time (address selection, not resampling): stride 2 =
+  ¼ verts/tris AND ¼ decode work. The wire is kept in a ref, so the LOD button
+  re-decodes live without refetch. **Auto-ON on mobile** (coarse pointer +
+  touch), where full-grid decode of the 16.5M-vert Iceland is the reported 35 s.
+  Verified via HUD: canyon `tris 1.73M → 431k · verts 864k → 216k` on toggle.
+- LOD button states: grid scenes = live toggle; mesh geo scenes (/geo, /ice) =
+  `LOD n/a` (honest); body = server cascade unchanged.
+
 ## Notes
 - Contours are a garmin_bake feature → applies to the **canyon** (and future
   garmin_bake scenes). Iceland uses the raster DEM pipeline (`iceland_dem.rs`), which
