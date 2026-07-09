@@ -630,7 +630,7 @@ function decodeDrape(buf: ArrayBuffer): DrapeData {
   return { positions, colors, segCount: segs, kindCount: nK };
 }
 
-function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }, focus: { current: Focus | null }, xray: { current: boolean }, lod: { current: boolean }, features: { current: boolean }, drape: { current: DrapeData | null }): () => void {
+function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }, focus: { current: Focus | null }, xray: { current: boolean }, lod: { current: boolean }, features: { current: boolean }, drape: { current: DrapeData | null }, contours: { current: DrapeData | null }, showContours: { current: boolean }): () => void {
   let w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(PAGE_BG);
   const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 100); camera.position.set(0, 0.05, 3.0);
@@ -755,6 +755,34 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   };
   if (drape.current) buildDrape(drape.current);   // already arrived (warm cache / fast net)
 
+  // ── Contour-line overlay — the topo lines lifted onto the surface (same DRP1 wire
+  //    as the drape, its own optional fetch). Rendered as thin, semi-transparent
+  //    vertex-coloured lines riding JUST below the road/river drape so the network
+  //    reads over the contours (the OpenTopoMap look). Toggled via `showContours`. ──
+  let contourGeom: THREE.BufferGeometry | null = null;
+  let contourMat: THREE.LineBasicMaterial | null = null;
+  let contourLines: THREE.LineSegments | null = null;
+  const buildContours = (dd: DrapeData) => {
+    if (contourLines || dd.segCount <= 0) return;
+    const src = dd.positions;
+    const dp = new Float32Array(src.length);
+    const lift = 0.0015;   // just under the drape's 0.0025 so roads/rivers draw on top
+    for (let i = 0; i < src.length; i += 3) {
+      dp[i] = src[i];
+      dp[i + 1] = src[i + 1] * uExagVal + lift;
+      dp[i + 2] = src[i + 2];
+    }
+    contourGeom = new THREE.BufferGeometry();
+    contourGeom.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+    contourGeom.setAttribute('color', new THREE.Uint8BufferAttribute(dd.colors, 3, true));
+    contourMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 });
+    contourLines = new THREE.LineSegments(contourGeom, contourMat);
+    contourLines.visible = showContours.current;
+    scene.add(contourLines);
+    dirty.current = true;
+  };
+  if (contours.current) buildContours(contours.current);
+
   // Sky dome — geo scenes only (anatomy keeps the flat PAGE_BG set above, byte-identical).
   let skyGeom: THREE.SphereGeometry | null = null;
   let skyMat: THREE.ShaderMaterial | null = null;
@@ -866,6 +894,9 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     // (never blocked the terrain), then on/off is a cheap visibility flag — no rebuild.
     if (!drapeLines && drape.current) buildDrape(drape.current);
     if (drapeLines && drapeLines.visible !== features.current) drapeLines.visible = features.current;
+    // contour overlay: same lazy-build-then-toggle as the drape (own optional fetch).
+    if (!contourLines && contours.current) buildContours(contours.current);
+    if (contourLines && contourLines.visible !== showContours.current) contourLines.visible = showContours.current;
     // browser pick → glide the orbit target + dolly onto the chosen concept
     if (focus.current) {
       const f = focus.current;
@@ -888,6 +919,8 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     geom.dispose(); mat.dispose();
     if (drapeGeom) drapeGeom.dispose();
     if (drapeMat) drapeMat.dispose();
+    if (contourGeom) contourGeom.dispose();
+    if (contourMat) contourMat.dispose();
     if (skyGeom) skyGeom.dispose();
     if (skyMat) skyMat.dispose();
     renderer.dispose();
@@ -950,6 +983,8 @@ export default function GeoHelix() {
   const [lod, setLod] = useState(false);   // server HHTL LOD — opt-in (off = full render)
   const [features, setFeatures] = useState(true);   // OSM ⊕ Garmin drape overlay on/off
   const [hasDrape, setHasDrape] = useState(false);  // a drape overlay loaded → show its toggle
+  const [showContours, setShowContours] = useState(true);   // topo contour overlay on/off
+  const [hasContours, setHasContours] = useState(false);    // contours loaded → show its toggle
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<Record<number, boolean>>({ 4: true });  // expanded layer groups
   const enabledRef = useRef(new Float32Array([0, 0, 1, 1, 1, 1, 1, 1, 1]));
@@ -959,6 +994,8 @@ export default function GeoHelix() {
   const lodRef = useRef(false);
   const featuresRef = useRef(true);
   const drapeRef = useRef<DrapeData | null>(null);
+  const showContoursRef = useRef(true);
+  const contourRef = useRef<DrapeData | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -979,6 +1016,17 @@ export default function GeoHelix() {
           }
         } catch { /* no drape overlay → bare terrain */ }
       })();
+      // Contour overlay — same independent, additive, non-blocking fetch as the drape.
+      (async () => {
+        try {
+          const cr = await fetch(`/api/garmin-contours/${scene.slice('garmin:'.length)}`);
+          if (cr.ok && !cancelled) {
+            contourRef.current = decodeDrape(await inflate(cr));
+            setHasContours(true);     // reveal the `contours` toggle
+            dirtyRef.current = true;  // wake the render loop → mount lazily builds the overlay
+          }
+        } catch { /* no contour overlay → terrain without topo lines */ }
+      })();
     }
     return () => { cancelled = true; };
   }, []);
@@ -991,7 +1039,8 @@ export default function GeoHelix() {
   useEffect(() => { xrayRef.current = xray; dirtyRef.current = true; }, [xray]);
   useEffect(() => { lodRef.current = lod; dirtyRef.current = true; }, [lod]);
   useEffect(() => { featuresRef.current = features; dirtyRef.current = true; }, [features]);
-  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef, focusRef, xrayRef, lodRef, featuresRef, drapeRef); }, [d]);
+  useEffect(() => { showContoursRef.current = showContours; dirtyRef.current = true; }, [showContours]);
+  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef, focusRef, xrayRef, lodRef, featuresRef, drapeRef, contourRef, showContoursRef); }, [d]);
 
   const focusOn = (c: ConceptMeta) => {
     focusRef.current = { x: c.cx, y: c.cy, z: c.cz, d: 0.6 };
@@ -1072,6 +1121,9 @@ export default function GeoHelix() {
           </select>
           {hasDrape && (
             <button style={btn(features)} onClick={() => setFeatures((v) => !v)} title="features: the OSM ⊕ Garmin vector overlay — roads, trails and rivers draped onto the terrain surface (fused ↔ Garmin-only)">features {features ? 'on' : 'off'}</button>
+          )}
+          {hasContours && (
+            <button style={btn(showContours)} onClick={() => setShowContours((v) => !v)} title="contours: topographic elevation lines draped onto the relief (the OpenTopoMap look)">contours {showContours ? 'on' : 'off'}</button>
           )}
           <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
           <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what's worth drawing">LOD {lod ? 'on' : 'off'}</button>

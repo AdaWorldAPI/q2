@@ -253,6 +253,9 @@ async fn main() {
         // The DRP1 vector overlay (roads/trails/rivers) for a garmin terrain scene,
         // resolved through the manifest's `garmin_drapes` map; 404 = no drape.
         .route("/api/garmin-drape/:location", get(garmin_drape_handler))
+        // The DRP1 contour-line overlay (topo lines) for a garmin terrain scene,
+        // resolved through the manifest's `garmin_contours` map; 404 = no contours.
+        .route("/api/garmin-contours/:location", get(garmin_contour_handler))
         // Health
         .route("/health", get(health_handler));
 
@@ -354,6 +357,13 @@ fn resolve_garmin_drape(manifest_json: &str, location: &str) -> Option<String> {
     resolve_garmin_map(manifest_json, "garmin_drapes", location)
 }
 
+/// Resolve a `/garmin-contours/:location` slug through the manifest's
+/// `garmin_contours` map — the DRP1 topo-line overlay that drapes onto the
+/// `garmin_scenes` terrain of the same slug. Absent = the scene has no contours.
+fn resolve_garmin_contours(manifest_json: &str, location: &str) -> Option<String> {
+    resolve_garmin_map(manifest_json, "garmin_contours", location)
+}
+
 /// List the available scene slugs (for the self-documenting 404).
 fn garmin_scene_slugs(manifest_json: &str) -> Vec<String> {
     serde_json::from_str::<serde_json::Value>(manifest_json)
@@ -446,6 +456,38 @@ async fn garmin_drape_handler(axum::extract::Path(location): axum::extract::Path
     {
         let _ = location;
         (StatusCode::SERVICE_UNAVAILABLE, "garmin drape needs the embed-cockpit build").into_response()
+    }
+}
+
+/// GET /api/garmin-contours/:location — serve the DRP1 contour-line overlay for
+/// `location` (the topo lines that drape onto its terrain). A scene with no
+/// registered contours returns 404 quietly; the client treats that as "no
+/// overlay" and renders without contours (graceful — contours are additive).
+async fn garmin_contour_handler(axum::extract::Path(location): axum::extract::Path<String>) -> Response {
+    #[cfg(feature = "embed-cockpit")]
+    {
+        let Some(man) = COCKPIT_DIST
+            .get_file("body.manifest.json")
+            .and_then(|f| std::str::from_utf8(f.contents()).ok())
+        else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "manifest missing from embedded dist").into_response();
+        };
+        if let Some(fname) = resolve_garmin_contours(man, &location) {
+            if let Some(file) = COCKPIT_DIST.get_file(&fname) {
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/gzip")],
+                    file.contents(),
+                )
+                    .into_response();
+            }
+        }
+        return (StatusCode::NOT_FOUND, "no contours for this scene").into_response();
+    }
+    #[cfg(not(feature = "embed-cockpit"))]
+    {
+        let _ = location;
+        (StatusCode::SERVICE_UNAVAILABLE, "garmin contours need the embed-cockpit build").into_response()
     }
 }
 
@@ -1274,12 +1316,15 @@ async fn health_handler() -> Json<serde_json::Value> {
 
 #[cfg(test)]
 mod garmin_scene_tests {
-    use super::{garmin_scene_slugs, resolve_garmin_drape, resolve_garmin_scene};
+    use super::{
+        garmin_scene_slugs, resolve_garmin_contours, resolve_garmin_drape, resolve_garmin_scene,
+    };
 
     const MAN: &str = r#"{
         "helix_latest": "body.soa.gz",
         "garmin_scenes": { "iceland": "iceland_dem.helix.soa.gz", "canyon": "garmin_canyon.helix.soa.gz" },
-        "garmin_drapes": { "grand-canyon": "canyon.v8grid.drape.soa.gz" }
+        "garmin_drapes": { "grand-canyon": "canyon.v8grid.drape.soa.gz" },
+        "garmin_contours": { "grand-canyon": "canyon.v8grid.contour.soa.gz" }
     }"#;
 
     #[test]
@@ -1329,5 +1374,18 @@ mod garmin_scene_tests {
         assert_eq!(resolve_garmin_drape(MAN, "atlantis"), None);
         assert_eq!(resolve_garmin_drape(MAN, "../etc"), None); // traversal rejected
         assert_eq!(resolve_garmin_drape("{}", "grand-canyon"), None);
+    }
+
+    #[test]
+    fn contours_resolve_from_their_own_map_and_are_optional() {
+        // Contours are an independent optional overlay, like the drape.
+        assert_eq!(
+            resolve_garmin_contours(MAN, "grand-canyon").as_deref(),
+            Some("canyon.v8grid.contour.soa.gz")
+        );
+        assert_eq!(resolve_garmin_contours(MAN, "iceland"), None); // no contours registered
+        assert_eq!(resolve_garmin_contours(MAN, "atlantis"), None);
+        assert_eq!(resolve_garmin_contours(MAN, "../etc"), None); // traversal rejected
+        assert_eq!(resolve_garmin_contours("{}", "grand-canyon"), None);
     }
 }

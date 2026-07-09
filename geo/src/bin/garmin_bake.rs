@@ -29,7 +29,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let (Some(input), Some(output)) = (args.next(), args.next()) else {
         eprintln!(
-            "usage: garmin_bake <in.img> <out.soa> [--level N] [--dim WxH] [--metres] [--arid]"
+            "usage: garmin_bake <in.img> <out.soa> [--level N] [--contour-level N] [--dim WxH] [--metres] [--arid]"
         );
         std::process::exit(2);
     };
@@ -37,11 +37,15 @@ fn main() {
     let mut dim: Option<(usize, usize)> = None;
     let mut feet = true; // US-topo default; --metres for OTM
     let mut arid = false; // --arid: desert scene — dry-wash drainage is rust-brown, not blue
+    let mut contour_level: u8 = 3; // --contour-level N: contour overlay LOD (3 ≈ 8k lines, OTM-dense)
     let rest: Vec<String> = args.collect();
     let mut it = rest.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--level" => level = it.next().and_then(|s| s.parse().ok()).unwrap_or(4),
+            "--contour-level" => {
+                contour_level = it.next().and_then(|s| s.parse().ok()).unwrap_or(3);
+            }
             "--metres" | "--meters" => feet = false,
             "--arid" => arid = true,
             "--dim" => {
@@ -104,21 +108,29 @@ fn main() {
     //    terrain — roads/paths are excluded so the mountain scene reads as
     //    terrain, not a street grid. ──
     let mut kinds = terrain::kind_grid(&dec, bbox, w, h, &terrain::LANDCOVER);
-    // On an arid scene the ONE real water body (the Colorado) is the visual focal
+    // On an arid scene the ONE flowing river (the Colorado) is the visual focal
     // point, but its river-fill rasterizes to a ~1-cell hairline at grid resolution.
-    // Widen the Water cells so the river reads as a ribbon, the way it dominates the
-    // real canyon. (Non-arid scenes keep the raw stamp.)
+    // Widen ONLY the river (Garmin river-fill type 0x4c) so it reads as a ribbon the
+    // way it dominates the real canyon — the still lakes/reservoirs/tanks keep their
+    // 1-cell stamp so they stay OTM-style pinpoints, not chunky blobs. (Non-arid
+    // scenes keep the raw stamp for everything.)
     if arid {
-        let before = kinds
-            .iter()
-            .filter(|&&k| k == geo_hhtl::garmin::GeoKind::Water.tag())
-            .count();
-        kinds = terrain::dilate_kind(&kinds, w, h, geo_hhtl::garmin::GeoKind::Water.tag(), 2);
-        let after = kinds
-            .iter()
-            .filter(|&&k| k == geo_hhtl::garmin::GeoKind::Water.tag())
-            .count();
-        eprintln!("arid river: Water cells {before} → {after} (dilated ×2 so the Colorado reads)");
+        let wtag = geo_hhtl::garmin::GeoKind::Water.tag();
+        let river =
+            terrain::dilate_kind(&terrain::river_fill_grid(&dec, bbox, w, h), w, h, wtag, 2);
+        let (mut river_cells, mut widened) = (0usize, 0usize);
+        for (i, k) in kinds.iter_mut().enumerate() {
+            if river[i] == wtag {
+                river_cells += 1;
+                if *k != wtag {
+                    widened += 1;
+                    *k = wtag;
+                }
+            }
+        }
+        eprintln!(
+            "arid river: widened Colorado (type 0x4c ×2) to {river_cells} cells (+{widened}); lakes left as pinpoints"
+        );
     }
 
     // ── Equirectangular metric projection about the tile centre (matches osm_read /
@@ -245,15 +257,51 @@ fn main() {
         drape_bytes.len(),
     );
 
+    // ── Contour-line overlay: lift the labeled contour polylines (the same set the
+    //    heightfield is built from) onto the surface as a DRP1 sidecar, so the client
+    //    can drape topo lines over the relief — the OpenTopoMap look. A COARSER level
+    //    than the heightfield keeps the overlay light (level 3 ≈ 8k lines, not level
+    //    4's 50k). Contours reuse the drape wire; the palette gives them a darker topo
+    //    brown for contrast against the terrain. ──
+    let contour_palette = {
+        let mut p = palette.clone();
+        p[geo_hhtl::garmin::GeoKind::Contour.tag() as usize] = CONTOUR_LINE;
+        p
+    };
+    let contour_lines = drape::build_drape(
+        &dec,
+        bbox,
+        &pos,
+        w,
+        h,
+        contour_level,
+        &[geo_hhtl::garmin::GeoKind::Contour],
+    );
+    let contour_bytes = drape::encode_drape(&contour_lines, &contour_palette);
+    let contour_pts: usize = contour_lines.iter().map(|l| l.pts.len()).sum();
+    eprintln!(
+        "DRP1 contours: {} lines · {} pts · {} B (level {contour_level} topo lines)",
+        contour_lines.len(),
+        contour_pts,
+        contour_bytes.len(),
+    );
+
     let stem = output.strip_suffix(".soa").unwrap_or(&output);
     let blocks_path = format!("{stem}.blocks");
     let drape_path = format!("{stem}.drape.soa");
+    let contour_path = format!("{stem}.contour.soa");
     if let Err(e) = std::fs::write(&output, &soa)
         .and_then(|()| std::fs::write(&blocks_path, &blocks))
         .and_then(|()| std::fs::write(&drape_path, &drape_bytes))
+        .and_then(|()| std::fs::write(&contour_path, &contour_bytes))
     {
         eprintln!("garmin_bake: write: {e}");
         std::process::exit(1);
     }
-    eprintln!("wrote {output} + {blocks_path} + {drape_path}");
+    eprintln!("wrote {output} + {blocks_path} + {drape_path} + {contour_path}");
 }
+
+/// Topo-brown for the contour overlay — darker/more saturated than the default
+/// [`GeoKind::Contour`](geo_hhtl::garmin::GeoKind::Contour) tan so the lines read
+/// against the warm terrain (the OpenTopoMap contour look).
+const CONTOUR_LINE: [u8; 3] = [128, 94, 60];

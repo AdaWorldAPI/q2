@@ -224,6 +224,40 @@ pub fn kind_grid(dec: &Decoded, bbox: Bbox, w: usize, h: usize, overlay: &[GeoKi
     kinds
 }
 
+/// Garmin polygon type for **flowing river-fill** — the Colorado is a chain of
+/// ~1755 of these. Still-water bodies (lakes / reservoirs / tanks) use `0x41` /
+/// `0x46` / `0x47` instead, so this type alone selects the river. Widening only
+/// the river (see [`river_fill_grid`]) keeps the Colorado bold while lakes stay
+/// OTM-style pinpoints.
+pub const RIVER_FILL_TYPE: u8 = 0x4c;
+
+/// Rasterize just the **flowing-river** Water polygons ([`RIVER_FILL_TYPE`]) onto a
+/// `W×H` grid: matching cells get [`GeoKind::Water`]'s tag, everything else
+/// [`GeoKind::Other`]. Same stamping as [`kind_grid`]. The result is a river-only
+/// layer the bake can dilate independently of the still-water lakes.
+#[must_use]
+pub fn river_fill_grid(dec: &Decoded, bbox: Bbox, w: usize, h: usize) -> Vec<u8> {
+    let mut kinds = vec![GeoKind::Other.tag(); w * h];
+    let tag = GeoKind::Water.tag();
+    for f in &dec.features {
+        if f.kind != Kind::Poly || f.type_code != RIVER_FILL_TYPE || f.geo_kind() != GeoKind::Water
+        {
+            continue;
+        }
+        if f.coords.len() == 1 {
+            let p = project(bbox, f.coords[0].0, f.coords[0].1, w, h);
+            stamp_kind_line(&mut kinds, w, h, p, p, tag);
+            continue;
+        }
+        for pair in f.coords.windows(2) {
+            let p0 = project(bbox, pair[0].0, pair[0].1, w, h);
+            let p1 = project(bbox, pair[1].0, pair[1].1, w, h);
+            stamp_kind_line(&mut kinds, w, h, p0, p1, tag);
+        }
+    }
+    kinds
+}
+
 /// Grow every cell tagged `tag` by one 4-neighbourhood ring (binary dilation),
 /// repeated `iters` times. Widens a feature that rasterizes to a hairline at coarse
 /// grid resolution — e.g. the Colorado's `Water` cells, which stamp ~1 cell wide and
@@ -324,6 +358,36 @@ mod tests {
         for r in 1..=5 {
             assert_eq!(d2[r * w + 3], tag, "row {r} carries the widened river");
         }
+    }
+
+    #[test]
+    fn river_fill_grid_selects_the_river_not_the_lakes() {
+        let (dec, _lbl) = village();
+        let (w, h) = (844usize, 1024usize);
+        // All Water (river-fill + still lakes) vs river-fill only.
+        let all = kind_grid(&dec, dec.tre.bbox, w, h, &[GeoKind::Water]);
+        let river = river_fill_grid(&dec, dec.tre.bbox, w, h);
+        let wtag = GeoKind::Water.tag();
+        let n_all = all.iter().filter(|&&k| k == wtag).count();
+        let n_river = river.iter().filter(|&&k| k == wtag).count();
+        assert!(n_river > 0, "river-fill stamps some cells: {n_river}");
+        // River is a strict SUBSET of all Water (lakes are excluded).
+        assert!(
+            n_river < n_all,
+            "river-only ({n_river}) < all Water ({n_all})"
+        );
+        for i in 0..w * h {
+            if river[i] == wtag {
+                assert_eq!(all[i], wtag, "every river cell is a Water cell (idx {i})");
+            }
+        }
+        // Dilating the river mask widens it (the whole point of the lake fix).
+        let wide = dilate_kind(&river, w, h, wtag, 2);
+        let n_wide = wide.iter().filter(|&&k| k == wtag).count();
+        assert!(
+            n_wide > n_river,
+            "×2 dilation widens the river: {n_river} → {n_wide}"
+        );
     }
 
     #[test]
