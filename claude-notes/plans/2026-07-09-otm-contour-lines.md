@@ -81,6 +81,34 @@ Both from data we already bake — no new download.
 - LOD button states: grid scenes = live toggle; mesh geo scenes (/geo, /ice) =
   `LOD n/a` (honest); body = server cascade unchanged.
 
+## Follow-ups (post-merge — file as braid strands when the CLI is available;
+## braid is not installed in the remote container this round)
+
+1. **LOD toggle resets the camera** (bug, P3). Toggling terrain LOD re-decodes
+   the grid and remounts the scene, resetting az/el/dist/target to the default
+   aerial view. Fix: lift orbit state into a ref that survives the remount (or
+   re-apply it post-mount). Acceptable for now; noted in the PR.
+2. **Overlay color model — embed strokes in the rock** (feature, P2, the next
+   round; user art direction 2026-07-09). The renderer is now ahead of the
+   overlay styling: overlays render as independent neutral-grey strokes, which
+   the eye reads as new foreground geometry — "visual crackling" over the
+   surfel terrain. Redesign for beauty mode: derive overlay color
+   MULTIPLICATIVELY from the local terrain (terrain color × ambient shadow ×
+   feature emphasis) instead of additive grey linework — warm ochre lines on
+   sun-facing sandstone, deep umber on shadowed cliffs, near-black brown in the
+   canyon depths, "slightly darker than the terrain" on flat plateaus. Features
+   should feel like pores in skin, not ink on paper. Visual hierarchy:
+   - dominant: terrain / canyon relief
+   - secondary: the Colorado (thick, blue)
+   - tertiary: permanent tributaries (thinner, muted blue) · roads/trails
+     (terrain-derived, restrained)
+   - optional: contours (already off in beauty mode)
+   - very subtle: intermittent drainage / washes (rust, barely-there)
+   Also: the plateau still shows hundreds of small blue features at altitude —
+   from this height the region should read overwhelmingly DRY; demote the
+   remaining 0x4c tributary flecks in beauty mode. Topo mode keeps classic
+   cartographic lines — the split exists precisely so the map look has a home.
+
 ## Notes
 - Contours are a garmin_bake feature → applies to the **canyon** (and future
   garmin_bake scenes). Iceland uses the raster DEM pipeline (`iceland_dem.rs`), which
