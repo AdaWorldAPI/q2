@@ -34,6 +34,34 @@ Both from data we already bake — no new download.
 - [ ] Verify: geo tests, tsc, build, headless `/garmin/grand-canyon` (contours read
       as topo lines; lakes pinpoint; river bold).
 
+## Mode split (2026-07-09 follow-up, from user feedback)
+
+"The contours are a map layer, not the skin of the world." Two modes:
+
+- **Beauty / surfel mode (DEFAULT)** — contours OFF by default; dry drainage
+  rust-brown; blue reserved for flowing water (the Colorado + perennial 0x4c
+  tributary reaches). Still-water tanks/ponds are retagged in the `--arid` bake to
+  a new 10th palette slot (`LAKE_TAG=9`, `LAKE_SUBTLE=[122,130,134]`) — a
+  barely-there grey fleck, deliberately below the shader's blue-dominance `wet`
+  threshold so no vivid water treatment fires (1081 cells on the canyon tile).
+  The ver-8 wire carries its palette count, so the extra slot is decode-safe.
+- **Topo / OTM mode (the toggle, renamed `topo`)** — contour lines + a `uTopo`
+  shader swap to cartographic paper: pale beige-white relief ramp, green
+  vegetation-KIND tint, light carto-blue water, gentle hillshade. The vivid grade
+  never shows under the line web.
+
+## LOD honesty + stats HUD (same session)
+
+- Verified: `postLod()` early-returns for every geo scene (GeoHelix.tsx) — the
+  `/api/body/lod` cascade culls by the ANATOMY body's block-bounds, so on
+  `/garmin/*` the LOD toggle was an inert placeholder. Per-scene `.blocks`
+  cascade remains future work.
+- UI: on geo scenes the button is now disabled (`LOD n/a`) with an explanatory
+  tooltip, instead of silently doing nothing.
+- Stats HUD (bottom-right, ≤2 Hz, from `renderer.info` ground truth):
+  `tris 1.73M · lines 265k · calls 3 · verts 864k · LOD n/a (terrain: full mesh)`
+  — and toggling topo shows `lines 745k · calls 4`, proving the layers are real.
+
 ## Notes
 - Contours are a garmin_bake feature → applies to the **canyon** (and future
   garmin_bake scenes). Iceland uses the raster DEM pipeline (`iceland_dem.rs`), which

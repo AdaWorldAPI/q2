@@ -108,17 +108,19 @@ fn main() {
     //    terrain — roads/paths are excluded so the mountain scene reads as
     //    terrain, not a street grid. ──
     let mut kinds = terrain::kind_grid(&dec, bbox, w, h, &terrain::LANDCOVER);
-    // On an arid scene the ONE flowing river (the Colorado) is the visual focal
-    // point, but its river-fill rasterizes to a ~1-cell hairline at grid resolution.
-    // Widen ONLY the river (Garmin river-fill type 0x4c) so it reads as a ribbon the
-    // way it dominates the real canyon — the still lakes/reservoirs/tanks keep their
-    // 1-cell stamp so they stay OTM-style pinpoints, not chunky blobs. (Non-arid
-    // scenes keep the raw stamp for everything.)
+    // On an arid scene, blue is reserved for the ONE persistent water body — the
+    // flowing Colorado (Garmin river-fill type 0x4c). Its stamp rasterizes to a
+    // ~1-cell hairline, so widen ONLY the river ×2 (ribbon, the way it dominates
+    // the real canyon). The still "lakes" (stock tanks / ephemeral ponds) are NOT
+    // blue on an arid landscape: retag them to the SUBTLE slot — a barely-there
+    // grey-blue fleck, deliberately below the shader's blue-dominance `wet`
+    // threshold so no vivid water treatment fires. (Non-arid scenes keep the raw
+    // stamp for everything.)
     if arid {
         let wtag = geo_hhtl::garmin::GeoKind::Water.tag();
         let river =
             terrain::dilate_kind(&terrain::river_fill_grid(&dec, bbox, w, h), w, h, wtag, 2);
-        let (mut river_cells, mut widened) = (0usize, 0usize);
+        let (mut river_cells, mut widened, mut lakes) = (0usize, 0usize, 0usize);
         for (i, k) in kinds.iter_mut().enumerate() {
             if river[i] == wtag {
                 river_cells += 1;
@@ -126,10 +128,13 @@ fn main() {
                     widened += 1;
                     *k = wtag;
                 }
+            } else if *k == wtag {
+                lakes += 1;
+                *k = LAKE_TAG; // still water → subtle fleck, not bright blue
             }
         }
         eprintln!(
-            "arid river: widened Colorado (type 0x4c ×2) to {river_cells} cells (+{widened}); lakes left as pinpoints"
+            "arid river: widened Colorado (type 0x4c ×2) to {river_cells} cells (+{widened}); {lakes} still-water cells → subtle tag {LAKE_TAG}"
         );
     }
 
@@ -214,7 +219,7 @@ fn main() {
     //    gullies), so recolour it rust-brown and keep blue for the actual `Water`
     //    bodies (the Colorado). One palette feeds BOTH the terrain KIND block and the
     //    DRP1 drape below, so the drainage browns consistently across both. ──
-    let palette: Vec<[u8; 3]> = if arid {
+    let mut palette: Vec<[u8; 3]> = if arid {
         geo_hhtl::garmin::GeoKind::arid_palette()
     } else {
         geo_hhtl::garmin::GeoKind::PALETTE
@@ -223,7 +228,13 @@ fn main() {
             .collect()
     };
     if arid {
-        eprintln!("arid palette: Stream drainage → rust-brown, Water stays river-blue");
+        // Slot 9 = LAKE_TAG. The ver-8 wire carries its palette count (nK u8) and the
+        // client indexes palette[kind] from the wire, so a 10th entry is decode-safe.
+        debug_assert_eq!(palette.len() as u8, LAKE_TAG);
+        palette.push(LAKE_SUBTLE);
+        eprintln!(
+            "arid palette: Stream drainage → rust-brown, Water river-blue, still lakes → subtle"
+        );
     }
     let ymax = pos.iter().map(|p| p[1]).fold(1e-9f32, f32::max);
     let heights: Vec<f32> = pos.iter().map(|p| p[1] / ymax).collect();
@@ -305,3 +316,15 @@ fn main() {
 /// [`GeoKind::Contour`](geo_hhtl::garmin::GeoKind::Contour) tan so the lines read
 /// against the warm terrain (the OpenTopoMap contour look).
 const CONTOUR_LINE: [u8; 3] = [128, 94, 60];
+
+/// Palette slot for still-water lakes/tanks on an `--arid` scene — appended AFTER
+/// the 9 canonical `GeoKind` entries (the ver-8 wire carries its own palette count,
+/// so extra slots are decode-safe). On an arid landscape these are stock tanks and
+/// ephemeral ponds, not lakes: bright blue misleads.
+const LAKE_TAG: u8 = 9;
+
+/// Barely-there grey-blue for [`LAKE_TAG`] cells. Deliberately BELOW the terrain
+/// shader's blue-dominance `wet` threshold (`b − max(r,g) = 4/255 ≪ 0.06`), so none
+/// of the vivid water treatment (blue re-assert, sun-glint) fires — the tank reads
+/// as a subtle damp fleck in the earth, not a bright blue lake.
+const LAKE_SUBTLE: [u8; 3] = [122, 130, 134];

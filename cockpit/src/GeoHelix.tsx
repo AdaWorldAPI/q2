@@ -408,6 +408,9 @@ uniform float uRuler;  // retained-but-0: no shader ruler (the golden-spiral res
 uniform float uMoss;   // 1 on vegetated scenes (Iceland) → aspect-based moss; 0 on the desert canyon.
 uniform float uArid;   // 1 on arid/desert scenes → NO glacial turquoise (water stays plain river-blue);
                        // 0 on the glacial Iceland scene → meltwater teal. Drainage-brown is baked, not here.
+uniform float uTopo;   // 1 = TOPO/OTM cartographic mode (tied to the contour overlay): swap the vivid
+                       // surfel grade for pale beige-green topo paper so the contour lines live on a
+                       // map, not on the skin of the world. 0 = the beauty look (default).
 varying vec3 vColor;
 // THE KURVENLINEAL is now baked into the mesh, not approximated here. The real
 // helix::CurveRuler golden-spiral residue (stride-4-over-17) is applied at BAKE time in
@@ -511,6 +514,15 @@ void main(){
     //     river catches the light and stays the FOCAL POINT against the dark rock, the
     //     way it dominates the real canyon. Iceland (uArid=0) is untouched.
     lit = mix(lit, vec3(0.34, 0.58, 0.76), wet * uArid * 0.55);
+    // (8) TOPO/OTM cartographic mode — the contour overlay belongs on classic topo
+    //     PAPER (pale beige-white relief, green vegetation, light carto-blue water,
+    //     gentle hillshade), not on the vivid surfel skin where dense lines flatten
+    //     the image. uTopo swaps the whole grade; 0 = the beauty look untouched.
+    vec3 paper = mix(vec3(0.92, 0.88, 0.79), vec3(0.99, 0.99, 0.97), smoothstep(0.30, 0.75, hl));
+    float vegk = smoothstep(0.04, 0.16, aColor.g - max(aColor.r, aColor.b));   // Park/Woods KIND cells
+    paper = mix(paper, vec3(0.78, 0.88, 0.62), vegk * 0.85);
+    paper = mix(paper, vec3(0.52, 0.71, 0.88), wet);                            // water: light carto blue
+    lit = mix(lit, paper * (0.62 + 0.38 * ndl), uTopo);
   } else {
     // Anatomy path — DEAD in GeoHelix (only /geo /ice /garmin route here), kept
     // byte-identical to BodyHelix so the fork stays a faithful copy.
@@ -718,7 +730,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // Glacial turquoise is Iceland's look; every other terrain scene keeps plain river-blue
   // water (the canyon's Colorado). uArid = "not the glacial Iceland scene".
   const uAridVal = isTerrainScene && !isIcelandScene ? 1 : 0;
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 }, uMoss: { value: isIcelandScene ? 1 : 0 }, uArid: { value: uAridVal } };
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 }, uMoss: { value: isIcelandScene ? 1 : 0 }, uArid: { value: uAridVal }, uTopo: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -854,6 +866,20 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
       .finally(() => { lodInflight = false; });
   };
 
+  // ── Stats HUD — the "is it doing real work?" readout: rendered triangles / draw
+  //    calls straight from renderer.info (ground truth, not UI state), total decoded
+  //    verts, and the honest LOD status. On geo scenes LOD reads `n/a`: postLod()
+  //    early-returns for isGeoScene (the /api/body/lod cascade culls by the ANATOMY
+  //    body's block-bounds — running it here would cull terrain wrongly; a per-scene
+  //    .blocks cascade is future work), so the numbers make the inertness visible
+  //    instead of leaving a toggle that silently does nothing. ──
+  if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
+  const hud = document.createElement('div');
+  hud.style.cssText = 'position:absolute;right:12px;bottom:10px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:rgba(255,255,255,.78);background:rgba(10,14,20,.5);padding:4px 9px;border-radius:6px;pointer-events:none;white-space:pre;z-index:5';
+  container.appendChild(hud);
+  let hudNext = 0;
+  const fmtM = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
+
   let raf = 0, ema = 16.6, last = performance.now(), sig = enabled.join(','), t0 = performance.now(), lastCloud = 0;
   const onResize = () => {
     w = container.clientWidth || window.innerWidth; h = container.clientHeight || window.innerHeight;
@@ -895,8 +921,12 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     if (!drapeLines && drape.current) buildDrape(drape.current);
     if (drapeLines && drapeLines.visible !== features.current) drapeLines.visible = features.current;
     // contour overlay: same lazy-build-then-toggle as the drape (own optional fetch).
+    // The toggle IS the topo-mode switch: lines visible ⇒ the shader swaps to the
+    // cartographic paper palette (uTopo) — contours are a map layer, not the skin
+    // of the world, so they never draw over the vivid beauty grade.
     if (!contourLines && contours.current) buildContours(contours.current);
     if (contourLines && contourLines.visible !== showContours.current) contourLines.visible = showContours.current;
+    uniforms.uTopo.value = contourLines && showContours.current ? 1 : 0;
     // browser pick → glide the orbit target + dolly onto the chosen concept
     if (focus.current) {
       const f = focus.current;
@@ -909,6 +939,14 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     camera.lookAt(target);
     renderer.render(scene, camera);
     dirty.current = false;
+    // HUD refresh (≤2 Hz, only on frames that actually rendered): live renderer.info
+    // numbers — if these change while zooming/toggling, the system is doing real work.
+    if (tnow >= hudNext) {
+      hudNext = tnow + 500;
+      const ri = renderer.info.render;
+      const lodTxt = isGeoScene ? 'n/a (terrain: full mesh)' : lod.current ? 'on' : 'off';
+      hud.textContent = `tris ${fmtM(ri.triangles)} · lines ${fmtM(ri.lines)} · calls ${ri.calls} · verts ${fmtM(d.nVerts)} · LOD ${lodTxt}`;
+    }
   };
   tick();
   return () => {
@@ -924,6 +962,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     if (skyGeom) skyGeom.dispose();
     if (skyMat) skyMat.dispose();
     renderer.dispose();
+    if (hud.parentElement === container) container.removeChild(hud);
     if (el2.parentElement === container) container.removeChild(el2);
   };
 }
@@ -983,7 +1022,7 @@ export default function GeoHelix() {
   const [lod, setLod] = useState(false);   // server HHTL LOD — opt-in (off = full render)
   const [features, setFeatures] = useState(true);   // OSM ⊕ Garmin drape overlay on/off
   const [hasDrape, setHasDrape] = useState(false);  // a drape overlay loaded → show its toggle
-  const [showContours, setShowContours] = useState(true);   // topo contour overlay on/off
+  const [showContours, setShowContours] = useState(false);  // topo mode (contours + carto palette) — OFF by default: beauty mode is the skin of the world
   const [hasContours, setHasContours] = useState(false);    // contours loaded → show its toggle
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<Record<number, boolean>>({ 4: true });  // expanded layer groups
@@ -994,8 +1033,12 @@ export default function GeoHelix() {
   const lodRef = useRef(false);
   const featuresRef = useRef(true);
   const drapeRef = useRef<DrapeData | null>(null);
-  const showContoursRef = useRef(true);
+  const showContoursRef = useRef(false);
   const contourRef = useRef<DrapeData | null>(null);
+  // Geo scene (terrain/OSM) vs anatomy body — same resolution as fetchSoa/mount. The
+  // server LOD cascade is body-only (see the HUD note in mount), so geo scenes get an
+  // honestly-disabled LOD button instead of a toggle that silently does nothing.
+  const isGeoUi = Boolean(new URLSearchParams(window.location.search).get('scene') ?? pathScene());
 
   useEffect(() => {
     let cancelled = false;
@@ -1123,10 +1166,10 @@ export default function GeoHelix() {
             <button style={btn(features)} onClick={() => setFeatures((v) => !v)} title="features: the OSM ⊕ Garmin vector overlay — roads, trails and rivers draped onto the terrain surface (fused ↔ Garmin-only)">features {features ? 'on' : 'off'}</button>
           )}
           {hasContours && (
-            <button style={btn(showContours)} onClick={() => setShowContours((v) => !v)} title="contours: topographic elevation lines draped onto the relief (the OpenTopoMap look)">contours {showContours ? 'on' : 'off'}</button>
+            <button style={btn(showContours)} onClick={() => setShowContours((v) => !v)} title="topo: OpenTopoMap-style cartographic mode — contour lines over a pale beige-green relief palette. Off = the beauty surfel look (default); the contours are a map layer, not the skin of the world.">topo {showContours ? 'on' : 'off'}</button>
           )}
           <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
-          <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what's worth drawing">LOD {lod ? 'on' : 'off'}</button>
+          <button style={{ ...btn(lod), ...(isGeoUi ? { opacity: 0.45, cursor: 'not-allowed' } : {}) }} disabled={isGeoUi} onClick={() => { if (!isGeoUi) setLod((v) => !v); }} title={isGeoUi ? 'LOD is body-only today: the /api/body/lod depth-cascade culls by the anatomy body’s block-bounds, so it is deliberately inert on terrain scenes (full mesh always renders — see the HUD tris count). A per-scene .blocks cascade is future work.' : 'LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what’s worth drawing'}>{isGeoUi ? 'LOD n/a' : `LOD ${lod ? 'on' : 'off'}`}</button>
           {activeLayers.map((l) => (
             <button key={l.id} style={btn(on[l.id])} onClick={() => setOn((p) => ({ ...p, [l.id]: !p[l.id] }))}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: l.color, marginRight: 5, verticalAlign: 'middle' }} />{l.name}
