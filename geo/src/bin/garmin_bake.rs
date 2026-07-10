@@ -230,7 +230,13 @@ fn main() {
     if arid {
         // Slot 9 = LAKE_TAG. The ver-8 wire carries its palette count (nK u8) and the
         // client indexes palette[kind] from the wire, so a 10th entry is decode-safe.
-        debug_assert_eq!(palette.len() as u8, LAKE_TAG);
+        // Hard assert (release bakes too): if GeoKind::PALETTE ever grows, LAKE_TAG
+        // would silently alias a real slot and corrupt the shipped palette.
+        assert_eq!(
+            palette.len() as u8,
+            LAKE_TAG,
+            "GeoKind::PALETTE length drifted from LAKE_TAG — update the slot constant"
+        );
         palette.push(LAKE_SUBTLE);
         eprintln!(
             "arid palette: Stream drainage → rust-brown, Water river-blue, still lakes → subtle"
