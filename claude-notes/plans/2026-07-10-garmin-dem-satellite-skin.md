@@ -1,0 +1,53 @@
+# Grand Canyon — dense DEM height + ver-9 photoreal satellite skin
+
+Branch: `claude/geo-canyon-dem` (off `main` after #98 merged).
+
+## Overview
+Replace the sparse Garmin-contour canyon (844×1024 = 864k verts, blocky) with a
+**dense real DEM heightfield** carrying a **raw satellite-imagery skin** — the
+"Diaprojektor sunk into the HHTL grid" model (per-vertex colour, not a glued
+texture). The dead plateau half of the tile is cropped off. Budget-LOD decimates
+the render on mobile; the full grid is the desktop birdview.
+
+## What shipped
+- **`scripts/fetch_iceland_dem.py`** — `--bbox W,S,E,N` param (was Iceland-only).
+  Fetched the canyon DEM+imagery at z14/ds3 → `canyon.demgrid` (DEMG v2, 4096×4949,
+  Terrarium elevation + ESRI World Imagery). Both keyless.
+- **`bso2.rs` `encode_grid_bso2`** — optional `colors: &[[u8;3]]` (0 or W·H). Empty →
+  ver-8 (byte-identical, palette-only). Present → **ver-9** = an `rgb[W·H]` block
+  after `kind`, the raw per-vertex satellite drape. The grid stays radix-compact and
+  the client's stride-LOD sub-samples `rgb` identically to height/kind.
+- **`garmin_bake.rs`**
+  - `--dem <file.demgrid>` — source height (bilinear at each cell's lon/lat) from the
+    dense DEM instead of sparse contours; a v2 demgrid also fills the ver-9 skin.
+    Grid dims auto-match the DEM's native resolution.
+  - `--crop W,S,E,N` — bake only a sub-window (cut the dead plateau). HHTL-safe: keys
+    are `point_to_hhtl4(lon,lat)` on absolute coords, so a narrower window is a pure
+    bbox change, no remapping. Drape/contour skipped in crop mode (tile-bbox features).
+  - A `Dem` reader/sampler (`read_dem` + `colf`/`rowf`/`elev_at`/`rgb_at`), DEMG v1/v2.
+- **`GeoHelix.tsx`**
+  - `decodeGrid` reads ver 8|9; ver-9 sinks `rgb[W·H]` into the mesh's vertex colours
+    (stride-selected); `decode()` + `gridBudgetStride` accept ver 9.
+  - Shader `uSkin` branch: on a ver-9 scene the satellite photo IS the colour — only a
+    soft relief hillshade, no hypsometric/water/topo recolour.
+  - **Topo switch = mode switch** on a skin scene: photoreal ↔ cartographic paper
+    (flips `uSkin`), works even without contour data (a cropped scene has none).
+
+## The Grand Canyon result
+- Crop `-112.83,35.80,-111.77,36.3504` (north half; SW/SE relief 26/29 = dead flat,
+  NW/NE 113/162 = the canyon). 4116×2637 = **10.85M verts**, gz **~36 MB**.
+- Budget-LOD (4.2M): full 10.85M birdview → stride-2 ≈ 2.7M on mobile.
+- Verified headless (803k proxy): the satellite skin renders (forest / red walls /
+  Colorado), sky, `verts · LOD · full grid` HUD. Full-size render is the Railway view.
+
+## Follow-ups
+- **66 MB from a q2 Release, on-demand** (operator preference) — host the full-tile /
+  higher-zoom asset in a GitHub Release; scene fetches it on demand instead of git.
+- **"Make it 20 again"** — re-fetch the crop at z15 for ~20M of *real* canyon detail
+  (LOD → ~5M), instead of z14 native (10.85M).
+- **Contour lines on the crop** — generate from the DEM (marching squares) since the
+  Garmin tile-frame contours are skipped in crop mode.
+- **`/osm` dual basemap** (task) + **Havel canoe map** (`--bbox 12.2465,53.0119,13.6579,53.5397`) —
+  both reuse the DEM+skin pipeline; Havel is flat lowland → skin-dominant.
+- **Sentinel-2 skin** — swap the ESRI source for `GrandCanyon_S2_20260620.tif`
+  (source-agnostic; the skin just comes from the demgrid rgb).

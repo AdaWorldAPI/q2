@@ -24,7 +24,11 @@ Grid file layout (little-endian):
     rgb[H*W*3] u8     v2 ONLY: true-colour drape, same row-major order as elev
 
 usage:
-    python3 scripts/fetch_iceland_dem.py OUT.demgrid [--zoom 9] [--downsample 4] [--no-imagery]
+    python3 scripts/fetch_iceland_dem.py OUT.demgrid [--zoom 9] [--downsample 4]
+        [--no-imagery] [--bbox W,S,E,N]
+
+`--bbox` (decimal degrees) bakes any region; default is the Iceland box below.
+e.g. Grand Canyon: --bbox -112.8268,35.3265,-111.7941,36.3428 --zoom 14 --downsample 3
 """
 import io
 import math
@@ -129,6 +133,9 @@ def main():
     zoom = 9
     down = 4
     want_imagery = True
+    # Bounding box defaults to Iceland (module constants) but any region can be
+    # baked with `--bbox W,S,E,N` (decimal degrees) — e.g. the Grand Canyon tile.
+    lon_w, lon_e, lat_s, lat_n = LON_W, LON_E, LAT_S, LAT_N
     for i, a in enumerate(sys.argv):
         if a == "--zoom":
             zoom = int(sys.argv[i + 1])
@@ -136,12 +143,14 @@ def main():
             down = int(sys.argv[i + 1])
         if a == "--no-imagery":
             want_imagery = False
+        if a == "--bbox":
+            lon_w, lat_s, lon_e, lat_n = (float(v) for v in sys.argv[i + 1].split(","))
 
-    x0 = int(math.floor(lon_to_tilex(LON_W, zoom)))
-    x1 = int(math.floor(lon_to_tilex(LON_E, zoom)))
-    # tile-y grows south, so LAT_N (north) -> smaller y.
-    y0 = int(math.floor(lat_to_tiley(LAT_N, zoom)))
-    y1 = int(math.floor(lat_to_tiley(LAT_S, zoom)))
+    x0 = int(math.floor(lon_to_tilex(lon_w, zoom)))
+    x1 = int(math.floor(lon_to_tilex(lon_e, zoom)))
+    # tile-y grows south, so lat_n (north) -> smaller y.
+    y0 = int(math.floor(lat_to_tiley(lat_n, zoom)))
+    y1 = int(math.floor(lat_to_tiley(lat_s, zoom)))
     xs = list(range(x0, x1 + 1))
     ys = list(range(y0, y1 + 1))
     print(f"zoom {zoom}: x {x0}..{x1} ({len(xs)} tiles), y {y0}..{y1} ({len(ys)} tiles) "

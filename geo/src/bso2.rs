@@ -544,14 +544,22 @@ mod tests {
 /// (`i → (row, col) → (x0 + col·dx, z0 + row·dz)`), the triangle index by the grid
 /// loop, normals by one gradient pass over the height grid, colour by
 /// `palette[kind] × CurveRuler residue` (bit-exact stride-4-over-17). Iceland at
-/// 16.5 M verts: 710 MB (ver-7) → ~50 MB raw. Layout:
+/// 16.5 M verts: 710 MB (ver-7) → ~50 MB raw.
+///
+/// With a per-vertex `colors` drape (len 0 or W·H) the version is **9** and a
+/// `rgb[W·H]` block is appended after `kind` — the RAW satellite texture the DEM
+/// baker samples per vertex, so the client paints the true photo instead of
+/// `palette[kind]`. The grid stays radix-compact and the client's stride LOD
+/// sub-samples `rgb` identically to `height`/`kind`. Empty `colors` → ver **8**,
+/// byte-identical to before (palette-only). Layout:
 ///
 /// ```text
-/// BSO2 | ver=8 u16 | nC u32 | W u32 | H u32            (nV = W·H, nT derived)
+/// BSO2 | ver=8|9 u16 | nC u32 | W u32 | H u32           (nV = W·H, nT derived)
 /// concepts block (guid | material | layer | label | centroid | v_range)  ← ver-6/7 shape
 /// grid: x0 f32 | dx f32 | yscale f32 | zrow f32[H]
 /// palette: nK u8 | nK × rgb(3×u8)
 /// height F16[W·H] | kind u8[W·H]
+/// rgb[W·H] (3×u8)   ← ver-9 ONLY (raw per-vertex satellite drape)
 /// labels_json | materials_json | HXFL trailer
 /// ```
 ///
@@ -577,6 +585,10 @@ pub fn encode_grid_bso2(
     palette: &[[u8; 3]],
     concepts: &[MeshConcept],
     labels_json: &[u8],
+    // Optional per-vertex true-colour drape. Empty → ver-8 (palette-only, byte-identical
+    // to before). Non-empty (len == W·H) → ver-9 = a `rgb[nv]` block after `kind`, carrying
+    // the real satellite texture the DEM baker samples per vertex.
+    colors: &[[u8; 3]],
 ) -> (Vec<u8>, Vec<u8>) {
     let nv = (w as usize) * (h as usize);
     let nc = concepts.len();
@@ -585,10 +597,12 @@ pub fn encode_grid_bso2(
     assert_eq!(kinds.len(), nv, "kinds len must be w*h");
     assert!(palette.len() <= 255, "palette must fit u8 count");
     assert!(kinds.iter().all(|&k| (k as usize) < palette.len()), "kind out of palette");
+    assert!(colors.is_empty() || colors.len() == nv, "colors len must be 0 or w*h");
+    let ver: u16 = if colors.is_empty() { 8 } else { 9 };
 
-    let mut o = Vec::with_capacity(nc * 40 + nv * 3 + labels_json.len() + 96);
+    let mut o = Vec::with_capacity(nc * 40 + nv * (3 + if colors.is_empty() { 0 } else { 3 }) + labels_json.len() + 96);
     o.extend_from_slice(b"BSO2");
-    o.extend_from_slice(&8u16.to_le_bytes());
+    o.extend_from_slice(&ver.to_le_bytes());
     o.extend_from_slice(&(nc as u32).to_le_bytes());
     o.extend_from_slice(&w.to_le_bytes());
     o.extend_from_slice(&h.to_le_bytes());
@@ -629,6 +643,11 @@ pub fn encode_grid_bso2(
         o.extend_from_slice(&F16::from_f32(y).0.to_le_bytes());
     }
     o.extend_from_slice(kinds);
+    // ver-9 ONLY: raw per-vertex satellite drape, 3 bytes RGB, row-major (same order
+    // as height/kind). The client paints this directly instead of palette[kind].
+    for c in colors {
+        o.extend_from_slice(c);
+    }
     // labels_json + materials_json + HXFL (same tail contract as ver-6/7)
     o.extend_from_slice(&(labels_json.len() as u32).to_le_bytes());
     o.extend_from_slice(labels_json);
