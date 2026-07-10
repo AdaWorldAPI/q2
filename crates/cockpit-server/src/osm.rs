@@ -165,7 +165,9 @@ map.addEventListener('click',async e=>{
     document.getElementById('heel').textContent='0x'+d.hhtl.heel.toString(16).padStart(4,'0');
     document.getElementById('hip').textContent='0x'+d.hhtl.hip.toString(16).padStart(4,'0');
     document.getElementById('twig').textContent='0x'+d.hhtl.twig.toString(16).padStart(4,'0');
-    document.getElementById('src').textContent=d.tile_url;
+    // tile source follows the ACTIVE basemap (the locate API reports both URLs) —
+    // on satellite, showing the OSM URL would mismatch the visible tiles.
+    document.getElementById('src').textContent=basemap==='sat'?d.sat_tile_url:d.tile_url;
   }catch(err){ document.getElementById('src').textContent='locate failed: '+err; }
 });
 
