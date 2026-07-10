@@ -331,7 +331,7 @@ fn main() {
         let zrow: Vec<f32> = (0..h).map(|r| pos[r * w][2]).collect();
         encode_grid_bso2(
             w as u32, h as u32, x0, dx, ymax, &zrow, &heights, &kinds, &palette, &concepts,
-            labels,
+            labels, &[],
         )
     } else {
         encode_mesh_bso2(&pos, &nrm, &rows, &tris, &concepts, labels, &colors)

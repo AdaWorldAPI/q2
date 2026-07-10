@@ -38,6 +38,15 @@ fn main() {
     let mut feet = true; // US-topo default; --metres for OTM
     let mut arid = false; // --arid: desert scene — dry-wash drainage is rust-brown, not blue
     let mut contour_level: u8 = 3; // --contour-level N: contour overlay LOD (3 ≈ 8k lines, OTM-dense)
+    // --dem <file.demgrid>: source the heightfield from a real dense DEM (Terrarium)
+    // instead of the sparse Garmin contours — the "surfel" density. A v2 demgrid also
+    // carries a raw ESRI satellite drape, baked per-vertex as the ver-9 photoreal skin.
+    let mut dem_path: Option<String> = None;
+    // --crop W,S,E,N (decimal degrees): bake ONLY this sub-window of the tile — cut the
+    // dead plateau, keep the canyon. HHTL-safe (keys are absolute lon/lat). Skips the
+    // Garmin drape/contour (those are tile-bbox features; a cropped photoreal scene is
+    // terrain + skin). Pairs with --dem.
+    let mut crop: Option<(f64, f64, f64, f64)> = None; // (west, south, east, north)
     let rest: Vec<String> = args.collect();
     let mut it = rest.iter();
     while let Some(a) = it.next() {
@@ -48,6 +57,15 @@ fn main() {
             }
             "--metres" | "--meters" => feet = false,
             "--arid" => arid = true,
+            "--dem" => dem_path = it.next().cloned(),
+            "--crop" => {
+                if let Some(s) = it.next() {
+                    let v: Vec<f64> = s.split(',').filter_map(|x| x.parse().ok()).collect();
+                    if v.len() == 4 {
+                        crop = Some((v[0], v[1], v[2], v[3]));
+                    }
+                }
+            }
             "--dim" => {
                 if let Some(d) = it.next() {
                     if let Some((w, h)) = d.split_once('x') {
@@ -77,32 +95,71 @@ fn main() {
     let lbl = geo_hhtl::garmin::lbl::parse(&lbl_bytes);
     let bbox = dec.tre.bbox;
 
-    // Grid dims: keep the tile's aspect at a ~1024-cell long axis unless overridden.
+    // --dem: source the heightfield (+ raw ESRI skin for a v2 demgrid) from a real
+    // dense DEM instead of the sparse Garmin contours. Sampled per grid cell below.
+    let dem = match &dem_path {
+        Some(p) => match read_dem(p) {
+            Ok(d) => {
+                eprintln!(
+                    "DEM {}x{} · lon {:.4}..{:.4} · lat {:.4}..{:.4} · {} skin",
+                    d.w, d.h, d.west, d.east, d.lats[0], d.lats[d.h - 1],
+                    if d.rgb.is_empty() { "no" } else { "raw ESRI" }
+                );
+                Some(d)
+            }
+            Err(e) => {
+                eprintln!("garmin_bake: --dem: {e}");
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    };
+
+    // The grid's geographic window: the full Garmin tile, OR the --crop sub-window
+    // (cut the dead plateau). Everything downstream (dims, projection, HHTL keys) reads
+    // these four degrees, so the crop is a pure bbox change — no HHTL remapping.
+    let (gw, gs, ge, gn) = match crop {
+        Some((w, s, e, n)) => (w, s, e, n),
+        None => (
+            mu2deg(bbox.west),
+            mu2deg(bbox.south),
+            mu2deg(bbox.east),
+            mu2deg(bbox.north),
+        ),
+    };
+
+    // Grid dims: explicit --dim wins; else with a DEM match its native resolution
+    // over the window (dense surfels, ~1:1 sampling); else the sparse-contour
+    // ~1024-cell long axis.
     let (w, h) = dim.unwrap_or_else(|| {
-        let deg_w = (mu2deg(bbox.east) - mu2deg(bbox.west)).abs();
-        let deg_h = (mu2deg(bbox.north) - mu2deg(bbox.south)).abs();
-        let cos_lat = ((mu2deg(bbox.north) + mu2deg(bbox.south)) * 0.5)
-            .to_radians()
-            .cos();
-        let aspect = (deg_w * cos_lat / deg_h.max(1e-9)).clamp(0.25, 4.0);
-        if aspect >= 1.0 {
-            (1024, (1024.0 / aspect).round() as usize)
+        let deg_w = (ge - gw).abs();
+        let deg_h = (gn - gs).abs();
+        if let Some(d) = &dem {
+            let dem_dlon = (d.east - d.west).abs() / (d.w - 1).max(1) as f64;
+            let dem_dlat = (d.lats[0] - d.lats[d.h - 1]).abs() / (d.h - 1).max(1) as f64;
+            let cw = (deg_w / dem_dlon.max(1e-9)).round().max(2.0) as usize;
+            let ch = (deg_h / dem_dlat.max(1e-9)).round().max(2.0) as usize;
+            (cw, ch)
         } else {
-            ((1024.0 * aspect).round() as usize, 1024)
+            let cos_lat = ((gn + gs) * 0.5).to_radians().cos();
+            let aspect = (deg_w * cos_lat / deg_h.max(1e-9)).clamp(0.25, 4.0);
+            if aspect >= 1.0 {
+                (1024, (1024.0 / aspect).round() as usize)
+            } else {
+                ((1024.0 * aspect).round() as usize, 1024)
+            }
         }
     });
     eprintln!(
-        "tile bbox N{:.4} E{:.4} S{:.4} W{:.4} · level {level} · grid {w}x{h}",
-        mu2deg(bbox.north),
-        mu2deg(bbox.east),
-        mu2deg(bbox.south),
-        mu2deg(bbox.west),
+        "window N{gn:.4} E{ge:.4} S{gs:.4} W{gw:.4} · level {level} · grid {w}x{h}{}",
+        if crop.is_some() { " (CROPPED)" } else { "" }
     );
 
-    // ── Terrain heightfield (metres) from the labeled contours of this LOD level. ──
-    let hf = terrain::heightfield_for_level(&dec, &lbl, level, w, h, feet);
-    let (elev_lo, elev_hi) = hf.range();
-    eprintln!("heightfield {w}x{h} · elevation {elev_lo:.0}..{elev_hi:.0} m");
+    // ── Terrain heightfield (metres): the sparse labeled contours of this LOD level,
+    //    UNLESS a dense DEM was supplied (then it is sampled per-cell below). ──
+    let hf = dem
+        .is_none()
+        .then(|| terrain::heightfield_for_level(&dec, &lbl, level, w, h, feet));
 
     // ── KIND overlay: natural landcover (rivers / lakes / forest) on bare
     //    terrain — roads/paths are excluded so the mountain scene reads as
@@ -140,28 +197,44 @@ fn main() {
 
     // ── Equirectangular metric projection about the tile centre (matches osm_read /
     //    iceland_dem so the cockpit decoder is shared). ──
-    let lon0 = (mu2deg(bbox.west) + mu2deg(bbox.east)) * 0.5;
-    let lat0 = (mu2deg(bbox.north) + mu2deg(bbox.south)) * 0.5;
+    let lon0 = (gw + ge) * 0.5;
+    let lat0 = (gn + gs) * 0.5;
     let cos_lat0 = lat0.to_radians().cos();
-    let lon_at = |c: usize| {
-        mu2deg(bbox.west)
-            + (mu2deg(bbox.east) - mu2deg(bbox.west)) * c as f64 / (w - 1).max(1) as f64
-    };
-    let lat_at = |r: usize| {
-        mu2deg(bbox.north)
-            - (mu2deg(bbox.north) - mu2deg(bbox.south)) * r as f64 / (h - 1).max(1) as f64
-    };
+    let lon_at = |c: usize| gw + (ge - gw) * c as f64 / (w - 1).max(1) as f64;
+    let lat_at = |r: usize| gn - (gn - gs) * r as f64 / (h - 1).max(1) as f64;
 
+    // Metric x/z per cell, plus per-cell height (metres) and — for a v2 DEM — the
+    // raw ESRI satellite colour (the ver-9 photoreal skin). Heights come from the
+    // dense DEM (bilinear at the cell's true lon/lat) or the sparse contour field.
     let mut mx = vec![0.0f32; w * h];
     let mut mz = vec![0.0f32; w * h];
+    let mut heights_m = vec![0.0f32; w * h];
+    let want_skin = dem.as_ref().is_some_and(|d| !d.rgb.is_empty());
+    let mut colors: Vec<[u8; 3]> = if want_skin { vec![[0u8; 3]; w * h] } else { Vec::new() };
     for r in 0..h {
-        let z = ((lat_at(r) - lat0) * M_PER_DEG) as f32;
+        let lat = lat_at(r);
+        let z = ((lat - lat0) * M_PER_DEG) as f32;
         for c in 0..w {
-            let x = ((lon_at(c) - lon0) * cos_lat0 * M_PER_DEG) as f32;
-            mx[r * w + c] = x;
-            mz[r * w + c] = z;
+            let i = r * w + c;
+            let lon = lon_at(c);
+            mx[i] = ((lon - lon0) * cos_lat0 * M_PER_DEG) as f32;
+            mz[i] = z;
+            heights_m[i] = match &dem {
+                Some(d) => d.elev_at(lon, lat),
+                None => hf.as_ref().unwrap().z[i],
+            };
+            if want_skin {
+                colors[i] = dem.as_ref().unwrap().rgb_at(lon, lat);
+            }
         }
     }
+    let (elev_lo, elev_hi) = heights_m
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+    eprintln!(
+        "heightfield {w}x{h} · elevation {elev_lo:.0}..{elev_hi:.0} m · {}",
+        if dem.is_some() { "DEM surfels" } else { "Garmin contours" }
+    );
     // Normalize horizontal extent to [-1,1]; elevation is TRUE-SCALE (÷ same half)
     // — the shader raises it by uExag, exactly like the Iceland terrain.
     let (mut lox, mut hix, mut loz, mut hiz) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
@@ -177,7 +250,7 @@ fn main() {
 
     let mut pos = vec![[0.0f32; 3]; w * h];
     for (i, p) in pos.iter_mut().enumerate() {
-        *p = [(mx[i] - cx) * inv, hf.z[i] * inv, (mz[i] - cz) * inv];
+        *p = [(mx[i] - cx) * inv, heights_m[i] * inv, (mz[i] - cz) * inv];
     }
 
     // ── Concepts = grid rows (contiguous vertex strips), keyed by HHTL address. ──
@@ -249,11 +322,14 @@ fn main() {
     let zrow: Vec<f32> = (0..h).map(|r| pos[r * w][2]).collect();
     let labels = br#"{"names":["garmin-terrain"]}"#;
 
+    // ver-9 (raw satellite skin) when `colors` is populated, else ver-8 (palette).
     let (soa, blocks) = encode_grid_bso2(
         w as u32, h as u32, x0, dx, ymax, &zrow, &heights, &kinds, &palette, &concepts, labels,
+        &colors,
     );
     eprintln!(
-        "BSO2 ver8: {} concepts · {} verts · {} tris · {} B soa · {} B blocks",
+        "BSO2 ver{}: {} concepts · {} verts · {} tris · {} B soa · {} B blocks",
+        if colors.is_empty() { 8 } else { 9 },
         concepts.len(),
         w * h,
         (w - 1) * (h - 1) * 2,
@@ -261,61 +337,176 @@ fn main() {
         blocks.len()
     );
 
-    // ── OSM ⊕ Garmin drape: lift the typed line network (roads / trails / rivers)
-    //    onto the SAME terrain surface (`pos`), co-registered with the ver-8 grid.
-    //    Emitted as a separate DRP1 sidecar so the proven grid wire is untouched. ──
-    let drape_lines = drape::build_drape(&dec, bbox, &pos, w, h, level, &drape::DRAPE_KINDS);
-    let drape_bytes = drape::encode_drape(&drape_lines, &palette);
-    let drape_pts: usize = drape_lines.iter().map(|l| l.pts.len()).sum();
-    eprintln!(
-        "DRP1 drape: {} lines · {} pts · {} B (level {level} road/trail/river network)",
-        drape_lines.len(),
-        drape_pts,
-        drape_bytes.len(),
-    );
-
-    // ── Contour-line overlay: lift the labeled contour polylines (the same set the
-    //    heightfield is built from) onto the surface as a DRP1 sidecar, so the client
-    //    can drape topo lines over the relief — the OpenTopoMap look. A COARSER level
-    //    than the heightfield keeps the overlay light (level 3 ≈ 8k lines, not level
-    //    4's 50k). Contours reuse the drape wire; the palette gives them a darker topo
-    //    brown for contrast against the terrain. ──
-    let contour_palette = {
-        let mut p = palette.clone();
-        p[geo_hhtl::garmin::GeoKind::Contour.tag() as usize] = CONTOUR_LINE;
-        p
-    };
-    let contour_lines = drape::build_drape(
-        &dec,
-        bbox,
-        &pos,
-        w,
-        h,
-        contour_level,
-        &[geo_hhtl::garmin::GeoKind::Contour],
-    );
-    let contour_bytes = drape::encode_drape(&contour_lines, &contour_palette);
-    let contour_pts: usize = contour_lines.iter().map(|l| l.pts.len()).sum();
-    eprintln!(
-        "DRP1 contours: {} lines · {} pts · {} B (level {contour_level} topo lines)",
-        contour_lines.len(),
-        contour_pts,
-        contour_bytes.len(),
-    );
-
     let stem = output.strip_suffix(".soa").unwrap_or(&output);
     let blocks_path = format!("{stem}.blocks");
-    let drape_path = format!("{stem}.drape.soa");
-    let contour_path = format!("{stem}.contour.soa");
-    if let Err(e) = std::fs::write(&output, &soa)
-        .and_then(|()| std::fs::write(&blocks_path, &blocks))
-        .and_then(|()| std::fs::write(&drape_path, &drape_bytes))
-        .and_then(|()| std::fs::write(&contour_path, &contour_bytes))
+    if let Err(e) =
+        std::fs::write(&output, &soa).and_then(|()| std::fs::write(&blocks_path, &blocks))
     {
         eprintln!("garmin_bake: write: {e}");
         std::process::exit(1);
     }
-    eprintln!("wrote {output} + {blocks_path} + {drape_path} + {contour_path}");
+    let mut wrote = format!("{output} + {blocks_path}");
+
+    // ── OSM ⊕ Garmin drape + contour overlays: the typed line network (roads / trails /
+    //    rivers) and the labeled contour polylines, lifted onto the terrain surface as
+    //    DRP1 sidecars. Emitted ONLY for the full tile — a --crop window is a photoreal
+    //    terrain+skin scene, and the Garmin features are addressed in the full-tile frame
+    //    (would not co-register with the cropped grid), so they are skipped. ──
+    if crop.is_none() {
+        let drape_lines = drape::build_drape(&dec, bbox, &pos, w, h, level, &drape::DRAPE_KINDS);
+        let drape_bytes = drape::encode_drape(&drape_lines, &palette);
+        let drape_pts: usize = drape_lines.iter().map(|l| l.pts.len()).sum();
+        eprintln!(
+            "DRP1 drape: {} lines · {} pts · {} B (level {level} road/trail/river network)",
+            drape_lines.len(),
+            drape_pts,
+            drape_bytes.len(),
+        );
+        let contour_palette = {
+            let mut p = palette.clone();
+            p[geo_hhtl::garmin::GeoKind::Contour.tag() as usize] = CONTOUR_LINE;
+            p
+        };
+        let contour_lines = drape::build_drape(
+            &dec,
+            bbox,
+            &pos,
+            w,
+            h,
+            contour_level,
+            &[geo_hhtl::garmin::GeoKind::Contour],
+        );
+        let contour_bytes = drape::encode_drape(&contour_lines, &contour_palette);
+        let contour_pts: usize = contour_lines.iter().map(|l| l.pts.len()).sum();
+        eprintln!(
+            "DRP1 contours: {} lines · {} pts · {} B (level {contour_level} topo lines)",
+            contour_lines.len(),
+            contour_pts,
+            contour_bytes.len(),
+        );
+        let drape_path = format!("{stem}.drape.soa");
+        let contour_path = format!("{stem}.contour.soa");
+        if let Err(e) = std::fs::write(&drape_path, &drape_bytes)
+            .and_then(|()| std::fs::write(&contour_path, &contour_bytes))
+        {
+            eprintln!("garmin_bake: write: {e}");
+            std::process::exit(1);
+        }
+        wrote = format!("{wrote} + {drape_path} + {contour_path}");
+    }
+    eprintln!("wrote {wrote}");
+}
+
+/// A dense DEM grid read from a `.demgrid` (DEMG v1/v2, produced by
+/// `scripts/fetch_iceland_dem.py`). Row 0 = north, col 0 = west; `lon` is linear
+/// across columns, `lat` tabulated per row (WebMercator spacing). v2 adds a raw
+/// ESRI satellite drape (`rgb`), the photoreal skin the ver-9 wire carries.
+struct Dem {
+    w: usize,
+    h: usize,
+    west: f64,
+    east: f64,
+    lats: Vec<f64>,    // len h, decreasing (row 0 = north)
+    elev: Vec<f32>,    // len w*h, metres, row-major
+    rgb: Vec<[u8; 3]>, // len w*h (v2) or empty (v1)
+}
+
+fn read_dem(path: &str) -> Result<Dem, String> {
+    let b = std::fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+    if b.len() < 32 || &b[0..4] != b"DEMG" {
+        return Err(format!("{path}: not a DEMG file"));
+    }
+    let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+    let f64_at = |o: usize| f64::from_le_bytes(b[o..o + 8].try_into().unwrap());
+    let ver = u32_at(4);
+    if ver != 1 && ver != 2 {
+        return Err(format!("{path}: unsupported DEMG version {ver}"));
+    }
+    let (w, h) = (u32_at(8) as usize, u32_at(12) as usize);
+    let (west, east) = (f64_at(16), f64_at(24));
+    let n = w * h;
+    let mut o = 32usize;
+    let need = 32 + h * 8 + n * 4 + if ver == 2 { n * 3 } else { 0 };
+    if b.len() < need {
+        return Err(format!("{path}: truncated (need {need} B, have {})", b.len()));
+    }
+    let mut lats = Vec::with_capacity(h);
+    for _ in 0..h {
+        lats.push(f64_at(o));
+        o += 8;
+    }
+    let mut elev = Vec::with_capacity(n);
+    for _ in 0..n {
+        elev.push(f32::from_le_bytes(b[o..o + 4].try_into().unwrap()));
+        o += 4;
+    }
+    let mut rgb = Vec::new();
+    if ver == 2 {
+        rgb.reserve(n);
+        for _ in 0..n {
+            rgb.push([b[o], b[o + 1], b[o + 2]]);
+            o += 3;
+        }
+    }
+    Ok(Dem { w, h, west, east, lats, elev, rgb })
+}
+
+impl Dem {
+    /// Fractional column for a longitude (linear west→east), clamped to the grid.
+    fn colf(&self, lon: f64) -> f64 {
+        let span = (self.east - self.west).abs().max(1e-12);
+        ((lon - self.west) / span * (self.w - 1) as f64).clamp(0.0, (self.w - 1) as f64)
+    }
+
+    /// Fractional row for a latitude — the DEM rows are WebMercator (non-uniform),
+    /// so bracket the decreasing `lats` table by binary search and interpolate.
+    fn rowf(&self, lat: f64) -> f64 {
+        if lat >= self.lats[0] {
+            return 0.0;
+        }
+        if lat <= self.lats[self.h - 1] {
+            return (self.h - 1) as f64;
+        }
+        let (mut lo, mut hi) = (0usize, self.h - 1);
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2;
+            if self.lats[mid] >= lat {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        let f = (self.lats[lo] - lat) / (self.lats[lo] - self.lats[hi]).abs().max(1e-12);
+        lo as f64 + f
+    }
+
+    /// Bilinear-sample elevation (metres) at a `(lon, lat)`.
+    fn elev_at(&self, lon: f64, lat: f64) -> f32 {
+        let (cf, rf) = (self.colf(lon), self.rowf(lat));
+        let (c0, r0) = (cf.floor() as usize, rf.floor() as usize);
+        let (c1, r1) = ((c0 + 1).min(self.w - 1), (r0 + 1).min(self.h - 1));
+        let (tx, ty) = ((cf - c0 as f64) as f32, (rf - r0 as f64) as f32);
+        let e = |r: usize, c: usize| self.elev[r * self.w + c];
+        let top = e(r0, c0) * (1.0 - tx) + e(r0, c1) * tx;
+        let bot = e(r1, c0) * (1.0 - tx) + e(r1, c1) * tx;
+        top * (1.0 - ty) + bot * ty
+    }
+
+    /// Bilinear-sample the raw satellite colour at a `(lon, lat)` (v2 only).
+    fn rgb_at(&self, lon: f64, lat: f64) -> [u8; 3] {
+        let (cf, rf) = (self.colf(lon), self.rowf(lat));
+        let (c0, r0) = (cf.floor() as usize, rf.floor() as usize);
+        let (c1, r1) = ((c0 + 1).min(self.w - 1), (r0 + 1).min(self.h - 1));
+        let (tx, ty) = ((cf - c0 as f64) as f32, (rf - r0 as f64) as f32);
+        let p = |r: usize, c: usize, k: usize| self.rgb[r * self.w + c][k] as f32;
+        let mut out = [0u8; 3];
+        for (k, o) in out.iter_mut().enumerate() {
+            let top = p(r0, c0, k) * (1.0 - tx) + p(r0, c1, k) * tx;
+            let bot = p(r1, c0, k) * (1.0 - tx) + p(r1, c1, k) * tx;
+            *o = (top * (1.0 - ty) + bot * ty).round().clamp(0.0, 255.0) as u8;
+        }
+        out
+    }
 }
 
 /// Topo-brown for the contour overlay — darker/more saturated than the default

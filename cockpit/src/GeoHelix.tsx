@@ -122,6 +122,7 @@ interface Decoded {
   /// can be re-decoded at a coarser stride — the client-side terrain LOD.
   isGrid?: boolean;
   stride?: number;   // grid LOD stride actually decoded at (1 = full res)
+  skin?: boolean;    // ver-9: vertex colours are the raw satellite photo (Diaprojektor skin)
 }
 interface ConceptMeta { row: number; name: string; layer: number; cx: number; cy: number; cz: number; }
 /// The draped feature network (DRP1): segment-paired vertices in the terrain's
@@ -151,6 +152,7 @@ function mix17(cx: number, cy: number, cz: number): number {
 }
 function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   const dv = new DataView(buf);
+  const ver = dv.getUint16(4, true);                 // 8 = palette grid; 9 = + per-vertex satellite skin
   const nC = dv.getUint32(6, true), Wf = dv.getUint32(10, true), Hf = dv.getUint32(14, true);
   // Terrain LOD: sub-sample the radix grid by `stride` at DECODE time. Grid cells are
   // ADDRESSES, so skipping is exact selection (never resampling) — stride 2 keeps every
@@ -180,6 +182,10 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   const pal = new Uint8Array(buf.slice(o, o + 3 * nK)); o += 3 * nK;
   const hfFull = new Uint16Array(buf.slice(o, o + 2 * nVf)); o += 2 * nVf;
   const kindsFull = new Uint8Array(buf.slice(o, o + nVf)); o += nVf;
+  // ver-9: the raw per-vertex satellite drape (the "Diaprojektor" colour sunk into
+  // the grid once). Row-major, same order as height/kind → the stride sub-samples it too.
+  const rgbFull = ver >= 9 ? new Uint8Array(buf.slice(o, o + 3 * nVf)) : null;
+  if (ver >= 9) o += 3 * nVf;
   const labLen = dv.getUint32(o, true); o += 4;
   let names: string[] = [];
   try { const lj = JSON.parse(new TextDecoder().decode(new Uint8Array(buf.slice(o, o + labLen)))); names = lj.names ?? lj; } catch { /* names optional */ }
@@ -189,12 +195,14 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   // ver-8 synthesizes display coords; no (-x, z, y) source remap round-trip.
   const heights = new Float32Array(nV);
   const kinds = new Uint8Array(nV);
+  const skin = rgbFull ? new Uint8Array(nV * 3) : null;   // ver-9: sunk satellite colour, stride-selected
   for (let r = 0, i = 0; r < H; r++) {
     const ro = rowF[r] * Wf;
     for (let c = 0; c < W; c++, i++) {
       const fi = ro + colF[c];
       heights[i] = HALF_LUT[hfFull[fi]] * yscale;
       kinds[i] = kindsFull[fi];
+      if (skin) { skin[i * 3] = rgbFull![fi * 3]; skin[i * 3 + 1] = rgbFull![fi * 3 + 1]; skin[i * 3 + 2] = rgbFull![fi * 3 + 2]; }
     }
   }
   const positions = new Float32Array(nV * 3);
@@ -238,6 +246,12 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   // boundary (intra-family discontinuity → blocky texture); this flows
   // continuously across cells — the surfel the body has. Corner values cached.
   const colors = new Uint8Array(nV * 3);
+  if (skin) {
+    // ver-9: the satellite photo IS the colour — copy it straight in (Diaprojektor
+    // sunk once), no palette/CurveRuler recolour. The shader applies only a gentle
+    // relief hillshade so the 3-D reads without muddying the photo.
+    colors.set(skin);
+  } else {
   const DETAIL = 48;
   const cornerCache = new Map<number, number>();
   const corner = (cx: number, cy: number, cz: number): number => {
@@ -266,6 +280,7 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
     colors[i * 3 + 1] = Math.max(0, Math.min(255, Math.round(pal[kb + 1] * sweet)));
     colors[i * 3 + 2] = Math.max(0, Math.min(255, Math.round(pal[kb + 2] * sweet)));
   }
+  }
   // index: the grid loop — connectedness IS the address structure (baker winding).
   const index = new Uint32Array(nT * 3);
   let wI = 0;
@@ -283,7 +298,7 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
     conceptList.push({ row: c, name: names[labelIdx[c]] ?? `concept ${c}`, layer: cLayer[c] || 8,
       cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: cen[c * 3 + 1] });   // source → display (-x,z,y)
   }
-  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true, stride };
+  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true, stride, skin: !!skin };
 }
 
 // Terrain LOD is a VERTEX BUDGET, not a blind ratio. A phone's per-frame ceiling is
@@ -295,7 +310,8 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
 const GRID_VERT_BUDGET = 4_200_000;
 function gridBudgetStride(buf: ArrayBuffer): number {
   const dv = new DataView(buf);
-  if (dv.getUint8(0) !== 0x42 || dv.getUint16(4, true) !== 8) return 1;   // ver-8 grid only
+  const v = dv.getUint16(4, true);
+  if (dv.getUint8(0) !== 0x42 || (v !== 8 && v !== 9)) return 1;          // ver-8/9 radix grid only
   const nv = dv.getUint32(10, true) * dv.getUint32(14, true);             // Wf × Hf from the header
   return Math.max(1, Math.round(Math.sqrt(nv / GRID_VERT_BUDGET)));
 }
@@ -305,7 +321,7 @@ function decode(buf: ArrayBuffer, stride = 1): Decoded {
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
   if (magic !== 'BSO2') throw new Error(`bad magic "${magic}"`);
   const ver = dv.getUint16(4, true);
-  if (ver === 8) return decodeGrid(buf, stride);   // radix-grid wire: height + kind only (stride = terrain LOD)
+  if (ver === 8 || ver === 9) return decodeGrid(buf, stride);   // radix-grid wire: height + kind (+ ver-9 satellite skin); stride = terrain LOD
   const posBytes = ver >= 4 ? 6 : 12;
   const nC = dv.getUint32(6, true), nV = dv.getUint32(10, true), nT = dv.getUint32(14, true);
   let o = 18;
@@ -450,6 +466,8 @@ uniform float uArid;   // 1 on arid/desert scenes → NO glacial turquoise (wate
 uniform float uTopo;   // 1 = TOPO/OTM cartographic mode (tied to the contour overlay): swap the vivid
                        // surfel grade for pale beige-green topo paper so the contour lines live on a
                        // map, not on the skin of the world. 0 = the beauty look (default).
+uniform float uSkin;   // 1 = ver-9 SATELLITE SKIN: aColor IS the raw photo → skip all hypsometric /
+                       // water / moss / topo recolour, apply only a soft relief hillshade.
 varying vec3 vColor;
 // THE KURVENLINEAL is now baked into the mesh, not approximated here. The real
 // helix::CurveRuler golden-spiral residue (stride-4-over-17) is applied at BAKE time in
@@ -499,7 +517,18 @@ void main(){
   if (uGeo > 0.5) { dpos.y = position.y * uExag; }
   vec4 mvp = modelViewMatrix * vec4(dpos, 1.0);
   vec3 lit;
-  if (uGeo > 0.5) {
+  if (uGeo > 0.5 && uSkin > 0.5) {
+    // ── ver-9 SATELLITE SKIN — the photo IS the truth (Diaprojektor sunk into the
+    //    grid). It already carries the sun's own shadows, so add ONLY a soft
+    //    directional relief lift so the 3-D form reads, plus a whisper of saturation.
+    //    No hypsometric ramp, no water re-tint, no topo paper — those would fight the
+    //    real imagery. ──
+    vec3 SUN = normalize(vec3(-0.55, 0.42, 0.72));
+    float ndl = max(dot(n, SUN), 0.0);
+    lit = aColor * (0.80 + 0.32 * ndl);
+    float lum = dot(lit, vec3(0.299, 0.587, 0.114));
+    lit = mix(vec3(lum), lit, 1.08);                    // +8% saturation, keep it natural
+  } else if (uGeo > 0.5) {
     // (1) HYPSOMETRIC tint — blend the baked KIND colour (aColor) with the height ramp.
     vec3 base = mix(aColor, terrainColor(position.y), 0.55);
     // KIND masks from the RAW aColor (not the render): water = blue-dominant,
@@ -769,7 +798,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // Glacial turquoise is Iceland's look; every other terrain scene keeps plain river-blue
   // water (the canyon's Colorado). uArid = "not the glacial Iceland scene".
   const uAridVal = isTerrainScene && !isIcelandScene ? 1 : 0;
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 }, uMoss: { value: isIcelandScene ? 1 : 0 }, uArid: { value: uAridVal }, uTopo: { value: 0 } };
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 }, uMoss: { value: isIcelandScene ? 1 : 0 }, uArid: { value: uAridVal }, uTopo: { value: 0 }, uSkin: { value: d.skin ? 1 : 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -1009,7 +1038,13 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     // of the world, so they never draw over the vivid beauty grade.
     if (!contourLines && contours.current) buildContours(contours.current);
     if (contourLines && contourLines.visible !== showContours.current) contourLines.visible = showContours.current;
-    uniforms.uTopo.value = contourLines && showContours.current ? 1 : 0;
+    // Topo activates from the button on a ver-9 photoreal scene EVEN without contour
+    // data (a cropped canyon has none) — it flips the satellite skin off for the
+    // cartographic paper look; contour LINES draw on top only if the sidecar exists.
+    // Non-skin scenes still require contour data to enter topo mode (unchanged).
+    const topoOn = (d.skin || contourLines) && showContours.current ? 1 : 0;
+    uniforms.uTopo.value = topoOn;
+    if (d.skin) uniforms.uSkin.value = topoOn ? 0 : 1;
     // browser pick → glide the orbit target + dolly onto the chosen concept
     if (focus.current) {
       const f = focus.current;
