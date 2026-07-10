@@ -29,7 +29,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let (Some(input), Some(output)) = (args.next(), args.next()) else {
         eprintln!(
-            "usage: garmin_bake <in.img> <out.soa> [--level N] [--dim WxH] [--metres] [--arid]"
+            "usage: garmin_bake <in.img> <out.soa> [--level N] [--contour-level N] [--dim WxH] [--metres] [--arid]"
         );
         std::process::exit(2);
     };
@@ -37,11 +37,15 @@ fn main() {
     let mut dim: Option<(usize, usize)> = None;
     let mut feet = true; // US-topo default; --metres for OTM
     let mut arid = false; // --arid: desert scene — dry-wash drainage is rust-brown, not blue
+    let mut contour_level: u8 = 3; // --contour-level N: contour overlay LOD (3 ≈ 8k lines, OTM-dense)
     let rest: Vec<String> = args.collect();
     let mut it = rest.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--level" => level = it.next().and_then(|s| s.parse().ok()).unwrap_or(4),
+            "--contour-level" => {
+                contour_level = it.next().and_then(|s| s.parse().ok()).unwrap_or(3);
+            }
             "--metres" | "--meters" => feet = false,
             "--arid" => arid = true,
             "--dim" => {
@@ -104,21 +108,34 @@ fn main() {
     //    terrain — roads/paths are excluded so the mountain scene reads as
     //    terrain, not a street grid. ──
     let mut kinds = terrain::kind_grid(&dec, bbox, w, h, &terrain::LANDCOVER);
-    // On an arid scene the ONE real water body (the Colorado) is the visual focal
-    // point, but its river-fill rasterizes to a ~1-cell hairline at grid resolution.
-    // Widen the Water cells so the river reads as a ribbon, the way it dominates the
-    // real canyon. (Non-arid scenes keep the raw stamp.)
+    // On an arid scene, blue is reserved for the ONE persistent water body — the
+    // flowing Colorado (Garmin river-fill type 0x4c). Its stamp rasterizes to a
+    // ~1-cell hairline, so widen ONLY the river ×2 (ribbon, the way it dominates
+    // the real canyon). The still "lakes" (stock tanks / ephemeral ponds) are NOT
+    // blue on an arid landscape: retag them to the SUBTLE slot — a barely-there
+    // grey-blue fleck, deliberately below the shader's blue-dominance `wet`
+    // threshold so no vivid water treatment fires. (Non-arid scenes keep the raw
+    // stamp for everything.)
     if arid {
-        let before = kinds
-            .iter()
-            .filter(|&&k| k == geo_hhtl::garmin::GeoKind::Water.tag())
-            .count();
-        kinds = terrain::dilate_kind(&kinds, w, h, geo_hhtl::garmin::GeoKind::Water.tag(), 2);
-        let after = kinds
-            .iter()
-            .filter(|&&k| k == geo_hhtl::garmin::GeoKind::Water.tag())
-            .count();
-        eprintln!("arid river: Water cells {before} → {after} (dilated ×2 so the Colorado reads)");
+        let wtag = geo_hhtl::garmin::GeoKind::Water.tag();
+        let river =
+            terrain::dilate_kind(&terrain::river_fill_grid(&dec, bbox, w, h), w, h, wtag, 2);
+        let (mut river_cells, mut widened, mut lakes) = (0usize, 0usize, 0usize);
+        for (i, k) in kinds.iter_mut().enumerate() {
+            if river[i] == wtag {
+                river_cells += 1;
+                if *k != wtag {
+                    widened += 1;
+                    *k = wtag;
+                }
+            } else if *k == wtag {
+                lakes += 1;
+                *k = LAKE_TAG; // still water → subtle fleck, not bright blue
+            }
+        }
+        eprintln!(
+            "arid river: widened Colorado (type 0x4c ×2) to {river_cells} cells (+{widened}); {lakes} still-water cells → subtle tag {LAKE_TAG}"
+        );
     }
 
     // ── Equirectangular metric projection about the tile centre (matches osm_read /
@@ -202,7 +219,7 @@ fn main() {
     //    gullies), so recolour it rust-brown and keep blue for the actual `Water`
     //    bodies (the Colorado). One palette feeds BOTH the terrain KIND block and the
     //    DRP1 drape below, so the drainage browns consistently across both. ──
-    let palette: Vec<[u8; 3]> = if arid {
+    let mut palette: Vec<[u8; 3]> = if arid {
         geo_hhtl::garmin::GeoKind::arid_palette()
     } else {
         geo_hhtl::garmin::GeoKind::PALETTE
@@ -211,7 +228,13 @@ fn main() {
             .collect()
     };
     if arid {
-        eprintln!("arid palette: Stream drainage → rust-brown, Water stays river-blue");
+        // Slot 9 = LAKE_TAG. The ver-8 wire carries its palette count (nK u8) and the
+        // client indexes palette[kind] from the wire, so a 10th entry is decode-safe.
+        debug_assert_eq!(palette.len() as u8, LAKE_TAG);
+        palette.push(LAKE_SUBTLE);
+        eprintln!(
+            "arid palette: Stream drainage → rust-brown, Water river-blue, still lakes → subtle"
+        );
     }
     let ymax = pos.iter().map(|p| p[1]).fold(1e-9f32, f32::max);
     let heights: Vec<f32> = pos.iter().map(|p| p[1] / ymax).collect();
@@ -245,15 +268,63 @@ fn main() {
         drape_bytes.len(),
     );
 
+    // ── Contour-line overlay: lift the labeled contour polylines (the same set the
+    //    heightfield is built from) onto the surface as a DRP1 sidecar, so the client
+    //    can drape topo lines over the relief — the OpenTopoMap look. A COARSER level
+    //    than the heightfield keeps the overlay light (level 3 ≈ 8k lines, not level
+    //    4's 50k). Contours reuse the drape wire; the palette gives them a darker topo
+    //    brown for contrast against the terrain. ──
+    let contour_palette = {
+        let mut p = palette.clone();
+        p[geo_hhtl::garmin::GeoKind::Contour.tag() as usize] = CONTOUR_LINE;
+        p
+    };
+    let contour_lines = drape::build_drape(
+        &dec,
+        bbox,
+        &pos,
+        w,
+        h,
+        contour_level,
+        &[geo_hhtl::garmin::GeoKind::Contour],
+    );
+    let contour_bytes = drape::encode_drape(&contour_lines, &contour_palette);
+    let contour_pts: usize = contour_lines.iter().map(|l| l.pts.len()).sum();
+    eprintln!(
+        "DRP1 contours: {} lines · {} pts · {} B (level {contour_level} topo lines)",
+        contour_lines.len(),
+        contour_pts,
+        contour_bytes.len(),
+    );
+
     let stem = output.strip_suffix(".soa").unwrap_or(&output);
     let blocks_path = format!("{stem}.blocks");
     let drape_path = format!("{stem}.drape.soa");
+    let contour_path = format!("{stem}.contour.soa");
     if let Err(e) = std::fs::write(&output, &soa)
         .and_then(|()| std::fs::write(&blocks_path, &blocks))
         .and_then(|()| std::fs::write(&drape_path, &drape_bytes))
+        .and_then(|()| std::fs::write(&contour_path, &contour_bytes))
     {
         eprintln!("garmin_bake: write: {e}");
         std::process::exit(1);
     }
-    eprintln!("wrote {output} + {blocks_path} + {drape_path}");
+    eprintln!("wrote {output} + {blocks_path} + {drape_path} + {contour_path}");
 }
+
+/// Topo-brown for the contour overlay — darker/more saturated than the default
+/// [`GeoKind::Contour`](geo_hhtl::garmin::GeoKind::Contour) tan so the lines read
+/// against the warm terrain (the OpenTopoMap contour look).
+const CONTOUR_LINE: [u8; 3] = [128, 94, 60];
+
+/// Palette slot for still-water lakes/tanks on an `--arid` scene — appended AFTER
+/// the 9 canonical `GeoKind` entries (the ver-8 wire carries its own palette count,
+/// so extra slots are decode-safe). On an arid landscape these are stock tanks and
+/// ephemeral ponds, not lakes: bright blue misleads.
+const LAKE_TAG: u8 = 9;
+
+/// Barely-there grey-blue for [`LAKE_TAG`] cells. Deliberately BELOW the terrain
+/// shader's blue-dominance `wet` threshold (`b − max(r,g) = 4/255 ≪ 0.06`), so none
+/// of the vivid water treatment (blue re-assert, sun-glint) fires — the tank reads
+/// as a subtle damp fleck in the earth, not a bright blue lake.
+const LAKE_SUBTLE: [u8; 3] = [122, 130, 134];
