@@ -57,9 +57,9 @@ const PAGE: &str = r##"<!doctype html>
 <div id="app">
   <div id="map">
     <div id="tiles"></div>
-    <div class="ctl"><button id="zin">+</button><button id="zout">−</button></div>
+    <div class="ctl"><button id="zin">+</button><button id="zout">−</button><button id="base" title="basemap: OSM map ↔ ESRI satellite (same tiles, same HHTL address — two skins)" style="width:auto;padding:0 8px;font-size:12px">sat</button></div>
     <div class="hint">drag to pan · click a point for its HHTL key</div>
-    <div class="attr">© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors</div>
+    <div class="attr" id="attr">© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors</div>
   </div>
   <div id="panel">
     <h1>OSM cockpit</h1>
@@ -91,6 +91,19 @@ const map=document.getElementById('map'), tilesEl=document.getElementById('tiles
 let z=12;                       // Berlin-ish default view
 let cx=lon2x(13.404954,z), cy=lat2y(52.520008,z);  // center in fractional tile units
 
+// ── dual map: OSM (z/x/y) ↔ ESRI World Imagery satellite (z/y/x — row first!).
+// Same slippy addresses, same HHTL keys — two skins. Mirrors cockpit-server::
+// osm_tiles::{OSM_TILE_URL, SAT_TILE_URL}; the locate API reports both URLs.
+const BASEMAPS={
+  osm:{ src:(z,x,y)=>`https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
+        attr:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        next:'sat' },
+  sat:{ src:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+        attr:'Powered by <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics',
+        next:'osm' },
+};
+let basemap='osm';
+
 function render(){
   const w=map.clientWidth, h=map.clientHeight, n=Math.pow(2,z);
   tilesEl.innerHTML='';
@@ -99,10 +112,11 @@ function render(){
   tilesEl.style.transform=`translate(${ox}px,${oy}px)`;
   const x0=Math.floor(cx - w/512)-1, x1=Math.floor(cx + w/512)+1;
   const y0=Math.floor(cy - h/512)-1, y1=Math.floor(cy + h/512)+1;
+  const bm=BASEMAPS[basemap];
   for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++){
     const wx=((tx%n)+n)%n; if(ty<0||ty>=n) continue;
     const img=new Image();
-    img.src=`https://tile.openstreetmap.org/${z}/${wx}/${ty}.png`;
+    img.src=bm.src(z,wx,ty);
     img.style.left=(tx*256)+'px'; img.style.top=(ty*256)+'px';
     tilesEl.appendChild(img);
   }
@@ -123,6 +137,13 @@ function zoom(d){ const nz=Math.max(0,Math.min(19,z+d)); if(nz===z) return;
   const f=Math.pow(2,nz-z); cx*=f; cy*=f; z=nz; render(); }
 document.getElementById('zin').onclick=e=>{ e.stopPropagation(); zoom(1); };
 document.getElementById('zout').onclick=e=>{ e.stopPropagation(); zoom(-1); };
+// basemap toggle — the button names the OTHER skin (what you'll switch TO);
+// attribution follows the active source (OSM contributors ↔ Esri).
+document.getElementById('base').onclick=e=>{ e.stopPropagation();
+  basemap=BASEMAPS[basemap].next;
+  e.target.textContent=BASEMAPS[basemap].next;
+  document.getElementById('attr').innerHTML=BASEMAPS[basemap].attr;
+  render(); };
 map.addEventListener('wheel',e=>{ e.preventDefault(); zoom(e.deltaY<0?1:-1); },{passive:false});
 
 // ── click → server-side HHTL key ──
@@ -144,7 +165,9 @@ map.addEventListener('click',async e=>{
     document.getElementById('heel').textContent='0x'+d.hhtl.heel.toString(16).padStart(4,'0');
     document.getElementById('hip').textContent='0x'+d.hhtl.hip.toString(16).padStart(4,'0');
     document.getElementById('twig').textContent='0x'+d.hhtl.twig.toString(16).padStart(4,'0');
-    document.getElementById('src').textContent=d.tile_url;
+    // tile source follows the ACTIVE basemap (the locate API reports both URLs) —
+    // on satellite, showing the OSM URL would mismatch the visible tiles.
+    document.getElementById('src').textContent=basemap==='sat'?d.sat_tile_url:d.tile_url;
   }catch(err){ document.getElementById('src').textContent='locate failed: '+err; }
 });
 
