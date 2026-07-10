@@ -121,6 +121,7 @@ interface Decoded {
   /// ver-8 radix grid (vs an explicit mesh): the wire is a W×H heightfield, so it
   /// can be re-decoded at a coarser stride — the client-side terrain LOD.
   isGrid?: boolean;
+  stride?: number;   // grid LOD stride actually decoded at (1 = full res)
 }
 interface ConceptMeta { row: number; name: string; layer: number; cx: number; cy: number; cz: number; }
 /// The draped feature network (DRP1): segment-paired vertices in the terrain's
@@ -154,10 +155,12 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   // Terrain LOD: sub-sample the radix grid by `stride` at DECODE time. Grid cells are
   // ADDRESSES, so skipping is exact selection (never resampling) — stride 2 keeps every
   // other height sample untouched and yields ¼ the verts/tris AND ¼ the decode work
-  // (the mobile fast path; the LOD toggle re-decodes live). Edge row/col clamp to the
-  // last full-grid sample so the tile rim survives.
-  const W = stride > 1 ? Math.ceil(Wf / stride) : Wf;
-  const H = stride > 1 ? Math.ceil(Hf / stride) : Hf;
+  // (the mobile fast path; the LOD toggle re-decodes live). Dims are sized so the LAST
+  // full-grid row/col is always reachable — ceil((N-1)/stride)+1 — and the final index
+  // clamps onto it, so the tile rim genuinely survives (plain ceil(N/stride) silently
+  // dropped the rim row/col whenever N was even).
+  const W = stride > 1 ? Math.ceil((Wf - 1) / stride) + 1 : Wf;
+  const H = stride > 1 ? Math.ceil((Hf - 1) / stride) + 1 : Hf;
   const colF = new Uint32Array(W), rowF = new Uint32Array(H);
   for (let c = 0; c < W; c++) colF[c] = Math.min(c * stride, Wf - 1);
   for (let r = 0; r < H; r++) rowF[r] = Math.min(r * stride, Hf - 1);
@@ -280,7 +283,21 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
     conceptList.push({ row: c, name: names[labelIdx[c]] ?? `concept ${c}`, layer: cLayer[c] || 8,
       cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: cen[c * 3 + 1] });   // source → display (-x,z,y)
   }
-  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true };
+  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true, stride };
+}
+
+// Terrain LOD is a VERTEX BUDGET, not a blind ratio. A phone's per-frame ceiling is
+// a vertex count, not a fraction — so decimate only enough to fit the budget, and
+// leave any grid already under it at FULL resolution. 4.2M is what a 6-year-old phone
+// renders smoothly (Iceland ½-res ≈ 4.1M), so: canyon (864k) → stride 1 (untouched);
+// Iceland (16.5M) → stride 2 (≈4.1M). The old fixed stride-2 needlessly gutted the
+// canyon to 216k — blocky low-poly for zero perf gain.
+const GRID_VERT_BUDGET = 4_200_000;
+function gridBudgetStride(buf: ArrayBuffer): number {
+  const dv = new DataView(buf);
+  if (dv.getUint8(0) !== 0x42 || dv.getUint16(4, true) !== 8) return 1;   // ver-8 grid only
+  const nv = dv.getUint32(10, true) * dv.getUint32(14, true);             // Wf × Hf from the header
+  return Math.max(1, Math.round(Math.sqrt(nv / GRID_VERT_BUDGET)));
 }
 
 function decode(buf: ArrayBuffer, stride = 1): Decoded {
@@ -1012,8 +1029,9 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
       const ri = renderer.info.render;
       // Grid scenes have REAL client LOD (stride re-decode); mesh geo scenes don't
       // (yet); the body scene has the server HHTL cascade. Say which, honestly.
+      const st = d.stride || 1;
       const lodTxt = d.isGrid
-        ? (lod.current ? 'on · ½-res grid' : 'off · full grid')
+        ? `${lod.current ? 'on' : 'off'} · ${st > 1 ? `1/${st} grid` : 'full grid'}`
         : isGeoScene ? 'n/a (mesh scene)' : lod.current ? 'on' : 'off';
       hud.textContent = `tris ${fmtM(ri.triangles)} · lines ${fmtM(ri.lines)} · calls ${ri.calls} · verts ${fmtM(d.nVerts)} · LOD ${lodTxt}`;
     }
@@ -1130,7 +1148,7 @@ export default function GeoHelix() {
     // Grid scenes decode at the LOD stride (mobile auto-½-res) and KEEP the wire
     // so the LOD toggle re-decodes live without refetching.
     fetchSoa().then((b) => {
-      const stride = lodRef.current ? 2 : 1;
+      const stride = lodRef.current ? gridBudgetStride(b) : 1;
       const x = decode(b, stride);
       if (x.isGrid) rawRef.current = b;
       decodedStrideRef.current = stride;
@@ -1177,7 +1195,7 @@ export default function GeoHelix() {
     // Grid terrain LOD: re-decode the kept wire at the new stride (deferred a tick so
     // the button repaints before the decode blocks). The mount effect remounts on the
     // new `d`. Body scenes have no rawRef → the server-cascade path is untouched.
-    const want = lod ? 2 : 1;
+    const want = lod && rawRef.current ? gridBudgetStride(rawRef.current) : 1;
     if (rawRef.current && decodedStrideRef.current !== want) {
       decodedStrideRef.current = want;
       const raw = rawRef.current;
