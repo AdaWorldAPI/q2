@@ -40,6 +40,35 @@ the render on mobile; the full grid is the desktop birdview.
 - Verified headless (803k proxy): the satellite skin renders (forest / red walls /
   Colorado), sky, `verts · LOD · full grid` HUD. Full-size render is the Railway view.
 
+## Havel canoe map (2026-07-10, same pipeline)
+- User's next-10-days canoe region: `--bbox 12.246494,53.011917,13.657894,53.539721`
+  (upper-left / lower-right corners from satellites.pro), z14/ds3.
+- **No Garmin tile** → baked by `iceland_dem --grid --skin` (new flag): sinks the raw
+  ESRI pixels into the ver-9 grid instead of the classified KIND palette. Vertex i IS
+  demgrid cell i (1:1, no resampling).
+- 5546×3498 = **19.4M verts**, elev 12–174 m (flat lowland — the value is the skin),
+  gz **69.3 MB**, committed in `public/` (Release-hosted on-demand is the follow-up;
+  MCP tooling can't create Releases this session). Budget-LOD: 19.4M → stride-2 =
+  **4.85M** (the "20M is OK if LOD is 5 Mio" operating point).
+- Scene = `/garmin/havel` via one manifest entry; the dropdown auto-populates from
+  `garmin_scenes` — zero cockpit code.
+
+## North-up fix + white balance + /havel route (2026-07-10, operator alignment check)
+- **N–S mirror found by the operator** (Havel vs Google: Kölpinsee rendered SOUTH of
+  the Müritz). Root cause: bake stores z = (lat−lat0)·M (north = +z) while the default
+  aerial camera sits on the +z side (screen-up = −z) → every ver-8/9 grid scene rendered
+  N–S mirrored. Ground truth (demgrid) verified correct — display-side bug only.
+- **Fix in `decodeGrid` (no rebake, all grid scenes at once):** negate `zrow` at read
+  (positions + normals derive), emit winding flipped ((a,d2,b)/(b,d2,e)) so faces stay
+  +y, negate concept-centroid z. Wire + HHTL keys untouched.
+- **White balance (operator: "rather dull"):** ESRI over Mecklenburg is hazy — measured
+  p98 white point only 171/166/145. Bake-time per-channel p2→p98 stretch (→10..250) +
+  sat ×1.18 on the demgrid rgb, then rebake — corrected colour sunk once (Diaprojektor),
+  not shader-corrected per frame.
+- **`/havel` first-class route** (like /ice): main.tsx Route + pathScene alias →
+  `garmin:havel`. First attempt missed the top-level router (path fell through to the
+  AIWAR cockpit) — caught by the headless shot.
+
 ## Follow-ups
 - **66 MB from a q2 Release, on-demand** (operator preference) — host the full-tile /
   higher-zoom asset in a GitHub Release; scene fetches it on demand instead of git.

@@ -155,13 +155,18 @@ fn classify_kind(rgb: [u8; 3], elev: f32) -> Kind {
 fn main() {
     let mut args = std::env::args().skip(1);
     let (Some(input), Some(output)) = (args.next(), args.next()) else {
-        eprintln!("usage: iceland_dem <in.demgrid> <out.soa> [--grid]");
+        eprintln!("usage: iceland_dem <in.demgrid> <out.soa> [--grid] [--skin]");
         std::process::exit(2);
     };
+    let flags: Vec<String> = args.collect();
     // --grid → the ver-8 radix-grid wire (height F16 + kind u8 only; location /
     // connectedness / tilt / residue all client-derived from the address).
     // Default stays the ver-7 mesh wire the deployed artifact uses.
-    let grid_mode = args.next().as_deref() == Some("--grid");
+    let grid_mode = flags.iter().any(|f| f == "--grid");
+    // --skin (grid mode + a v2 demgrid) → ver-9: sink the RAW ESRI satellite pixels into
+    // the grid as per-vertex colour (the photoreal "Diaprojektor" skin), instead of the
+    // classified KIND palette. Vertex i IS demgrid cell i, so the drape maps 1:1.
+    let skin = flags.iter().any(|f| f == "--skin");
     let dem = match read_demgrid(&input) {
         Ok(d) => d,
         Err(e) => {
@@ -329,9 +334,11 @@ fn main() {
         let x0 = pos[0][0];
         let dx = if w > 1 { pos[1][0] - pos[0][0] } else { 0.0 };
         let zrow: Vec<f32> = (0..h).map(|r| pos[r * w][2]).collect();
+        // ver-9 raw satellite skin when --skin + a v2 demgrid; else ver-8 palette grid.
+        let colors: &[[u8; 3]] = if skin && has_img { &dem.rgb } else { &[] };
         encode_grid_bso2(
             w as u32, h as u32, x0, dx, ymax, &zrow, &heights, &kinds, &palette, &concepts,
-            labels, &[],
+            labels, colors,
         )
     } else {
         encode_mesh_bso2(&pos, &nrm, &rows, &tris, &concepts, labels, &colors)
@@ -351,7 +358,7 @@ fn main() {
     };
     eprintln!(
         "BSO2 ver{}: {nc} concepts · {nv} verts · {nt} tris · {} B soa · {} B blocks",
-        if grid_mode { 8 } else { 7 },
+        u16::from_le_bytes(soa[4..6].try_into().unwrap()),
         soa.len(),
         blocks.len()
     );

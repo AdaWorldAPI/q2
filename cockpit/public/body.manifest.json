@@ -4,7 +4,8 @@
   "iceland_latest": "iceland_dem.helix.soa.gz",
   "garmin_scenes": {
     "iceland": "iceland_dem.v8grid.soa.gz",
-    "grand-canyon": "canyon.v8grid.soa.gz"
+    "grand-canyon": "canyon.v8grid.soa.gz",
+    "havel": "havel.v8grid.soa.gz"
   },
   "garmin_drapes": {},
   "garmin_contours": {},

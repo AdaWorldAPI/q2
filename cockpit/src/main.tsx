@@ -119,6 +119,7 @@ createRoot(document.getElementById('root')!).render(
               GeoHelix parses the slug from the path (pathScene). */}
           <Route path="/geo" element={<GeoHelix />} />
           <Route path="/ice" element={<GeoHelix />} />
+          <Route path="/havel" element={<GeoHelix />} />
           <Route path="/garmin/:location" element={<GeoHelix />} />
           {/* /cpic — CPIC pharmacogenomics cockpit (gene-first): {gene, diplotype, drug}
               → phenotype → recommendation, 2-hop NARS deduction over the real CPIC tables
