@@ -27,16 +27,38 @@ use std::f64::consts::PI;
 /// by the client; the cockpit only computes the address.
 pub const OSM_TILE_URL: &str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
+/// The satellite basemap source — ESRI World Imagery, the SAME keyless slippy
+/// grid the DEM/skin bakes drape from (`scripts/fetch_iceland_dem.py`), so the
+/// dual map (OSM ↔ satellite) and the ver-9 terrain skins share one imagery
+/// truth. NOTE the path order: ESRI is **z/y/x** (row before column), unlike
+/// the OSM z/x/y — the template placeholders encode that swap.
+pub const SAT_TILE_URL: &str =
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+
 /// Native HHTL depth: 3 tiers × 8 levels = 24 quadtree levels (zoom 0..=24).
 pub const HHTL_DEPTH: u32 = 24;
 
-/// The concrete tile-source URL for a `z/x/y` address.
-#[must_use]
-pub fn tile_url(z: u32, x: u32, y: u32) -> String {
-    OSM_TILE_URL
+/// Fill a slippy-tile URL template (`{z}`/`{x}`/`{y}`) for an address. The
+/// template carries the axis order, so OSM (z/x/y) and ESRI (z/y/x) both fill
+/// correctly through the same call.
+fn fill_template(template: &str, z: u32, x: u32, y: u32) -> String {
+    template
         .replace("{z}", &z.to_string())
         .replace("{x}", &x.to_string())
         .replace("{y}", &y.to_string())
+}
+
+/// The concrete OSM tile-source URL for a `z/x/y` address.
+#[must_use]
+pub fn tile_url(z: u32, x: u32, y: u32) -> String {
+    fill_template(OSM_TILE_URL, z, x, y)
+}
+
+/// The concrete SATELLITE (ESRI World Imagery) tile URL for the same `z/x/y`
+/// address — the dual-map partner of [`tile_url`].
+#[must_use]
+pub fn sat_tile_url(z: u32, x: u32, y: u32) -> String {
+    fill_template(SAT_TILE_URL, z, x, y)
 }
 
 /// WebMercator (EPSG:3857) forward: geographic `(lon, lat)` → slippy tile
@@ -151,6 +173,10 @@ pub async fn osm_locate_handler(Query(q): Query<LocateQuery>) -> Json<serde_json
         "lon": q.lon, "lat": q.lat, "z": z, "x": x, "y": y,
         "tile_url": tile_url(z, x, y),
         "source": OSM_TILE_URL,
+        // Dual map: the SAME address on the satellite basemap (ESRI World
+        // Imagery, z/y/x) — one HHTL key, two skins.
+        "sat_tile_url": sat_tile_url(z, x, y),
+        "sat_source": SAT_TILE_URL,
         "hhtl": hhtl,
         "geo_domain": "0x0F",
     }))
@@ -169,6 +195,8 @@ pub async fn osm_tile_meta_handler(
         "z": z, "x": x, "y": y,
         "tile_url": tile_url(z, x, y),
         "source": OSM_TILE_URL,
+        "sat_tile_url": sat_tile_url(z, x, y),
+        "sat_source": SAT_TILE_URL,
         "hhtl": hhtl,
         "resolved": { "z": rz, "x": rx, "y": ry },
         "geo_domain": "0x0F",
@@ -184,6 +212,16 @@ mod tests {
         assert_eq!(
             tile_url(14, 8749, 5677),
             "https://tile.openstreetmap.org/14/8749/5677.png"
+        );
+    }
+
+    #[test]
+    fn sat_tile_url_swaps_to_esri_z_y_x_order() {
+        // Same address, satellite skin — and the ESRI path is z/y/x (row before
+        // column), the classic trap the template encodes: y=5677 precedes x=8749.
+        assert_eq!(
+            sat_tile_url(14, 8749, 5677),
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/14/5677/8749"
         );
     }
 

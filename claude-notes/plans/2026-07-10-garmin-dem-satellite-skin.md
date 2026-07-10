@@ -80,3 +80,20 @@ the render on mobile; the full grid is the desktop birdview.
   both reuse the DEM+skin pipeline; Havel is flat lowland → skin-dominant.
 - **Sentinel-2 skin** — swap the ESRI source for `GrandCanyon_S2_20260620.tif`
   (source-agnostic; the skin just comes from the demgrid rgb).
+
+## /osm dual basemap (2026-07-10, follow-up shipped)
+- The `/osm` slippy cockpit gets a **basemap toggle**: OSM map ↔ ESRI World Imagery
+  satellite — the SAME keyless imagery the ver-9 terrain skins drape from, so the flat
+  map and the 3D scenes share one imagery truth. Same tile addresses, same HHTL keys —
+  two skins.
+- Server (`osm_tiles.rs`): `SAT_TILE_URL` + `sat_tile_url()` (ESRI is **z/y/x** — row
+  before column; the shared `fill_template` encodes the swap), both locate/tile-meta
+  responses now report `sat_tile_url`/`sat_source` (additive JSON). Test asserts the
+  axis order.
+- Page (`osm.rs`): `BASEMAPS` table (src template + attribution + next), `sat`/`osm`
+  toggle button in the map controls, attribution swaps with the source (OSM
+  contributors ↔ Esri/Maxar/Earthstar).
+- Verified headless on the extracted page: toggle OSM→sat→OSM, srcs swap with the
+  z/y/x order CORRECT, attribution follows. cockpit-server itself cannot compile in
+  this container (rusty_v8 static-lib download blocked by egress policy) — Rust side
+  mirrors the existing tested pattern; CI runs the tests.
