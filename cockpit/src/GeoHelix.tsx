@@ -37,6 +37,7 @@ function pathScene(): string | null {
   const p = window.location.pathname;
   if (p === '/geo') return 'osm';
   if (p === '/ice') return 'iceland';
+  if (p === '/havel') return 'garmin:havel';   // the canoe map gets a first-class URL (like /ice)
   // Mod-rewrite style: /garmin/<location> → scene "garmin:<location>". The slug is
   // resolved SERVER-side (/api/garmin/:location → manifest garmin_scenes → dist file),
   // so a new scene is a manifest entry + a bake — no client change.
@@ -178,6 +179,13 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   const x0 = dv.getFloat32(o, true), dx = dv.getFloat32(o + 4, true), yscale = dv.getFloat32(o + 8, true);
   o += 12;
   const zrow = new Float32Array(buf.slice(o, o + 4 * Hf)); o += 4 * Hf;
+  // NORTH-UP FIX: the bake stores z = (lat − lat0)·M (north = +z), but the default
+  // aerial camera sits on the +z side (screen-up = −z), which rendered every grid
+  // scene N–S MIRRORED against a real map (caught on the Havel bake: Kölpinsee
+  // appeared SOUTH of the Müritz). Negate z at decode — positions, normals and the
+  // row table all derive from this one table, and the winding below is emitted in
+  // the flipped order so faces keep pointing +y. Wire + HHTL keys are untouched.
+  for (let i = 0; i < Hf; i++) zrow[i] = -zrow[i];
   const nK = dv.getUint8(o); o += 1;
   const pal = new Uint8Array(buf.slice(o, o + 3 * nK)); o += 3 * nK;
   const hfFull = new Uint16Array(buf.slice(o, o + 2 * nVf)); o += 2 * nVf;
@@ -287,8 +295,10 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   for (let r = 0; r < H - 1; r++) {
     for (let c = 0; c < W - 1; c++) {
       const a = r * W + c, b = a + 1, d2 = a + W, e = d2 + 1;
-      index[wI++] = a; index[wI++] = b; index[wI++] = d2;
-      index[wI++] = b; index[wI++] = e; index[wI++] = d2;
+      // Winding for the NEGATED-z frame (north-up fix above): row r+1 now has
+      // GREATER z, so emit (a,d2,b)/(b,d2,e) to keep the face normal +y (up).
+      index[wI++] = a; index[wI++] = d2; index[wI++] = b;
+      index[wI++] = b; index[wI++] = d2; index[wI++] = e;
     }
   }
   const labelIdx = new Uint32Array(buf.slice(labelOff, labelOff + 4 * nC));
@@ -296,7 +306,7 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   const conceptList: ConceptMeta[] = [];
   for (let c = 0; c < nC; c++) {
     conceptList.push({ row: c, name: names[labelIdx[c]] ?? `concept ${c}`, layer: cLayer[c] || 8,
-      cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: cen[c * 3 + 1] });   // source → display (-x,z,y)
+      cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: -cen[c * 3 + 1] });  // source → display (-x,-z,y): z negated by the north-up fix
   }
   return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true, stride, skin: !!skin };
 }
@@ -1298,7 +1308,8 @@ export default function GeoHelix() {
     { label: 'iceland (/ice)', path: '/ice' },
     ...garminScenes.map((s) => ({ label: `garmin: ${s}`, path: `/garmin/${s}` })),
   ];
-  const herePath = window.location.pathname;
+  // /havel is a first-class alias of /garmin/havel — the menu should show it selected.
+  const herePath = window.location.pathname === '/havel' ? '/garmin/havel' : window.location.pathname;
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: `#${PAGE_BG.toString(16).padStart(6, '0')}` }}>
