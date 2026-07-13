@@ -359,7 +359,10 @@ fn run_planner_with_options(
     demonstrated_competence: Option<f64>,
 ) -> Option<PlannerInfo> {
     use lance_graph_planner::api::Planner;
-    use lance_graph_planner::thinking::style::ThinkingStyle; // canonical path; api re-export postdates the pin
+    // The 12-family orchestration space is `StyleFamily`; `ThinkingStyle` is now a
+    // deprecated alias for it. This block only constructs variants, so the extension
+    // trait `PlannerStyleExt` is not needed here.
+    use lance_graph_planner::thinking::style::StyleFamily;
 
     let planner = Planner::new();
 
@@ -374,19 +377,19 @@ fn run_planner_with_options(
     } else if let Some(style_name) = style_override {
         // Style override — parse the style name
         let style = match style_name.to_lowercase().as_str() {
-            "analytical" => ThinkingStyle::Analytical,
-            "convergent" => ThinkingStyle::Convergent,
-            "systematic" => ThinkingStyle::Systematic,
-            "creative" => ThinkingStyle::Creative,
-            "divergent" => ThinkingStyle::Divergent,
-            "exploratory" => ThinkingStyle::Exploratory,
-            "focused" => ThinkingStyle::Focused,
-            "diffuse" => ThinkingStyle::Diffuse,
-            "peripheral" => ThinkingStyle::Peripheral,
-            "intuitive" => ThinkingStyle::Intuitive,
-            "deliberate" => ThinkingStyle::Deliberate,
-            "metacognitive" => ThinkingStyle::Metacognitive,
-            _ => ThinkingStyle::Analytical, // default fallback
+            "analytical" => StyleFamily::Analytical,
+            "convergent" => StyleFamily::Convergent,
+            "systematic" => StyleFamily::Systematic,
+            "creative" => StyleFamily::Creative,
+            "divergent" => StyleFamily::Divergent,
+            "exploratory" => StyleFamily::Exploratory,
+            "focused" => StyleFamily::Focused,
+            "diffuse" => StyleFamily::Diffuse,
+            "peripheral" => StyleFamily::Peripheral,
+            "intuitive" => StyleFamily::Intuitive,
+            "deliberate" => StyleFamily::Deliberate,
+            "metacognitive" => StyleFamily::Metacognitive,
+            _ => StyleFamily::Analytical, // default fallback
         };
         planner.plan_with_style(source, style)
     } else {
