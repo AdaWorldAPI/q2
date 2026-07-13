@@ -288,10 +288,44 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
     }
   }
   if (skin) {
-    // ver-9: the satellite photo IS the colour — copy it straight in (Diaprojektor
-    // sunk once), no palette/CurveRuler recolour. The shader applies only a gentle
-    // relief hillshade so the 3-D reads without muddying the photo.
+    // ver-9: the satellite photo IS the colour (Diaprojektor sunk once) — but first,
+    // LOCAL-CONTRAST DE-LIGHT (art direction: "preserve local contrast — crisp
+    // sandstone layers, not muddy bilinear blur"). Classic albedo extraction: divide
+    // each pixel's illumination by its NEIGHBOURHOOD's (blurred luma), so the
+    // satellite's large-scale baked lighting is normalized away while the local
+    // strata contrast SURVIVES — the shader's museum key then re-lights the form.
     colors.set(skin);
+    const lum = new Float32Array(nV);
+    for (let i = 0; i < nV; i++) {
+      lum[i] = (0.299 * skin[i * 3] + 0.587 * skin[i * 3 + 1] + 0.114 * skin[i * 3 + 2]) / 255;
+    }
+    // separable box blur (radius 6 cells) via running sums — O(nV) per axis
+    const R = 6, tmp = new Float32Array(nV), blur = new Float32Array(nV);
+    for (let r = 0; r < H; r++) {
+      const o2 = r * W;
+      let acc = 0, cnt = 0;
+      for (let c = 0; c < Math.min(R, W); c++) { acc += lum[o2 + c]; cnt++; }
+      for (let c = 0; c < W; c++) {
+        if (c + R < W) { acc += lum[o2 + c + R]; cnt++; }
+        if (c - R - 1 >= 0) { acc -= lum[o2 + c - R - 1]; cnt--; }
+        tmp[o2 + c] = acc / cnt;
+      }
+    }
+    for (let c = 0; c < W; c++) {
+      let acc = 0, cnt = 0;
+      for (let r = 0; r < Math.min(R, H); r++) { acc += tmp[r * W + c]; cnt++; }
+      for (let r = 0; r < H; r++) {
+        if (r + R < H) { acc += tmp[(r + R) * W + c]; cnt++; }
+        if (r - R - 1 >= 0) { acc -= tmp[(r - R - 1) * W + c]; cnt--; }
+        blur[r * W + c] = acc / cnt;
+      }
+    }
+    for (let i = 0; i < nV; i++) {
+      const g = Math.max(0.75, Math.min(1.7, 0.58 / Math.max(blur[i], 0.12)));
+      colors[i * 3] = Math.min(255, colors[i * 3] * g);
+      colors[i * 3 + 1] = Math.min(255, colors[i * 3 + 1] * g);
+      colors[i * 3 + 2] = Math.min(255, colors[i * 3 + 2] * g);
+    }
   } else {
   const DETAIL = 48;
   const cornerCache = new Map<number, number>();
@@ -565,45 +599,59 @@ void main(){
     // ── ver-9 SKIN under MUSEUM LIGHTING (art direction 2026-07-10: think landscape
     //    photographer, not GIS — "optimize against National Geographic, not Google
     //    Maps"; a relief model carved from sandstone under gallery light). ──
-    // (a) TERRAIN FIRST, imagery second: partially DE-LIGHT the photo — pull its
-    //     baked-in orbital illumination toward a mid reference so OUR key light
-    //     re-shades the form; the satellite palette remains as the TINT.
-    float plum = dot(aColor, vec3(0.299, 0.587, 0.114));
-    // gain CLAMPED [0.7, 1.9]: an unclamped 0.60/plum lifts dark forest ~3x into
-    // lime — deep pine must stay deep; bright limestone must not crush.
-    vec3 tint = aColor * clamp(0.60 / max(plum, 0.12), 0.7, 1.9);
-    vec3 base = mix(aColor, tint, 0.50);
-    // (b) COLOUR SEPARATION: chroma boost (hue-preserving) so the strata split —
-    //     cream limestone / ochre / orange sandstone / deep red — without cartooning.
+    // (a) The photo arrives ALREADY de-lit (decode-side local-contrast albedo
+    //     extraction — divide by blurred luma — so strata contrast is crisp, not
+    //     muddy). Here: colour separation only (hue-preserving chroma).
+    vec3 base = aColor;
     float blum = dot(base, vec3(0.299, 0.587, 0.114));
     base = blum + (base - blum) * 1.20;
-    // (c) MUSEUM LIGHT: soft warm morning KEY (wrap diffuse — diffuse light bends
-    //     around form), a WEAK cool sky fill, and a WARM UMBER shadow floor — the
-    //     canyon glows in its own bounce light; shadows are never grey.
-    vec3 SUN = normalize(vec3(-0.55, 0.38, 0.72));
-    float wrap = clamp((dot(n, SUN) + 0.26) / 1.26, 0.0, 1.0);
-    vec3 keyC  = vec3(1.16, 1.03, 0.85);   // warm key (morning sun)
-    vec3 shadC = vec3(0.46, 0.33, 0.26);   // deep warm umber — reddish-black floor
-    vec3 fillC = vec3(0.42, 0.50, 0.64);   // cool but WEAK sky fill
-    vec3 light = mix(shadC, keyC, wrap) + fillC * (0.16 * (0.5 + 0.5 * n.y));
+    // (b) MATERIAL CLASSES from albedo + KIND — "differentiate material response
+    //     rather than relying mostly on colour" (art direction). Per-vertex:
+    //     rock = rough matte · vegetation = slightly subsurface (soft wrap) ·
+    //     snow/cloud = high-albedo cool (the near-white patches in the ESRI capture
+    //     are REAL North-Rim snow/clouds — render them as material, not blown paper)
+    //     · water = the only specular.
+    float mnc = min(base.r, min(base.g, base.b));
+    float snow = smoothstep(0.66, 0.82, mnc);
+    float veg  = smoothstep(0.03, 0.13, base.g - max(base.r, base.b)) * (1.0 - snow);
+    // (c) MUSEUM MORNING LIGHT — lower, warmer key than before (satellite-noon was
+    //     still lingering); WEAK cool fill; deep warm umber shadow floor. Vegetation
+    //     gets a wider wrap (light bleeding through canopy = cheap subsurface).
+    vec3 SUN = normalize(vec3(-0.58, 0.30, 0.72));
+    float ndl = dot(n, SUN);
+    float wrapRock = clamp((ndl + 0.22) / 1.22, 0.0, 1.0);
+    float wrapVeg  = clamp((ndl + 0.55) / 1.55, 0.0, 1.0);
+    float wrap = mix(wrapRock, wrapVeg, veg);
+    vec3 keyC  = vec3(1.22, 1.04, 0.80);   // low warm morning sun
+    vec3 shadC = vec3(0.42, 0.30, 0.23);   // deep umber — reddish-black, never grey
+    vec3 fillC = vec3(0.40, 0.48, 0.62);   // cool but WEAK sky fill
+    vec3 light = mix(shadC, keyC, wrap) + fillC * (0.14 * (0.5 + 0.5 * n.y));
+    // snow ignores the warm key (snow painted orange reads wrong): cool neutral
+    // light with its own soft response.
+    light = mix(light, vec3(0.92, 0.96, 1.06) * (0.55 + 0.50 * max(ndl, 0.0)), snow);
     lit = base * light;
-    // (d) THE RIVER IS THE PROTAGONIST — the only material with dynamic lighting.
-    //     Sandstone stays matte; the Colorado gets a deep blue-green channel colour,
-    //     a moisture/vegetation fringe where the interpolated flag feathers at the
-    //     banks, and view-dependent Blinn glints that SLIDE along the bends as the
-    //     camera orbits — a few sparkling highlights read as living water.
-    float chan = smoothstep(0.45, 0.95, aWet);              // main channel core
-    float bank = smoothstep(0.03, 0.40, aWet) * (1.0 - chan); // feathered banks
+    // (d) THE RIVER IS THE PROTAGONIST — deep blue-green channel, riparian fringe
+    //     at the Gouraud-feathered banks; glints added AFTER the tone shoulder so
+    //     the sparkle stays hot.
+    float chan = smoothstep(0.45, 0.95, aWet);
+    float bank = smoothstep(0.03, 0.40, aWet) * (1.0 - chan);
     lit = mix(lit, vec3(0.13, 0.38, 0.42) * (0.6 + 0.5 * wrap), chan * 0.9);
-    lit *= 1.0 + bank * vec3(-0.06, 0.10, 0.02);            // faint riparian green
-    vec3 V = normalize(-mvp.xyz);
-    float nh = max(dot(n, normalize(SUN + V)), 0.0);
-    lit += vec3(1.35, 1.30, 1.10) * pow(nh, 80.0)  * chan * 0.55; // broad sun-path
-    lit += vec3(1.60, 1.55, 1.30) * pow(nh, 420.0) * chan * 1.10; // sharp sparkle
-    // (e) WARM ATMOSPHERIC PERSPECTIVE — Arizona's dry air: distance lifts toward a
-    //     pale warm amber, never grey fog; distant mesas stay readable and warm.
+    lit *= 1.0 + bank * vec3(-0.06, 0.10, 0.02);
+    // (e) WARM ATMOSPHERIC PERSPECTIVE — Arizona's dry air, pale warm amber.
     float hz = smoothstep(1.6, 4.6, length(mvp.xyz)) * 0.26;
     lit = mix(lit, vec3(0.93, 0.86, 0.74), hz);
+    // (f) HIGHLIGHT SHOULDER — soft knee above 0.82: nothing diffuse ever renders
+    //     paper-white (the snow/cloud patches stay luminous but MATERIAL). This is
+    //     the fix for "distant white patches read as artifacts, not limestone".
+    vec3 over = max(lit - vec3(0.82), vec3(0.0));
+    lit = min(lit, vec3(0.82)) + over / (1.0 + 2.4 * over);
+    // (g) dynamic materials, post-shoulder: water glints slide along the bends as
+    //     the camera orbits; snow gets a whisper of sheen. Sandstone stays matte.
+    vec3 V = normalize(-mvp.xyz);
+    float nh = max(dot(n, normalize(SUN + V)), 0.0);
+    lit += vec3(1.35, 1.30, 1.10) * pow(nh, 80.0)  * chan * 0.55;
+    lit += vec3(1.60, 1.55, 1.30) * pow(nh, 420.0) * chan * 1.10;
+    lit += vec3(0.9, 0.95, 1.05) * pow(nh, 24.0) * snow * 0.18;
   } else if (uGeo > 0.5) {
     // (1) HYPSOMETRIC tint — blend the baked KIND colour (aColor) with the height ramp.
     vec3 base = mix(aColor, terrainColor(position.y), 0.55);
