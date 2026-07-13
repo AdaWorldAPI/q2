@@ -174,3 +174,44 @@ river as a width-stamped POLYLINE from the Garmin line features instead.
   z/y/x order CORRECT, attribution follows. cockpit-server itself cannot compile in
   this container (rusty_v8 static-lib download blocked by egress policy) — Rust side
   mirrors the existing tested pattern; CI runs the tests.
+
+## Havel mosaic harmonization (2026-07-13, follow-up shipped)
+
+The Havel satellite skin is a **quilt** — a mosaic of unrelated ESRI acquisitions
+differing in season, sun angle and white balance, with visible tile seams. A big
+hazy grey acquisition tile dominated the mid-lower canyon and two pale strips ran
+down the right. Used raw as a terrain texture the quilt read as arbitrary
+bright/dark patches, not terrain.
+
+**Root cause of an earlier regression:** the prior "Weißabgleich" (a global
+per-channel percentile stretch) *amplified* the quilt — it pushed the hazy tiles
+toward white (RAW near-white 0.32% → global-WB 5.17%, 16×). White balance is the
+wrong tool: a global stretch has no notion of "this brightness is a seam, not the
+scene."
+
+**Fix — flat-field harmonization** (`scripts/harmonize_demgrid.py`, run offline on
+the `.demgrid` before the bake; the global WB is dropped):
+1. Large-radius (80px) Gaussian estimates the quilt's slowly-varying
+   exposure/white-balance *field* (`low`).
+2. Subtract `(low − global_mean) · strength` (strength 0.80) to flatten that field
+   toward one global mean. 0.80 removes the seams while a genuinely dark forest
+   block vs a bright agricultural block survives (1.0 erases them).
+3. **Water protection** — dark (low-luma) pixels flatten less, so lakes/rivers keep
+   their true dark tone instead of being lifted toward the land mean.
+4. **Chroma compression** toward a common vegetation magnitude (target 28) so an
+   over-saturated tile and a washed tile land on one green — killing the
+   "some tiles grey, some vivid" tell.
+
+Only the `rgb` block is rewritten; header/`lats`/`elev` are byte-for-byte copied,
+so geometry and elevation are untouched. Result: near-white 5.17% → **0.10%**; the
+grey acquisition tile and pale strips pull into a coherent forest green; the
+Müritz and the Havel stay dark. Operator approved the 2D after ("Looks perfect");
+3D proxy (1.21M verts) reads as one place, not a patchwork.
+
+Philosophy (operator's brief): *satellite imagery is source material, not the final
+appearance.* The pass is deliberately gentle — a stronger variant (1.0) over-
+flattens into a muddy uniform green and was rejected.
+
+Shipped asset: `cockpit/public/havel.v8grid.soa.gz` (19.4M-vert bake of the
+harmonized skin). The script reproduces the shipped `.demgrid` byte-for-byte
+(`--strength 0.80 --radius 80 --chroma 28`, the Havel-approved values).
