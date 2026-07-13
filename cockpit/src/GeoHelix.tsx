@@ -124,6 +124,7 @@ interface Decoded {
   isGrid?: boolean;
   stride?: number;   // grid LOD stride actually decoded at (1 = full res)
   skin?: boolean;    // ver-9: vertex colours are the raw satellite photo (Diaprojektor skin)
+  wets?: Uint8Array; // ver-9: per-vertex water flag from the Garmin KIND grid (the river material)
 }
 interface ConceptMeta { row: number; name: string; layer: number; cx: number; cy: number; cz: number; }
 /// The draped feature network (DRP1): segment-paired vertices in the terrain's
@@ -254,6 +255,38 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
   // boundary (intra-family discontinuity → blocky texture); this flows
   // continuously across cells — the surfel the body has. Corner values cached.
   const colors = new Uint8Array(nV * 3);
+  // ver-9 river material: the photo can't reveal water by colour (the Colorado is
+  // dark green-brown in imagery), but the wire still carries the Garmin KIND grid —
+  // mark blue-dominant-KIND vertices (the Water palette slot; LAKE_SUBTLE's b−max=4
+  // stays below the threshold by design) so the shader can give the river its own
+  // dynamic material. Gouraud interpolation of the flag feathers the banks for free.
+  let wets: Uint8Array | undefined;
+  if (skin) {
+    const wetKind = new Uint8Array(nK);
+    for (let k = 0; k < nK; k++) {
+      wetKind[k] = pal[k * 3 + 2] - Math.max(pal[k * 3], pal[k * 3 + 1]) > 15 ? 255 : 0;
+    }
+    const raw = new Uint8Array(nV);
+    for (let i = 0; i < nV; i++) raw[i] = wetKind[kinds[i]] ?? 0;
+    // Morphological OPENING (erode, then dilate the survivors): the Garmin 0x4c class
+    // also stamps hundreds of isolated 1–2-cell flecks across the plateau — at
+    // altitude the region must read DRY (operator art direction), so only the wide
+    // ×2-dilated Colorado ribbon survives to get the river material.
+    const er = new Uint8Array(nV);
+    for (let r = 1; r < H - 1; r++) {
+      for (let c = 1; c < W - 1; c++) {
+        const i = r * W + c;
+        if (raw[i] && raw[i - 1] && raw[i + 1] && raw[i - W] && raw[i + W]) er[i] = 255;
+      }
+    }
+    wets = new Uint8Array(nV);
+    for (let r = 1; r < H - 1; r++) {
+      for (let c = 1; c < W - 1; c++) {
+        const i = r * W + c;
+        if (er[i] || er[i - 1] || er[i + 1] || er[i - W] || er[i + W]) wets[i] = 255;
+      }
+    }
+  }
   if (skin) {
     // ver-9: the satellite photo IS the colour — copy it straight in (Diaprojektor
     // sunk once), no palette/CurveRuler recolour. The shader applies only a gentle
@@ -308,7 +341,7 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
     conceptList.push({ row: c, name: names[labelIdx[c]] ?? `concept ${c}`, layer: cLayer[c] || 8,
       cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: -cen[c * 3 + 1] });  // source → display (-x,-z,y): z negated by the north-up fix
   }
-  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true, stride, skin: !!skin };
+  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true, stride, skin: !!skin, wets };
 }
 
 // Terrain LOD is a VERTEX BUDGET, not a blind ratio. A phone's per-frame ceiling is
@@ -463,6 +496,7 @@ function decode(buf: ArrayBuffer, stride = 1): Decoded {
 const VERT = `
 precision highp float;
 attribute vec3 aColor; attribute vec3 aNormal;
+attribute float aWet;  // ver-9 river material: 1 on Garmin Water-KIND cells (the Colorado), 0 elsewhere
 uniform float uGeo;    // 1 = geo scene → height-profile terrain palette · 0 = anatomy → aColor (byte-identical)
 uniform float uYMin;   // decoded height range (display.y), measured once at load from the position buffer
 uniform float uYMax;
@@ -528,16 +562,48 @@ void main(){
   vec4 mvp = modelViewMatrix * vec4(dpos, 1.0);
   vec3 lit;
   if (uGeo > 0.5 && uSkin > 0.5) {
-    // ── ver-9 SATELLITE SKIN — the photo IS the truth (Diaprojektor sunk into the
-    //    grid). It already carries the sun's own shadows, so add ONLY a soft
-    //    directional relief lift so the 3-D form reads, plus a whisper of saturation.
-    //    No hypsometric ramp, no water re-tint, no topo paper — those would fight the
-    //    real imagery. ──
-    vec3 SUN = normalize(vec3(-0.55, 0.42, 0.72));
-    float ndl = max(dot(n, SUN), 0.0);
-    lit = aColor * (0.80 + 0.32 * ndl);
-    float lum = dot(lit, vec3(0.299, 0.587, 0.114));
-    lit = mix(vec3(lum), lit, 1.08);                    // +8% saturation, keep it natural
+    // ── ver-9 SKIN under MUSEUM LIGHTING (art direction 2026-07-10: think landscape
+    //    photographer, not GIS — "optimize against National Geographic, not Google
+    //    Maps"; a relief model carved from sandstone under gallery light). ──
+    // (a) TERRAIN FIRST, imagery second: partially DE-LIGHT the photo — pull its
+    //     baked-in orbital illumination toward a mid reference so OUR key light
+    //     re-shades the form; the satellite palette remains as the TINT.
+    float plum = dot(aColor, vec3(0.299, 0.587, 0.114));
+    // gain CLAMPED [0.7, 1.9]: an unclamped 0.60/plum lifts dark forest ~3x into
+    // lime — deep pine must stay deep; bright limestone must not crush.
+    vec3 tint = aColor * clamp(0.60 / max(plum, 0.12), 0.7, 1.9);
+    vec3 base = mix(aColor, tint, 0.50);
+    // (b) COLOUR SEPARATION: chroma boost (hue-preserving) so the strata split —
+    //     cream limestone / ochre / orange sandstone / deep red — without cartooning.
+    float blum = dot(base, vec3(0.299, 0.587, 0.114));
+    base = blum + (base - blum) * 1.20;
+    // (c) MUSEUM LIGHT: soft warm morning KEY (wrap diffuse — diffuse light bends
+    //     around form), a WEAK cool sky fill, and a WARM UMBER shadow floor — the
+    //     canyon glows in its own bounce light; shadows are never grey.
+    vec3 SUN = normalize(vec3(-0.55, 0.38, 0.72));
+    float wrap = clamp((dot(n, SUN) + 0.26) / 1.26, 0.0, 1.0);
+    vec3 keyC  = vec3(1.16, 1.03, 0.85);   // warm key (morning sun)
+    vec3 shadC = vec3(0.46, 0.33, 0.26);   // deep warm umber — reddish-black floor
+    vec3 fillC = vec3(0.42, 0.50, 0.64);   // cool but WEAK sky fill
+    vec3 light = mix(shadC, keyC, wrap) + fillC * (0.16 * (0.5 + 0.5 * n.y));
+    lit = base * light;
+    // (d) THE RIVER IS THE PROTAGONIST — the only material with dynamic lighting.
+    //     Sandstone stays matte; the Colorado gets a deep blue-green channel colour,
+    //     a moisture/vegetation fringe where the interpolated flag feathers at the
+    //     banks, and view-dependent Blinn glints that SLIDE along the bends as the
+    //     camera orbits — a few sparkling highlights read as living water.
+    float chan = smoothstep(0.45, 0.95, aWet);              // main channel core
+    float bank = smoothstep(0.03, 0.40, aWet) * (1.0 - chan); // feathered banks
+    lit = mix(lit, vec3(0.13, 0.38, 0.42) * (0.6 + 0.5 * wrap), chan * 0.9);
+    lit *= 1.0 + bank * vec3(-0.06, 0.10, 0.02);            // faint riparian green
+    vec3 V = normalize(-mvp.xyz);
+    float nh = max(dot(n, normalize(SUN + V)), 0.0);
+    lit += vec3(1.35, 1.30, 1.10) * pow(nh, 80.0)  * chan * 0.55; // broad sun-path
+    lit += vec3(1.60, 1.55, 1.30) * pow(nh, 420.0) * chan * 1.10; // sharp sparkle
+    // (e) WARM ATMOSPHERIC PERSPECTIVE — Arizona's dry air: distance lifts toward a
+    //     pale warm amber, never grey fog; distant mesas stay readable and warm.
+    float hz = smoothstep(1.6, 4.6, length(mvp.xyz)) * 0.26;
+    lit = mix(lit, vec3(0.93, 0.86, 0.74), hz);
   } else if (uGeo > 0.5) {
     // (1) HYPSOMETRIC tint — blend the baked KIND colour (aColor) with the height ramp.
     vec3 base = mix(aColor, terrainColor(position.y), 0.55);
@@ -756,6 +822,9 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   geom.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
   geom.setAttribute('aColor', new THREE.Uint8BufferAttribute(d.colors, 3, true));
   geom.setAttribute('aNormal', new THREE.Int8BufferAttribute(d.normals, 3, true)); // rim normal, normalized i8
+  // water flag (ver-9 river material) — always bound (zeros when absent) so the
+  // shader's aWet read never hits an unbound attribute on non-skin scenes.
+  geom.setAttribute('aWet', new THREE.Uint8BufferAttribute(d.wets ?? new Uint8Array(d.positions.length / 3), 1, true));
 
   // Draw ONLY enabled layers, as GEOMETRY (rebuild the index on toggle) — never a
   // fragment discard. A discard still rasterises every triangle, then throws the pixels
