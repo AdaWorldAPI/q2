@@ -9,7 +9,12 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "planner")]
-use lance_graph_planner::api::{Planner, ThinkingStyle, PlanResult};
+use lance_graph_planner::api::{Planner, PlanResult};
+// ThinkingStyle from its canonical module, not the api re-export — the re-export was
+// added to lance-graph after this pin, so importing from `api` breaks the build against
+// the pinned lance-graph; `thinking::style` exists in every version.
+#[cfg(feature = "planner")]
+use lance_graph_planner::thinking::style::ThinkingStyle;
 
 // ── Strategy Self-Check ──────────────────────────────────────────────────────
 
