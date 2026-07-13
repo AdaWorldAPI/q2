@@ -358,7 +358,8 @@ fn run_planner_with_options(
     felt_competence: Option<f64>,
     demonstrated_competence: Option<f64>,
 ) -> Option<PlannerInfo> {
-    use lance_graph_planner::api::{Planner, ThinkingStyle};
+    use lance_graph_planner::api::Planner;
+    use lance_graph_planner::thinking::style::ThinkingStyle; // canonical path; api re-export postdates the pin
 
     let planner = Planner::new();
 
