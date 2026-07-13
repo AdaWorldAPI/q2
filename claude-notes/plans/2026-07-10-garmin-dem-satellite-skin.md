@@ -81,6 +81,38 @@ the render on mobile; the full grid is the desktop birdview.
 - **Sentinel-2 skin** — swap the ESRI source for `GrandCanyon_S2_20260620.tif`
   (source-agnostic; the skin just comes from the demgrid rgb).
 
+## Terrain cinematographer — imagery is the ceiling (2026-07-10, operator critique)
+
+Operator diagnosed three renderer (not data) artifacts, all pointing at the imagery:
+1. **White patches = CLOUDS** in the ESRI capture (soft fuzzy edges, don't follow the
+   canyon, change between captures). Confirmed: near-white = 0.85% of the demgrid,
+   fuzzy blobs over normal terrain. Not geology.
+2. **Washed mid-canyon** — some mosaic tiles are low-contrast; the DEM has the relief
+   but the imagery lost the texture contrast there.
+3. **10M looks blockier than 2.7M** — our colour is PER-VERTEX at grid resolution
+   (= z14 imagery res ≈ 6.7 m/px), so there's no texture stretch; more mesh just
+   samples the *same z14 pixels* more finely and exposes their native blockiness.
+   The imagery is the resolution ceiling; more vertices don't add image detail.
+
+Response (all shader/decode — no rebake):
+- **DEM ambient occlusion** (`aAo`, decode-side) — the operator's "terrain-aware
+  shading pass that restores the contrast the mosaic lost". A height box-blur gives
+  a sky-openness proxy: a vertex below its neighbourhood mean is a gorge (occluded →
+  darker), a ridge is open (brighter). This puts the dark cracks back in the WASHED
+  tiles *from the geometry*, which has them.
+- **Relief-model mode** (`uRelief`, `relief` toggle on skin scenes) — the operator's
+  experiment made permanent: drop the imagery, render a flat sandstone albedo under
+  the museum light + AO. "The Grand Canyon 3D-printed in sandstone, lit perfectly."
+  Doubles as the diagnostic (if this is razor-sharp, the bottleneck is imagery, not
+  geometry) and as the timeless imagery-independent aesthetic the operator wants.
+- **Cloud de-emphasis** — the near-white (cloud) response is dimmed (0.86) + de-chroma'd
+  + its specular sheen removed, so cloud blobs read as pale haze, not glowing snow.
+- **Material response** — vegetation gets a wider light wrap (cheap subsurface); water
+  is the only specular; snow/cloud is matte; sandstone matte. Not colour alone.
+
+Open follow-ups the critique named: higher-res imagery (z15/Sentinel-2 → half the
+px size), mosaic seam blending, per-tile contrast normalization.
+
 ## Museum lighting — the NatGeo art direction (2026-07-10, operator brief)
 
 > "Stop thinking like a GIS, start thinking like a landscape photographer. …
