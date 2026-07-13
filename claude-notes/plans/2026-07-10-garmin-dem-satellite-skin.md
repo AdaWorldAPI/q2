@@ -81,6 +81,51 @@ the render on mobile; the full grid is the desktop birdview.
 - **Sentinel-2 skin** — swap the ESRI source for `GrandCanyon_S2_20260620.tif`
   (source-agnostic; the skin just comes from the demgrid rgb).
 
+## Museum lighting — the NatGeo art direction (2026-07-10, operator brief)
+
+> "Stop thinking like a GIS, start thinking like a landscape photographer. …
+> Don't optimize against Google Maps. Optimize against National Geographic."
+
+The operator's six directives + river protagonist, implemented in the ver-9 skin
+branch of the vertex shader (GeoHelix VERT, `uSkin` path) + one bake fix:
+
+1. **Museum lighting** — warm morning KEY (wrap diffuse `(n·L+0.35)/1.35`), WEAK
+   cool sky fill, and a **warm umber shadow floor** (`vec3(0.46,0.33,0.26)` —
+   reddish-black, never grey): gallery light on a relief model, not orbit light.
+2. **Colour separation** — hue-preserving chroma ×1.34 so the strata split into
+   cream limestone / ochre / orange sandstone / deep red.
+3. **Warm shadows** — the umber floor above; the canyon glows in its own bounce.
+4. **Warm atmospheric perspective** — distance lifts toward pale warm amber
+   (`vec3(0.93,0.86,0.74)`), never grey fog; Arizona's dry air.
+5. **Terrain first, imagery second** — partial DE-LIGHT: the photo's baked-in
+   orbital luma is pulled 50% toward a mid reference so OUR key re-shades the
+   surfel form; the satellite palette remains as tint.
+6. **Relief-model mindset** — emerges from 1–5.
+
+**The river is the protagonist** — the ONLY material with dynamic lighting:
+- `aWet` vertex attribute from the Garmin KIND grid (blue-dominant palette slot;
+  LAKE_SUBTLE stays below threshold by design). Gouraud interpolation feathers
+  the banks for free.
+- Deep blue-green channel colour + faint riparian-green fringe at the banks.
+- Two view-dependent Blinn lobes (pow 80 broad sun-path + pow 420 sparkle) that
+  SLIDE along the bends as the camera orbits — sandstone stays matte; a few
+  moving glints read as living water without animation.
+- **Bake fix:** under `--crop` the KIND grid was rasterized against the FULL tile
+  bbox (misregistered — invisible while the skin covered it). `garmin_bake` now
+  builds a deg→mu `kbbox` from the crop window for `kind_grid`/`river_fill_grid`,
+  so the Colorado's Water cells land on the real river (6,050 cells in the crop).
+
+Also this round: **hue-preserving skin brighten** (operator: color "on the dark
+side"; satellite haze + atmospheric degradation + the eye idealizing diffuse
+morning light) — global luma p2→p98 stretch to [12,242] (NOT per-channel — that
+would grey the red rock), gamma 0.94 shadow-open, sat ×1.12, warm bias
+(R×1.02/B×0.97): luma mean 108→139, warmth kept R155>G140>B89.
+
+**Follow-up (river continuity):** Garmin's 0x4c river-FILL polys rasterize the
+thin inner-gorge reaches sub-cell (dashed segments); the CC filter keeps the wide
+reaches (4,084 cells at full res). For continuous material coverage, rasterize the
+river as a width-stamped POLYLINE from the Garmin line features instead.
+
 ## /osm dual basemap (2026-07-10, follow-up shipped)
 - The `/osm` slippy cockpit gets a **basemap toggle**: OSM map ↔ ESRI World Imagery
   satellite — the SAME keyless imagery the ver-9 terrain skins drape from, so the flat

@@ -163,8 +163,18 @@ fn main() {
 
     // ── KIND overlay: natural landcover (rivers / lakes / forest) on bare
     //    terrain — roads/paths are excluded so the mountain scene reads as
-    //    terrain, not a street grid. ──
-    let mut kinds = terrain::kind_grid(&dec, bbox, w, h, &terrain::LANDCOVER);
+    //    terrain, not a street grid. The rasterization bbox is the GRID's window
+    //    (the --crop sub-window when cropping), NOT the tile bbox — otherwise the
+    //    Water mask lands misregistered on a cropped grid and the river material
+    //    (ver-9 aWet) paints the wrong cells. deg→mu is the inverse of mu2deg. ──
+    let deg2mu = |d: f64| (d * (1u32 << 24) as f64 / 360.0).round() as i32;
+    let kbbox = geo_hhtl::garmin::tre::Bbox {
+        north: deg2mu(gn),
+        east: deg2mu(ge),
+        south: deg2mu(gs),
+        west: deg2mu(gw),
+    };
+    let mut kinds = terrain::kind_grid(&dec, kbbox, w, h, &terrain::LANDCOVER);
     // On an arid scene, blue is reserved for the ONE persistent water body — the
     // flowing Colorado (Garmin river-fill type 0x4c). Its stamp rasterizes to a
     // ~1-cell hairline, so widen ONLY the river ×2 (ribbon, the way it dominates
@@ -175,8 +185,49 @@ fn main() {
     // stamp for everything.)
     if arid {
         let wtag = geo_hhtl::garmin::GeoKind::Water.tag();
-        let river =
-            terrain::dilate_kind(&terrain::river_fill_grid(&dec, bbox, w, h), w, h, wtag, 2);
+        // Keep only LARGE connected components of the river fill before widening:
+        // Garmin's 0x4c class also stamps hundreds of isolated 1–4-cell flecks across
+        // the plateau (intermittent pools) — at altitude the region must read DRY
+        // (operator art direction), and the ver-9 river material must paint ONLY the
+        // Colorado. The ribbon is thousands of connected cells; 25 kills the flecks
+        // at every grid scale. Dropped flecks fall through to the still-water branch
+        // below (→ LAKE_TAG subtle), exactly like the stock tanks.
+        let raw_river = terrain::river_fill_grid(&dec, kbbox, w, h);
+        let mut big = vec![0u8; w * h];
+        let mut seen = vec![false; w * h];
+        let mut stack = Vec::new();
+        for start in 0..w * h {
+            if raw_river[start] != wtag || seen[start] {
+                continue;
+            }
+            let mut comp = vec![start];
+            seen[start] = true;
+            stack.push(start);
+            while let Some(i) = stack.pop() {
+                let (r, c) = (i / w, i % w);
+                for (nr, nc) in [
+                    (r.wrapping_sub(1), c),
+                    (r + 1, c),
+                    (r, c.wrapping_sub(1)),
+                    (r, c + 1),
+                ] {
+                    if nr < h && nc < w {
+                        let j = nr * w + nc;
+                        if raw_river[j] == wtag && !seen[j] {
+                            seen[j] = true;
+                            stack.push(j);
+                            comp.push(j);
+                        }
+                    }
+                }
+            }
+            if comp.len() >= 25 {
+                for i in comp {
+                    big[i] = wtag;
+                }
+            }
+        }
+        let river = terrain::dilate_kind(&big, w, h, wtag, 2);
         let (mut river_cells, mut widened, mut lakes) = (0usize, 0usize, 0usize);
         for (i, k) in kinds.iter_mut().enumerate() {
             if river[i] == wtag {
