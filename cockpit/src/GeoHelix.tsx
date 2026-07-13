@@ -125,6 +125,7 @@ interface Decoded {
   stride?: number;   // grid LOD stride actually decoded at (1 = full res)
   skin?: boolean;    // ver-9: vertex colours are the raw satellite photo (Diaprojektor skin)
   wets?: Uint8Array; // ver-9: per-vertex water flag from the Garmin KIND grid (the river material)
+  ao?: Uint8Array;   // ver-9: DEM ambient occlusion (128 neutral) — crevice contrast from geometry
 }
 interface ConceptMeta { row: number; name: string; layer: number; cx: number; cy: number; cz: number; }
 /// The draped feature network (DRP1): segment-paired vertices in the terrain's
@@ -287,6 +288,45 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
       }
     }
   }
+  // ── DEM AMBIENT OCCLUSION (the terrain-aware contrast the satellite mosaic lost).
+  //    The imagery is the resolution ceiling and some tiles are low-contrast/washed,
+  //    but the DEM carries the full relief — so re-derive crevice shadow from HEIGHT:
+  //    a vertex sitting BELOW its neighbourhood mean is in a gorge/fissure → occluded
+  //    → darker; a ridge above the mean → open → brighter. One height box-blur (the
+  //    "sky openness" proxy); 128 = neutral. This restores the dark cracks even where
+  //    the photo is flat — the geometry has them, so the shading shows them. ──
+  let ao: Uint8Array | undefined;
+  if (skin) {
+    const HB = 10, t1 = new Float32Array(nV), bh = new Float32Array(nV);
+    for (let r = 0; r < H; r++) {
+      const o2 = r * W; let acc = 0, cnt = 0;
+      for (let c = 0; c < Math.min(HB, W); c++) { acc += heights[o2 + c]; cnt++; }
+      for (let c = 0; c < W; c++) {
+        if (c + HB < W) { acc += heights[o2 + c + HB]; cnt++; }
+        if (c - HB - 1 >= 0) { acc -= heights[o2 + c - HB - 1]; cnt--; }
+        t1[o2 + c] = acc / cnt;
+      }
+    }
+    for (let c = 0; c < W; c++) {
+      let acc = 0, cnt = 0;
+      for (let r = 0; r < Math.min(HB, H); r++) { acc += t1[r * W + c]; cnt++; }
+      for (let r = 0; r < H; r++) {
+        if (r + HB < H) { acc += t1[(r + HB) * W + c]; cnt++; }
+        if (r - HB - 1 >= 0) { acc -= t1[(r - HB - 1) * W + c]; cnt--; }
+        bh[r * W + c] = acc / cnt;
+      }
+    }
+    // normalize the height-vs-neighbourhood delta by the scene's height span so the
+    // AO strength is scene-independent (canyon relief ≫ Havel lowland).
+    let hlo = Infinity, hhi = -Infinity;
+    for (let i = 0; i < nV; i++) { if (heights[i] < hlo) hlo = heights[i]; if (heights[i] > hhi) hhi = heights[i]; }
+    const span = Math.max(hhi - hlo, 1e-6);
+    ao = new Uint8Array(nV);
+    for (let i = 0; i < nV; i++) {
+      const d2 = (heights[i] - bh[i]) / span;   // <0 = below neighbourhood (occluded)
+      ao[i] = Math.max(0, Math.min(255, Math.round(128 + d2 * 900)));
+    }
+  }
   if (skin) {
     // ver-9: the satellite photo IS the colour (Diaprojektor sunk once) — but first,
     // LOCAL-CONTRAST DE-LIGHT (art direction: "preserve local contrast — crisp
@@ -375,7 +415,7 @@ function decodeGrid(buf: ArrayBuffer, stride = 1): Decoded {
     conceptList.push({ row: c, name: names[labelIdx[c]] ?? `concept ${c}`, layer: cLayer[c] || 8,
       cx: -cen[c * 3], cy: cen[c * 3 + 2], cz: -cen[c * 3 + 1] });  // source → display (-x,-z,y): z negated by the north-up fix
   }
-  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true, stride, skin: !!skin, wets };
+  return { nVerts: nV, nTris: nT, positions, index, colors, normals, layer, vrow: rowArr, concepts: nC, conceptList, isGrid: true, stride, skin: !!skin, wets, ao };
 }
 
 // Terrain LOD is a VERTEX BUDGET, not a blind ratio. A phone's per-frame ceiling is
@@ -531,6 +571,7 @@ const VERT = `
 precision highp float;
 attribute vec3 aColor; attribute vec3 aNormal;
 attribute float aWet;  // ver-9 river material: 1 on Garmin Water-KIND cells (the Colorado), 0 elsewhere
+attribute float aAo;   // ver-9 DEM ambient occlusion: 0.5 neutral, <0.5 crevice (occluded), >0.5 ridge (open)
 uniform float uGeo;    // 1 = geo scene → height-profile terrain palette · 0 = anatomy → aColor (byte-identical)
 uniform float uYMin;   // decoded height range (display.y), measured once at load from the position buffer
 uniform float uYMax;
@@ -546,6 +587,9 @@ uniform float uTopo;   // 1 = TOPO/OTM cartographic mode (tied to the contour ov
                        // map, not on the skin of the world. 0 = the beauty look (default).
 uniform float uSkin;   // 1 = ver-9 SATELLITE SKIN: aColor IS the raw photo → skip all hypsometric /
                        // water / moss / topo recolour, apply only a soft relief hillshade.
+uniform float uRelief; // 1 = RELIEF-MODEL mode: drop the satellite imagery, render a flat sandstone
+                       // albedo under the museum light + DEM AO — "the Grand Canyon 3D-printed in
+                       // sandstone, lit perfectly" (the imagery-independent physical-relief look).
 varying vec3 vColor;
 // THE KURVENLINEAL is now baked into the mesh, not approximated here. The real
 // helix::CurveRuler golden-spiral residue (stride-4-over-17) is applied at BAKE time in
@@ -601,10 +645,11 @@ void main(){
     //    Maps"; a relief model carved from sandstone under gallery light). ──
     // (a) The photo arrives ALREADY de-lit (decode-side local-contrast albedo
     //     extraction — divide by blurred luma — so strata contrast is crisp, not
-    //     muddy). Here: colour separation only (hue-preserving chroma).
-    vec3 base = aColor;
+    //     muddy). Here: colour separation only (hue-preserving chroma). RELIEF mode
+    //     drops the imagery for a flat sandstone albedo — the physical-relief look.
+    vec3 base = mix(aColor, vec3(0.66, 0.55, 0.42), uRelief);
     float blum = dot(base, vec3(0.299, 0.587, 0.114));
-    base = blum + (base - blum) * 1.20;
+    base = blum + (base - blum) * mix(1.20, 0.0, uRelief);
     // (b) MATERIAL CLASSES from albedo + KIND — "differentiate material response
     //     rather than relying mostly on colour" (art direction). Per-vertex:
     //     rock = rough matte · vegetation = slightly subsurface (soft wrap) ·
@@ -626,9 +671,18 @@ void main(){
     vec3 shadC = vec3(0.42, 0.30, 0.23);   // deep umber — reddish-black, never grey
     vec3 fillC = vec3(0.40, 0.48, 0.62);   // cool but WEAK sky fill
     vec3 light = mix(shadC, keyC, wrap) + fillC * (0.14 * (0.5 + 0.5 * n.y));
-    // snow ignores the warm key (snow painted orange reads wrong): cool neutral
-    // light with its own soft response.
-    light = mix(light, vec3(0.92, 0.96, 1.06) * (0.55 + 0.50 * max(ndl, 0.0)), snow);
+    // DEM AMBIENT OCCLUSION — the terrain-aware contrast the mosaic lost. aAo<0.5 is a
+    // crevice (occluded) → darken; >0.5 a ridge → a touch brighter. This is what puts
+    // the dark cracks back in the WASHED tiles (the geometry has them). Occlusion also
+    // kills the sky fill in gorges (crevices see no sky). RELIEF mode leans on it hard.
+    float occ = (aAo - 0.5) * 2.0;                       // [-1,1]
+    float aoDark = mix(1.0, clamp(0.5 + 0.5 * (aAo * 2.0), 0.35, 1.12), mix(0.85, 1.15, uRelief));
+    light *= aoDark;
+    light += fillC * (0.10 * (0.5 + 0.5 * n.y)) * max(occ, 0.0);  // ridges catch a bit more sky
+    // snow ignores the warm key (snow painted orange reads wrong): cool neutral light,
+    // and it's DIMMED (0.78) + de-chroma'd so bright CLOUD blobs read as pale haze, not
+    // a glowing sheen (operator: the white patches are cloud, not geology).
+    light = mix(light, vec3(0.86, 0.89, 0.96) * (0.50 + 0.44 * max(ndl, 0.0)) * 0.86, snow);
     lit = base * light;
     // (d) THE RIVER IS THE PROTAGONIST — deep blue-green channel, riparian fringe
     //     at the Gouraud-feathered banks; glints added AFTER the tone shoulder so
@@ -645,13 +699,15 @@ void main(){
     //     the fix for "distant white patches read as artifacts, not limestone".
     vec3 over = max(lit - vec3(0.82), vec3(0.0));
     lit = min(lit, vec3(0.82)) + over / (1.0 + 2.4 * over);
-    // (g) dynamic materials, post-shoulder: water glints slide along the bends as
-    //     the camera orbits; snow gets a whisper of sheen. Sandstone stays matte.
+    // (g) dynamic materials, post-shoulder: ONLY water responds — glints slide along
+    //     the bends as the camera orbits (the "that's water" cue). Sandstone stays
+    //     matte; snow/cloud gets NO sheen (it must not glow — it's cloud). Water is
+    //     also suppressed in relief mode (no imagery river in the sandstone model).
     vec3 V = normalize(-mvp.xyz);
     float nh = max(dot(n, normalize(SUN + V)), 0.0);
-    lit += vec3(1.35, 1.30, 1.10) * pow(nh, 80.0)  * chan * 0.55;
-    lit += vec3(1.60, 1.55, 1.30) * pow(nh, 420.0) * chan * 1.10;
-    lit += vec3(0.9, 0.95, 1.05) * pow(nh, 24.0) * snow * 0.18;
+    float spec = (1.0 - uRelief);
+    lit += vec3(1.35, 1.30, 1.10) * pow(nh, 80.0)  * chan * 0.55 * spec;
+    lit += vec3(1.60, 1.55, 1.30) * pow(nh, 420.0) * chan * 1.10 * spec;
   } else if (uGeo > 0.5) {
     // (1) HYPSOMETRIC tint — blend the baked KIND colour (aColor) with the height ramp.
     vec3 base = mix(aColor, terrainColor(position.y), 0.55);
@@ -834,7 +890,7 @@ function decodeDrape(buf: ArrayBuffer): DrapeData {
   return { positions, colors, segCount: segs, kindCount: nK };
 }
 
-function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }, focus: { current: Focus | null }, xray: { current: boolean }, lod: { current: boolean }, features: { current: boolean }, drape: { current: DrapeData | null }, contours: { current: DrapeData | null }, showContours: { current: boolean }): () => void {
+function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dirty: { current: boolean }, focus: { current: Focus | null }, xray: { current: boolean }, lod: { current: boolean }, features: { current: boolean }, drape: { current: DrapeData | null }, contours: { current: DrapeData | null }, showContours: { current: boolean }, relief: { current: boolean }): () => void {
   let w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(PAGE_BG);
   const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 100); camera.position.set(0, 0.05, 3.0);
@@ -873,6 +929,9 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // water flag (ver-9 river material) — always bound (zeros when absent) so the
   // shader's aWet read never hits an unbound attribute on non-skin scenes.
   geom.setAttribute('aWet', new THREE.Uint8BufferAttribute(d.wets ?? new Uint8Array(d.positions.length / 3), 1, true));
+  // DEM ambient occlusion — 128 (neutral) when absent so non-skin scenes are unaffected.
+  const aoDefault = new Uint8Array(d.positions.length / 3).fill(128);
+  geom.setAttribute('aAo', new THREE.Uint8BufferAttribute(d.ao ?? aoDefault, 1, true));
 
   // Draw ONLY enabled layers, as GEOMETRY (rebuild the index on toggle) — never a
   // fragment discard. A discard still rasterises every triangle, then throws the pixels
@@ -925,7 +984,7 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // Glacial turquoise is Iceland's look; every other terrain scene keeps plain river-blue
   // water (the canyon's Colorado). uArid = "not the glacial Iceland scene".
   const uAridVal = isTerrainScene && !isIcelandScene ? 1 : 0;
-  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 }, uMoss: { value: isIcelandScene ? 1 : 0 }, uArid: { value: uAridVal }, uTopo: { value: 0 }, uSkin: { value: d.skin ? 1 : 0 } };
+  const uniforms = { uAlpha: { value: 1 }, uGeo: { value: isTerrainScene ? 1 : 0 }, uYMin: { value: yMin }, uYMax: { value: yMax }, uExag: { value: uExagVal }, uTime: { value: 0 }, uRuler: { value: 0 }, uMoss: { value: isIcelandScene ? 1 : 0 }, uArid: { value: uAridVal }, uTopo: { value: 0 }, uSkin: { value: d.skin ? 1 : 0 }, uRelief: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.FrontSide });
   const mesh = new THREE.Mesh(geom, mat); scene.add(mesh);
 
@@ -1172,6 +1231,8 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
     const topoOn = (d.skin || contourLines) && showContours.current ? 1 : 0;
     uniforms.uTopo.value = topoOn;
     if (d.skin) uniforms.uSkin.value = topoOn ? 0 : 1;
+    // relief-model mode (imagery-independent sandstone + DEM AO) — off during topo.
+    uniforms.uRelief.value = d.skin && relief.current && !topoOn ? 1 : 0;
     // browser pick → glide the orbit target + dolly onto the chosen concept
     if (focus.current) {
       const f = focus.current;
@@ -1280,6 +1341,7 @@ export default function GeoHelix() {
   const [error, setError] = useState('');
   const [on, setOn] = useState<Record<number, boolean>>({ 1: false, 2: false, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true });
   const [xray, setXray] = useState(false);
+  const [relief, setRelief] = useState(false);  // relief-model mode (skin scenes): sandstone + DEM AO, no imagery
   // LOD: on the anatomy body = the server HHTL cascade (opt-in). On ver-8 GRID
   // terrain = client stride re-decode (½-res grid, ¼ verts/tris/decode-time) —
   // auto-ON for mobile so a phone never pays the full-grid decode on first load.
@@ -1294,6 +1356,7 @@ export default function GeoHelix() {
   const dirtyRef = useRef(true);   // request a redraw (the render loop is on-demand)
   const focusRef = useRef<Focus | null>(null);
   const xrayRef = useRef(false);
+  const reliefRef = useRef(false);
   const lodRef = useRef(isGridScene && isMobile);
   const featuresRef = useRef(true);
   const drapeRef = useRef<DrapeData | null>(null);
@@ -1352,6 +1415,7 @@ export default function GeoHelix() {
     dirtyRef.current = true;
   }, [on]);
   useEffect(() => { xrayRef.current = xray; dirtyRef.current = true; }, [xray]);
+  useEffect(() => { reliefRef.current = relief; dirtyRef.current = true; }, [relief]);
   useEffect(() => {
     lodRef.current = lod; dirtyRef.current = true;
     // Grid terrain LOD: re-decode the kept wire at the new stride (deferred a tick so
@@ -1366,7 +1430,7 @@ export default function GeoHelix() {
   }, [lod]);
   useEffect(() => { featuresRef.current = features; dirtyRef.current = true; }, [features]);
   useEffect(() => { showContoursRef.current = showContours; dirtyRef.current = true; }, [showContours]);
-  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef, focusRef, xrayRef, lodRef, featuresRef, drapeRef, contourRef, showContoursRef); }, [d]);
+  useEffect(() => { const c = ref.current; if (!c || !d) return; return mount(c, d, enabledRef.current, dirtyRef, focusRef, xrayRef, lodRef, featuresRef, drapeRef, contourRef, showContoursRef, reliefRef); }, [d]);
 
   const focusOn = (c: ConceptMeta) => {
     focusRef.current = { x: c.cx, y: c.cy, z: c.cz, d: 0.6 };
@@ -1453,6 +1517,7 @@ export default function GeoHelix() {
             <button style={btn(showContours)} onClick={() => setShowContours((v) => !v)} title="topo: OpenTopoMap-style cartographic mode — contour lines over a pale beige-green relief palette. Off = the beauty surfel look (default); the contours are a map layer, not the skin of the world.">topo {showContours ? 'on' : 'off'}</button>
           )}
           <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
+          {d?.skin && <button style={btn(relief)} onClick={() => setRelief((v) => !v)} title="relief: drop the satellite imagery and render the terrain as a physical sandstone relief model (museum-lit, DEM ambient occlusion) — the shape is the hero, imagery-independent">relief {relief ? 'on' : 'off'}</button>}
           <button
             style={{ ...btn(lod), ...(isGeoUi && !isGridScene ? { opacity: 0.45, cursor: 'not-allowed' } : {}) }}
             disabled={isGeoUi && !isGridScene}
