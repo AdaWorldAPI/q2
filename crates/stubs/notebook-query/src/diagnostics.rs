@@ -10,11 +10,13 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "planner")]
 use lance_graph_planner::api::{Planner, PlanResult};
-// ThinkingStyle from its canonical module, not the api re-export — the re-export was
-// added to lance-graph after this pin, so importing from `api` breaks the build against
-// the pinned lance-graph; `thinking::style` exists in every version.
+// The 12-family orchestration space is `StyleFamily` (canonical type in
+// lance_graph_contract::style_family, re-exported here). `ThinkingStyle` is now a
+// deprecated alias for it, and the planner-local semantics (`cluster()`,
+// `default_modulation()`) live on the `PlannerStyleExt` extension trait, which must be
+// in scope for those method calls to resolve.
 #[cfg(feature = "planner")]
-use lance_graph_planner::thinking::style::ThinkingStyle;
+use lance_graph_planner::thinking::style::{PlannerStyleExt, StyleFamily};
 
 // ── Strategy Self-Check ──────────────────────────────────────────────────────
 
@@ -241,18 +243,18 @@ fn run_demo_analyses(planner: &Planner) -> Vec<DemoAnalysis> {
     ];
 
     let all_styles = [
-        ThinkingStyle::Analytical,
-        ThinkingStyle::Convergent,
-        ThinkingStyle::Systematic,
-        ThinkingStyle::Creative,
-        ThinkingStyle::Divergent,
-        ThinkingStyle::Exploratory,
-        ThinkingStyle::Focused,
-        ThinkingStyle::Diffuse,
-        ThinkingStyle::Peripheral,
-        ThinkingStyle::Intuitive,
-        ThinkingStyle::Deliberate,
-        ThinkingStyle::Metacognitive,
+        StyleFamily::Analytical,
+        StyleFamily::Convergent,
+        StyleFamily::Systematic,
+        StyleFamily::Creative,
+        StyleFamily::Divergent,
+        StyleFamily::Exploratory,
+        StyleFamily::Focused,
+        StyleFamily::Diffuse,
+        StyleFamily::Peripheral,
+        StyleFamily::Intuitive,
+        StyleFamily::Deliberate,
+        StyleFamily::Metacognitive,
     ];
 
     demo_queries.iter().map(|query| {
