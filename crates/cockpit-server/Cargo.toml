@@ -60,6 +60,17 @@ aiwar-ingest = { path = "../aiwar-ingest" }
 # closure). Provides cpic::reason over the baked CPIC tables for the /cpic panel.
 cpic = { path = "../../cpic" }
 
+# Real OSM feature data — the query side of the `RowSlab` Morton-sorted SoA
+# bake (`../lance-graph`/`../OGAR` sibling convention). Deliberately NOT the
+# `osm_tiles` module above: that computes q2's own display-only 3-tier HHTL
+# address for the cockpit panel; this crate's `RowSlab::tile_range` uses a
+# DIFFERENT 4-tier, TMS-Y-flipped key internally. See osm_features.rs.
+osm-soa-bake = { path = "../../../openstreetmap-website-rs" }
+# mmap for the baked slab (1+ GiB — far too large to embed or read fully into
+# memory). Pinned to the same 0.5 line osm-soa-bake itself uses, so the
+# dependency tree carries one memmap2 version, not two.
+memmap2 = "0.5"
+
 # ── Quarto rendering pipeline ───────────────────────────────────────
 # pampa parses .qmd, quarto-core renders, deno_core executes JS/TS cells
 quarto-core.workspace = true
