@@ -188,6 +188,97 @@ at the right places and the toggle/status text behave as designed. That
 remains genuinely unverified and should be the first thing a follow-up
 session with more disk headroom does before calling Phase 2 complete.
 
+## Phase 3 — V1/V2 → V3 substrate (the POC gap)
+
+Phase 1 deliberately did **not** unify the two key spaces ("the two key
+spaces are not interchangeable and this plan does not attempt to unify
+them"). That unification is now the actual ask. Measured state:
+
+| | q2 `osm_tiles.rs` (shipped, **V1/V2**) | V3 substrate (`osm_soa_bake::tms` + `ogar_osm::GEO_V3_FACET`) |
+|---|---|---|
+| tiers | **3** — heel/hip/twig | **4** — heel/hip/twig/**leaf** |
+| depth | `HHTL_DEPTH = 24` (3×8) | `HHTL_DEPTH4 = 32` (4×8) |
+| Y axis | XYZ, top-down, no flip | **TMS**, bottom-up (`xyz_to_tms_y`) |
+| morton | 48-bit (24-bit lanes) | 64-bit (32-bit lanes) |
+| round-trip error | 0.27–1.69 m | **1.13 mm** (Berlin) |
+| facet home | none — display-only | `GEO_V3_FACET` rails 0–3 of `classid(4)+payload(12)` |
+
+**The bake side is already fully V3** — verified, not assumed:
+- `osm_soa_bake::identity` consumes `lance_graph_contract::identity_quad`
+  (`SLOT_BYTES = classid(4) + payload(12)`), and was explicitly rewritten
+  away from a parallel 12-byte implementation (its own module doc records
+  that mistake).
+- The row's 4 cascade tiers sit at payload rails 0–3 — i.e. absolute bytes
+  `4..6 / 6..8 / 8..10 / 10..12`. Note `10..12` is what **V1 canon called
+  the first two bytes of `family:u24`**; reading it as `leaf` *is* the V3
+  content-blind reinterpretation, matching `GEO_V3_FACET` exactly
+  (rails 4–5 = family basin + per-tile collision counter).
+- `tms.rs` states why 3-tier was rejected outright: *"at z=24 … 0.27–1.69 m
+  — the same order as a GNSS fix, which is why the 3-tier form is not used
+  here."*
+
+**So `osm_tiles.rs` is the only V1 surface left**, and it is also a
+**parallel implementation** of math that now lives upstream — it re-derives
+`lonlat_to_tile` / `morton_interleave` / `morton_deinterleave` that
+`osm_soa_bake::tms` already owns, at the wrong depth and without the flip.
+Since Phase 1 already added the `osm-soa-bake` dependency, the migration is
+mostly **deletion**, which is the workspace's standing "consume, never
+re-implement" rule.
+
+- [ ] Re-point `osm_tiles.rs` at `osm_soa_bake::tms` — `lonlat_to_tile`,
+      `xyz_to_tms_y`, `morton64`, `point_to_tiers`, `tiers_of` — deleting
+      q2's 24-bit duplicates rather than widening them. Keep the local
+      `tile_url`/`sat_tile_url` helpers (genuinely q2's own).
+- [ ] Widen `Hhtl` to 4 tiers (`heel/hip/twig/leaf`). Note the existing
+      field doc calls `twig` "Finest tier (the leaf tile)" — that comment
+      is the V1 tell and must go with the change.
+- [ ] `/api/osm/locate` + `/api/osm/tile/:z/:x/:y` report the 4-tier
+      address; cockpit panel gains a 4th LEAF cell (it hardcodes a
+      3-column `.tier` grid + `#heel`/`#hip`/`#twig` today).
+- [ ] **Falsifier, two-sided**: a point whose V1 and V3 addresses *differ*
+      (any point off the TMS-flip fixpoint) must now report the V3 value —
+      and `osm_tiles`'s tier output must equal `tms::point_to_tiers` for
+      the same lon/lat, so the endpoint and the slab can no longer drift.
+      A test asserting only "returns 4 tiers" is vacuous; assert equality
+      against the upstream oracle.
+- [ ] Once unified, `osm_features.rs`'s key-space warning becomes stale —
+      rewrite it to say the two now agree (do not silently delete it; it
+      records why they once didn't).
+
+**Payoff**: the cockpit's displayed address and the slab's row key become
+the *same* key, so clicking a point can address its actual rows — which is
+what makes the overlay a substrate view rather than a picture.
+
+## Phase 4 — slab hosting: S3 scratch + `RAILWAY_VOL` (operator-directed)
+
+Phase 1 left this open ("a real deployment needs its own bake-hosting
+story (S3 / local volume) — out of scope"). Operator has now named it:
+S3 for scratch, `RAILWAY_VOL=/volume01`. Bucket + endpoint + credentials
+are supplied via env (`AWS_ENDPOINT_URL`, `AWS_S3_BUCKET_NAME`,
+`AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) —
+**never committed, never logged, read from the environment at the call
+site**.
+
+Existing precedent to follow rather than reinvent (the "CONTINUE TO use
+S3" instruction):
+- `lance-graph/.claude/knowledge/s3-hydration-lifecycle.md` — the
+  lifecycle doc.
+- `lance-graph/crates/lance-graph/examples/hydration_probe.rs` +
+  `soa_to_lance.rs`.
+- `MedCare-rs/crates/medcare-server/src/bake_s3.rs` + `bake_hydrate.rs` —
+  a working consumer-side hydrate.
+
+- [ ] `OSM_SLAB_PATH` gains an S3 sibling: hydrate `s3://$BUCKET/<key>`
+      → `$RAILWAY_VOL/<name>.soa` once at boot, then mmap **from the
+      volume** (mmap needs a real file; S3 is the source, not the mapping
+      target). Absent creds ⇒ the existing 503, unchanged.
+- [ ] Checksum-pin the object the way `MedCare-rs`'s
+      `scripts/fetch-frontend-assets.sh` pins its assets — a URL bump must
+      require a checksum bump in the same edit; no unverified-fetch path.
+- [ ] Note: `/volume01` does **not** exist in the current sandbox
+      (`RAILWAY_VOL` is set, the mount is Railway-side only), so this leg
+      is verifiable only on deploy — say so rather than claiming it works.
+
 ## Notes
 
 - Disk: the 1.2 GiB Berlin slab is a local dev artifact under `/tmp`, not
