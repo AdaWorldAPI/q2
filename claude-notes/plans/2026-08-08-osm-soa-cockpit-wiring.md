@@ -128,11 +128,11 @@ not always clean these up after a failed `cc`/`ld` invocation).
       unavailable (503, `OSM_SLAB_PATH` unset) / `returned` vs `total`
       (surfacing the server's truncation-honesty at `MAX_FEATURES_PER_TILE`)
       states.
-- [ ] End-to-end verification per CLAUDE.md: run `q2-cockpit` with
+- [x] End-to-end verification per CLAUDE.md: run `q2-cockpit` with
       `OSM_SLAB_PATH` set to the real baked Berlin slab, load `/osm` in a
       browser (or headless screenshot), confirm real OSM points render at
-      Berlin and the tile-boundary behavior is visually sane. **Not done
-      this session** — see the Phase-2 verification note below for what
+      Berlin and the tile-boundary behavior is visually sane. **DONE
+      2026-08-10 — see "Browser verification" below.** (Superseded note: — see the Phase-2 verification note below for what
       was verified instead and why the live run didn't happen.
 
 **Phase-2 verification note.** The live-browser run needs the
@@ -188,6 +188,69 @@ at the right places and the toggle/status text behave as designed. That
 remains genuinely unverified and should be the first thing a follow-up
 session with more disk headroom does before calling Phase 2 complete.
 
+## Browser verification (2026-08-10) — the POC gate, PASSED with one defect found
+
+The exact invocation, per CLAUDE.md's end-to-end rule:
+
+```bash
+bake berlin-latest.osm.pbf berlin.soa           # 2,525,052 rows, 41.5s
+OSM_SLAB_PATH=/home/user/osm-bake-out/berlin.soa PORT=8099 ./target/debug/q2-cockpit
+# headless chromium -> http://127.0.0.1:8099/osm, click #feat, click the map
+```
+
+The browser run is **hermetic**: every request to a host other than
+`127.0.0.1:8099` is aborted, so it also proves the overlay renders
+*independently of the external raster basemap* (the broken-image icons in
+the screenshot are those blocked tiles, and are expected).
+
+Observed — inspected, not inferred:
+
+| measurement | value | what it proves |
+|---|---|---|
+| `.pt` markers before toggle | **0** | opt-in gate holds |
+| feature fetches before toggle | **0** | nothing fetches while off |
+| `.pt` markers after toggle | **177,963** | real rows render |
+| distinct marker positions | **73,130** | genuinely placed, not stacked at one point |
+| feature fetches after toggle | 49 | one per visible tile |
+| status text | `177963 of 2511097 features (tile cap hit)` | truncation reported honestly |
+| panel HEEL | **`0xc8e1`** | **the V3 oracle value, live in the browser** |
+| page errors | **[]** | no JS errors |
+
+`0xc8e1` is the number the Phase-3 falsifier asserts and the V1 code
+produced `0x624b` for. The migration is real in the running binary, not
+only in tests.
+
+### ⚠ Defect found BY this run: the row cap is spatially biased
+
+The screenshot shows markers clumped into a corner of each dense tile
+rather than covering it. That is **not** a placement bug — the placement is
+faithful. It is the cap:
+
+```
+tile 14/8802/5373  total=15016 returned=5000
+  returned points cover 99.9% of tile width, 50.0% of tile height
+CONTROL 15/17604/10746 (total=4717, under the cap)
+  covers 100.0% width, 100.0% height
+```
+
+`MAX_FEATURES_PER_TILE` is applied as `range.take(5000)`, and the range is
+**Morton-ordered** — so a truncated tile returns a *spatially contiguous
+prefix* (a sub-quadrant), not a sample of the tile. The control tile, which
+never hits the cap, covers its full extent; that is what isolates the cause
+to truncation rather than to the coordinate math.
+
+Consequence: a dense tile silently renders as "data exists only in this
+corner". `total` vs `returned` is reported honestly, but the *shape* of
+what is returned is misleading in a way a count cannot convey.
+
+- [ ] Fix: stride-sample rather than head-truncate — take every
+      `ceil(total / cap)`-th row so a capped tile stays spatially
+      representative. `total`/`returned` semantics are unchanged; only which
+      rows are chosen changes. (Deliberately NOT done in this pass: it is a
+      behaviour change to a shipped endpoint and deserves its own falsifier
+      — assert a capped tile's coverage is within a few percent of the
+      control's, which is exactly the measurement above, now automatable.)
+
 ## Phase 3 — V1/V2 → V3 substrate (the POC gap)
 
 Phase 1 deliberately did **not** unify the two key spaces ("the two key
@@ -225,17 +288,17 @@ Since Phase 1 already added the `osm-soa-bake` dependency, the migration is
 mostly **deletion**, which is the workspace's standing "consume, never
 re-implement" rule.
 
-- [ ] Re-point `osm_tiles.rs` at `osm_soa_bake::tms` — `lonlat_to_tile`,
+- [x] Re-point `osm_tiles.rs` at `osm_soa_bake::tms` — `lonlat_to_tile`,
       `xyz_to_tms_y`, `morton64`, `point_to_tiers`, `tiers_of` — deleting
       q2's 24-bit duplicates rather than widening them. Keep the local
       `tile_url`/`sat_tile_url` helpers (genuinely q2's own).
-- [ ] Widen `Hhtl` to 4 tiers (`heel/hip/twig/leaf`). Note the existing
+- [x] Widen `Hhtl` to 4 tiers (`heel/hip/twig/leaf`). Note the existing
       field doc calls `twig` "Finest tier (the leaf tile)" — that comment
       is the V1 tell and must go with the change.
-- [ ] `/api/osm/locate` + `/api/osm/tile/:z/:x/:y` report the 4-tier
+- [x] `/api/osm/locate` + `/api/osm/tile/:z/:x/:y` report the 4-tier
       address; cockpit panel gains a 4th LEAF cell (it hardcodes a
       3-column `.tier` grid + `#heel`/`#hip`/`#twig` today).
-- [ ] **Falsifier, two-sided**: a point whose V1 and V3 addresses *differ*
+- [x] **Falsifier, two-sided**: a point whose V1 and V3 addresses *differ*
       (any point off the TMS-flip fixpoint) must now report the V3 value —
       and `osm_tiles`'s tier output must equal `tms::point_to_tiers` for
       the same lon/lat, so the endpoint and the slab can no longer drift.
@@ -290,13 +353,40 @@ column exactly.
 > never observed. A wrong key silently mis-addresses every row. The test
 > text above is the spec; land it *with* the implementation on a box that
 > can link the binary, and confirm it goes red-then-green.
-- [ ] Once unified, `osm_features.rs`'s key-space warning becomes stale —
+- [x] Once unified, `osm_features.rs`'s key-space warning becomes stale —
       rewrite it to say the two now agree (do not silently delete it; it
       records why they once didn't).
 
 **Payoff**: the cockpit's displayed address and the slab's row key become
 the *same* key, so clicking a point can address its actual rows — which is
 what makes the overlay a substrate view rather than a picture.
+
+### Phase 3 outcome (2026-08-10) — SHIPPED, real red-then-green
+
+The environment turned out to be able to link `cockpit-server` after all;
+**`debuginfo=2` was the blocker, not disk volume.** Building with
+`CARGO_PROFILE_DEV_DEBUG=0` completed in 27m33s holding steady at ~14 GB
+free, where every prior attempt consumed the disk and died (one crashing
+LLVM on an untouched dependency). That unblocked the honest TDD loop the
+plan asked for:
+
+```
+RED    hhtl_agrees_with_the_v3_substrate_oracle
+       Berlin: HEEL must equal the oracle — left: 25163, right: 51425
+GREEN  14 passed; 0 failed   (after the migration)
+```
+
+`25163`/`51425` are `0x624b`/`0xc8e1` — the exact values the earlier
+probe predicted, now observed inside q2 rather than in a sibling crate.
+
+Crate-wide: **79 passed, 1 failed**. The single failure
+(`osint_gotham::dual_use_facets_pack_into_the_value_tenant`) was
+**confirmed pre-existing** by stashing this change and re-running it
+against main's state — it fails identically there, references none of the
+changed symbols, and is worth someone's attention independently.
+
+**Still not done:** the browser load. Tests prove the key math; they do not
+prove the page renders. That remains the gating item for the POC.
 
 ## Phase 4 — slab hosting: S3 scratch + `RAILWAY_VOL` (operator-directed)
 
@@ -357,6 +447,118 @@ because it means the slab was *never* V1; only q2's display key is.
 - [ ] Note: `/volume01` does **not** exist in the current sandbox
       (`RAILWAY_VOL` is set, the mount is Railway-side only), so this leg
       is verifiable only on deploy — say so rather than claiming it works.
+
+## The OGAR plug-and-play surface (operator pointer, 2026-08-10)
+
+**The OSM substrate is already hot-plugged into OGAR, USB-style.** Worth
+recording because it changes Phase 4's design and it *validates* Phase 1's
+call style rather than condemning it.
+
+| USB role | Home | Surface |
+|---|---|---|
+| socket (agnostic, zero-dep) | `lance_graph_contract::hotplug` | `HotPlug { consumer, classids, covered }`, `CapabilityAuthority` |
+| authority (host) | `ogar_vocab::geo_actions` | the geo action table + `capability_registry::resolve_hotplug` |
+| bridge | `ogar_osm::plug_in` | socket ⇄ authority |
+| **device** | `osm-soa-bake::capability` | `Capability` enum, `activate()`, one real dispatch arm each |
+
+Declared capabilities, and what each already is in code:
+
+| capability | subject | primitive |
+|---|---|---|
+| `locate_point` | `osm_node` `0x0F01` | `tms::point_to_tiers` |
+| **`locate_tile`** | `osm_node` | **`slab.tile_range(z,x,y)` — what `/api/osm/features/:z/:x/:y` calls** |
+| `locate_fragment` | `osm_node` | `BoundaryIndex::locate_range` |
+| **`project_fields`** | `osm_node` | **`project::project(row, surface, role)` — the RBAC projection** |
+| `street_edges` | `osm_way` `0x0F02` | `street::edge_mask` |
+| `polyline_length` | `osm_way` | `geodesy::polyline_metres` |
+
+### Three consequences for q2 — read before touching the endpoint
+
+1. **q2 must NOT declare its own `HOT_PLUG`.**
+   `GEO_EXPECTED_EXECUTORS = ["osm-soa-bake"]`, and `resolve_hotplug`
+   checks the consumer name — a plug from `cockpit-server` earns
+   `HotplugDrift::UnexpectedConsumer`, by design. **q2 is a caller of an
+   already-activated device, not a second device.** The plug is the bake
+   crate's, and it is already shipped (`capability.rs`, with can-fire
+   halves proving the port rejects a wrong consumer and short coverage).
+
+2. **Calling `slab.tile_range(...)` directly is explicitly sanctioned**, so
+   Phase 1 needs no rework. `capability.rs` says so in its own module doc:
+   *"These are thin, on purpose … the dispatch surface exists so the
+   registration is checkable, not to add a layer: a caller that already has
+   the module in scope should keep calling `tms::point_to_tiers` directly."*
+   The arms exist to make the registration falsifiable, not to be a
+   mandatory call path.
+
+3. **`project_fields` is a real gap in the endpoint, and it is the
+   authorization one.** `/api/osm/features` currently decodes and returns
+   `lon/lat/entity_type/ordinal` with no mask applied. The declared
+   capability is `surface ∩ role` and is **fail-closed** — an unauthorised
+   position is *absent from the response*, not hidden client-side (the same
+   projection doctrine a2ui-rs enforces: RBAC happens before framing, and
+   pixels/JSON can't promise what the wire already leaked). For a
+   single-user local cockpit that is moot; for anything deployed it is the
+   difference between a demo and a surface with an access model.
+
+- [ ] Phase 4 addendum: route the feature response through
+      `project_fields(row, surface, role)` rather than hand-decoding, so
+      the endpoint inherits the fail-closed projection instead of
+      re-implementing (or silently skipping) it. Needs a role source —
+      until there is one, say plainly that the endpoint is unauthenticated
+      rather than implying a mask exists.
+
+**Anti-patterns this pins** (each burned upstream once, per
+`OGAR/.claude/knowledge/hotplug-consumer-migration.md`): no bespoke
+per-consumer plug mechanism; no shape ordinals in the classid low u16 (low
+= APP render prefix); no git deps on OGAR (path deps to the sibling — a
+git+branch dep writes a rev pin into `Cargo.lock`); no parallel registry
+beside `domain_tables()` — `ogar-osm` once shipped its own
+`OSM_CAPABILITIES` that verified itself against itself and passed while the
+real port answered `NoCapabilitiesFor(0x0F01)`.
+
+## Route choices — what is wired, what is kept, what the alternative costs
+
+Nothing below has been removed. Each row is a live alternative that a
+future session could switch to; this records **which arm the browser load
+actually exercises, why, and what picking the other would cause**, so the
+choice is a decision on the record rather than an accident of what got
+written first.
+
+### 1. HTTP routes on `/osm`
+
+| route | wired to the page? | why / what the other causes |
+|---|---|---|
+| `GET /api/osm/features/:z/:x/:y` | **YES** — the overlay | The only route returning real rows. 49 calls in the verified run. |
+| `GET /api/osm/locate?lon=&lat=&z=` | **YES** — click → panel | Takes lon/lat, which is what a map click naturally produces. Returns the address *and* both basemap URLs in one round trip. |
+| `GET /api/osm/tile/:z/:x/:y` | **NO — kept, unused by the page** | Same HHTL answer keyed by tile instead of coordinate. The page never has a bare `z/x/y` without also having the lon/lat, so `locate` strictly dominates *for this client*. Kept because it is the correct shape for a non-map caller (a tile pipeline, a cache warmer) that has an address and no coordinate; deleting it would force such a caller to invent a lon/lat inside the tile just to ask what the tile's key is. **If it were wired instead of `locate`:** the panel would lose `lon,lat` and both tile-source URLs, and the click handler would have to do the WebMercator inverse client-side — reintroducing exactly the duplicate-projection problem Phase 3 just deleted on the server side. |
+
+### 2. How the endpoint reaches the substrate
+
+| arm | chosen? | why / what the other causes |
+|---|---|---|
+| `slab.tile_range(z,x,y)` direct | **YES** | Explicitly sanctioned by `osm-soa-bake::capability`'s own module doc: *"a caller that already has the module in scope should keep calling `tms::point_to_tiers` directly"* — the dispatch arms exist to make the **registration falsifiable**, not to be a mandatory call path. |
+| `capability::locate_tile(&slab, …)` | no — kept upstream | Identical body (`slab.tile_range`). Routing through it would add an indirection with no behavioural change, and would NOT enrol q2 in drift detection: `GEO_EXPECTED_EXECUTORS = ["osm-soa-bake"]`, so **q2 calling `activate()` earns `HotplugDrift::UnexpectedConsumer` by design.** q2 is a caller of an already-activated device, not a second device. |
+
+### 3. Field decode — the one with a real consequence
+
+| arm | chosen? | why / what the other causes |
+|---|---|---|
+| hand decode `morton_at` + `read_identity` | **YES, currently** | Returns `lon/lat/entity_type/ordinal`. Sufficient to plot points; it is what the verified run renders. |
+| `capability::project_fields(row, surface, role)` | **no — and this one is a real gap** | The declared capability is `surface ∩ role`, **fail-closed**: an unauthorised position is *absent from the response*, not hidden by the client. **What the current choice causes:** the endpoint is effectively unauthenticated — every caller sees every field. Moot for a single-user local cockpit; not moot deployed. Switching arms needs a role source first, which does not exist yet, so the honest posture is to *say* the endpoint is unauthenticated rather than imply a mask exists. |
+
+### 4. Slab source
+
+| arm | chosen? | why / what the other causes |
+|---|---|---|
+| local file via `OSM_SLAB_PATH` | **YES** | What the browser run used. mmap needs a real file. |
+| S3 → `$RAILWAY_VOL` hydrate (Phase 4) | not built | The slab **is already in S3** (`q2/bakes/osm-berlin-v0.1.0/`, checksummed). Without the hydrate step a Railway deploy returns the existing 503 — correct behaviour, just not useful. This is the one remaining gap between "works locally" and "works deployed". |
+
+### 5. Basemap skin
+
+| arm | chosen? | why / what the other causes |
+|---|---|---|
+| OSM raster (`tile.openstreetmap.org`) | **YES, default** | Matches the `z/x/y` axis order the address math uses. |
+| ESRI World Imagery (`sat` toggle) | kept, live | **Same address, different skin** — note the path order is `z/y/x`, row before column. The toggle also swaps the attribution, which is a licensing requirement, not decoration. Hard-wiring either one would drop the other's attribution handling. |
 
 ## Notes
 

@@ -1,15 +1,22 @@
 //! Real OSM feature data — the query side of `openstreetmap-website-rs`'s
 //! `RowSlab` Morton-sorted SoA bake.
 //!
-//! **Not the same key space as [`crate::osm_tiles`].** That module computes
-//! q2's own, already-shipped, display-only 3-tier HHTL address (`z<=24`, no
-//! TMS Y-flip) for the cockpit panel's "here's the key" readout.
-//! `RowSlab::tile_range` uses a *different* 4-tier key internally (`z=32`
-//! native depth, Cesium-TMS Y-flipped — `osm_soa_bake::tms`), per
-//! `lance-graph/.claude/plans/cesium-osm-substrate-v1.md` §2 Q2/Q3. This
-//! module calls `tile_range` directly with the raw OSM-XYZ `z/x/y` a slippy
-//! client sends; it never converts through `osm_tiles::tile_to_hhtl`, and
-//! nothing here assumes the two keys are interchangeable.
+//! **Same key space as [`crate::osm_tiles`] — since the V3 migration, and not
+//! before it.** That module now computes the 4-tier, TMS-Y-flipped, `z=32` key
+//! (`GEO_V3_FACET` rails 0–3) by delegating to `osm_soa_bake::tms`, which is
+//! exactly what `RowSlab::tile_range` sorts rows by. The cockpit's displayed
+//! address and the row key are one address.
+//!
+//! That was NOT true originally, and the history is why the equality test
+//! exists: `osm_tiles` carried its own 3-tier `z<=24` key with no TMS flip, a
+//! parallel implementation that diverged from the slab at every tier (Berlin
+//! HEEL `0x624b` vs `0xc8e1` — measured, not inferred). Two implementations of
+//! one projection is how they drifted; `osm_tiles::hhtl_agrees_with_the_v3_
+//! substrate_oracle` is what stops it recurring.
+//!
+//! This module still passes the raw OSM-XYZ `z/x/y` a slippy client sends
+//! straight to `tile_range`, which applies the flip internally — so the
+//! request path never round-trips through a key at all.
 
 use axum::extract::Path;
 use axum::http::StatusCode;
