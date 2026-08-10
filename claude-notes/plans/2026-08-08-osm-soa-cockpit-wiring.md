@@ -358,6 +358,74 @@ because it means the slab was *never* V1; only q2's display key is.
       (`RAILWAY_VOL` is set, the mount is Railway-side only), so this leg
       is verifiable only on deploy — say so rather than claiming it works.
 
+## The OGAR plug-and-play surface (operator pointer, 2026-08-10)
+
+**The OSM substrate is already hot-plugged into OGAR, USB-style.** Worth
+recording because it changes Phase 4's design and it *validates* Phase 1's
+call style rather than condemning it.
+
+| USB role | Home | Surface |
+|---|---|---|
+| socket (agnostic, zero-dep) | `lance_graph_contract::hotplug` | `HotPlug { consumer, classids, covered }`, `CapabilityAuthority` |
+| authority (host) | `ogar_vocab::geo_actions` | the geo action table + `capability_registry::resolve_hotplug` |
+| bridge | `ogar_osm::plug_in` | socket ⇄ authority |
+| **device** | `osm-soa-bake::capability` | `Capability` enum, `activate()`, one real dispatch arm each |
+
+Declared capabilities, and what each already is in code:
+
+| capability | subject | primitive |
+|---|---|---|
+| `locate_point` | `osm_node` `0x0F01` | `tms::point_to_tiers` |
+| **`locate_tile`** | `osm_node` | **`slab.tile_range(z,x,y)` — what `/api/osm/features/:z/:x/:y` calls** |
+| `locate_fragment` | `osm_node` | `BoundaryIndex::locate_range` |
+| **`project_fields`** | `osm_node` | **`project::project(row, surface, role)` — the RBAC projection** |
+| `street_edges` | `osm_way` `0x0F02` | `street::edge_mask` |
+| `polyline_length` | `osm_way` | `geodesy::polyline_metres` |
+
+### Three consequences for q2 — read before touching the endpoint
+
+1. **q2 must NOT declare its own `HOT_PLUG`.**
+   `GEO_EXPECTED_EXECUTORS = ["osm-soa-bake"]`, and `resolve_hotplug`
+   checks the consumer name — a plug from `cockpit-server` earns
+   `HotplugDrift::UnexpectedConsumer`, by design. **q2 is a caller of an
+   already-activated device, not a second device.** The plug is the bake
+   crate's, and it is already shipped (`capability.rs`, with can-fire
+   halves proving the port rejects a wrong consumer and short coverage).
+
+2. **Calling `slab.tile_range(...)` directly is explicitly sanctioned**, so
+   Phase 1 needs no rework. `capability.rs` says so in its own module doc:
+   *"These are thin, on purpose … the dispatch surface exists so the
+   registration is checkable, not to add a layer: a caller that already has
+   the module in scope should keep calling `tms::point_to_tiers` directly."*
+   The arms exist to make the registration falsifiable, not to be a
+   mandatory call path.
+
+3. **`project_fields` is a real gap in the endpoint, and it is the
+   authorization one.** `/api/osm/features` currently decodes and returns
+   `lon/lat/entity_type/ordinal` with no mask applied. The declared
+   capability is `surface ∩ role` and is **fail-closed** — an unauthorised
+   position is *absent from the response*, not hidden client-side (the same
+   projection doctrine a2ui-rs enforces: RBAC happens before framing, and
+   pixels/JSON can't promise what the wire already leaked). For a
+   single-user local cockpit that is moot; for anything deployed it is the
+   difference between a demo and a surface with an access model.
+
+- [ ] Phase 4 addendum: route the feature response through
+      `project_fields(row, surface, role)` rather than hand-decoding, so
+      the endpoint inherits the fail-closed projection instead of
+      re-implementing (or silently skipping) it. Needs a role source —
+      until there is one, say plainly that the endpoint is unauthenticated
+      rather than implying a mask exists.
+
+**Anti-patterns this pins** (each burned upstream once, per
+`OGAR/.claude/knowledge/hotplug-consumer-migration.md`): no bespoke
+per-consumer plug mechanism; no shape ordinals in the classid low u16 (low
+= APP render prefix); no git deps on OGAR (path deps to the sibling — a
+git+branch dep writes a rev pin into `Cargo.lock`); no parallel registry
+beside `domain_tables()` — `ogar-osm` once shipped its own
+`OSM_CAPABILITIES` that verified itself against itself and passed while the
+real port answered `NoCapabilitiesFor(0x0F01)`.
+
 ## Notes
 
 - Disk: the 1.2 GiB Berlin slab is a local dev artifact under `/tmp`, not
