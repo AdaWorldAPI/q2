@@ -1,7 +1,7 @@
 //! The `/OSM` cockpit — a self-contained slippy-map page over the OSM tile
 //! material ([`crate::osm_tiles`]). The Geo-domain (`0x0F`) sibling of the FMA
 //! body-helix cockpit: pan/zoom OSM raster tiles from the standard source, and
-//! read each tile's HHTL (HEEL/HIP/TWIG) key live from `/api/osm/locate`.
+//! read each tile's HHTL (HEEL/HIP/TWIG/LEAF) key live from `/api/osm/locate`.
 //!
 //! The page is a single inline HTML string (the `/mri` cockpit pattern): no
 //! build step, no external JS. Tiles are `<img>` fetched directly from
@@ -36,10 +36,10 @@ const PAGE: &str = r##"<!doctype html>
   .row { display:flex; justify-content:space-between; padding:3px 0;
     border-bottom:1px solid #161d27; }
   .k { color:#6b7c93; } .v { color:#e6edf5; }
-  .tier { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:12px 0; }
+  .tier { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin:12px 0; }
   .cell { background:#141b24; border:1px solid #223; border-radius:6px; padding:8px;
     text-align:center; }
-  .cell b { display:block; font-size:16px; color:#8fd6ff; }
+  .cell b { display:block; font-size:13px; color:#8fd6ff; }
   .cell span { color:#6b7c93; font-size:11px; }
   .ctl { position:absolute; left:12px; top:12px; display:flex; flex-direction:column;
     gap:6px; z-index:5; }
@@ -77,12 +77,14 @@ const PAGE: &str = r##"<!doctype html>
       <div class="cell"><b id="heel">—</b><span>HEEL</span></div>
       <div class="cell"><b id="hip">—</b><span>HIP</span></div>
       <div class="cell"><b id="twig">—</b><span>TWIG</span></div>
+      <div class="cell"><b id="leaf">—</b><span>LEAF</span></div>
     </div>
     <div class="row"><span class="k">tile source</span></div>
     <div style="padding:4px 0"><code id="src">—</code></div>
     <p class="sub" style="margin-top:16px">A quadtree <em>is</em> a cascade:
-    <code>z/x/y</code> Morton-interleaves into the three 16-bit HHTL tiers, so
-    the map pyramid and the semantic address are one and the same.</p>
+    <code>z/x/y</code> Morton-interleaves into the four 16-bit HHTL tiers
+    (<code>GEO_V3_FACET</code> rails 0–3), so the map pyramid and the slab's own
+    row key are one and the same address.</p>
   </div>
 </div>
 <script>
@@ -116,9 +118,10 @@ let basemap='osm';
 // same posture as the Garmin drape's toggle): the slab is a large local dev
 // artifact (OSM_SLAB_PATH), not always present, and fetching it unasked
 // would be surprising. Raw OSM-XYZ z/x/y goes straight to the endpoint —
-// this is deliberately the SAME z/wx/ty a raster tile <img> uses, never
-// converted through the HHTL address the panel displays (see osm_features.rs
-// module docs: the two key spaces are not interchangeable).
+// the SAME z/wx/ty a raster tile <img> uses. Since the V3 migration the
+// panel's displayed HHTL address is the same key the slab is sorted by, so
+// this is one address end to end; it was NOT true before that migration,
+// which is why the endpoint takes raw z/x/y rather than a key.
 let showFeatures=false;
 const featureCache=new Map();   // "z/x/y" -> 'pending' | 'unavailable' | {total,returned,features}
 function tileKey(z,x,y){ return `${z}/${x}/${y}`; }
@@ -234,6 +237,7 @@ map.addEventListener('click',async e=>{
     document.getElementById('heel').textContent='0x'+d.hhtl.heel.toString(16).padStart(4,'0');
     document.getElementById('hip').textContent='0x'+d.hhtl.hip.toString(16).padStart(4,'0');
     document.getElementById('twig').textContent='0x'+d.hhtl.twig.toString(16).padStart(4,'0');
+    document.getElementById('leaf').textContent='0x'+d.hhtl.leaf.toString(16).padStart(4,'0');
     // tile source follows the ACTIVE basemap (the locate API reports both URLs) —
     // on satellite, showing the OSM URL would mismatch the visible tiles.
     document.getElementById('src').textContent=basemap==='sat'?d.sat_tile_url:d.tile_url;
