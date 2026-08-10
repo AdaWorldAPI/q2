@@ -51,14 +51,21 @@ const PAGE: &str = r##"<!doctype html>
   .attr { position:absolute; left:0; bottom:0; background:#0b0e13aa; padding:2px 6px;
     font-size:11px; z-index:5; }
   .attr a { color:#8fd6ff; }
+  .ctl button.active { background:#1d3a2a; border-color:#2f6b4a; color:#9fe0a4; }
+  .pt { position:absolute; width:5px; height:5px; margin:-3px 0 0 -3px;
+    border-radius:50%; background:#ffb454; box-shadow:0 0 0 1px #0b0e13aa;
+    pointer-events:none; }
+  .feat-status { position:absolute; right:12px; top:12px; z-index:5;
+    background:#0b0e13aa; padding:2px 6px; border-radius:4px; color:#8fa0b8; }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="map">
     <div id="tiles"></div>
-    <div class="ctl"><button id="zin">+</button><button id="zout">−</button><button id="base" title="basemap: OSM map ↔ ESRI satellite (same tiles, same HHTL address — two skins)" style="width:auto;padding:0 8px;font-size:12px">sat</button></div>
+    <div class="ctl"><button id="zin">+</button><button id="zout">−</button><button id="base" title="basemap: OSM map ↔ ESRI satellite (same tiles, same HHTL address — two skins)" style="width:auto;padding:0 8px;font-size:12px">sat</button><button id="feat" title="toggle real OSM feature overlay (points read from the baked RowSlab via /api/osm/features/:z/:x/:y)" style="width:auto;padding:0 8px;font-size:12px">features</button></div>
     <div class="hint">drag to pan · click a point for its HHTL key</div>
+    <div class="feat-status" id="featStatus"></div>
     <div class="attr" id="attr">© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors</div>
   </div>
   <div id="panel">
@@ -104,6 +111,41 @@ const BASEMAPS={
 };
 let basemap='osm';
 
+// ── real OSM feature overlay — GET /api/osm/features/:z/:x/:y over the
+// baked RowSlab (cockpit-server::osm_features). Off by default (opt-in,
+// same posture as the Garmin drape's toggle): the slab is a large local dev
+// artifact (OSM_SLAB_PATH), not always present, and fetching it unasked
+// would be surprising. Raw OSM-XYZ z/x/y goes straight to the endpoint —
+// this is deliberately the SAME z/wx/ty a raster tile <img> uses, never
+// converted through the HHTL address the panel displays (see osm_features.rs
+// module docs: the two key spaces are not interchangeable).
+let showFeatures=false;
+const featureCache=new Map();   // "z/x/y" -> 'pending' | 'unavailable' | {total,returned,features}
+function tileKey(z,x,y){ return `${z}/${x}/${y}`; }
+function ensureFeatures(z,wx,ty){
+  const key=tileKey(z,wx,ty);
+  if(featureCache.has(key)) return;
+  featureCache.set(key,'pending');
+  fetch(`/api/osm/features/${z}/${wx}/${ty}`).then(r=>{
+    if(r.status===503){ featureCache.set(key,'unavailable'); return null; }
+    if(!r.ok) throw new Error('http '+r.status);
+    return r.json();
+  }).then(d=>{ if(d){ featureCache.set(key,d); render(); } })
+    .catch(()=>{ featureCache.delete(key); });  // transient failure: allow a retry on next render
+}
+function updateFeatStatus(visibleKeys){
+  const el=document.getElementById('featStatus');
+  if(!showFeatures){ el.textContent=''; return; }
+  if(visibleKeys.some(k=>featureCache.get(k)==='unavailable')){
+    el.textContent='no OSM slab baked (OSM_SLAB_PATH unset on the server)'; return;
+  }
+  if(visibleKeys.some(k=>featureCache.get(k)==='pending')){ el.textContent='loading features…'; return; }
+  let returned=0, total=0;
+  for(const k of visibleKeys){ const d=featureCache.get(k);
+    if(d && typeof d==='object'){ returned+=d.returned; total+=d.total; } }
+  el.textContent = total>returned ? `${returned} of ${total} features (tile cap hit)` : `${returned} features`;
+}
+
 function render(){
   const w=map.clientWidth, h=map.clientHeight, n=Math.pow(2,z);
   tilesEl.innerHTML='';
@@ -113,13 +155,36 @@ function render(){
   const x0=Math.floor(cx - w/512)-1, x1=Math.floor(cx + w/512)+1;
   const y0=Math.floor(cy - h/512)-1, y1=Math.floor(cy + h/512)+1;
   const bm=BASEMAPS[basemap];
+  const visibleKeys=[];
   for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++){
     const wx=((tx%n)+n)%n; if(ty<0||ty>=n) continue;
     const img=new Image();
     img.src=bm.src(z,wx,ty);
     img.style.left=(tx*256)+'px'; img.style.top=(ty*256)+'px';
     tilesEl.appendChild(img);
+
+    if(showFeatures){
+      const key=tileKey(z,wx,ty);
+      visibleKeys.push(key);
+      ensureFeatures(z,wx,ty);
+      const d=featureCache.get(key);
+      if(d && typeof d==='object'){
+        // tx may sit outside [0,n) on a repeated world copy (low zoom /
+        // pan past ±180°); lon2x() returns a coordinate wrapped into
+        // [0,n), so re-add the same wrap offset the tile image itself
+        // used to place it under the correct world copy.
+        const offset=tx-wx;
+        for(const f of d.features){
+          const dot=document.createElement('div');
+          dot.className='pt';
+          dot.style.left=((lon2x(f.lon,z)+offset)*256)+'px';
+          dot.style.top=(lat2y(f.lat,z)*256)+'px';
+          tilesEl.appendChild(dot);
+        }
+      }
+    }
   }
+  updateFeatStatus(visibleKeys);
 }
 
 // ── panning ── (moved: a drag that actually panned, so the trailing click is
@@ -143,6 +208,10 @@ document.getElementById('base').onclick=e=>{ e.stopPropagation();
   basemap=BASEMAPS[basemap].next;
   e.target.textContent=BASEMAPS[basemap].next;
   document.getElementById('attr').innerHTML=BASEMAPS[basemap].attr;
+  render(); };
+document.getElementById('feat').onclick=e=>{ e.stopPropagation();
+  showFeatures=!showFeatures;
+  e.target.classList.toggle('active',showFeatures);
   render(); };
 map.addEventListener('wheel',e=>{ e.preventDefault(); zoom(e.deltaY<0?1:-1); },{passive:false});
 
