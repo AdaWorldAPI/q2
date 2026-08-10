@@ -225,17 +225,17 @@ Since Phase 1 already added the `osm-soa-bake` dependency, the migration is
 mostly **deletion**, which is the workspace's standing "consume, never
 re-implement" rule.
 
-- [ ] Re-point `osm_tiles.rs` at `osm_soa_bake::tms` — `lonlat_to_tile`,
+- [x] Re-point `osm_tiles.rs` at `osm_soa_bake::tms` — `lonlat_to_tile`,
       `xyz_to_tms_y`, `morton64`, `point_to_tiers`, `tiers_of` — deleting
       q2's 24-bit duplicates rather than widening them. Keep the local
       `tile_url`/`sat_tile_url` helpers (genuinely q2's own).
-- [ ] Widen `Hhtl` to 4 tiers (`heel/hip/twig/leaf`). Note the existing
+- [x] Widen `Hhtl` to 4 tiers (`heel/hip/twig/leaf`). Note the existing
       field doc calls `twig` "Finest tier (the leaf tile)" — that comment
       is the V1 tell and must go with the change.
-- [ ] `/api/osm/locate` + `/api/osm/tile/:z/:x/:y` report the 4-tier
+- [x] `/api/osm/locate` + `/api/osm/tile/:z/:x/:y` report the 4-tier
       address; cockpit panel gains a 4th LEAF cell (it hardcodes a
       3-column `.tier` grid + `#heel`/`#hip`/`#twig` today).
-- [ ] **Falsifier, two-sided**: a point whose V1 and V3 addresses *differ*
+- [x] **Falsifier, two-sided**: a point whose V1 and V3 addresses *differ*
       (any point off the TMS-flip fixpoint) must now report the V3 value —
       and `osm_tiles`'s tier output must equal `tms::point_to_tiers` for
       the same lon/lat, so the endpoint and the slab can no longer drift.
@@ -290,13 +290,40 @@ column exactly.
 > never observed. A wrong key silently mis-addresses every row. The test
 > text above is the spec; land it *with* the implementation on a box that
 > can link the binary, and confirm it goes red-then-green.
-- [ ] Once unified, `osm_features.rs`'s key-space warning becomes stale —
+- [x] Once unified, `osm_features.rs`'s key-space warning becomes stale —
       rewrite it to say the two now agree (do not silently delete it; it
       records why they once didn't).
 
 **Payoff**: the cockpit's displayed address and the slab's row key become
 the *same* key, so clicking a point can address its actual rows — which is
 what makes the overlay a substrate view rather than a picture.
+
+### Phase 3 outcome (2026-08-10) — SHIPPED, real red-then-green
+
+The environment turned out to be able to link `cockpit-server` after all;
+**`debuginfo=2` was the blocker, not disk volume.** Building with
+`CARGO_PROFILE_DEV_DEBUG=0` completed in 27m33s holding steady at ~14 GB
+free, where every prior attempt consumed the disk and died (one crashing
+LLVM on an untouched dependency). That unblocked the honest TDD loop the
+plan asked for:
+
+```
+RED    hhtl_agrees_with_the_v3_substrate_oracle
+       Berlin: HEEL must equal the oracle — left: 25163, right: 51425
+GREEN  14 passed; 0 failed   (after the migration)
+```
+
+`25163`/`51425` are `0x624b`/`0xc8e1` — the exact values the earlier
+probe predicted, now observed inside q2 rather than in a sibling crate.
+
+Crate-wide: **79 passed, 1 failed**. The single failure
+(`osint_gotham::dual_use_facets_pack_into_the_value_tenant`) was
+**confirmed pre-existing** by stashing this change and re-running it
+against main's state — it fails identically there, references none of the
+changed symbols, and is worth someone's attention independently.
+
+**Still not done:** the browser load. Tests prove the key math; they do not
+prove the page renders. That remains the gating item for the POC.
 
 ## Phase 4 — slab hosting: S3 scratch + `RAILWAY_VOL` (operator-directed)
 
