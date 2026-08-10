@@ -240,7 +240,56 @@ re-implement" rule.
       and `osm_tiles`'s tier output must equal `tms::point_to_tiers` for
       the same lon/lat, so the endpoint and the slab can no longer drift.
       A test asserting only "returns 4 tiers" is vacuous; assert equality
-      against the upstream oracle.
+      against the upstream oracle. Exact test to add (written, then
+      reverted — see the verification note below):
+
+      ```rust
+      #[test]
+      fn hhtl_agrees_with_the_v3_substrate_oracle() {
+          for (name, lon, lat) in [
+              ("Berlin", 13.404954, 52.520008),
+              ("Reykjavik", -21.940022, 64.146575),
+              ("Sydney (southern — exercises the TMS Y-flip)", 151.2093, -33.8688),
+          ] {
+              let (_code, want) = osm_soa_bake::tms::point_to_tiers(lon, lat);
+              let (x, y) = lonlat_to_tile(lon, lat, HHTL_DEPTH);
+              let got = tile_to_hhtl(HHTL_DEPTH, x, y);
+              assert_eq!(got.heel, want.heel, "{name}: HEEL must equal the oracle");
+              assert_eq!(got.hip,  want.hip,  "{name}: HIP must equal the oracle");
+              assert_eq!(got.twig, want.twig, "{name}: TWIG must equal the oracle");
+              assert_eq!(got.leaf, want.leaf, "{name}: LEAF must equal the oracle");
+          }
+      }
+      ```
+
+**The divergence is MEASURED, not assumed.** Because `cockpit-server` is
+binary-only, its test binary cannot be linked in this environment (25-min
+run killed mid-link; see the Phase-2 note). So the falsification was run
+where it *can* build — a throwaway probe in `openstreetmap-website-rs`
+(untracked, since removed) that copied q2's `tile_to_hhtl` / 24-bit
+`morton_interleave` / `lonlat_to_tile` **verbatim** and compared them to
+the real `tms::point_to_tiers`. Compiled and executed under `+1.97.1`:
+
+| city | q2 V1 (3-tier z=24) | V3 oracle (4-tier z=32) |
+|---|---|---|
+| Berlin | `heel=0x624b hip=0xea60 twig=0xb2f2` (no leaf) | `heel=0xc8e1 hip=0x40ca twig=0x1858 leaf=0x048c` |
+| Reykjavik | `heel=0x3520 hip=0x1491 twig=0xffa8` | `heel=0x9f8a hip=0xbe3b twig=0x5502 leaf=0xfb7b` |
+| Sydney | `heel=0xd6c7 hip=0xc2be twig=0xd922` | `heel=0x7c6d hip=0x6814 twig=0x7388 leaf=0x8ca3` |
+
+**Every tier differs at every point** — the cockpit's displayed address is
+not the slab's key, confirmed numerically rather than inferred from the
+constants. Those V3 columns are the expected-value fixture for the
+migration: after Phase 3, `tile_to_hhtl` must reproduce the right-hand
+column exactly.
+
+> **Why the test is not committed yet.** It was written and then reverted
+> deliberately. Committing a test that cannot be executed here would either
+> turn the branch red (it fails against the current V1 code — which is the
+> whole point of a falsifier) or, if landed together with an unverified
+> implementation, ship a coordinate-key migration whose correctness was
+> never observed. A wrong key silently mis-addresses every row. The test
+> text above is the spec; land it *with* the implementation on a box that
+> can link the binary, and confirm it goes red-then-green.
 - [ ] Once unified, `osm_features.rs`'s key-space warning becomes stale —
       rewrite it to say the two now agree (do not silently delete it; it
       records why they once didn't).
@@ -267,6 +316,36 @@ S3" instruction):
   `soa_to_lance.rs`.
 - `MedCare-rs/crates/medcare-server/src/bake_s3.rs` + `bake_hydrate.rs` —
   a working consumer-side hydrate.
+
+**The slab is baked and in S3 already** (done this session):
+
+```
+bake berlin-latest.osm.pbf berlin.soa    # 37.3s
+  ROWS 2,525,052 · 1,292,826,624 bytes (1.20 GiB at stride 512)
+  classid 0x0F011000   # GEO_DOMAIN 0x0F + CLASSVIEW_V3_SUBSTRATE 0x1000
+  same-tile collisions 11,493 (0.4552% — z=32 keying)
+  slab digest 8ec93a6ee63e89d2
+```
+
+Uploaded to the bucket under the **same convention the MedCare-rs bakes
+already use** (`<repo>/bakes/<version>/<artifact>` + a `sha256sum -c`
+compatible `SHA256SUMS`), so the hydrate side can be the same shape:
+
+| key | bytes |
+|---|---|
+| `q2/bakes/osm-berlin-v0.1.0/berlin.soa` | 1,292,826,624 |
+| `q2/bakes/osm-berlin-v0.1.0/berlin.soa.books` | 58,763,338 |
+| `q2/bakes/osm-berlin-v0.1.0/SHA256SUMS` | 160 |
+
+```
+berlin.soa        cbf5989ab45bc921d8a85fdbdb71c8e5029cd904a3d230a898c2b5eb81d7ebe7
+berlin.soa.books  d12bc8a15270f9a61290fb7117c92621e1f88229a85bdfdfc4d217481addde7f
+```
+
+The uploaded object size matches the baker's own reported byte count
+exactly, and the local copy was deleted afterwards to reclaim disk.
+`classid 0x0F011000` is the artifact itself asserting V3 — worth noting
+because it means the slab was *never* V1; only q2's display key is.
 
 - [ ] `OSM_SLAB_PATH` gains an S3 sibling: hydrate `s3://$BUCKET/<key>`
       → `$RAILWAY_VOL/<name>.soa` once at boot, then mmap **from the
