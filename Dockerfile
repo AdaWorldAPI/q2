@@ -126,9 +126,21 @@ RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v
 #
 # neo4j-rs is intentionally NOT cloned — a discarded Neo4j-GUI experiment referenced
 # by no manifest; the only neo4j path is the opt-in `neo4j-fallback` (crates.io neo4rs).
+#   /build/openstreetmap-website-rs
+#                       → the OSM SoA bake crate (`osm-soa-bake`), which
+#                         cockpit-server path-deps for `RowSlab` / `tms` /
+#                         `identity` / `cluster` / `codebook` — the whole
+#                         /api/osm/* surface. Cargo resolves the path dep
+#                         BEFORE it builds anything, so a missing clone here is
+#                         not a link error at the end but a manifest error at
+#                         the start: "failed to read
+#                         /build/openstreetmap-website-rs/Cargo.toml".
+#                         It was missing from this list when the sibling dep
+#                         was added, and the deploy failed on exactly that.
 RUN git clone --depth 1 https://github.com/AdaWorldAPI/lance-graph.git \
  && git clone --depth 1 https://github.com/AdaWorldAPI/ndarray.git \
- && git clone --depth 1 https://github.com/AdaWorldAPI/OGAR.git
+ && git clone --depth 1 https://github.com/AdaWorldAPI/OGAR.git \
+ && git clone --depth 1 https://github.com/AdaWorldAPI/openstreetmap-website-rs.git
 
 # CPU baseline: x86-64-v4 (the 4th microarch level — AVX-512F/BW/CD/DQ/VL on top
 # of v3's AVX2+FMA). This is the compile FLOOR; it flips on `target_feature =
