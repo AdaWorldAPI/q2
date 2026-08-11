@@ -133,7 +133,10 @@ function ensureFeatures(z,wx,ty){
     if(r.status===503){ featureCache.set(key,'unavailable'); return null; }
     if(!r.ok) throw new Error('http '+r.status);
     return r.json();
-  }).then(d=>{ if(d){ featureCache.set(key,d); render(); } })
+  // paintFeatures(), NOT render(): a completed fetch adds one tile's dots and
+  // changes nothing about the tile images or the transform, so rebuilding the
+  // whole layer here is what produced the 24x append amplification.
+  }).then(d=>{ if(d){ featureCache.set(key,d); paintFeatures(); } })
     .catch(()=>{ featureCache.delete(key); });  // transient failure: allow a retry on next render
 }
 function updateFeatStatus(visibleKeys){
@@ -149,45 +152,75 @@ function updateFeatStatus(visibleKeys){
   el.textContent = total>returned ? `${returned} of ${total} features (tile cap hit)` : `${returned} features`;
 }
 
-function render(){
+// The tile cells covering the viewport. `tx` may sit outside [0,2^z) on a
+// repeated world copy (low zoom / pan past ±180°); `wx` is it wrapped back
+// into range, which is what the tile URL and the feature key both use.
+function visibleGrid(){
   const w=map.clientWidth, h=map.clientHeight, n=Math.pow(2,z);
-  tilesEl.innerHTML='';
-  // pixel offset of the map center
-  const ox=w/2 - cx*256, oy=h/2 - cy*256;
-  tilesEl.style.transform=`translate(${ox}px,${oy}px)`;
   const x0=Math.floor(cx - w/512)-1, x1=Math.floor(cx + w/512)+1;
   const y0=Math.floor(cy - h/512)-1, y1=Math.floor(cy + h/512)+1;
-  const bm=BASEMAPS[basemap];
-  const visibleKeys=[];
+  const cells=[];
   for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++){
-    const wx=((tx%n)+n)%n; if(ty<0||ty>=n) continue;
-    const img=new Image();
-    img.src=bm.src(z,wx,ty);
-    img.style.left=(tx*256)+'px'; img.style.top=(ty*256)+'px';
-    tilesEl.appendChild(img);
+    if(ty<0||ty>=n) continue;
+    cells.push({tx,ty,wx:((tx%n)+n)%n});
+  }
+  return cells;
+}
 
-    if(showFeatures){
+// Cells whose feature dots are already in the DOM *for the current view*.
+// Keyed by (tx,ty) and not by the tile key, because one tile drawn on two
+// repeated world copies needs its own dots at each offset.
+//
+// This exists because feature fetches complete one at a time and each
+// completion used to call render(), which clears #tiles and rebuilds EVERY
+// marker. Measured on the Berlin bake at the default z12 view: 64,707 final
+// markers cost 1,550,957 appendChild calls — 24x amplification, 33.4s to
+// settle. That is the n^2/2 you get from redrawing all tiles drawn so far on
+// each of ~49 arrivals. Painting only what is missing makes it 1x.
+let drawnCells=new Set();
+
+function paintFeatures(){
+  const visibleKeys=[];
+  if(showFeatures){
+    for(const {tx,ty,wx} of visibleGrid()){
       const key=tileKey(z,wx,ty);
       visibleKeys.push(key);
       ensureFeatures(z,wx,ty);
+      const cell=tx+','+ty;
+      if(drawnCells.has(cell)) continue;
       const d=featureCache.get(key);
-      if(d && typeof d==='object'){
-        // tx may sit outside [0,n) on a repeated world copy (low zoom /
-        // pan past ±180°); lon2x() returns a coordinate wrapped into
-        // [0,n), so re-add the same wrap offset the tile image itself
-        // used to place it under the correct world copy.
-        const offset=tx-wx;
-        for(const f of d.features){
-          const dot=document.createElement('div');
-          dot.className='pt';
-          dot.style.left=((lon2x(f.lon,z)+offset)*256)+'px';
-          dot.style.top=(lat2y(f.lat,z)*256)+'px';
-          tilesEl.appendChild(dot);
-        }
+      if(!(d && typeof d==='object')) continue;
+      drawnCells.add(cell);
+      // lon2x() returns a coordinate wrapped into [0,2^z), so re-add the same
+      // wrap offset the tile image itself used to place it under the correct
+      // world copy.
+      const offset=tx-wx;
+      for(const f of d.features){
+        const dot=document.createElement('div');
+        dot.className='pt';
+        dot.style.left=((lon2x(f.lon,z)+offset)*256)+'px';
+        dot.style.top=(lat2y(f.lat,z)*256)+'px';
+        tilesEl.appendChild(dot);
       }
     }
   }
   updateFeatStatus(visibleKeys);
+}
+
+function render(){
+  const w=map.clientWidth, h=map.clientHeight;
+  tilesEl.innerHTML=''; drawnCells=new Set();
+  // pixel offset of the map center
+  const ox=w/2 - cx*256, oy=h/2 - cy*256;
+  tilesEl.style.transform=`translate(${ox}px,${oy}px)`;
+  const bm=BASEMAPS[basemap];
+  for(const {tx,ty,wx} of visibleGrid()){
+    const img=new Image();
+    img.src=bm.src(z,wx,ty);
+    img.style.left=(tx*256)+'px'; img.style.top=(ty*256)+'px';
+    tilesEl.appendChild(img);
+  }
+  paintFeatures();
 }
 
 // ── panning ── (moved: a drag that actually panned, so the trailing click is

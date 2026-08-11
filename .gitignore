@@ -66,3 +66,7 @@ cockpit/public/*.blocks
 cockpit/public/iceland_dem.helix.soa.gz
 # in-repo scratch (demgrids, screenshots, harness) — belongs out of git.
 /scratchpad/
+
+# Local OSM bakes (regenerated from the PBF; 1.2 GB+ — never commit).
+# `bake <extract>.osm.pbf .claude/maps/bake/<name>` writes <name> + <name>.books.
+.claude/maps/bake/

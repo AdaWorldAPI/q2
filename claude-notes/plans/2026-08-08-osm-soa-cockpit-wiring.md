@@ -732,3 +732,184 @@ M4's result recorded upstream in `lance-graph/.claude/knowledge/bf16-hhtl-terrai
 per that file's update protocol, scoped explicitly to the OSM point-feature
 form — it says nothing about HHTL termination for embedding fingerprints,
 which is what P2–P4 address and which remains NOT RUN.
+
+## Phase 5 — the cell form, the comparison, and the web POC (2026-08-11)
+
+### The rule that replaced the stride
+
+`overview_sample` selects **one representative per occupied cascade cell**, at
+the deepest Morton prefix depth whose occupied-cell count still fits the
+budget. The depth is chosen **per tile from its own density** — that is the
+"dynamic compression bucket threshold", and it is what M4 finding (2) demands:
+Berlin and Iceland differ ~200x per hip cell, so any depth fixed once for all
+extracts is wrong for one of them. Fixed-at-hip is the special case zz=16.
+
+Cheap by construction: the range is Morton-sorted, so equal prefixes are
+contiguous runs — counting occupied cells is one pass, no map, no allocation,
+and the count is monotone in depth, so the depth search is a binary search
+(`occupied_cells_is_monotone_in_depth` pins the monotonicity the search
+depends on rather than assuming it).
+
+### The comparison — synthetic, then real
+
+**Synthetic falsifier** (`cell_selection_keeps_isolated_features_that_a_stride_drops`):
+one dense 100x100 cluster plus 8 isolated outliers, same budget for both rules.
+Stride kept **1 of 8** outliers; cell kept **8 of 8**. Verified by swapping
+`overview_sample`'s body for the stride form and watching it go red.
+
+**Real Berlin bake** (`overview_rule_comparison_on_the_real_bake`, `#[ignore]`d,
+needs `OSM_SLAB_PATH`). Metric: **singleton hip cells** — a row alone in its z16
+cell, which is an isolated feature by M4's own measure.
+
+| tile | rows | budget | cell depth | stride keeps | cell keeps | stride extent | cell extent |
+|---|---|---|---|---|---|---|---|
+| 8/137/83 | 1,569,355 | 100k | z18 | **14 / 316** | **316 / 316** | 0.82 / 0.93 | 1.00 / 1.00 |
+| 9/275/167 | 981,698 | 100k | z18 | 9 / 107 | 107 / 107 | 0.82 / 0.87 | 1.00 / 1.00 |
+| 10/550/335 | 981,696 | 100k | z18 | 9 / 105 | 105 / 105 | 0.95 / 0.97 | 1.00 / 1.00 |
+| 11/1100/671 | 654,933 | 100k | z19 | 0 / 0 | 0 / 0 | 1.00 / 1.00 | 1.00 / 1.00 |
+| 12/2200/1343 | 255,669 | 100k | z20 | 0 / 0 | 0 / 0 | 1.00 / 1.00 | 1.00 / 1.00 |
+
+The stride drops **95.6%** of isolated features at z8; the cell form drops none
+— while returning FEWER rows (53,655 vs 98,085), because the depth is quantized
+to a zoom level and the next one deeper would overrun.
+
+Two things worth keeping from this table:
+
+- **Extent coverage moves 0.82 -> 1.00 where the real metric moves 14 -> 316.**
+  The old gate could not have seen this. Same lesson as the vacuous falsifier,
+  now confirmed on real data rather than argued.
+- **z11/z12 have zero singletons** (those tiles sit entirely inside dense
+  Berlin) and both rules tie — the can-stay-silent half, for free, on real
+  input.
+
+- [x] Build the hip-cell representative form and compare against the stride at
+      equal budget. `OVERVIEW_ROW_BUDGET`'s METHOD is no longer CONJECTURE.
+
+### ⚠ The browser caught a second wrong number — mine again
+
+`OVERVIEW_ROW_BUDGET` was `100_000`, justified in its own doc comment as *"the
+browser drew 177,963 markers across 49 tiles with zero page errors, so ~10^5
+per response is within demonstrated reach."* That reads a **viewport-wide**
+measurement as a **per-tile** budget. 177,963 across 49 tiles is **3,632 per
+tile** — the constant overstated its own cited evidence by **27x**.
+
+Measured at the `/osm` page's default z12 view (1400x900 = 63 tiles, 53 with
+data), by summing the real endpoint:
+
+| | markers in view |
+|---|---|
+| ever measured working | 177,963 |
+| under the 100k per-tile budget | **1,772,260** (10x) |
+
+The page hung — the browser run timed out twice before this was diagnosed.
+Corrected to `3_000` per tile with the viewport arithmetic stated in the doc
+comment: 3,000 x 53 data tiles = 159,000, under the only measured capacity.
+
+**A second, pre-existing defect surfaced here and is NOT fixed:** `render()`
+does `tilesEl.innerHTML=''` and rebuilds every marker on **each arriving
+tile**, so a viewport costs ~53 full rebuilds of the whole DOM — quadratic in
+tiles. The old 5,000 cap masked it. It is survivable at the load the evidence
+supports (measured working below), so it is recorded rather than fixed in this
+pass.
+
+- [ ] `render()` is O(tiles x markers) — rebuild incrementally, or diff, rather
+      than clearing `#tiles` on every tile arrival.
+- [ ] The viewport bound is the honest one; `OVERVIEW_ROW_BUDGET` is its
+      per-tile share at one window size. A budget derived from the actual
+      tiles-in-view count would not drift with window size.
+
+### The web POC — end-to-end, browser-verified
+
+```
+cd openstreetmap-website-rs && cargo +1.97.1 run --release --bin bake \
+    .claude/maps/berlin-latest.osm.pbf <out>/berlin
+# 2,525,052 rows -> 1.20 GiB slab + 56 MB codebook, 35.4s, digest 8ec93a6ee63e89d2
+
+OSM_SLAB_PATH=<out>/berlin PORT=8099 ./target/debug/q2-cockpit
+```
+
+Endpoint, inspected:
+
+| tile | total | returned | |
+|---|---|---|---|
+| **14/8802/5373** | **15,016** | **15,016** | the tile this whole arc started on — was 5,000 |
+| 8/137/83 | 1,569,355 | 1,269 | overview, cell-decimated |
+| 10/550/335 | 981,696 | 2,295 | |
+| 12/2200/1343 | 255,669 | 1,024 | |
+
+Browser (hermetic — every non-localhost request aborted, so the overlay is
+proven to render independently of the external raster basemap):
+
+| measurement | value | what it proves |
+|---|---|---|
+| `.pt` markers before toggle | **0** | opt-in gate holds |
+| `.pt` markers after toggle | **64,707** | real rows render |
+| distinct marker positions | **59,812** | genuinely placed, not stacked |
+| feature fetches | **49** | one per visible tile |
+| status text | `64707 of 2511097 features (tile cap hit)` | truncation reported honestly |
+| panel HEEL | **`0xc8e1`** | the V3 oracle value, live (V1 gave `0x624b`) |
+| panel z/x/y | `12 / 2201 / 1343` | click -> `/api/osm/locate` round-trip |
+| page errors | **[]** | none |
+
+Screenshot inspected: markers cover the viewport edge to edge with no corner
+clumping (the original z14 defect), and the black gaps are real absences —
+water bodies and parks. The dots form a visible lattice in dense areas, which
+is the cell form flattening density on purpose; that is the trade the
+comparison above measured, not an artefact.
+
+Two verification-method notes, both cost real time:
+- The tier panel is populated by the **click** handler (`/api/osm/locate`), not
+  by hover. A first run moved the mouse and read back `—` for all four tiers,
+  which looks exactly like a broken panel.
+- `pgrep -f "target/debug/q2-cockpit"` matches the shell command that contains
+  the string, so `until ! pgrep -f ...` never terminates. Check the port.
+
+### The quadratic render — measured, fixed, measured again
+
+Filed as a follow-up above, then done in the same pass because it was the one
+defect degrading the delivered POC. `render()` cleared `#tiles` and rebuilt
+**every** marker, and `ensureFeatures`'s completion handler called it — so ~49
+arriving tiles each redrew everything drawn so far.
+
+Instrumented by wrapping `#tiles.appendChild` and counting `.pt` nodes:
+
+| | markers | `appendChild` calls | amplification | settle |
+|---|---|---|---|---|
+| before | 64,707 | **1,550,957** | **23.97x** | 33.4 s |
+| after | 64,707 | **64,707** | **1.00x** | 19.4 s |
+
+23.97x is exactly the `n/2` the quadratic predicts for ~49 tiles — theory and
+measurement agree, which is what says the diagnosis was the real mechanism and
+not a coincidence.
+
+The fix splits the layer: `render()` still owns the tile images and the
+transform (and clears), `paintFeatures()` appends only cells not already in
+`drawnCells`, and a completed fetch calls `paintFeatures()` instead of
+`render()`. `drawnCells` is keyed by `(tx,ty)` and **not** by the tile key,
+because one tile drawn on two repeated world copies needs its own dots at each
+offset.
+
+Wall-clock improved 1.72x rather than 24x — with the appends gone, the tile
+fetches dominate. Reported as measured rather than as the append ratio, which
+would overstate what a user feels.
+
+**Behaviour is unchanged, verified rather than assumed** — every POC number is
+identical after the fix (64,707 markers / 59,812 distinct / 49 fetches / HEEL
+`0xc8e1` / status text / zero errors). Pan and zoom re-checked explicitly,
+since `drawnCells` could plausibly have broken repaint:
+
+| action | markers | |
+|---|---|---|
+| toggle on | 64,707 | |
+| pan one tile | 59,845 | new grid, correctly repainted |
+| zoom in to z13 | **285,821** | city zoom -> COMPLETE tiles |
+| page errors | **[]** | throughout |
+
+- [x] `render()` is O(tiles x markers) — fixed; incremental paint, 24x -> 1x.
+
+**New capacity datapoint, worth carrying:** 285,821 markers rendered with zero
+page errors. The only prior measurement was 177,963, which is what every budget
+in `osm_features.rs` is grounded in — so the real envelope is at least 1.6x
+what those constants assume. Not acted on: this was at city zoom with different
+fetch timing, and a budget should not be widened on one incidental observation.
+It does mean `OVERVIEW_ROW_BUDGET = 3_000` is conservative rather than tight.

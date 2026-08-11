@@ -27,6 +27,7 @@ use osm_soa_bake::identity::read_identity;
 use osm_soa_bake::slab::RowSlab;
 use osm_soa_bake::tms::morton_to_lonlat;
 use serde::Serialize;
+use std::ops::Range;
 use std::sync::OnceLock;
 
 /// Zoom at or above which a tile is a **place you are looking at**, and must
@@ -60,11 +61,10 @@ const CITY_ZOOM_FLOOR: u32 = 13;
 /// this repo: the browser run drew **177,963** markers across 49 tiles with
 /// zero page errors, so ~10^5 per response is within demonstrated reach.
 ///
-/// **CONJECTURE — the VALUE is measured, the METHOD is not.** Probe M4
-/// (`bf16-hhtl-terrain.md`, and its process rule that a bucketing-strategy
-/// change runs the probe first) was run for this: `osm-soa-bake`'s
-/// `tier_probe`, on Berlin (city, 2.52M features) and Iceland (overland,
-/// 0.65M), features per tile —
+/// Probe M4 (`bf16-hhtl-terrain.md`, and its process rule that a
+/// bucketing-strategy change runs the probe first) was run for this:
+/// `osm-soa-bake`'s `tier_probe`, on Berlin (city, 2.52M features) and Iceland
+/// (overland, 0.65M), features per tile —
 ///
 /// | tier | Berlin med / p95 / max | Iceland med / p95 / max |
 /// |---|---|---|
@@ -75,15 +75,60 @@ const CITY_ZOOM_FLOOR: u32 = 13;
 ///
 /// M4's own gate was ">60% terminates at HEEL = pass, >60% at LEAF = fail".
 /// Berlin puts **99.7% of tiles at one feature by TWIG** — the fail direction.
-/// Consequence for decimation: there is no coarse bucket to compress *into*
-/// below hip, and above it occupancy jumps 200x. So the principled overview
-/// rule is one representative per **occupied hip cell** (312:1 on Berlin), not
-/// a uniform row stride. The stride is a placeholder that produces a
-/// defensible picture at a measured budget; it is not the cascade answer, and
-/// it is labelled CONJECTURE until the cell-bucketing form is built and
-/// compared. This affects overview zooms ONLY — city zooms are complete and
-/// never reach here.
-const OVERVIEW_ROW_BUDGET: usize = 100_000;
+/// Consequence: there is no coarse bucket to compress *into* below hip, and
+/// above it occupancy jumps 200x, so the cascade has exactly one useful
+/// bucketing level and a uniform row stride is not it.
+///
+/// **The METHOD is no longer conjecture — it was built and measured.** The
+/// stride is gone; `overview_sample` selects one representative per occupied
+/// cell at a per-tile depth. Measured against the real Berlin bake by
+/// `overview_rule_comparison_on_the_real_bake`, counting **singleton hip
+/// cells** (a row alone in its z16 cell — an isolated feature by M4's own
+/// measure):
+///
+/// | tile | rows | stride keeps | cell keeps | stride extent | cell extent |
+/// |---|---|---|---|---|---|
+/// | 8/137/83 | 1,569,355 | **14 / 316** | **316 / 316** | 0.82 / 0.93 | 1.00 / 1.00 |
+/// | 9/275/167 | 981,698 | 9 / 107 | 107 / 107 | 0.82 / 0.87 | 1.00 / 1.00 |
+/// | 10/550/335 | 981,696 | 9 / 105 | 105 / 105 | 0.95 / 0.97 | 1.00 / 1.00 |
+///
+/// The stride drops **95.6%** of isolated features at z8 and the cell form
+/// drops none — while returning FEWER rows (53,655 vs 98,085), because the
+/// depth is quantized to a zoom level and the next one deeper would overrun.
+/// Note the extent column moves 0.82 -> 1.00 where the real metric moves
+/// 14 -> 316: extent coverage could not see this, which is why it was the
+/// wrong gate. z11/z12 have zero singletons (those tiles are entirely inside
+/// dense Berlin) and both rules tie there — the can-stay-silent half, free.
+///
+/// **The VALUE was wrong, and the browser is what caught it.** It was
+/// `100_000`, justified as "the browser drew 177,963 markers with zero page
+/// errors, so ~10^5 per response is within reach". That reads a **viewport-
+/// wide** measurement as a **per-tile** budget. 177,963 was the total across
+/// **49 tiles** — 3,632 per tile — so the constant overstated its own evidence
+/// by 27x. Measured at the `/osm` page's default z12 view (1400x900 = 63
+/// tiles, 53 with data):
+///
+/// | | markers in view |
+/// |---|---|
+/// | ever measured working | 177,963 |
+/// | under a 100k per-tile budget | **1,772,260** (10x) |
+///
+/// The page hung. `render()` rebuilds every marker on each arriving tile, so
+/// that is ~53 rebuilds of a 1.77M-node DOM. (The quadratic is a real
+/// pre-existing defect — recorded in the plan — but it was survivable at the
+/// load the evidence actually supports, and is not what made this wrong.)
+///
+/// So the budget is stated per tile with the viewport arithmetic shown:
+/// 3,000 x 53 data tiles = 159,000 in view, under the 177,963 that is the only
+/// browser capacity ever measured here. A larger window holds more tiles and
+/// scales that up — the honest bound is per VIEWPORT and this constant is the
+/// per-tile share of it.
+///
+/// A smaller budget costs far less here than it would have under a stride:
+/// cell selection spends its budget on *distinct places* rather than in
+/// proportion to density, which is the whole point of the comparison above.
+/// Overview zooms ONLY — city zooms are complete and never decimate.
+const OVERVIEW_ROW_BUDGET: usize = 3_000;
 
 /// Transport backstop for city zooms — sized so it provably cannot fire for a
 /// Berlin-class bake, rather than picked to look safe. A z13 tile is 8x8 = 64
@@ -112,6 +157,104 @@ fn row_budget(z: u32) -> usize {
 /// falsified at any budget, without a fixture the size of a real overview tile.
 fn stride_for(total: usize, budget: usize) -> usize {
     total.div_ceil(budget).max(1)
+}
+
+/// The `bits`-wide Morton prefix of `code` — the cascade cell it falls in.
+///
+/// One slippy zoom level is **two** Morton bits (one x, one y), so zoom `zz`
+/// is `bits = 2 * zz`. `bits == 0` is the whole world (one cell); `bits == 64`
+/// is the full key, so the shift never reaches 64 and never overflows.
+fn cell_prefix(code: u64, bits: u32) -> u64 {
+    if bits == 0 { 0 } else { code >> (64 - bits) }
+}
+
+/// Occupied cells at cascade depth `bits` within a Morton-sorted index range.
+///
+/// The range is sorted, so rows sharing a prefix are **contiguous** — counting
+/// distinct prefixes is one pass with no map and no allocation. Monotone
+/// non-decreasing in `bits` (a finer prefix can only split a run, never merge
+/// two), which is what makes `choose_cell_zoom`'s binary search valid; pinned
+/// by `occupied_cells_is_monotone_in_depth`.
+fn occupied_cells(range: Range<usize>, morton: impl Fn(usize) -> u64, bits: u32) -> usize {
+    let mut cells = 0usize;
+    let mut prev: Option<u64> = None;
+    for i in range {
+        let p = cell_prefix(morton(i), bits);
+        if prev != Some(p) {
+            cells += 1;
+            prev = Some(p);
+        }
+    }
+    cells
+}
+
+/// The deepest slippy zoom whose occupied-cell count still fits `budget`.
+///
+/// This is the "dynamic compression bucket threshold": the cascade depth is
+/// chosen **per tile from its own density**, not fixed at a tier. M4 measured
+/// why that matters — Berlin and Iceland differ ~200x in features per hip cell
+/// and converge only by twig, so any depth picked once for all extracts is
+/// wrong for one of them.
+fn choose_cell_zoom(
+    z: u32,
+    range: Range<usize>,
+    morton: impl Fn(usize) -> u64 + Copy,
+    budget: usize,
+) -> u32 {
+    // Below the tile's own zoom every row is one cell — nothing to choose.
+    let (mut lo, mut hi) = (z, HHTL_ZOOM_MAX);
+    if occupied_cells(range.clone(), morton, hi * 2) <= budget {
+        return hi;
+    }
+    // Invariant: `lo` fits, `hi` does not. Converge on the deepest that fits.
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if occupied_cells(range.clone(), morton, mid * 2) <= budget {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
+/// The bake's native cascade depth — 4 tiers x 16 Morton bits = z32.
+const HHTL_ZOOM_MAX: u32 = 32;
+
+/// **The overview selection rule**: one representative per occupied cell, at
+/// the deepest cascade depth that fits the budget.
+///
+/// Contrast with a uniform row stride, which samples the Morton curve at even
+/// *index* spacing. Index spacing is not spatial spacing: a stride keeps
+/// features in proportion to local density, so it preserves how crowded a
+/// place looks and **drops isolated features entirely** — a lone village
+/// surrounded by empty country is one row among a city's hundred thousand and
+/// survives only if its index happens to land on the stride. Cell selection
+/// inverts that trade: every occupied cell contributes exactly one row, so
+/// isolated features always survive and dense ones are flattened toward a
+/// uniform spatial sample. For a MAP, "somewhere has data" is the load-bearing
+/// claim and "how much" is not, which is why this is the cascade answer.
+/// Measured comparison: `examples/osm_overview_sample.rs`.
+fn overview_sample(
+    z: u32,
+    range: Range<usize>,
+    morton: impl Fn(usize) -> u64 + Copy,
+    budget: usize,
+) -> Vec<usize> {
+    if range.len() <= budget {
+        return range.collect();
+    }
+    let bits = choose_cell_zoom(z, range.clone(), morton, budget) * 2;
+    let mut out = Vec::new();
+    let mut prev: Option<u64> = None;
+    for i in range {
+        let p = cell_prefix(morton(i), bits);
+        if prev != Some(p) {
+            out.push(i);
+            prev = Some(p);
+        }
+    }
+    out
 }
 
 static SLAB_MMAP: OnceLock<Option<memmap2::Mmap>> = OnceLock::new();
@@ -188,17 +331,21 @@ fn query_tile(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileFeaturesOut, S
     //     fine. `row_budget` is what actually fixes (2); the test that can see
     //     it is `a_city_zoom_tile_is_served_complete`, which counts rows.
     //
-    // `div_ceil(...).max(1)`:
-    //   * total == 0       -> div_ceil is 0, `.max(1)` guards `step_by`'s
-    //                         "step must be non-zero" panic;
-    //   * total <= budget  -> exactly 1, so EVERY row is returned;
-    //   * total > budget   -> stride = ceil(total/budget) bounds `returned` at
-    //                         the budget, since total <= stride*budget.
-    let stride = stride_for(total, row_budget(z));
+    // (3) WHICH rows, once some must go. A stride keeps features in proportion
+    //     to local density, so it drops ISOLATED ones — measured on a fixture
+    //     of one dense cluster plus 8 outliers, a stride kept 1 of 8 while
+    //     cell selection kept 8 of 8. On a map that is the worst thing to
+    //     lose: a lone village in empty country is what a viewer is looking
+    //     for, and its absence reads as "nothing is there".
+    //
+    // `overview_sample` is the whole rule and needs no zoom branch of its own:
+    // when `total <= row_budget(z)` it returns the range untouched, which is
+    // what makes a city tile complete (`row_budget` is the ceiling there), and
+    // it only reaches the cascade when a tile genuinely overruns its budget.
+    let selected = overview_sample(z, range.clone(), |i| slab.morton_at(i), row_budget(z));
 
-    let features = range
-        .clone()
-        .step_by(stride)
+    let features = selected
+        .into_iter()
         .map(|i| {
             let (lon, lat) = morton_to_lonlat(slab.morton_at(i));
             let (entity_type, ordinal) = rows
@@ -564,5 +711,324 @@ mod tests {
             "stride-sampled tile must cover nearly the full extent on BOTH axes, got \
              lon={g_lon:.4} lat={g_lat:.4} (naive prefix: lon={p_lon:.4} lat={p_lat:.4})"
         );
+    }
+
+    /// **The rule that discriminates cell selection from a row stride.**
+    ///
+    /// A stride samples the Morton curve at even *index* spacing, and index
+    /// spacing is not spatial spacing. Features are kept in proportion to
+    /// local density, so an **isolated** feature — one row among a dense
+    /// cluster's tens of thousands — survives only if its index happens to
+    /// land on the stride. On a map that is the worst thing to lose: a lone
+    /// village in empty country is exactly the feature a viewer is looking
+    /// for, and its absence is indistinguishable from "nothing is there".
+    ///
+    /// Cell selection cannot drop it: an isolated feature occupies a cell of
+    /// its own at any depth fine enough to separate it, and every occupied
+    /// cell contributes exactly one row.
+    ///
+    /// Two-sided, and BOTH halves are computed from the same fixture and the
+    /// same budget so neither can be true by construction: the stride arm must
+    /// be measurably worse (it loses outliers) AND the cell arm must keep all
+    /// of them. Verified red by swapping `overview_sample`'s body for the
+    /// stride form.
+    #[test]
+    fn cell_selection_keeps_isolated_features_that_a_stride_drops() {
+        let z = 6;
+        let budget = 500usize;
+
+        // A dense cluster: 100x100 in a ~0.01 deg box.
+        let (cx, cy, step) = (13.40_f64, 52.50_f64, 0.0001_f64);
+        let mut pts: Vec<(f64, f64)> = Vec::new();
+        for i in 0..100 {
+            for j in 0..100 {
+                pts.push((cx + i as f64 * step, cy + j as f64 * step));
+            }
+        }
+        // Eight isolated features, spread across the rest of the same z6 tile
+        // and far from the cluster and from each other. Placed as FRACTIONS of
+        // the measured tile bounds (z6 tile 34/20 is lon [11.2500, 16.8750] x
+        // lat [52.4828, 55.7766]) rather than as offsets from the cluster — a
+        // first attempt used fixed degree offsets and walked straight out of
+        // the 5.625-deg-wide tile, which the containment guard below caught.
+        let (t_lon0, t_lon1, t_lat0, t_lat1) = (11.2500, 16.8750, 52.4828, 55.7766);
+        let outliers: Vec<(f64, f64)> = (0..8)
+            .map(|k| {
+                (
+                    t_lon0 + (t_lon1 - t_lon0) * (0.12 + 0.10 * k as f64),
+                    t_lat0 + (t_lat1 - t_lat0) * (0.10 + 0.09 * k as f64),
+                )
+            })
+            .collect();
+        pts.extend_from_slice(&outliers);
+
+        let mut mortons: Vec<u64> = pts.iter().map(|&(a, b)| point_to_tms_morton(a, b)).collect();
+        mortons.sort_unstable();
+        let bytes = synthetic_slab(&mortons);
+        let slab = RowSlab::new(&bytes).expect("row-aligned synthetic buffer");
+
+        let (x, y) = crate::osm_tiles::lonlat_to_tile(cx, cy, z);
+        // Every fixture point must be in ONE z6 tile, outliers included, or
+        // the comparison is measuring tile membership rather than selection.
+        for &(a, b) in pts.iter() {
+            assert_eq!(
+                crate::osm_tiles::lonlat_to_tile(a, b, z),
+                (x, y),
+                "fixture point ({a}, {b}) escaped the z={z} tile under test"
+            );
+        }
+
+        let range = slab.tile_range(z, x, y);
+        assert_eq!(range.len(), pts.len(), "every fixture row must land here");
+        assert!(
+            range.len() > budget,
+            "fixture must exceed the budget or nothing is decimated"
+        );
+
+        let morton = |i: usize| slab.morton_at(i);
+        let is_outlier = |i: usize| {
+            let (lon, lat) = morton_to_lonlat(slab.morton_at(i));
+            outliers
+                .iter()
+                .any(|&(a, b)| (lon - a).abs() < 1e-4 && (lat - b).abs() < 1e-4)
+        };
+
+        // (1) The stride arm — what the previous rule returned.
+        let stride = stride_for(range.len(), budget);
+        let stride_kept = range
+            .clone()
+            .step_by(stride)
+            .filter(|&i| is_outlier(i))
+            .count();
+
+        // (2) The cell arm — the rule under test.
+        let cell = overview_sample(z, range.clone(), morton, budget);
+        let cell_kept = cell.iter().copied().filter(|&i| is_outlier(i)).count();
+
+        eprintln!(
+            "outliers kept: stride={stride_kept}/8 (stride={stride})  cell={cell_kept}/8 (n={})",
+            cell.len()
+        );
+
+        assert!(
+            cell.len() <= budget,
+            "cell selection must still respect the budget, got {}",
+            cell.len()
+        );
+        assert_eq!(
+            cell_kept,
+            outliers.len(),
+            "cell selection must keep EVERY isolated feature — each occupies its \
+             own cell at any depth that separates it"
+        );
+        assert!(
+            stride_kept < outliers.len(),
+            "fixture is not discriminating: the stride kept {stride_kept}/8 outliers \
+             too, so this test cannot tell the two rules apart"
+        );
+    }
+
+    /// `choose_cell_zoom`'s binary search is only valid because occupied-cell
+    /// count never decreases with depth. Pinned rather than assumed — a finer
+    /// prefix can split a run but never merge two.
+    #[test]
+    fn occupied_cells_is_monotone_in_depth() {
+        let (cx, cy, step) = (13.40_f64, 52.50_f64, 0.002_f64);
+        let mut mortons: Vec<u64> = (0..40)
+            .flat_map(|i| {
+                (0..40).map(move |j| {
+                    point_to_tms_morton(cx + i as f64 * step, cy + j as f64 * step)
+                })
+            })
+            .collect();
+        mortons.sort_unstable();
+        let bytes = synthetic_slab(&mortons);
+        let slab = RowSlab::new(&bytes).expect("row-aligned synthetic buffer");
+        let range = 0..mortons.len();
+        let morton = |i: usize| slab.morton_at(i);
+
+        let mut prev = 0usize;
+        let mut grew = false;
+        for zz in 0..=HHTL_ZOOM_MAX {
+            let n = occupied_cells(range.clone(), morton, zz * 2);
+            assert!(
+                n >= prev,
+                "occupied cells fell from {prev} to {n} going to z={zz} — binary \
+                 search in choose_cell_zoom would be invalid"
+            );
+            if n > prev {
+                grew = true;
+            }
+            prev = n;
+        }
+        // Anti-vacuity: monotonicity is trivially true of a constant sequence.
+        assert!(grew, "fixture never split a cell, so monotonicity proves nothing");
+        assert_eq!(
+            prev,
+            mortons.len(),
+            "at full depth every distinct point must be its own cell"
+        );
+    }
+
+    /// The chosen depth must be **maximal** — one level deeper must not fit.
+    /// Without this, returning the shallowest depth (or a constant) would pass
+    /// every other assertion while throwing away all the detail the budget
+    /// could have afforded.
+    #[test]
+    fn choose_cell_zoom_returns_the_deepest_depth_that_fits() {
+        let (cx, cy, step) = (13.40_f64, 52.50_f64, 0.0005_f64);
+        let mut mortons: Vec<u64> = (0..60)
+            .flat_map(|i| {
+                (0..60).map(move |j| {
+                    point_to_tms_morton(cx + i as f64 * step, cy + j as f64 * step)
+                })
+            })
+            .collect();
+        mortons.sort_unstable();
+        let bytes = synthetic_slab(&mortons);
+        let slab = RowSlab::new(&bytes).expect("row-aligned synthetic buffer");
+        let range = 0..mortons.len();
+        let morton = |i: usize| slab.morton_at(i);
+
+        let z = 6;
+        let budget = 300usize;
+        let zz = choose_cell_zoom(z, range.clone(), morton, budget);
+
+        let here = occupied_cells(range.clone(), morton, zz * 2);
+        assert!(here <= budget, "chosen depth z={zz} yields {here} cells, over budget");
+
+        assert!(
+            zz < HHTL_ZOOM_MAX,
+            "fixture must not saturate at full depth or maximality is untestable"
+        );
+        let deeper = occupied_cells(range.clone(), morton, (zz + 1) * 2);
+        assert!(
+            deeper > budget,
+            "z={} would still fit ({deeper} cells <= {budget}) — the chosen depth \
+             z={zz} is not maximal and detail is being thrown away",
+            zz + 1
+        );
+    }
+
+    /// **The cell-vs-stride comparison, on the real Berlin bake.**
+    ///
+    /// Ignored by default because it needs the 1.2 GiB slab; run with
+    /// `OSM_SLAB_PATH=... cargo test --bin q2-cockpit --release \
+    ///  overview_rule_comparison -- --ignored --nocapture`.
+    ///
+    /// Measures, per real overview tile, what each rule actually costs. The
+    /// headline metric is **singleton-cell retention**: a row alone in its hip
+    /// (z16) cell is a genuinely isolated feature by M4's own measure (Iceland's
+    /// median hip occupancy is 1, Berlin's is 206), and losing it is losing the
+    /// only evidence that a place exists. Extent coverage is reported too, and
+    /// is deliberately shown NOT to discriminate — that was the vacuous metric.
+    #[test]
+    #[ignore = "needs the 1.2 GiB Berlin slab via OSM_SLAB_PATH"]
+    fn overview_rule_comparison_on_the_real_bake() {
+        let Some(bytes) = open_slab() else {
+            panic!("set OSM_SLAB_PATH to the baked Berlin slab");
+        };
+        let slab = RowSlab::new(bytes).expect("real mmap is row-aligned");
+        let morton = |i: usize| slab.morton_at(i);
+
+        println!(
+            "\n{:<12} {:>9} {:>7} {:>6} {:>19} {:>19}",
+            "tile", "total", "budget", "cellz", "STRIDE kept/single", "CELL   kept/single"
+        );
+
+        // Berlin sits in these tiles at each overview zoom.
+        let tiles: Vec<(u32, u32, u32)> = (8..=12)
+            .map(|z| {
+                let (x, y) = crate::osm_tiles::lonlat_to_tile(13.404954, 52.520008, z);
+                (z, x, y)
+            })
+            .collect();
+
+        for (z, x, y) in tiles {
+            let range = slab.tile_range(z, x, y);
+            let total = range.len();
+            if total == 0 {
+                continue;
+            }
+            let budget = row_budget(z);
+
+            // Singleton hip cells: the isolated features, by M4's measure.
+            let hip_bits = 16 * 2;
+            let mut singleton: std::collections::HashSet<u64> = Default::default();
+            {
+                let mut prev: Option<(u64, usize)> = None;
+                for i in range.clone() {
+                    let p = cell_prefix(morton(i), hip_bits);
+                    match prev {
+                        Some((q, n)) if q == p => prev = Some((q, n + 1)),
+                        Some((q, 1)) => {
+                            singleton.insert(q);
+                            prev = Some((p, 1));
+                        }
+                        _ => prev = Some((p, 1)),
+                    }
+                }
+                if let Some((q, 1)) = prev {
+                    singleton.insert(q);
+                }
+            }
+
+            let kept_singletons = |sel: &[usize]| -> usize {
+                let hit: std::collections::HashSet<u64> = sel
+                    .iter()
+                    .map(|&i| cell_prefix(morton(i), hip_bits))
+                    .filter(|p| singleton.contains(p))
+                    .collect();
+                hit.len()
+            };
+            let extent = |sel: &[usize]| -> (f64, f64) {
+                let pts: Vec<(f64, f64)> =
+                    sel.iter().map(|&i| morton_to_lonlat(morton(i))).collect();
+                let all: Vec<(f64, f64)> = range
+                    .clone()
+                    .map(|i| morton_to_lonlat(morton(i)))
+                    .collect();
+                let span = |v: &[(f64, f64)], f: fn(&(f64, f64)) -> f64| {
+                    let (lo, hi) = v.iter().fold((f64::MAX, f64::MIN), |a, p| {
+                        (a.0.min(f(p)), a.1.max(f(p)))
+                    });
+                    hi - lo
+                };
+                (
+                    span(&pts, |p| p.0) / span(&all, |p| p.0),
+                    span(&pts, |p| p.1) / span(&all, |p| p.1),
+                )
+            };
+
+            let stride = stride_for(total, budget);
+            let s_sel: Vec<usize> = range.clone().step_by(stride).collect();
+            let c_sel = overview_sample(z, range.clone(), morton, budget);
+            let cellz = choose_cell_zoom(z, range.clone(), morton, budget);
+
+            let (sx, sy) = extent(&s_sel);
+            let (cx_, cy_) = extent(&c_sel);
+
+            println!(
+                "{:<12} {:>9} {:>7} {:>6} {:>8}/{:<10} {:>8}/{:<10}",
+                format!("{z}/{x}/{y}"),
+                total,
+                budget,
+                cellz,
+                s_sel.len(),
+                format!("{}/{}", kept_singletons(&s_sel), singleton.len()),
+                c_sel.len(),
+                format!("{}/{}", kept_singletons(&c_sel), singleton.len()),
+            );
+            println!(
+                "{:<12} {:>9} {:>7} {:>6} {:>19} {:>19}",
+                "",
+                "",
+                "",
+                "extent",
+                format!("{sx:.4}/{sy:.4}"),
+                format!("{cx_:.4}/{cy_:.4}"),
+            );
+        }
+        println!();
     }
 }
