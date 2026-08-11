@@ -274,6 +274,13 @@ async fn main() {
         .route("/api/osm/features/:z/:x/:y", get(osm_features::osm_features_handler))
         .route("/api/osm/feature/:idx", get(osm_features::osm_feature_handler))
         .route("/api/osm/geometry/:idx", get(osm_features::osm_geometry_handler))
+        // The basemap itself, drawn from the bake. Registered AFTER the :idx
+        // form; axum matches the literal `tile` segment ahead of the param, so
+        // `/geometry/tile/12/2200/1341` cannot be swallowed as an index.
+        .route(
+            "/api/osm/geometry/tile/:z/:x/:y",
+            get(osm_features::osm_tile_geometry_handler),
+        )
         // The /OSM cockpit page — a slippy map over the tile material, HHTL live.
         .route("/osm", get(osm::osm_page_handler))
         // Garmin terrain scenes, mod-rewrite style: /api/garmin/:location resolves the

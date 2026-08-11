@@ -660,6 +660,286 @@ pub async fn osm_geometry_handler(Path(idx): Path<usize>) -> Response {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// The vector basemap: the bake DRAWS the map, instead of decorating a rented
+// raster. `/api/osm/geometry/:idx` answers "what shape is THIS one?"; the tile
+// form below answers "what shapes are HERE?", which is the whole basemap.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// What a shape IS, derived from the tags the bake already stored.
+///
+/// The CATEGORY is data: the same rule has to answer for one clicked way and
+/// for ten thousand basemap ways, so it lives here and is served, rather than
+/// being re-derived in the client from tags it would first have to download.
+/// Shipping every shape's tags would multiply the payload by the tag fan-out
+/// for data a viewer wants about one shape at a time — the argument
+/// [`FeatureOut::idx`] already makes for detail.
+///
+/// The STYLE is NOT here. This names what a thing is; colour, width and
+/// z-order stay the client's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShapeClass {
+    Water,
+    Building,
+    Wood,
+    Green,
+    Rail,
+    Road,
+    Other,
+}
+
+/// Classify a tag set by precedence.
+///
+/// Tags arrive in arbitrary order, so this cannot be "first match wins" over
+/// the iterator: it captures the handful of keys that matter in one pass, then
+/// applies precedence. Specific beats generic — `natural=water` is Water, not
+/// Green, even though `natural` alone means Green.
+fn class_for_tags<'a, I>(tags: I) -> ShapeClass
+where
+    I: IntoIterator<Item = (&'a str, &'a str)>,
+{
+    let (mut natural, mut landuse, mut leisure) = (None, None, None);
+    let (mut building, mut waterway, mut highway, mut railway) = (false, false, false, false);
+    for (k, v) in tags {
+        match k {
+            "natural" => natural = Some(v),
+            "landuse" => landuse = Some(v),
+            "leisure" => leisure = Some(v),
+            "building" => building = true,
+            "waterway" => waterway = true,
+            "highway" => highway = true,
+            "railway" => railway = true,
+            _ => {}
+        }
+    }
+    if natural == Some("water") || waterway {
+        return ShapeClass::Water;
+    }
+    if building {
+        return ShapeClass::Building;
+    }
+    if natural == Some("wood") || landuse == Some("forest") {
+        return ShapeClass::Wood;
+    }
+    if landuse.is_some() || leisure.is_some() || natural.is_some() {
+        return ShapeClass::Green;
+    }
+    if railway {
+        return ShapeClass::Rail;
+    }
+    if highway {
+        return ShapeClass::Road;
+    }
+    ShapeClass::Other
+}
+
+/// This row's own tags as borrowed `(k, v)` pairs.
+///
+/// Tags bind to their member by ORDINAL, not by slot adjacency — the same
+/// filter [`query_feature`] documents, and for the same reason: without it a
+/// continuation row's tags are attributed to the wrong element.
+fn row_tags<'a>(
+    row: &NodeRow,
+    books: &'a osm_soa_bake::codebook::Books,
+    ordinal: u32,
+) -> Vec<(&'a str, &'a str)> {
+    let mut out = Vec::new();
+    for (_slot, facet) in osm_soa_bake::cluster::facets(row) {
+        if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet {
+            if member != ordinal {
+                continue;
+            }
+            if let (Some(k), Some(v)) = (books.tag_keys.key(key), books.tag_values.key(value)) {
+                out.push((k, v));
+            }
+        }
+    }
+    out
+}
+
+/// How far to shift a z32 cell to land on the screen pixel grid at zoom `z`.
+///
+/// A slippy tile is 256 px = 2^8, so the world is 2^(z+8) px wide at zoom `z`
+/// and the chain's own z32 coordinate needs `32 - (z + 8)` bits removed. One
+/// extra bit of headroom keeps a half-pixel of detail, because a phone's
+/// `devicePixelRatio` is 2-3 and simplifying exactly to the CSS pixel grid is
+/// visible as faceting on those screens.
+///
+/// Saturates at 0: past z≈23 the chain is already finer than the screen and
+/// nothing should be dropped.
+const SUBPIXEL_BITS: u32 = 1;
+fn pixel_shift(z: u32) -> u32 {
+    32u32.saturating_sub(z + 8 + SUBPIXEL_BITS)
+}
+
+/// Drop vertices that land on the same (sub)pixel at this zoom.
+///
+/// This is an integer compare on the codec's own grid — no floating-point
+/// distance test and no tolerance constant to tune, because the display's
+/// resolution IS the tolerance. Sub-pixel detail is not "less accurate" to
+/// draw; it is invisible, and at city scale it is most of the payload.
+///
+/// The first and last vertices always survive, so a ring that survives at all
+/// stays closed. A ring that thins below 4 vertices is no longer a ring at
+/// this zoom — the caller drops it rather than emit a degenerate polygon.
+fn simplify_cells(chain: &[osm_soa_bake::tms::TileXy], z: u32) -> Vec<[f64; 2]> {
+    let shift = pixel_shift(z);
+    let mut out = Vec::new();
+    let mut last: Option<(u32, u32)> = None;
+    for (i, c) in chain.iter().enumerate() {
+        let cell = (c.x >> shift, c.y_xyz >> shift);
+        let is_last = i + 1 == chain.len();
+        // `is_last` forces the closing vertex through even when it repeats the
+        // previous kept pixel: for a ring that repeat IS the closure.
+        if last != Some(cell) || is_last {
+            let (lon, lat) = osm_soa_bake::tms::tile_to_lonlat(c.x, c.y_xyz);
+            out.push([lon, lat]);
+            last = Some(cell);
+        }
+    }
+    out
+}
+
+/// Geometry is far heavier per row than a dot, so it gets its own ceiling
+/// rather than reusing [`row_budget`]. Same zoom split and same reasoning as
+/// there: decimating an overview is a legitimate LOD choice, decimating a city
+/// is a wrong map.
+const GEOMETRY_OVERVIEW_BUDGET: usize = 1_500;
+const GEOMETRY_CITY_BUDGET: usize = 12_000;
+fn geometry_row_budget(z: u32) -> usize {
+    if z < CITY_ZOOM_FLOOR {
+        GEOMETRY_OVERVIEW_BUDGET
+    } else {
+        GEOMETRY_CITY_BUDGET
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct TileShapeOut {
+    pub idx: usize,
+    pub class: ShapeClass,
+    pub closed: bool,
+    pub points: Vec<[f64; 2]>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TileGeometryOut {
+    pub z: u32,
+    pub x: u32,
+    pub y: u32,
+    /// Rows the tile covers.
+    pub total: usize,
+    /// Rows the budget selected — `total` when the tile is under budget.
+    pub sampled: usize,
+    /// Shapes actually returned. Lower than `sampled` by the rows that carry
+    /// no chain (every node in the tile) plus any that simplified away.
+    pub returned: usize,
+    /// Chain records that failed to decode. Reported rather than swallowed: a
+    /// corrupt sidecar must not masquerade as an empty neighbourhood, and one
+    /// bad record must not 500 a whole tile.
+    pub malformed: usize,
+    pub shapes: Vec<TileShapeOut>,
+}
+
+fn query_tile_geometry(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileGeometryOut, String> {
+    let slab = RowSlab::new(bytes).map_err(|e| format!("slab bytes not row-aligned: {e:?}"))?;
+    let range = slab.tile_range(z, x, y);
+    let total = range.len();
+    let empty = |sampled| TileGeometryOut {
+        z,
+        x,
+        y,
+        total,
+        sampled,
+        returned: 0,
+        malformed: 0,
+        shapes: Vec::new(),
+    };
+
+    // Identity needs the typed row and geometry needs the sidecar; without
+    // either there are no shapes to draw, which is a real answer and not an
+    // error (the dots still work).
+    let (Some(rows), Some(chains)) = (slab.rows(), open_chains()) else {
+        return Ok(empty(0));
+    };
+    let books = open_books();
+
+    let selected = overview_sample(
+        z,
+        range.clone(),
+        |i| slab.morton_at(i),
+        geometry_row_budget(z),
+    );
+    let sampled = selected.len();
+
+    let mut shapes = Vec::new();
+    let mut malformed = 0usize;
+    for i in selected {
+        let Some((_, ordinal)) = read_identity(&rows[i]) else {
+            continue;
+        };
+        let chain = match chains.get(ordinal) {
+            Ok(Some(c)) => c,
+            Ok(None) => continue, // a node or relation: no chain is a real answer
+            Err(_) => {
+                malformed += 1;
+                continue;
+            }
+        };
+        let ring = chain.len() >= 4 && chain.first() == chain.last();
+        let points = simplify_cells(&chain, z);
+        // Sub-pixel at this zoom: a ring that can no longer be a ring, or a
+        // line with nothing left to join. Dropping beats emitting a degenerate
+        // polygon the renderer would fill as a sliver.
+        if (ring && points.len() < 4) || points.len() < 2 {
+            continue;
+        }
+        let class = books
+            .map(|b| class_for_tags(row_tags(&rows[i], b, ordinal)))
+            .unwrap_or(ShapeClass::Other);
+        shapes.push(TileShapeOut {
+            idx: i,
+            class,
+            closed: ring,
+            points,
+        });
+    }
+
+    Ok(TileGeometryOut {
+        z,
+        x,
+        y,
+        total,
+        sampled,
+        returned: shapes.len(),
+        malformed,
+        shapes,
+    })
+}
+
+/// `GET /api/osm/geometry/tile/:z/:x/:y` — every shape anchored in this tile.
+/// The basemap itself, served from the bake instead of a third-party CDN.
+pub async fn osm_tile_geometry_handler(Path((z, x, y)): Path<(u32, u32, u32)>) -> Response {
+    let Some(bytes) = open_slab() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "OSM_SLAB_PATH is not set or the baked slab could not be opened",
+            })),
+        )
+            .into_response();
+    };
+    match query_tile_geometry(bytes, z, x, y) {
+        Ok(out) => Json(out).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -685,6 +965,153 @@ mod tests {
             row[10..12].copy_from_slice(&(code as u16).to_le_bytes());
         }
         bytes
+    }
+
+    /// A chain along a straight west→east line, `n` vertices spaced `step`
+    /// z32 cells apart. Straight on purpose: simplification must be judged on
+    /// resolution alone, and a wiggly fixture would let a shape-aware
+    /// implementation pass for the wrong reason.
+    fn straight_chain(n: usize, step: u32) -> Vec<osm_soa_bake::tms::TileXy> {
+        let base = 1u32 << 31; // mid-world, away from any wrap edge
+        (0..n)
+            .map(|i| osm_soa_bake::tms::TileXy {
+                x: base + i as u32 * step,
+                y_xyz: base,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn class_for_tags_applies_precedence_not_first_match() {
+        // Each rule fires on its own…
+        assert_eq!(class_for_tags([("natural", "water")]), ShapeClass::Water);
+        assert_eq!(class_for_tags([("waterway", "river")]), ShapeClass::Water);
+        assert_eq!(class_for_tags([("building", "yes")]), ShapeClass::Building);
+        assert_eq!(class_for_tags([("natural", "wood")]), ShapeClass::Wood);
+        assert_eq!(class_for_tags([("landuse", "forest")]), ShapeClass::Wood);
+        assert_eq!(class_for_tags([("leisure", "park")]), ShapeClass::Green);
+        assert_eq!(class_for_tags([("railway", "rail")]), ShapeClass::Rail);
+        assert_eq!(class_for_tags([("highway", "primary")]), ShapeClass::Road);
+
+        // …and SPECIFIC beats GENERIC regardless of iteration order, which is
+        // the whole reason this is a two-pass classifier and not first-match.
+        // `natural=water` carries the generic `natural` key that alone means
+        // Green, so a first-match implementation returns Green for one of
+        // these two orders and Water for the other.
+        assert_eq!(
+            class_for_tags([("natural", "water"), ("landuse", "basin")]),
+            ShapeClass::Water
+        );
+        assert_eq!(
+            class_for_tags([("landuse", "basin"), ("natural", "water")]),
+            ShapeClass::Water
+        );
+
+        // Anti-vacuity: the classifier is not a constant. An untagged way and
+        // a way whose tags match no rule both fall through to Other.
+        assert_eq!(class_for_tags([]), ShapeClass::Other);
+        assert_eq!(
+            class_for_tags([("name", "Ackerstraße"), ("addr:city", "Berlin")]),
+            ShapeClass::Other
+        );
+    }
+
+    /// **Two-sided on zoom** — the property a constant threshold cannot have.
+    ///
+    /// The SAME chain must collapse at overview zoom and survive whole at
+    /// street zoom. An implementation that simplifies by a fixed tolerance
+    /// (or not at all) fails one side or the other.
+    #[test]
+    fn simplify_collapses_at_overview_zoom_and_keeps_detail_at_street_zoom() {
+        // 400 vertices, one z32 cell apart: far finer than any screen pixel
+        // until the deepest zooms.
+        let chain = straight_chain(400, 1);
+
+        let coarse = simplify_cells(&chain, 4);
+        let paired = simplify_cells(&chain, 22);
+        let fine = simplify_cells(&chain, 23);
+
+        assert!(
+            coarse.len() < 10,
+            "at z4 a 400-vertex chain one cell wide is a single pixel; kept {}",
+            coarse.len()
+        );
+        // z23 is where `pixel_shift` reaches 0 — the screen grid is finer than
+        // the chain's own z32 cells, so there is nothing left to merge.
+        assert_eq!(
+            fine.len(),
+            400,
+            "at z23 the shift is 0 and no vertex may be dropped"
+        );
+        // One zoom coarser the shift is exactly 1 bit, so cells pair up: 200
+        // pairs plus the forced closing vertex. Pinning the intermediate is
+        // what ties this test to `pixel_shift`'s actual arithmetic rather than
+        // to a vague "fewer points at lower zoom".
+        assert_eq!(
+            paired.len(),
+            201,
+            "at z22 one shift bit merges adjacent cells pairwise"
+        );
+        assert!(
+            fine.len() > coarse.len() * 10,
+            "zoom must drive the decision: z23 kept {}, z4 kept {}",
+            fine.len(),
+            coarse.len()
+        );
+    }
+
+    /// Extent is never lost: whatever else goes, the endpoints stay put. A
+    /// simplifier that drops trailing vertices shortens ways visibly, and on a
+    /// ring it would silently open the shape.
+    #[test]
+    fn simplify_keeps_first_and_last_vertex_exactly() {
+        let chain = straight_chain(500, 3);
+        let (first, last) = (chain[0], chain[499]);
+        let out = simplify_cells(&chain, 6);
+
+        let expect_first = osm_soa_bake::tms::tile_to_lonlat(first.x, first.y_xyz);
+        let expect_last = osm_soa_bake::tms::tile_to_lonlat(last.x, last.y_xyz);
+        assert_eq!(out.first().copied(), Some([expect_first.0, expect_first.1]));
+        assert_eq!(out.last().copied(), Some([expect_last.0, expect_last.1]));
+        assert!(out.len() < 500, "the fixture must actually be simplified");
+    }
+
+    /// A ring that survives stays a ring. This is what the forced final vertex
+    /// in `simplify_cells` buys: without it the closing repeat is dropped as a
+    /// same-pixel duplicate and the polygon opens.
+    #[test]
+    fn simplify_keeps_a_ring_closed() {
+        let base = 1u32 << 31;
+        let step = 1u32 << 14; // comfortably above a pixel at the zoom below
+        let corners = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)];
+        let chain: Vec<_> = corners
+            .iter()
+            .map(|(dx, dy)| osm_soa_bake::tms::TileXy {
+                x: base + dx * step,
+                y_xyz: base + dy * step,
+            })
+            .collect();
+
+        let out = simplify_cells(&chain, 14);
+        assert!(out.len() >= 4, "ring must survive at this zoom: {out:?}");
+        assert_eq!(
+            out.first(),
+            out.last(),
+            "a simplified ring must still close on itself"
+        );
+    }
+
+    #[test]
+    fn geometry_row_budget_is_zoom_conditioned_at_the_city_floor() {
+        assert_eq!(
+            geometry_row_budget(CITY_ZOOM_FLOOR - 1),
+            GEOMETRY_OVERVIEW_BUDGET
+        );
+        assert_eq!(geometry_row_budget(CITY_ZOOM_FLOOR), GEOMETRY_CITY_BUDGET);
+        assert!(
+            GEOMETRY_CITY_BUDGET > GEOMETRY_OVERVIEW_BUDGET,
+            "a city tile must be allowed more shapes than an overview tile"
+        );
     }
 
     /// Anti-vacuity test (per the plan's Phase-1 requirement): two real,

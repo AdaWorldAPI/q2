@@ -4,9 +4,17 @@
 //! read each tile's HHTL (HEEL/HIP/TWIG/LEAF) key live from `/api/osm/locate`.
 //!
 //! The page is a single inline HTML string (the `/mri` cockpit pattern): no
-//! build step, no external JS. Tiles are `<img>` fetched directly from
-//! `tile.openstreetmap.org`; the HHTL address is resolved server-side so the
+//! build step, no external JS. The HHTL address is resolved server-side so the
 //! map pyramid and the cascade address stay the same source of truth.
+//!
+//! **The default basemap is DRAWN, not downloaded.** Shapes come from
+//! `/api/osm/geometry/tile/:z/:x/:y` over the local bake, so a default page
+//! load fetches nothing from a third-party tile server — measured: 0 external
+//! requests, against 141-277 to `tile.openstreetmap.org` before. The two
+//! raster skins ([`crate::osm_tiles::OSM_TILE_URL`], `SAT_TILE_URL`) remain
+//! behind the basemap toggle as the reference you check our render against;
+//! they are an explicit opt-in, which is also what keeps a deployed host clear
+//! of the OSMF tile usage policy.
 
 /// `GET /osm` — the OSM map cockpit page.
 pub async fn osm_page_handler() -> axum::response::Html<String> {
@@ -25,7 +33,11 @@ const PAGE: &str = r##"<!doctype html>
   html,body { margin:0; height:100%; background:#0b0e13; color:#c9d4e3;
     font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
   #app { display:grid; grid-template-columns:1fr 320px; height:100%; }
-  #map { position:relative; overflow:hidden; cursor:grab; background:#11151c; }
+  /* `touch-action:none` is what makes a finger pan the MAP instead of scrolling
+     the PAGE: without it the browser claims the gesture before any pointer
+     handler sees a move, and the map is frozen on every touch device. */
+  #map { position:relative; overflow:hidden; cursor:grab; background:#11151c;
+    touch-action:none; }
   #map.drag { cursor:grabbing; }
   #tiles { position:absolute; left:0; top:0; will-change:transform; }
   #tiles img { position:absolute; width:256px; height:256px; user-select:none;
@@ -66,16 +78,44 @@ const PAGE: &str = r##"<!doctype html>
   #feature .tag span { color:#c9d3e0; word-break:break-word; }
   .feat-status { position:absolute; right:12px; top:12px; z-index:5;
     background:#0b0e13aa; padding:2px 6px; border-radius:4px; color:#8fa0b8; }
+
+  /* A phone is ~390 CSS px wide, and `1fr 320px` leaves the map ~70 of them:
+     a map too narrow to read beside a readout you cannot get away from. Stack
+     them instead, and keep the map the subject by giving it the larger share.
+     The breakpoint is on WIDTH, not on a device class — a narrow desktop
+     window has exactly the same problem. */
+  @media (max-width: 720px) {
+    #app { grid-template-columns:1fr;
+           grid-template-rows:minmax(0,58vh) minmax(0,1fr); }
+    #panel { border-left:none; border-top:1px solid #1e2733; }
+    /* No room, and a finger does not need to be told it can drag. */
+    .hint { display:none; }
+    /* 34px is under the ~44px touch-target floor; 40 + the 6px gap clears it. */
+    .ctl button { width:40px; height:40px; }
+    /* The status line and the zoom controls share the top edge, and on a 390px
+       map the status text is wide enough to run underneath the buttons. Cap it
+       clear of them: 12px inset + 40px button + 24px breathing room. */
+    .feat-status { max-width:calc(100% - 76px); text-align:right; }
+  }
+  /* `vh` on a phone is the tallest the viewport ever gets, so the panel's last
+     rows sit behind the URL bar until it retracts. `dvh` tracks the visible
+     height instead. Layered in @supports so a browser without it keeps the
+     working `vh` layout above rather than dropping the whole rule. */
+  @supports (height: 100dvh) {
+    @media (max-width: 720px) {
+      #app { grid-template-rows:minmax(0,58dvh) minmax(0,1fr); height:100dvh; }
+    }
+  }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="map">
     <div id="tiles"></div>
-    <div class="ctl"><button id="zin">+</button><button id="zout">−</button><button id="base" title="basemap: OSM map ↔ ESRI satellite (same tiles, same HHTL address — two skins)" style="width:auto;padding:0 8px;font-size:12px">sat</button><button id="feat" title="toggle real OSM feature overlay (points read from the baked RowSlab via /api/osm/features/:z/:x/:y)" style="width:auto;padding:0 8px;font-size:12px">features</button></div>
+    <div class="ctl"><button id="zin">+</button><button id="zout">−</button><button id="base" title="basemap: vector (drawn from the local bake) → OSM raster → ESRI satellite. Same slippy addresses, same HHTL key — the vector skin is the only one that needs no third-party tile server." style="width:auto;padding:0 8px;font-size:12px">osm</button><button id="feat" title="toggle real OSM feature overlay (points read from the baked RowSlab via /api/osm/features/:z/:x/:y)" style="width:auto;padding:0 8px;font-size:12px">features</button></div>
     <div class="hint">drag to pan · click a point for its HHTL key</div>
     <div class="feat-status" id="featStatus"></div>
-    <div class="attr" id="attr">© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors</div>
+    <div class="attr" id="attr">shapes from the local OSM bake · data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors (ODbL)</div>
   </div>
   <div id="panel">
     <h1>OSM cockpit</h1>
@@ -114,15 +154,23 @@ let cx=lon2x(13.404954,z), cy=lat2y(52.520008,z);  // center in fractional tile 
 // ── dual map: OSM (z/x/y) ↔ ESRI World Imagery satellite (z/y/x — row first!).
 // Same slippy addresses, same HHTL keys — two skins. Mirrors cockpit-server::
 // osm_tiles::{OSM_TILE_URL, SAT_TILE_URL}; the locate API reports both URLs.
+// `vector` is FIRST and default: the map is drawn from our own bake, so a
+// default page load touches no third-party tile server at all. The two raster
+// skins stay reachable through the toggle — they are the reference you check
+// our render against — but they are now an explicit opt-in, which is also what
+// keeps a deployed host off the OSMF tile policy's toes.
 const BASEMAPS={
+  vector:{ src:null,   // drawn from /api/osm/geometry/tile, not fetched as images
+        attr:'shapes from the local OSM bake · data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors (ODbL)',
+        next:'osm' },
   osm:{ src:(z,x,y)=>`https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
         attr:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         next:'sat' },
   sat:{ src:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
         attr:'Powered by <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics',
-        next:'osm' },
+        next:'vector' },
 };
-let basemap='osm';
+let basemap='vector';
 
 // ── real OSM feature overlay — GET /api/osm/features/:z/:x/:y over the
 // baked RowSlab (cockpit-server::osm_features). Off by default (opt-in,
@@ -152,7 +200,14 @@ function ensureFeatures(z,wx,ty){
 }
 function updateFeatStatus(visibleKeys){
   const el=document.getElementById('featStatus');
-  if(!showFeatures){ el.textContent=''; return; }
+  // One status line, two possible owners. With the dots off, the vector
+  // basemap owns it — blanking here unconditionally is what silently ate the
+  // basemap's own "N shapes / M rows sampled" line, since render() paints the
+  // basemap first and the features second.
+  if(!showFeatures){
+    if(BASEMAPS[basemap].src) el.textContent=''; else updateBaseStatus();
+    return;
+  }
   if(visibleKeys.some(k=>featureCache.get(k)==='unavailable')){
     el.textContent='no OSM slab baked (OSM_SLAB_PATH unset on the server)'; return;
   }
@@ -205,30 +260,133 @@ function shapeLayer(){
   if(svg.parentElement!==tilesEl) tilesEl.appendChild(svg); // render() clears #tiles
   return svg;
 }
-function classFor(tags){
-  const t=tags||{};
-  if(t.natural==='water'||t.waterway) return {fill:'#2b6cb088',stroke:'#7db3ff',w:1.5};
-  if(t.building)                      return {fill:'#8fa0b888',stroke:'#c9d3e0',w:1};
-  if(t.natural==='wood'||t.landuse==='forest') return {fill:'#1d4d2b88',stroke:'#4a8f63',w:1};
-  if(t.landuse||t.leisure||t.natural) return {fill:'#2f6b4a66',stroke:'#5aa87a',w:1};
-  if(t.highway)                       return {fill:'none',stroke:'#ffd166',w:2.5};
-  return {fill:null,stroke:'#ffb454',w:1.5};
+// Style per semantic class. The CLASS is the server's (one rule, applied the
+// same way to one clicked way and to ten thousand basemap ways — see
+// osm_features::ShapeClass); the LOOK is ours. This table is the only place
+// colours live, so the basemap and the selection can never drift apart.
+const CLASS_STYLE={
+  water:    {fill:'#2b6cb088', stroke:'#4a7fa8', w:0.8},
+  building: {fill:'#39445580', stroke:'#5b6b7f', w:0.5},
+  wood:     {fill:'#1d4d2b88', stroke:'#316b41', w:0.5},
+  green:    {fill:'#2a5a4055', stroke:'#3f7a58', w:0.5},
+  rail:     {fill:'none',      stroke:'#7a8598', w:0.9},
+  road:     {fill:'none',      stroke:'#6b6250', w:1.1},
+  other:    {fill:'none',      stroke:'#39424f', w:0.7},
+};
+function styleForClass(c){ return CLASS_STYLE[c] || CLASS_STYLE.other; }
+
+// World-pixel point list for an SVG element, at the current zoom. `offset` is
+// the repeated-world-copy shift the tile images already use.
+function svgPoints(points, offset){
+  return points.map(([lon,lat]) =>
+    `${((lon2x(lon,z)+offset)*256).toFixed(1)},${(lat2y(lat,z)*256).toFixed(1)}`).join(' ');
 }
-async function showShape(idx,tags){
+function svgShape(g, offset, style, emphasis){
+  const el=document.createElementNS('http://www.w3.org/2000/svg', g.closed?'polygon':'polyline');
+  el.setAttribute('points',svgPoints(g.points,offset));
+  el.setAttribute('fill', g.closed ? style.fill : 'none');
+  el.setAttribute('stroke',style.stroke);
+  el.setAttribute('stroke-width',style.w+(emphasis||0));
+  el.setAttribute('vector-effect','non-scaling-stroke');
+  return el;
+}
+
+async function showShape(idx){
   const svg=shapeLayer(); svg.innerHTML='';
   const r=await fetch(`/api/osm/geometry/${idx}`);
   if(!r.ok) return false;                       // a node: no chain is the answer
   const g=await r.json();
-  const pts=g.points.map(([lon,lat])=>`${(lon2x(lon,z)*256).toFixed(1)},${(lat2y(lat,z)*256).toFixed(1)}`).join(' ');
-  const c=classFor(tags);
-  const el=document.createElementNS('http://www.w3.org/2000/svg', g.closed?'polygon':'polyline');
-  el.setAttribute('points',pts);
-  el.setAttribute('fill', g.closed && c.fill ? c.fill : 'none');
-  el.setAttribute('stroke',c.stroke);
-  el.setAttribute('stroke-width',c.w);
-  el.setAttribute('vector-effect','non-scaling-stroke');
+  // Emphasis, not a different colour: the selection must read as THIS thing
+  // lit up, not as a differently-classified thing.
+  const el=svgShape(g,0,styleForClass(g.class),1.5);
+  el.setAttribute('stroke','#7ee787');
   svg.appendChild(el);
   return true;
+}
+
+// ── the basemap itself ───────────────────────────────────────────────────
+// GET /api/osm/geometry/tile/:z/:x/:y — every shape anchored in the tile,
+// budgeted and simplified server-side to this zoom's pixel grid. Drawn into
+// an SVG under the dots, in the same world-pixel space #tiles is transformed
+// by, so panning and zooming move the map and its shapes together.
+const geomCache=new Map();      // "z/x/y" -> 'pending' | 'unavailable' | {shapes,…}
+
+// The built layer is RETAINED across renders and re-attached, not rebuilt.
+//
+// This matters more here than for the dots. `render()` runs on every pan frame
+// and clears #tiles, but a pan changes only the transform — world-pixel
+// coordinates at a fixed zoom do not move, so every polygon is still valid.
+// `innerHTML=''` detaches the <svg> while this reference keeps it (and its
+// children) alive, so re-attaching restores the whole basemap in one
+// appendChild. Rebuilding it per frame would be thousands of element creations
+// per pan: the same n^2 shape the `drawnCells` comment above was written about.
+// A ZOOM change is the one thing that invalidates the coordinates, and that is
+// exactly when it is dropped and rebuilt.
+let baseSvgEl=null, geomZoom=null;
+function baseLayer(){
+  if(!baseSvgEl){
+    baseSvgEl=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    baseSvgEl.id='base-shapes';
+    baseSvgEl.setAttribute('width','1'); baseSvgEl.setAttribute('height','1');
+    baseSvgEl.style.cssText='position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:1';
+  }
+  if(baseSvgEl.parentElement!==tilesEl) tilesEl.appendChild(baseSvgEl);
+  return baseSvgEl;
+}
+function ensureGeometry(z,wx,ty){
+  const key=tileKey(z,wx,ty);
+  if(geomCache.has(key)) return;
+  geomCache.set(key,'pending');
+  fetch(`/api/osm/geometry/tile/${z}/${wx}/${ty}`).then(r=>{
+    if(r.status===503){ geomCache.set(key,'unavailable'); return null; }
+    if(!r.ok) throw new Error('http '+r.status);
+    return r.json();
+  // paintBasemap(), NOT render(): one tile's shapes arriving changes nothing
+  // about the transform or the other tiles. Calling render() here is the same
+  // n^2 append amplification that `drawnCells` exists to prevent.
+  }).then(d=>{ if(d){ geomCache.set(key,d); paintBasemap(); } })
+    .catch(()=>{ geomCache.delete(key); });   // transient: retry on next render
+}
+// Cells whose basemap shapes are already in the DOM for the current view —
+// the same discipline as `drawnCells`, for the same measured reason.
+let drawnGeomCells=new Set();
+function paintBasemap(){
+  if(BASEMAPS[basemap].src) return;            // a raster skin is active
+  const svg=baseLayer();
+  for(const {tx,ty,wx} of visibleGrid()){
+    ensureGeometry(z,wx,ty);
+    const cell=tx+','+ty;
+    if(drawnGeomCells.has(cell)) continue;
+    const d=geomCache.get(tileKey(z,wx,ty));
+    if(!(d && typeof d==='object')) continue;
+    drawnGeomCells.add(cell);
+    const offset=tx-wx;
+    // Areas before lines, so a road is never buried under the park it crosses.
+    // Sorting per tile (not globally) keeps this O(n log n) on arrival instead
+    // of re-sorting every shape drawn so far.
+    const ordered=d.shapes.slice().sort((a,b)=>(a.closed===b.closed)?0:(a.closed?-1:1));
+    const frag=document.createDocumentFragment();
+    for(const g of ordered) frag.appendChild(svgShape(g,offset,styleForClass(g.class)));
+    svg.appendChild(frag);
+  }
+  updateBaseStatus();
+}
+function updateBaseStatus(){
+  const el=document.getElementById('featStatus');
+  if(BASEMAPS[basemap].src || showFeatures) return;   // features own the line then
+  const keys=visibleGrid().map(({wx,ty})=>tileKey(z,wx,ty));
+  if(keys.some(k=>geomCache.get(k)==='unavailable')){
+    el.textContent='no OSM slab baked (OSM_SLAB_PATH unset on the server)'; return;
+  }
+  if(keys.some(k=>geomCache.get(k)==='pending')){ el.textContent='drawing from the bake…'; return; }
+  let shapes=0, total=0, sampled=0;
+  for(const k of keys){ const d=geomCache.get(k);
+    if(d && typeof d==='object'){ shapes+=d.returned; total+=d.total; sampled+=d.sampled; } }
+  // `sampled < total` is the honest signal that this zoom is an LOD sample and
+  // not the whole map — without it a thin basemap reads as missing data.
+  el.textContent = sampled<total
+    ? `${shapes} shapes · ${sampled} of ${total} rows sampled at z${z}`
+    : `${shapes} shapes from ${total} rows`;
 }
 
 function paintFeatures(){
@@ -263,15 +421,22 @@ function paintFeatures(){
 function render(){
   const w=map.clientWidth, h=map.clientHeight;
   tilesEl.innerHTML=''; drawnCells=new Set();
+  // Only a zoom change invalidates the retained basemap geometry (see baseLayer).
+  if(z!==geomZoom){ baseSvgEl=null; drawnGeomCells=new Set(); geomZoom=z; }
   // pixel offset of the map center
   const ox=w/2 - cx*256, oy=h/2 - cy*256;
   tilesEl.style.transform=`translate(${ox}px,${oy}px)`;
   const bm=BASEMAPS[basemap];
-  for(const {tx,ty,wx} of visibleGrid()){
-    const img=new Image();
-    img.src=bm.src(z,wx,ty);
-    img.style.left=(tx*256)+'px'; img.style.top=(ty*256)+'px';
-    tilesEl.appendChild(img);
+  // No `src` is the vector basemap: the map is drawn, not downloaded.
+  if(bm.src){
+    for(const {tx,ty,wx} of visibleGrid()){
+      const img=new Image();
+      img.src=bm.src(z,wx,ty);
+      img.style.left=(tx*256)+'px'; img.style.top=(ty*256)+'px';
+      tilesEl.appendChild(img);
+    }
+  } else {
+    paintBasemap();
   }
   paintFeatures();
 }
@@ -279,10 +444,28 @@ function render(){
 // ── panning ── (moved: a drag that actually panned, so the trailing click is
 // suppressed — mouseup nulls `drag` before `click` fires, so `drag` alone can't
 // gate it)
-let drag=null, moved=false;
-map.addEventListener('mousedown',e=>{ drag={x:e.clientX,y:e.clientY}; moved=false; map.classList.add('drag'); });
-window.addEventListener('mouseup',()=>{ drag=null; map.classList.remove('drag'); });
-window.addEventListener('mousemove',e=>{ if(!drag) return; moved=true;
+//
+// POINTER events, not mouse events: they are the one API that covers mouse,
+// touch and pen, so a finger pans the map on a phone without a second parallel
+// code path. (Mouse-only handlers are why the map was frozen on touch; the
+// `touch-action:none` in the CSS is the other half — without it the browser
+// takes the gesture before `pointermove` ever fires.)
+//
+// `pointerId` is tracked so a second finger cannot fight the first for the
+// pan: the map follows the pointer that started it and ignores the rest,
+// which is also what keeps a pinch from being read as a violent drag.
+let drag=null, moved=false, dragId=null;
+map.addEventListener('pointerdown',e=>{
+  if(dragId!==null) return;                 // already panning with another pointer
+  dragId=e.pointerId; drag={x:e.clientX,y:e.clientY}; moved=false;
+  map.classList.add('drag'); });
+window.addEventListener('pointerup',e=>{
+  if(e.pointerId!==dragId) return;
+  dragId=null; drag=null; map.classList.remove('drag'); });
+window.addEventListener('pointercancel',e=>{
+  if(e.pointerId!==dragId) return;
+  dragId=null; drag=null; map.classList.remove('drag'); });
+window.addEventListener('pointermove',e=>{ if(!drag||e.pointerId!==dragId) return; moved=true;
   cx-=(e.clientX-drag.x)/256; cy-=(e.clientY-drag.y)/256; drag={x:e.clientX,y:e.clientY}; render(); });
 
 // ── zoom ── (stopPropagation so the control click doesn't bubble to the map's
@@ -318,7 +501,7 @@ async function showFeature(idx, el){
     if(d.error){ box.innerHTML='<p class="sub" style="margin:0">'+d.error+'</p>'; return; }
     const rows=Object.entries(d.tags||{})
       .map(([k,v])=>`<div class="tag"><b>${k}</b><span>${v}</span></div>`).join('');
-    const drawn=await showShape(idx, d.tags);
+    const drawn=await showShape(idx);
     box.innerHTML =
       `<div class="row"><span class="k">osm key</span><span class="v">${d.osm_key||'—'}</span></div>`
       + (rows || '<p class="sub" style="margin:6px 0 0">no tags on this element</p>')
@@ -350,7 +533,12 @@ map.addEventListener('click',async e=>{
     document.getElementById('leaf').textContent='0x'+d.hhtl.leaf.toString(16).padStart(4,'0');
     // tile source follows the ACTIVE basemap (the locate API reports both URLs) —
     // on satellite, showing the OSM URL would mismatch the visible tiles.
-    document.getElementById('src').textContent=basemap==='sat'?d.sat_tile_url:d.tile_url;
+    // The readout names the source actually in use. On the vector basemap that
+    // is OUR endpoint — printing tile.openstreetmap.org while nothing is being
+    // fetched from it was the exact confusion this view has to stop causing.
+    document.getElementById('src').textContent =
+      basemap==='vector' ? `${location.origin}/api/osm/geometry/tile/${d.z}/${d.x}/${d.y}`
+      : basemap==='sat'  ? d.sat_tile_url : d.tile_url;
   }catch(err){ document.getElementById('src').textContent='locate failed: '+err; }
 });
 
