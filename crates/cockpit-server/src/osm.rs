@@ -190,6 +190,47 @@ function visibleGrid(){
 // each of ~49 arrivals. Painting only what is missing makes it 1x.
 let drawnCells=new Set();
 
+// The clicked feature's rehydrated SHAPE — the decode half of the .chains
+// codec, drawn. A closed ring carrying an areal tag is FILLED (the operator's
+// edge model: the ring is the shore; the tag says what is inside); an open
+// chain is stroked. Classification is from tags the click already fetched.
+function shapeLayer(){
+  let svg=document.getElementById('shape');
+  if(!svg){
+    svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.id='shape';
+    svg.setAttribute('width','1'); svg.setAttribute('height','1');
+    svg.style.cssText='position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:3';
+  }
+  if(svg.parentElement!==tilesEl) tilesEl.appendChild(svg); // render() clears #tiles
+  return svg;
+}
+function classFor(tags){
+  const t=tags||{};
+  if(t.natural==='water'||t.waterway) return {fill:'#2b6cb088',stroke:'#7db3ff',w:1.5};
+  if(t.building)                      return {fill:'#8fa0b888',stroke:'#c9d3e0',w:1};
+  if(t.natural==='wood'||t.landuse==='forest') return {fill:'#1d4d2b88',stroke:'#4a8f63',w:1};
+  if(t.landuse||t.leisure||t.natural) return {fill:'#2f6b4a66',stroke:'#5aa87a',w:1};
+  if(t.highway)                       return {fill:'none',stroke:'#ffd166',w:2.5};
+  return {fill:null,stroke:'#ffb454',w:1.5};
+}
+async function showShape(idx,tags){
+  const svg=shapeLayer(); svg.innerHTML='';
+  const r=await fetch(`/api/osm/geometry/${idx}`);
+  if(!r.ok) return false;                       // a node: no chain is the answer
+  const g=await r.json();
+  const pts=g.points.map(([lon,lat])=>`${(lon2x(lon,z)*256).toFixed(1)},${(lat2y(lat,z)*256).toFixed(1)}`).join(' ');
+  const c=classFor(tags);
+  const el=document.createElementNS('http://www.w3.org/2000/svg', g.closed?'polygon':'polyline');
+  el.setAttribute('points',pts);
+  el.setAttribute('fill', g.closed && c.fill ? c.fill : 'none');
+  el.setAttribute('stroke',c.stroke);
+  el.setAttribute('stroke-width',c.w);
+  el.setAttribute('vector-effect','non-scaling-stroke');
+  svg.appendChild(el);
+  return true;
+}
+
 function paintFeatures(){
   const visibleKeys=[];
   if(showFeatures){
@@ -277,9 +318,11 @@ async function showFeature(idx, el){
     if(d.error){ box.innerHTML='<p class="sub" style="margin:0">'+d.error+'</p>'; return; }
     const rows=Object.entries(d.tags||{})
       .map(([k,v])=>`<div class="tag"><b>${k}</b><span>${v}</span></div>`).join('');
+    const drawn=await showShape(idx, d.tags);
     box.innerHTML =
       `<div class="row"><span class="k">osm key</span><span class="v">${d.osm_key||'—'}</span></div>`
-      + (rows || '<p class="sub" style="margin:6px 0 0">no tags on this element</p>');
+      + (rows || '<p class="sub" style="margin:6px 0 0">no tags on this element</p>')
+      + (drawn ? '' : '<p class="sub" style="margin:6px 0 0">point feature — no shape chain</p>');
   }catch(err){ box.innerHTML='<p class="sub" style="margin:0">lookup failed: '+err+'</p>'; }
 }
 

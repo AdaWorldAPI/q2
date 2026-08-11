@@ -540,6 +540,126 @@ pub async fn osm_feature_handler(Path(idx): Path<usize>) -> Response {
     }
 }
 
+/// The `.chains` sidecar — vertex chains for tagged ways, opened once.
+///
+/// **The digest pin is enforced, not decorative:** a chains file whose
+/// `slab_digest` does not match the mapped slab is refused entirely, because
+/// serving ring geometry from one bake against identities of another is
+/// silent cross-bake corruption — the exact drift the pin exists to make loud.
+static CHAINS: OnceLock<Option<osm_soa_bake::chains::Chains>> = OnceLock::new();
+
+fn open_chains() -> Option<&'static osm_soa_bake::chains::Chains> {
+    CHAINS
+        .get_or_init(|| {
+            let slab = open_slab()?;
+            let path = std::path::PathBuf::from(std::env::var("OSM_SLAB_PATH").ok()?)
+                .with_extension("chains");
+            let bytes = std::fs::read(&path).ok()?;
+            match osm_soa_bake::chains::Chains::from_bytes(bytes) {
+                Ok(ch) => {
+                    let want = osm_soa_bake::codebook::hash_slab(slab);
+                    if ch.slab_digest != want {
+                        tracing::error!(
+                            got = format_args!("{:016x}", ch.slab_digest),
+                            want = format_args!("{want:016x}"),
+                            "osm chains: sidecar pinned to a DIFFERENT slab; refusing"
+                        );
+                        return None;
+                    }
+                    tracing::info!(path = %path.display(), ways = ch.len(), "osm chains: loaded");
+                    Some(ch)
+                }
+                Err(e) => {
+                    tracing::warn!(path = %path.display(), error = ?e, "osm chains: unreadable; geometry unavailable");
+                    None
+                }
+            }
+        })
+        .as_ref()
+}
+
+/// One feature's rehydrated shape — the decode half of the chains codec.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct FeatureGeometryOut {
+    pub idx: usize,
+    pub ordinal: Option<u32>,
+    /// First vertex == last vertex and at least 4 vertices — a ring. The
+    /// renderer fills a ring carrying an areal tag and strokes everything else;
+    /// that CLASSIFICATION is the client's, the SHAPE is the codec's.
+    pub closed: bool,
+    /// `[lon, lat]` pairs in way order, decoded from z=32 cells — the same
+    /// grid the anchors live on, so a way's first vertex and a node at the
+    /// same position agree exactly.
+    pub points: Vec<[f64; 2]>,
+}
+
+fn query_geometry(bytes: &[u8], idx: usize) -> Result<Option<FeatureGeometryOut>, String> {
+    let slab = RowSlab::new(bytes).map_err(|e| format!("slab bytes not row-aligned: {e:?}"))?;
+    if idx >= slab.len() {
+        return Err(format!(
+            "row {idx} is past the end of the slab ({})",
+            slab.len()
+        ));
+    }
+    let Some(rows) = slab.rows() else {
+        return Ok(None);
+    };
+    let Some((_, ordinal)) = read_identity(&rows[idx]) else {
+        return Ok(None);
+    };
+    let Some(chains) = open_chains() else {
+        return Ok(None);
+    };
+    let chain = chains
+        .get(ordinal)
+        .map_err(|e| format!("chain record for ordinal {ordinal} is malformed: {e:?}"))?;
+    let Some(chain) = chain else {
+        return Ok(None); // a node or relation: no chain is a real answer
+    };
+    let closed = chain.len() >= 4 && chain.first() == chain.last();
+    let points = chain
+        .iter()
+        .map(|c| {
+            let (lon, lat) = osm_soa_bake::tms::tile_to_lonlat(c.x, c.y_xyz);
+            [lon, lat]
+        })
+        .collect();
+    Ok(Some(FeatureGeometryOut {
+        idx,
+        ordinal: Some(ordinal),
+        closed,
+        points,
+    }))
+}
+
+/// `GET /api/osm/geometry/:idx` — the dot's SHAPE. 404 (not 200-with-empty)
+/// when the feature has no chain, so "no geometry stored" and "empty geometry"
+/// can never be confused.
+pub async fn osm_geometry_handler(Path(idx): Path<usize>) -> Response {
+    let Some(bytes) = open_slab() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "OSM_SLAB_PATH is not set or the baked slab could not be opened",
+            })),
+        )
+            .into_response();
+    };
+    match query_geometry(bytes, idx) {
+        Ok(Some(out)) => Json(out).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "no chain stored for this feature" })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
