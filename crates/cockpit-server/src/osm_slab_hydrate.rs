@@ -98,6 +98,18 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
         return None;
     }
 
+    // Announce BEFORE the transfer, not after. This call blocks the listener
+    // bind, and a cold boot moves ~1.35 GB — so without a line here the boot
+    // log is silent for 60-90s, which is indistinguishable from a hang for
+    // whoever is watching a deploy. Naming the bucket and destination also
+    // makes a misconfigured prefix obvious from the first line rather than
+    // from a later "not readable" error.
+    tracing::info!(
+        %bucket, %prefix, dir = %dir.display(),
+        "osm slab: resolving from S3 (cold boot transfers ~1.35 GB and delays the listener; \
+         a warm volume re-verifies in ~1s)"
+    );
+
     // `from_env()` reads AWS_ENDPOINT_URL / AWS_ACCESS_KEY_ID /
     // AWS_SECRET_ACCESS_KEY / AWS_DEFAULT_REGION with no glue — `aws_endpoint_url`
     // is an accepted alias for the endpoint key, so a non-AWS S3 endpoint needs
