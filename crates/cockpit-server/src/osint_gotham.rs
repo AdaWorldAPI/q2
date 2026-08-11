@@ -1279,7 +1279,7 @@ mod tests {
             let order = row.value[CLASS_ORDER_TENANT];
             assert!((order as usize) <= OSINT_SCHEMA.len(), "order in range");
             assert!(
-                row.value[FACET_CAPACITY + 1..].iter().all(|&b| b == 0),
+                row.value[FACET_STAKEHOLDER + 1..].iter().all(|&b| b == 0),
                 "nothing past the facet tenant is set"
             );
         }
@@ -1330,9 +1330,25 @@ mod tests {
         );
         assert_eq!(bv[FACET_MILITARY], 0, "a stakeholder carries no system facet");
 
-        // the tenant stays within bytes 0..=6; the rest of the slab is zero.
-        assert!(lv[FACET_CAPACITY + 1..].iter().all(|&b| b == 0));
-        assert!(bv[FACET_CAPACITY + 1..].iter().all(|&b| b == 0));
+        // The V3 byte this fixture actually populates. Asserted POSITIVELY,
+        // because the zero-tail check below was widened from `FACET_CAPACITY + 1`
+        // to `FACET_STAKEHOLDER + 1` and a widened zero-check on its own would
+        // make the test pass by inspecting LESS: bytes 7..=11 would go unexamined
+        // in both directions. `"type": "Nation"` is `NODE_TYPE[9]`, so `facet_code`
+        // returns 10 — this is exactly the byte that used to trip the old bound,
+        // now pinned as the intended behaviour rather than merely tolerated.
+        assert_eq!(
+            bv[FACET_TYPE], 10,
+            "the V3 completion codes the actor's `type` (Nation) into the tenant"
+        );
+
+        // The tenant spans bytes 1..=11 — the V3 6x(8:8) completion widened it
+        // from 6 to 11 (FACET_STATUS..FACET_STAKEHOLDER); beyond that the slab is
+        // zero. The old 0..=6 bound outlived the widening: the wire-packer already
+        // writes `value[1..=FACET_STAKEHOLDER]`, so production had moved and only
+        // these assertions had not.
+        assert!(lv[FACET_STAKEHOLDER + 1..].iter().all(|&b| b == 0));
+        assert!(bv[FACET_STAKEHOLDER + 1..].iter().all(|&b| b == 0));
     }
 
     #[test]

@@ -243,13 +243,82 @@ Consequence: a dense tile silently renders as "data exists only in this
 corner". `total` vs `returned` is reported honestly, but the *shape* of
 what is returned is misleading in a way a count cannot convey.
 
-- [ ] Fix: stride-sample rather than head-truncate — take every
-      `ceil(total / cap)`-th row so a capped tile stays spatially
-      representative. `total`/`returned` semantics are unchanged; only which
-      rows are chosen changes. (Deliberately NOT done in this pass: it is a
-      behaviour change to a shipped endpoint and deserves its own falsifier
-      — assert a capped tile's coverage is within a few percent of the
-      control's, which is exactly the measurement above, now automatable.)
+- [x] Fix (1/2): stride-sample rather than head-truncate — take every
+      `ceil(total / budget)`-th row so a decimated tile stays spatially
+      representative. `total`/`returned` semantics unchanged; only which rows
+      are chosen changes.
+
+### ⚠⚠ The above was only HALF the defect — and the first fix hid the other half
+
+**Operator correction, 2026-08-11.** The framing above ("the row cap is
+spatially biased") diagnosed *how* rows were dropped and never asked *whether
+they should be dropped at all*. They should not be. `MAX_FEATURES_PER_TILE`
+was a flat `5_000` applied at **every zoom**, and against a real bake that is
+not a coarse-zoom backstop — it is the normal case:
+
+| z | rows/tile (Berlin-class, extrapolated from the one measured tile) | under the old flat 5k cap? |
+|---|---|---|
+| 12 | ~240,000 | no — **98% dropped** |
+| 13 | ~60,000 | no — **92% dropped** |
+| **14** | **15,016 (measured, `14/8802/5373`)** | no — **67% dropped** |
+| 15 | ~3,800 | yes |
+
+So *one mid-sized city* was served two-thirds absent at the zoom where a
+person actually reads a city. Decimating an **overland** survey is a
+legitimate LOD choice. Decimating a **city** is a wrong map — and stride
+sampling only changes it from "wrong in one corner" to "wrong everywhere,
+evenly". Uniform loss looks better, which is worse.
+
+**And the falsifier written for fix (1) certified the defect as fine.** It
+asserted the returned points cover ≥95% of the tile's *extent*. A uniform
+stride covers ~100% of a bounding box at **any** stride — measured on that
+exact fixture shape:
+
+| budget | rows kept | extent lon/lat | verdict under the ≥0.95 assertion |
+|---|---|---|---|
+| 5,000 | **25.0%** | 0.9922 / 1.0000 | **PASSES** |
+| 1,000 | **5.9%** | 1.0000 / 1.0000 | **PASSES** |
+| 100 | 0.59% | 0.9070 / 0.9922 | fails |
+
+A test that passes at 94% data loss has no power over data loss. Bounding-box
+coverage is not content coverage; **counting rows is what discriminates.**
+This is the third recorded instance of the workspace's vacuous-assertion trap
+and it was walked into anyway — the only reliable check remains *disable the
+fix and confirm the test goes red*, which was not run before that test was
+written.
+
+- [x] Fix (2/2): `row_budget(z)` — the budget is **zoom-conditioned**, because
+      "how many features may I drop" is an LOD question and LOD is a function
+      of what the tile *is*, not a constant.
+      - `CITY_ZOOM_FLOOR = 13` — at or above, a tile is a place you are
+        looking at and is served **complete**. z13 is the slippy-conventional
+        city/district floor (z≤12 reads as metro-and-wider).
+      - `OVERVIEW_ROW_BUDGET = 100_000` — decimation target below the floor,
+        grounded in the one render capacity measured in this repo: the browser
+        run drew **177,963** markers with zero page errors.
+      - `CITY_ROW_CEILING = 400_000` — transport backstop only, far above
+        Berlin's densest z13 (~60k); if it ever fires, `returned < total`
+        reports it.
+
+- [x] Falsifiers, each verified to go **red** against the restored flat-5k
+      defect (`5000 of 10000 rows`):
+      - `a_city_zoom_tile_is_served_complete` — counts rows: a z14 tile with
+        10,000 rows (deliberately > the old 5k cap, asserted, so it cannot go
+        vacuous) must return **all** of them.
+      - `row_budget_is_zoom_conditioned_at_the_city_floor` — can-fire and
+        can-stay-silent on the same knob; a constant `row_budget` fails it.
+      - `a_decimated_overview_tile_samples_the_whole_curve_not_a_morton_prefix`
+        — the old coverage test, **re-scoped** to the selection *rule* at an
+        injected budget, and explicitly documented as no evidence of
+        completeness. It stayed green through the disable-the-fix run, which
+        is precisely why it must not be the gate.
+
+**Not verified:** the boundary is set from Berlin-class density plus one
+measured tile; a denser bake (Jakarta, Tokyo) has not been measured, and the
+Berlin slab was deleted during the disk cleanup so it could not be re-measured
+this pass. If `CITY_ZOOM_FLOOR` is wrong it is wrong in the safe direction
+(more completeness, larger responses), and the completeness test fails loudly
+rather than silently thinning.
 
 ## Phase 3 — V1/V2 → V3 substrate (the POC gap)
 
@@ -490,22 +559,60 @@ Declared capabilities, and what each already is in code:
    The arms exist to make the registration falsifiable, not to be a
    mandatory call path.
 
-3. **`project_fields` is a real gap in the endpoint, and it is the
-   authorization one.** `/api/osm/features` currently decodes and returns
-   `lon/lat/entity_type/ordinal` with no mask applied. The declared
-   capability is `surface ∩ role` and is **fail-closed** — an unauthorised
-   position is *absent from the response*, not hidden client-side (the same
-   projection doctrine a2ui-rs enforces: RBAC happens before framing, and
-   pixels/JSON can't promise what the wire already leaked). For a
-   single-user local cockpit that is moot; for anything deployed it is the
-   difference between a demo and a surface with an access model.
+3. **`project_fields` is NOT the right instrument here — corrected 2026-08-10.**
+   An earlier revision of this file called it "a real gap … the authorization
+   one." That was too quick, and investigation reversed it on three grounds:
 
-- [ ] Phase 4 addendum: route the feature response through
-      `project_fields(row, surface, role)` rather than hand-decoding, so
-      the endpoint inherits the fail-closed projection instead of
-      re-implementing (or silently skipping) it. Needs a role source —
-      until there is one, say plainly that the endpoint is unauthenticated
-      rather than implying a mask exists.
+   **(a) The response is narrower than the public source.** The corpus is a
+   public ODbL `.osm.pbf` extract. `FeatureOut` emits four fields: a
+   Morton-quantised `lon`/`lat`, an `entity_type` (an OGAR concept id —
+   `osm_node` `0x0F01` / `osm_way` `0x0F02`), and an `ordinal` which is **not
+   the OSM element id** — `identity.rs` resolves the external key to a
+   codebook ordinal *pre-bake* (an OSM node id is ~2³⁴ and cannot fit the
+   slot at all), so it is a bake-local pseudonym. **And no tags.** Rows carry
+   up to 28 tag facets (`TAGS_PER_ROW = 28`); `FeatureOut` has no tag field,
+   so the entire semantic payload — *what the feature is* — never reaches the
+   wire. A mask would not be protecting anything.
+
+   **(b) It cannot reach half of what the endpoint returns.** `project::project`
+   reads `key[4 + position]` for positions `0..12` — the key's facet payload
+   only. `entity_type`/`ordinal` come from `read_identity`, which reads the
+   **value slab**; `project.rs`'s own test
+   `positions_past_the_facet_register_are_skipped_not_folded` pins that
+   boundary. The projection surface structurally excludes them.
+
+   **(c) On the half it does reach, masking CORRUPTS rather than withholds.**
+   Facet positions 0–7 are the Morton code — the coordinate itself (8–9 is
+   `family`, a literal `0` at the OSM mint site; 10–11 is the collision
+   counter, ~always 0). `morton_to_lonlat` consumes all 8 bytes. Masking the
+   leaf tier yields not an *absent* position but a **silently coarser one
+   presented as exact** — strictly worse than either emitting or omitting.
+   Fail-closed absence has no expression in a lon/lat pair.
+
+   A "documented permit-all role" would therefore be a no-op with an
+   authorization-shaped silhouette — security theatre in the precise sense —
+   and it would **answer an open upstream decision by accident**: a2ui's
+   charter states "`full_for` is a *render* convenience, never an RBAC
+   fallback" and names the permit-all identity as its one open W1 question.
+   (`WideFieldMask::ALL` does not exist in Rust — it appears only in a2ui
+   `.md` files; and `ClassRbac::field_mask`'s default impl already returns
+   `FieldMask::FULL`, so a stub would inherit permit-all silently.)
+
+   **Verdict: leave as-is, documented.** The endpoint is unauthenticated by
+   design on a public corpus. That is a statement about THIS dataset, not a
+   general licence.
+
+- [ ] **The bounded caveat — this verdict does NOT generalise.** The same
+      router serves ~35 routes on `0.0.0.0` with `CorsLayer::permissive()`
+      and no auth middleware (exhaustive grep over `cockpit-server/src` for
+      auth/token/bearer/jwt/session/role/permission/tenant: 137 matches,
+      **not one an authn/authz mechanism** — every `role` is a domain term,
+      every `token` a codebook/LLM token). `/api/clinical/reason` and
+      `/api/cpic/reason` (pharmacogenomics) are where a sensitivity question
+      is genuinely live. **Not assessed here; flagged, not ruled on.**
+      The real gap is request-scoped identity server-wide (`ActorContext`
+      exists in `lance_graph_contract::auth`; nothing *produces* one), which
+      is an authentication decision, not an osm-features-local omission.
 
 **Anti-patterns this pins** (each burned upstream once, per
 `OGAR/.claude/knowledge/hotplug-consumer-migration.md`): no bespoke
@@ -570,3 +677,58 @@ written first.
   not just `read_identity`'s ordinal. Deferred until a consumer actually
   needs it — Phase 1's response uses ordinal + entity_type + position,
   sufficient to prove the wiring and plot points.
+
+## Probe M4 — run, and it refutes the zoom-keyed budget (2026-08-11)
+
+**Operator: "did you even continue where we left off with the overland dynamic
+compression bucket thresholds".** No — and the probe that answers it was
+already written and still marked NOT RUN. `bf16-hhtl-terrain.md`'s process
+rule is explicit: *an agent changing bucketing strategy runs the probe first,
+or labels the proposal CONJECTURE and defers commitment.* `row_budget` is a
+bucketing-strategy change and it was written as settled fact.
+
+Ran it: `osm-soa-bake`'s `tier_probe` (M4), on Berlin (city, 2.52 M features)
+and Iceland (overland, 0.65 M) — features per tile, by cascade tier:
+
+| tier | Berlin tiles / med / p95 / max / fit≤30 | Iceland tiles / med / p95 / max / fit≤30 |
+|---|---|---|
+| heel z8 | 2 / 1,564,647 / — / 1,564,647 / 0.0 % | 58 / 3,838 / 34,985 / 202,296 / 20.7 % |
+| hip z16 | 8,065 / 206 / 996 / **3,844** / 16.4 % | 178,962 / 1 / 8 / **1,067** / 95.2 % |
+| twig z24 | 2,435,641 / 1 / 1 / 20 / **99.7 %** | 649,093 / 1 / 1 / 7 / **99.9 %** |
+| leaf z32 | 2,513,559 / 1 / 1 / 11 / 99.8 % | 652,314 / 1 / 1 / 7 / 99.9 % |
+
+Three things fall out, and two of them cut against what I had just written:
+
+1. **The cascade terminates at TWIG, not HEEL** — M4's own FAIL direction.
+   99.7 % of Berlin's twig cells hold exactly one feature.
+2. **There is exactly ONE useful bucketing level: the hip cell.** Occupancy
+   goes 1 (twig) → 206 (hip) → 1.56 M (heel) on Berlin. So the principled
+   overland rule is *one representative per occupied hip cell* — 8,065 cells
+   for 2.52 M features, a 312:1 reduction that is a cascade step. A uniform
+   row stride is not that; it is a placeholder that produces a defensible
+   picture at a measured budget. `OVERVIEW_ROW_BUDGET` is now labelled
+   **CONJECTURE** in its own doc comment, per the process rule.
+3. **Density is a property of the extract, not the zoom.** Berlin and Iceland
+   differ ~200× at hip and converge by twig. So `CITY_ZOOM_FLOOR` — a
+   zoom-keyed constant — is mis-specified for one of them by construction.
+   It is right in the safe direction (Iceland is sparser, so completeness is
+   cheaper there), but "z ≥ 13 is complete" is a *policy*, not a measurement.
+
+What the probe DOES let me state as measured rather than guessed:
+`CITY_ROW_CEILING` is bounded, not chosen. A z13 tile is 8×8 = 64 hip tiles
+and Berlin's densest hip tile holds 3,844, so a z13 tile is bounded above by
+**246,016** — and the 400,000 ceiling therefore provably cannot fire for a
+Berlin-class bake. (The bound is itself slack: it assumes 64 adjacent
+maximum-density tiles, where the one measured z14 tile holds 15,016.)
+
+- [ ] Build the hip-cell representative form for overview zooms and compare it
+      against the stride at equal budget — coverage, and what a user actually
+      loses. That comparison is what promotes `OVERVIEW_ROW_BUDGET` from
+      CONJECTURE, and it is the "dynamic compression bucket threshold" thread.
+- [ ] Re-measure `CITY_ZOOM_FLOOR` against a denser extract than Berlin before
+      treating 13 as anything but a policy floor.
+
+M4's result recorded upstream in `lance-graph/.claude/knowledge/bf16-hhtl-terrain.md`
+per that file's update protocol, scoped explicitly to the OSM point-feature
+form — it says nothing about HHTL termination for embedding fingerprints,
+which is what P2–P4 address and which remains NOT RUN.
