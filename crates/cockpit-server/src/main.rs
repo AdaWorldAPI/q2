@@ -43,6 +43,7 @@ mod osint_classview;
 mod osm_tiles;
 mod osm;
 mod osm_features;
+mod osm_slab_hydrate;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
 // The cockpit/ directory is built by `cd cockpit && npm run build` which
@@ -165,8 +166,35 @@ struct McpError {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter("cockpit_server=info,tower_http=info")
+        // The binary target is `q2-cockpit`, so `module_path!()` on this
+        // crate's own logs starts with `q2_cockpit` — NOT `cockpit_server`,
+        // which is the *package* name. The filter said `cockpit_server=info`,
+        // so every `tracing::*` call in this binary was silently discarded.
+        // Found when the S3 hydrate ran correctly and logged nothing: on a
+        // deploy that would have been 503s with no explanation. Both names are
+        // listed so a future rename of either cannot silence it again, and
+        // `RUST_LOG` wins when set, which is the operational control a deploy
+        // needs.
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                tracing_subscriber::EnvFilter::new(
+                    "q2_cockpit=info,cockpit_server=info,tower_http=info",
+                )
+            }),
+        )
         .init();
+
+    // Hydrate the OSM slab BEFORE the listener binds: S3 is the source of
+    // truth, `$RAILWAY_VOL` is a cache that survives container rebuilds. Doing
+    // it here rather than lazily keeps `osm_features::open_slab` synchronous —
+    // it still just mmaps `OSM_SLAB_PATH` — and stops the first request paying
+    // for a 1.29 GiB download. A `None` here is not an error: the endpoint
+    // answers 503 exactly as it did before, and local dev sets OSM_SLAB_PATH
+    // directly and never reaches S3.
+    if let Some(path) = osm_slab_hydrate::ensure_slab_local().await {
+        // SAFETY: single-threaded startup, before any task or listener exists.
+        unsafe { std::env::set_var("OSM_SLAB_PATH", &path) };
+    }
 
     let (tx, _rx) = broadcast::channel::<SseEvent>(256);
     let scene_state = shader_stream::new_scene_state();

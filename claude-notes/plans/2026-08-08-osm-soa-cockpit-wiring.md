@@ -918,3 +918,90 @@ in `osm_features.rs` is grounded in — so the real envelope is at least 1.6x
 what those constants assume. Not acted on: this was at city zoom with different
 fetch timing, and a budget should not be widened on one incidental observation.
 It does mean `OVERVIEW_ROW_BUDGET = 3_000` is conservative rather than tight.
+
+## Phase 6 — S3 → volume01 hydration (2026-08-11)
+
+**Operator: "railway has exactly the same S3 variables like you."** That single
+fact retired the blocker. Phase 4 was recorded as *"verifiable only on deploy"*
+because `/volume01` does not exist in this sandbox — but the volume is a
+**path**, and the part that actually needed proving (do these credentials reach
+that bucket, and does a 1.29 GiB round trip work) is verifiable right here.
+`OSM_SLAB_CACHE_DIR` substitutes for the mount, so everything except the
+literal mount point is exercised locally.
+
+**Operator, on shape:** *"S3 → lancedb → volume01"*, *"persist the lance file
+to volume01"*, *"it's just a convenience to persist lance across rebuilds."*
+The third message is the one that fixes the semantics: **the volume is a cache,
+S3 is the source of truth.** Deleting the volume costs a re-download and
+nothing else.
+
+### Three assumptions I had written down, all wrong
+
+The Phase 4 sketch claimed this needed ~5 new dependencies (`reqwest` + rustls,
+`sha2`, `hex`, `chrono`, `tokio` sync), hand-rolled SigV4, and a sync→async
+conversion of `open_slab()`. Checked rather than repeated:
+
+| claimed | measured |
+|---|---|
+| needs `reqwest` + a new HTTP stack | **`object_store` v0.13.2 is already in the graph** via `datafusion`/`lance`; adding it direct pulls no new transitive tree |
+| needs hand-rolled SigV4 | **`AmazonS3Builder::from_env()`** reads it all — and `aws_endpoint_url` is an accepted alias for the endpoint key (`builder.rs:498`), so a non-AWS endpoint needs no special casing |
+| `open_slab()` must become async | **`main()` is already `async`** — hydrating there, before the listener binds, leaves the read path untouched and stops the first request paying for the download |
+
+Net new direct deps: `object_store` (already in lockfile at this exact
+version), `sha2`, `hex`, `futures` — all already resolved.
+
+### The artifact question, and why it did not block
+
+`openstreetmap-website-rs/Cargo.toml` says in its own header: *"no lance, no
+datafusion: the ABI row is a byte layout, not an engine."* The bake emits raw
+`.soa` + `.books` and has no Lance writer — and `lance_abi` was **removed**
+from that repo (`a27b06a`) for doing a full-table materialising read. Lance
+lives on the **consumer** side, where `cockpit-server` already has the stack.
+
+So the hydration layer is written **format-agnostic**: it moves named objects
+from a prefix onto the volume and verifies them. Whether the artifact travels
+as `.soa` or as a Lance dataset is a separate decision it does not prejudge.
+That is also why this could ship without resolving it.
+
+Worth carrying from the `lance_abi` removal, because it names the correct
+shape if the Lance path is taken later: *"this crate already has fragment.rs
+(64k-row fragments, so a tile prefix lands in a fragment) and
+`RowSlab::tile_range`. The module used neither."* `object_store` exposes
+`get_range(location, Range<u64>)` — the range read that removal asked for.
+
+### What shipped
+
+`crates/cockpit-server/src/osm_slab_hydrate.rs`, called once from `main()`:
+
+1. `OSM_SLAB_PATH` set and a real file ⇒ use it. Local dev never touches S3.
+2. Else `AWS_S3_BUCKET_NAME` + (`OSM_SLAB_CACHE_DIR` | `RAILWAY_VOL`) ⇒
+   for each of `berlin.soa`, `berlin.books`: cache hit **verified by
+   checksum**, else stream from S3 → hash while writing → rename into place.
+3. Else `None` ⇒ the endpoint answers 503 exactly as before. Absent
+   configuration is not an error.
+
+**Checksum pinning, on the cache hit too.** `SHA256SUMS` is fetched from the
+same prefix; a missing entry is a refusal, not a warning. Verifying on a hit
+(not only after download) guards the half-written file left by a container
+killed mid-download — precisely the case a "we already have it" check waves
+through. Downloads land on `.part` and are renamed only after the hash
+matches, so a kill leaves nothing that looks complete; the hit-side check
+stays anyway because the volume outlives this code.
+
+### Bucket conventions — followed, not invented
+
+The bucket already had 50+ objects, all MedCare-rs, with a clear shape:
+`<repo>/bakes/<version>/<artifact>` plus `SHA256SUMS`, and Lance datasets
+shipped as `.lance.tar` (`all-lanes.lance.tar`, 378 MB). q2's upload follows
+it exactly at `q2/bakes/berlin-v1/` and touches nothing under `MedCare-rs/`.
+
+| key | bytes |
+|---|---|
+| `q2/bakes/berlin-v1/berlin.soa` | 1,292,826,624 |
+| `q2/bakes/berlin-v1/berlin.books` | 58,763,338 |
+| `q2/bakes/berlin-v1/SHA256SUMS` | 156 |
+
+`sha256(berlin.soa) = cbf5989ab45bc921d8a85fdbdb71c8e5029cd904a3d230a898c2b5eb81d7ebe7`
+
+- [x] `OSM_SLAB_PATH` gains an S3 sibling: hydrate → volume, then mmap.
+- [x] Checksum-pin the object; no unverified-fetch path.
