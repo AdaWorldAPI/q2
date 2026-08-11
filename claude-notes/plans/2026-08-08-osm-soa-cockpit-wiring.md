@@ -1005,3 +1005,63 @@ it exactly at `q2/bakes/berlin-v1/` and touches nothing under `MedCare-rs/`.
 
 - [x] `OSM_SLAB_PATH` gains an S3 sibling: hydrate → volume, then mmap.
 - [x] Checksum-pin the object; no unverified-fetch path.
+
+### Deploy readiness — the Dockerfile already existed, and my hydrate broke it
+
+The root `Dockerfile` **already builds and deploys `q2-cockpit`** (Vite stage →
+Rust stage → slim runtime, `PORT=8080`, siblings cloned at HEAD). No new deploy
+surface was needed. Two things checked rather than assumed:
+
+- **Toolchain.** The Dockerfile pins `1.94.0`, but `rust-toolchain.toml` pins
+  `nightly-2026-04-28` and rustup honours the toml — so the build resolves to
+  the nightly, which satisfies `ogar-vocab`'s ≥1.95 floor. The apparent
+  mismatch is not one.
+- **TLS.** `object_store` resolves to **rustls** (`hyper-rustls`), not
+  native-tls, so the new S3 leg adds no OpenSSL requirement to the runtime
+  image.
+- **Features.** The deploy builds `--features embed-cockpit,planner`. `planner`
+  is already `default`, and `embed-cockpit` only gates `include_dir` for static
+  assets — neither touches the hydrate path.
+
+**⚠ The defect I introduced.** `ensure_slab_local().await` (main.rs:194) blocks
+`TcpListener::bind` (main.rs:346). On a **cold** boot that is ~60-90s of
+transfer before the port opens — and `HEALTHCHECK` had `--interval=30s
+--timeout=3s` with **no `--start-period`**, so Docker probes immediately and
+the default 3 retries mark the container unhealthy inside ~90s. The unhealthy
+window overlapped the hydrate window exactly: the deploy would have failed
+while doing precisely what it was supposed to do.
+
+Fixed with `--start-period=600s`. Failures during the start period do not
+count, so this only widens the window for a legitimately slow FIRST start. It
+is not masking a hang — verified, not asserted:
+
+```
+11:25:12  INFO  osm slab: resolving from S3 (cold boot transfers ~1.35 GB …)
+                bucket=… prefix=q2/bakes/does-not-exist dir=…/probevol/osm
+11:25:13  ERROR osm slab: SHA256SUMS not readable — 404 … in 765.929422ms
+          (server still starts and serves)
+```
+
+A misconfigured prefix costs **0.8s** and names the exact URL. Only a real
+transfer is slow, and the cold path runs **once per volume**, not once per
+deploy — persisting across rebuilds is the volume's whole purpose.
+
+Also added a boot line *before* the transfer. Without it the log is silent for
+60-90s on a cold start, which is indistinguishable from a hang for whoever is
+watching a deploy — the same observability gap as the `q2_cockpit` filter bug,
+one layer up.
+
+**What Railway needs** (all already set per the operator):
+
+| variable | purpose |
+|---|---|
+| `AWS_ENDPOINT_URL` `AWS_ACCESS_KEY_ID` `AWS_SECRET_ACCESS_KEY` `AWS_DEFAULT_REGION` | read by `AmazonS3Builder::from_env()` |
+| `AWS_S3_BUCKET_NAME` | set explicitly via `with_bucket_name` |
+| `RAILWAY_VOL` | volume root; `<vol>/osm/` holds the cache |
+
+The volume needs **≥ 2 GB** (1.35 GB of artifacts plus headroom for a `.part`
+during re-fetch, which transiently doubles one file). `OSM_SLAB_S3_PREFIX`
+overrides the default `q2/bakes/berlin-v1`; `OSM_SLAB_CACHE_DIR` overrides the
+volume root and is what made all of this testable off-Railway.
+
+- [x] Deploy image for the POC — already existed; made cold-boot-safe.

@@ -171,7 +171,22 @@ COPY --from=builder /build/q2/target/release/q2-cockpit ./q2-cockpit
 COPY --from=builder /build/q2/cockpit/public/aiwar_graph.json ./data/aiwar_graph.json
 COPY --from=builder /build/q2/cockpit/public/aiwar_weapons.json ./data/aiwar_weapons.json
 
-HEALTHCHECK --interval=30s --timeout=3s \
+# `--start-period` is load-bearing, not decoration. On a COLD boot (empty
+# volume) the OSM slab hydrates from S3 before the listener binds — measured
+# ~60-90s for the 1.35 GB Berlin bake. Without a start period, Docker begins
+# probing immediately and the default 3 retries at 30s intervals mark the
+# container unhealthy inside ~90s, which overlaps the hydrate window exactly:
+# the deploy would fail while doing precisely what it is supposed to do.
+#
+# Failures during the start period do not count, so this only widens the
+# window for a legitimately slow FIRST start. It is not a mask for a hang:
+# `ensure_slab_local` returns `None` fast on any error (no bucket, bad creds,
+# missing checksum), so a long boot means a real transfer is in progress. A
+# warm boot re-verifies the cached copy in ~0.8s and is unaffected.
+#
+# The cold path runs once per volume, not once per deploy — persisting across
+# rebuilds is the volume's whole purpose.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=600s \
     CMD curl -f http://localhost:8080/health || exit 1
 
 ENV PORT=8080
