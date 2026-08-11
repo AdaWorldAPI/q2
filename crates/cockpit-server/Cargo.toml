@@ -70,6 +70,15 @@ osm-soa-bake = { path = "../../../openstreetmap-website-rs" }
 # memory). Pinned to the same 0.5 line osm-soa-bake itself uses, so the
 # dependency tree carries one memmap2 version, not two.
 memmap2 = "0.5"
+# S3 -> volume hydration for the OSM slab (`osm_slab_hydrate`). `object_store`
+# is already in the graph via lance/datafusion at this exact version, so this
+# adds no new transitive tree — and its `AmazonS3Builder::from_env()` reads the
+# AWS_* vars directly, so there is no hand-rolled SigV4 here.
+object_store = { version = "0.13.2", features = ["aws"] }
+sha2 = "0.10"
+hex = "0.4"
+futures = "0.3"
+
 
 # ── Quarto rendering pipeline ───────────────────────────────────────
 # pampa parses .qmd, quarto-core renders, deno_core executes JS/TS cells
