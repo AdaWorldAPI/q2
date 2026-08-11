@@ -863,3 +863,53 @@ Two verification-method notes, both cost real time:
   which looks exactly like a broken panel.
 - `pgrep -f "target/debug/q2-cockpit"` matches the shell command that contains
   the string, so `until ! pgrep -f ...` never terminates. Check the port.
+
+### The quadratic render — measured, fixed, measured again
+
+Filed as a follow-up above, then done in the same pass because it was the one
+defect degrading the delivered POC. `render()` cleared `#tiles` and rebuilt
+**every** marker, and `ensureFeatures`'s completion handler called it — so ~49
+arriving tiles each redrew everything drawn so far.
+
+Instrumented by wrapping `#tiles.appendChild` and counting `.pt` nodes:
+
+| | markers | `appendChild` calls | amplification | settle |
+|---|---|---|---|---|
+| before | 64,707 | **1,550,957** | **23.97x** | 33.4 s |
+| after | 64,707 | **64,707** | **1.00x** | 19.4 s |
+
+23.97x is exactly the `n/2` the quadratic predicts for ~49 tiles — theory and
+measurement agree, which is what says the diagnosis was the real mechanism and
+not a coincidence.
+
+The fix splits the layer: `render()` still owns the tile images and the
+transform (and clears), `paintFeatures()` appends only cells not already in
+`drawnCells`, and a completed fetch calls `paintFeatures()` instead of
+`render()`. `drawnCells` is keyed by `(tx,ty)` and **not** by the tile key,
+because one tile drawn on two repeated world copies needs its own dots at each
+offset.
+
+Wall-clock improved 1.72x rather than 24x — with the appends gone, the tile
+fetches dominate. Reported as measured rather than as the append ratio, which
+would overstate what a user feels.
+
+**Behaviour is unchanged, verified rather than assumed** — every POC number is
+identical after the fix (64,707 markers / 59,812 distinct / 49 fetches / HEEL
+`0xc8e1` / status text / zero errors). Pan and zoom re-checked explicitly,
+since `drawnCells` could plausibly have broken repaint:
+
+| action | markers | |
+|---|---|---|
+| toggle on | 64,707 | |
+| pan one tile | 59,845 | new grid, correctly repainted |
+| zoom in to z13 | **285,821** | city zoom -> COMPLETE tiles |
+| page errors | **[]** | throughout |
+
+- [x] `render()` is O(tiles x markers) — fixed; incremental paint, 24x -> 1x.
+
+**New capacity datapoint, worth carrying:** 285,821 markers rendered with zero
+page errors. The only prior measurement was 177,963, which is what every budget
+in `osm_features.rs` is grounded in — so the real envelope is at least 1.6x
+what those constants assume. Not acted on: this was at city zoom with different
+fetch timing, and a budget should not be widened on one incidental observation.
+It does mean `OVERVIEW_ROW_BUDGET = 3_000` is conservative rather than tight.
