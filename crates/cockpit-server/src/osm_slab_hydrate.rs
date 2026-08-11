@@ -4,10 +4,10 @@
 //!
 //! ```text
 //!   S3  (durable source of truth)
-//!    │   s3://$AWS_S3_BUCKET_NAME/<prefix>/{berlin.soa, berlin.books, SHA256SUMS}
+//!    │   s3://$AWS_S3_BUCKET_NAME/<prefix>/{berlin.soa, berlin.books, berlin.chains, SHA256SUMS}
 //!    ▼
 //!   $RAILWAY_VOL  (persistence across container rebuilds — a CACHE, not truth)
-//!    │   <vol>/osm/{berlin.soa, berlin.books}
+//!    │   <vol>/osm/{berlin.soa, berlin.books, berlin.chains}
 //!    ▼
 //!   mmap  ([`crate::osm_features::open_slab`], unchanged)
 //! ```
@@ -56,10 +56,13 @@ use sha2::{Digest, Sha256};
 /// Default S3 prefix holding the bake. Overridable with `OSM_SLAB_S3_PREFIX`.
 const DEFAULT_PREFIX: &str = "q2/bakes/berlin-v1";
 
-/// The slab and its codebook sidecar. Both are required: `RowSlab` can read
-/// positions without the books, but identity resolution needs them, and a slab
-/// without its books is what the bake itself calls unreadable.
-const ARTIFACTS: [&str; 2] = ["berlin.soa", "berlin.books"];
+/// The slab and its sidecars. All three are required: `RowSlab` can read
+/// positions without the books, but identity resolution needs them, and the
+/// `.chains` geometry sidecar is what turns a clicked feature back into its
+/// vertex chain (`/api/osm/geometry/:idx`). The bake publishes all three
+/// atomically (the slab renames into place only after both sidecars exist),
+/// so a prefix with a slab but no chains is a stale bake, not a valid state.
+const ARTIFACTS: [&str; 3] = ["berlin.soa", "berlin.books", "berlin.chains"];
 
 /// Where the hydrated copy lives, given the volume root.
 fn cache_dir(vol: &str) -> PathBuf {
@@ -99,14 +102,14 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
     }
 
     // Announce BEFORE the transfer, not after. This call blocks the listener
-    // bind, and a cold boot moves ~1.35 GB — so without a line here the boot
+    // bind, and a cold boot moves ~1.42 GB — so without a line here the boot
     // log is silent for 60-90s, which is indistinguishable from a hang for
     // whoever is watching a deploy. Naming the bucket and destination also
     // makes a misconfigured prefix obvious from the first line rather than
     // from a later "not readable" error.
     tracing::info!(
         %bucket, %prefix, dir = %dir.display(),
-        "osm slab: resolving from S3 (cold boot transfers ~1.35 GB and delays the listener; \
+        "osm slab: resolving from S3 (cold boot transfers ~1.42 GB and delays the listener; \
          a warm volume re-verifies in ~1s)"
     );
 

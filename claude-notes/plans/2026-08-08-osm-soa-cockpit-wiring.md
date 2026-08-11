@@ -1140,3 +1140,92 @@ Two verification-method notes, both cost a run:
   about visibility**. The probe picks by measured `getBoundingClientRect`.
 
 - [x] Points-only → click any dot for its real OSM identity and tags.
+
+## Phase 8 — rehydration: the decode half of the codec (2026-08-11)
+
+Operator framing, which reshaped this phase before it was built: *"I'm not
+talking about a rebake to optimize — I'm talking about necessary rehydration
+rules from the same business logic you already had in mind when you encoded
+it."* And the acceptance criterion: *"and if it has any gaps the POC can show
+it."* So: no new design decisions, no probes — the encode side already fixed
+the rules; this phase writes them down as the paired decode, and the POC is
+the falsifier surface.
+
+The confirming discovery: `read.rs` was **already computing every way's full
+vertex chain** (`cells: Vec<TileXy>`, z=32) and dropping it after `mean_cell`.
+The chain was never missing — it was discarded. Rehydration is un-discarding
+it.
+
+### The `.chains` sidecar (osm-soa-bake PR #23, merged branch pending)
+
+`src/chains.rs` — encode AND decode in ONE module, same crate as the bake, so
+a consumer can never re-interpret bytes (the osm_tiles V1/V3 drift lesson:
+Berlin HEEL `0x624b` vs `0xc8e1`).
+
+- Format: magic `OSMCHNS1` · `slab_digest: u64` (pin) · count · blob_len ·
+  ordinal-sorted index (`ordinal/offset/len` u32×3) · blob = n varint +
+  absolute first vertex + zigzag-varint `(dx,dy)` deltas.
+- Delta-position varints per areal_probe P6's measured verdict ("what the PBF
+  already spends"). Cells are z=32 **integers** ⇒ the roundtrip falsifier is
+  exact equality, not epsilon.
+- The digest pin is enforced at open: chains from one bake against a different
+  slab are refused loudly, not served.
+- Bake emission: tagged ways only, deduped by ordinal (continuation rows share
+  one), written in the pre-rename window so a slab publishes only alongside
+  BOTH sidecars.
+
+Berlin: `berlin.chains` = 63,777,240 B, sha256
+`276253f00503d4171c66947c5abda48627667aca51d7e0a6b891f32798350aae`, uploaded
+to `s3://$AWS_S3_BUCKET_NAME/q2/bakes/berlin-v1/` with an additive 3-line
+`SHA256SUMS` (old binaries reading only soa+books still verify). The bake is
+byte-deterministic (slab digest `8ec93a6ee63e89d2` across two runs), which is
+what allowed pinning new sidecars to the already-published slab instead of a
+`berlin-v2`.
+
+### cockpit-server: `GET /api/osm/geometry/:idx` + the shape layer
+
+- `osm_features.rs`: `open_chains()` (OnceLock, digest-verified),
+  `query_geometry` (row → identity ordinal → chain → `tile_to_lonlat`
+  points), `osm_geometry_handler` — **404 when no chain**, never
+  200-with-empty, so "node/relation, no shape stored" and "empty shape" can
+  never be confused.
+- `osm.rs`: an SVG `shapeLayer` inside `#tiles` (inherits the map transform),
+  `classFor(tags)` — water `#2b6cb088`, building `#8fa0b888`, wood/green
+  fills, highway = stroke-only `#ffd166` — and `showShape(idx)` wired into
+  the existing click detail. `vector-effect:non-scaling-stroke`.
+- `osm_slab_hydrate.rs`: `ARTIFACTS` grew to
+  `["berlin.soa", "berlin.books", "berlin.chains"]` — a deploy now hydrates
+  the geometry sidecar too (~1.42 GB cold total). Volume sizing: ≥ 2 GB.
+
+### Measured, on the real Berlin bake (browser, hermetic)
+
+A REAL click (not a scripted lookup) on a harbour dot resolved **"Westhafen I"**
+(`natural=water`, `water=harbour`) and drew its shore ring filled blue —
+literally the operator's See/Ufer model on a water body: the stored edge is
+the Ufer, the fill classification is the rehydration rule. Also drawn via the
+page's own `showFeature`: an 8-pt building ring (`#8fa0b888`), a 48-pt
+landuse ring (`#2f6b4a66`), a highway open polyline; a node correctly 404s.
+Zero page errors.
+
+### Gaps the POC now SHOWS (the operator's criterion, working as intended)
+
+1. **Shapes are click-only.** The operator's target is "fläche und darüber
+   die Straßen nodes als zusatz overlay" — area fill as a BASE layer with the
+   street/node overlay above it. The decode + classification exist; what's
+   missing is bulk retrieval (a per-tile geometry endpoint) and z-ordering.
+2. **Multipolygon relations are unassembled.** A lake with an island is a
+   relation of ways; chains store per-way rings only, so the island hole is
+   not subtracted. Relation assembly is a bake-side concern (the encode knows
+   the member roles), not a client heuristic.
+3. **Small rings are sub-pixel at overview zoom.** An 8-vertex apartment ring
+   is meters wide — invisible at z12, correct at city zoom. A base layer
+   would want the cascade-cell representative form here, not per-feature
+   rings.
+
+- [x] `.chains` codec, encode+decode paired in osm-soa-bake (PR #23)
+- [x] Bake emits sidecar; S3 upload + additive SHA256SUMS
+- [x] `GET /api/osm/geometry/:idx` + digest-pinned open
+- [x] Click → classified shape in the browser, verified on real data
+- [x] Hydrate downloads `berlin.chains`
+- [ ] Base fill layer + node/street overlay (gap 1)
+- [ ] Relation assembly at bake time (gap 2)
