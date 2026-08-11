@@ -286,6 +286,33 @@ pub struct FeatureOut {
     /// `morton_at` are byte-level and never require alignment.
     pub entity_type: Option<u16>,
     pub ordinal: Option<u32>,
+    /// This feature's row index in the slab — the handle `/api/osm/feature/:idx`
+    /// takes to answer "what IS this dot?".
+    ///
+    /// Carried per feature rather than serving tags inline because a tile can
+    /// return 15,016 features and each carries up to `TAGS_PER_ROW` tags: the
+    /// inline form would multiply an already-large response by the tag fan-out,
+    /// for data a viewer wants about ONE dot at a time. An index is 4 bytes and
+    /// makes the detail a click, not a download.
+    pub idx: usize,
+}
+
+/// One feature's resolved identity and tags — the answer to clicking a dot.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct FeatureDetailOut {
+    pub idx: usize,
+    pub lon: f64,
+    pub lat: f64,
+    pub entity_type: Option<u16>,
+    pub ordinal: Option<u32>,
+    /// The element's OSM identity as the bake keyed it: `"{kind:04x}:{osm_id}"`
+    /// resolved through `Books::identities`. `None` when the codebook sidecar
+    /// is absent or the ordinal is not in it.
+    pub osm_key: Option<String>,
+    /// `k=v` tags, resolved from ordinals through `Books::{tag_keys,tag_values}`.
+    /// Empty (not absent) when the row carries none — an untagged node is a
+    /// real answer, not a failure.
+    pub tags: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -357,6 +384,7 @@ fn query_tile(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileFeaturesOut, S
                 lat,
                 entity_type,
                 ordinal,
+                idx: i,
             }
         })
         .collect::<Vec<_>>();
@@ -388,6 +416,125 @@ pub async fn osm_features_handler(Path((z, x, y)): Path<(u32, u32, u32)>) -> Res
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": error })),
+        )
+            .into_response(),
+    }
+}
+
+/// The codebook sidecar, read once. `None` when the slab path is unset or the
+/// `.books` file is missing/unreadable — tags then resolve to nothing and the
+/// detail endpoint still answers with position and ordinals, which is strictly
+/// more than the tile response carries.
+///
+/// Path is derived, not configured: `with_extension("books")` turns both the
+/// hydrated `berlin.soa` and a locally-baked extensionless `berlin` into
+/// `berlin.books`, so the two naming conventions in play both resolve without
+/// a second env var to keep in sync with the first.
+static BOOKS: OnceLock<Option<osm_soa_bake::codebook::Books>> = OnceLock::new();
+
+fn open_books() -> Option<&'static osm_soa_bake::codebook::Books> {
+    BOOKS
+        .get_or_init(|| {
+            let path = std::path::PathBuf::from(std::env::var("OSM_SLAB_PATH").ok()?)
+                .with_extension("books");
+            let file = std::fs::File::open(&path).ok()?;
+            let mut r = std::io::BufReader::new(file);
+            match osm_soa_bake::codebook::read_books(&mut r) {
+                Ok((_header, books)) => {
+                    tracing::info!(path = %path.display(), "osm books: codebook loaded");
+                    Some(books)
+                }
+                Err(e) => {
+                    tracing::warn!(path = %path.display(), error = ?e, "osm books: unreadable; tags unavailable");
+                    None
+                }
+            }
+        })
+        .as_ref()
+}
+
+/// Resolve one slab row into identity + tags.
+///
+/// Tags bind to their member by ORDINAL, not by slot adjacency (the property
+/// `cluster` documents as letting a continuation row be read alone), so a row's
+/// own tags are the tag facets whose `member` equals its identity ordinal.
+/// Filtering on that rather than taking every tag facet is what stops a
+/// continuation row's tags being attributed to the wrong element.
+fn query_feature(bytes: &[u8], idx: usize) -> Result<FeatureDetailOut, String> {
+    let slab = RowSlab::new(bytes).map_err(|e| format!("slab bytes not row-aligned: {e:?}"))?;
+    if idx >= slab.len() {
+        return Err(format!(
+            "row {idx} is past the end of the slab ({})",
+            slab.len()
+        ));
+    }
+    let (lon, lat) = morton_to_lonlat(slab.morton_at(idx));
+
+    // Identity and tags both need the typed row; position never does.
+    let Some(rows) = slab.rows() else {
+        return Ok(FeatureDetailOut {
+            idx,
+            lon,
+            lat,
+            entity_type: None,
+            ordinal: None,
+            osm_key: None,
+            tags: Default::default(),
+        });
+    };
+    let row = &rows[idx];
+    let (entity_type, ordinal) = match read_identity(row) {
+        Some((t, o)) => (Some(t), Some(o)),
+        None => (None, None),
+    };
+
+    let books = open_books();
+    let osm_key = books
+        .zip(ordinal)
+        .and_then(|(b, o)| b.identities.key(o))
+        .map(str::to_string);
+
+    let mut tags = std::collections::BTreeMap::new();
+    if let (Some(b), Some(mine)) = (books, ordinal) {
+        for (_slot, facet) in osm_soa_bake::cluster::facets(row) {
+            if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet {
+                if member != mine {
+                    continue; // another member's tag; see the doc comment.
+                }
+                if let (Some(k), Some(v)) = (b.tag_keys.key(key), b.tag_values.key(value)) {
+                    tags.insert(k.to_string(), v.to_string());
+                }
+            }
+        }
+    }
+
+    Ok(FeatureDetailOut {
+        idx,
+        lon,
+        lat,
+        entity_type,
+        ordinal,
+        osm_key,
+        tags,
+    })
+}
+
+/// `GET /api/osm/feature/:idx` — what IS this dot?
+pub async fn osm_feature_handler(Path(idx): Path<usize>) -> Response {
+    let Some(bytes) = open_slab() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "OSM_SLAB_PATH is not set or the baked slab could not be opened",
+            })),
+        )
+            .into_response();
+    };
+    match query_feature(bytes, idx) {
+        Ok(out) => Json(out).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
         )
             .into_response(),
     }
