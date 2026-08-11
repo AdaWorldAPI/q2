@@ -52,9 +52,18 @@ const PAGE: &str = r##"<!doctype html>
     font-size:11px; z-index:5; }
   .attr a { color:#8fd6ff; }
   .ctl button.active { background:#1d3a2a; border-color:#2f6b4a; color:#9fe0a4; }
+  /* Clickable on purpose: a dot answers "what IS this?" via
+     /api/osm/feature/:idx. `pointer-events` is NOT disabled — panning still
+     works because mousedown bubbles from the dot to #map, and the existing
+     `moved` guard already suppresses the click that ends a drag. */
   .pt { position:absolute; width:5px; height:5px; margin:-3px 0 0 -3px;
     border-radius:50%; background:#ffb454; box-shadow:0 0 0 1px #0b0e13aa;
-    pointer-events:none; }
+    cursor:pointer; }
+  .pt.sel { background:#7ee787; box-shadow:0 0 0 2px #7ee787aa; z-index:4; }
+  #feature { margin-top:14px; border-top:1px solid #2a3140; padding-top:10px; }
+  #feature .tag { display:flex; gap:8px; font-size:11px; padding:1px 0; }
+  #feature .tag b { color:#7ee787; font-weight:600; min-width:96px; }
+  #feature .tag span { color:#c9d3e0; word-break:break-word; }
   .feat-status { position:absolute; right:12px; top:12px; z-index:5;
     background:#0b0e13aa; padding:2px 6px; border-radius:4px; color:#8fa0b8; }
 </style>
@@ -79,7 +88,9 @@ const PAGE: &str = r##"<!doctype html>
       <div class="cell"><b id="twig">—</b><span>TWIG</span></div>
       <div class="cell"><b id="leaf">—</b><span>LEAF</span></div>
     </div>
-    <div class="row"><span class="k">tile source</span></div>
+    <div id="feature"><p class="sub" style="margin:0">Click a feature dot to resolve its
+    OSM identity and tags from the codebook sidecar.</p></div>
+    <div class="row" style="margin-top:14px"><span class="k">tile source</span></div>
     <div style="padding:4px 0"><code id="src">—</code></div>
     <p class="sub" style="margin-top:16px">A quadtree <em>is</em> a cascade:
     <code>z/x/y</code> Morton-interleaves into the four 16-bit HHTL tiers
@@ -198,6 +209,7 @@ function paintFeatures(){
       for(const f of d.features){
         const dot=document.createElement('div');
         dot.className='pt';
+        dot.dataset.idx=f.idx;          // handle for /api/osm/feature/:idx
         dot.style.left=((lon2x(f.lon,z)+offset)*256)+'px';
         dot.style.top=(lat2y(f.lat,z)*256)+'px';
         tilesEl.appendChild(dot);
@@ -252,8 +264,30 @@ document.getElementById('feat').onclick=e=>{ e.stopPropagation();
 map.addEventListener('wheel',e=>{ e.preventDefault(); zoom(e.deltaY<0?1:-1); },{passive:false});
 
 // ── click → server-side HHTL key ──
+// Resolve one feature: ordinals -> strings via the .books codebook sidecar.
+// Kept separate from the locate call because they answer different questions —
+// locate is "where am I", this is "what is THAT".
+async function showFeature(idx, el){
+  const box=document.getElementById('feature');
+  document.querySelectorAll('.pt.sel').forEach(n=>n.classList.remove('sel'));
+  if(el) el.classList.add('sel');
+  box.innerHTML='<p class="sub" style="margin:0">resolving…</p>';
+  try{
+    const d=await (await fetch(`/api/osm/feature/${idx}`)).json();
+    if(d.error){ box.innerHTML='<p class="sub" style="margin:0">'+d.error+'</p>'; return; }
+    const rows=Object.entries(d.tags||{})
+      .map(([k,v])=>`<div class="tag"><b>${k}</b><span>${v}</span></div>`).join('');
+    box.innerHTML =
+      `<div class="row"><span class="k">osm key</span><span class="v">${d.osm_key||'—'}</span></div>`
+      + (rows || '<p class="sub" style="margin:6px 0 0">no tags on this element</p>');
+  }catch(err){ box.innerHTML='<p class="sub" style="margin:0">lookup failed: '+err+'</p>'; }
+}
+
 map.addEventListener('click',async e=>{
   if(moved){ moved=false; return; }   // this "click" ended a pan — ignore it
+  if(e.target.classList && e.target.classList.contains('pt')){
+    showFeature(e.target.dataset.idx, e.target);
+  }
   const r=map.getBoundingClientRect();
   const px=e.clientX-r.left, py=e.clientY-r.top;
   const w=map.clientWidth, h=map.clientHeight;

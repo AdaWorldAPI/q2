@@ -1065,3 +1065,78 @@ overrides the default `q2/bakes/berlin-v1`; `OSM_SLAB_CACHE_DIR` overrides the
 volume root and is what made all of this testable off-Railway.
 
 - [x] Deploy image for the POC — already existed; made cold-boot-safe.
+
+## Phase 7 — the map knows what things ARE (2026-08-11)
+
+The last functional gap: the overlay drew dots with no identity. *A map of dots
+is a POC; a map with streets is a map.* Closed by resolving a clicked feature's
+real OSM identity and tags.
+
+**No upstream change was needed** — everything already existed in
+`osm-soa-bake` and only had to be composed:
+
+| piece | where |
+|---|---|
+| `cluster::facets(row)` → `Vec<(slot, Facet)>` | already public |
+| `Facet::Tag { member, key, value }` (ordinals) | already public |
+| `codebook::read_books` → `Books { identities, tag_keys, tag_values }` | already public |
+| `IdentityCodebook::key(ordinal) -> Option<&str>` | `lance-graph-contract` |
+
+The `.books` sidecar was **already hydrating** alongside the slab (Phase 6
+carries both artifacts), so the data was on disk and merely unread.
+
+### Why the detail is a second endpoint, not inline tags
+
+A city tile returns 15,016 features and each row carries up to `TAGS_PER_ROW`
+tags. Inline tags would multiply an already-large response by the tag fan-out —
+for data a viewer wants about **one** dot at a time. So `FeatureOut` gains a
+4-byte `idx` (its slab row index) and `GET /api/osm/feature/:idx` answers the
+question on demand. The detail is a click, not a download.
+
+### Tags bind by ORDINAL, not by adjacency
+
+`query_feature` keeps only the tag facets whose `member` equals the row's own
+identity ordinal. That is `cluster`'s own documented property — the one that
+lets a continuation row be read alone — and filtering on it is what stops a
+continuation row's tags being attributed to the wrong element.
+
+### Measured, on the real Berlin bake
+
+```
+GET /api/osm/feature/1740603
+{ "osm_key": "0f02:1433098796",
+  "tags": { "access":"private", "emergency":"designated", "highway":"service",
+            "service":"driveway", "tunnel":"building_passage" } }
+```
+
+An emergency-access driveway passing under a building in central Berlin.
+Sampled for variety — a 10-tag parking amenity with a conditional-fee
+expression, a street lamp, a lift gate, a give-way sign; `0f01` = node,
+`0f02` = way. **`osm_key` is the real OSM element id**, resolved through
+`Books::identities` (`"{kind:04x}:{osm_id}"`).
+
+### The UI, browser-verified
+
+`.pt` markers previously carried `pointer-events:none` — they were not
+clickable at all. Removing that is the whole interaction; panning still works
+because mousedown bubbles from the dot to `#map`, and the existing `moved`
+guard already suppresses the click that ends a drag.
+
+Two-sided, both measured in a hermetic run:
+
+| action | result |
+|---|---|
+| click a marker | panel shows `osm key 0f01:9710028117`, `highway=street_lamp`, `layer=1`; `.pt.sel` highlight applied; 0 page errors |
+| **drag starting on a marker** | transform moves `-562793,-343436` → `-563033,-343526`, markers repaint 64,707 → 59,845, **panel unchanged** — the drag did NOT open a detail |
+
+The second row is the one that matters: enabling pointer events could have made
+every pan open a random feature, and it does not.
+
+Two verification-method notes, both cost a run:
+- The first click landed on the `.ctl` button stack (left:12, top:12, ~170 px
+  tall) rather than a marker. Marker selection now requires x > 320, y > 220.
+- Playwright refused the first `.pt` in DOM order as "outside of the viewport" —
+  markers live inside the translated `#tiles` layer, so **DOM order says nothing
+  about visibility**. The probe picks by measured `getBoundingClientRect`.
+
+- [x] Points-only → click any dot for its real OSM identity and tags.

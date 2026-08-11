@@ -272,6 +272,7 @@ async fn main() {
         .route("/api/osm/locate", get(osm_tiles::osm_locate_handler))
         .route("/api/osm/tile/:z/:x/:y", get(osm_tiles::osm_tile_meta_handler))
         .route("/api/osm/features/:z/:x/:y", get(osm_features::osm_features_handler))
+        .route("/api/osm/feature/:idx", get(osm_features::osm_feature_handler))
         // The /OSM cockpit page — a slippy map over the tile material, HHTL live.
         .route("/osm", get(osm::osm_page_handler))
         // Garmin terrain scenes, mod-rewrite style: /api/garmin/:location resolves the
