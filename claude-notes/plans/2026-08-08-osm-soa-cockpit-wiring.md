@@ -721,10 +721,13 @@ and Berlin's densest hip tile holds 3,844, so a z13 tile is bounded above by
 Berlin-class bake. (The bound is itself slack: it assumes 64 adjacent
 maximum-density tiles, where the one measured z14 tile holds 15,016.)
 
-- [ ] Build the hip-cell representative form for overview zooms and compare it
+- [x] Build the hip-cell representative form for overview zooms and compare it
       against the stride at equal budget — coverage, and what a user actually
       loses. That comparison is what promotes `OVERVIEW_ROW_BUDGET` from
       CONJECTURE, and it is the "dynamic compression bucket threshold" thread.
+      **Done in Phase 5** — generalised to a per-tile prefix depth rather than
+      fixed-at-hip (hip is the `zz=16` case); stride keeps 14/316 isolated
+      features at z8 where the cell form keeps 316/316.
 - [ ] Re-measure `CITY_ZOOM_FLOOR` against a denser extract than Berlin before
       treating 13 as anything but a policy floor.
 
@@ -812,8 +815,10 @@ tiles. The old 5,000 cap masked it. It is survivable at the load the evidence
 supports (measured working below), so it is recorded rather than fixed in this
 pass.
 
-- [ ] `render()` is O(tiles x markers) — rebuild incrementally, or diff, rather
-      than clearing `#tiles` on every tile arrival.
+- [x] `render()` is O(tiles x markers) — rebuild incrementally, or diff, rather
+      than clearing `#tiles` on every tile arrival. **Done in the same phase**
+      — `paintFeatures()` + `drawnCells`, measured 1,550,957 -> 64,707 appends
+      (23.97x -> 1.00x), wall-clock 1.72x, behaviour identical.
 - [ ] The viewport bound is the honest one; `OVERVIEW_ROW_BUDGET` is its
       per-tile share at one window size. A budget derived from the actual
       tiles-in-view count would not drift with window size.
