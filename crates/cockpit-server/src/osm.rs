@@ -410,6 +410,180 @@ function parseTileBin(buf){
   return {total,sampled,returned:count,malformed,fills,strokes};
 }
 
+// ── WebGL2 renderer — hardware acceleration (operator-mandated) ─────────────
+// Canvas2D above stays as the automatic fallback: same wire, same cache keys,
+// same status line, chosen once at startup. The GL path replaces BOTH hot
+// layers:
+//   fills/strokes — Path2D re-rasterized per frame  -> retained per-tile VBOs
+//   feature dots  — one DOM <div> per feature       -> one gl.POINTS draw
+// The dot layer was the MEASURED lag: 57,690 features = 57,690 absolutely-
+// positioned divs, the same retained-DOM architecture the module doc records
+// as removed ("69k retained SVG DOM nodes... terribly slow") — it had quietly
+// survived in the overlay while the basemap moved to canvas.
+function hexRGBA(x){ const h=x.slice(1);
+  return [parseInt(h.slice(0,2),16)/255, parseInt(h.slice(2,4),16)/255,
+          parseInt(h.slice(4,6),16)/255, h.length>=8?parseInt(h.slice(6,8),16)/255:1]; }
+const FILL_RGBA=CLASS_ORDER.map(n=>{const st=CLASS_STYLE[n];
+  return st.fill==='none'?[0,0,0,0]:hexRGBA(st.fill);});
+const STROKE_RGBA=CLASS_ORDER.map(n=>hexRGBA(CLASS_STYLE[n].stroke));
+
+let gl=null, glProg=null, glLoc=null, glCanvas=null, glSel=null;
+function initGL(){
+  const c=document.createElement('canvas');
+  c.id='base-gl';
+  c.style.cssText='position:absolute;left:0;top:0;pointer-events:none;';
+  const g=c.getContext('webgl2',{alpha:true,antialias:true});
+  if(!g) return false;                       // no WebGL2: Canvas2D path runs
+  map.insertBefore(c,map.firstChild);
+  glCanvas=c; gl=g;
+  const vs=`#version 300 es
+in vec2 aPos; in float aCls;
+uniform vec2 uView; uniform vec2 uTrans; uniform float uPointPx;
+out float vCls; out vec2 vWorld;
+void main(){
+  vec2 p=aPos+uTrans; vWorld=p; vCls=aCls;
+  gl_Position=vec4(p.x*2.0/uView.x-1.0, 1.0-p.y*2.0/uView.y, 0.0, 1.0);
+  gl_PointSize=uPointPx;
+}`;
+  // Procedural textures replace the canvas createPattern tiles: the SAME 8px
+  // cadence, keyed on vWorld (pre-pan-offset px), so the pattern rides the map
+  // exactly like the translate()d canvas pattern did.
+  const fs=`#version 300 es
+precision mediump float;
+in float vCls; in vec2 vWorld;
+uniform vec4 uFill[10]; uniform vec4 uStroke[10]; uniform int uMode;
+out vec4 frag;
+void main(){
+  if(uMode>=2){ vec2 d=gl_PointCoord-0.5; if(dot(d,d)>0.25) discard;
+    frag = uMode==3 ? vec4(0.494,0.906,0.529,1.0)   // selection #7ee787
+                    : vec4(1.0,0.706,0.329,1.0);    // dot #ffb454
+    return; }
+  int c=int(vCls+0.5);
+  if(uMode==1){ frag=uStroke[c]; return; }
+  vec4 col=uFill[c];
+  vec2 m=mod(vWorld,8.0);
+  if(c==7){        // meadow stipple — same 4 dot cells as the canvas pattern
+    if((m.x>=1.0&&m.x<2.0&&m.y>=1.0&&m.y<2.0)||(m.x>=5.0&&m.x<6.0&&m.y>=3.0&&m.y<4.0)||
+       (m.x>=3.0&&m.x<4.0&&m.y>=6.0&&m.y<7.0)||(m.x>=7.0&&m.y>=5.0&&m.y<6.0))
+      col=vec4(uStroke[7].rgb, min(1.0,col.a+0.35));
+  } else if(c==2){ // wood canopy — the crossing-stroke read, as one hatch band
+    if(abs(m.x+m.y-8.0)<0.7) col=vec4(uStroke[2].rgb, min(1.0,col.a+0.25));
+  }
+  frag=col;
+}`;
+  const sh=(t,src)=>{ const o=g.createShader(t); g.shaderSource(o,src); g.compileShader(o);
+    if(!g.getShaderParameter(o,g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(o));
+    return o; };
+  glProg=g.createProgram();
+  g.attachShader(glProg,sh(g.VERTEX_SHADER,vs));
+  g.attachShader(glProg,sh(g.FRAGMENT_SHADER,fs));
+  g.linkProgram(glProg);
+  if(!g.getProgramParameter(glProg,g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(glProg));
+  g.useProgram(glProg);
+  glLoc={ aPos:g.getAttribLocation(glProg,'aPos'), aCls:g.getAttribLocation(glProg,'aCls'),
+          uView:g.getUniformLocation(glProg,'uView'), uTrans:g.getUniformLocation(glProg,'uTrans'),
+          uMode:g.getUniformLocation(glProg,'uMode'), uPointPx:g.getUniformLocation(glProg,'uPointPx') };
+  g.uniform4fv(g.getUniformLocation(glProg,'uFill'), FILL_RGBA.flat());
+  g.uniform4fv(g.getUniformLocation(glProg,'uStroke'), STROKE_RGBA.flat());
+  g.enable(g.BLEND); g.blendFunc(g.SRC_ALPHA,g.ONE_MINUS_SRC_ALPHA);
+  return true;
+}
+
+// Ear-clipping triangulation for one simple ring (no holes — the wire delivers
+// per-way rings; multipolygon inners arrive as their own ways, matching what
+// the Canvas2D nonzero fill drew). Handles CW and CCW input. A degenerate or
+// self-intersecting ring falls back to a fan over whatever remains rather than
+// looping forever — draw something sane, never hang.
+function earClip(pts,n){
+  const idx=[]; for(let i=0;i<n;i++) idx.push(i);
+  if(n>1 && pts[0]===pts[2*(n-1)] && pts[1]===pts[2*(n-1)+1]) idx.pop();
+  let m=idx.length;
+  if(m<3) return [];
+  let area=0;
+  for(let i=0;i<m;i++){ const j=(i+1)%m;
+    area+=pts[2*idx[i]]*pts[2*idx[j]+1]-pts[2*idx[j]]*pts[2*idx[i]+1]; }
+  const ccw=area>0, out=[];
+  let guard=m*m+m, i=0;
+  while(m>3 && guard-->0){
+    const i0=idx[(i+m-1)%m], i1=idx[i%m], i2=idx[(i+1)%m];
+    const ax=pts[2*i0],ay=pts[2*i0+1],bx=pts[2*i1],by=pts[2*i1+1],qx=pts[2*i2],qy=pts[2*i2+1];
+    const cross=(bx-ax)*(qy-ay)-(by-ay)*(qx-ax);
+    let ear=ccw?cross>0:cross<0;
+    if(ear){
+      for(let k=0;k<m&&ear;k++){
+        const pv=idx[k]; if(pv===i0||pv===i1||pv===i2) continue;
+        const px=pts[2*pv],py=pts[2*pv+1];
+        const d1=(bx-ax)*(py-ay)-(by-ay)*(px-ax);
+        const d2=(qx-bx)*(py-by)-(qy-by)*(px-bx);
+        const d3=(ax-qx)*(py-qy)-(ay-qy)*(px-qx);
+        if(!(((d1<0)||(d2<0)||(d3<0)) && ((d1>0)||(d2>0)||(d3>0)))) ear=false;
+      }
+    }
+    if(ear){ out.push(ax,ay,bx,by,qx,qy); idx.splice(i%m,1); m--; i=0; }
+    else i=(i+1)%m;
+  }
+  if(m>=3){
+    if(guard<=0){       // bail: fan the remainder from its first vertex
+      for(let k=1;k<m-1;k++)
+        out.push(pts[2*idx[0]],pts[2*idx[0]+1],pts[2*idx[k]],pts[2*idx[k]+1],
+                 pts[2*idx[k+1]],pts[2*idx[k+1]+1]);
+    } else {
+      out.push(pts[2*idx[0]],pts[2*idx[0]+1],pts[2*idx[1]],pts[2*idx[1]+1],
+               pts[2*idx[2]],pts[2*idx[2]+1]);
+    }
+  }
+  return out;
+}
+
+// The GL parse: same wire walk as parseTileBin, but the ONE materialization is
+// vertex arrays instead of Path2D — triangles for fills (ear-clipped, appended
+// in FILL_PASS painter order so a single draw preserves layering), gl.LINES
+// segments for strokes in STROKE_PASS order. cls rides interleaved as the
+// third float, indexing the color/texture tables in the shader.
+function parseTileBinGL(buf){
+  const dv=new DataView(buf);
+  if(dv.byteLength<20 || dv.getUint32(0,true)!==0x314D534F) return null;
+  const total=dv.getUint32(4,true), sampled=dv.getUint32(8,true);
+  const count=dv.getUint32(12,true), malformed=dv.getUint32(16,true);
+  const fillsBy=new Map(), linesBy=new Map();
+  let at=20;
+  for(let s=0;s<count;s++){
+    if(at+8>dv.byteLength) return null;
+    const cls=dv.getUint8(at+4), closed=dv.getUint8(at+5)===1;
+    const n=dv.getUint16(at+6,true); at+=8;
+    if(at+n*8>dv.byteLength) return null;
+    const pts=new Float32Array(buf,at,n*2); at+=n*8;
+    if(n<2) continue;
+    let L=linesBy.get(cls); if(!L){ L=[]; linesBy.set(cls,L); }
+    for(let i=0;i<n-1;i++) L.push(pts[2*i],pts[2*i+1],pts[2*i+2],pts[2*i+3]);
+    if(closed){
+      L.push(pts[2*n-2],pts[2*n-1],pts[0],pts[1]);
+      const tris=earClip(pts,n);
+      if(tris.length){ let F=fillsBy.get(cls); if(!F){ F=[]; fillsBy.set(cls,F); }
+        for(const v of tris) F.push(v); }
+    }
+  }
+  const fill=[], line=[];
+  for(const c of FILL_PASS){ const F=fillsBy.get(c); if(!F) continue;
+    for(let i=0;i<F.length;i+=2) fill.push(F[i],F[i+1],c); }
+  for(const c of STROKE_PASS){ const L=linesBy.get(c); if(!L) continue;
+    for(let i=0;i<L.length;i+=2) line.push(L[i],L[i+1],c); }
+  return {total,sampled,returned:count,malformed,
+          fill:new Float32Array(fill), line:new Float32Array(line), vboF:null, vboL:null};
+}
+
+// Delete a zoom level's GPU buffers when its tiles are evicted — the cache
+// clear alone would leak them (GL objects are not garbage-collected with the
+// JS entry that referenced them).
+function evictGLBuffers(){
+  for(const d of geomCache.values()){
+    if(d && typeof d==='object'){
+      if(d.vboF) gl.deleteBuffer(d.vboF);
+      if(d.vboL) gl.deleteBuffer(d.vboL);
+    }
+  }
+}
+
 function ensureGeometry(z,wx,ty){
   const key=tileKey(z,wx,ty);
   if(geomCache.has(key)) return;
@@ -422,7 +596,7 @@ function ensureGeometry(z,wx,ty){
   // nothing about the transform or the other tiles.
   }).then(buf=>{
     if(!buf) return;
-    const d=parseTileBin(buf);
+    const d=gl?parseTileBinGL(buf):parseTileBin(buf);
     if(d){ geomCache.set(key,d); scheduleBaseDraw(); }
     else geomCache.delete(key);                  // bad payload: allow a retry
   }).catch(()=>{ geomCache.delete(key); });      // transient: retry on next render
@@ -458,6 +632,7 @@ function scheduleBaseDraw(){
   requestAnimationFrame(()=>{ baseDrawQueued=false; drawBase(); });
 }
 function drawBase(){
+  if(gl) return drawBaseGL();
   const ctx=baseLayerCanvas();
   const w=map.clientWidth, h=map.clientHeight;
   ctx.clearRect(0,0,w,h);
@@ -487,6 +662,115 @@ function drawBase(){
   }
   updateBaseStatus();
 }
+// The GL frame. Uploads a tile's arrays once (on first sight) and thereafter
+// re-draws by binding — the per-frame cost is bind + uniform + drawArrays, so
+// panning never re-walks geometry. `uTrans` carries the pan offset, so no
+// vertex data is rewritten while dragging.
+function drawBaseGL(){
+  const dpr=window.devicePixelRatio||1;
+  const w=map.clientWidth, h=map.clientHeight;
+  if(glCanvas.width!==Math.round(w*dpr)||glCanvas.height!==Math.round(h*dpr)){
+    glCanvas.width=Math.round(w*dpr); glCanvas.height=Math.round(h*dpr);
+    glCanvas.style.width=w+'px'; glCanvas.style.height=h+'px';
+  }
+  gl.viewport(0,0,glCanvas.width,glCanvas.height);
+  gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+  if(BASEMAPS[basemap].src) return;              // a raster skin is active
+  if(z!==geomZoom){ evictGLBuffers(); geomCache.clear(); geomZoom=z; }
+  gl.useProgram(glProg);
+  gl.uniform2f(glLoc.uView,w,h);
+  const ox=w/2 - cx*256, oy=h/2 - cy*256;
+  const bind=(vbo)=>{
+    gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+    gl.enableVertexAttribArray(glLoc.aPos);
+    gl.vertexAttribPointer(glLoc.aPos,2,gl.FLOAT,false,12,0);
+    gl.enableVertexAttribArray(glLoc.aCls);
+    gl.vertexAttribPointer(glLoc.aCls,1,gl.FLOAT,false,12,8);
+  };
+  for(const {tx,ty,wx} of visibleGrid()){
+    ensureGeometry(z,wx,ty);
+    const d=geomCache.get(tileKey(z,wx,ty));
+    if(!(d && typeof d==='object' && d.fill)) continue;
+    if(!d.vboF){
+      d.vboF=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,d.vboF);
+      gl.bufferData(gl.ARRAY_BUFFER,d.fill,gl.STATIC_DRAW);
+      d.vboL=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,d.vboL);
+      gl.bufferData(gl.ARRAY_BUFFER,d.line,gl.STATIC_DRAW);
+    }
+    gl.uniform2f(glLoc.uTrans, tx*256+ox, ty*256+oy);
+    if(d.fill.length){ gl.uniform1i(glLoc.uMode,0); bind(d.vboF);
+      gl.drawArrays(gl.TRIANGLES,0,d.fill.length/3); }
+    if(d.line.length){ gl.uniform1i(glLoc.uMode,1); bind(d.vboL);
+      gl.drawArrays(gl.LINES,0,d.line.length/3); }
+  }
+  drawDotsGL(ox,oy);
+  updateBaseStatus();
+}
+
+// The feature dots, as ONE gl.POINTS draw per tile instead of one DOM div per
+// feature. This is the measured lag fix: 57,690 divs -> 1 buffer + 1 draw.
+// Hit-testing moves to a nearest-point search over the same Float32Array
+// (`pickFeature`), so a click still resolves to an idx without any DOM node.
+let dotBuf=null;
+function drawDotsGL(ox,oy){
+  if(!showFeatures) return;
+  if(!dotBuf) dotBuf=gl.createBuffer();
+  gl.uniform1i(glLoc.uMode,2);
+  gl.uniform1f(glLoc.uPointPx,6*(window.devicePixelRatio||1));
+  for(const {tx,ty,wx} of visibleGrid()){
+    ensureFeatures(z,wx,ty);
+    const d=featureCache.get(tileKey(z,wx,ty));
+    if(!(d && typeof d==='object')) continue;
+    if(!d.pts){
+      const a=new Float32Array(d.features.length*3);
+      const offset=tx-wx;
+      d.features.forEach((f,i)=>{ a[3*i]=(lon2x(f.lon,z)+offset)*256 - tx*256;
+        a[3*i+1]=lat2y(f.lat,z)*256 - ty*256; a[3*i+2]=0; });
+      d.pts=a;
+    }
+    if(!d.pts.length) continue;
+    gl.bindBuffer(gl.ARRAY_BUFFER,dotBuf);
+    gl.bufferData(gl.ARRAY_BUFFER,d.pts,gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(glLoc.aPos);
+    gl.vertexAttribPointer(glLoc.aPos,2,gl.FLOAT,false,12,0);
+    gl.enableVertexAttribArray(glLoc.aCls);
+    gl.vertexAttribPointer(glLoc.aCls,1,gl.FLOAT,false,12,8);
+    gl.uniform2f(glLoc.uTrans, tx*256+ox, ty*256+oy);
+    gl.drawArrays(gl.POINTS,0,d.pts.length/3);
+  }
+  if(glSel){                                   // the selected dot, drawn lit
+    gl.uniform1i(glLoc.uMode,3);
+    gl.uniform1f(glLoc.uPointPx,10*(window.devicePixelRatio||1));
+    gl.bindBuffer(gl.ARRAY_BUFFER,dotBuf);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([glSel.x,glSel.y,0]),gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(glLoc.aPos);
+    gl.vertexAttribPointer(glLoc.aPos,2,gl.FLOAT,false,12,0);
+    gl.uniform2f(glLoc.uTrans, ox, oy);
+    gl.drawArrays(gl.POINTS,0,1);
+  }
+}
+
+// Click -> nearest feature, over the SAME arrays the GPU drew. Replaces the
+// per-div click target: screen px -> world px, then a linear scan of visible
+// tiles within a 6px radius (tiles are small and the scan is per-click, not
+// per-frame).
+function pickFeature(px,py){
+  if(!showFeatures) return null;
+  const w=map.clientWidth, h=map.clientHeight;
+  const wxp=cx*256+(px-w/2), wyp=cy*256+(py-h/2);
+  let best=null, bestD=36;                     // 6px radius, squared
+  for(const {tx,ty,wx} of visibleGrid()){
+    const d=featureCache.get(tileKey(z,wx,ty));
+    if(!(d && typeof d==='object' && d.pts)) continue;
+    for(let i=0;i<d.pts.length/3;i++){
+      const gx=d.pts[3*i]+tx*256, gy=d.pts[3*i+1]+ty*256;
+      const dd=(gx-wxp)*(gx-wxp)+(gy-wyp)*(gy-wyp);
+      if(dd<bestD){ bestD=dd; best={idx:d.features[i].idx,x:gx,y:gy}; }
+    }
+  }
+  return best;
+}
+
 function updateBaseStatus(){
   const el=document.getElementById('featStatus');
   if(BASEMAPS[basemap].src || showFeatures) return;   // features own the line then
@@ -507,6 +791,15 @@ function updateBaseStatus(){
 
 function paintFeatures(){
   const visibleKeys=[];
+  // Under GL the dots are a GPU draw (drawDotsGL) — no DOM nodes at all. Only
+  // the status line still needs the per-tile walk.
+  if(gl){
+    if(showFeatures) for(const {wx,ty} of visibleGrid()){
+      visibleKeys.push(tileKey(z,wx,ty)); ensureFeatures(z,wx,ty); }
+    updateFeatStatus(visibleKeys);
+    scheduleBaseDraw();
+    return;
+  }
   if(showFeatures){
     for(const {tx,ty,wx} of visibleGrid()){
       const key=tileKey(z,wx,ty);
@@ -608,6 +901,8 @@ map.addEventListener('wheel',e=>{ e.preventDefault(); zoom(e.deltaY<0?1:-1); },{
 // locate is "where am I", this is "what is THAT".
 async function showFeature(idx, el){
   const box=document.getElementById('feature');
+  // DOM selection only exists on the Canvas2D path; under GL the lit dot is
+  // `glSel`, drawn by drawDotsGL.
   document.querySelectorAll('.pt.sel').forEach(n=>n.classList.remove('sel'));
   if(el) el.classList.add('sel');
   box.innerHTML='<p class="sub" style="margin:0">resolving…</p>';
@@ -626,11 +921,14 @@ async function showFeature(idx, el){
 
 map.addEventListener('click',async e=>{
   if(moved){ moved=false; return; }   // this "click" ended a pan — ignore it
-  if(e.target.classList && e.target.classList.contains('pt')){
-    showFeature(e.target.dataset.idx, e.target);
-  }
   const r=map.getBoundingClientRect();
   const px=e.clientX-r.left, py=e.clientY-r.top;
+  if(gl){
+    const hit=pickFeature(px,py);     // nearest point, no DOM target to test
+    if(hit){ glSel={x:hit.x,y:hit.y}; scheduleBaseDraw(); showFeature(hit.idx,null); }
+  } else if(e.target.classList && e.target.classList.contains('pt')){
+    showFeature(e.target.dataset.idx, e.target);
+  }
   const w=map.clientWidth, h=map.clientHeight;
   const n=Math.pow(2,z);
   // wrap the horizontal tile index into [0,2^z) so clicks on a repeated world
@@ -655,6 +953,17 @@ map.addEventListener('click',async e=>{
       basemap==='vector' ? `${location.origin}/api/osm/geometry/tile-bin/${d.z}/${d.x}/${d.y}`
       : basemap==='sat'  ? d.sat_tile_url : d.tile_url;
   }catch(err){ document.getElementById('src').textContent='locate failed: '+err; }
+});
+
+// Hardware acceleration is the default and the fallback is automatic: if
+// WebGL2 is unavailable (or the context is lost / shaders fail to compile) the
+// Canvas2D path above runs unchanged. `initGL` is the ONLY switch — every
+// draw/pick site branches on `gl`.
+try{ if(!initGL()) console.info('osm: WebGL2 unavailable — Canvas2D fallback'); }
+catch(err){ gl=null; console.warn('osm: WebGL2 init failed, using Canvas2D —',err); }
+if(gl) glCanvas.addEventListener('webglcontextlost',e=>{
+  // A lost context must not leave a blank map: drop to Canvas2D and rebuild.
+  e.preventDefault(); gl=null; geomCache.clear(); geomZoom=null; render();
 });
 
 addEventListener('resize',render);
