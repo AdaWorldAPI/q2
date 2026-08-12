@@ -133,6 +133,29 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
         return Some(warm);
     }
 
+    // A stale dataset is REMOVED before reconversion, not overwritten in
+    // place. `WriteMode::Overwrite` only writes a new manifest VERSION —
+    // Lance keeps the previous version's fragment files on disk, so
+    // overwriting the pre-fix three-fragment Berlin dataset would leave
+    // `data/` holding 4 `.lance` files, and [`locate_row_column`]'s
+    // sole-data-file precondition would then fall back to the raw `.soa`
+    // forever (plus 1.3 GB of dead fragments squatting on the volume).
+    // The dataset is a derived cache of the slab — version history has no
+    // value here; the slab itself is the recovery path. Fail-closed: if
+    // the stale directory cannot be removed, do NOT write into it (that
+    // is exactly how a 4-file `data/` happens) — keep serving from the
+    // `.soa` unchanged.
+    if dest.exists() {
+        if let Err(e) = remove_stale_dataset(&dest) {
+            tracing::error!(
+                path = %dest.display(), error = %e,
+                "osm lance: cannot remove the stale dataset; refusing to write \
+                 into it — the raw .soa slab keeps serving the map"
+            );
+            return None;
+        }
+    }
+
     // Cold path only: the write genuinely needs an owned Vec (adopted by
     // `Buffer::from_vec`), so the slab-sized allocation is paid exactly once
     // per conversion, never per boot.
@@ -148,6 +171,19 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
         "osm lance: converting the .soa slab into a Lance dataset (zero-copy import)"
     );
     write_lance(&dest, bytes, rows, &digest_hex, slab_path).await
+}
+
+/// Remove a stale dataset directory in full, so the follow-up write starts
+/// from nothing and `data/` ends up holding EXACTLY the one fragment file
+/// the write produces. Split out for the falsifier below; guarded at the
+/// call site by `dest.exists()`.
+fn remove_stale_dataset(dest: &Path) -> std::io::Result<()> {
+    tracing::info!(
+        path = %dest.display(),
+        "osm lance: removing the stale dataset before reconversion \
+         (version history has no value for a derived cache)"
+    );
+    std::fs::remove_dir_all(dest)
 }
 
 /// `Some(dest)` iff a dataset already exists at `dest` with exactly `rows`
@@ -200,10 +236,14 @@ async fn reopen_if_warm(dest: &Path, rows: usize, digest_hex: &str) -> Option<Pa
 
 /// The write itself — `lance-graph`'s `soa_to_lance` example recipe,
 /// local-uri only (this module never targets `s3://`; see the module doc).
-/// `WriteMode::Overwrite` rather than `Create`: [`reopen_if_warm`] already
-/// handled the "already correct" case, so by the time this runs `dest` is
-/// either absent or holds a STALE dataset that must be replaced, not
-/// appended onto.
+/// By the time this runs `dest` is always ABSENT ([`ensure_lance_local`]
+/// removes a stale dataset outright rather than overwriting it in place —
+/// `Overwrite` keeps the prior version's fragment files on disk, which
+/// breaks the sole-data-file serving precondition). `WriteMode::Overwrite`
+/// is kept as belt-and-braces over `Create`: on a fresh path the two are
+/// identical, and if a half-removed directory ever survives, replacing
+/// beats erroring out and leaving it. [`reopen_if_warm`] already handled
+/// the "already correct" case, so this is never a rewrite of good data.
 async fn write_lance(
     dest: &Path,
     bytes: Vec<u8>,
@@ -476,6 +516,31 @@ mod tests {
         let probe = vec![0xABu8; 512];
 
         assert!(search_head_for_probe(&file_path, &probe).is_none());
+    }
+
+    /// A stale dataset is removed WHOLE — including the prior version's
+    /// fragment files that `WriteMode::Overwrite` would have left behind.
+    /// This is the falsifier for the 4-files-in-`data/` failure: overwrite
+    /// the pre-fix three-fragment dataset in place and `locate_row_column`'s
+    /// sole-data-file check falls back to the raw `.soa` forever.
+    #[test]
+    fn remove_stale_dataset_clears_old_fragments_entirely() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let dataset_dir = dir.path().join("region.lance");
+        let data_dir = dataset_dir.join("data");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        // The pre-fix shape: three fragment files plus Lance's own
+        // bookkeeping directories.
+        for name in ["frag-0.lance", "frag-1.lance", "frag-2.lance"] {
+            std::fs::write(data_dir.join(name), vec![0x77u8; 1024]).expect("write");
+        }
+        std::fs::create_dir_all(dataset_dir.join("_versions")).expect("mkdir");
+
+        remove_stale_dataset(&dataset_dir).expect("removal succeeds");
+        assert!(
+            !dataset_dir.exists(),
+            "the stale dataset directory must be GONE, so the rewrite starts from nothing"
+        );
     }
 
     /// A synthetic slab whose rows are DISTINGUISHABLE — row `i`'s bytes are
