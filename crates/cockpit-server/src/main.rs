@@ -190,7 +190,10 @@ async fn main() {
     // it still just mmaps `OSM_SLAB_PATH` — and stops the first request paying
     // for a 1.29 GiB download. A `None` here is not an error: the endpoint
     // answers 503 exactly as it did before, and local dev sets OSM_SLAB_PATH
-    // directly and never reaches S3.
+    // directly and never reaches S3. `ensure_slab_local` itself WARNs and
+    // names the missing variable(s) when it returns `None` for a missing-
+    // config reason — this call site deliberately stays silent on `None`
+    // rather than duplicating that message.
     if let Some(path) = osm_slab_hydrate::ensure_slab_local().await {
         // SAFETY: single-threaded startup, before any task or listener exists.
         unsafe { std::env::set_var("OSM_SLAB_PATH", &path) };
