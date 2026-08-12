@@ -273,13 +273,56 @@ function shapeLayer(){
 const CLASS_STYLE={
   water:    {fill:'#2b6cb088', stroke:'#4a7fa8', w:0.8},
   building: {fill:'#39445580', stroke:'#5b6b7f', w:0.5},
-  wood:     {fill:'#1d4d2b88', stroke:'#316b41', w:0.5},
+  wood:     {fill:'#1d4d2b88', stroke:'#316b41', w:0.5, texture:'canopy'},
   green:    {fill:'#2a5a4055', stroke:'#3f7a58', w:0.5},
   rail:     {fill:'none',      stroke:'#7a8598', w:0.9},
   road:     {fill:'none',      stroke:'#6b6250', w:1.1},
   other:    {fill:'none',      stroke:'#39424f', w:0.7},
+  // Split out of `green` so a suburb stops reading as vegetation, and so the
+  // kinds that SHOULD look like ground cover can carry a texture.
+  meadow:   {fill:'#2f5c3a4d', stroke:'#43764f', w:0.4, texture:'stipple'},
+  park:     {fill:'#27553866', stroke:'#3d7a54', w:0.5},
+  built:    {fill:'#2a303b66', stroke:'#3f4756', w:0.4},
 };
 function styleForClass(c){ return CLASS_STYLE[c] || CLASS_STYLE.other; }
+
+// ── textures ─────────────────────────────────────────────────────────────
+// A flat fill cannot tell a meadow from a park from a lawn, and at z16 those
+// are most of the viewport — the operator's "meadows don't have a texture yet".
+// Canvas gives this cheaply and SVG would not have: one small offscreen tile
+// per texture, built once, handed to `createPattern` and reused for every
+// polygon of that class. Cost is one pattern object per session, not per shape.
+//
+// The pattern is NOT transform-corrected on purpose: it is created in canvas
+// space and we `translate()` per tile before filling, so the texture rides
+// along with the map instead of crawling underneath it while panning.
+const patternCache=new Map();
+function texture(ctx,name,style){
+  let p=patternCache.get(name);
+  if(p!==undefined) return p;
+  const s=8, off=document.createElement('canvas');
+  off.width=s; off.height=s;
+  const o=off.getContext('2d');
+  o.fillStyle=style.fill; o.fillRect(0,0,s,s);
+  o.strokeStyle=style.stroke; o.globalAlpha=0.5;
+  if(name==='stipple'){
+    // Sparse dots on the diagonal — grass, at any zoom, without banding.
+    o.fillStyle=style.stroke;
+    for(const [x,y] of [[1,1],[5,3],[3,6],[7,5]]) o.fillRect(x,y,1,1);
+  } else if(name==='canopy'){
+    // Short crossing strokes read as tree cover at a distance.
+    o.lineWidth=0.7; o.beginPath();
+    o.moveTo(0,6); o.lineTo(3,3); o.moveTo(4,8); o.lineTo(8,4);
+    o.stroke();
+  }
+  p=ctx.createPattern(off,'repeat');
+  patternCache.set(name,p);
+  return p;
+}
+function fillStyleFor(ctx,cls){
+  const st=CLASS_STYLE[cls] || CLASS_STYLE.other;
+  return st.texture ? (texture(ctx,st.texture,st) || st.fill) : st.fill;
+}
 
 // World-pixel point list for an SVG element, at the current zoom. `offset` is
 // the repeated-world-copy shift the tile images already use.
@@ -333,11 +376,13 @@ let geomZoom=null;          // paths are built in this zoom's pixel space
 // Wire codes, pinned to ShapeClass::wire_code on the server — the Rust test
 // `wire_codes_are_pinned` and this array must agree, and the array index IS
 // the wire byte.
-const CLASS_ORDER=['water','building','wood','green','rail','road','other'];
-// Areas back-to-front (a lake sits on its meadow, a building on its block),
-// then lines with roads on top.
-const FILL_PASS=[2,3,0,1];              // wood, green, water, building
-const STROKE_PASS=[2,3,0,1,6,4,5];      // area outlines, then other, rail, road
+const CLASS_ORDER=['water','building','wood','green','rail','road','other',
+                  'meadow','park','built'];
+// Areas back-to-front: the broad ground cover first, then the specific kinds
+// on top of it, then water, then buildings — a lake sits on its meadow, a
+// building on its block. Lines last, roads on top of everything.
+const FILL_PASS=[9,7,3,8,2,0,1];        // built, meadow, green, park, wood, water, building
+const STROKE_PASS=[9,7,3,8,2,0,1,6,4,5];// area outlines in the same order, then other, rail, road
 
 function parseTileBin(buf){
   const dv=new DataView(buf);
@@ -431,11 +476,11 @@ function drawBase(){
     ctx.translate(tx*256+ox, ty*256+oy);
     for(const c of FILL_PASS){
       const p=d.fills.get(c); if(!p) continue;
-      ctx.fillStyle=CLASS_STYLE[CLASS_ORDER[c]].fill; ctx.fill(p);
+      ctx.fillStyle=fillStyleFor(ctx,CLASS_ORDER[c]); ctx.fill(p);
     }
     for(const c of STROKE_PASS){
       const p=d.strokes.get(c); if(!p) continue;
-      const st=CLASS_STYLE[CLASS_ORDER[c]];
+      const st=styleForClass(CLASS_ORDER[c]);   // unknown byte -> `other`, never undefined
       ctx.strokeStyle=st.stroke; ctx.lineWidth=st.w; ctx.stroke(p);
     }
     ctx.restore();
