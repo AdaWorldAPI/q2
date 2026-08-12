@@ -440,9 +440,41 @@ fn open_books() -> Option<&'static osm_soa_bake::codebook::Books> {
             let file = std::fs::File::open(&path).ok()?;
             let mut r = std::io::BufReader::new(file);
             match osm_soa_bake::codebook::read_books(&mut r) {
-                Ok((_header, books)) => {
-                    tracing::info!(path = %path.display(), "osm books: codebook loaded");
+                Ok((header, books)) => {
+                    // The header's `slab` is a `hash_slab` of the rows the
+                    // codebook was built from — the SAME cross-bake pin
+                    // `.chains` enforces, and it was being discarded here.
+                    // Accepting a foreign codebook is worse than rejecting it:
+                    // every ordinal resolves to some OTHER bake's string, so
+                    // the map answers confidently and wrongly.
+                    let want = slab_digest()?;
+                    if header.slab != want {
+                        tracing::error!(
+                            got = format_args!("{:016x}", header.slab),
+                            want = format_args!("{want:016x}"),
+                            path = %path.display(),
+                            "osm books: codebook pinned to a DIFFERENT slab — re-bake this \
+                             region so slab and sidecars come from one run; tags unavailable"
+                        );
+                        return None;
+                    }
+                    tracing::info!(path = %path.display(), rows = header.rows, "osm books: codebook loaded");
                     Some(books)
+                }
+                // A magic mismatch is not "corrupt" — it is an OUTDATED (or
+                // foreign) bake, and saying so is the difference between a
+                // one-line fix and diagnosing a grey map by eye. Everything
+                // downstream falls back to `ShapeClass::Other` without tags,
+                // so the symptom is a map that draws but says nothing.
+                Err(osm_soa_bake::codebook::BookError::Magic(found)) => {
+                    tracing::error!(
+                        path = %path.display(),
+                        found = %String::from_utf8_lossy(&found).escape_debug().to_string(),
+                        expected = %String::from_utf8_lossy(&osm_soa_bake::codebook::MAGIC).escape_debug().to_string(),
+                        "osm books: OUTDATED bake format — this build does not speak that \
+                         codebook version; re-bake the region with the current baker"
+                    );
+                    None
                 }
                 Err(e) => {
                     tracing::warn!(path = %path.display(), error = ?e, "osm books: unreadable; tags unavailable");
@@ -572,6 +604,15 @@ fn open_chains() -> Option<&'static osm_soa_bake::chains::Chains> {
                     tracing::info!(path = %path.display(), ways = ch.len(), "osm chains: loaded");
                     Some(ch)
                 }
+                Err(osm_soa_bake::chains::ChainError::BadMagic) => {
+                    tracing::error!(
+                        path = %path.display(),
+                        expected = %String::from_utf8_lossy(&osm_soa_bake::chains::MAGIC).escape_debug().to_string(),
+                        "osm chains: OUTDATED bake format — this build does not speak that \
+                         chains layout; re-bake the region with the current baker"
+                    );
+                    None
+                }
                 Err(e) => {
                     tracing::warn!(path = %path.display(), error = ?e, "osm chains: unreadable; geometry unavailable");
                     None
@@ -686,10 +727,26 @@ pub enum ShapeClass {
     Water,
     Building,
     Wood,
+    /// Whatever carries a green-ish tag but is not one of the specific kinds
+    /// below. Kept as the FALLBACK so widening the specific set never demotes
+    /// something to `Other`.
     Green,
     Rail,
     Road,
     Other,
+    // Appended, never inserted: 0-6 are a wire contract with the client's
+    // CLASS_ORDER array (see `wire_code`).
+    /// Grass, meadow, farmland, heath — the textured kinds. Split out because
+    /// they are the majority of a rural or suburban viewport and reading them
+    /// as one flat wash with everything else is what made a whole z16 view
+    /// uniformly green.
+    Meadow,
+    /// Managed green: park, garden, pitch, cemetery.
+    Park,
+    /// `landuse=residential` and its industrial/commercial siblings. NOT
+    /// green — this is the tag that covers most of a suburb, and colouring it
+    /// as vegetation is why Zehlendorf rendered as a meadow.
+    Built,
 }
 
 impl ShapeClass {
@@ -706,6 +763,9 @@ impl ShapeClass {
             ShapeClass::Rail => 4,
             ShapeClass::Road => 5,
             ShapeClass::Other => 6,
+            ShapeClass::Meadow => 7,
+            ShapeClass::Park => 8,
+            ShapeClass::Built => 9,
         }
     }
 }
@@ -742,6 +802,32 @@ where
     }
     if natural == Some("wood") || landuse == Some("forest") {
         return ShapeClass::Wood;
+    }
+    // The three specific kinds, ahead of the generic green fallback. Order
+    // among THEM does not matter (the tag sets are disjoint); order relative
+    // to the fallback is everything.
+    if matches!(
+        landuse,
+        Some("grass" | "meadow" | "farmland" | "farmyard" | "orchard" | "vineyard"
+            | "allotments" | "village_green" | "greenfield" | "flowerbed")
+    ) || matches!(natural, Some("grassland" | "heath" | "scrub" | "moor" | "fell"))
+    {
+        return ShapeClass::Meadow;
+    }
+    if matches!(
+        leisure,
+        Some("park" | "garden" | "pitch" | "playground" | "recreation_ground"
+            | "golf_course" | "dog_park" | "common")
+    ) || matches!(landuse, Some("cemetery" | "grave_yard" | "recreation_ground"))
+    {
+        return ShapeClass::Park;
+    }
+    if matches!(
+        landuse,
+        Some("residential" | "industrial" | "commercial" | "retail" | "construction"
+            | "garages" | "railway" | "quarry" | "brownfield" | "military")
+    ) {
+        return ShapeClass::Built;
     }
     if landuse.is_some() || leisure.is_some() || natural.is_some() {
         return ShapeClass::Green;
@@ -1211,7 +1297,11 @@ mod tests {
         assert_eq!(class_for_tags([("building", "yes")]), ShapeClass::Building);
         assert_eq!(class_for_tags([("natural", "wood")]), ShapeClass::Wood);
         assert_eq!(class_for_tags([("landuse", "forest")]), ShapeClass::Wood);
-        assert_eq!(class_for_tags([("leisure", "park")]), ShapeClass::Green);
+        // Re-pinned: this asserted `Green` when every green-ish tag collapsed
+        // into one bucket. A park is now its own class — the assertion moved
+        // because the BEHAVIOUR deliberately changed, and the split is what
+        // `specific_land_kinds_beat_the_generic_green_fallback` covers.
+        assert_eq!(class_for_tags([("leisure", "park")]), ShapeClass::Park);
         assert_eq!(class_for_tags([("railway", "rail")]), ShapeClass::Rail);
         assert_eq!(class_for_tags([("highway", "primary")]), ShapeClass::Road);
 
@@ -1336,6 +1426,42 @@ mod tests {
         assert_eq!(ShapeClass::Rail.wire_code(), 4);
         assert_eq!(ShapeClass::Road.wire_code(), 5);
         assert_eq!(ShapeClass::Other.wire_code(), 6);
+        // Appended after the first shipped wire. A client built against the
+        // 7-class table renders these as unknown, never as the WRONG class —
+        // which is only true while 0-6 keep their meaning.
+        assert_eq!(ShapeClass::Meadow.wire_code(), 7);
+        assert_eq!(ShapeClass::Park.wire_code(), 8);
+        assert_eq!(ShapeClass::Built.wire_code(), 9);
+    }
+
+    /// The flat-green-wash defect, pinned. A whole suburban z16 viewport read
+    /// as meadow because `landuse=residential` fell into the generic `Green`
+    /// fallback along with actual vegetation. Two-sided: the specific kinds
+    /// resolve to themselves AND residential is provably not green.
+    #[test]
+    fn specific_land_kinds_beat_the_generic_green_fallback() {
+        assert_eq!(class_for_tags([("landuse", "meadow")]), ShapeClass::Meadow);
+        assert_eq!(class_for_tags([("landuse", "farmland")]), ShapeClass::Meadow);
+        assert_eq!(class_for_tags([("natural", "heath")]), ShapeClass::Meadow);
+        assert_eq!(class_for_tags([("leisure", "park")]), ShapeClass::Park);
+        assert_eq!(class_for_tags([("landuse", "cemetery")]), ShapeClass::Park);
+
+        let residential = class_for_tags([("landuse", "residential")]);
+        assert_eq!(residential, ShapeClass::Built);
+        assert_ne!(
+            residential,
+            ShapeClass::Green,
+            "a suburb is not vegetation — this is the whole defect"
+        );
+
+        // The specific kinds must not have eaten the ones that already worked.
+        assert_eq!(class_for_tags([("natural", "wood")]), ShapeClass::Wood);
+        assert_eq!(class_for_tags([("natural", "water")]), ShapeClass::Water);
+        assert_eq!(class_for_tags([("building", "yes")]), ShapeClass::Building);
+        // …and the fallback still catches a green-ish tag none of them name,
+        // so widening the specific set can never demote one to `Other`.
+        assert_eq!(class_for_tags([("landuse", "some_new_tag")]), ShapeClass::Green);
+        assert_eq!(class_for_tags([("leisure", "marina")]), ShapeClass::Green);
     }
 
     /// Decode `OSM1` bytes back into shapes — an independent reader for the

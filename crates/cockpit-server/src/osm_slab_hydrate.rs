@@ -72,8 +72,50 @@ use object_store::aws::AmazonS3Builder;
 use object_store::{ObjectStore, ObjectStoreExt};
 use sha2::{Digest, Sha256};
 
-/// Default S3 prefix holding the bake. Overridable with `OSM_SLAB_S3_PREFIX`.
-const DEFAULT_PREFIX: &str = "q2/bakes/berlin-v1";
+/// The region baked by default. `OSM_BAKE_REGION` selects another one.
+///
+/// The region is the ONLY thing that differs between bakes: the baker
+/// (`osm-soa-bake`'s `bake <in.osm.pbf> <out.soa>`) is already region-agnostic,
+/// and the sidecars are found by extension from the slab's own stem — so
+/// serving Baden-Württemberg instead of Berlin is this string plus a bake in
+/// the bucket, not a code change.
+const DEFAULT_REGION: &str = "berlin";
+
+/// The region name, validated.
+///
+/// **The validation is not decoration.** This string is interpolated into an
+/// S3 object key AND joined onto a filesystem path, so `..`, `/`, or a
+/// backslash would let a stray environment variable read a different prefix or
+/// write outside the cache dir. Restricting it to `[a-z0-9-]` makes both uses
+/// safe by construction rather than by careful escaping at each site. A
+/// rejected value falls back to the default and says so.
+fn bake_region() -> String {
+    match env_var_nonempty("OSM_BAKE_REGION") {
+        None => DEFAULT_REGION.to_string(),
+        Some(r) if is_valid_region(&r) => r,
+        Some(bad) => {
+            tracing::warn!(
+                rejected = %bad, using = DEFAULT_REGION,
+                "osm slab: OSM_BAKE_REGION must be lowercase [a-z0-9-]; ignoring it"
+            );
+            DEFAULT_REGION.to_string()
+        }
+    }
+}
+
+fn is_valid_region(r: &str) -> bool {
+    !r.is_empty()
+        && r.len() <= 64
+        && r.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// Default S3 prefix holding the bake. Overridable with `OSM_SLAB_S3_PREFIX`,
+/// which wins outright — that is the escape hatch for a layout this naming
+/// convention does not cover.
+fn default_prefix(region: &str) -> String {
+    format!("q2/bakes/{region}-v1")
+}
 
 /// The slab and its sidecars. All three are required: `RowSlab` can read
 /// positions without the books, but identity resolution needs them, and the
@@ -81,7 +123,16 @@ const DEFAULT_PREFIX: &str = "q2/bakes/berlin-v1";
 /// vertex chain (`/api/osm/geometry/:idx`). The bake publishes all three
 /// atomically (the slab renames into place only after both sidecars exist),
 /// so a prefix with a slab but no chains is a stale bake, not a valid state.
-const ARTIFACTS: [&str; 3] = ["berlin.soa", "berlin.books", "berlin.chains"];
+///
+/// The slab is FIRST and stays first: [`ensure_slab_local`] returns
+/// `artifacts[0]` as the path to mmap.
+fn artifacts(region: &str) -> [String; 3] {
+    [
+        format!("{region}.soa"),
+        format!("{region}.books"),
+        format!("{region}.chains"),
+    ]
+}
 
 /// Where the hydrated copy lives, given the volume root.
 fn cache_dir(vol: &str) -> PathBuf {
@@ -155,7 +206,10 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
     }
     let bucket = bucket_env.expect("checked non-empty above");
     let vol = vol_env.expect("checked non-empty above");
-    let prefix = env_var_nonempty("OSM_SLAB_S3_PREFIX").unwrap_or_else(|| DEFAULT_PREFIX.to_string());
+    let region = bake_region();
+    let artifacts = artifacts(&region);
+    let prefix =
+        env_var_nonempty("OSM_SLAB_S3_PREFIX").unwrap_or_else(|| default_prefix(&region));
 
     let dir = cache_dir(&vol);
     if let Err(e) = std::fs::create_dir_all(&dir) {
@@ -170,9 +224,9 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
     // makes a misconfigured prefix obvious from the first line rather than
     // from a later "not readable" error.
     tracing::info!(
-        %bucket, %prefix, dir = %dir.display(),
-        "osm slab: resolving from S3 (cold boot transfers ~1.42 GB and delays the listener; \
-         a warm volume re-verifies in ~1s)"
+        %region, %bucket, %prefix, dir = %dir.display(),
+        "osm slab: resolving from S3 (a cold boot transfers the whole bake and delays the \
+         listener — Berlin is ~1.42 GB; a warm volume re-verifies in ~1s)"
     );
 
     // `from_env()` reads AWS_ENDPOINT_URL / AWS_ACCESS_KEY_ID /
@@ -195,7 +249,7 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
         None => return None,
     };
 
-    for name in ARTIFACTS {
+    for name in artifacts.iter().map(String::as_str) {
         let want = match sums.iter().find(|(k, _)| k == name).map(|(_, h)| h.clone()) {
             Some(h) => h,
             None => {
@@ -227,7 +281,7 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
         }
     }
 
-    let slab = dir.join(ARTIFACTS[0]);
+    let slab = dir.join(&artifacts[0]);
     tracing::info!(path = %slab.display(), "osm slab: hydrated and verified");
     Some(slab)
 }
@@ -444,5 +498,67 @@ not-a-hash                        junk.txt
     #[test]
     fn missing_inputs_is_empty_when_both_are_present() {
         assert!(missing_inputs(Some("my-bucket"), Some("/volume01")).is_empty());
+    }
+
+    /// Every artifact name and the prefix derive from ONE region string, so a
+    /// second bake is config. The slab must stay at index 0 —
+    /// `ensure_slab_local` returns `artifacts[0]` as the path to mmap, so a
+    /// reorder would hand the books file to `RowSlab`.
+    #[test]
+    fn artifacts_and_prefix_follow_the_region() {
+        assert_eq!(
+            artifacts("berlin"),
+            ["berlin.soa", "berlin.books", "berlin.chains"],
+            "the default region must reproduce the names the Berlin bake already \
+             published — this is a wire/bucket contract, not a naming preference"
+        );
+        assert_eq!(
+            artifacts("baden-wuerttemberg"),
+            [
+                "baden-wuerttemberg.soa",
+                "baden-wuerttemberg.books",
+                "baden-wuerttemberg.chains"
+            ]
+        );
+        assert!(artifacts("bw")[0].ends_with(".soa"), "slab stays at index 0");
+        assert_eq!(default_prefix("berlin"), "q2/bakes/berlin-v1");
+        assert_eq!(
+            default_prefix("baden-wuerttemberg"),
+            "q2/bakes/baden-wuerttemberg-v1"
+        );
+    }
+
+    /// **The guard that matters.** The region is interpolated into an S3 key
+    /// AND joined onto a filesystem path, so anything that can traverse must
+    /// be rejected before it reaches either. Two-sided: the shapes a real
+    /// Geofabrik region name takes are all accepted.
+    #[test]
+    fn region_validation_rejects_traversal_and_accepts_real_names() {
+        for good in [
+            "berlin",
+            "baden-wuerttemberg",
+            "nordrhein-westfalen",
+            "bw2",
+        ] {
+            assert!(is_valid_region(good), "{good} is a legitimate region name");
+        }
+        for bad in [
+            "../secrets",         // parent escape
+            "a/b",                // sub-prefix
+            "a\\b",               // Windows separator
+            "Berlin",             // uppercase: S3 keys are case-sensitive
+            "baden_wuerttemberg", // underscore is not in the allowed set
+            "baden würt",         // non-ASCII + space
+            "",                   // empty
+        ] {
+            assert!(!is_valid_region(bad), "{bad:?} must be rejected");
+        }
+        // A path built from a rejected name would have escaped the cache dir —
+        // proving the guard is load-bearing rather than cosmetic.
+        assert_eq!(
+            cache_dir("/volume01").join(format!("{}.soa", "../..")),
+            PathBuf::from("/volume01/osm/../...soa"),
+            "documents WHY the guard exists: this is the path we refuse to build"
+        );
     }
 }
