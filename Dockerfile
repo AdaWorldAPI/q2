@@ -58,14 +58,22 @@ COPY --from=frontend /build/dist/ /build/q2/cockpit/dist/
 # 20260629b re-bake: teeth → skeleton + per-vessel diameter boundary (no stray fat
 # branches). Pulled under its stamped name, served same-origin AS body.soa.gz so /body
 # picks it up; the old body.soa.gz stays in the release untouched.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629c.soa.gz \
+#
+# Retry hardening (2026-08-12): a builder-egress flake killed a deploy with
+# `curl: (56) Connection died` at 0 bytes while the asset itself was verified
+# intact (full 59 MB pull at 63 MB/s from another host minutes later). Plain
+# `--retry` does NOT cover exit 56 — curl only classes timeouts/5xx as
+# transient — so `--retry-all-errors` is required for the flake that actually
+# happened. Applied to every release fetch below.
+ARG CURL_RETRY="--retry 8 --retry-all-errors --retry-max-time 120 --connect-timeout 20"
+RUN curl -fSL $CURL_RETRY https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629c.soa.gz \
       -o /build/q2/cockpit/dist/body.soa.gz \
  && ls -lh /build/q2/cockpit/dist/body.soa.gz
 
 # Same for the /helix wire: one SoA (BSO2 ver 6) = F16 pos + a canonical Signed360
 # NORMAL column in the same struct-of-arrays. Same-origin for the same CORS reason;
 # named by cockpit/public/body.manifest.json (helix_latest). Stays in the release.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629c.v6helix.soa.gz \
+RUN curl -fSL $CURL_RETRY https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629c.v6helix.soa.gz \
       -o /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz \
  && ls -lh /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz
 
@@ -91,7 +99,7 @@ RUN cd /build/q2/.claude/maps \
 # and BodyHelix falls back to the release URL — which the browser blocks on the
 # github releases redirect (no CORS header) → the "TypeError: Failed to fetch" seen
 # live on /geo. Same CORS reason the body wires are pulled same-origin above.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/berlin.helix.soa.gz \
+RUN curl -fSL $CURL_RETRY https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/berlin.helix.soa.gz \
       -o /build/q2/cockpit/dist/berlin.helix.soa.gz \
  && ls -lh /build/q2/cockpit/dist/berlin.helix.soa.gz
 
