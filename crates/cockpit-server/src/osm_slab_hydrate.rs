@@ -41,11 +41,30 @@
 //! only after the hash matches, so a killed container leaves no file that
 //! looks complete — but the volume outlives this code, so the check stays.
 //!
-//! # Absent configuration is not an error
+//! # Absent configuration is not an error — but it must never be SILENT either
 //!
 //! No bucket, no volume, no credentials ⇒ `None`, and the endpoint keeps
 //! answering 503 exactly as it did before this module existed. Local
 //! development sets `OSM_SLAB_PATH` directly and never reaches S3.
+//!
+//! The first version of this module returned that `None` via a bare `.ok()?`
+//! on each required var, with `main.rs`'s caller having no `else` branch —
+//! meaning a deploy missing `AWS_S3_BUCKET_NAME` or `RAILWAY_VOL` produced
+//! **zero lines in the boot log about OSM slab hydration at all**. That is
+//! the exact "silent-empty deploy" failure mode `medcare-rs::bake_hydrate`
+//! documents hitting and fixing first (its own module doc: "the store already
+//! applies this rule... this module matches it"). This module ported that
+//! fix: [`missing_inputs`] + the `tracing::warn!` in [`ensure_slab_local`]
+//! below always name exactly which variable is absent, so the very next
+//! deploy's log settles the question instead of a search for a line that
+//! structurally cannot exist.
+//!
+//! `medcare-rs::bake_s3::S3Config::from_env` also treats an EMPTY variable
+//! value the same as an absent one (`.filter(|v| !v.is_empty())`) — a blank
+//! Railway variable (row present, value never filled in) must fail exactly
+//! like an unset one, not attempt a doomed S3 call with an empty bucket name
+//! and fail differently (and more slowly) than the "never configured" case.
+//! [`env_var_nonempty`] carries the same rule here.
 
 use std::path::{Path, PathBuf};
 
@@ -69,6 +88,34 @@ fn cache_dir(vol: &str) -> PathBuf {
     Path::new(vol).join("osm")
 }
 
+/// `std::env::var`, but an empty value is treated the same as absent.
+///
+/// Mirrors `medcare-rs::bake_s3::S3Config::from_env`'s reader: a Railway
+/// variable can exist as a row with an empty value (created, never filled
+/// in), and that must fail the SAME way as the variable not existing at all —
+/// not attempt a real S3 call with an empty bucket name, which fails later,
+/// differently, and less legibly than "not configured".
+fn env_var_nonempty(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|v| !v.trim().is_empty())
+}
+
+/// Which required inputs are missing, given what was actually resolved from
+/// the environment.
+///
+/// Pure and side-effect-free on purpose: [`ensure_slab_local`] is the only
+/// place that touches `std::env::var`, so this can be tested with plain
+/// `Option`s and never needs to mutate real process environment state.
+fn missing_inputs(bucket: Option<&str>, vol: Option<&str>) -> Vec<&'static str> {
+    let mut missing = Vec::new();
+    if bucket.is_none() {
+        missing.push("AWS_S3_BUCKET_NAME");
+    }
+    if vol.is_none() {
+        missing.push("OSM_SLAB_CACHE_DIR (or RAILWAY_VOL)");
+    }
+    missing
+}
+
 /// Resolve a local, verified slab path, hydrating from S3 if needed.
 ///
 /// Returns the path to set as `OSM_SLAB_PATH`, or `None` when the feature is
@@ -87,13 +134,28 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
     }
 
     // 2. Otherwise hydrate. Both a bucket and a destination are required.
-    let bucket = std::env::var("AWS_S3_BUCKET_NAME").ok()?;
+    let bucket_env = env_var_nonempty("AWS_S3_BUCKET_NAME");
     // `OSM_SLAB_CACHE_DIR` overrides the volume — it is what makes this
     // testable off-Railway, where /volume01 does not exist.
-    let vol = std::env::var("OSM_SLAB_CACHE_DIR")
-        .or_else(|_| std::env::var("RAILWAY_VOL"))
-        .ok()?;
-    let prefix = std::env::var("OSM_SLAB_S3_PREFIX").unwrap_or_else(|_| DEFAULT_PREFIX.to_string());
+    let vol_env =
+        env_var_nonempty("OSM_SLAB_CACHE_DIR").or_else(|| env_var_nonempty("RAILWAY_VOL"));
+
+    // See the module doc's "must never be SILENT" section: this WARN is what
+    // was missing before, and it is the entire fix — everything below this
+    // block is unchanged hydration logic.
+    let missing = missing_inputs(bucket_env.as_deref(), vol_env.as_deref());
+    if !missing.is_empty() {
+        tracing::warn!(
+            missing = %missing.join(", "),
+            "osm slab: hydration not configured — set {} to enable the drawn basemap; \
+             the vector-basemap and feature-dot endpoints stay 503 until then",
+            missing.join(", "),
+        );
+        return None;
+    }
+    let bucket = bucket_env.expect("checked non-empty above");
+    let vol = vol_env.expect("checked non-empty above");
+    let prefix = env_var_nonempty("OSM_SLAB_S3_PREFIX").unwrap_or_else(|| DEFAULT_PREFIX.to_string());
 
     let dir = cache_dir(&vol);
     if let Err(e) = std::fs::create_dir_all(&dir) {
@@ -356,5 +418,31 @@ not-a-hash                        junk.txt
     #[test]
     fn cache_dir_is_under_the_volume_root() {
         assert_eq!(cache_dir("/volume01"), PathBuf::from("/volume01/osm"));
+    }
+
+    /// **The regression this whole fix is for.** Before this change,
+    /// `ensure_slab_local` returned `None` here via a bare `.ok()?` with no
+    /// logging at all — a deploy missing either var produced zero lines about
+    /// OSM slab hydration in the boot log. `missing_inputs` is the pure core
+    /// of the fix: given what `ensure_slab_local` actually resolved, it must
+    /// name EVERY absent piece, not stop at the first.
+    #[test]
+    fn missing_inputs_names_every_absent_variable() {
+        assert_eq!(missing_inputs(None, None).len(), 2, "both absent: both named");
+        assert_eq!(
+            missing_inputs(Some("my-bucket"), None),
+            vec!["OSM_SLAB_CACHE_DIR (or RAILWAY_VOL)"]
+        );
+        assert_eq!(
+            missing_inputs(None, Some("/volume01")),
+            vec!["AWS_S3_BUCKET_NAME"]
+        );
+    }
+
+    /// Anti-vacuity: when both are present, nothing is reported missing — the
+    /// function does not just always return a non-empty list.
+    #[test]
+    fn missing_inputs_is_empty_when_both_are_present() {
+        assert!(missing_inputs(Some("my-bucket"), Some("/volume01")).is_empty());
     }
 }
