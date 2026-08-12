@@ -98,3 +98,31 @@ Same honesty note as the parent plan: no slab in this container, so
 verification is synthetic-fixture through the real client code; the live
 deploy is the real test. The wire-size ratio is measured on synthetic
 shapes with realistic point counts.
+
+## Alternatives evaluated (operator ask, 2026-08-12, post-#119)
+
+Asked: compare the merged design against (a) SVG/server tiling and (b) a
+further-compressed "streaming ABI as projection". Conclusion, with the axes
+the operator named:
+
+- **SVG tiling: dominated on every axis, rejected without measurement.**
+  Server pays serialization, wire pays XML bloat (~3-5× over binary), client
+  still parses + rasterizes SVG DOM. It is the raster option's server burden
+  plus the vector option's traffic burden plus DOM cost.
+- **Server raster tiles: right only behind a CDN.** Raster wire is O(pixels)
+  (~15-40 KB/tile, density-immune) so it wins traffic at maximum city
+  density — but q2-cockpit is one Railway container, so every tile would be
+  rasterized per viewer ("render load is on server, bad" — operator). Also
+  buys a rasterizer dep + style engine. Re-enters only with a CDN, and then
+  as a hybrid (raster overview, vector city).
+- **Merged design (#119): the right point to measure from.** Server work is
+  mask + fold + LE encode; wire measured 5.1× under JSON before gzip; warm
+  revisits are 304s; client is ~150 native draws/frame.
+- **The escalation path if city-zoom traffic still bites is OSM1-v2, not
+  raster:** after pixel-grid simplification consecutive points are adjacent
+  pixels, so i16 tile-relative + delta + zigzag-varint (the MVT trick) cuts
+  another ~4-6× → the original 60 MB JSON view lands around ~1 MB gzipped.
+  Pair with the bake-side `.tiles` sidecar (pre-computed per-tile ranges,
+  SIMD batch projection at bake — the genuine ndarray home) and serving
+  becomes a file-range read. Both recorded above under "ndarray — where it
+  actually fits".
