@@ -270,8 +270,12 @@ function shapeLayer(){
 // same way to one clicked way and to ten thousand basemap ways — see
 // osm_features::ShapeClass); the LOOK is ours. This table is the only place
 // colours live, so the basemap and the selection can never drift apart.
+// The `texture` key names the Canvas2D FALLBACK pattern (see texture() below).
+// The GL path carries a richer projected-template per class in its fragment
+// shader, keyed by class index — same visual vocabulary, higher fidelity;
+// building/green tone-noise is GL-only (the canvas fallback keeps them flat).
 const CLASS_STYLE={
-  water:    {fill:'#2b6cb088', stroke:'#4a7fa8', w:0.8},
+  water:    {fill:'#2b6cb088', stroke:'#4a7fa8', w:0.8, texture:'waves'},
   building: {fill:'#39445580', stroke:'#5b6b7f', w:0.5},
   wood:     {fill:'#1d4d2b88', stroke:'#316b41', w:0.5, texture:'canopy'},
   green:    {fill:'#2a5a4055', stroke:'#3f7a58', w:0.5},
@@ -281,8 +285,8 @@ const CLASS_STYLE={
   // Split out of `green` so a suburb stops reading as vegetation, and so the
   // kinds that SHOULD look like ground cover can carry a texture.
   meadow:   {fill:'#2f5c3a4d', stroke:'#43764f', w:0.4, texture:'stipple'},
-  park:     {fill:'#27553866', stroke:'#3d7a54', w:0.5},
-  built:    {fill:'#2a303b66', stroke:'#3f4756', w:0.4},
+  park:     {fill:'#27553866', stroke:'#3d7a54', w:0.5, texture:'stripes'},
+  built:    {fill:'#2a303b66', stroke:'#3f4756', w:0.4, texture:'speckle'},
 };
 function styleForClass(c){ return CLASS_STYLE[c] || CLASS_STYLE.other; }
 
@@ -300,7 +304,7 @@ const patternCache=new Map();
 function texture(ctx,name,style){
   let p=patternCache.get(name);
   if(p!==undefined) return p;
-  const s=8, off=document.createElement('canvas');
+  const s=(name==='waves'||name==='stripes')?16:8, off=document.createElement('canvas');
   off.width=s; off.height=s;
   const o=off.getContext('2d');
   o.fillStyle=style.fill; o.fillRect(0,0,s,s);
@@ -314,6 +318,21 @@ function texture(ctx,name,style){
     o.lineWidth=0.7; o.beginPath();
     o.moveTo(0,6); o.lineTo(3,3); o.moveTo(4,8); o.lineTo(8,4);
     o.stroke();
+  } else if(name==='waves'){
+    // Two offset ripple rows — calm water, matching the GL band template.
+    o.globalAlpha=0.35; o.lineWidth=0.8; o.beginPath();
+    o.moveTo(0,4);  o.quadraticCurveTo(4,2,8,4);   o.quadraticCurveTo(12,6,16,4);
+    o.moveTo(0,12); o.quadraticCurveTo(4,10,8,12); o.quadraticCurveTo(12,14,16,12);
+    o.stroke();
+  } else if(name==='stripes'){
+    // Faint diagonals — the park lawn-stripe read.
+    o.globalAlpha=0.25; o.lineWidth=1.2; o.beginPath();
+    for(let k=-16;k<=16;k+=8){ o.moveTo(k,16); o.lineTo(k+16,0); }
+    o.stroke();
+  } else if(name==='speckle'){
+    // Sparse concrete flecks.
+    o.fillStyle=style.stroke; o.globalAlpha=0.6;
+    for(const [x,y] of [[2,3],[6,1],[4,6],[7,7],[1,7]]) o.fillRect(x,y,1,1);
   }
   p=ctx.createPattern(off,'repeat');
   patternCache.set(name,p);
@@ -445,14 +464,31 @@ void main(){
   gl_Position=vec4(p.x*2.0/uView.x-1.0, 1.0-p.y*2.0/uView.y, 0.0, 1.0);
   gl_PointSize=uPointPx;
 }`;
-  // Procedural textures replace the canvas createPattern tiles: the SAME 8px
-  // cadence, keyed on vWorld (pre-pan-offset px), so the pattern rides the map
-  // exactly like the translate()d canvas pattern did.
+  // Procedural texture TEMPLATES, projected in vWorld (pre-pan-offset px) so
+  // every pattern rides the map exactly like the translate()d canvas pattern
+  // did. This is the Iceland/Havel recipe applied to the 2D map: material is
+  // computed, never downloaded (the /garmin scenes draw 30M+ textured tris
+  // from a height palette — same GPU, same budget class). Discipline:
+  //   - colours come ONLY from uFill/uStroke (CLASS_STYLE is the single place
+  //     colours live); templates MODULATE colour, they never introduce it.
+  //   - every spatial frequency is an integer number of cycles per the 256-px
+  //     fold W, and the value-noise lattice wraps at the same period, so the
+  //     fold is seam-free while keeping coordinates small (mediump-safe, the
+  //     same envelope the original mod-8 patterns lived in).
   const fs=`#version 300 es
 precision mediump float;
 in float vCls; in vec2 vWorld;
 uniform vec4 uFill[10]; uniform vec4 uStroke[10]; uniform int uMode;
 out vec4 frag;
+#define TAU 6.2831853
+// hash + wrap-aware value noise: vn(p,n) tiles seamlessly when p spans n cells.
+float h21(vec2 p){ p=fract(p*vec2(0.1031,0.1097)); p+=dot(p,p.yx+19.19); return fract((p.x+p.y)*p.x); }
+float vn(vec2 p,float n){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=h21(mod(i,n)), b=h21(mod(i+vec2(1.,0.),n)),
+        c=h21(mod(i+vec2(0.,1.),n)), d=h21(mod(i+vec2(1.,1.),n));
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+}
 void main(){
   if(uMode>=2){ vec2 d=gl_PointCoord-0.5; if(dot(d,d)>0.25) discard;
     frag = uMode==3 ? vec4(0.494,0.906,0.529,1.0)   // selection #7ee787
@@ -461,13 +497,30 @@ void main(){
   int c=int(vCls+0.5);
   if(uMode==1){ frag=uStroke[c]; return; }
   vec4 col=uFill[c];
+  vec2 W=mod(vWorld,256.0);
   vec2 m=mod(vWorld,8.0);
-  if(c==7){        // meadow stipple — same 4 dot cells as the canvas pattern
+  if(c==0){        // water — noise-warped ripple bands, calm and horizontal
+    float w1=vn(W/32.0,8.0);
+    float band=sin((W.y+10.0*w1)*TAU*12.0/256.0);
+    col.rgb*=0.93+0.10*smoothstep(-0.2,0.9,band);
+  } else if(c==1){ // building — coarse per-block tone so a block field reads
+    float t=vn(W/32.0,8.0);          // as individual masses, not one slab
+    col.rgb*=0.90+0.18*t;
+  } else if(c==2){ // wood canopy — two-octave blobs: shadowed floor, lit crowns
+    float n=0.65*vn(W/16.0,16.0)+0.35*vn(W/6.4,40.0);
+    col.rgb=mix(col.rgb*0.82,col.rgb*1.18,smoothstep(0.35,0.75,n));
+    col.a=min(1.0,col.a+0.15*smoothstep(0.60,0.80,n));
+  } else if(c==3){ // green — gentle ground-cover tone variation
+    col.rgb*=0.94+0.12*vn(W/16.0,16.0);
+  } else if(c==7){ // meadow — the 4-dot stipple cells, over a soft tone wash
+    col.rgb*=0.95+0.10*vn(W/32.0,8.0);
     if((m.x>=1.0&&m.x<2.0&&m.y>=1.0&&m.y<2.0)||(m.x>=5.0&&m.x<6.0&&m.y>=3.0&&m.y<4.0)||
        (m.x>=3.0&&m.x<4.0&&m.y>=6.0&&m.y<7.0)||(m.x>=7.0&&m.y>=5.0&&m.y<6.0))
       col=vec4(uStroke[7].rgb, min(1.0,col.a+0.35));
-  } else if(c==2){ // wood canopy — the crossing-stroke read, as one hatch band
-    if(abs(m.x+m.y-8.0)<0.7) col=vec4(uStroke[2].rgb, min(1.0,col.a+0.25));
+  } else if(c==8){ // park — faint diagonal lawn stripes (mown-grass read)
+    col.rgb*=0.96+0.05*sin((W.x+W.y)*TAU*10.0/256.0);
+  } else if(c==9){ // built — sparse concrete flecks
+    if(h21(mod(floor(W/2.0),128.0))>0.985) col.rgb*=1.25;
   }
   frag=col;
 }`;

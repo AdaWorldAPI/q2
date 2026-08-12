@@ -70,3 +70,9 @@ cockpit/public/iceland_dem.helix.soa.gz
 # Local OSM bakes (regenerated from the PBF; 1.2 GB+ — never commit).
 # `bake <extract>.osm.pbf .claude/maps/bake/<name>` writes <name> + <name>.books.
 .claude/maps/bake/
+
+# rustc internal-compiler-error dumps. rustc drops these in the CWD when it
+# crashes — a build artifact of the crash, never source. They also appear
+# EMPTY (0 bytes) when the crash was itself caused by a full disk, since the
+# dump write fails too; that is what produced the first one here.
+rustc-ice-*.txt

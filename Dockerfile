@@ -43,6 +43,48 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build
 
+# ── Release assets (~180 MB), fetched BEFORE `COPY . /build/q2` on purpose ────
+#
+# These three wires are served SAME-ORIGIN out of cockpit/dist/ (include_dir!
+# embeds it). The browser cannot fetch the release URL directly — the
+# github.com/.../releases/download redirect sends no CORS header, giving the
+# "TypeError: Failed to fetch" once seen live on /geo — so the copy has to be
+# ours. The assets stay in the release; they are never committed to git.
+#
+#   body.20260629c.soa.gz         -> /body.soa.gz   (BSO2; 20260629c re-bake:
+#     teeth → skeleton + per-vessel diameter boundary, no stray fat branches).
+#     Served AS body.soa.gz so /body picks it up; the old asset stays untouched.
+#   body.20260629c.v6helix.soa.gz -> the /helix wire (BSO2 ver 6 = F16 pos + a
+#     canonical Signed360 NORMAL column in one SoA), named by
+#     cockpit/public/body.manifest.json (helix_latest).
+#   berlin.helix.soa.gz           -> the /geo + /helix?scene=osm scene
+#     (manifest osm_latest); 92 MB, so release-hosted rather than in git.
+#
+# WHY THIS SITS ABOVE `COPY . /build/q2` (2026-08-12): it used to sit below it,
+# which put ~180 MB of downloads downstream of a layer that changes on EVERY
+# commit. Docker invalidates from the changed layer onward, so each deploy —
+# including doc-only ones — re-pulled all three, and each re-pull was another
+# chance to hit the flaky path below. Above the COPY, the fetch layer is keyed
+# only on these URLs: a code-only commit reuses it and downloads nothing. The
+# copy into dist/ moves below the COPY, where it is a local file copy.
+#
+# WHY `--http1.1` (2026-08-12): the deploy failed repeatedly with
+# `curl: (56) Connection died, tried 5 times before giving up` at 0 bytes
+# received, while the same asset pulled intact from another host (HTTP 200,
+# 61,787,404 bytes at 63 MB/s) — so the asset and the release were fine. That
+# exact message is emitted by curl's HTTP/2 code path when the h2 connection
+# dies mid-stream; pinning HTTP/1.1 avoids that path entirely. `--retry` alone
+# does NOT cover exit 56 (curl classes only timeouts/5xx as transient), so
+# `--retry-all-errors` is what makes the retries apply to the error that
+# actually happened. One RUN = one cached layer for all three.
+ARG CURL_RETRY="--http1.1 --retry 8 --retry-all-errors --retry-max-time 180 --connect-timeout 20"
+ARG Q2_RELEASE=https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1
+RUN mkdir -p /assets \
+ && curl -fSL $CURL_RETRY $Q2_RELEASE/body.20260629c.soa.gz         -o /assets/body.soa.gz \
+ && curl -fSL $CURL_RETRY $Q2_RELEASE/body.20260629c.v6helix.soa.gz -o /assets/body.20260629c.v6helix.soa.gz \
+ && curl -fSL $CURL_RETRY $Q2_RELEASE/berlin.helix.soa.gz           -o /assets/berlin.helix.soa.gz \
+ && ls -lh /assets
+
 # q2 comes from the Railway build context (this repo, this branch)
 COPY . /build/q2
 
@@ -50,24 +92,14 @@ COPY . /build/q2
 # so include_dir! can embed it at compile time
 COPY --from=frontend /build/dist/ /build/q2/cockpit/dist/
 
-# Pull the big FMA body wire (BSO2) from the q2 release into dist/ so include_dir!
-# embeds it and the server serves it SAME-ORIGIN at /body.soa.gz. The browser cannot
-# fetch the release URL directly (github.com/.../releases/download sends no CORS
-# header on its redirect → "TypeError: Failed to fetch"), so /body fetches the
-# same-origin copy. The asset stays in the release (downloaded at build), never git.
-# 20260629b re-bake: teeth → skeleton + per-vessel diameter boundary (no stray fat
-# branches). Pulled under its stamped name, served same-origin AS body.soa.gz so /body
-# picks it up; the old body.soa.gz stays in the release untouched.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629c.soa.gz \
-      -o /build/q2/cockpit/dist/body.soa.gz \
- && ls -lh /build/q2/cockpit/dist/body.soa.gz
-
-# Same for the /helix wire: one SoA (BSO2 ver 6) = F16 pos + a canonical Signed360
-# NORMAL column in the same struct-of-arrays. Same-origin for the same CORS reason;
-# named by cockpit/public/body.manifest.json (helix_latest). Stays in the release.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/body.20260629c.v6helix.soa.gz \
-      -o /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz \
- && ls -lh /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz
+# Place the cached release assets into dist/. Local copy only — the download
+# happened in the cached layer above, so this costs nothing on a code commit.
+RUN cp /assets/body.soa.gz                     /build/q2/cockpit/dist/body.soa.gz \
+ && cp /assets/body.20260629c.v6helix.soa.gz   /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz \
+ && cp /assets/berlin.helix.soa.gz             /build/q2/cockpit/dist/berlin.helix.soa.gz \
+ && ls -lh /build/q2/cockpit/dist/body.soa.gz \
+           /build/q2/cockpit/dist/body.20260629c.v6helix.soa.gz \
+           /build/q2/cockpit/dist/berlin.helix.soa.gz
 
 # The Iceland DEM terrain bake (BSO2 ver 7 = F16 pos + Signed360 normal + per-vertex
 # RGB texture): 16,515,072 verts, ESRI imagery draped as KIND × helix-residue colour.
@@ -85,15 +117,10 @@ RUN cd /build/q2/.claude/maps \
  && rm -f /tmp/iceland_dem_full.zip \
  && ls -lh /build/q2/cockpit/dist/iceland_dem.helix.soa.gz
 
-# The Berlin OSM helix bake — the /geo + /helix?scene=osm scene (manifest osm_latest).
-# It's 92 MB, so it lives in the release, not git; download it into dist/ so BodyHelix
-# resolves /berlin.helix.soa.gz SAME-ORIGIN. Without this, the same-origin fetch 404s
-# and BodyHelix falls back to the release URL — which the browser blocks on the
-# github releases redirect (no CORS header) → the "TypeError: Failed to fetch" seen
-# live on /geo. Same CORS reason the body wires are pulled same-origin above.
-RUN curl -fSL https://github.com/AdaWorldAPI/q2/releases/download/fma-body-soa-v3-v1/berlin.helix.soa.gz \
-      -o /build/q2/cockpit/dist/berlin.helix.soa.gz \
- && ls -lh /build/q2/cockpit/dist/berlin.helix.soa.gz
+# (The Berlin OSM helix bake moved UP into the pre-COPY cached fetch layer with
+# the two body wires — see the block above for why. BodyHelix still resolves it
+# same-origin at /berlin.helix.soa.gz; without that, the fetch 404s and the
+# fallback to the release URL is blocked by the CORS-less redirect.)
 
 # Sibling deps — clone from GitHub
 # graph-flow stub is local (crates/stubs/graph-flow), no rs-graph-llm needed
