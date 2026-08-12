@@ -202,15 +202,36 @@ async fn main() {
         // Load the map into lance-graph: convert the hydrated `.soa` slab
         // into a Lance dataset on the same persistent volume (medcare-rs's
         // own hydrate-into-Lance shape; see `osm_lance`'s module doc for the
-        // full recipe and why it stays local rather than S3-backed).
-        // Best-effort and non-blocking to correctness: `osm_features::
-        // open_slab` still mmaps the raw `.soa` file regardless of whether
-        // this succeeds, so a conversion failure never takes the map down.
-        if osm_lance::ensure_lance_local(&path).await.is_none() {
-            tracing::warn!(
+        // full recipe and why it stays local rather than S3-backed), then —
+        // if the row column can be located verbatim inside it — repoint the
+        // tile-serving mmap AT the Lance-owned bytes instead of the raw
+        // `.soa` file. `OSM_SLAB_PATH` itself is never touched (it stays
+        // the sidecar anchor and the fallback row source), so any failure
+        // along this chain leaves the map served exactly as it was before
+        // this existed.
+        match osm_lance::ensure_lance_local(&path).await {
+            Some(dataset_dir) => match osm_lance::locate_row_column(&dataset_dir, &path) {
+                Some((data_file, offset, len)) => {
+                    // SAFETY: single-threaded startup, before any task or listener exists.
+                    unsafe {
+                        std::env::set_var("OSM_SLAB_ROW_FILE", &data_file);
+                        std::env::set_var("OSM_SLAB_ROW_OFFSET", offset.to_string());
+                        std::env::set_var("OSM_SLAB_ROW_LEN", len.to_string());
+                    }
+                    tracing::info!(
+                        file = %data_file.display(), offset, len,
+                        "osm lance: tile-serving now reads row bytes from the Lance dataset"
+                    );
+                }
+                None => tracing::warn!(
+                    "osm lance: dataset converted, but its row column could not be \
+                     located verbatim on disk; the raw .soa slab still serves the map"
+                ),
+            },
+            None => tracing::warn!(
                 "osm lance: conversion to a Lance dataset failed or was skipped; \
                  the raw .soa slab still serves the map unaffected"
-            );
+            ),
         }
     }
 

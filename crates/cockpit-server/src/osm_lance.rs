@@ -24,21 +24,24 @@
 //! zero-copy. S3 stays the HYDRATION source; it is never the serving
 //! location — this module never targets an `s3://` uri.
 //!
-//! # The request-time read path does not change in this pass
+//! # The request-time read path — now wired, still synchronous
 //!
-//! [`crate::osm_features::open_slab`] keeps mmapping `OSM_SLAB_PATH`
-//! synchronously, unchanged. This module does not repoint it. `soa_to_lance`
-//! (lance-graph) already proves the mechanism that WOULD let it: at the
-//! 512-byte `NODE_ROW_STRIDE`, Lance's `is_narrow` mini-block cutoff (256
-//! bytes) is never crossed, so the row column lands full-zip, uncompressed,
-//! and byte-verbatim in the dataset's own data file — meaning
-//! `RowSlab::new(bytes)` would parse Lance-owned bytes exactly as it parses
-//! the raw `.soa` file today. Reaching into a Lance fragment's on-disk
-//! layout to find that byte run is a diagnostic probe in `soa_to_lance`
-//! (its own "P-CACHE-4" section), not a stable production API — wiring the
-//! hot tile-serving path onto it is a distinct, separately-scoped follow-up,
-//! not bundled into establishing Lance as the volume's canonical persisted
-//! form.
+//! [`crate::osm_features::open_slab`] keeps mmapping bytes synchronously —
+//! it is simply handed a DIFFERENT file when [`locate_row_column`] finds
+//! one. `soa_to_lance` (lance-graph) is what proves the mechanism this
+//! module productionizes: at the 512-byte `NODE_ROW_STRIDE`, Lance's
+//! `is_narrow` mini-block cutoff (256 bytes) is never crossed, so the row
+//! column lands full-zip, uncompressed, and byte-verbatim in the dataset's
+//! own on-disk data file — meaning `RowSlab::new(bytes)` parses
+//! Lance-owned bytes exactly as it parses the raw `.soa` file. Reaching
+//! into a Lance fragment's on-disk layout to find that byte run is a
+//! diagnostic probe in `soa_to_lance` (its own "P-CACHE-4" section, which
+//! reads the WHOLE file to prove the point once, by hand) — here it is a
+//! bounded, boot-time, fail-closed resolver: [`locate_row_column`] searches
+//! only the first few megabytes of each data file (row 0 is never
+//! gigabytes in), and `open_slab` falls back to the raw `.soa` file
+//! unconditionally on `None`, so a resolver miss costs nothing but the
+//! optimization itself.
 //!
 //! # What "loaded into lance-graph" means here
 //!
@@ -251,6 +254,78 @@ async fn write_lance(
     Some(dest.to_path_buf())
 }
 
+/// How far into a Lance data file to search for row 0's bytes. Generous
+/// margin over Lance's own header overhead (KB-scale) — row 0 sits near
+/// the start of the file, never gigabytes in, so this keeps even a cold
+/// search bounded and fast rather than reading a multi-GiB file whole
+/// (which is what `soa_to_lance`'s own one-shot diagnostic does — fine for
+/// a manual check, not for something run on every boot).
+const SEARCH_WINDOW: usize = 8 << 20; // 8 MiB
+
+/// Locate the Lance dataset's own on-disk data file that holds the row
+/// column verbatim, and the exact `(offset, length)` of that run within
+/// it. `length` is the ORIGINAL slab's own byte length — always an exact
+/// multiple of `NODE_ROW_STRIDE` (checked by [`ensure_lance_local`]) —
+/// never the Lance file's own trailing footer/metadata bytes, which
+/// `RowSlab::new` would otherwise reject outright (see
+/// `osm_features::open_slab`'s doc on why the length is bounded, not just
+/// the offset).
+///
+/// `None` on any doubt — no data directory, no `.lance` fragment, no byte
+/// match, a match too short to trust: this path is a pure optimization
+/// over serving from the raw `.soa` file, never a hard requirement.
+#[must_use]
+pub fn locate_row_column(dataset_dir: &Path, slab_path: &Path) -> Option<(PathBuf, usize, usize)> {
+    let length = std::fs::metadata(slab_path).ok()?.len() as usize;
+    if length == 0 || !length.is_multiple_of(NODE_ROW_STRIDE) {
+        return None;
+    }
+    let probe_len = NODE_ROW_STRIDE.min(length);
+    let mut probe = vec![0u8; probe_len];
+    {
+        use std::io::Read;
+        std::fs::File::open(slab_path)
+            .ok()?
+            .read_exact(&mut probe)
+            .ok()?;
+    }
+
+    let data_dir = dataset_dir.join("data");
+    let entries = std::fs::read_dir(&data_dir).ok()?;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("lance") {
+            continue;
+        }
+        if let Some(off) = search_head_for_probe(&p, &probe) {
+            tracing::info!(
+                file = %p.display(), offset = off, length,
+                "osm lance: row column located verbatim inside the Lance data file"
+            );
+            return Some((p, off, length));
+        }
+    }
+    tracing::info!(
+        dir = %data_dir.display(),
+        "osm lance: no Lance data file's head contained the row column verbatim; \
+         the raw .soa slab will keep serving the map"
+    );
+    None
+}
+
+/// The bounded byte search itself, split out so it can be unit-tested
+/// without a real Lance dataset on disk.
+fn search_head_for_probe(file_path: &Path, probe: &[u8]) -> Option<usize> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(file_path).ok()?;
+    let mut head = Vec::with_capacity(SEARCH_WINDOW);
+    file.by_ref()
+        .take(SEARCH_WINDOW as u64)
+        .read_to_end(&mut head)
+        .ok()?;
+    head.windows(probe.len()).position(|w| w == probe)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,5 +345,80 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let dest = dir.path().join("nope.lance");
         assert!(reopen_if_warm(&dest, 10, "deadbeef").await.is_none());
+    }
+
+    /// The falsifier for [`search_head_for_probe`]: a real hit, surrounded
+    /// by bytes that must NOT be mistaken for it. Distinct leading/trailing
+    /// padding — same byte would let a false match at the wrong offset
+    /// still pass by accident.
+    #[test]
+    fn search_head_for_probe_finds_the_exact_offset() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file_path = dir.path().join("frag.lance");
+        let probe = vec![0xABu8; 512];
+        let mut content = vec![0x11u8; 200]; // Lance's own leading header bytes
+        content.extend_from_slice(&probe);
+        content.extend(vec![0x22u8; 300]); // trailing footer/metadata bytes
+        std::fs::write(&file_path, &content).expect("write");
+
+        assert_eq!(search_head_for_probe(&file_path, &probe), Some(200));
+    }
+
+    /// …and the silent twin: bytes that never contain the probe must
+    /// return `None`, not a spurious offset.
+    #[test]
+    fn search_head_for_probe_declines_when_the_probe_is_absent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file_path = dir.path().join("frag.lance");
+        std::fs::write(&file_path, vec![0x11u8; 4096]).expect("write");
+        let probe = vec![0xABu8; 512];
+
+        assert!(search_head_for_probe(&file_path, &probe).is_none());
+    }
+
+    /// End-to-end over [`locate_row_column`] itself, with a fake dataset
+    /// directory laid out the way a real `Dataset::write` output is
+    /// (`<dataset>/data/<fragment>.lance`) — proves the directory walk, the
+    /// extension filter, and the length-from-slab-metadata computation all
+    /// compose correctly, not just the byte search in isolation.
+    #[test]
+    fn locate_row_column_finds_the_fragment_and_reports_the_slabs_own_length() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("region.soa");
+        let rows = 3usize;
+        let slab_bytes = vec![0x7Cu8; rows * NODE_ROW_STRIDE];
+        std::fs::write(&slab_path, &slab_bytes).expect("write slab");
+
+        let dataset_dir = dir.path().join("region.lance");
+        let data_dir = dataset_dir.join("data");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        // A non-`.lance` file must be skipped, not mistaken for a fragment.
+        std::fs::write(data_dir.join("README.txt"), b"not a fragment").expect("write");
+        let mut fragment = vec![0x99u8; 64]; // Lance's own header bytes
+        fragment.extend_from_slice(&slab_bytes);
+        fragment.extend(vec![0x88u8; 16]); // Lance's own footer bytes
+        std::fs::write(data_dir.join("frag-0.lance"), &fragment).expect("write fragment");
+
+        let (found_path, offset, length) =
+            locate_row_column(&dataset_dir, &slab_path).expect("must locate the fragment");
+        assert_eq!(found_path, data_dir.join("frag-0.lance"));
+        assert_eq!(offset, 64);
+        assert_eq!(length, rows * NODE_ROW_STRIDE);
+    }
+
+    /// A dataset directory with no matching fragment must decline cleanly —
+    /// the optimization is skipped, not panicked into.
+    #[test]
+    fn locate_row_column_declines_when_no_fragment_matches() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("region.soa");
+        std::fs::write(&slab_path, vec![0x7Cu8; NODE_ROW_STRIDE]).expect("write slab");
+
+        let dataset_dir = dir.path().join("region.lance");
+        let data_dir = dataset_dir.join("data");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        std::fs::write(data_dir.join("frag-0.lance"), vec![0x00u8; 4096]).expect("write");
+
+        assert!(locate_row_column(&dataset_dir, &slab_path).is_none());
     }
 }
