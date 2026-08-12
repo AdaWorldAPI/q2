@@ -257,55 +257,74 @@ fn overview_sample(
     out
 }
 
-type SlabMmap = (memmap2::Mmap, usize, Option<usize>);
+type SlabMmap = (memmap2::Mmap, usize, usize);
 static SLAB_MMAP: OnceLock<Option<SlabMmap>> = OnceLock::new();
 
 /// The baked slab, mmap'd once and cached for the process lifetime. `None`
-/// when no row-byte source resolves or the file can't be opened/mapped —
-/// the handler reports that as 503, not a panic.
+/// when no row-byte source resolves — the handler reports that as 503, not
+/// a panic.
 ///
-/// Two sources, in priority order: `OSM_SLAB_ROW_FILE` (set at boot by
-/// [`crate::osm_lance::locate_row_column`] once the hydrated slab has been
-/// converted into a Lance dataset AND its row column located verbatim
-/// inside the dataset's own on-disk data file — see that module's doc for
-/// why this is sound), falling back to `OSM_SLAB_PATH` (the raw `.soa`
-/// file, unconditionally set by `osm_slab_hydrate::ensure_slab_local`).
-/// `OSM_SLAB_PATH` itself is NEVER repointed at the Lance file: it also
-/// anchors the `.books`/`.chains` sidecar paths
-/// ([`open_books`], [`open_chains`]), which live beside the raw bake, not
-/// inside the Lance dataset's `data/` directory.
+/// # The serving contract: hydrate once → sink into Lance once → mmap the
+/// # `.lance` bytes lazily from disk (operator-directed)
 ///
-/// `OSM_SLAB_ROW_OFFSET`/`OSM_SLAB_ROW_LEN` bound the mapped slice to
-/// EXACTLY the row column when the mapped file is a Lance data file — it
-/// carries Lance's own header/footer bytes around the row run, which
-/// `RowSlab::new` would otherwise reject outright (it requires the slice
-/// length be an exact multiple of `NODE_ROW_STRIDE`, not merely a prefix
-/// of one). Both absent (the raw `.soa` case) maps the whole file,
-/// unchanged from before this pair of variables existed.
+/// Two sources, in priority order:
+///
+/// 1. `OSM_SLAB_ROW_FILE` + `OSM_SLAB_ROW_OFFSET` + `OSM_SLAB_ROW_LEN` —
+///    the Lance dataset's own sole data file, set at boot by
+///    [`crate::osm_lance::locate_row_column`] only after FOUR verifications
+///    (sole fragment, aligned start, head anchor, tail anchor — the same
+///    assertions lance-graph's `soa_verbatim.rs` test makes; see that
+///    module's doc for the outage the unverified version caused). The mmap
+///    slice is bounded to EXACTLY `offset..offset + len`; the pages load
+///    lazily through the page cache — nothing slab-sized is read into heap.
+/// 2. `OSM_SLAB_PATH` — the raw `.soa` file, unconditionally set by
+///    `osm_slab_hydrate::ensure_slab_local`. `OSM_SLAB_PATH` is NEVER
+///    repointed at the Lance file: it also anchors the `.books`/`.chains`
+///    sidecar paths ([`open_books`], [`open_chains`]), which live beside
+///    the raw bake, not inside the Lance dataset's `data/` directory.
+///
+/// Strictness over clamping: the Lance-file branch uses exact bounds
+/// (`get(off..off + len)`), and ANY failure — unset/garbled vars, a file
+/// that shrank, a slice that isn't whole rows — falls back to the raw
+/// `.soa` path rather than serving a truncated slice. The pre-fix version
+/// clamped (`end.min(m.len())`) and served a footer-polluted slice whose
+/// length wasn't a multiple of `NODE_ROW_STRIDE`; `RowSlab::new` then
+/// rejected every request.
 fn open_slab() -> Option<&'static [u8]> {
-    let cell = SLAB_MMAP.get_or_init(|| {
-        let path = std::env::var("OSM_SLAB_ROW_FILE")
-            .ok()
-            .or_else(|| std::env::var("OSM_SLAB_PATH").ok())?;
-        let file = std::fs::File::open(&path).ok()?;
+    fn map_range(path: &str, off: usize, len: usize) -> Option<(memmap2::Mmap, usize, usize)> {
+        if len == 0 || !len.is_multiple_of(lance_graph_contract::canonical_node::NODE_ROW_STRIDE) {
+            return None;
+        }
+        let file = std::fs::File::open(path).ok()?;
         // SAFETY: read-only mapping of a baked, immutable artifact. Nothing
         // else in this process (or expected to run alongside it) mutates the
         // file while it's mapped — same assumption `RowSlab`'s own docs make
         // about a Lance-returned buffer.
         let mmap = unsafe { memmap2::Mmap::map(&file) }.ok()?;
-        let offset: usize = std::env::var("OSM_SLAB_ROW_OFFSET")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
-        let len: Option<usize> = std::env::var("OSM_SLAB_ROW_LEN")
-            .ok()
-            .and_then(|v| v.parse().ok());
-        Some((mmap, offset, len))
+        // Exact bounds — a shrunken or wrong file declines, never clamps.
+        off.checked_add(len).filter(|&end| end <= mmap.len())?;
+        Some((mmap, off, len))
+    }
+
+    let cell = SLAB_MMAP.get_or_init(|| {
+        let lance = || -> Option<(memmap2::Mmap, usize, usize)> {
+            let path = std::env::var("OSM_SLAB_ROW_FILE").ok()?;
+            let off: usize = std::env::var("OSM_SLAB_ROW_OFFSET").ok()?.parse().ok()?;
+            let len: usize = std::env::var("OSM_SLAB_ROW_LEN").ok()?.parse().ok()?;
+            map_range(&path, off, len)
+        };
+        let raw = || -> Option<(memmap2::Mmap, usize, usize)> {
+            let path = std::env::var("OSM_SLAB_PATH").ok()?;
+            let file = std::fs::File::open(&path).ok()?;
+            // SAFETY: as above.
+            let mmap = unsafe { memmap2::Mmap::map(&file) }.ok()?;
+            let len = mmap.len();
+            Some((mmap, 0, len))
+        };
+        lance().or_else(raw)
     });
-    cell.as_ref().and_then(|(m, off, len)| {
-        let end = len.map_or(m.len(), |l| off + l);
-        m.get(*off..end.min(m.len()))
-    })
+    cell.as_ref()
+        .and_then(|(m, off, len)| m.get(*off..*off + *len))
 }
 
 #[derive(Debug, Serialize, PartialEq)]

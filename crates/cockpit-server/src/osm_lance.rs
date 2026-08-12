@@ -96,22 +96,34 @@ const OSM_BAKE_CLASSID: &str = "00000000";
 pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
     let dest = slab_path.with_extension("lance");
 
-    let bytes = match std::fs::read(slab_path) {
-        Ok(b) => b,
+    // Digest over an mmap, not `fs::read`: the warm path must not pay a
+    // slab-sized heap allocation (1.29 GiB for Berlin) just to compute a
+    // hash — the pages stream through the page cache and stay reclaimable.
+    let file = match std::fs::File::open(slab_path) {
+        Ok(f) => f,
         Err(e) => {
-            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot read slab");
+            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot open slab");
             return None;
         }
     };
-    if bytes.is_empty() || !bytes.len().is_multiple_of(NODE_ROW_STRIDE) {
+    // SAFETY: read-only mapping of the baked, immutable artifact.
+    let map = match unsafe { memmap2::Mmap::map(&file) } {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot mmap slab");
+            return None;
+        }
+    };
+    if map.is_empty() || !map.len().is_multiple_of(NODE_ROW_STRIDE) {
         tracing::error!(
-            path = %slab_path.display(), len = bytes.len(),
+            path = %slab_path.display(), len = map.len(),
             "osm lance: slab is not a whole number of {NODE_ROW_STRIDE}-byte rows; refusing"
         );
         return None;
     }
-    let rows = bytes.len() / NODE_ROW_STRIDE;
-    let digest_hex = format!("{:016x}", osm_soa_bake::codebook::hash_slab(&bytes));
+    let rows = map.len() / NODE_ROW_STRIDE;
+    let digest_hex = format!("{:016x}", osm_soa_bake::codebook::hash_slab(&map));
+    drop(map);
 
     if let Some(warm) = reopen_if_warm(&dest, rows, &digest_hex).await {
         tracing::info!(
@@ -121,6 +133,16 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
         return Some(warm);
     }
 
+    // Cold path only: the write genuinely needs an owned Vec (adopted by
+    // `Buffer::from_vec`), so the slab-sized allocation is paid exactly once
+    // per conversion, never per boot.
+    let bytes = match std::fs::read(slab_path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot read slab");
+            return None;
+        }
+    };
     tracing::info!(
         path = %dest.display(), rows,
         "osm lance: converting the .soa slab into a Lance dataset (zero-copy import)"
@@ -156,13 +178,21 @@ async fn reopen_if_warm(dest: &Path, rows: usize, digest_hex: &str) -> Option<Pa
         }
     };
     let got_digest = ds.schema().metadata.get(K_DIGEST).cloned();
-    if got_rows == rows && got_digest.as_deref() == Some(digest_hex) {
+    // Single-fragment is a serving precondition, not a preference: the
+    // mmap+offset read path is only sound over ONE data file holding the
+    // whole row column ("a split changes what an mmap offset means" —
+    // lance-graph's own soa_verbatim test). A multi-fragment dataset (the
+    // pre-fix default split Berlin's 2.5M rows into three) must be
+    // reconverted even though rows and digest match.
+    let fragments = ds.get_fragments().len();
+    if got_rows == rows && got_digest.as_deref() == Some(digest_hex) && fragments == 1 {
         Some(dest.to_path_buf())
     } else {
         tracing::warn!(
             path = %dest.display(), got_rows, want_rows = rows,
-            got_digest = ?got_digest, want_digest = digest_hex,
-            "osm lance: existing dataset is stale (row count or slab digest mismatch); reconverting"
+            got_digest = ?got_digest, want_digest = digest_hex, fragments,
+            "osm lance: existing dataset is stale (row count, slab digest, or \
+             fragment count mismatch); reconverting"
         );
         None
     }
@@ -237,6 +267,14 @@ async fn write_lance(
     let uri = dest.to_string_lossy().into_owned();
     let params = WriteParams {
         mode: WriteMode::Overwrite,
+        // ONE fragment, whatever the row count. The defaults (1M rows /
+        // 90 GiB per file) split Berlin's 2.5M rows across three data
+        // files, and a split breaks the mmap+offset serving contract —
+        // the exact production outage this line exists to prevent.
+        // `max_bytes_per_file` is raised alongside because either limit
+        // alone can force a split.
+        max_rows_per_file: rows.max(1),
+        max_bytes_per_file: (rows.max(1)) * NODE_ROW_STRIDE + (64 << 20),
         ..Default::default()
     };
     if let Err(e) = Dataset::write(
@@ -262,55 +300,119 @@ async fn write_lance(
 /// a manual check, not for something run on every boot).
 const SEARCH_WINDOW: usize = 8 << 20; // 8 MiB
 
-/// Locate the Lance dataset's own on-disk data file that holds the row
-/// column verbatim, and the exact `(offset, length)` of that run within
-/// it. `length` is the ORIGINAL slab's own byte length — always an exact
-/// multiple of `NODE_ROW_STRIDE` (checked by [`ensure_lance_local`]) —
-/// never the Lance file's own trailing footer/metadata bytes, which
-/// `RowSlab::new` would otherwise reject outright (see
-/// `osm_features::open_slab`'s doc on why the length is bounded, not just
-/// the offset).
+/// Locate the Lance dataset's on-disk data file holding the row column
+/// verbatim, returning the exact `(offset, length)` of that run. This is
+/// lance-graph's proven P-CACHE-4 mechanism (`tests/soa_verbatim.rs`)
+/// productionized — every check below is one of that test's own
+/// assertions, and skipping ANY of them has already caused a production
+/// outage (the pre-fix version skipped all four and served 400 on every
+/// tile):
 ///
-/// `None` on any doubt — no data directory, no `.lance` fragment, no byte
-/// match, a match too short to trust: this path is a pure optimization
-/// over serving from the raw `.soa` file, never a hard requirement.
+/// 1. **Exactly one data file.** *"a split changes what an mmap offset
+///    means"* (`sole_data_file`). A multi-fragment dataset holds only part
+///    of the slab per file; an offset into one fragment cannot address the
+///    whole column.
+/// 2. **Row 0 found near the file head** — the same bounded probe as
+///    before, but now merely the first anchor, never the whole proof.
+/// 3. **The run starts stride-aligned** (`off % NODE_ROW_STRIDE == 0`).
+///    The mmap base is page-aligned, so this is what makes
+///    `RowSlab::rows()`'s 64-byte-alignment projection available over the
+///    mapped slice.
+/// 4. **The LAST row anchors too**: the slab's final 512 bytes must sit at
+///    `off + length - 512` inside the data file, and the file must be at
+///    least `off + length` long. A coincidental row-0 collision cannot
+///    also match the tail at the exact computed distance, and a fragment
+///    holding only a prefix of the slab fails the bounds check outright.
+///
+/// `None` on any doubt — this path is a pure optimization over serving
+/// from the raw `.soa` file, never a hard requirement.
 #[must_use]
 pub fn locate_row_column(dataset_dir: &Path, slab_path: &Path) -> Option<(PathBuf, usize, usize)> {
+    use std::io::{Read, Seek, SeekFrom};
+
     let length = std::fs::metadata(slab_path).ok()?.len() as usize;
     if length == 0 || !length.is_multiple_of(NODE_ROW_STRIDE) {
         return None;
     }
-    let probe_len = NODE_ROW_STRIDE.min(length);
-    let mut probe = vec![0u8; probe_len];
-    {
-        use std::io::Read;
-        std::fs::File::open(slab_path)
-            .ok()?
-            .read_exact(&mut probe)
-            .ok()?;
+    let mut slab = std::fs::File::open(slab_path).ok()?;
+    let mut first_row = vec![0u8; NODE_ROW_STRIDE];
+    slab.read_exact(&mut first_row).ok()?;
+    let mut last_row = vec![0u8; NODE_ROW_STRIDE];
+    slab.seek(SeekFrom::Start((length - NODE_ROW_STRIDE) as u64))
+        .ok()?;
+    slab.read_exact(&mut last_row).ok()?;
+
+    // (1) Exactly one .lance data file.
+    let data_dir = dataset_dir.join("data");
+    let mut data_files: Vec<PathBuf> = std::fs::read_dir(&data_dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("lance"))
+        .collect();
+    if data_files.len() != 1 {
+        tracing::warn!(
+            dir = %data_dir.display(), count = data_files.len(),
+            "osm lance: dataset has {} data files, need exactly 1 for mmap serving; \
+             the raw .soa slab keeps serving the map",
+            data_files.len()
+        );
+        return None;
+    }
+    let p = data_files.pop().expect("len checked");
+
+    // (2) Row 0 near the head.
+    let Some(off) = search_head_for_probe(&p, &first_row) else {
+        tracing::warn!(
+            file = %p.display(),
+            "osm lance: row 0 not found verbatim in the data file head; \
+             the raw .soa slab keeps serving the map"
+        );
+        return None;
+    };
+
+    // (3) Stride-aligned start.
+    if !off.is_multiple_of(NODE_ROW_STRIDE) {
+        tracing::warn!(
+            file = %p.display(), offset = off,
+            "osm lance: row run starts unaligned to the row stride; \
+             the raw .soa slab keeps serving the map"
+        );
+        return None;
     }
 
-    let data_dir = dataset_dir.join("data");
-    let entries = std::fs::read_dir(&data_dir).ok()?;
-    for entry in entries.flatten() {
-        let p = entry.path();
-        if p.extension().and_then(|e| e.to_str()) != Some("lance") {
-            continue;
-        }
-        if let Some(off) = search_head_for_probe(&p, &probe) {
-            tracing::info!(
-                file = %p.display(), offset = off, length,
-                "osm lance: row column located verbatim inside the Lance data file"
-            );
-            return Some((p, off, length));
-        }
+    // (4) Bounds + tail anchor.
+    let file_len = std::fs::metadata(&p).ok()?.len() as usize;
+    let end = off.checked_add(length)?;
+    if end > file_len {
+        tracing::warn!(
+            file = %p.display(), offset = off, length, file_len,
+            "osm lance: data file is shorter than offset + slab length \
+             (a fragment holding only part of the column); \
+             the raw .soa slab keeps serving the map"
+        );
+        return None;
     }
+    let mut tail = vec![0u8; NODE_ROW_STRIDE];
+    let mut data = std::fs::File::open(&p).ok()?;
+    data.seek(SeekFrom::Start((end - NODE_ROW_STRIDE) as u64))
+        .ok()?;
+    data.read_exact(&mut tail).ok()?;
+    if tail != last_row {
+        tracing::warn!(
+            file = %p.display(), offset = off, length,
+            "osm lance: the slab's last row does not anchor at offset + length; \
+             the head match was coincidental; the raw .soa slab keeps serving the map"
+        );
+        return None;
+    }
+
     tracing::info!(
-        dir = %data_dir.display(),
-        "osm lance: no Lance data file's head contained the row column verbatim; \
-         the raw .soa slab will keep serving the map"
+        file = %p.display(), offset = off, length,
+        "osm lance: row column verified verbatim inside the Lance data file \
+         (sole fragment, aligned start, head + tail anchors)"
     );
-    None
+    Some((p, off, length))
 }
 
 /// The bounded byte search itself, split out so it can be unit-tested
@@ -376,33 +478,58 @@ mod tests {
         assert!(search_head_for_probe(&file_path, &probe).is_none());
     }
 
-    /// End-to-end over [`locate_row_column`] itself, with a fake dataset
-    /// directory laid out the way a real `Dataset::write` output is
-    /// (`<dataset>/data/<fragment>.lance`) — proves the directory walk, the
-    /// extension filter, and the length-from-slab-metadata computation all
-    /// compose correctly, not just the byte search in isolation.
+    /// A synthetic slab whose rows are DISTINGUISHABLE — row `i`'s bytes are
+    /// a function of `i` — so a tail anchor genuinely proves the last row is
+    /// where it is claimed to be, rather than matching any repeated filler.
+    fn distinct_slab(rows: usize) -> Vec<u8> {
+        let mut bytes = vec![0u8; rows * NODE_ROW_STRIDE];
+        for (i, chunk) in bytes.chunks_exact_mut(NODE_ROW_STRIDE).enumerate() {
+            for (j, b) in chunk.iter_mut().enumerate() {
+                *b = ((i * 31 + j * 7) % 251) as u8;
+            }
+        }
+        bytes
+    }
+
+    /// Lay out `<dataset>/data/` the way `Dataset::write` does, with the slab
+    /// embedded at a chosen (stride-aligned) offset in a sole fragment.
+    fn fake_dataset(
+        dir: &Path,
+        slab_bytes: &[u8],
+        header: usize,
+        footer: usize,
+    ) -> (PathBuf, PathBuf) {
+        let dataset_dir = dir.join("region.lance");
+        let data_dir = dataset_dir.join("data");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        // A non-`.lance` file must be skipped, not mistaken for a fragment.
+        std::fs::write(data_dir.join("README.txt"), b"not a fragment").expect("write");
+        let mut fragment = vec![0x99u8; header];
+        fragment.extend_from_slice(slab_bytes);
+        fragment.extend(vec![0x88u8; footer]);
+        let frag_path = data_dir.join("frag-0.lance");
+        std::fs::write(&frag_path, &fragment).expect("write fragment");
+        (dataset_dir, frag_path)
+    }
+
+    /// End-to-end over [`locate_row_column`]: sole fragment, aligned start,
+    /// head + tail anchors — all four verifications passing together.
     #[test]
     fn locate_row_column_finds_the_fragment_and_reports_the_slabs_own_length() {
         let dir = tempfile::tempdir().expect("tempdir");
         let slab_path = dir.path().join("region.soa");
         let rows = 3usize;
-        let slab_bytes = vec![0x7Cu8; rows * NODE_ROW_STRIDE];
+        let slab_bytes = distinct_slab(rows);
         std::fs::write(&slab_path, &slab_bytes).expect("write slab");
 
-        let dataset_dir = dir.path().join("region.lance");
-        let data_dir = dataset_dir.join("data");
-        std::fs::create_dir_all(&data_dir).expect("mkdir");
-        // A non-`.lance` file must be skipped, not mistaken for a fragment.
-        std::fs::write(data_dir.join("README.txt"), b"not a fragment").expect("write");
-        let mut fragment = vec![0x99u8; 64]; // Lance's own header bytes
-        fragment.extend_from_slice(&slab_bytes);
-        fragment.extend(vec![0x88u8; 16]); // Lance's own footer bytes
-        std::fs::write(data_dir.join("frag-0.lance"), &fragment).expect("write fragment");
+        // Header must be stride-aligned for check (3) — a real Lance data
+        // file puts the run at offset 0 (measured); 512 exercises off != 0.
+        let (dataset_dir, frag_path) = fake_dataset(dir.path(), &slab_bytes, NODE_ROW_STRIDE, 16);
 
         let (found_path, offset, length) =
             locate_row_column(&dataset_dir, &slab_path).expect("must locate the fragment");
-        assert_eq!(found_path, data_dir.join("frag-0.lance"));
-        assert_eq!(offset, 64);
+        assert_eq!(found_path, frag_path);
+        assert_eq!(offset, NODE_ROW_STRIDE);
         assert_eq!(length, rows * NODE_ROW_STRIDE);
     }
 
@@ -412,12 +539,88 @@ mod tests {
     fn locate_row_column_declines_when_no_fragment_matches() {
         let dir = tempfile::tempdir().expect("tempdir");
         let slab_path = dir.path().join("region.soa");
-        std::fs::write(&slab_path, vec![0x7Cu8; NODE_ROW_STRIDE]).expect("write slab");
+        std::fs::write(&slab_path, distinct_slab(1)).expect("write slab");
 
         let dataset_dir = dir.path().join("region.lance");
         let data_dir = dataset_dir.join("data");
         std::fs::create_dir_all(&data_dir).expect("mkdir");
         std::fs::write(data_dir.join("frag-0.lance"), vec![0x00u8; 4096]).expect("write");
+
+        assert!(locate_row_column(&dataset_dir, &slab_path).is_none());
+    }
+
+    /// THE production outage's falsifier: a multi-fragment dataset — each
+    /// data file holding only part of the slab — must be declined outright,
+    /// even though row 0 IS found verbatim in the first fragment. The
+    /// pre-fix version accepted this and reported the full slab length
+    /// against a fragment that couldn't hold it; every tile request then
+    /// failed with 400.
+    #[test]
+    fn locate_row_column_declines_a_multi_fragment_split() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("region.soa");
+        let slab_bytes = distinct_slab(4);
+        std::fs::write(&slab_path, &slab_bytes).expect("write slab");
+
+        let dataset_dir = dir.path().join("region.lance");
+        let data_dir = dataset_dir.join("data");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        let half = slab_bytes.len() / 2;
+        std::fs::write(data_dir.join("frag-0.lance"), &slab_bytes[..half]).expect("write");
+        std::fs::write(data_dir.join("frag-1.lance"), &slab_bytes[half..]).expect("write");
+
+        assert!(locate_row_column(&dataset_dir, &slab_path).is_none());
+    }
+
+    /// A sole fragment that holds only a PREFIX of the slab (same failure
+    /// mode as the split, reached via the bounds check instead of the file
+    /// count) must be declined — offset + slab length exceeds the file.
+    #[test]
+    fn locate_row_column_declines_a_truncated_fragment() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("region.soa");
+        let slab_bytes = distinct_slab(4);
+        std::fs::write(&slab_path, &slab_bytes).expect("write slab");
+
+        let half = slab_bytes.len() / 2;
+        let (dataset_dir, _) = fake_dataset(dir.path(), &slab_bytes[..half], 0, 0);
+
+        assert!(locate_row_column(&dataset_dir, &slab_path).is_none());
+    }
+
+    /// A head match whose TAIL does not anchor must be declined: the file
+    /// is long enough, row 0 matches, but the bytes at offset + length - 512
+    /// are not the slab's last row — the coincidental-collision case the
+    /// two-anchor design exists to kill.
+    #[test]
+    fn locate_row_column_declines_when_the_tail_does_not_anchor() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("region.soa");
+        let slab_bytes = distinct_slab(3);
+        std::fs::write(&slab_path, &slab_bytes).expect("write slab");
+
+        // Fragment = row 0 verbatim, then garbage of the right total size.
+        let mut fragment = slab_bytes[..NODE_ROW_STRIDE].to_vec();
+        fragment.extend(vec![0xEEu8; slab_bytes.len() - NODE_ROW_STRIDE + 64]);
+        let dataset_dir = dir.path().join("region.lance");
+        let data_dir = dataset_dir.join("data");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        std::fs::write(data_dir.join("frag-0.lance"), &fragment).expect("write");
+
+        assert!(locate_row_column(&dataset_dir, &slab_path).is_none());
+    }
+
+    /// An unaligned run start must be declined — `RowSlab::rows()` needs the
+    /// mapped slice 64-byte aligned, and a page-aligned mmap base plus a
+    /// stride-aligned offset is what guarantees it.
+    #[test]
+    fn locate_row_column_declines_an_unaligned_run() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("region.soa");
+        let slab_bytes = distinct_slab(3);
+        std::fs::write(&slab_path, &slab_bytes).expect("write slab");
+
+        let (dataset_dir, _) = fake_dataset(dir.path(), &slab_bytes, 100, 16);
 
         assert!(locate_row_column(&dataset_dir, &slab_path).is_none());
     }
