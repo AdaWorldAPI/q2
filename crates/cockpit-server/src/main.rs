@@ -199,16 +199,17 @@ async fn main() {
         // SAFETY: single-threaded startup, before any task or listener exists.
         unsafe { std::env::set_var("OSM_SLAB_PATH", &path) };
 
-        // Load the map into lance-graph: convert the hydrated `.soa` slab
-        // into a Lance dataset on the same persistent volume (medcare-rs's
-        // own hydrate-into-Lance shape; see `osm_lance`'s module doc for the
-        // full recipe and why it stays local rather than S3-backed), then —
-        // if the row column can be located verbatim inside it — repoint the
-        // tile-serving mmap AT the Lance-owned bytes instead of the raw
-        // `.soa` file. `OSM_SLAB_PATH` itself is never touched (it stays
-        // the sidecar anchor and the fallback row source), so any failure
-        // along this chain leaves the map served exactly as it was before
-        // this existed.
+        // The serving contract (operator-directed): hydrate once from S3,
+        // sink into Lance ONCE (single-fragment, warm-skip via row count +
+        // digest + fragment count — medcare-rs's hydrate-into-Lance shape,
+        // see `osm_lance`'s module doc), then serve the map zero-copy and
+        // LAZILY from the `.lance` bytes on disk — mmap + verified offset,
+        // the P-CACHE-4 mechanism lance-graph's `soa_verbatim.rs` proves.
+        // `locate_row_column` only resolves after four verifications (sole
+        // fragment, aligned start, head + tail anchors); on ANY doubt the
+        // env vars stay unset and the raw `.soa` file keeps serving.
+        // `OSM_SLAB_PATH` itself is never repointed — it stays the
+        // `.books`/`.chains` sidecar anchor and the fallback row source.
         match osm_lance::ensure_lance_local(&path).await {
             Some(dataset_dir) => match osm_lance::locate_row_column(&dataset_dir, &path) {
                 Some((data_file, offset, len)) => {
@@ -220,12 +221,13 @@ async fn main() {
                     }
                     tracing::info!(
                         file = %data_file.display(), offset, len,
-                        "osm lance: tile-serving now reads row bytes from the Lance dataset"
+                        "osm lance: tile-serving reads row bytes from the Lance dataset \
+                         (verified: sole fragment, aligned, head+tail anchored)"
                     );
                 }
                 None => tracing::warn!(
-                    "osm lance: dataset converted, but its row column could not be \
-                     located verbatim on disk; the raw .soa slab still serves the map"
+                    "osm lance: dataset present but not servable via mmap+offset; \
+                     the raw .soa slab keeps serving the map"
                 ),
             },
             None => tracing::warn!(
