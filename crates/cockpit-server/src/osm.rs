@@ -8,13 +8,19 @@
 //! map pyramid and the cascade address stay the same source of truth.
 //!
 //! **The default basemap is DRAWN, not downloaded.** Shapes come from
-//! `/api/osm/geometry/tile/:z/:x/:y` over the local bake, so a default page
-//! load fetches nothing from a third-party tile server — measured: 0 external
-//! requests, against 141-277 to `tile.openstreetmap.org` before. The two
-//! raster skins ([`crate::osm_tiles::OSM_TILE_URL`], `SAT_TILE_URL`) remain
-//! behind the basemap toggle as the reference you check our render against;
-//! they are an explicit opt-in, which is also what keeps a deployed host clear
-//! of the OSMF tile usage policy.
+//! `/api/osm/geometry/tile-bin/:z/:x/:y` — the `OSM1` binary LE wire — over
+//! the local bake, so a default page load fetches nothing from a third-party
+//! tile server (measured: 0 external requests, against 141-277 to
+//! `tile.openstreetmap.org` before). The wire is consumed as an askama-style
+//! PROJECTION of the slab: `ArrayBuffer` → `Float32Array` lens → `Path2D`
+//! per (tile, class) → ~150 native canvas draw calls per frame. The first
+//! version drew 69k retained SVG DOM nodes from a JSON wire and was measured
+//! "terribly slow" on the live deploy; both of those representations are
+//! deliberately gone. The two raster skins
+//! ([`crate::osm_tiles::OSM_TILE_URL`], `SAT_TILE_URL`) remain behind the
+//! basemap toggle as the reference you check our render against; they are an
+//! explicit opt-in, which is also what keeps a deployed host clear of the
+//! OSMF tile usage policy.
 
 /// `GET /osm` — the OSM map cockpit page.
 pub async fn osm_page_handler() -> axum::response::Html<String> {
@@ -305,69 +311,134 @@ async function showShape(idx){
 }
 
 // ── the basemap itself ───────────────────────────────────────────────────
-// GET /api/osm/geometry/tile/:z/:x/:y — every shape anchored in the tile,
-// budgeted and simplified server-side to this zoom's pixel grid. Drawn into
-// an SVG under the dots, in the same world-pixel space #tiles is transformed
-// by, so panning and zooming move the map and its shapes together.
-const geomCache=new Map();      // "z/x/y" -> 'pending' | 'unavailable' | {shapes,…}
-
-// The built layer is RETAINED across renders and re-attached, not rebuilt.
+// GET /api/osm/geometry/tile-bin/:z/:x/:y — the OSM1 binary LE wire, wired
+// DIRECTLY into the renderer:
 //
-// This matters more here than for the dots. `render()` runs on every pan frame
-// and clears #tiles, but a pan changes only the transform — world-pixel
-// coordinates at a fixed zoom do not move, so every polygon is still valid.
-// `innerHTML=''` detaches the <svg> while this reference keeps it (and its
-// children) alive, so re-attaching restores the whole basemap in one
-// appendChild. Rebuilding it per frame would be thousands of element creations
-// per pan: the same n^2 shape the `drawnCells` comment above was written about.
-// A ZOOM change is the one thing that invalidates the coordinates, and that is
-// exactly when it is dropped and rebuilt.
-let baseSvgEl=null, geomZoom=null;
-function baseLayer(){
-  if(!baseSvgEl){
-    baseSvgEl=document.createElementNS('http://www.w3.org/2000/svg','svg');
-    baseSvgEl.id='base-shapes';
-    baseSvgEl.setAttribute('width','1'); baseSvgEl.setAttribute('height','1');
-    baseSvgEl.style.cssText='position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:1';
+//   slab z32 cells ──(one multiply)──▶ LE f32 pairs on the wire
+//     ──▶ ArrayBuffer ──(DataView lens, no JSON tree, no per-point objects)──▶
+//       Path2D per (tile, class)  ◀── the ONE materialization, into the
+//                                     renderer's own retained native form
+//     ──▶ ~150 native draw calls per frame on a <canvas>
+//
+// The first version of this layer was 69k retained SVG DOM elements over a
+// JSON wire — measured live at 69,125 shapes / ~40-60 MB per view, and
+// "terribly slow" (operator). Both representations were wrong: SVG makes the
+// browser re-rasterize every element on every pan frame, and serde-JSON on
+// the hot path is the exact anti-pattern the house doctrine names
+// (T3/ADR-022: to_le_bytes IS the wire). Canvas re-rasterizes from ~10 merged
+// Path2D objects per tile instead.
+const geomCache=new Map();  // "z/x/y" -> 'pending'|'unavailable'|{total,sampled,returned,fills,strokes}
+let geomZoom=null;          // paths are built in this zoom's pixel space
+
+// Wire codes, pinned to ShapeClass::wire_code on the server — the Rust test
+// `wire_codes_are_pinned` and this array must agree, and the array index IS
+// the wire byte.
+const CLASS_ORDER=['water','building','wood','green','rail','road','other'];
+// Areas back-to-front (a lake sits on its meadow, a building on its block),
+// then lines with roads on top.
+const FILL_PASS=[2,3,0,1];              // wood, green, water, building
+const STROKE_PASS=[2,3,0,1,6,4,5];      // area outlines, then other, rail, road
+
+function parseTileBin(buf){
+  const dv=new DataView(buf);
+  if(dv.byteLength<20 || dv.getUint32(0,true)!==0x314D534F) return null; // "OSM1"
+  const total=dv.getUint32(4,true), sampled=dv.getUint32(8,true);
+  const count=dv.getUint32(12,true), malformed=dv.getUint32(16,true);
+  const fills=new Map(), strokes=new Map();
+  const path=(m,c)=>{ let p=m.get(c); if(!p){ p=new Path2D(); m.set(c,p); } return p; };
+  let at=20;
+  for(let s=0;s<count;s++){
+    if(at+8>dv.byteLength) return null;         // truncated: reject, refetch
+    const cls=dv.getUint8(at+4), closed=dv.getUint8(at+5)===1;
+    const n=dv.getUint16(at+6,true); at+=8;
+    if(at+n*8>dv.byteLength) return null;
+    // Float32Array is a LENS over the response buffer — the points are read
+    // in place, never copied into JS objects. (byteOffset is 4-aligned by
+    // construction: the header is 20 B and every record is 8+8n B.)
+    const pts=new Float32Array(buf,at,n*2); at+=n*8;
+    if(n<2) continue;
+    const fp=closed?path(fills,cls):null, sp=path(strokes,cls);
+    sp.moveTo(pts[0],pts[1]); if(fp) fp.moveTo(pts[0],pts[1]);
+    for(let i=1;i<n;i++){ sp.lineTo(pts[2*i],pts[2*i+1]); if(fp) fp.lineTo(pts[2*i],pts[2*i+1]); }
+    if(closed){ sp.closePath(); fp.closePath(); }
   }
-  if(baseSvgEl.parentElement!==tilesEl) tilesEl.appendChild(baseSvgEl);
-  return baseSvgEl;
+  return {total,sampled,returned:count,malformed,fills,strokes};
 }
+
 function ensureGeometry(z,wx,ty){
   const key=tileKey(z,wx,ty);
   if(geomCache.has(key)) return;
   geomCache.set(key,'pending');
-  fetch(`/api/osm/geometry/tile/${z}/${wx}/${ty}`).then(r=>{
+  fetch(`/api/osm/geometry/tile-bin/${z}/${wx}/${ty}`).then(r=>{
     if(r.status===503){ geomCache.set(key,'unavailable'); return null; }
     if(!r.ok) throw new Error('http '+r.status);
-    return r.json();
-  // paintBasemap(), NOT render(): one tile's shapes arriving changes nothing
-  // about the transform or the other tiles. Calling render() here is the same
-  // n^2 append amplification that `drawnCells` exists to prevent.
-  }).then(d=>{ if(d){ geomCache.set(key,d); paintBasemap(); } })
-    .catch(()=>{ geomCache.delete(key); });   // transient: retry on next render
+    return r.arrayBuffer();
+  // scheduleBaseDraw(), NOT render(): one tile's shapes arriving changes
+  // nothing about the transform or the other tiles.
+  }).then(buf=>{
+    if(!buf) return;
+    const d=parseTileBin(buf);
+    if(d){ geomCache.set(key,d); scheduleBaseDraw(); }
+    else geomCache.delete(key);                  // bad payload: allow a retry
+  }).catch(()=>{ geomCache.delete(key); });      // transient: retry on next render
 }
-// Cells whose basemap shapes are already in the DOM for the current view —
-// the same discipline as `drawnCells`, for the same measured reason.
-let drawnGeomCells=new Set();
-function paintBasemap(){
+
+// One viewport-sized canvas UNDER #tiles (dots and the selection SVG stay
+// above it). Not inside #tiles: the canvas repaints from Path2D per frame
+// anyway, so it doesn't ride the CSS transform — it just draws at the offset
+// the transform encodes.
+let baseCanvas=null, baseCtx=null, baseDrawQueued=false;
+function baseLayerCanvas(){
+  if(!baseCanvas){
+    baseCanvas=document.createElement('canvas');
+    baseCanvas.id='base-shapes';
+    baseCanvas.style.cssText='position:absolute;left:0;top:0;pointer-events:none;';
+    map.insertBefore(baseCanvas,map.firstChild);
+    baseCtx=baseCanvas.getContext('2d');
+  }
+  const dpr=window.devicePixelRatio||1;
+  const w=map.clientWidth, h=map.clientHeight;
+  if(baseCanvas.width!==Math.round(w*dpr)||baseCanvas.height!==Math.round(h*dpr)){
+    baseCanvas.width=Math.round(w*dpr); baseCanvas.height=Math.round(h*dpr);
+    baseCanvas.style.width=w+'px'; baseCanvas.style.height=h+'px';
+  }
+  baseCtx.setTransform(dpr,0,0,dpr,0,0);
+  return baseCtx;
+}
+// rAF-throttled: pan fires pointermove far faster than the display refreshes,
+// and one draw per frame is both sufficient and the cheapest correct rate.
+function scheduleBaseDraw(){
+  if(baseDrawQueued) return;
+  baseDrawQueued=true;
+  requestAnimationFrame(()=>{ baseDrawQueued=false; drawBase(); });
+}
+function drawBase(){
+  const ctx=baseLayerCanvas();
+  const w=map.clientWidth, h=map.clientHeight;
+  ctx.clearRect(0,0,w,h);
   if(BASEMAPS[basemap].src) return;            // a raster skin is active
-  const svg=baseLayer();
+  // Path2D geometry is tile-relative at ONE zoom; crossing zooms would draw
+  // the old zoom's pixel space into the new one's. Evict, don't reuse — this
+  // also bounds memory, which the SVG version never did (its cache kept every
+  // zoom ever visited).
+  if(z!==geomZoom){ geomCache.clear(); geomZoom=z; }
+  const ox=w/2 - cx*256, oy=h/2 - cy*256;
   for(const {tx,ty,wx} of visibleGrid()){
     ensureGeometry(z,wx,ty);
-    const cell=tx+','+ty;
-    if(drawnGeomCells.has(cell)) continue;
     const d=geomCache.get(tileKey(z,wx,ty));
     if(!(d && typeof d==='object')) continue;
-    drawnGeomCells.add(cell);
-    const offset=tx-wx;
-    // Areas before lines, so a road is never buried under the park it crosses.
-    // Sorting per tile (not globally) keeps this O(n log n) on arrival instead
-    // of re-sorting every shape drawn so far.
-    const ordered=d.shapes.slice().sort((a,b)=>(a.closed===b.closed)?0:(a.closed?-1:1));
-    const frag=document.createDocumentFragment();
-    for(const g of ordered) frag.appendChild(svgShape(g,offset,styleForClass(g.class)));
-    svg.appendChild(frag);
+    ctx.save();
+    ctx.translate(tx*256+ox, ty*256+oy);
+    for(const c of FILL_PASS){
+      const p=d.fills.get(c); if(!p) continue;
+      ctx.fillStyle=CLASS_STYLE[CLASS_ORDER[c]].fill; ctx.fill(p);
+    }
+    for(const c of STROKE_PASS){
+      const p=d.strokes.get(c); if(!p) continue;
+      const st=CLASS_STYLE[CLASS_ORDER[c]];
+      ctx.strokeStyle=st.stroke; ctx.lineWidth=st.w; ctx.stroke(p);
+    }
+    ctx.restore();
   }
   updateBaseStatus();
 }
@@ -421,14 +492,13 @@ function paintFeatures(){
 function render(){
   const w=map.clientWidth, h=map.clientHeight;
   tilesEl.innerHTML=''; drawnCells=new Set();
-  // Only a zoom change invalidates the retained basemap geometry (see baseLayer).
-  if(z!==geomZoom){ baseSvgEl=null; drawnGeomCells=new Set(); geomZoom=z; }
   // pixel offset of the map center
   const ox=w/2 - cx*256, oy=h/2 - cy*256;
   tilesEl.style.transform=`translate(${ox}px,${oy}px)`;
   const bm=BASEMAPS[basemap];
   // No `src` is the vector basemap: the map is drawn, not downloaded.
   if(bm.src){
+    scheduleBaseDraw();   // clears the vector canvas under the raster tiles
     for(const {tx,ty,wx} of visibleGrid()){
       const img=new Image();
       img.src=bm.src(z,wx,ty);
@@ -436,7 +506,7 @@ function render(){
       tilesEl.appendChild(img);
     }
   } else {
-    paintBasemap();
+    scheduleBaseDraw();
   }
   paintFeatures();
 }
@@ -537,7 +607,7 @@ map.addEventListener('click',async e=>{
     // is OUR endpoint — printing tile.openstreetmap.org while nothing is being
     // fetched from it was the exact confusion this view has to stop causing.
     document.getElementById('src').textContent =
-      basemap==='vector' ? `${location.origin}/api/osm/geometry/tile/${d.z}/${d.x}/${d.y}`
+      basemap==='vector' ? `${location.origin}/api/osm/geometry/tile-bin/${d.z}/${d.x}/${d.y}`
       : basemap==='sat'  ? d.sat_tile_url : d.tile_url;
   }catch(err){ document.getElementById('src').textContent='locate failed: '+err; }
 });

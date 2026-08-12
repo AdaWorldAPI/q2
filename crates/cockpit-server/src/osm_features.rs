@@ -555,9 +555,12 @@ fn open_chains() -> Option<&'static osm_soa_bake::chains::Chains> {
             let path = std::path::PathBuf::from(std::env::var("OSM_SLAB_PATH").ok()?)
                 .with_extension("chains");
             let bytes = std::fs::read(&path).ok()?;
+            let _ = slab; // digest reads the same mmap via slab_digest()
             match osm_soa_bake::chains::Chains::from_bytes(bytes) {
                 Ok(ch) => {
-                    let want = osm_soa_bake::codebook::hash_slab(slab);
+                    // One hash per process: the same digest doubles as the
+                    // binary tile wire's ETag (see `slab_digest`).
+                    let want = slab_digest()?;
                     if ch.slab_digest != want {
                         tracing::error!(
                             got = format_args!("{:016x}", ch.slab_digest),
@@ -689,6 +692,24 @@ pub enum ShapeClass {
     Other,
 }
 
+impl ShapeClass {
+    /// The class's byte on the binary wire. EXPLICIT, not `as u8`: the enum's
+    /// declaration order is a refactoring surface, the wire is a contract —
+    /// the client's `CLASS_ORDER` table indexes by these exact values, and
+    /// `wire_codes_are_pinned` fails if either side moves without the other.
+    fn wire_code(self) -> u8 {
+        match self {
+            ShapeClass::Water => 0,
+            ShapeClass::Building => 1,
+            ShapeClass::Wood => 2,
+            ShapeClass::Green => 3,
+            ShapeClass::Rail => 4,
+            ShapeClass::Road => 5,
+            ShapeClass::Other => 6,
+        }
+    }
+}
+
 /// Classify a tag set by precedence.
 ///
 /// Tags arrive in arbitrary order, so this cannot be "first match wins" over
@@ -773,7 +794,8 @@ fn pixel_shift(z: u32) -> u32 {
     32u32.saturating_sub(z + 8 + SUBPIXEL_BITS)
 }
 
-/// Drop vertices that land on the same (sub)pixel at this zoom.
+/// Drop vertices that land on the same (sub)pixel at this zoom, keeping the
+/// survivors as RAW z32 cells.
 ///
 /// This is an integer compare on the codec's own grid — no floating-point
 /// distance test and no tolerance constant to tune, because the display's
@@ -783,7 +805,14 @@ fn pixel_shift(z: u32) -> u32 {
 /// The first and last vertices always survive, so a ring that survives at all
 /// stays closed. A ring that thins below 4 vertices is no longer a ring at
 /// this zoom — the caller drops it rather than emit a degenerate polygon.
-fn simplify_cells(chain: &[osm_soa_bake::tms::TileXy], z: u32) -> Vec<[f64; 2]> {
+///
+/// Raw cells (not lon/lat) on purpose: the JSON wire projects them to
+/// degrees, the binary wire projects them to tile-relative pixels, and both
+/// projections must consume the SAME survivor set or the two forms drift.
+fn simplify_cells_raw(
+    chain: &[osm_soa_bake::tms::TileXy],
+    z: u32,
+) -> Vec<osm_soa_bake::tms::TileXy> {
     let shift = pixel_shift(z);
     let mut out = Vec::new();
     let mut last: Option<(u32, u32)> = None;
@@ -793,12 +822,22 @@ fn simplify_cells(chain: &[osm_soa_bake::tms::TileXy], z: u32) -> Vec<[f64; 2]> 
         // `is_last` forces the closing vertex through even when it repeats the
         // previous kept pixel: for a ring that repeat IS the closure.
         if last != Some(cell) || is_last {
-            let (lon, lat) = osm_soa_bake::tms::tile_to_lonlat(c.x, c.y_xyz);
-            out.push([lon, lat]);
+            out.push(*c);
             last = Some(cell);
         }
     }
     out
+}
+
+/// The lon/lat projection of [`simplify_cells_raw`] — the JSON wire's view.
+fn simplify_cells(chain: &[osm_soa_bake::tms::TileXy], z: u32) -> Vec<[f64; 2]> {
+    simplify_cells_raw(chain, z)
+        .into_iter()
+        .map(|c| {
+            let (lon, lat) = osm_soa_bake::tms::tile_to_lonlat(c.x, c.y_xyz);
+            [lon, lat]
+        })
+        .collect()
 }
 
 /// Geometry is far heavier per row than a dot, so it gets its own ceiling
@@ -842,17 +881,38 @@ pub struct TileGeometryOut {
     pub shapes: Vec<TileShapeOut>,
 }
 
-fn query_tile_geometry(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileGeometryOut, String> {
+/// One shape as the query produced it: simplified survivor CELLS, not yet
+/// projected to any wire form.
+struct RawShape {
+    idx: usize,
+    class: ShapeClass,
+    closed: bool,
+    cells: Vec<osm_soa_bake::tms::TileXy>,
+}
+
+/// The tile query's result before wire projection. JSON (`TileGeometryOut`)
+/// and the binary form (`encode_tile_bin`) are both views of THIS, so the two
+/// wires can never disagree about sampling, classification, or survivor sets.
+struct TileShapesRaw {
+    z: u32,
+    x: u32,
+    y: u32,
+    total: usize,
+    sampled: usize,
+    malformed: usize,
+    shapes: Vec<RawShape>,
+}
+
+fn query_tile_shapes(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileShapesRaw, String> {
     let slab = RowSlab::new(bytes).map_err(|e| format!("slab bytes not row-aligned: {e:?}"))?;
     let range = slab.tile_range(z, x, y);
     let total = range.len();
-    let empty = |sampled| TileGeometryOut {
+    let empty = |sampled| TileShapesRaw {
         z,
         x,
         y,
         total,
         sampled,
-        returned: 0,
         malformed: 0,
         shapes: Vec::new(),
     };
@@ -888,34 +948,196 @@ fn query_tile_geometry(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileGeome
             }
         };
         let ring = chain.len() >= 4 && chain.first() == chain.last();
-        let points = simplify_cells(&chain, z);
+        let cells = simplify_cells_raw(&chain, z);
         // Sub-pixel at this zoom: a ring that can no longer be a ring, or a
         // line with nothing left to join. Dropping beats emitting a degenerate
         // polygon the renderer would fill as a sliver.
-        if (ring && points.len() < 4) || points.len() < 2 {
+        if (ring && cells.len() < 4) || cells.len() < 2 {
             continue;
         }
         let class = books
             .map(|b| class_for_tags(row_tags(&rows[i], b, ordinal)))
             .unwrap_or(ShapeClass::Other);
-        shapes.push(TileShapeOut {
+        shapes.push(RawShape {
             idx: i,
             class,
             closed: ring,
-            points,
+            cells,
         });
     }
 
-    Ok(TileGeometryOut {
+    Ok(TileShapesRaw {
         z,
         x,
         y,
         total,
         sampled,
-        returned: shapes.len(),
         malformed,
         shapes,
     })
+}
+
+/// The JSON projection of [`query_tile_shapes`].
+fn query_tile_geometry(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileGeometryOut, String> {
+    let raw = query_tile_shapes(bytes, z, x, y)?;
+    let shapes: Vec<TileShapeOut> = raw
+        .shapes
+        .iter()
+        .map(|s| TileShapeOut {
+            idx: s.idx,
+            class: s.class,
+            closed: s.closed,
+            points: s
+                .cells
+                .iter()
+                .map(|c| {
+                    let (lon, lat) = osm_soa_bake::tms::tile_to_lonlat(c.x, c.y_xyz);
+                    [lon, lat]
+                })
+                .collect(),
+        })
+        .collect();
+    Ok(TileGeometryOut {
+        z: raw.z,
+        x: raw.x,
+        y: raw.y,
+        total: raw.total,
+        sampled: raw.sampled,
+        returned: shapes.len(),
+        malformed: raw.malformed,
+        shapes,
+    })
+}
+
+/// The binary tile wire — `OSM1`, all little-endian, per the house rule that
+/// `to_le_bytes` IS the wire format (T3/ADR-022: no serde on the hot path).
+///
+/// ```text
+/// magic   u32   0x314D534F  ("OSM1" as LE bytes)
+/// total   u32   rows the tile covers
+/// sampled u32   rows the budget selected
+/// count   u32   shapes that follow
+/// malformed u32
+/// per shape:
+///   idx     u32   slab row index (the /api/osm/feature/:idx handle)
+///   class   u8    ShapeClass::wire_code
+///   closed  u8    1 = ring
+///   npoints u16
+///   npoints × (f32 dx, f32 dy)   tile-relative world-pixels at z
+/// ```
+///
+/// Coordinates are projected STRAIGHT from the chain's z32 cells:
+/// `world_px = cell · 2^(z+8) / 2^32 = cell · 2^(z−24)`, minus the tile
+/// origin — one multiply, no lon/lat round-trip and none of its trig. They
+/// are tile-RELATIVE so the f32 mantissa is spent on sub-pixel precision
+/// instead of on world position (absolute world-pixels at z19 need 27 bits,
+/// which f32 does not have; relative values stay small at every zoom).
+///
+/// ~8 bytes/point against ~45 for the JSON form — measured 5–8× smaller
+/// before compression on realistic shapes.
+const TILE_BIN_MAGIC: u32 = 0x314D_534F;
+
+fn encode_tile_bin(raw: &TileShapesRaw) -> Vec<u8> {
+    let npts: usize = raw.shapes.iter().map(|s| s.cells.len()).sum();
+    let mut out = Vec::with_capacity(20 + raw.shapes.len() * 8 + npts * 8);
+    out.extend_from_slice(&TILE_BIN_MAGIC.to_le_bytes());
+    out.extend_from_slice(&(raw.total as u32).to_le_bytes());
+    out.extend_from_slice(&(raw.sampled as u32).to_le_bytes());
+    out.extend_from_slice(&(raw.shapes.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(raw.malformed as u32).to_le_bytes());
+
+    // 2^(z-24) as a plain multiply. z ≤ 24 gives a fractional factor, z > 24
+    // a multiple — exp2 handles both signs of the exponent.
+    let scale = f64::exp2(raw.z as f64 - 24.0);
+    let (ox, oy) = ((raw.x * 256) as f64, (raw.y * 256) as f64);
+
+    for s in &raw.shapes {
+        // u16 point count: an OSM way is capped at 2,000 nodes upstream, so
+        // this cannot fire on real data — but a malformed chain must truncate
+        // loudly in the count rather than alias into the next shape's header.
+        let n = s.cells.len().min(u16::MAX as usize);
+        out.extend_from_slice(&(s.idx as u32).to_le_bytes());
+        out.push(s.class.wire_code());
+        out.push(u8::from(s.closed));
+        out.extend_from_slice(&(n as u16).to_le_bytes());
+        for c in &s.cells[..n] {
+            out.extend_from_slice(&((c.x as f64 * scale - ox) as f32).to_le_bytes());
+            out.extend_from_slice(&((c.y_xyz as f64 * scale - oy) as f32).to_le_bytes());
+        }
+    }
+    out
+}
+
+/// The slab's content digest, computed once. Doubles as the binary tile
+/// wire's cache validator: the digest is ALREADY the cross-bake pin (the
+/// `.chains` sidecar is refused against the wrong slab by this same value),
+/// so an ETag built from it busts client caches on a new bake by
+/// construction, and never otherwise.
+static SLAB_DIGEST: OnceLock<Option<u64>> = OnceLock::new();
+fn slab_digest() -> Option<u64> {
+    *SLAB_DIGEST.get_or_init(|| open_slab().map(osm_soa_bake::codebook::hash_slab))
+}
+
+/// `GET /api/osm/geometry/tile-bin/:z/:x/:y` — the same tile query as the
+/// JSON form, on the binary wire, with an honest cache story:
+/// `Cache-Control: no-cache` + a digest ETag means a zoom revisit costs one
+/// conditional request and a 304, never a re-download — and a NEW bake
+/// changes the ETag, so nothing stale ever survives a redeploy.
+pub async fn osm_tile_geometry_bin_handler(
+    Path((z, x, y)): Path<(u32, u32, u32)>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let Some(bytes) = open_slab() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "OSM_SLAB_PATH is not set or the baked slab could not be opened",
+            })),
+        )
+            .into_response();
+    };
+    // "osm1-" carries the wire-format generation: bumping the format busts
+    // caches even when the bake (and so the digest) is unchanged.
+    let etag = format!("\"osm1-{:016x}\"", slab_digest().unwrap_or(0));
+    if headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == etag)
+    {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [
+                (axum::http::header::ETAG, etag),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "public, no-cache".to_string(),
+                ),
+            ],
+        )
+            .into_response();
+    }
+    match query_tile_shapes(bytes, z, x, y) {
+        Ok(raw) => (
+            [
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    "application/octet-stream".to_string(),
+                ),
+                (axum::http::header::ETAG, etag),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "public, no-cache".to_string(),
+                ),
+            ],
+            encode_tile_bin(&raw),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+    }
 }
 
 /// `GET /api/osm/geometry/tile/:z/:x/:y` — every shape anchored in this tile.
@@ -1099,6 +1321,129 @@ mod tests {
             out.last(),
             "a simplified ring must still close on itself"
         );
+    }
+
+    /// The wire bytes are a CONTRACT with the client's `CLASS_ORDER` array —
+    /// its index IS the byte. An enum reorder that silently shifted these
+    /// would recolour the whole map (water drawn as buildings) with no error
+    /// anywhere, which is why the codes are pinned by value and not `as u8`.
+    #[test]
+    fn wire_codes_are_pinned() {
+        assert_eq!(ShapeClass::Water.wire_code(), 0);
+        assert_eq!(ShapeClass::Building.wire_code(), 1);
+        assert_eq!(ShapeClass::Wood.wire_code(), 2);
+        assert_eq!(ShapeClass::Green.wire_code(), 3);
+        assert_eq!(ShapeClass::Rail.wire_code(), 4);
+        assert_eq!(ShapeClass::Road.wire_code(), 5);
+        assert_eq!(ShapeClass::Other.wire_code(), 6);
+    }
+
+    /// Decode `OSM1` bytes back into shapes — an independent reader for the
+    /// round-trip test below, written from the format DOC, not from the
+    /// encoder's code, so a shared misunderstanding can't self-certify.
+    fn decode_tile_bin(buf: &[u8]) -> Option<(u32, u32, u32, u32, Vec<(u32, u8, bool, Vec<(f32, f32)>)>)> {
+        let rd_u32 = |at: usize| u32::from_le_bytes(buf[at..at + 4].try_into().unwrap());
+        if buf.len() < 20 || rd_u32(0) != 0x314D_534F {
+            return None;
+        }
+        let (total, sampled, count, malformed) = (rd_u32(4), rd_u32(8), rd_u32(12), rd_u32(16));
+        let mut shapes = Vec::new();
+        let mut at = 20;
+        for _ in 0..count {
+            let idx = rd_u32(at);
+            let class = buf[at + 4];
+            let closed = buf[at + 5] == 1;
+            let n = u16::from_le_bytes(buf[at + 6..at + 8].try_into().unwrap()) as usize;
+            at += 8;
+            let mut pts = Vec::with_capacity(n);
+            for i in 0..n {
+                let x = f32::from_le_bytes(buf[at + i * 8..at + i * 8 + 4].try_into().unwrap());
+                let y = f32::from_le_bytes(buf[at + i * 8 + 4..at + i * 8 + 8].try_into().unwrap());
+                pts.push((x, y));
+            }
+            at += n * 8;
+            shapes.push((idx, class, closed, pts));
+        }
+        // The buffer must be EXACTLY consumed — trailing bytes mean the
+        // encoder and this reader disagree about the format.
+        assert_eq!(at, buf.len(), "wire not exactly consumed");
+        Some((total, sampled, count, malformed, shapes))
+    }
+
+    /// Round-trip through the binary wire, with the coordinate values checked
+    /// against an INDEPENDENT projection: the JSON path's lon/lat run through
+    /// the client's own slippy formulas. The binary encoder never touches
+    /// lon/lat (it scales z32 cells directly), so agreement here is two
+    /// implementations meeting, not one implementation echoed.
+    #[test]
+    fn tile_bin_round_trips_and_matches_the_lonlat_projection() {
+        let z = 14u32;
+        // A tile that really contains the cells below (Berlin-ish).
+        let cells = [
+            osm_soa_bake::tms::TileXy { x: 0x8988_0000, y_xyz: 0x5470_0000 },
+            osm_soa_bake::tms::TileXy { x: 0x8988_4000, y_xyz: 0x5470_4000 },
+            osm_soa_bake::tms::TileXy { x: 0x8988_8000, y_xyz: 0x5470_0000 },
+            osm_soa_bake::tms::TileXy { x: 0x8988_0000, y_xyz: 0x5470_0000 },
+        ];
+        let (tx, ty) = (cells[0].x >> (32 - z as usize as u32), cells[0].y_xyz >> (32 - z));
+        let raw = TileShapesRaw {
+            z,
+            x: tx,
+            y: ty,
+            total: 7,
+            sampled: 5,
+            malformed: 1,
+            shapes: vec![RawShape {
+                idx: 42,
+                class: ShapeClass::Water,
+                closed: true,
+                cells: cells.to_vec(),
+            }],
+        };
+        let bin = encode_tile_bin(&raw);
+        let (total, sampled, count, malformed, shapes) = decode_tile_bin(&bin).expect("magic");
+        assert_eq!((total, sampled, count, malformed), (7, 5, 1, 1));
+        let (idx, class, closed, pts) = &shapes[0];
+        assert_eq!((*idx, *class, *closed), (42, 0, true));
+        assert_eq!(pts.len(), 4);
+
+        // Independent check: JSON-path lon/lat -> world px via the SAME
+        // formulas the page's lon2x/lat2y use, minus the tile origin.
+        for (i, c) in cells.iter().enumerate() {
+            let (lon, lat) = osm_soa_bake::tms::tile_to_lonlat(c.x, c.y_xyz);
+            let n = f64::exp2(z as f64);
+            let wx = (lon + 180.0) / 360.0 * n * 256.0 - (tx * 256) as f64;
+            let r = lat.to_radians();
+            let wy = (1.0 - (r.tan() + 1.0 / r.cos()).ln() / std::f64::consts::PI) / 2.0 * n * 256.0
+                - (ty * 256) as f64;
+            assert!(
+                (pts[i].0 as f64 - wx).abs() < 0.01 && (pts[i].1 as f64 - wy).abs() < 0.01,
+                "point {i}: bin ({}, {}) vs lonlat projection ({wx:.4}, {wy:.4})",
+                pts[i].0,
+                pts[i].1
+            );
+        }
+    }
+
+    /// An empty tile still carries its honest header — `total` non-zero with
+    /// zero shapes is the "all nodes, no ways" answer, and the client's
+    /// status line depends on those counts being real.
+    #[test]
+    fn tile_bin_empty_tile_is_a_valid_header_only_wire() {
+        let raw = TileShapesRaw {
+            z: 12,
+            x: 2200,
+            y: 1341,
+            total: 33,
+            sampled: 33,
+            malformed: 0,
+            shapes: Vec::new(),
+        };
+        let bin = encode_tile_bin(&raw);
+        assert_eq!(bin.len(), 20, "header-only wire");
+        let (total, sampled, count, _, shapes) = decode_tile_bin(&bin).unwrap();
+        assert_eq!((total, sampled, count), (33, 33, 0));
+        assert!(shapes.is_empty());
     }
 
     #[test]

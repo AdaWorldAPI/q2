@@ -284,6 +284,12 @@ async fn main() {
             "/api/osm/geometry/tile/:z/:x/:y",
             get(osm_features::osm_tile_geometry_handler),
         )
+        // The same tile query on the binary LE wire (`OSM1`) — what the
+        // cockpit actually consumes. JSON stays for tests and curl.
+        .route(
+            "/api/osm/geometry/tile-bin/:z/:x/:y",
+            get(osm_features::osm_tile_geometry_bin_handler),
+        )
         // The /OSM cockpit page — a slippy map over the tile material, HHTL live.
         .route("/osm", get(osm::osm_page_handler))
         // Garmin terrain scenes, mod-rewrite style: /api/garmin/:location resolves the
