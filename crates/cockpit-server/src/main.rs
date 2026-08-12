@@ -43,6 +43,7 @@ mod osint_classview;
 mod osm_tiles;
 mod osm;
 mod osm_features;
+mod osm_lance;
 mod osm_slab_hydrate;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
@@ -197,6 +198,20 @@ async fn main() {
     if let Some(path) = osm_slab_hydrate::ensure_slab_local().await {
         // SAFETY: single-threaded startup, before any task or listener exists.
         unsafe { std::env::set_var("OSM_SLAB_PATH", &path) };
+
+        // Load the map into lance-graph: convert the hydrated `.soa` slab
+        // into a Lance dataset on the same persistent volume (medcare-rs's
+        // own hydrate-into-Lance shape; see `osm_lance`'s module doc for the
+        // full recipe and why it stays local rather than S3-backed).
+        // Best-effort and non-blocking to correctness: `osm_features::
+        // open_slab` still mmaps the raw `.soa` file regardless of whether
+        // this succeeds, so a conversion failure never takes the map down.
+        if osm_lance::ensure_lance_local(&path).await.is_none() {
+            tracing::warn!(
+                "osm lance: conversion to a Lance dataset failed or was skipped; \
+                 the raw .soa slab still serves the map unaffected"
+            );
+        }
     }
 
     let (tx, _rx) = broadcast::channel::<SseEvent>(256);

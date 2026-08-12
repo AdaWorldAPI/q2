@@ -1780,6 +1780,7 @@ name = "cockpit-server"
 version = "0.1.0"
 dependencies = [
  "aiwar-ingest",
+ "arrow",
  "askama",
  "async-stream",
  "axum 0.7.9",
@@ -1790,6 +1791,7 @@ dependencies = [
  "futures-core",
  "hex",
  "include_dir",
+ "lance",
  "lance-graph",
  "lance-graph-contract",
  "lance-graph-ogar",
@@ -1805,6 +1807,7 @@ dependencies = [
  "serde_json",
  "serde_v8",
  "sha2 0.10.9",
+ "tempfile",
  "tokio",
  "tower-http 0.5.2",
  "tracing",
