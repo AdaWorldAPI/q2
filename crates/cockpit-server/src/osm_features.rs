@@ -982,8 +982,29 @@ fn simplify_cells(chain: &[osm_soa_bake::tms::TileXy], z: u32) -> Vec<[f64; 2]> 
 /// rather than reusing [`row_budget`]. Same zoom split and same reasoning as
 /// there: decimating an overview is a legitimate LOD choice, decimating a city
 /// is a wrong map.
-const GEOMETRY_OVERVIEW_BUDGET: usize = 1_500;
-const GEOMETRY_CITY_BUDGET: usize = 12_000;
+/// Geometry-wire budgets, re-grounded 2026-08-12 for the GL renderer.
+///
+/// The old values (1_500 / 12_000) inherited the DOM-marker cost model that
+/// `OVERVIEW_ROW_BUDGET`'s history documents (177,963 retained DOM nodes =
+/// the measured ceiling; 1.77M = a hung page). The geometry wire no longer
+/// renders that way: shapes land in retained per-tile VBOs and draw as two
+/// GL calls per tile (`drawBaseGL`), and THIS deployment measured the same
+/// GPU path at 38.78M tris / 19.40M verts in 2 draw calls, LOD off, on
+/// `/garmin/havel`. Measured against that:
+///
+/// - **City zooms are complete, never decimated** — the budget becomes the
+///   same transport backstop the dot wire uses (`CITY_ROW_CEILING`): the
+///   densest possible Berlin z13 tile is bounded by 246,016 rows (64 hip
+///   tiles x 3,844 max measured), so the ceiling provably cannot fire for a
+///   Berlin-class bake; if it ever does, `sampled < total` reports it.
+/// - **Overview zooms keep the Morton-cell LOD** (`overview_sample` — one
+///   representative per occupied cell, the rule the table above proved
+///   drops no isolated features), with 8x the room: 12,000 x ~63 viewport
+///   tiles ≈ 750k shapes ≈ single-digit-millions of line verts, an order of
+///   magnitude under the 19.4M verts measured live. The dot wire's budget is
+///   untouched — dots are points, geometry is the map.
+const GEOMETRY_OVERVIEW_BUDGET: usize = 12_000;
+const GEOMETRY_CITY_BUDGET: usize = CITY_ROW_CEILING;
 fn geometry_row_budget(z: u32) -> usize {
     if z < CITY_ZOOM_FLOOR {
         GEOMETRY_OVERVIEW_BUDGET
