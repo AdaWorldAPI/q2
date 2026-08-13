@@ -484,12 +484,50 @@ pub async fn osm_features_handler(Path((z, x, y)): Path<(u32, u32, u32)>) -> Res
 /// a second env var to keep in sync with the first.
 static BOOKS: OnceLock<Option<osm_soa_bake::codebook::Books>> = OnceLock::new();
 
+/// Resolve `<slab-stem>.<ext>` from `OSM_SLAB_PATH`.
+///
+/// Split out so the "no path" arm *says so*. Both sidecar openers used to
+/// spell this `std::env::var("OSM_SLAB_PATH").ok()?` — a silent `None` — and
+/// that silence is what made a missing codebook so expensive to diagnose:
+/// every other failure in this file names itself, but the two that fire on a
+/// misconfigured deploy did not.
+fn sidecar_path(ext: &str) -> Option<std::path::PathBuf> {
+    match std::env::var("OSM_SLAB_PATH") {
+        Ok(slab) => Some(std::path::PathBuf::from(slab).with_extension(ext)),
+        Err(_) => {
+            // Not an error, and deliberately not a warning: local dev and any
+            // deploy without an OSM bake runs this way by design, and the
+            // endpoints already answer 503. It is logged so "unset" and
+            // "present but unreadable" are never confused for each other.
+            tracing::debug!(ext, "osm sidecar: OSM_SLAB_PATH unset — no OSM bake configured");
+            None
+        }
+    }
+}
+
 fn open_books() -> Option<&'static osm_soa_bake::codebook::Books> {
     BOOKS
         .get_or_init(|| {
-            let path = std::path::PathBuf::from(std::env::var("OSM_SLAB_PATH").ok()?)
-                .with_extension("books");
-            let file = std::fs::File::open(&path).ok()?;
+            let path = sidecar_path("books")?;
+            let file = match std::fs::File::open(&path) {
+                Ok(f) => f,
+                // THE grey-map cause, and it used to be invisible. Without the
+                // codebook `class_for_tags` never runs, every shape carries
+                // `ShapeClass::Other` (`fill:'none'`, a thin grey stroke), and
+                // feature clicks resolve no tags — a correct-looking render of
+                // correct geometry with all the meaning stripped out. Nothing
+                // 500s and nothing 503s, so this line is the only thing that
+                // can tell an operator why the map went grey.
+                Err(e) => {
+                    tracing::error!(
+                        path = %path.display(), error = %e,
+                        "osm books: codebook ABSENT next to the slab — every feature falls back \
+                         to ShapeClass::Other, so the map draws grey/untagged. Ship \
+                         <slab-stem>.books from the SAME bake run as the slab and .chains"
+                    );
+                    return None;
+                }
+            };
             let mut r = std::io::BufReader::new(file);
             match osm_soa_bake::codebook::read_books(&mut r) {
                 Ok((header, books)) => {
@@ -535,6 +573,88 @@ fn open_books() -> Option<&'static osm_soa_bake::codebook::Books> {
             }
         })
         .as_ref()
+}
+
+/// The one line an operator actually reads, as a pure function so each arm can
+/// be tested without mutating process env or faking a filesystem.
+///
+/// Each arm names the NEXT ACTION, not just the state: "books: false" alone
+/// does not distinguish "ship the missing file" from "re-bake the region",
+/// and those are different jobs. The `present but not loaded` arm is the one
+/// worth keeping distinct — it is the case where the operator has already
+/// done the obvious thing and it did not work.
+fn styling_verdict(configured: bool, books_loaded: bool, books_present: bool) -> &'static str {
+    if !configured {
+        "unconfigured: no OSM bake on this deploy (the tile endpoints answer 503 by design)"
+    } else if books_loaded {
+        "ok: features classify by tag, so per-class fills and textures apply"
+    } else if books_present {
+        "DEGRADED: the codebook file is present but was REFUSED — a foreign bake (digest \
+         mismatch) or an outdated format. Check the `osm books:` error line; re-bake the \
+         region so slab and sidecars come from one run"
+    } else {
+        "DEGRADED: the codebook file is ABSENT — every shape falls back to ShapeClass::Other, \
+         so the map draws grey/stroke-only and feature clicks resolve no tags. Ship \
+         <slab-stem>.books from the SAME bake run as the slab"
+    }
+}
+
+/// `GET /api/osm/health` — why the map looks the way it does.
+///
+/// Exists because the failure that matters most on this endpoint family is
+/// INVISIBLE from the outside. With the codebook absent every shape classes as
+/// `ShapeClass::Other`, so the server returns a full, correct tile of correct
+/// geometry and the browser draws it grey and untagged: no error, no 503, no
+/// wrong status code, nothing to catch. Diagnosing that from the outside meant
+/// guessing between four causes that look identical on screen — unset env,
+/// absent file, foreign bake, outdated format. This reports which one it is.
+///
+/// Deliberately reports the FILE state and the LOADED state separately: they
+/// disagree in exactly the interesting case (the file is present but was
+/// refused for a digest or magic mismatch), and collapsing them into one
+/// boolean would hide the difference between "ship the file" and "re-bake the
+/// region". Cheap enough to be safe: two `stat`s plus already-cached loads.
+pub async fn osm_health_handler() -> Json<serde_json::Value> {
+    let slab_env = std::env::var("OSM_SLAB_PATH").ok();
+    let sidecar = |ext: &str| {
+        slab_env
+            .as_ref()
+            .map(|s| std::path::PathBuf::from(s).with_extension(ext))
+    };
+    let stat = |p: Option<std::path::PathBuf>| match p {
+        Some(p) => match std::fs::metadata(&p) {
+            Ok(m) => serde_json::json!({
+                "path": p.display().to_string(), "present": true, "bytes": m.len(),
+            }),
+            Err(e) => serde_json::json!({
+                "path": p.display().to_string(), "present": false, "error": e.to_string(),
+            }),
+        },
+        None => serde_json::json!({ "present": false, "error": "OSM_SLAB_PATH unset" }),
+    };
+
+    let books_file = stat(sidecar("books"));
+    let chains_file = stat(sidecar("chains"));
+    let books_loaded = open_books().is_some();
+    let chains_loaded = open_chains().is_some();
+    let rows = open_slab().and_then(|b| RowSlab::new(b).ok()).map(|s| s.len());
+
+    let styling = styling_verdict(
+        slab_env.is_some(),
+        books_loaded,
+        books_file["present"] == serde_json::json!(true),
+    );
+
+    Json(serde_json::json!({
+        "slab": {
+            "path": slab_env,
+            "rows": rows,
+            "digest": slab_digest().map(|d| format!("{d:016x}")),
+        },
+        "books":  { "file": books_file,  "loaded": books_loaded },
+        "chains": { "file": chains_file, "loaded": chains_loaded },
+        "styling": styling,
+    }))
 }
 
 /// Resolve one slab row into identity + tags.
@@ -636,9 +756,22 @@ fn open_chains() -> Option<&'static osm_soa_bake::chains::Chains> {
     CHAINS
         .get_or_init(|| {
             let slab = open_slab()?;
-            let path = std::path::PathBuf::from(std::env::var("OSM_SLAB_PATH").ok()?)
-                .with_extension("chains");
-            let bytes = std::fs::read(&path).ok()?;
+            let path = sidecar_path("chains")?;
+            let bytes = match std::fs::read(&path) {
+                Ok(b) => b,
+                // Same silent-`None` defect as the books arm above: absent
+                // chains means no ring geometry at all (the dots still work),
+                // which reads on screen as an empty neighbourhood rather than
+                // as a missing file.
+                Err(e) => {
+                    tracing::error!(
+                        path = %path.display(), error = %e,
+                        "osm chains: geometry sidecar ABSENT next to the slab — no shapes will \
+                         draw. Ship <slab-stem>.chains from the SAME bake run as the slab"
+                    );
+                    return None;
+                }
+            };
             let _ = slab; // digest reads the same mmap via slab_digest()
             match osm_soa_bake::chains::Chains::from_bytes(bytes) {
                 Ok(ch) => {
@@ -1326,6 +1459,71 @@ mod tests {
     use super::*;
     use lance_graph_contract::canonical_node::NODE_ROW_STRIDE;
     use osm_soa_bake::tms::point_to_tms_morton;
+
+    /// All four arms are reachable and distinct — the point of the endpoint is
+    /// telling them APART, so a verdict that collapsed any two would be worse
+    /// than none. In particular `present-but-not-loaded` must not read as
+    /// `absent`: the operator has already shipped the file in that case and
+    /// needs to be sent to re-baking, not back to copying.
+    #[test]
+    fn styling_verdict_separates_all_four_states() {
+        let unconfigured = styling_verdict(false, false, false);
+        let ok = styling_verdict(true, true, true);
+        let refused = styling_verdict(true, false, true);
+        let absent = styling_verdict(true, false, false);
+
+        for (a, b) in [
+            (unconfigured, ok),
+            (unconfigured, refused),
+            (unconfigured, absent),
+            (ok, refused),
+            (ok, absent),
+            (refused, absent),
+        ] {
+            assert_ne!(a, b, "two states must never produce the same verdict");
+        }
+
+        // The two that actually fire on a broken deploy must be findable by an
+        // operator grepping for trouble, and must name their distinct fix.
+        assert!(refused.contains("DEGRADED") && absent.contains("DEGRADED"));
+        assert!(refused.contains("re-bake"), "a refused codebook needs a re-bake");
+        assert!(absent.contains("Ship"), "an absent codebook needs the file shipped");
+        // A working deploy must NOT shout — otherwise the signal is worthless.
+        assert!(!ok.contains("DEGRADED") && !unconfigured.contains("DEGRADED"));
+    }
+
+    /// The sidecar contract main.rs promises: `OSM_SLAB_PATH` stays anchored to
+    /// the `.soa`, so both sidecars resolve from the SAME stem.
+    ///
+    /// The second half is the falsifier that matters. `with_extension` replaces
+    /// only the final component, so if `OSM_SLAB_PATH` were ever repointed at
+    /// the Lance dataset (`berlin.soa.lance`) the sidecars would silently
+    /// resolve to `berlin.soa.books` — a file that does not exist — and the map
+    /// would go grey with the slab itself still serving perfectly. That is
+    /// precisely the invisible failure this endpoint exists to catch, so the
+    /// path arithmetic behind it is worth pinning rather than assuming.
+    #[test]
+    fn sidecars_resolve_from_the_slab_stem_not_the_lance_dir() {
+        use std::path::PathBuf;
+        let slab = PathBuf::from("/vol/osm/berlin.soa");
+        assert_eq!(slab.with_extension("books"), PathBuf::from("/vol/osm/berlin.books"));
+        assert_eq!(
+            slab.with_extension("chains"),
+            PathBuf::from("/vol/osm/berlin.chains")
+        );
+
+        let lance = PathBuf::from("/vol/osm/berlin.soa.lance");
+        assert_eq!(
+            lance.with_extension("books"),
+            PathBuf::from("/vol/osm/berlin.soa.books"),
+            "repointing at the Lance dir would resolve a sidecar that never exists"
+        );
+        assert_ne!(
+            lance.with_extension("books"),
+            slab.with_extension("books"),
+            "the two anchors must not be confusable"
+        );
+    }
 
     /// A synthetic slab with rows at exactly the given Morton codes, laid out
     /// the way the real baker writes them: 512-byte rows, sorted, with the
