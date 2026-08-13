@@ -1138,6 +1138,58 @@ fn simplify_cells(chain: &[osm_soa_bake::tms::TileXy], z: u32) -> Vec<[f64; 2]> 
 ///   untouched — dots are points, geometry is the map.
 const GEOMETRY_OVERVIEW_BUDGET: usize = 12_000;
 const GEOMETRY_CITY_BUDGET: usize = CITY_ROW_CEILING;
+/// Below this on-screen extent a shape has no resolvable outline, and drawing
+/// one is worse than drawing nothing.
+///
+/// At z12 a Berlin building is a fraction of a pixel. Its OUTLINE still gets
+/// stroked — and the stroke colours are dark by design (`other` is `#39424f`)
+/// — so in the dense core thousands of them land on the same pixels and
+/// saturate it to black, while the FILL, which is the colour that actually
+/// carries the meaning, never survives at all. The outskirts stay legible
+/// only because they are sparse. That is the whole mechanism behind "the
+/// centre defaults to black": edges merging into nothingness.
+///
+/// Such a shape degrades to ONE point carrying its class, which the client
+/// paints in the class's fill colour. The aggregate then reads as a colour
+/// field — the landcover the zoom is actually asking about — instead of edge
+/// mush.
+///
+/// This is a RESOLUTION rule, not a zoom rule: it is a no-op the moment a
+/// shape is bigger than a pixel, so it needs no zoom branch and disables
+/// itself as you zoom in. At city zooms essentially nothing qualifies, which
+/// is why the under-budget city view is unaffected.
+const DOT_PX: f64 = 1.5;
+
+/// `Some(centroid)` when the shape cannot resolve an outline at `z`.
+fn dot_if_subpixel(
+    cells: &[osm_soa_bake::tms::TileXy],
+    z: u32,
+) -> Option<osm_soa_bake::tms::TileXy> {
+    if cells.is_empty() {
+        return None;
+    }
+    let (mut lox, mut hix) = (u32::MAX, 0u32);
+    let (mut loy, mut hiy) = (u32::MAX, 0u32);
+    for c in cells {
+        lox = lox.min(c.x);
+        hix = hix.max(c.x);
+        loy = loy.min(c.y_xyz);
+        hiy = hiy.max(c.y_xyz);
+    }
+    // The same `2^(z-24)` cell→world-pixel factor `encode_tile_bin` applies,
+    // so the test is in the units the shape will actually be drawn in.
+    let scale = f64::exp2(z as f64 - 24.0);
+    if (hix - lox) as f64 * scale >= DOT_PX || (hiy - loy) as f64 * scale >= DOT_PX {
+        return None;
+    }
+    // u64 midpoint: `lox + hix` overflows u32 for cells in the upper half of
+    // the z32 grid, which is most of the eastern hemisphere.
+    Some(osm_soa_bake::tms::TileXy {
+        x: ((lox as u64 + hix as u64) / 2) as u32,
+        y_xyz: ((loy as u64 + hiy as u64) / 2) as u32,
+    })
+}
+
 fn geometry_row_budget(z: u32) -> usize {
     if z < CITY_ZOOM_FLOOR {
         GEOMETRY_OVERVIEW_BUDGET
@@ -1250,10 +1302,17 @@ fn query_tile_shapes(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileShapesR
         let class = books
             .map(|b| class_for_tags(row_tags(&rows[i], b, ordinal)))
             .unwrap_or(ShapeClass::Other);
+        // A shape too small to resolve an outline carries its class as ONE
+        // point instead. `closed` goes false with it: a one-point ring is not
+        // a ring, and saying so keeps the client's fill path off it.
+        let (cells, closed) = match dot_if_subpixel(&cells, z) {
+            Some(c) => (vec![c], false),
+            None => (cells, ring),
+        };
         shapes.push(RawShape {
             idx: i,
             class,
-            closed: ring,
+            closed,
             cells,
         });
     }

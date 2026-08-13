@@ -42,7 +42,11 @@ const PAGE: &str = r##"<!doctype html>
   /* `touch-action:none` is what makes a finger pan the MAP instead of scrolling
      the PAGE: without it the browser claims the gesture before any pointer
      handler sees a move, and the map is frozen on every touch device. */
-  #map { position:relative; overflow:hidden; cursor:grab; background:#11151c;
+  /* The LAND colour. GL clears to transparent and Canvas2D only clears, so
+     this is what shows wherever no polygon covers — i.e. it IS the basemap's
+     ground, not a page backdrop. It was #11151c, which is why unmapped ground
+     and dense-but-unresolved districts both read as black. */
+  #map { position:relative; overflow:hidden; cursor:grab; background:#f2efe9;
     touch-action:none; }
   #map.drag { cursor:grabbing; }
   #tiles { position:absolute; left:0; top:0; will-change:transform; }
@@ -274,19 +278,32 @@ function shapeLayer(){
 // The GL path carries a richer projected-template per class in its fragment
 // shader, keyed by class index — same visual vocabulary, higher fidelity;
 // building/green tone-noise is GL-only (the canvas fallback keeps them flat).
+// Every fill is OPAQUE, and that is load-bearing rather than cosmetic. The
+// previous palette was dark AND alpha'd (`…80`, `…4d`, `…66`), so each fill
+// composited toward the ground colour instead of replacing it: one polygon
+// read as a faint tint, and a stack of them in a dense district converged on
+// the ground itself. The map could only ever get darker as it got busier —
+// the opposite of what density should show. Opaque fills over a light land
+// give the beige/green/blue a real basemap reads as, and make the draw order
+// (FILL_PASS, broad cover → specific → water → buildings) the thing that
+// decides what wins, which is what that ordering was written for.
+//
+// Tones follow OSM Carto closely enough to be legible to anyone who has seen
+// a slippy map, because that vocabulary is the point of a basemap: green is
+// vegetation, blue is water, beige-grey is built.
 const CLASS_STYLE={
-  water:    {fill:'#2b6cb088', stroke:'#4a7fa8', w:0.8, texture:'waves'},
-  building: {fill:'#39445580', stroke:'#5b6b7f', w:0.5},
-  wood:     {fill:'#1d4d2b88', stroke:'#316b41', w:0.5, texture:'canopy'},
-  green:    {fill:'#2a5a4055', stroke:'#3f7a58', w:0.5},
-  rail:     {fill:'none',      stroke:'#7a8598', w:0.9},
-  road:     {fill:'none',      stroke:'#6b6250', w:1.1},
-  other:    {fill:'none',      stroke:'#39424f', w:0.7},
+  water:    {fill:'#a8cfe0', stroke:'#7cb0c8', w:0.8, texture:'waves'},
+  building: {fill:'#d9d0c9', stroke:'#b8a99b', w:0.5},
+  wood:     {fill:'#add19e', stroke:'#8ab879', w:0.5, texture:'canopy'},
+  green:    {fill:'#cdebb0', stroke:'#aed48f', w:0.5},
+  rail:     {fill:'none',    stroke:'#9c8f82', w:0.9},
+  road:     {fill:'none',    stroke:'#f5c777', w:1.1},
+  other:    {fill:'none',    stroke:'#cec6bc', w:0.7},
   // Split out of `green` so a suburb stops reading as vegetation, and so the
   // kinds that SHOULD look like ground cover can carry a texture.
-  meadow:   {fill:'#2f5c3a4d', stroke:'#43764f', w:0.4, texture:'stipple'},
-  park:     {fill:'#27553866', stroke:'#3d7a54', w:0.5, texture:'stripes'},
-  built:    {fill:'#2a303b66', stroke:'#3f4756', w:0.4, texture:'speckle'},
+  meadow:   {fill:'#dcedc0', stroke:'#bcd79a', w:0.4, texture:'stipple'},
+  park:     {fill:'#c8facc', stroke:'#98d9a0', w:0.5, texture:'stripes'},
+  built:    {fill:'#e9e1d7', stroke:'#d2c6b8', w:0.4, texture:'speckle'},
 };
 function styleForClass(c){ return CLASS_STYLE[c] || CLASS_STYLE.other; }
 
@@ -408,7 +425,7 @@ function parseTileBin(buf){
   if(dv.byteLength<20 || dv.getUint32(0,true)!==0x314D534F) return null; // "OSM1"
   const total=dv.getUint32(4,true), sampled=dv.getUint32(8,true);
   const count=dv.getUint32(12,true), malformed=dv.getUint32(16,true);
-  const fills=new Map(), strokes=new Map();
+  const fills=new Map(), strokes=new Map(), dots=new Map();
   const path=(m,c)=>{ let p=m.get(c); if(!p){ p=new Path2D(); m.set(c,p); } return p; };
   let at=20;
   for(let s=0;s<count;s++){
@@ -420,13 +437,17 @@ function parseTileBin(buf){
     // in place, never copied into JS objects. (byteOffset is 4-aligned by
     // construction: the header is 20 B and every record is 8+8n B.)
     const pts=new Float32Array(buf,at,n*2); at+=n*8;
+    // n===1 is the server's sub-pixel degradation: no outline to trace, so it
+    // becomes a 1px square of the class's dot colour. Same Path2D machinery,
+    // so it costs one more map and nothing in the draw loop.
+    if(n===1){ const dp=path(dots,cls); dp.rect(pts[0],pts[1],1,1); continue; }
     if(n<2) continue;
     const fp=closed?path(fills,cls):null, sp=path(strokes,cls);
     sp.moveTo(pts[0],pts[1]); if(fp) fp.moveTo(pts[0],pts[1]);
     for(let i=1;i<n;i++){ sp.lineTo(pts[2*i],pts[2*i+1]); if(fp) fp.lineTo(pts[2*i],pts[2*i+1]); }
     if(closed){ sp.closePath(); fp.closePath(); }
   }
-  return {total,sampled,returned:count,malformed,fills,strokes};
+  return {total,sampled,returned:count,malformed,fills,strokes,dots};
 }
 
 // ── WebGL2 renderer — hardware acceleration (operator-mandated) ─────────────
@@ -445,6 +466,12 @@ function hexRGBA(x){ const h=x.slice(1);
 const FILL_RGBA=CLASS_ORDER.map(n=>{const st=CLASS_STYLE[n];
   return st.fill==='none'?[0,0,0,0]:hexRGBA(st.fill);});
 const STROKE_RGBA=CLASS_ORDER.map(n=>hexRGBA(CLASS_STYLE[n].stroke));
+// A shape the server degraded to a dot is painted with its FILL colour: fill
+// is what the eye integrates into landcover, and it is precisely what a
+// sub-pixel outline loses. Line classes (road/rail/other) have no fill, so
+// they fall back to their stroke — without that they would be transparent
+// dots, which is the "merges into nothing" this whole path exists to fix.
+const DOT_RGBA=CLASS_ORDER.map((n,i)=>FILL_RGBA[i][3]>0?FILL_RGBA[i]:STROKE_RGBA[i]);
 
 let gl=null, glProg=null, glLoc=null, glCanvas=null, glSel=null;
 function initGL(){
@@ -478,7 +505,7 @@ void main(){
   const fs=`#version 300 es
 precision mediump float;
 in float vCls; in vec2 vWorld;
-uniform vec4 uFill[10]; uniform vec4 uStroke[10]; uniform int uMode;
+uniform vec4 uFill[10]; uniform vec4 uStroke[10]; uniform vec4 uDot[10]; uniform int uMode;
 out vec4 frag;
 #define TAU 6.2831853
 // hash + wrap-aware value noise: vn(p,n) tiles seamlessly when p spans n cells.
@@ -491,6 +518,10 @@ float vn(vec2 p,float n){
 }
 void main(){
   if(uMode>=2){ vec2 d=gl_PointCoord-0.5; if(dot(d,d)>0.25) discard;
+    // 4 = a basemap LOD dot: a shape too small to outline, painted in its own
+    // class colour. Distinct from the feature dots (2) and selection (3),
+    // which are UI marks and keep their fixed colours.
+    if(uMode==4){ frag=uDot[int(vCls+0.5)]; return; }
     frag = uMode==3 ? vec4(0.494,0.906,0.529,1.0)   // selection #7ee787
                     : vec4(1.0,0.706,0.329,1.0);    // dot #ffb454
     return; }
@@ -538,6 +569,7 @@ void main(){
           uMode:g.getUniformLocation(glProg,'uMode'), uPointPx:g.getUniformLocation(glProg,'uPointPx') };
   g.uniform4fv(g.getUniformLocation(glProg,'uFill'), FILL_RGBA.flat());
   g.uniform4fv(g.getUniformLocation(glProg,'uStroke'), STROKE_RGBA.flat());
+  g.uniform4fv(g.getUniformLocation(glProg,'uDot'), DOT_RGBA.flat());
   g.enable(g.BLEND); g.blendFunc(g.SRC_ALPHA,g.ONE_MINUS_SRC_ALPHA);
   return true;
 }
@@ -598,7 +630,7 @@ function parseTileBinGL(buf){
   if(dv.byteLength<20 || dv.getUint32(0,true)!==0x314D534F) return null;
   const total=dv.getUint32(4,true), sampled=dv.getUint32(8,true);
   const count=dv.getUint32(12,true), malformed=dv.getUint32(16,true);
-  const fillsBy=new Map(), linesBy=new Map();
+  const fillsBy=new Map(), linesBy=new Map(), dotsBy=new Map();
   let at=20;
   for(let s=0;s<count;s++){
     if(at+8>dv.byteLength) return null;
@@ -606,6 +638,12 @@ function parseTileBinGL(buf){
     const n=dv.getUint16(at+6,true); at+=8;
     if(at+n*8>dv.byteLength) return null;
     const pts=new Float32Array(buf,at,n*2); at+=n*8;
+    // n===1 is the server's sub-pixel degradation (dot_if_subpixel): a shape
+    // with no resolvable outline, carrying only its class. Drawing it as a
+    // dot is the whole point — falling through to `n<2 continue` would drop
+    // the dense core entirely.
+    if(n===1){ let D=dotsBy.get(cls); if(!D){ D=[]; dotsBy.set(cls,D); }
+      D.push(pts[0],pts[1]); continue; }
     if(n<2) continue;
     let L=linesBy.get(cls); if(!L){ L=[]; linesBy.set(cls,L); }
     for(let i=0;i<n-1;i++) L.push(pts[2*i],pts[2*i+1],pts[2*i+2],pts[2*i+3]);
@@ -616,13 +654,19 @@ function parseTileBinGL(buf){
         for(const v of tris) F.push(v); }
     }
   }
-  const fill=[], line=[];
+  const fill=[], line=[], dot=[];
   for(const c of FILL_PASS){ const F=fillsBy.get(c); if(!F) continue;
     for(let i=0;i<F.length;i+=2) fill.push(F[i],F[i+1],c); }
   for(const c of STROKE_PASS){ const L=linesBy.get(c); if(!L) continue;
     for(let i=0;i<L.length;i+=2) line.push(L[i],L[i+1],c); }
+  // Dots ride FILL_PASS order too, so a dotted lake still lands under a
+  // dotted building rather than depending on row order in the tile.
+  for(const c of FILL_PASS.concat(STROKE_PASS)){ const D=dotsBy.get(c); if(!D) continue;
+    dotsBy.delete(c);
+    for(let i=0;i<D.length;i+=2) dot.push(D[i],D[i+1],c); }
   return {total,sampled,returned:count,malformed,
-          fill:new Float32Array(fill), line:new Float32Array(line), vboF:null, vboL:null};
+          fill:new Float32Array(fill), line:new Float32Array(line),
+          dot:new Float32Array(dot), vboF:null, vboL:null, vboD:null};
 }
 
 // Delete a zoom level's GPU buffers when its tiles are evicted — the cache
@@ -633,6 +677,7 @@ function evictGLBuffers(){
     if(d && typeof d==='object'){
       if(d.vboF) gl.deleteBuffer(d.vboF);
       if(d.vboL) gl.deleteBuffer(d.vboL);
+      if(d.vboD) gl.deleteBuffer(d.vboD);
     }
   }
 }
@@ -706,6 +751,16 @@ function drawBase(){
       const p=d.fills.get(c); if(!p) continue;
       ctx.fillStyle=fillStyleFor(ctx,CLASS_ORDER[c]); ctx.fill(p);
     }
+    // Sub-pixel shapes, as 1px squares of their class colour — drawn after the
+    // fills and before the strokes, so roads stay legible over the texture.
+    // STROKE_PASS (not FILL_PASS) because it enumerates all ten classes: a
+    // dotted road or rail has to land somewhere too.
+    if(d.dots) for(const c of STROKE_PASS){
+      const p=d.dots.get(c); if(!p) continue;
+      const st=styleForClass(CLASS_ORDER[c]);
+      ctx.fillStyle = st.fill==='none' ? st.stroke : st.fill;
+      ctx.fill(p);
+    }
     for(const c of STROKE_PASS){
       const p=d.strokes.get(c); if(!p) continue;
       const st=styleForClass(CLASS_ORDER[c]);   // unknown byte -> `other`, never undefined
@@ -749,10 +804,18 @@ function drawBaseGL(){
       gl.bufferData(gl.ARRAY_BUFFER,d.fill,gl.STATIC_DRAW);
       d.vboL=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,d.vboL);
       gl.bufferData(gl.ARRAY_BUFFER,d.line,gl.STATIC_DRAW);
+      d.vboD=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,d.vboD);
+      gl.bufferData(gl.ARRAY_BUFFER,d.dot||new Float32Array(0),gl.STATIC_DRAW);
     }
     gl.uniform2f(glLoc.uTrans, tx*256+ox, ty*256+oy);
     if(d.fill.length){ gl.uniform1i(glLoc.uMode,0); bind(d.vboF);
       gl.drawArrays(gl.TRIANGLES,0,d.fill.length/3); }
+    // Between fill and line ON PURPOSE: the dots are the texture of a dense
+    // district, the road strokes are its structure, and the structure has to
+    // stay readable on top of the texture.
+    if(d.dot&&d.dot.length){ gl.uniform1i(glLoc.uMode,4);
+      gl.uniform1f(glLoc.uPointPx,1.5*(window.devicePixelRatio||1));
+      bind(d.vboD); gl.drawArrays(gl.POINTS,0,d.dot.length/3); }
     if(d.line.length){ gl.uniform1i(glLoc.uMode,1); bind(d.vboL);
       gl.drawArrays(gl.LINES,0,d.line.length/3); }
   }
