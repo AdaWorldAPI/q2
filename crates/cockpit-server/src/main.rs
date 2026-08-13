@@ -310,6 +310,11 @@ async fn main() {
         .route("/api/body/lod", post(body_lod::body_lod_handler))
         // OSM tile material (Geo domain 0x0F): WebMercator z/x/y ↔ HHTL key +
         // the OSM slippy-tile source URL. /locate maps a lon/lat to its tile.
+        // Why the map looks the way it does — slab/books/chains state in one
+        // read. A missing codebook is otherwise indistinguishable from a
+        // working map on every other signal (200s, full tiles, correct
+        // geometry) while drawing grey and untagged.
+        .route("/api/osm/health", get(osm_features::osm_health_handler))
         .route("/api/osm/locate", get(osm_tiles::osm_locate_handler))
         .route("/api/osm/tile/:z/:x/:y", get(osm_tiles::osm_tile_meta_handler))
         .route("/api/osm/features/:z/:x/:y", get(osm_features::osm_features_handler))
