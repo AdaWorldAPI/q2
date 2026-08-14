@@ -129,8 +129,31 @@ RUN cd /build/q2/.claude/maps \
 # stale SHA. The repos at their tips are mutually consistent, so "use the latest of
 # everything" is the rule: a pinned-old lance-graph (36059ce0) is exactly what
 # lacked `guid-v3-tail` and broke the build. The `COPY . /build/q2` above changes on
-# every q2 commit, invalidating this RUN layer too, so each build re-clones fresh
-# (no stale-cache problem the old pin was guarding against).
+# every q2 commit, invalidating this RUN layer too, so each build re-clones fresh.
+#
+# ⚠ THE HOLE THAT LEAVES, measured 2026-08-14 — a REDEPLOY OF THE SAME q2 COMMIT
+# REUSES STALE SIBLING CLONES. Docker busts this layer only when an input changes,
+# and the sibling repos are not inputs — nothing here can observe that
+# lance-graph's HEAD moved. So "re-clones fresh" holds per q2 COMMIT, never per
+# DEPLOY, and this comment previously claimed the stronger thing.
+#
+# It cost a real outage. Merging q2 #129 and OGAR #268 in the SAME MINUTE started a
+# build whose lance-graph clone had a codebook mirror one concept short of OGAR's,
+# so `lance-graph-ogar`'s COUNT_FUSE panicked at const-eval (E0080) and the deploy
+# died at compile — never reaching hydration. lance-graph #953 fixed main eight
+# minutes later, but the REDEPLOY reused this cached layer and reproduced the exact
+# same failure against a lance-graph that no longer had the bug.
+#
+# If a build fails on a sibling that is demonstrably green on main, this layer is
+# the first suspect. Two ways out: push any q2 commit (busts COPY, busts this), or
+# redeploy with the build cache disabled.
+#
+# The durable fix is NOT another comment. Either the siblings become explicit
+# SHA ARGs bumped deliberately (reproducible, staleness visible in the diff), or
+# the cross-repo invariant stops being a hand-maintained mirror at all — the
+# hotplug-enumeration direction, which removes the fuse's whole failure class
+# rather than making it fail faster. That is an architectural call, deliberately
+# not made here.
 #
 # Sibling checkouts the path deps (and the [patch] in q2's Cargo.toml) resolve against:
 #   /build/lance-graph  → lance-graph @ main HEAD — carries guid-v2-tail +
