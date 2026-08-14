@@ -125,6 +125,35 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
     let digest_hex = format!("{:016x}", osm_soa_bake::codebook::hash_slab(&map));
     drop(map);
 
+    // The Arrow ceiling is decided by `rows` ALONE, so decide it here — the
+    // earliest point `rows` exists — rather than downstream in `write_lance`.
+    //
+    // `FixedSizeBinaryArray` holds the whole row column in one flat `Buffer`,
+    // and Arrow's classic (non-`Large`) array format bounds that buffer to
+    // `i32::MAX` bytes. At our 512-byte stride that is a hard ceiling of
+    // 4,194,303 rows — not a tunable. Berlin's 2,766,291 rows sit under it;
+    // Brandenburg's 7,330,219 are 1.75x over, which panicked startup in a
+    // crash-loop until this guard existed.
+    //
+    // Position matters as much as the check. Placed downstream, this guard
+    // was reached only AFTER `remove_stale_dataset` had deleted a perfectly
+    // good existing dataset and after `std::fs::read` had allocated the whole
+    // 3.75 GB slab — every boot, forever, to reach a decision that needed
+    // only a row count. That trades a panic for an OOM risk plus a
+    // guaranteed-useless multi-gigabyte read, which is not a fix. Deciding
+    // before both is what makes the fallback actually cheap.
+    if !row_count_fits_arrow_array(rows) {
+        tracing::warn!(
+            rows,
+            max_rows_per_array = arrow_max_rows_per_array(),
+            stride = NODE_ROW_STRIDE,
+            "osm lance: row count exceeds FixedSizeBinaryArray's i32 byte-length ceiling \
+             (Arrow's classic-array limit, not tunable); skipping the Lance mmap-offset \
+             optimization without reading the slab — the raw .soa slab keeps serving the map"
+        );
+        return None;
+    }
+
     if let Some(warm) = reopen_if_warm(&dest, rows, &digest_hex).await {
         tracing::info!(
             path = %dest.display(), rows,
@@ -171,6 +200,31 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
         "osm lance: converting the .soa slab into a Lance dataset (zero-copy import)"
     );
     write_lance(&dest, bytes, rows, &digest_hex, slab_path).await
+}
+
+/// Most rows one `FixedSizeBinaryArray` can hold at [`NODE_ROW_STRIDE`].
+///
+/// The array has no offsets buffer — the whole column is one flat `Buffer`
+/// addressed as `stride * index` — but Arrow's classic (non-`Large`) format
+/// still bounds that buffer's byte length to `i32::MAX`. At our 512-byte
+/// stride that is **4,194,303 rows**, and it is a property of the format, not
+/// a tunable.
+#[must_use]
+fn arrow_max_rows_per_array() -> usize {
+    usize::try_from(i32::MAX).unwrap_or(usize::MAX) / NODE_ROW_STRIDE
+}
+
+/// Whether `rows` can be built as a single Arrow row array.
+///
+/// Extracted so the production guard and its tests are the SAME predicate.
+/// The first version of this fix inlined the comparison and tested it by
+/// re-deriving the formula in the test — which proves the arithmetic agrees
+/// with itself, not that the shipped code rejects the row count that crashed
+/// production. A test that cannot fail when the guard is deleted is not a
+/// test of the guard.
+#[must_use]
+fn row_count_fits_arrow_array(rows: usize) -> bool {
+    rows <= arrow_max_rows_per_array()
 }
 
 /// Remove a stale dataset directory in full, so the follow-up write starts
@@ -281,16 +335,43 @@ async fn write_lance(
     ]);
     let schema = Arc::new(Schema::new_with_metadata(vec![field], schema_meta));
 
+    // The Arrow i32 row ceiling is enforced by `ensure_lance_local` BEFORE
+    // the slab is read, so an oversized region never reaches this function.
+    // The check is not repeated here: two copies of the same arithmetic in
+    // two places is how they drift apart. `try_new` below is the backstop
+    // that keeps this function honest regardless.
+    //
+    // Splitting into multiple Arrow batches was considered and rejected: the
+    // read path's mmap+offset serving requires the row column to be ONE
+    // contiguous byte run in ONE data file (`locate_row_column`'s own doc,
+    // check 1 and check 4 — the tail-anchor verification exists BECAUSE a
+    // fragmented layout is unsafe to address by raw offset). Multiple
+    // batches risk landing non-contiguously on Lance's own disk layout,
+    // which the tail anchor would then catch — but only after paying a
+    // real design/verification cost this incident's urgency doesn't afford.
+    // Skipping the optimization for oversized regions is strictly safer and
+    // already fully supported.
+
     // Zero-copy import: `Buffer::from_vec` ADOPTS this allocation rather
     // than copying it — asserted by pointer identity, not merely trusted
     // (same discipline `soa_to_lance` uses; a 1+ GiB slab makes a silent
     // copy here a real cost, not a rounding error).
     let before = bytes.as_ptr();
-    let array = FixedSizeBinaryArray::new(
+    let array = match FixedSizeBinaryArray::try_new(
         NODE_ROW_STRIDE as i32,
         arrow::buffer::Buffer::from_vec(bytes),
         None,
-    );
+    ) {
+        Ok(a) => a,
+        Err(e) => {
+            // Defense-in-depth below the row-count bound checked above: ANY
+            // other Arrow validation failure degrades the same way, never a
+            // panic. `try_new`, never `new` — `new` is `try_new(..).unwrap()`
+            // and this function exists specifically to stop doing that.
+            tracing::error!(error = %e, "osm lance: building the row array failed");
+            return None;
+        }
+    };
     debug_assert_eq!(
         array.value_data().as_ptr(),
         before,
@@ -471,6 +552,12 @@ fn search_head_for_probe(file_path: &Path, probe: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `len()` on a FixedSizeBinaryArray comes from the `Array` trait, not
+    // from the struct — the production code never calls it, so the import
+    // is test-only. Worth naming: `cargo check` does NOT compile
+    // `#[cfg(test)]` blocks, so a missing import here passes a check run
+    // and only fails under `cargo test`.
+    use arrow::array::Array;
 
     /// The classid constant must stay the canon's dormant-default value —
     /// this is a documentation-of-intent test, not a behavioural one: a
@@ -487,6 +574,103 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let dest = dir.path().join("nope.lance");
         assert!(reopen_if_warm(&dest, 10, "deadbeef").await.is_none());
+    }
+
+    /// The exact boundary this incident crossed: Brandenburg's real
+    /// `rows=7_330_219` PANICKED the process at startup
+    /// (`arrow-array-58.3.0/src/array/fixed_size_binary_array.rs:106`,
+    /// `value size 512 * length 7330219 exceeds maximum valid offset of
+    /// 2147483647`) instead of returning `None`, even though the caller in
+    /// `main.rs` already has a fully safe `None` arm ("the raw .soa slab
+    /// keeps serving the map").
+    ///
+    /// Drives `ensure_lance_local` — the real entry point — NOT `write_lance`.
+    /// The first version of this test called `write_lance` directly, which
+    /// would now pass while proving nothing: the guard that matters lives
+    /// upstream, and a test that skips it cannot catch the guard being
+    /// mispositioned (which is exactly the defect review caught).
+    ///
+    /// Uses a real oversized slab file rather than a stub, because the
+    /// property under test is that the ceiling is decided from the row count
+    /// ALONE. A sparse file makes 3.75 GB of apparent length cost no real
+    /// disk, so this stays cheap while remaining a genuine end-to-end check.
+    #[tokio::test]
+    async fn oversized_slab_declines_without_reading_or_destroying_anything() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("brandenburg.soa");
+
+        // Sparse file: Brandenburg's exact byte length, ~no blocks allocated.
+        let real_incident_rows = 7_330_219u64;
+        let len = real_incident_rows * NODE_ROW_STRIDE as u64;
+        let f = std::fs::File::create(&slab_path).expect("create slab");
+        f.set_len(len).expect("set sparse length");
+        drop(f);
+
+        // A pre-existing dataset dir that MUST survive: the mispositioned
+        // guard deleted this before declining, which is the destructive half
+        // of the defect and is invisible to a row-count-only assertion.
+        let dest = slab_path.with_extension("lance");
+        std::fs::create_dir_all(dest.join("data")).expect("mkdir dataset");
+        std::fs::write(dest.join("data").join("keepme.lance"), b"pre-existing")
+            .expect("write sentinel");
+
+        let got = ensure_lance_local(&slab_path).await;
+        assert!(
+            got.is_none(),
+            "must return None, not panic, at the row count that crashed production"
+        );
+        assert!(
+            dest.join("data").join("keepme.lance").exists(),
+            "declining must not delete an existing dataset — the guard has to run \
+             before remove_stale_dataset, not after it"
+        );
+    }
+
+    /// The two-sided half of the boundary: this module exists to let VALID
+    /// bakes through, not merely to reject oversized ones. A guard that
+    /// fires unconditionally would pass the test above for the wrong
+    /// reason — this proves rows comfortably under the ceiling still reach
+    /// (and clear) Arrow's own array construction.
+    #[test]
+    fn a_row_count_under_the_ceiling_builds_a_valid_array() {
+        let rows = 1_000usize; // Berlin-scale, nowhere near the 4.19M cap
+        let bytes = vec![0u8; rows * NODE_ROW_STRIDE];
+        let array = FixedSizeBinaryArray::try_new(
+            NODE_ROW_STRIDE as i32,
+            arrow::buffer::Buffer::from_vec(bytes),
+            None,
+        );
+        assert!(array.is_ok(), "an ordinary row count must not be rejected");
+        assert_eq!(array.unwrap().len(), rows);
+    }
+
+    /// Both sides of the ceiling, through the PRODUCTION predicate rather
+    /// than a re-derivation of its formula.
+    ///
+    /// The earlier version of this test recomputed `i32::MAX / STRIDE` and
+    /// asserted the result equalled 4,194,303 — which proves the arithmetic
+    /// agrees with itself and nothing about the shipped guard. Deleting the
+    /// guard entirely would have left it green. This calls
+    /// `row_count_fits_arrow_array`, so it fails if the real predicate ever
+    /// stops rejecting oversized counts, and it costs no allocation.
+    #[test]
+    fn the_row_ceiling_predicate_accepts_the_last_row_and_rejects_the_first_over() {
+        let max = arrow_max_rows_per_array();
+        assert_eq!(max, 4_194_303, "512-byte stride under Arrow's i32 byte ceiling");
+
+        assert!(row_count_fits_arrow_array(max), "the last fitting row count must be accepted");
+        assert!(
+            !row_count_fits_arrow_array(max + 1),
+            "one row past the ceiling must be rejected — this is the exact boundary, \
+             and an off-by-one here is a panic in production"
+        );
+
+        // The two real regions, on the sides the incident put them.
+        assert!(row_count_fits_arrow_array(2_766_291), "Berlin must still take the fast path");
+        assert!(
+            !row_count_fits_arrow_array(7_330_219),
+            "Brandenburg's real row count is what crashed production"
+        );
     }
 
     /// The falsifier for [`search_head_for_probe`]: a real hit, surrounded
