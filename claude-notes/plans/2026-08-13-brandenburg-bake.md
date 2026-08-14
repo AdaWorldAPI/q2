@@ -157,6 +157,25 @@ makes the window smaller; only staging removes it.
    value. Serving Brandenburg replaces Berlin; it does not add to it.
 5. **Brandenburg is past Arrow's row ceiling, so it serves from the raw
    `.soa`, not from Lance.** This bit during rollout — see below.
+6. **The persistent volume must hold ~4.13 GB, and nothing checks that it
+   can.** Measured artifacts total 3,753,072,128 + 155,979,619 + 221,252,224
+   = **4,130,303,971 B (3.85 GiB)** — **2.7x Berlin's ~1.54 GB**, and
+   `osm_slab_hydrate`'s own docs are written around Berlin ("the 1.29 GiB
+   artifact", "Berlin is ~1.42 GB"). There is **no free-space preflight** in
+   that module: no `statvfs`, no capacity check, no ENOSPC branch.
+
+   The failure mode if the volume is too small is quiet and self-inflicted:
+   a download that runs out of space produces a truncated file, the checksum
+   gate rejects it, `download_verified` **leaves no file behind**, and the
+   next boot repeats it. The listener never binds, so from outside it is an
+   indefinite 502 — **identical to a slow first hydration**, which is the
+   benign case. The two cannot be told apart without the deploy logs.
+
+   Before switching a region this large, check the volume's capacity against
+   the artifact total, and on a persistent 502 read the logs rather than
+   waiting: "still hydrating" resolves itself and "volume too small" never
+   does. A free-space preflight that fails loudly with the two numbers would
+   remove the ambiguity entirely; it does not exist yet.
 
 ## The rollout crash — Arrow's i32 array ceiling (measured 2026-08-14)
 
