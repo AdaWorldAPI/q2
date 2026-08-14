@@ -552,6 +552,12 @@ fn search_head_for_probe(file_path: &Path, probe: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `len()` on a FixedSizeBinaryArray comes from the `Array` trait, not
+    // from the struct — the production code never calls it, so the import
+    // is test-only. Worth naming: `cargo check` does NOT compile
+    // `#[cfg(test)]` blocks, so a missing import here passes a check run
+    // and only fails under `cargo test`.
+    use arrow::array::Array;
 
     /// The classid constant must stay the canon's dormant-default value —
     /// this is a documentation-of-intent test, not a behavioural one: a
