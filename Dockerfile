@@ -129,8 +129,51 @@ RUN cd /build/q2/.claude/maps \
 # stale SHA. The repos at their tips are mutually consistent, so "use the latest of
 # everything" is the rule: a pinned-old lance-graph (36059ce0) is exactly what
 # lacked `guid-v3-tail` and broke the build. The `COPY . /build/q2` above changes on
-# every q2 commit, invalidating this RUN layer too, so each build re-clones fresh
-# (no stale-cache problem the old pin was guarding against).
+# every q2 commit, invalidating this RUN layer too, so each build re-clones fresh.
+#
+# ⚠ THE HOLE THAT LEAVES, measured 2026-08-14 — a REDEPLOY OF THE SAME q2 COMMIT
+# REUSES STALE SIBLING CLONES. Docker busts this layer only when an input changes,
+# and the sibling repos are not inputs — nothing here can observe that
+# lance-graph's HEAD moved. So "re-clones fresh" holds per q2 COMMIT, never per
+# DEPLOY, and this comment previously claimed the stronger thing.
+#
+# It cost a real outage. Merging q2 #129 and OGAR #268 in the SAME MINUTE started a
+# build whose lance-graph clone had a codebook mirror one concept short of OGAR's,
+# so `lance-graph-ogar`'s COUNT_FUSE panicked at const-eval (E0080) and the deploy
+# died at compile — never reaching hydration. lance-graph #953 fixed main eight
+# minutes later, but the REDEPLOY reused this cached layer and reproduced the exact
+# same failure against a lance-graph that no longer had the bug.
+#
+# If a build fails on a sibling that is demonstrably green on main, this layer is
+# the first suspect. Two ways out: push any q2 commit (busts COPY, busts this), or
+# redeploy with the build cache disabled.
+#
+# THE FIX BELOW makes the sibling HEADs an actual layer input. Each `ADD` of a
+# repo's `commits/main` fetches on every build and writes a file whose CONTENT is
+# that repo's current commit; Docker hashes it, so the clone layer busts exactly
+# when a sibling moves and stays cached when none did. Four small requests buy
+# back the property this comment used to claim for free.
+#
+# Unauthenticated on purpose — the same URLs the `git clone` lines below already
+# fetch without credentials, so these are reachable on the same terms.
+#
+# ⚠ The ATOM FEED, not `api.github.com`, and the difference is load-bearing.
+# Unauthenticated api.github.com allows 60 requests/hour PER IP, and CI builders
+# share egress IPs — so the API form would eventually 403, and a failed `ADD`
+# FAILS THE BUILD. That trades a stale cache for a new outage cause, which is
+# the opposite of the point. `github.com/<repo>/commits/main.atom` is served by
+# the web frontend, is not under that quota, and its entries carry commit ids +
+# commit dates, so its content changes exactly when HEAD moves.
+#
+# This does NOT replace the deeper choice — explicit SHA ARGs bumped
+# deliberately, or removing the hand-maintained mirror via hotplug enumeration
+# so the fuse's whole failure class disappears. Those are architectural calls,
+# deliberately not made here. This one only restores "latest of everything" to
+# being true per DEPLOY instead of per COMMIT.
+ADD https://github.com/AdaWorldAPI/lance-graph/commits/main.atom /tmp/rev/lance-graph.atom
+ADD https://github.com/AdaWorldAPI/ndarray/commits/main.atom /tmp/rev/ndarray.atom
+ADD https://github.com/AdaWorldAPI/OGAR/commits/main.atom /tmp/rev/OGAR.atom
+ADD https://github.com/AdaWorldAPI/openstreetmap-website-rs/commits/main.atom /tmp/rev/osm-website.atom
 #
 # Sibling checkouts the path deps (and the [patch] in q2's Cargo.toml) resolve against:
 #   /build/lance-graph  → lance-graph @ main HEAD — carries guid-v2-tail +
