@@ -118,6 +118,14 @@ makes the window smaller; only staging removes it.
 - [ ] **Keep the previous prefix** for rollback; it stays complete and
       self-consistent throughout, so reverting is the same one-value change.
 
+> **Tooling.** `q2/bakes/tools/publish_bake.py` in the bake bucket now
+> implements exactly this: it stages to `q2/bakes/<region>-v1-<stamp>/`,
+> refuses to reuse a stamp, verifies the staged prefix **by reading it back
+> from the bucket**, and prints the one `OSM_SLAB_S3_PREFIX=…` value to cut
+> over. The previous in-place version is kept at
+> `q2/bakes/tools/archive/publish_bake.in-place.py` — it is the script that
+> produced the hazard described above, retained for provenance, not for use.
+
 > If a same-prefix publish is ever genuinely unavoidable, the ONLY safe order
 > is: delete `SHA256SUMS` first (readers then fail closed on a missing
 > manifest and keep their warm volume), upload artifacts, upload sums last.
@@ -147,6 +155,49 @@ makes the window smaller; only staging removes it.
    the hydrator working, not failing.
 4. **Both regions cannot be served at once.** `OSM_BAKE_REGION` is a single
    value. Serving Brandenburg replaces Berlin; it does not add to it.
+5. **Brandenburg is past Arrow's row ceiling, so it serves from the raw
+   `.soa`, not from Lance.** This bit during rollout — see below.
+
+## The rollout crash — Arrow's i32 array ceiling (measured 2026-08-14)
+
+Setting `OSM_BAKE_REGION=brandenburg` put the service in a **startup
+crash-loop**. Not a bake defect: every artifact verified, and the panic was
+downstream of hydration in the Lance conversion.
+
+`osm_lance` converts the slab into a one-column Lance dataset so tiles can be
+served by mmap+offset. That column is a `FixedSizeBinaryArray`, which holds
+every row in ONE flat `Buffer`, and Arrow's classic (non-`Large`) array format
+bounds a buffer to `i32::MAX` bytes. At our 512-byte stride that is a hard
+ceiling:
+
+| | rows | vs ceiling |
+|---|---|---|
+| ceiling (`i32::MAX / 512`) | 4,194,303 | — |
+| Berlin | 2,766,291 | 0.66× — fits |
+| **Brandenburg** | **7,330,219** | **1.75× — panics** |
+
+It is a **format constant, not a tunable**. Arrow's own validation panicked,
+and the `.unwrap()` took the process down at boot — contradicting this module's
+own design, where the Lance path is explicitly "a pure optimization... never a
+hard requirement" and the caller already has a safe `None` arm.
+
+Fixed in q2 PR #129: the row count is checked immediately after it is
+computed — before a stale dataset is removed and before the 3.75 GB
+`std::fs::read` — and an oversized region returns `None` to the **existing**
+raw-`.soa` fallback. Position was as load-bearing as the check: two reviewers
+independently caught that a downstream guard would delete a usable dataset and
+read gigabytes to reach a decision that needs only a row count.
+
+**Operator consequence:** Brandenburg serves correctly but **without the
+mmap+offset fast path**. That is a performance difference, not a correctness
+one. Restoring it needs multi-batch Lance writes whose row column stays ONE
+contiguous run in ONE data file — `locate_row_column`'s checks 1 and 4 exist
+precisely because a fragmented layout is unsafe to address by raw offset.
+Deliberately deferred out of the incident; it is a design task, not a patch.
+
+**Predicting it for the next region:** `rows > 4,194,303` is the whole test,
+and rows are reported by `bake`. Any region past ~4.19 M rows takes the raw
+path until the multi-batch work lands.
 
 ## Results — executed 2026-08-13
 
