@@ -148,12 +148,32 @@ RUN cd /build/q2/.claude/maps \
 # the first suspect. Two ways out: push any q2 commit (busts COPY, busts this), or
 # redeploy with the build cache disabled.
 #
-# The durable fix is NOT another comment. Either the siblings become explicit
-# SHA ARGs bumped deliberately (reproducible, staleness visible in the diff), or
-# the cross-repo invariant stops being a hand-maintained mirror at all — the
-# hotplug-enumeration direction, which removes the fuse's whole failure class
-# rather than making it fail faster. That is an architectural call, deliberately
-# not made here.
+# THE FIX BELOW makes the sibling HEADs an actual layer input. Each `ADD` of a
+# repo's `commits/main` fetches on every build and writes a file whose CONTENT is
+# that repo's current commit; Docker hashes it, so the clone layer busts exactly
+# when a sibling moves and stays cached when none did. Four small requests buy
+# back the property this comment used to claim for free.
+#
+# Unauthenticated on purpose — the same URLs the `git clone` lines below already
+# fetch without credentials, so these are reachable on the same terms.
+#
+# ⚠ The ATOM FEED, not `api.github.com`, and the difference is load-bearing.
+# Unauthenticated api.github.com allows 60 requests/hour PER IP, and CI builders
+# share egress IPs — so the API form would eventually 403, and a failed `ADD`
+# FAILS THE BUILD. That trades a stale cache for a new outage cause, which is
+# the opposite of the point. `github.com/<repo>/commits/main.atom` is served by
+# the web frontend, is not under that quota, and its entries carry commit ids +
+# commit dates, so its content changes exactly when HEAD moves.
+#
+# This does NOT replace the deeper choice — explicit SHA ARGs bumped
+# deliberately, or removing the hand-maintained mirror via hotplug enumeration
+# so the fuse's whole failure class disappears. Those are architectural calls,
+# deliberately not made here. This one only restores "latest of everything" to
+# being true per DEPLOY instead of per COMMIT.
+ADD https://github.com/AdaWorldAPI/lance-graph/commits/main.atom /tmp/rev/lance-graph.atom
+ADD https://github.com/AdaWorldAPI/ndarray/commits/main.atom /tmp/rev/ndarray.atom
+ADD https://github.com/AdaWorldAPI/OGAR/commits/main.atom /tmp/rev/OGAR.atom
+ADD https://github.com/AdaWorldAPI/openstreetmap-website-rs/commits/main.atom /tmp/rev/osm-website.atom
 #
 # Sibling checkouts the path deps (and the [patch] in q2's Cargo.toml) resolve against:
 #   /build/lance-graph  → lance-graph @ main HEAD — carries guid-v2-tail +
