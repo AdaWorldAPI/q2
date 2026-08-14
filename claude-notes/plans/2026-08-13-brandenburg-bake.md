@@ -93,18 +93,36 @@ retrying will not help.
       `NOT recovered 0`. This is the gate that actually proves the codebook
       resolves; the header checks only prove it is readable.
 
-### 4. Publish
-- [ ] Archive anything already at `q2/bakes/brandenburg-v1/` to
-      `q2/bakes/archive/brandenburg-v1-<date>/` by **server-side copy**
-      (`s3.copy`, no download). Copy — do not delete — so there is never a
-      window without a bake.
-- [ ] Generate `SHA256SUMS` in `sha256sum` format, naming the slab
-      `brandenburg.soa` (not the local stem).
-- [ ] Upload **artifacts first, `SHA256SUMS` LAST.** `fetch_sums` gates every
-      artifact: new files under old sums fail `download_verified`, which
-      "leaves no file behind" — i.e. a total outage, silently.
-- [ ] Verify from the bucket: re-read the headers by ranged GET, confirm sizes
-      match local and `SHA256SUMS` matches what was uploaded.
+### 4. Publish — stage, verify, then cut over
+
+**Never upload in place over a live prefix.** An earlier version of this plan
+said "artifacts first, `SHA256SUMS` last", reasoning that sums-last minimises
+the bad window. It does not close it. For the whole upload the live prefix
+holds new artifacts under the *old* manifest, and `fetch_sums` gates every
+artifact against it: `download_verified` rejects each mismatch and **leaves no
+file behind**. Any boot in that window therefore finds no slab at all — a
+total outage, silently, from a step whose own note already said so. Ordering
+makes the window smaller; only staging removes it.
+
+- [ ] Upload the three artifacts **and** `SHA256SUMS` to an immutable, dated
+      staging prefix — `q2/bakes/brandenburg-v1-<YYYYMMDD-HHMM>/`. Nothing
+      reads it yet, so a partial upload here is inert rather than an outage.
+- [ ] Verify the STAGED prefix from the bucket, not from local state: ranged
+      GET the books/chains headers, confirm the magic, confirm both digests
+      agree, confirm sizes, and confirm `SHA256SUMS` content matches. (This
+      catches a bad transfer; comparing to what you uploaded does not.)
+- [ ] **Cut over only after the staged prefix verifies**, by pointing the
+      runtime at it (`OSM_SLAB_S3_PREFIX`) — one atomic change, not a
+      multi-object mutation. There is no moment where a reader sees a
+      half-published prefix.
+- [ ] **Keep the previous prefix** for rollback; it stays complete and
+      self-consistent throughout, so reverting is the same one-value change.
+
+> If a same-prefix publish is ever genuinely unavoidable, the ONLY safe order
+> is: delete `SHA256SUMS` first (readers then fail closed on a missing
+> manifest and keep their warm volume), upload artifacts, upload sums last.
+> Staging is still preferable — it never makes the live prefix unreadable at
+> all.
 
 ### 5. Roll out (operator)
 - [ ] Set `OSM_BAKE_REGION=brandenburg` and restart cockpit-server.
