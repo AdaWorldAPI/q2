@@ -1780,6 +1780,7 @@ name = "cockpit-server"
 version = "0.1.0"
 dependencies = [
  "aiwar-ingest",
+ "arc-swap",
  "arrow",
  "askama",
  "async-stream",

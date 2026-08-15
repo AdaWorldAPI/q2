@@ -78,6 +78,11 @@ object_store = { version = "0.13.2", features = ["aws"] }
 sha2 = "0.10"
 hex = "0.4"
 futures = "0.3"
+# `osm_artifact_manager`: the atomically-replaceable-Arc serving mechanism
+# (Phase B of the OSM/Lance lifecycle plan). Already in the lockfile
+# transitively at 1.9 via lance-namespace/goosefs, so this adds no new
+# dependency tree — it only promotes an existing version to a direct dep.
+arc-swap = "1.9"
 # `osm_lance`: convert the hydrated `.soa` slab into a Lance dataset on the
 # same persistent volume (the `soa_to_lance` recipe, see that module's doc).
 # Both are ALREADY locked transitively at these exact versions via
