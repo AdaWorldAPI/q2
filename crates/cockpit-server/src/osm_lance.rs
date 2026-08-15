@@ -123,7 +123,13 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
     }
     let rows = map.len() / NODE_ROW_STRIDE;
     let digest_hex = format!("{:016x}", osm_soa_bake::codebook::hash_slab(&map));
-    drop(map);
+    // The map is KEPT, not dropped. It used to be released here and the file
+    // read again into an owned `Vec` for the write — a slab-sized ANONYMOUS
+    // allocation (1.4 GB for Berlin, 3.75 GB for Brandenburg) that no memory
+    // pressure can ever reclaim. Reusing these pages makes the conversion's
+    // source cost page cache instead: still charged to the cgroup while
+    // touched, but evictable, which anonymous memory is not.
+    let map = std::sync::Arc::new(map);
 
     // The Arrow ceiling is decided by `rows` ALONE, so decide it here — the
     // earliest point `rows` exists — rather than downstream in `write_lance`.
@@ -137,8 +143,8 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
     //
     // Position matters as much as the check. Placed downstream, this guard
     // was reached only AFTER `remove_stale_dataset` had deleted a perfectly
-    // good existing dataset and after `std::fs::read` had allocated the whole
-    // 3.75 GB slab — every boot, forever, to reach a decision that needed
+    // good existing dataset and after the whole 3.75 GB slab had been
+    // allocated — every boot, forever, to reach a decision that needed
     // only a row count. That trades a panic for an OOM risk plus a
     // guaranteed-useless multi-gigabyte read, which is not a fix. Deciding
     // before both is what makes the fallback actually cheap.
@@ -185,21 +191,11 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
         }
     }
 
-    // Cold path only: the write genuinely needs an owned Vec (adopted by
-    // `Buffer::from_vec`), so the slab-sized allocation is paid exactly once
-    // per conversion, never per boot.
-    let bytes = match std::fs::read(slab_path) {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot read slab");
-            return None;
-        }
-    };
     tracing::info!(
         path = %dest.display(), rows,
         "osm lance: converting the .soa slab into a Lance dataset (zero-copy import)"
     );
-    write_lance(&dest, bytes, rows, &digest_hex, slab_path).await
+    write_lance(&dest, map, rows, &digest_hex, slab_path).await
 }
 
 /// Most rows one `FixedSizeBinaryArray` can hold at [`NODE_ROW_STRIDE`].
@@ -300,7 +296,7 @@ async fn reopen_if_warm(dest: &Path, rows: usize, digest_hex: &str) -> Option<Pa
 /// the "already correct" case, so this is never a rewrite of good data.
 async fn write_lance(
     dest: &Path,
-    bytes: Vec<u8>,
+    map: std::sync::Arc<memmap2::Mmap>,
     rows: usize,
     digest_hex: &str,
     slab_path: &Path,
@@ -352,16 +348,23 @@ async fn write_lance(
     // Skipping the optimization for oversized regions is strictly safer and
     // already fully supported.
 
-    // Zero-copy import: `Buffer::from_vec` ADOPTS this allocation rather
-    // than copying it — asserted by pointer identity, not merely trusted
-    // (same discipline `soa_to_lance` uses; a 1+ GiB slab makes a silent
-    // copy here a real cost, not a rounding error).
-    let before = bytes.as_ptr();
-    let array = match FixedSizeBinaryArray::try_new(
-        NODE_ROW_STRIDE as i32,
-        arrow::buffer::Buffer::from_vec(bytes),
-        None,
-    ) {
+    // Zero-copy import over the MAPPING: Arrow addresses the slab's own pages
+    // rather than a heap copy of them, asserted by pointer identity below and
+    // not merely trusted (same discipline `soa_to_lance` uses).
+    let before = map.as_ptr();
+    // SAFETY: `ptr`/`len` describe the whole read-only mapping, and the `Arc`
+    // handed to `from_custom_allocation` keeps it alive for exactly as long as
+    // the `Buffer` — so the pages cannot be unmapped underneath Arrow. The
+    // artifact itself is immutable: it is verified by digest before this
+    // point and never written after publication.
+    let buffer = unsafe {
+        arrow::buffer::Buffer::from_custom_allocation(
+            std::ptr::NonNull::new_unchecked(map.as_ptr() as *mut u8),
+            map.len(),
+            map.clone(),
+        )
+    };
+    let array = match FixedSizeBinaryArray::try_new(NODE_ROW_STRIDE as i32, buffer, None) {
         Ok(a) => a,
         Err(e) => {
             // Defense-in-depth below the row-count bound checked above: ANY
@@ -375,7 +378,7 @@ async fn write_lance(
     debug_assert_eq!(
         array.value_data().as_ptr(),
         before,
-        "Buffer::from_vec must ADOPT the allocation — a moved address means a copy crept in"
+        "the Buffer must address the MAPPING itself — a moved address means a copy crept in"
     );
     let batch = match RecordBatch::try_new(schema.clone(), vec![Arc::new(array)]) {
         Ok(b) => b,
@@ -409,9 +412,82 @@ async fn write_lance(
         return None;
     }
 
+    // ── Evict the bake from RAM, immediately ────────────────────────────
+    //
+    // The dataset is on disk now; the slab's pages have done their job. Left
+    // alone they simply STAY — a 24 GB memory limit over a 1.4 GB file means
+    // nothing ever creates the pressure that would reclaim them, so the
+    // conversion's footprint would sit in the bill until the process exits.
+    // At Railway's $10/GB-month that is ~$14/month for Berlin and ~$37 for
+    // Brandenburg, charged for pages nobody is reading.
+    //
+    // `drop` first, because the advice cannot apply while Arrow still holds
+    // the `Buffer` that owns the mapping: the batch was moved into the writer
+    // above and is already gone, and `map` is the last strong reference.
+    release_after_write(map, dest);
+
     tracing::info!(path = %dest.display(), rows, "osm lance: converted");
     Some(dest.to_path_buf())
 }
+
+/// Release the slab mapping once the dataset is written, if we are the last
+/// holder of it.
+///
+/// Returns whether the release actually happened, so a test can tell "evicted"
+/// from "someone else still had it" — the difference decides whether this
+/// whole path does anything, and a version that silently never fires would
+/// look identical from the outside.
+///
+/// A surviving reference is NOT an error: it means something downstream still
+/// reads these pages, and yanking them would be wrong. It is logged rather
+/// than evicted-anyway or passed over in silence.
+fn release_after_write(map: std::sync::Arc<memmap2::Mmap>, dest: &Path) -> bool {
+    match std::sync::Arc::try_unwrap(map) {
+        Ok(m) => {
+            advise_dontneed(&m, dest);
+            true
+        }
+        Err(still_shared) => {
+            tracing::debug!(
+                refs = std::sync::Arc::strong_count(&still_shared),
+                "osm lance: slab mapping still referenced; skipping eviction"
+            );
+            false
+        }
+    }
+}
+
+/// Tell the kernel the slab's pages are no longer wanted.
+///
+/// `MADV_DONTNEED` on a read-only file mapping drops the mapping's page-table
+/// entries; the underlying page-cache pages stay valid (they can be re-read
+/// from the file at any time) but stop being mapped, which is what lets them
+/// be reclaimed instead of counting as this process's resident set forever.
+///
+/// **What it does NOT promise:** that the bytes leave the page cache the
+/// instant this returns. It is a hint, and the honest claim is "stops holding
+/// them", not "guarantees they are gone". The serving path re-faults whatever
+/// it actually touches, which is the point — pages tracking the query rather
+/// than the dataset.
+///
+/// Unix-only by nature; elsewhere the conversion simply keeps today's
+/// behaviour rather than pretending to evict.
+#[cfg(unix)]
+fn advise_dontneed(map: &memmap2::Mmap, dest: &Path) {
+    match map.advise(memmap2::Advice::DontNeed) {
+        Ok(()) => tracing::info!(
+            path = %dest.display(),
+            mapped_bytes = map.len(),
+            "osm lance: released the slab mapping after conversion"
+        ),
+        // A refused hint is not a failure of the conversion — the dataset is
+        // already written. Report it, do not fail on it.
+        Err(e) => tracing::warn!(error = %e, "osm lance: could not release the slab mapping"),
+    }
+}
+
+#[cfg(not(unix))]
+fn advise_dontneed(_map: &memmap2::Mmap, _dest: &Path) {}
 
 /// How far into a Lance data file to search for row 0's bytes. Generous
 /// margin over Lance's own header overhead (KB-scale) — row 0 sits near
@@ -631,6 +707,36 @@ mod tests {
     /// fires unconditionally would pass the test above for the wrong
     /// reason — this proves rows comfortably under the ceiling still reach
     /// (and clear) Arrow's own array construction.
+    /// The eviction fires when this is the last holder — and does NOT when it
+    /// is not. Both halves, because a `release_after_write` that always
+    /// returned `false` (Lance still holding the buffer, say) would be inert
+    /// and look exactly like a working one from outside.
+    #[test]
+    fn the_slab_mapping_is_released_only_when_nothing_else_holds_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("tiny.soa");
+        std::fs::write(&path, vec![0u8; NODE_ROW_STRIDE * 4]).expect("write slab");
+        let file = std::fs::File::open(&path).expect("open");
+        // SAFETY: read-only mapping of a file this test just wrote and owns.
+        let map = std::sync::Arc::new(unsafe { memmap2::Mmap::map(&file) }.expect("mmap"));
+
+        let held = map.clone();
+        assert!(
+            !release_after_write(map.clone(), dir.path()),
+            "a mapping something else still holds must NOT be released"
+        );
+        drop(held);
+        drop(map);
+
+        let file2 = std::fs::File::open(&path).expect("reopen");
+        // SAFETY: as above.
+        let sole = std::sync::Arc::new(unsafe { memmap2::Mmap::map(&file2) }.expect("mmap"));
+        assert!(
+            release_after_write(sole, dir.path()),
+            "the sole holder must release — otherwise the eviction is inert"
+        );
+    }
+
     #[test]
     fn a_row_count_under_the_ceiling_builds_a_valid_array() {
         let rows = 1_000usize; // Berlin-scale, nowhere near the 4.19M cap
@@ -656,9 +762,15 @@ mod tests {
     #[test]
     fn the_row_ceiling_predicate_accepts_the_last_row_and_rejects_the_first_over() {
         let max = arrow_max_rows_per_array();
-        assert_eq!(max, 4_194_303, "512-byte stride under Arrow's i32 byte ceiling");
+        assert_eq!(
+            max, 4_194_303,
+            "512-byte stride under Arrow's i32 byte ceiling"
+        );
 
-        assert!(row_count_fits_arrow_array(max), "the last fitting row count must be accepted");
+        assert!(
+            row_count_fits_arrow_array(max),
+            "the last fitting row count must be accepted"
+        );
         assert!(
             !row_count_fits_arrow_array(max + 1),
             "one row past the ceiling must be rejected — this is the exact boundary, \
@@ -666,7 +778,10 @@ mod tests {
         );
 
         // The two real regions, on the sides the incident put them.
-        assert!(row_count_fits_arrow_array(2_766_291), "Berlin must still take the fast path");
+        assert!(
+            row_count_fits_arrow_array(2_766_291),
+            "Berlin must still take the fast path"
+        );
         assert!(
             !row_count_fits_arrow_array(7_330_219),
             "Brandenburg's real row count is what crashed production"
