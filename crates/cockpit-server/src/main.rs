@@ -42,6 +42,7 @@ mod mock_driver;
 mod osint_classview;
 mod osm_tiles;
 mod osm;
+mod osm_artifact_manager;
 mod osm_features;
 mod osm_lance;
 mod osm_lifecycle;
@@ -119,6 +120,12 @@ struct AppState {
     tx: broadcast::Sender<SseEvent>,
     /// Shared scene state for /v1/shader/stream + /v1/shader/status.
     scene_state: shader_stream::SharedSceneState,
+    /// The OSM/Lance lifecycle serving state (Phase B). Constructed
+    /// `absent()` at startup — no I/O, so it never delays the listener —
+    /// and stays that way until Phase C wires real hydration through
+    /// `publish_lifecycle`/`publish_artifact`. `/api/osm/status` reads it;
+    /// nothing on the existing OnceLock-backed OSM serving path does yet.
+    osm_manager: Arc<osm_artifact_manager::OsmArtifactManager>,
 }
 
 // Shader handlers extract `State<Arc<AppState>>` and read `state.scene_state`
@@ -240,7 +247,12 @@ async fn main() {
 
     let (tx, _rx) = broadcast::channel::<SseEvent>(256);
     let scene_state = shader_stream::new_scene_state();
-    let state = Arc::new(AppState { tx, scene_state });
+    let osm_manager = Arc::new(osm_artifact_manager::OsmArtifactManager::absent());
+    let state = Arc::new(AppState {
+        tx,
+        scene_state,
+        osm_manager,
+    });
 
     // OpenAI-compatible model API state
     let openai_state = Arc::new(tokio::sync::Mutex::new(openai::OpenAiState::new()));
@@ -316,6 +328,11 @@ async fn main() {
         // working map on every other signal (200s, full tiles, correct
         // geometry) while drawing grey and untagged.
         .route("/api/osm/health", get(osm_features::osm_health_handler))
+        // Phase B of the OSM/Lance lifecycle plan: the OsmArtifactManager's
+        // lifecycle/artifact snapshot + cgroup memory, observational only —
+        // does not read map data and does not touch the OnceLock-backed
+        // serving path /api/osm/health reports on.
+        .route("/api/osm/status", get(osm_status_handler))
         .route("/api/osm/locate", get(osm_tiles::osm_locate_handler))
         .route("/api/osm/tile/:z/:x/:y", get(osm_tiles::osm_tile_meta_handler))
         .route("/api/osm/features/:z/:x/:y", get(osm_features::osm_features_handler))
@@ -1403,6 +1420,76 @@ async fn health_handler() -> Json<serde_json::Value> {
         "renderer": "quarto-core + deno_core (V8 JIT)",
         "compute": "ndarray (SIMD)",
         "cockpit": if cfg!(feature = "embed-cockpit") { "embedded (Vite React)" } else { "fallback shell" },
+    }))
+}
+
+// ── OSM/Lance lifecycle status (Phase B) ───────────────────────────────────────
+
+fn import_failure_json(error: &osm_lifecycle::ImportFailure) -> serde_json::Value {
+    use osm_lifecycle::ImportFailure::{
+        IdentityConflict, S3Publication, Source, Validation, Write,
+    };
+    match error {
+        Source(message) => serde_json::json!({ "kind": "source", "message": message }),
+        Write(message) => serde_json::json!({ "kind": "write", "message": message }),
+        Validation(message) => serde_json::json!({ "kind": "validation", "message": message }),
+        S3Publication(message) => {
+            serde_json::json!({ "kind": "s3_publication", "message": message })
+        }
+        IdentityConflict => serde_json::json!({ "kind": "identity_conflict" }),
+    }
+}
+
+fn lifecycle_status_json(lifecycle: &osm_lifecycle::Lifecycle) -> serde_json::Value {
+    let serving = lifecycle.serving.map(|s| {
+        serde_json::json!({
+            "active": s.active.to_key(),
+            "previous": s.previous.map(|p| p.to_key()),
+        })
+    });
+    let operation = match &lifecycle.operation {
+        osm_lifecycle::Operation::Idle => serde_json::json!({ "state": "idle" }),
+        osm_lifecycle::Operation::Importing {
+            candidate,
+            generation,
+        } => serde_json::json!({
+            "state": "importing",
+            "candidate": candidate.to_key(),
+            "generation": generation.0,
+        }),
+        osm_lifecycle::Operation::Failed {
+            candidate,
+            generation,
+            error,
+        } => serde_json::json!({
+            "state": "failed",
+            "candidate": candidate.to_key(),
+            "generation": generation.0,
+            "error": import_failure_json(error),
+        }),
+    };
+    serde_json::json!({ "serving": serving, "operation": operation })
+}
+
+/// Phase B observational endpoint: the [`osm_artifact_manager::OsmArtifactManager`]'s
+/// current lifecycle/artifact snapshot plus cgroup memory. Deliberately does
+/// NOT read any map data (slab/books/chains) — that stays on the existing
+/// `/api/osm/health` path, unaffected by this endpoint's presence.
+async fn osm_status_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let lifecycle = state.osm_manager.current();
+    let mem = osm_artifact_manager::read_cgroup_memory();
+    Json(serde_json::json!({
+        "lifecycle": lifecycle_status_json(&lifecycle),
+        "artifact_present": state.osm_manager.artifact().is_some(),
+        "cgroup_memory": {
+            "current_bytes": mem.current_bytes,
+            "max_bytes": mem.max_bytes,
+        },
+        "note": "Phase B observational endpoint. Reports the OsmArtifactManager's \
+                 lifecycle/artifact snapshot and cgroup memory; nothing publishes \
+                 real content into it yet — Phase C wires actual hydration through \
+                 publish_lifecycle/publish_artifact. The existing OnceLock-backed \
+                 slab/books/chains serving path (see /api/osm/health) is untouched.",
     }))
 }
 

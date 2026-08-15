@@ -1,7 +1,9 @@
 # OSM/Lance lifecycle — three clocks, one lineage per region
 
-**Status:** Phase A implemented, corrected once, tests re-run. Phases B–F not
-started (Phase B observational surface not begun this session either).
+**Status:** Phase A merged (PR #133). Phase B observational surface landed
+(`OsmArtifactManager`, `/api/osm/status`, cgroup memory) — the `OnceLock`
+serving path in `osm_features.rs` is untouched; that swap is Phase C. Phases
+C–F not started.
 **Operator directive:** 2026-08-15, this session.
 **Upstream contracts:** `AdaWorldAPI/lance-graph` PRs **#912** (baseline) and
 **#913** (the five semantic gates). #911 is historical context and is
@@ -294,10 +296,12 @@ these paths.
 ## Phases (PR-sized)
 
 - **A.** Pure lifecycle types, state machine, manifests, storage resolution,
-  falsifiers. ← *this session*
+  falsifiers. ← *merged, PR #133*
 - **B.** `OsmArtifactManager`, fast listener startup, status endpoint, memory
-  telemetry. ← *observational parts only, if cleanly separable*
-- **C.** Versioned local import with origin/import seals and reconciliation.
+  telemetry. ← *observational surface landed this session; does not replace
+  the `OnceLock` serving path*
+- **C.** Versioned local import with origin/import seals and reconciliation,
+  AND the `osm_features.rs` OnceLock→`OsmArtifactManager` migration.
 - **D.** Incremental S3 lineage mirroring, publication pointer, recovery,
   retention.
 - **E.** Native Lance column layout + Morton-shard updates; removes the single
@@ -371,13 +375,34 @@ actually observe the real system lands it.
 - [x] **correction pass** (2026-08-15, same session) — see § Correction pass;
       re-ran the full `osm_lifecycle` test module after
 
-### Phase B (observational only this session — not started)
-- [ ] `OsmArtifactManager` with atomically replaceable `Arc`
-- [ ] `/api/osm/status`
-- [ ] cgroup memory split + phase deltas
-- [ ] listener/`/health` independent of hydration
-- [ ] a real `MaintenanceProvenance::LanceHistoryVerified` resolver, OR name it
-      as still deferred to Phase C at the status-endpoint level
+### Phase B (observational only — landed this session)
+- [x] `OsmArtifactManager` with atomically replaceable `Arc`
+      (`crates/cockpit-server/src/osm_artifact_manager.rs`) — two independent
+      swaps: `ArcSwap<Lifecycle>` (real today) and `ArcSwapOption<ActiveArtifact>`
+      (deliberately an empty marker; Phase C fills it). **Purely additive**:
+      wired into `AppState` and constructed `absent()` at startup (no I/O), but
+      does NOT replace the four `OnceLock`s in `osm_features.rs`
+      (`SLAB_MMAP`/`BOOKS`/`CHAINS`/`SLAB_DIGEST`) — that swap needs real
+      hydration content to publish and is Phase C's job. Falsifier proven: a
+      reader holding an `Arc` from `current()`/`artifact()` before a
+      `publish_*` call keeps observing the old value after the call.
+- [x] `/api/osm/status` — new route, reports the manager's lifecycle/artifact
+      snapshot + cgroup memory as JSON. Reads no map data; independent of the
+      existing `/api/osm/health` (which still reports the OnceLock state).
+- [x] cgroup memory split — `read_cgroup_memory()` (Linux-gated per
+      `.claude/rules/cross-platform.md`, honest `None` fallback elsewhere),
+      pure `parse_cgroup_current`/`parse_cgroup_max` helpers.
+- [ ] **phase deltas** — deferred, not attempted. Tracking a memory delta
+      across a real phase transition needs a real transition to measure
+      across; there isn't one until Phase C's hydration exists. Recorded as
+      a named gap, not silently dropped.
+- [x] listener/`/health` independent of hydration — **already true**, verified
+      rather than fixed: `health_handler` is static JSON with no OSM
+      reference, and OSM's OnceLocks are lazy (first-request-triggered), so
+      nothing on the startup/listener path touches map data either way.
+- [ ] a real `MaintenanceProvenance::LanceHistoryVerified` resolver — still
+      deferred to Phase C, as originally planned; nothing in this session
+      claims otherwise.
 
 ### Deferred, named
 - [ ] braid epic — **the `braid` CLI is not installed in this container**; the
