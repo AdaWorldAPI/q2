@@ -44,6 +44,7 @@ mod osm_tiles;
 mod osm;
 mod osm_features;
 mod osm_lance;
+mod osm_lifecycle;
 mod osm_slab_hydrate;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────

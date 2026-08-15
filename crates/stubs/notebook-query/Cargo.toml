@@ -8,11 +8,21 @@ edition = "2024"
 lance-graph.workspace = true
 lance-graph-contract.workspace = true
 bgz17.workspace = true
-# Arrow + DataFusion versions MUST track lance-graph (arrow 58, datafusion 53),
-# else `CypherQuery::execute` returns an arrow-58 `RecordBatch` that won't unify
-# with a locally-built arrow-57 one (E0308). See lance-graph/crates/lance-graph.
+# Arrow version MUST track lance-graph (arrow 58), else `CypherQuery::execute`
+# returns an arrow-58 `RecordBatch` that won't unify with a locally-built
+# arrow-57 one (E0308). See lance-graph/crates/lance-graph.
+#
+# `datafusion` itself is NOT a direct dependency here — nothing in this crate
+# references it (verified: zero `datafusion::` uses in src/). A stale direct
+# pin at "53" used to sit here "for version alignment" while lance-graph had
+# already moved to the lance-9 family (datafusion 54, lancedb 0.33, arrow 58);
+# an unused pin at the WRONG version is strictly worse than no pin — it forces
+# cargo to build an entire second datafusion-53 + arrow-57 dependency subtree
+# alongside the one lance-graph already needs, for nothing. Removed rather
+# than bumped to "54": if this crate ever needs `datafusion::` types directly,
+# add it back tracking whatever lance-graph pins at that time, not a hardcoded
+# major version that can drift again.
 arrow = { version = "58", features = ["prettyprint"] }
-datafusion = { version = "53", default-features = false }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 serde.workspace = true
 serde_json = "1"
