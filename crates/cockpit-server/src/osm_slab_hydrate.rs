@@ -401,6 +401,19 @@ async fn download_verified(
 
 /// SHA-256 of a file, streamed — the artifact is 1.29 GiB and must not be read
 /// into memory to be hashed.
+///
+/// The streaming loop keeps process RSS flat, but every byte still passes
+/// through the *kernel's* page cache on the way through `read()`, and
+/// nothing evicts it afterward. This runs on EVERY boot with a warm volume
+/// (the common case — [`ensure_slab_local`]'s cache-hit branch, before
+/// `ensure_lance_local` even starts), so redeploying an unchanged region
+/// faulted the whole ~1.4-3.75 GB slab into the page cache for a hash it
+/// then threw away. Same disease [`crate::osm_lance::ensure_lance_local`]'s
+/// warm-reopen path had (see that module's `release_after_write`), a
+/// different call site with a different eviction primitive: `posix_fadvise`
+/// is the file-descriptor-read equivalent of `MADV_DONTNEED` for mmap —
+/// [`advise_dontneed`] tells the kernel it can drop these pages once we're
+/// done with them.
 fn sha256_file(path: &Path) -> std::io::Result<String> {
     use std::io::Read;
     let mut f = std::fs::File::open(path)?;
@@ -413,7 +426,55 @@ fn sha256_file(path: &Path) -> std::io::Result<String> {
         }
         hasher.update(&buf[..n]);
     }
+    advise_dontneed(&f);
     Ok(hex::encode(hasher.finalize()))
+}
+
+/// Test-only reachability counter — see [`advise_dontneed`]'s doc comment
+/// for why this exists instead of a memory-measurement assertion.
+#[cfg(test)]
+static FADVISE_ATTEMPTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Advise the kernel it can drop `f`'s pages from the page cache now that
+/// we're done reading it.
+///
+/// No portable equivalent exists for this on non-Unix targets (see
+/// `.claude/rules/cross-platform.md`), so it is a documented no-op there —
+/// this is memory hygiene, not correctness, so a silent no-op is fine.
+///
+/// Deliberately untestable via RSS or cgroup memory accounting, same as
+/// `osm_lance.rs`'s `release_after_write`: `/proc/self/statm` cannot see
+/// kernel page-cache/memcg state, and `/sys/fs/cgroup/*` is unavailable in
+/// this dev sandbox (though it IS what Railway's dashboard measures in
+/// production). The `#[cfg(test)]`-only [`FADVISE_ATTEMPTED`] counter below
+/// proves this function is actually REACHED from `sha256_file` on every
+/// call — the regression being guarded against is the call site being
+/// silently skipped or removed, which a counter catches and an RSS
+/// measurement cannot (see the falsifiability rule: a test that cannot
+/// fail when the guard is deleted is not a test of the guard).
+#[cfg(unix)]
+fn advise_dontneed(f: &std::fs::File) {
+    #[cfg(test)]
+    FADVISE_ATTEMPTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    use std::os::unix::io::AsRawFd;
+    let fd = f.as_raw_fd();
+    // SAFETY: `fd` is a valid, open file descriptor borrowed from `f` for
+    // the duration of this call. `POSIX_FADV_DONTNEED` only advises the
+    // kernel's page-cache policy — it cannot invalidate memory this process
+    // holds, and a nonzero return is just the kernel declining the hint, not
+    // a memory-safety concern — so the return value is intentionally not
+    // surfaced as a `Result`. `len = 0` means "to the end of the file" per
+    // POSIX, so this covers everything read above regardless of file size.
+    unsafe {
+        libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_DONTNEED);
+    }
+}
+
+#[cfg(not(unix))]
+fn advise_dontneed(_f: &std::fs::File) {
+    #[cfg(test)]
+    FADVISE_ATTEMPTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[cfg(test)]
@@ -466,6 +527,41 @@ not-a-hash                        junk.txt
             sha256_file(&p).unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+        std::fs::remove_file(&p).ok();
+    }
+
+    /// **The regression this fix is for.** `sha256_file` streams the whole
+    /// file through the kernel's page cache and, before this fix, left it
+    /// there — silently, on every boot with a warm volume. This counts
+    /// reachability of the eviction advisory rather than measuring memory
+    /// (RSS can't see page-cache state, and cgroup accounting is
+    /// unavailable in this sandbox — see `advise_dontneed`'s doc comment).
+    #[test]
+    fn sha256_file_attempts_page_cache_eviction_after_hashing() {
+        let dir = std::env::temp_dir().join("q2-hydrate-test-fadvise");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("probe_fadvise.bin");
+        std::fs::write(&p, b"abc").unwrap();
+
+        let before = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+        let digest = sha256_file(&p).unwrap();
+        let after = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+
+        // The hash itself must still be correct — this test must not pass
+        // merely because eviction ran on the wrong (or no) data.
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            after - before,
+            1,
+            "sha256_file must attempt to advise the kernel to drop this file's \
+             pages from the page cache after hashing it — this is the regression: \
+             it used to hash the whole ~1.4-3.75 GB slab on every boot with a warm \
+             volume, and nothing ever evicted it from the page cache afterward"
+        );
+
         std::fs::remove_file(&p).ok();
     }
 

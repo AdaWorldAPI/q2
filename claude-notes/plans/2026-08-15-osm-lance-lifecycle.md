@@ -493,3 +493,57 @@ BAKE side can hash while writing rather than re-reading; the SERVER side
 attempted here — it is a cross-repo change (bake in `openstreetmap-website-rs`
 + server in `q2`) and this session's fix already closes the more expensive
 half (residency, not the read itself).
+
+## Found during the same investigation: a second, earlier eviction gap in the S3 hydrator
+
+The `ensure_lance_local` fix above only covers the Lance-conversion warm-check.
+`ensure_slab_local` in `crates/cockpit-server/src/osm_slab_hydrate.rs` runs
+**before** that — on every boot, on a cache hit, it re-verifies the raw slab's
+SHA-256 against `SHA256SUMS` (deliberate, per that module's own doc: a
+half-written file from a killed mid-download container must not be waved
+through just because a file with the right name exists). `sha256_file` streams
+the read in 1 MiB chunks, so it does not inflate **process** RSS the way the
+old `osm_lance.rs` mmap bug did — but every byte still passes through the
+**kernel's page cache** on the way through `read()`, and nothing evicted it
+afterward. On a warm boot this runs first, unconditionally, for the whole
+~1.4–3.75 GB region (Berlin/Brandenburg), before `ensure_lance_local`'s own
+warm-check even starts — likely the larger of the two contributors to the
+observed RAM pattern, since it always runs and the other path only sometimes
+reaches its warm branch.
+
+Fixed with the file-descriptor-read equivalent of `MADV_DONTNEED`:
+`posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED)` (`len = 0` means "to EOF" per
+POSIX), called once `sha256_file` finishes streaming. Gated `#[cfg(unix)]`
+with a documented no-op fallback on other platforms (`.claude/rules/
+cross-platform.md` — no portable equivalent exists), following the exact
+pattern already established in this workspace by `crates/quarto-mcp-launcher/
+src/delegate.rs`'s `libc::fcntl` use. `libc` was already locked transitively
+at 0.2.185 via the rest of the workspace, so declaring it as a direct
+dependency of `cockpit-server` adds no new dependency tree — the same move
+`arc-swap` made for the `ensure_lance_local` fix above.
+
+**Same testing lesson, applied without re-deriving it:** RSS and cgroup memory
+accounting can't distinguish "read then evicted" from "read then left
+resident" for a streamed read any more than they could for the mmap case —
+`/proc/self/statm` cannot see kernel page-cache state, and `/sys/fs/cgroup/*`
+is unavailable in this dev sandbox (though it is what Railway's dashboard
+measures in production). Used the same `#[cfg(test)]`-only reachability
+counter pattern (`FADVISE_ATTEMPTED`) instead of a memory measurement — a
+real falsifier, confirmed failing before the fix (`left: 0, right: 1`) and
+passing after via the same revert/restore TDD cycle. Full crate suite:
+162/162 (was 161; one new test), 0 regressions. `rustfmt --edition 2024
+--check` on the touched leaf module shows the new code is clean — the file
+carries pre-existing, out-of-scope formatting drift on lines this change
+never touched (same crate-wide toolchain-baseline drift noted in the section
+above; left alone per "fix one bug at a time"). Clippy: `cargo clippy -p
+cockpit-server --no-deps --all-targets`, compared via `git stash` against
+the pre-fix tree — 68 warnings / 0 errors on both sides, and the actual
+warning content (not just the count) is byte-identical (64/64 non-summary
+lines match exactly) — zero new findings.
+
+**Still open, unchanged from the note above:** neither fix stops the
+warm-check from *reading* the whole slab, only from leaving it resident
+afterward. The "hot but idle" design (a bake-time sidecar digest a warm boot
+can check without touching slab bytes at all) remains the real fix for the
+read cost itself, and remains a cross-repo change not attempted this
+session.
