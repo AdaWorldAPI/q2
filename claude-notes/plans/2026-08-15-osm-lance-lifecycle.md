@@ -450,3 +450,46 @@ unreachable because `Operation` cannot touch `serving` at all.
   "pointer last" and "zero traversal on warm boot" testable as decisions
   before any wiring exists — and also why every probe in this file proves a
   decision, never a running system; see the falsifiers table.
+
+## Found during Phase B: the warm-boot eviction gap (fixed same session)
+
+Railway's memory graph (2026-08-15/16) showed the pattern this whole plan
+opens with, still live in the CURRENT (pre-Phase-C) code: a redeploy against
+an **already-warm, unchanged** Lance dataset still spiked memory to ~4 GB and
+held it there for **1–3.5 hours** before the kernel's own passive reclaim
+cleared it — no active eviction, nothing forcing reclaim under a 24 GB limit
+over a ~1.3 GB slab.
+
+Root cause, in `crates/cockpit-server/src/osm_lance.rs::ensure_lance_local`:
+the warm-check itself mmaps and FNV-1a-hashes the **entire** slab (unavoidable
+— that is how it knows nothing changed), but the rebuild path's eviction
+(`release_after_write`, from the earlier "evict the bake from RAM" fix,
+PR #132) was only wired to the REBUILD branch. The warm-reopen branch just
+dropped the mapping with no `MADV_DONTNEED`. Fixed by calling the same,
+already-proven `release_after_write` on the warm branch too — same mechanism,
+the missing call site.
+
+**Testing note, worth keeping:** the first version of this fix's test measured
+process RSS (`/proc/self/statm`) before/after a warm reopen — and it PASSED
+even with the fix reverted, because `Drop`'s `munmap` already removes this
+process's page-table entries regardless of whether `MADV_DONTNEED` ran. RSS
+cannot see the difference; the real effect is in the kernel's page cache /
+cgroup memcg charge (`/sys/fs/cgroup/memory.current`, unavailable in this dev
+sandbox). Replaced with a `#[cfg(test)]`-only reachability counter
+(`EVICTIONS_ATTEMPTED`) proving the call site is reached — a real falsifier
+(confirmed failing before the fix, passing after), honestly scoped to what
+this environment can prove. The production graph is the actual falsifier for
+the memory claim itself.
+
+**Named follow-up, not attempted this session:** the fix stops the warm path
+from LEAVING the slab resident, but does not stop it from TOUCHING every byte
+of the slab on every single boot just to compute the freshness digest. A
+cheaper design — matching the "hot but idle" framing the operator raised —
+would read a small bake-time sidecar digest instead of recomputing FNV-1a
+over the whole file, so a warm boot never faults the slab's pages in at all.
+`hash_slab`'s own doc comment already notes a streaming form exists so the
+BAKE side can hash while writing rather than re-reading; the SERVER side
+(this warm-check) does not yet use anything like it. Left named rather than
+attempted here — it is a cross-repo change (bake in `openstreetmap-website-rs`
++ server in `q2`) and this session's fix already closes the more expensive
+half (residency, not the read itself).
