@@ -78,6 +78,13 @@ object_store = { version = "0.13.2", features = ["aws"] }
 sha2 = "0.10"
 hex = "0.4"
 futures = "0.3"
+# `osm_slab_hydrate::sha256_file`: advise the kernel to drop a hashed file's
+# pages from its page cache afterward (`posix_fadvise(POSIX_FADV_DONTNEED)`,
+# gated `#[cfg(unix)]` — no portable equivalent, no-op elsewhere, same
+# pattern as `quarto-mcp-launcher/src/delegate.rs`'s `libc::fcntl` use).
+# Already locked transitively at 0.2.185 via the rest of the workspace, so
+# this adds no new dependency tree — same move `arc-swap` made in PR #135.
+libc = "0.2"
 # `osm_artifact_manager`: the atomically-replaceable-Arc serving mechanism
 # (Phase B of the OSM/Lance lifecycle plan). Already in the lockfile
 # transitively at 1.9 via lance-namespace/goosefs, so this adds no new

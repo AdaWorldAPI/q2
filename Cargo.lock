@@ -1797,6 +1797,7 @@ dependencies = [
  "lance-graph-contract",
  "lance-graph-ogar",
  "lance-graph-planner",
+ "libc",
  "memmap2",
  "ndarray 0.17.2",
  "notebook-query",
