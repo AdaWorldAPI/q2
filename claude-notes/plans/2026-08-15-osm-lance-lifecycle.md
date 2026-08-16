@@ -547,3 +547,107 @@ afterward. The "hot but idle" design (a bake-time sidecar digest a warm boot
 can check without touching slab bytes at all) remains the real fix for the
 read cost itself, and remains a cross-repo change not attempted this
 session.
+
+## "Hot but idle" — actually skipping the read, local-only (this session, follow-up)
+
+**Operator observation, 2026-08-16:** even after both eviction fixes above,
+RAM still takes 20–30 minutes to decline after a redeploy — down from the
+original 1h→4GB→1GB→2.5h→143MB pattern, but still real. Root cause: #135 and
+#136 only stop the warm-check from *leaving* the slab resident. They still
+*read* the entire ~1.4–3.75 GB slab, twice, on every single boot with a warm
+volume — once for `ensure_slab_local`'s SHA-256 cache-hit verify, once for
+`ensure_lance_local`'s FNV-1a freshness digest. Reading gigabytes off a
+Railway volume and hashing them is real wall-clock time and real (if
+transient) page-cache pressure — "evict promptly" is not the same claim as
+"never read at all", and this session's 20–30-minute report is evidence the
+first alone isn't enough.
+
+**Scope decision — this is NOT Phase C/D's `ImportSeal`/`warm_verification_reads`
+machinery, and should not be confused with it.** `osm_lifecycle.rs`'s Phase A
+types already model a "prove origin without reading data" mechanism
+(`warm_verification_reads` names S3 *seal keys* a warm boot could check), but
+that is an **S3-origin-proof** design — it answers "does this lineage still
+match what was published", gated behind Phase C's full versioned-import
+wiring and the `OnceLock`→`OsmArtifactManager` migration, neither of which
+exists yet. What's needed here is narrower and entirely **local**: "is the
+file already on THIS volume still the exact same file I verified last boot,
+so I can skip re-reading it at all." Building that as a slice of Phase C
+would mean pulling forward the whole seal/reconciliation machinery for a
+problem that doesn't need it. The two are compatible — Phase C/D can still
+land later and will supersede this — but this fix does not attempt to be, or
+substitute for, that architecture.
+
+**The mechanism: trust filesystem identity (mtime + length) recorded at the
+last real verification, distrust it on any mismatch.** Any write to a file
+updates its mtime, so `(mtime, len)` unchanged since the last full verify is
+conclusive proof the bytes are unchanged too — the same heuristic `make`,
+`rsync` (default mode), `cargo`, and `ccache` all use for exactly this
+reason (hash-on-every-build is their slow, explicit opt-in, not the
+default). This is the "clean shutdown vs dirty shutdown" analogy from
+earlier in this investigation: a trusted marker recorded after a verified
+clean state lets a later boot skip the expensive replay; any mismatch (or a
+missing/malformed marker) falls back to the existing full-hash path
+unconditionally — never a hard failure, always a slower-but-correct
+degrade.
+
+- [x] `osm_slab_hydrate.rs`: a `<artifact>.verified` sidecar (mtime_nanos +
+      len + digest, one per line) written after every real successful
+      verification (download or cache-hit). `ensure_slab_local`'s cache-hit
+      branch checks the marker BEFORE calling `sha256_file`; a match skips
+      the read entirely, any mismatch (or missing marker) falls straight
+      through to today's unchanged `sha256_file` verify.
+- [x] `osm_lance.rs`: two new Lance schema-metadata keys
+      (`soa:slab_mtime_nanos`, `soa:slab_len`) written alongside the
+      existing `soa:slab_digest` at conversion time. `ensure_lance_local`
+      stats the slab (no read) and, if a dataset already exists whose
+      stored `(mtime, len)` match, resolves warm WITHOUT ever mmapping or
+      hashing the slab. Any mismatch falls through to the existing
+      mmap+`hash_slab`+`reopen_if_warm` path unchanged.
+- [x] Named limitation, not a bug: neither mechanism *self-heals* an
+      existing dataset/cache entry that predates this change, or one whose
+      mtime was touched without its content changing (e.g. a re-download of
+      byte-identical bytes). Those cases correctly fall back to the slower
+      hash-based path forever, until the artifact is genuinely rebuilt —
+      acceptable because the common steady-state case (an untouched volume
+      across ordinary redeploys) is exactly what the fast path targets, and
+      degrading to today's already-correct behavior costs nothing beyond
+      not yet getting the speedup.
+- [x] TDD: reachability counters (`SLOW_PATH_HASH_ATTEMPTED` in
+      `osm_lance.rs`; the pre-existing `FADVISE_ATTEMPTED` in
+      `osm_slab_hydrate.rs`, since a skipped `sha256_file` call already
+      proves itself via that counter not incrementing), same discipline as
+      #135/#136 — RSS/cgroup accounting cannot see "skipped a read" any
+      more than it could see "evicted after a read".
+
+**Verification.** Every falsifier confirmed via the same revert/restore TDD
+cycle as #135/#136 (`osm_lance.rs`'s `a_hot_boot_skips_the_full_slab_hash_
+entirely`: `left: 2, right: 1` reverted, passes restored;
+`osm_slab_hydrate.rs`'s `resolve_cache_hit_trusts_a_matching_marker_
+without_hashing`: fails reverted, passes restored). One pre-existing test
+(`the_warm_reopen_path_attempts_eviction_too`, from #135) had to be updated
+— its original scenario (an untouched second call) is now correctly served
+by the NEW fast path instead of the digest-based warm-reopen it was written
+to cover, so it now touches the slab's mtime before the second call to keep
+exercising that branch; the update is documented inline in the test's own
+doc comment, not silently weakened. **Discovered mid-verification:**
+`#[cfg(test)]` reachability counters are process-wide statics, and plain
+`cargo test`'s default multi-threaded harness runs tests concurrently in
+ONE process — two counter-based tests running at the same time stomp on
+each other's counts. `cargo nextest run` (this repo's own mandated runner,
+`CLAUDE.md`'s "CRITICAL: Use `cargo nextest run` instead of `cargo test`")
+isolates each test into its own process, which is what actually makes this
+counter pattern safe at more than one test at a time — worth remembering
+for any future counter-based falsifier in this crate.
+
+Full suite (`cargo nextest run -p cockpit-server --bin q2-cockpit`):
+173/173 passed — 11 new tests (3 in `osm_lance.rs`, 8 in `osm_slab_hydrate.rs`)
+on top of #136's 162, 0 regressions. `rustfmt --edition 2024 --check` clean
+on all new code in both
+files (one real formatting fix applied in each — a `write_lance` call and a
+`stat_identity` one-liner — the crate-wide pre-existing drift already
+documented above is untouched). Clippy (`cargo clippy -p cockpit-server
+--no-deps --all-targets`, compared via `git stash` against the pre-change
+tree): one genuinely new finding surfaced mid-work (`collapsible_if` on the
+fast-path's nested `if let`, fixed with a `let`-chain per clippy's own
+suggestion) and was fixed before landing — final comparison is 68/0 on both
+trees, byte-identical warning content.
