@@ -261,16 +261,24 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
 
         // Cache hit, but only if it still hashes correctly — see module docs.
         if dest.is_file() {
-            match sha256_file(&dest) {
-                Ok(got) if got == want => {
+            match resolve_cache_hit(&dest, &want) {
+                CacheDecision::TrustedViaMarker => {
+                    tracing::info!(
+                        artifact = name,
+                        "osm slab: cache hit, trusted via unchanged marker (mtime+len \
+                         match the last real verification; skipped re-hash)"
+                    );
+                    continue;
+                }
+                CacheDecision::Verified => {
                     tracing::info!(artifact = name, "osm slab: cache hit, checksum verified");
                     continue;
                 }
-                Ok(got) => tracing::warn!(
+                CacheDecision::Mismatch(got) => tracing::warn!(
                     artifact = name, %got, %want,
                     "osm slab: cached copy failed its checksum; re-fetching"
                 ),
-                Err(e) => {
+                CacheDecision::Unreadable(e) => {
                     tracing::warn!(artifact = name, error = %e, "osm slab: cannot hash cached copy; re-fetching")
                 }
             }
@@ -391,12 +399,159 @@ async fn download_verified(
         let _ = std::fs::remove_file(&part);
         return false;
     }
+    // A fresh download IS a real verification — record it so the NEXT boot's
+    // cache hit can trust it via `resolve_cache_hit` without re-reading.
+    write_marker(dest, &got);
     tracing::info!(
         artifact = name,
         bytes = written,
         "osm slab: downloaded and verified"
     );
     true
+}
+
+// ── The "hot but idle" cache-hit fast path ──────────────────────────────
+//
+// `sha256_file` streams the whole artifact through the kernel's page cache
+// on EVERY boot with a warm volume, even though the common case is "nothing
+// changed since the last boot verified this exact file." A tiny sidecar
+// marker — `<artifact>.verified` — records the (mtime, length, digest) that
+// the last REAL verification produced. Any write to a file updates its
+// mtime, so `(mtime, len)` matching the marker is conclusive proof the
+// bytes are unchanged too (the same heuristic `make`/`rsync`/`cargo`/
+// `ccache` use by default) — trusting it skips `sha256_file` entirely,
+// exactly the "clean shutdown" half of the exchange-DAG analogy this
+// investigation used: a persisted marker from a known-good state lets a
+// later boot skip the expensive replay. Any mismatch — content changed,
+// marker absent, marker malformed, or the bucket republished a different
+// `want` digest for this name — falls straight through to `sha256_file`,
+// the "dirty shutdown" fallback, unconditionally.
+
+/// Parsed contents of a `<artifact>.verified` marker: exactly what the last
+/// successful verification of THIS file recorded, three lines in order —
+/// mtime (nanoseconds since `UNIX_EPOCH`), length in bytes, digest. Any
+/// malformed or unreadable marker is never a hard error anywhere it is
+/// used — the caller always has a correct, if slower, fallback: a real
+/// `sha256_file` re-hash.
+#[derive(Debug, PartialEq, Eq)]
+struct VerifiedMarker {
+    mtime_nanos: u128,
+    len: u64,
+    digest: String,
+}
+
+impl VerifiedMarker {
+    fn parse(text: &str) -> Option<Self> {
+        let mut lines = text.lines();
+        let mtime_nanos: u128 = lines.next()?.trim().parse().ok()?;
+        let len: u64 = lines.next()?.trim().parse().ok()?;
+        let digest = lines.next()?.trim().to_ascii_lowercase();
+        if digest.len() != 64 || !digest.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        Some(Self {
+            mtime_nanos,
+            len,
+            digest,
+        })
+    }
+
+    fn render(&self) -> String {
+        format!("{}\n{}\n{}\n", self.mtime_nanos, self.len, self.digest)
+    }
+}
+
+/// `(mtime as nanoseconds since the Unix epoch, length in bytes)` for
+/// `path`, or `None` on any stat failure — a stat failure just means "the
+/// fast path is unavailable here", never an error the caller need surface;
+/// `sha256_file` remains correct regardless.
+fn stat_identity(path: &Path) -> Option<(u128, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta.modified().ok()?;
+    let nanos = mtime.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some((nanos, meta.len()))
+}
+
+/// Where the marker for `dest` lives — a sibling file, same directory,
+/// `.verified` appended to the artifact's own name (`berlin.soa` →
+/// `berlin.soa.verified`), so it travels with the cache dir and is
+/// trivially recognisable in a directory listing.
+fn marker_path(dest: &Path) -> PathBuf {
+    let mut name = dest.as_os_str().to_os_string();
+    name.push(".verified");
+    PathBuf::from(name)
+}
+
+/// Whether the marker at `marker_path(dest)` proves `dest` still matches
+/// `want` WITHOUT reading `dest`'s content. Folding `want` into the
+/// comparison (not just the file's own recorded digest) means a bucket
+/// republish — `SHA256SUMS` now names a DIFFERENT digest for this artifact
+/// name — correctly invalidates a marker whose file identity hasn't
+/// changed at all: the marker's digest no longer equals the freshly
+/// fetched `want`, so this declines and `sha256_file` runs for real,
+/// which then correctly reports a mismatch and triggers a re-download.
+fn trusted_via_marker(dest: &Path, want: &str) -> bool {
+    let Some(marker) = std::fs::read_to_string(marker_path(dest))
+        .ok()
+        .and_then(|text| VerifiedMarker::parse(&text))
+    else {
+        return false;
+    };
+    let Some((mtime_nanos, len)) = stat_identity(dest) else {
+        return false;
+    };
+    marker.mtime_nanos == mtime_nanos && marker.len == len && marker.digest == want
+}
+
+/// Record `dest`'s current (mtime, length) alongside `digest` — the just-
+/// proven-correct identity a later boot's [`trusted_via_marker`] can trust.
+/// Failure to write is logged, never fatal: the next boot simply re-hashes,
+/// which is exactly today's behaviour without this whole mechanism.
+fn write_marker(dest: &Path, digest: &str) {
+    let Some((mtime_nanos, len)) = stat_identity(dest) else {
+        return;
+    };
+    let marker = VerifiedMarker {
+        mtime_nanos,
+        len,
+        digest: digest.to_string(),
+    };
+    if let Err(e) = std::fs::write(marker_path(dest), marker.render()) {
+        tracing::warn!(
+            path = %dest.display(), error = %e,
+            "osm slab: could not write verification marker (non-fatal; next boot re-hashes)"
+        );
+    }
+}
+
+/// The outcome of checking one cached artifact against `want`, in the shape
+/// [`ensure_slab_local`]'s loop needs to log and branch on. Split out from
+/// that loop so it is directly testable without env vars or an S3 stub —
+/// see `resolve_cache_hit_trusts_a_matching_marker_without_hashing` below.
+enum CacheDecision {
+    /// The marker proved identity without touching the file's bytes.
+    TrustedViaMarker,
+    /// A real `sha256_file` ran and matched `want` — the marker is now
+    /// (re)written for the next boot.
+    Verified,
+    /// A real `sha256_file` ran and did NOT match `want`.
+    Mismatch(String),
+    /// The file could not be hashed at all (e.g. a permissions error).
+    Unreadable(std::io::Error),
+}
+
+fn resolve_cache_hit(dest: &Path, want: &str) -> CacheDecision {
+    if trusted_via_marker(dest, want) {
+        return CacheDecision::TrustedViaMarker;
+    }
+    match sha256_file(dest) {
+        Ok(got) if got == want => {
+            write_marker(dest, &got);
+            CacheDecision::Verified
+        }
+        Ok(got) => CacheDecision::Mismatch(got),
+        Err(e) => CacheDecision::Unreadable(e),
+    }
 }
 
 /// SHA-256 of a file, streamed — the artifact is 1.29 GiB and must not be read
@@ -563,6 +718,165 @@ not-a-hash                        junk.txt
         );
 
         std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn verified_marker_render_parse_roundtrips() {
+        let marker = VerifiedMarker {
+            mtime_nanos: 1_234_567_890_123_456_789,
+            len: 1_484_783_616,
+            digest: "a".repeat(64),
+        };
+        let parsed = VerifiedMarker::parse(&marker.render()).expect("must parse its own render");
+        assert_eq!(parsed, marker);
+    }
+
+    /// Anti-vacuity for the digest-shape guard: a plausible-looking but
+    /// wrong-length digest must not silently parse as a 64-char one.
+    #[test]
+    fn verified_marker_parse_rejects_a_malformed_digest() {
+        assert!(VerifiedMarker::parse("123\n456\nnothex").is_none());
+        assert!(VerifiedMarker::parse("123\n456\ntooshort").is_none());
+        assert!(VerifiedMarker::parse("not-a-number\n456\n").is_none());
+        assert!(VerifiedMarker::parse("").is_none());
+    }
+
+    fn write_temp_artifact(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, bytes).expect("write artifact");
+        p
+    }
+
+    /// **The base case.** No marker at all must decline, not panic or
+    /// somehow trust an absent file.
+    #[test]
+    fn trusted_via_marker_declines_when_the_marker_is_absent() {
+        let dir = std::env::temp_dir().join("q2-hydrate-test-marker-absent");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = write_temp_artifact(&dir, "artifact.bin", b"hello world");
+        assert!(!trusted_via_marker(&p, "irrelevant"));
+        std::fs::remove_file(&p).ok();
+    }
+
+    /// The marker's own recorded identity no longer matches the file on
+    /// disk — the file was rewritten (different content, different mtime),
+    /// which is precisely the case `trusted_via_marker` must catch: a stale
+    /// marker must never vouch for content it never actually verified.
+    #[test]
+    fn trusted_via_marker_declines_when_the_file_was_rewritten() {
+        let dir = std::env::temp_dir().join("q2-hydrate-test-marker-rewritten");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = write_temp_artifact(&dir, "artifact.bin", b"original content");
+        let (mtime_nanos, len) = stat_identity(&p).expect("stat");
+        let digest = sha256_file(&p).expect("hash");
+        write_marker(&p, &digest);
+
+        // Rewrite with DIFFERENT content — a real mtime bump, not a forced one.
+        std::fs::write(&p, b"different content, different length").expect("rewrite");
+        assert!(
+            !trusted_via_marker(&p, &digest),
+            "a rewritten file must never be trusted via a marker from before the rewrite"
+        );
+        // Sanity: the original marker really did record the pre-rewrite state.
+        assert_ne!(stat_identity(&p).unwrap(), (mtime_nanos, len));
+
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(marker_path(&p)).ok();
+    }
+
+    /// The file itself is byte-for-byte untouched, but the CALLER's `want`
+    /// changed — a bucket republish naming a different digest for this
+    /// artifact name. The marker's own recorded digest no longer equals the
+    /// freshly fetched `want`, so trust must be declined even though the
+    /// file's identity (mtime+len) is unchanged.
+    #[test]
+    fn trusted_via_marker_declines_when_the_wanted_digest_changes() {
+        let dir = std::env::temp_dir().join("q2-hydrate-test-marker-want-changed");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = write_temp_artifact(&dir, "artifact.bin", b"stable content");
+        let digest = sha256_file(&p).expect("hash");
+        write_marker(&p, &digest);
+
+        assert!(
+            !trusted_via_marker(&p, &"f".repeat(64)),
+            "a marker must not vouch for a digest it never recorded"
+        );
+
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(marker_path(&p)).ok();
+    }
+
+    /// The positive case: identity unchanged, digest matches `want` — must
+    /// trust.
+    #[test]
+    fn trusted_via_marker_accepts_when_everything_matches() {
+        let dir = std::env::temp_dir().join("q2-hydrate-test-marker-match");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = write_temp_artifact(&dir, "artifact.bin", b"unchanged content");
+        let digest = sha256_file(&p).expect("hash");
+        write_marker(&p, &digest);
+
+        assert!(trusted_via_marker(&p, &digest));
+
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(marker_path(&p)).ok();
+    }
+
+    /// **The "hot but idle" falsifier for the cache-hit path.** A matching
+    /// marker must resolve `resolve_cache_hit` to `TrustedViaMarker` WITHOUT
+    /// `sha256_file` ever running — proven via the same `FADVISE_ATTEMPTED`
+    /// reachability counter `sha256_file_attempts_page_cache_eviction_
+    /// after_hashing` uses (bumped inside `advise_dontneed`, which only
+    /// `sha256_file` calls): if the counter doesn't move, the read never
+    /// happened.
+    #[test]
+    fn resolve_cache_hit_trusts_a_matching_marker_without_hashing() {
+        let dir = std::env::temp_dir().join("q2-hydrate-test-resolve-trusted");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = write_temp_artifact(&dir, "artifact.bin", b"trust me, i'm unchanged");
+        let digest = sha256_file(&p).expect("hash");
+        write_marker(&p, &digest);
+
+        let before = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+        let decision = resolve_cache_hit(&p, &digest);
+        let after = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+
+        assert!(matches!(decision, CacheDecision::TrustedViaMarker));
+        assert_eq!(
+            after, before,
+            "a genuinely trusted marker must skip sha256_file entirely — this is the \
+             whole point of the fast path: on a genuinely unchanged artifact, zero \
+             bytes of it are ever read"
+        );
+
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(marker_path(&p)).ok();
+    }
+
+    /// The silent twin: with NO marker present, `resolve_cache_hit` must
+    /// still fall through to a real hash (and get the right answer) — this
+    /// is what proves the counter above is a meaningful zero, not a
+    /// tautological one from a code path that never hashes at all.
+    #[test]
+    fn resolve_cache_hit_falls_back_to_a_real_hash_when_untrusted() {
+        let dir = std::env::temp_dir().join("q2-hydrate-test-resolve-untrusted");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = write_temp_artifact(&dir, "artifact.bin", b"no marker yet");
+        let digest = sha256_file(&p).expect("hash");
+
+        let before = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+        let decision = resolve_cache_hit(&p, &digest);
+        let after = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+
+        assert!(matches!(decision, CacheDecision::Verified));
+        assert_eq!(
+            after - before,
+            1,
+            "with no marker to trust, resolve_cache_hit must actually hash the file"
+        );
+
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(marker_path(&p)).ok();
     }
 
     #[test]

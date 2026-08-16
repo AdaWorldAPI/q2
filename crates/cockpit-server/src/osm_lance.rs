@@ -74,6 +74,11 @@ const K_ENDIAN: &str = "soa:endianness";
 const K_CLASSID: &str = "soa:classid";
 const K_DIGEST: &str = "soa:slab_digest";
 const K_SOURCE: &str = "soa:source";
+// The "hot but idle" fast-path identity — see `reopen_if_unchanged`'s doc
+// comment. Recorded alongside `K_DIGEST` at write time; a later boot whose
+// slab's CURRENT stat matches both never touches slab bytes at all.
+const K_SLAB_MTIME: &str = "soa:slab_mtime_nanos";
+const K_SLAB_LEN: &str = "soa:slab_len";
 
 const ROW_COLUMN: &str = "row";
 
@@ -96,40 +101,25 @@ const OSM_BAKE_CLASSID: &str = "00000000";
 pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
     let dest = slab_path.with_extension("lance");
 
-    // Digest over an mmap, not `fs::read`: the warm path must not pay a
-    // slab-sized heap allocation (1.29 GiB for Berlin) just to compute a
-    // hash — the pages stream through the page cache and stay reclaimable.
-    let file = match std::fs::File::open(slab_path) {
-        Ok(f) => f,
-        Err(e) => {
-            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot open slab");
-            return None;
-        }
-    };
-    // SAFETY: read-only mapping of the baked, immutable artifact.
-    let map = match unsafe { memmap2::Mmap::map(&file) } {
+    // Stat-only, no bytes read yet. `rows` (needed for the Arrow ceiling
+    // check below) and the slab's filesystem identity (needed for the
+    // hot-but-idle fast path just after) both come from this alone.
+    let meta = match std::fs::metadata(slab_path) {
         Ok(m) => m,
         Err(e) => {
-            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot mmap slab");
+            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot stat slab");
             return None;
         }
     };
-    if map.is_empty() || !map.len().is_multiple_of(NODE_ROW_STRIDE) {
+    let len = meta.len() as usize;
+    if len == 0 || !len.is_multiple_of(NODE_ROW_STRIDE) {
         tracing::error!(
-            path = %slab_path.display(), len = map.len(),
+            path = %slab_path.display(), len,
             "osm lance: slab is not a whole number of {NODE_ROW_STRIDE}-byte rows; refusing"
         );
         return None;
     }
-    let rows = map.len() / NODE_ROW_STRIDE;
-    let digest_hex = format!("{:016x}", osm_soa_bake::codebook::hash_slab(&map));
-    // The map is KEPT, not dropped. It used to be released here and the file
-    // read again into an owned `Vec` for the write — a slab-sized ANONYMOUS
-    // allocation (1.4 GB for Berlin, 3.75 GB for Brandenburg) that no memory
-    // pressure can ever reclaim. Reusing these pages makes the conversion's
-    // source cost page cache instead: still charged to the cgroup while
-    // touched, but evictable, which anonymous memory is not.
-    let map = std::sync::Arc::new(map);
+    let rows = len / NODE_ROW_STRIDE;
 
     // The Arrow ceiling is decided by `rows` ALONE, so decide it here — the
     // earliest point `rows` exists — rather than downstream in `write_lance`.
@@ -159,6 +149,58 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
         );
         return None;
     }
+
+    // ── Hot-but-idle fast path ───────────────────────────────────────────
+    // Trust an already-warm dataset's OWN recorded slab identity (mtime+len)
+    // without ever opening or mmapping the slab. See `reopen_if_unchanged`'s
+    // doc comment for why this is sound. `slab_mtime_nanos` returning `None`
+    // (a platform/filesystem without mtime support) just skips the fast
+    // path — the slower, always-correct path below still runs. Hoisted into
+    // a variable (not just an `if let` scope) so a fresh conversion at the
+    // end of this function can also record it for the NEXT boot's fast path.
+    let mtime_nanos = slab_mtime_nanos(&meta);
+    if let Some(mtime_nanos) = mtime_nanos
+        && let Some(dest_out) = reopen_if_unchanged(&dest, rows, mtime_nanos, len as u64).await
+    {
+        tracing::info!(
+            path = %dest_out.display(), rows,
+            "osm lance: hot — dataset's recorded slab identity (mtime+len) matches; \
+             skipped mmap+hash entirely"
+        );
+        return Some(dest_out);
+    }
+
+    // ── Below here: the slower, content-hash-based path — unchanged from
+    // before this fast path existed, reached now only when the fast path
+    // above declined (cold boot, touched mtime, or a dataset predating this
+    // fix). Digest over an mmap, not `fs::read`: this path must not pay a
+    // slab-sized heap allocation (1.29 GiB for Berlin) just to compute a
+    // hash — the pages stream through the page cache and stay reclaimable.
+    let file = match std::fs::File::open(slab_path) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot open slab");
+            return None;
+        }
+    };
+    // SAFETY: read-only mapping of the baked, immutable artifact.
+    let map = match unsafe { memmap2::Mmap::map(&file) } {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!(path = %slab_path.display(), error = %e, "osm lance: cannot mmap slab");
+            return None;
+        }
+    };
+    #[cfg(test)]
+    SLOW_PATH_HASH_ATTEMPTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let digest_hex = format!("{:016x}", osm_soa_bake::codebook::hash_slab(&map));
+    // The map is KEPT, not dropped. It used to be released here and the file
+    // read again into an owned `Vec` for the write — a slab-sized ANONYMOUS
+    // allocation (1.4 GB for Berlin, 3.75 GB for Brandenburg) that no memory
+    // pressure can ever reclaim. Reusing these pages makes the conversion's
+    // source cost page cache instead: still charged to the cgroup while
+    // touched, but evictable, which anonymous memory is not.
+    let map = std::sync::Arc::new(map);
 
     if let Some(warm) = reopen_if_warm(&dest, rows, &digest_hex).await {
         tracing::info!(
@@ -205,7 +247,16 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
         path = %dest.display(), rows,
         "osm lance: converting the .soa slab into a Lance dataset (zero-copy import)"
     );
-    write_lance(&dest, map, rows, &digest_hex, slab_path).await
+    write_lance(
+        &dest,
+        map,
+        rows,
+        &digest_hex,
+        slab_path,
+        mtime_nanos,
+        len as u64,
+    )
+    .await
 }
 
 /// Most rows one `FixedSizeBinaryArray` can hold at [`NODE_ROW_STRIDE`].
@@ -244,6 +295,86 @@ fn remove_stale_dataset(dest: &Path) -> std::io::Result<()> {
          (version history has no value for a derived cache)"
     );
     std::fs::remove_dir_all(dest)
+}
+
+/// `mtime` as nanoseconds since the Unix epoch, or `None` on any failure to
+/// read it (a platform without mtime support, or a clock before 1970 — the
+/// caller treats `None` as "cannot use the fast path", never as an error).
+#[must_use]
+fn slab_mtime_nanos(meta: &std::fs::Metadata) -> Option<u128> {
+    meta.modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_nanos())
+}
+
+/// Reachability counter for the slow, content-hash-based path (test builds
+/// only) — proves whether [`ensure_lance_local`] actually opened+mmapped the
+/// slab, which `/proc/self/statm` and this sandbox's absent
+/// `/sys/fs/cgroup/*` cannot show directly. See
+/// `a_hot_boot_skips_the_full_slab_hash_entirely` below, and
+/// `EVICTIONS_ATTEMPTED`'s doc comment for why a reachability counter is the
+/// right substitute for a memory measurement here.
+#[cfg(test)]
+static SLOW_PATH_HASH_ATTEMPTED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// `Some(dest)` iff a dataset already exists at `dest`, is a single
+/// fragment, has exactly `rows` rows, AND its own recorded slab identity —
+/// `soa:slab_mtime_nanos` + `soa:slab_len` — matches the CURRENT slab's,
+/// all proven **without reading a single byte of the slab**.
+///
+/// This is sound, not merely convenient: any write to a file updates its
+/// mtime, so `(mtime, len)` unchanged since the dataset was written is
+/// conclusive proof the slab's bytes are unchanged too — the same
+/// heuristic `make`, `rsync` (default mode), `cargo`, and `ccache` all rely
+/// on for exactly this reason (hashing every input on every run is their
+/// slow, explicit opt-in, never the default). It does NOT try to prove
+/// anything about content that genuinely changed; a mismatch here is not a
+/// verdict, only "cannot fast-path" — [`ensure_lance_local`] falls through
+/// to the slower, always-correct mmap+[`osm_soa_bake::codebook::hash_slab`]
+/// path below, which is untouched by this function's existence.
+///
+/// **Named limitation:** a dataset written before this fast path existed
+/// (or one whose slab's mtime was touched without its content changing —
+/// e.g. a re-download of byte-identical bytes) has no stored identity to
+/// match, or a permanently-mismatching one, and falls back to the slow path
+/// FOREVER until the slab is genuinely rebuilt. That is a missed
+/// optimization, never a correctness problem: the slow path is exactly
+/// today's already-correct behaviour.
+async fn reopen_if_unchanged(
+    dest: &Path,
+    rows: usize,
+    mtime_nanos: u128,
+    len: u64,
+) -> Option<PathBuf> {
+    if !dest.exists() {
+        return None;
+    }
+    let uri = dest.to_string_lossy().into_owned();
+    let ds = lance::dataset::builder::DatasetBuilder::from_uri(&uri)
+        .load()
+        .await
+        .ok()?;
+    let got_rows = ds.count_rows(None).await.ok()?;
+    let got_mtime: Option<u128> = ds
+        .schema()
+        .metadata
+        .get(K_SLAB_MTIME)
+        .and_then(|s| s.parse().ok());
+    let got_len: Option<u64> = ds
+        .schema()
+        .metadata
+        .get(K_SLAB_LEN)
+        .and_then(|s| s.parse().ok());
+    let fragments = ds.get_fragments().len();
+    if got_rows == rows && got_mtime == Some(mtime_nanos) && got_len == Some(len) && fragments == 1
+    {
+        Some(dest.to_path_buf())
+    } else {
+        None
+    }
 }
 
 /// `Some(dest)` iff a dataset already exists at `dest` with exactly `rows`
@@ -310,6 +441,8 @@ async fn write_lance(
     rows: usize,
     digest_hex: &str,
     slab_path: &Path,
+    mtime_nanos: Option<u128>,
+    len: u64,
 ) -> Option<PathBuf> {
     let field = Field::new(
         ROW_COLUMN,
@@ -324,7 +457,7 @@ async fn write_lance(
         "lance-encoding:compression".to_string(),
         "none".to_string(),
     )]));
-    let schema_meta = HashMap::from([
+    let mut schema_meta = HashMap::from([
         (K_LAYOUT.to_string(), ENVELOPE_LAYOUT_VERSION.to_string()),
         (K_STRIDE.to_string(), NODE_ROW_STRIDE.to_string()),
         (
@@ -339,6 +472,15 @@ async fn write_lance(
             format!("{} rows={rows}", slab_path.display()),
         ),
     ]);
+    // The hot-but-idle fast-path identity — only written when the platform
+    // actually reported an mtime (`ensure_lance_local`'s `slab_mtime_nanos`
+    // returned `Some`). Absent here means `reopen_if_unchanged` can never
+    // fast-path THIS dataset, which is a correctness-preserving degrade
+    // (see that function's doc comment), never a hard failure.
+    if let Some(mtime_nanos) = mtime_nanos {
+        schema_meta.insert(K_SLAB_MTIME.to_string(), mtime_nanos.to_string());
+        schema_meta.insert(K_SLAB_LEN.to_string(), len.to_string());
+    }
     let schema = Arc::new(Schema::new_with_metadata(vec![field], schema_meta));
 
     // The Arrow i32 row ceiling is enforced by `ensure_lance_local` BEFORE
@@ -682,6 +824,15 @@ mod tests {
         assert!(reopen_if_warm(&dest, 10, "deadbeef").await.is_none());
     }
 
+    /// The fast path's own base case — the same "nothing there yet" boundary
+    /// [`reopen_if_warm`] has above, for the identity-only precondition.
+    #[tokio::test]
+    async fn reopen_if_unchanged_declines_a_missing_destination() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let dest = dir.path().join("nope.lance");
+        assert!(reopen_if_unchanged(&dest, 10, 12345, 5120).await.is_none());
+    }
+
     /// The exact boundary this incident crossed: Brandenburg's real
     /// `rows=7_330_219` PANICKED the process at startup
     /// (`arrow-array-58.3.0/src/array/fixed_size_binary_array.rs:106`,
@@ -794,8 +945,24 @@ mod tests {
     /// Drives `ensure_lance_local` — the real entry point — twice: a cold
     /// build (1 attempt, already covered on its own by
     /// `the_slab_mapping_is_released_only_when_nothing_else_holds_it`),
-    /// then a warm reopen of the SAME unchanged slab (must add exactly 1
-    /// more).
+    /// then a reopen that must land on the DIGEST-based `reopen_if_warm`
+    /// branch (must add exactly 1 more).
+    ///
+    /// **Updated by the "hot but idle" fast path, honestly, not silently.**
+    /// This test originally reopened the SAME untouched slab for its second
+    /// call — which was the only warm path that existed at the time. Since
+    /// `reopen_if_unchanged` landed, that exact scenario (unchanged mtime
+    /// AND length) is now caught by the FASTER fast path, which never mmaps
+    /// the slab at all and therefore has nothing to evict —
+    /// `a_hot_boot_skips_the_full_slab_hash_entirely` covers that case
+    /// directly. This test now touches the slab's mtime before the second
+    /// call (content byte-identical) specifically to DEFEAT the fast path,
+    /// so it keeps exercising the branch it was written for: the
+    /// digest-based `reopen_if_warm` path still reached whenever the fast
+    /// path can't apply. Mirrors `a_touched_mtime_declines_the_fast_path_
+    /// but_the_slow_path_still_succeeds`'s setup, which proves the digest
+    /// path is reached at all; this test proves eviction still happens once
+    /// it is.
     #[tokio::test]
     async fn the_warm_reopen_path_attempts_eviction_too() {
         let rows = 4usize;
@@ -814,6 +981,16 @@ mod tests {
             "the cold/rebuild path must attempt eviction exactly once"
         );
 
+        // Defeat the fast path (see the doc comment above): same content,
+        // different mtime, so `reopen_if_unchanged` declines and the call
+        // falls through to the digest-based `reopen_if_warm` — the branch
+        // this test exists to cover.
+        let touched = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        std::fs::File::open(&slab_path)
+            .expect("reopen")
+            .set_modified(touched)
+            .expect("set_modified");
+
         let second = ensure_lance_local(&slab_path).await;
         assert_eq!(
             second, first,
@@ -827,6 +1004,88 @@ mod tests {
              it used to silently drop the mapping without ever calling \
              `release_after_write`, leaving the slab's pages resident with nothing to \
              reclaim them until the kernel's own passive reclaim eventually noticed"
+        );
+    }
+
+    /// **The "hot but idle" falsifier.** #135/#136 stopped this warm path
+    /// from LEAVING the slab resident; this proves it now skips the
+    /// mmap+hash of the slab ENTIRELY on a genuinely unchanged boot — the
+    /// operator's own framing ("why don't you wire volume01 as hot but idle
+    /// … instead of what appears to be … pulling it into RAM").
+    ///
+    /// A cold conversion must still hash once (there is nothing to trust
+    /// yet). A second call against the SAME unchanged file — same path,
+    /// same bytes, same mtime, nothing touched it in between — must resolve
+    /// to the identical dataset WITHOUT the slow path ever running again.
+    #[tokio::test]
+    async fn a_hot_boot_skips_the_full_slab_hash_entirely() {
+        let rows = 4usize;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("hot.soa");
+        std::fs::write(&slab_path, vec![0u8; rows * NODE_ROW_STRIDE]).expect("write slab");
+
+        let before = SLOW_PATH_HASH_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+
+        let first = ensure_lance_local(&slab_path).await;
+        assert!(first.is_some(), "cold conversion must succeed");
+        let after_cold = SLOW_PATH_HASH_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            after_cold - before,
+            1,
+            "a cold build has nothing to trust yet — it must hash exactly once"
+        );
+
+        let second = ensure_lance_local(&slab_path).await;
+        assert_eq!(
+            second, first,
+            "an unchanged slab must resolve to the SAME dataset"
+        );
+        let after_hot = SLOW_PATH_HASH_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            after_hot, after_cold,
+            "a hot boot (identical mtime+len) must NOT re-enter the mmap+hash path at \
+             all — this is the whole point of the fast path: on a genuinely unchanged \
+             slab, zero bytes of it are ever touched"
+        );
+    }
+
+    /// The correctness twin: when the fast path genuinely CANNOT trust the
+    /// dataset (here, the slab's mtime was touched — e.g. a redundant
+    /// re-download landed byte-identical content with a fresh timestamp),
+    /// it must decline and fall through to the slow path, which must still
+    /// reach the right answer (this dataset is warm) via content digest —
+    /// not silently serve something wrong, and not panic.
+    #[tokio::test]
+    async fn a_touched_mtime_declines_the_fast_path_but_the_slow_path_still_succeeds() {
+        let rows = 4usize;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("touched.soa");
+        std::fs::write(&slab_path, vec![0u8; rows * NODE_ROW_STRIDE]).expect("write slab");
+
+        let first = ensure_lance_local(&slab_path).await;
+        assert!(first.is_some(), "cold conversion must succeed");
+        let after_cold = SLOW_PATH_HASH_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+
+        // Touch mtime forward without changing a single byte of content.
+        let touched = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        std::fs::File::open(&slab_path)
+            .expect("reopen")
+            .set_modified(touched)
+            .expect("set_modified");
+
+        let second = ensure_lance_local(&slab_path).await;
+        assert_eq!(
+            second, first,
+            "content is unchanged, so the slow path's digest match must still \
+             resolve to the SAME dataset"
+        );
+        let after_touch = SLOW_PATH_HASH_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            after_touch - after_cold,
+            1,
+            "the fast path must decline on a touched mtime — it is not entitled to \
+             trust identity that no longer matches — and the slow path must be the \
+             one that recovers the correct (warm) answer"
         );
     }
 
