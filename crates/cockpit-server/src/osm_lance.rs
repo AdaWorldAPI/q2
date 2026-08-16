@@ -165,6 +165,16 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
             path = %dest.display(), rows,
             "osm lance: warm — dataset already matches this slab's row count and digest"
         );
+        // The warm path pays the SAME mmap+full-hash cost as a rebuild (it
+        // has to, to know it's warm) but until this line it paid that cost
+        // and then just dropped `map` — no `MADV_DONTNEED`, unlike the
+        // rebuild path's `release_after_write` below. On a redeploy where
+        // nothing changed (the common case in steady state), that left the
+        // whole slab resident with nothing to reclaim it under a memory
+        // limit far above what's needed to create pressure. Same fix,
+        // same reasoning, the other call site — see `release_after_write`'s
+        // own doc comment for the mechanism.
+        release_after_write(map, &dest);
         return Some(warm);
     }
 
@@ -430,6 +440,24 @@ async fn write_lance(
     Some(dest.to_path_buf())
 }
 
+/// Reachability counter for [`release_after_write`], test builds only.
+///
+/// `release_after_write`'s own return value already proves the MECHANISM
+/// (evict when sole holder, decline otherwise) — see
+/// `the_slab_mapping_is_released_only_when_nothing_else_holds_it` below.
+/// What that test cannot prove is whether a given CALL SITE inside
+/// `ensure_lance_local` actually reaches it: the warm-reopen branch used to
+/// silently skip the call entirely, and process RSS cannot tell "evicted"
+/// from "just dropped, kernel unmapped it anyway" apart (`Drop`'s `munmap`
+/// removes this process's page-table entries either way — the difference
+/// `MADV_DONTNEED` makes is to the kernel's PAGE CACHE / cgroup memcg
+/// charge, which is invisible to `/proc/self/statm` and unavailable in
+/// this sandbox at all: `/sys/fs/cgroup/memory.current` does not exist
+/// here). This counter is the honest substitute: it proves the call site
+/// is reached, which is exactly what regressed.
+#[cfg(test)]
+static EVICTIONS_ATTEMPTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// Release the slab mapping once the dataset is written, if we are the last
 /// holder of it.
 ///
@@ -442,6 +470,8 @@ async fn write_lance(
 /// reads these pages, and yanking them would be wrong. It is logged rather
 /// than evicted-anyway or passed over in silence.
 fn release_after_write(map: std::sync::Arc<memmap2::Mmap>, dest: &Path) -> bool {
+    #[cfg(test)]
+    EVICTIONS_ATTEMPTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     match std::sync::Arc::try_unwrap(map) {
         Ok(m) => {
             advise_dontneed(&m, dest);
@@ -734,6 +764,69 @@ mod tests {
         assert!(
             release_after_write(sole, dir.path()),
             "the sole holder must release — otherwise the eviction is inert"
+        );
+    }
+
+    /// PROBE. The bug this test exists to catch: `ensure_lance_local`'s
+    /// WARM path (an already-current Lance dataset, so `reopen_if_warm`
+    /// succeeds) mmaps and hashes the FULL slab to decide it is warm — it
+    /// has to, that is how it knows — but used to just drop the mapping
+    /// afterward with no `MADV_DONTNEED`, unlike the rebuild path's
+    /// `release_after_write`. Measured in production (Railway's memory
+    /// graph, 2026-08-15/16): a redeploy against an already-warm dataset
+    /// held the slab's pages resident for 1-3.5 HOURS before the kernel's
+    /// own passive reclaim finally cleared them — nothing forces reclaim
+    /// under a 24 GB limit over a ~1.3 GB file, since that never creates
+    /// real memory pressure.
+    ///
+    /// This is a reachability probe, not a memory measurement, and that is
+    /// a deliberate downgrade from a first attempt at this test: a version
+    /// that measured `/proc/self/statm` RSS before/after a warm reopen
+    /// PASSED even with the fix reverted, because `Drop`'s `munmap` already
+    /// removes this process's page-table entries regardless of whether
+    /// `MADV_DONTNEED` ran — RSS cannot see the difference. The actual
+    /// production effect is in the kernel's page cache / cgroup memcg
+    /// charge, which `/sys/fs/cgroup/memory.current` reports and this
+    /// sandbox does not expose at all. `EVICTIONS_ATTEMPTED` proves the
+    /// one fact this environment CAN prove: that the warm branch reaches
+    /// `release_after_write` at all, which is exactly what regressed.
+    ///
+    /// Drives `ensure_lance_local` — the real entry point — twice: a cold
+    /// build (1 attempt, already covered on its own by
+    /// `the_slab_mapping_is_released_only_when_nothing_else_holds_it`),
+    /// then a warm reopen of the SAME unchanged slab (must add exactly 1
+    /// more).
+    #[tokio::test]
+    async fn the_warm_reopen_path_attempts_eviction_too() {
+        let rows = 4usize;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("warm.soa");
+        std::fs::write(&slab_path, vec![0u8; rows * NODE_ROW_STRIDE]).expect("write slab");
+
+        let before = EVICTIONS_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+
+        let first = ensure_lance_local(&slab_path).await;
+        assert!(first.is_some(), "cold conversion must succeed");
+        let after_cold = EVICTIONS_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            after_cold - before,
+            1,
+            "the cold/rebuild path must attempt eviction exactly once"
+        );
+
+        let second = ensure_lance_local(&slab_path).await;
+        assert_eq!(
+            second, first,
+            "an unchanged slab must reopen the SAME dataset warm"
+        );
+        let after_warm = EVICTIONS_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            after_warm - after_cold,
+            1,
+            "the warm-reopen path must ALSO attempt eviction — this is the regression: \
+             it used to silently drop the mapping without ever calling \
+             `release_after_write`, leaving the slab's pages resident with nothing to \
+             reclaim them until the kernel's own passive reclaim eventually noticed"
         );
     }
 
