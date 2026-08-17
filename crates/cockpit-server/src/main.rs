@@ -43,6 +43,7 @@ mod osint_classview;
 mod osm_tiles;
 mod osm;
 mod osm_artifact_manager;
+mod osm_chains_books_lance;
 mod osm_features;
 mod osm_lance;
 mod osm_lifecycle;
@@ -241,6 +242,40 @@ async fn main() {
             None => tracing::warn!(
                 "osm lance: conversion to a Lance dataset failed or was skipped; \
                  the raw .soa slab still serves the map unaffected"
+            ),
+        }
+
+        // Same best-effort treatment for the two sidecars, via
+        // `osm_chains_books_lance` (see that module's doc for why: an
+        // eager `Vec<u8>`/`Vec<String>` read has no page-cache backing,
+        // unlike the mmap `open_slab()` uses). `path` here is already the
+        // hydrated LOCAL slab path — `.chains`/`.books` were hydrated
+        // alongside it by `ensure_slab_local` above (S3 is the source of
+        // truth for all three sidecars in one hydration pass; see
+        // `osm_slab_hydrate::artifacts`). This wires the CONVERSION only:
+        // `osm_features.rs`'s `open_chains`/`open_books` still read the raw
+        // sidecar files directly — a Lance-backed read path is follow-up
+        // work, not yet wired to consume what is written here.
+        let chains_path = path.with_extension("chains");
+        match osm_chains_books_lance::ensure_chains_lance_local(&chains_path).await {
+            Some((dataset_dir, _index)) => tracing::info!(
+                path = %dataset_dir.display(),
+                "osm chains lance: converted; not yet consumed by the read path"
+            ),
+            None => tracing::warn!(
+                "osm chains lance: conversion to a Lance dataset failed or was skipped; \
+                 no effect on serving (the read path does not consume it yet)"
+            ),
+        }
+        let books_path = path.with_extension("books");
+        match osm_chains_books_lance::ensure_books_lance_local(&books_path).await {
+            Some(datasets) => tracing::info!(
+                identities = %datasets[0].display(),
+                "osm books lance: converted; not yet consumed by the read path"
+            ),
+            None => tracing::warn!(
+                "osm books lance: conversion to Lance datasets failed or was skipped; \
+                 no effect on serving (the read path does not consume it yet)"
             ),
         }
     }
