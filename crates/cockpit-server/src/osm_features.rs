@@ -599,6 +599,36 @@ fn styling_verdict(configured: bool, books_loaded: bool, books_present: bool) ->
     }
 }
 
+/// Header-only validity check for the `.books` sidecar: does it parse, and
+/// does its recorded slab digest match the CURRENTLY-served slab? Reads ~40
+/// bytes via [`osm_soa_bake::codebook::read_books_header`] — never the full
+/// codebook `open_books()` would parse.
+fn books_header_valid_for_slab(path: Option<std::path::PathBuf>) -> bool {
+    let Some(path) = path else { return false };
+    let Ok(mut file) = std::fs::File::open(&path) else {
+        return false;
+    };
+    let Ok(header) = osm_soa_bake::codebook::read_books_header(&mut file) else {
+        return false;
+    };
+    Some(header.slab) == slab_digest()
+}
+
+/// The chains-side sibling of [`books_header_valid_for_slab`], via
+/// [`osm_soa_bake::chains::read_chains_header`] (~24 bytes).
+fn chains_header_valid_for_slab(path: Option<std::path::PathBuf>) -> bool {
+    let Some(path) = path else { return false };
+    let Ok(mut file) = std::fs::File::open(&path) else {
+        return false;
+    };
+    let Ok((slab_digest_read, _count, _blob_len)) =
+        osm_soa_bake::chains::read_chains_header(&mut file)
+    else {
+        return false;
+    };
+    Some(slab_digest_read) == slab_digest()
+}
+
 /// `GET /api/osm/health` — why the map looks the way it does.
 ///
 /// Exists because the failure that matters most on this endpoint family is
@@ -613,7 +643,8 @@ fn styling_verdict(configured: bool, books_loaded: bool, books_present: bool) ->
 /// disagree in exactly the interesting case (the file is present but was
 /// refused for a digest or magic mismatch), and collapsing them into one
 /// boolean would hide the difference between "ship the file" and "re-bake the
-/// region". Cheap enough to be safe: two `stat`s plus already-cached loads.
+/// region". Cheap enough to be safe: two `stat`s plus two ~40/24-byte header
+/// reads — never the full eager singleton load (see the two helpers above).
 pub async fn osm_health_handler() -> Json<serde_json::Value> {
     let slab_env = std::env::var("OSM_SLAB_PATH").ok();
     let sidecar = |ext: &str| {
@@ -635,8 +666,17 @@ pub async fn osm_health_handler() -> Json<serde_json::Value> {
 
     let books_file = stat(sidecar("books"));
     let chains_file = stat(sidecar("chains"));
-    let books_loaded = open_books().is_some();
-    let chains_loaded = open_chains().is_some();
+    // "loaded" here means "the header validates for the CURRENT slab" — a
+    // cheap ~40/24-byte read, deliberately NOT `open_books()`/`open_chains()`.
+    // This is a status/diagnostic endpoint; it must not be the thing that
+    // triggers the multi-GB permanent singleton load the serving path exists
+    // to avoid (see osm_chains_books_lance.rs's module doc and
+    // claude-notes/plans/2026-08-16-chains-books-lancedb-blob.md). The JSON
+    // key name is kept as "loaded" for compatibility with any existing
+    // monitoring against this endpoint, even though what it now reports is
+    // "header-valid", not "resident in memory".
+    let books_loaded = books_header_valid_for_slab(sidecar("books"));
+    let chains_loaded = chains_header_valid_for_slab(sidecar("chains"));
     let rows = open_slab().and_then(|b| RowSlab::new(b).ok()).map(|s| s.len());
 
     let styling = styling_verdict(
@@ -664,7 +704,11 @@ pub async fn osm_health_handler() -> Json<serde_json::Value> {
 /// own tags are the tag facets whose `member` equals its identity ordinal.
 /// Filtering on that rather than taking every tag facet is what stops a
 /// continuation row's tags being attributed to the wrong element.
-fn query_feature(bytes: &[u8], idx: usize) -> Result<FeatureDetailOut, String> {
+fn query_feature(
+    bytes: &[u8],
+    idx: usize,
+    books: Option<&BooksHandle<'_>>,
+) -> Result<FeatureDetailOut, String> {
     let slab = RowSlab::new(bytes).map_err(|e| format!("slab bytes not row-aligned: {e:?}"))?;
     if idx >= slab.len() {
         return Err(format!(
@@ -692,10 +736,9 @@ fn query_feature(bytes: &[u8], idx: usize) -> Result<FeatureDetailOut, String> {
         None => (None, None),
     };
 
-    let books = open_books();
     let osm_key = books
         .zip(ordinal)
-        .and_then(|(b, o)| b.identities.key(o))
+        .and_then(|(b, o)| b.identity(o))
         .map(str::to_string);
 
     let mut tags = std::collections::BTreeMap::new();
@@ -705,7 +748,7 @@ fn query_feature(bytes: &[u8], idx: usize) -> Result<FeatureDetailOut, String> {
                 if member != mine {
                     continue; // another member's tag; see the doc comment.
                 }
-                if let (Some(k), Some(v)) = (b.tag_keys.key(key), b.tag_values.key(value)) {
+                if let (Some(k), Some(v)) = (b.tag_key(key), b.tag_value(value)) {
                     tags.insert(k.to_string(), v.to_string());
                 }
             }
@@ -723,6 +766,38 @@ fn query_feature(bytes: &[u8], idx: usize) -> Result<FeatureDetailOut, String> {
     })
 }
 
+/// Every ordinal [`query_feature`] will need for row `idx`: its own identity
+/// ordinal (for `osm_key`) plus every tag key/value ordinal on that row's own
+/// facets (member-filtered, same rule the function itself documents). Reads
+/// the row once — `query_feature` re-reads it, the same accepted duplication
+/// [`tile_sources`]/`query_tile_shapes` already carry (see that pair's doc).
+fn feature_ordinals(bytes: &[u8], idx: usize) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+    let Ok(slab) = RowSlab::new(bytes) else {
+        return (Vec::new(), Vec::new(), Vec::new());
+    };
+    if idx >= slab.len() {
+        return (Vec::new(), Vec::new(), Vec::new());
+    }
+    let Some(rows) = slab.rows() else {
+        return (Vec::new(), Vec::new(), Vec::new());
+    };
+    let row = &rows[idx];
+    let Some((_, ordinal)) = read_identity(row) else {
+        return (Vec::new(), Vec::new(), Vec::new());
+    };
+    let mut key_ordinals = Vec::new();
+    let mut value_ordinals = Vec::new();
+    for (_slot, facet) in osm_soa_bake::cluster::facets(row) {
+        if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet {
+            if member == ordinal {
+                key_ordinals.push(key);
+                value_ordinals.push(value);
+            }
+        }
+    }
+    (vec![ordinal], key_ordinals, value_ordinals)
+}
+
 /// `GET /api/osm/feature/:idx` — what IS this dot?
 pub async fn osm_feature_handler(Path(idx): Path<usize>) -> Response {
     let Some(bytes) = open_slab() else {
@@ -734,7 +809,9 @@ pub async fn osm_feature_handler(Path(idx): Path<usize>) -> Response {
         )
             .into_response();
     };
-    match query_feature(bytes, idx) {
+    let (identity_ordinals, key_ordinals, value_ordinals) = feature_ordinals(bytes, idx);
+    let books = single_gather_books(&identity_ordinals, &key_ordinals, &value_ordinals).await;
+    match query_feature(bytes, idx, books.as_ref()) {
         Ok(out) => Json(out).into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,
@@ -822,7 +899,11 @@ pub struct FeatureGeometryOut {
     pub points: Vec<[f64; 2]>,
 }
 
-fn query_geometry(bytes: &[u8], idx: usize) -> Result<Option<FeatureGeometryOut>, String> {
+fn query_geometry(
+    bytes: &[u8],
+    idx: usize,
+    chains: Option<&ChainsHandle<'_>>,
+) -> Result<Option<FeatureGeometryOut>, String> {
     let slab = RowSlab::new(bytes).map_err(|e| format!("slab bytes not row-aligned: {e:?}"))?;
     if idx >= slab.len() {
         return Err(format!(
@@ -836,7 +917,7 @@ fn query_geometry(bytes: &[u8], idx: usize) -> Result<Option<FeatureGeometryOut>
     let Some((_, ordinal)) = read_identity(&rows[idx]) else {
         return Ok(None);
     };
-    let Some(chains) = open_chains() else {
+    let Some(chains) = chains else {
         return Ok(None);
     };
     let chain = chains
@@ -874,7 +955,9 @@ pub async fn osm_geometry_handler(Path(idx): Path<usize>) -> Response {
         )
             .into_response();
     };
-    match query_geometry(bytes, idx) {
+    let (identity_ordinals, _, _) = feature_ordinals(bytes, idx);
+    let chains = single_gather_chains(&identity_ordinals).await;
+    match query_geometry(bytes, idx, chains.as_ref()) {
         Ok(Some(out)) => Json(out).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -1543,18 +1626,38 @@ async fn tile_sources<'a>(
         }
     }
 
-    let chains = match sidecar_path("chains") {
+    let chains = single_gather_chains(&ordinals).await;
+    // identities aren't read by the tile-shapes hot path — see BooksHandle's doc
+    let books = single_gather_books(&[], &key_ordinals, &value_ordinals).await;
+    (chains, books)
+}
+
+/// The chains half of the gather, shared by [`tile_sources`] (many ordinals)
+/// and the single-feature endpoints (one ordinal). `'static` because the
+/// eager fallback (`open_chains()`) only ever returns `'static` references —
+/// callers with a shorter-lived [`ChainsHandle`] target accept this trivially
+/// (`'static` outlives everything).
+async fn single_gather_chains(ordinals: &[u32]) -> Option<ChainsHandle<'static>> {
+    match sidecar_path("chains") {
         Some(chains_path) => {
             let dataset_path = chains_path.with_extension("chains.lance");
-            match crate::osm_chains_books_lance::gather_chains(&dataset_path, &ordinals).await {
+            match crate::osm_chains_books_lance::gather_chains(&dataset_path, ordinals).await {
                 Some(r) => Some(ChainsHandle::Lance(r)),
                 None => open_chains().map(ChainsHandle::Eager),
             }
         }
         None => open_chains().map(ChainsHandle::Eager),
-    };
+    }
+}
 
-    let books = match sidecar_path("books") {
+/// The books half of the gather — see [`single_gather_chains`]'s doc for why
+/// `'static`.
+async fn single_gather_books(
+    identity_ordinals: &[u32],
+    key_ordinals: &[u32],
+    value_ordinals: &[u32],
+) -> Option<BooksHandle<'static>> {
+    match sidecar_path("books") {
         Some(books_path) => {
             let identities_path = books_path.with_extension("identities.lance");
             let tag_keys_path = books_path.with_extension("tag_keys.lance");
@@ -1563,9 +1666,9 @@ async fn tile_sources<'a>(
                 &identities_path,
                 &tag_keys_path,
                 &tag_values_path,
-                &[], // identities aren't read by this hot path — see BooksHandle's doc
-                &key_ordinals,
-                &value_ordinals,
+                identity_ordinals,
+                key_ordinals,
+                value_ordinals,
             )
             .await
             {
@@ -1574,9 +1677,7 @@ async fn tile_sources<'a>(
             }
         }
         None => open_books().map(BooksHandle::Eager),
-    };
-
-    (chains, books)
+    }
 }
 
 /// `GET /api/osm/geometry/tile-bin/:z/:x/:y` — the same tile query as the
@@ -1750,6 +1851,116 @@ mod tests {
             slab.with_extension("books"),
             "the two anchors must not be confusable"
         );
+    }
+
+    /// End-to-end proof that `books_header_valid_for_slab`/
+    /// `chains_header_valid_for_slab` — the `/api/osm/health` replacements
+    /// for `open_books().is_some()`/`open_chains().is_some()` — actually
+    /// agree with a real slab digest, not just that the header parses.
+    ///
+    /// This is the first test in this file to set `OSM_SLAB_PATH` and
+    /// exercise the real `open_slab()`/`slab_digest()` `OnceLock`s — safe
+    /// ONLY because nextest runs every test in its own process (per this
+    /// repo's `.claude/rules/integration-tests.md`), so the env var and the
+    /// process-global locks it seeds never leak into another test.
+    #[test]
+    fn books_and_chains_header_validity_agrees_with_the_real_slab_digest() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let slab_path = dir.path().join("region.soa");
+        // Content is irrelevant to open_slab()'s plain-OSM_SLAB_PATH path (no
+        // row-stride requirement there — only the OSM_SLAB_ROW_* mmap-range
+        // path checks alignment) — any non-empty bytes exercise a real digest.
+        let slab_bytes = b"not a real row-aligned slab, and that's fine here".to_vec();
+        std::fs::write(&slab_path, &slab_bytes).expect("write slab");
+        // SAFETY: nextest runs this test in its own process (see the doc
+        // comment above), so no other thread in this process reads or
+        // mutates the environment concurrently.
+        unsafe { std::env::set_var("OSM_SLAB_PATH", &slab_path) };
+
+        let real_digest = osm_soa_bake::codebook::hash_slab(&slab_bytes);
+        assert_eq!(
+            slab_digest(),
+            Some(real_digest),
+            "the fixture must actually seed the real OnceLock before asserting against it"
+        );
+
+        // Missing files: false, cheaply, no digest comparison needed.
+        assert!(!books_header_valid_for_slab(Some(dir.path().join("nope.books"))));
+        assert!(!chains_header_valid_for_slab(Some(dir.path().join("nope.chains"))));
+        assert!(!books_header_valid_for_slab(None));
+        assert!(!chains_header_valid_for_slab(None));
+
+        // A books/chains sidecar whose header claims the SAME digest as the
+        // real slab: true.
+        let books_path = dir.path().join("region.books");
+        {
+            use lance_graph_contract::identity_quad::IdentityCodebook;
+            use osm_soa_bake::codebook::{Books, Header};
+            let books = Books {
+                identities: IdentityCodebook::try_new(vec!["node/1".into()]).unwrap(),
+                tag_keys: IdentityCodebook::try_new(vec!["highway".into()]).unwrap(),
+                tag_values: IdentityCodebook::try_new(vec!["primary".into()]).unwrap(),
+                labels: IdentityCodebook::try_new(Vec::<String>::new()).unwrap(),
+            };
+            let header = osm_soa_bake::codebook::Header {
+                rows: 1,
+                slots_written: 1,
+                slab: real_digest,
+                rounding: osm_soa_bake::tms::AnchorRounding::CURRENT,
+            };
+            let mut buf = Vec::new();
+            osm_soa_bake::codebook::write_books(&mut buf, &header, &books).expect("write books");
+            std::fs::write(&books_path, &buf).expect("write");
+        }
+        assert!(books_header_valid_for_slab(Some(books_path.clone())));
+
+        let chains_path = dir.path().join("region.chains");
+        {
+            let mut buf = Vec::new();
+            let mut chains: Vec<(u32, Vec<osm_soa_bake::tms::TileXy>)> = Vec::new();
+            osm_soa_bake::chains::write_chains(&mut buf, real_digest, &mut chains)
+                .expect("write chains");
+            std::fs::write(&chains_path, &buf).expect("write");
+        }
+        assert!(chains_header_valid_for_slab(Some(chains_path.clone())));
+
+        // Now the digest mismatch case: a sidecar valid for a DIFFERENT slab
+        // must report false, not true — the exact "wrong marriage" this
+        // endpoint exists to catch (see its own doc comment).
+        let wrong_books_path = dir.path().join("wrong.books");
+        {
+            use lance_graph_contract::identity_quad::IdentityCodebook;
+            use osm_soa_bake::codebook::{Books, Header};
+            let books = Books {
+                identities: IdentityCodebook::try_new(Vec::<String>::new()).unwrap(),
+                tag_keys: IdentityCodebook::try_new(Vec::<String>::new()).unwrap(),
+                tag_values: IdentityCodebook::try_new(Vec::<String>::new()).unwrap(),
+                labels: IdentityCodebook::try_new(Vec::<String>::new()).unwrap(),
+            };
+            let header = Header {
+                rows: 0,
+                slots_written: 0,
+                slab: real_digest.wrapping_add(1), // deliberately wrong
+                rounding: osm_soa_bake::tms::AnchorRounding::CURRENT,
+            };
+            let mut buf = Vec::new();
+            osm_soa_bake::codebook::write_books(&mut buf, &header, &books).expect("write");
+            std::fs::write(&wrong_books_path, &buf).expect("write");
+        }
+        assert!(!books_header_valid_for_slab(Some(wrong_books_path)));
+
+        let wrong_chains_path = dir.path().join("wrong.chains");
+        {
+            let mut buf = Vec::new();
+            let mut chains: Vec<(u32, Vec<osm_soa_bake::tms::TileXy>)> = Vec::new();
+            osm_soa_bake::chains::write_chains(&mut buf, real_digest.wrapping_add(1), &mut chains)
+                .expect("write");
+            std::fs::write(&wrong_chains_path, &buf).expect("write");
+        }
+        assert!(!chains_header_valid_for_slab(Some(wrong_chains_path)));
+
+        // SAFETY: same as the set_var call above.
+        unsafe { std::env::remove_var("OSM_SLAB_PATH") };
     }
 
     /// A synthetic slab with rows at exactly the given Morton codes, laid out

@@ -196,28 +196,58 @@ just with a variable-length Arrow column instead of `FixedSizeBinaryArray`:
       highest-volume path** (every map pan/zoom hits one of these two
       handlers).
 
-      **Deliberately DEFERRED, not silently dropped** — three call sites
-      still use the eager `open_chains()`/`open_books()` singletons
-      directly, unchanged:
-      - `query_feature` / `osm_feature_handler` (`/api/osm/feature/:idx`)
-        and `query_geometry` / `osm_geometry_handler`
-        (`/api/osm/geometry/:idx`) — single-row lookups. Migrating them
-        needs a two-phase split (read the row's identity + facet
-        ordinals first, THEN gather, THEN resolve) since they're
-        currently one synchronous pass; lower priority than the tile
-        handlers because they fire on a deliberate click, not on every
-        pan.
-      - `osm_health_handler` (`/api/osm/health`) — its `styling_verdict`
-        needs to distinguish "codebook present but pinned to a different
-        slab digest" (refused) from "codebook loaded and valid" (ok),
-        which needs the SAME digest-validation `open_books()`'s
-        `read_books` does internally. There is no cheap header-only
-        reader to check just the digest without parsing the whole
-        codebook — building one is real additional scope, not attempted
-        here. This is a genuine residual trigger (a health/monitoring
-        probe hitting this endpoint would still eagerly load everything)
-        and should be the next piece of this plan if it proves to matter
-        in practice.
+      **Deliberately DEFERRED at the time, not silently dropped** — three
+      call sites still used the eager `open_chains()`/`open_books()`
+      singletons directly: `query_feature`/`osm_feature_handler`,
+      `query_geometry`/`osm_geometry_handler` (single-row lookups), and
+      `osm_health_handler` (needed a header-only digest reader that
+      didn't exist yet). **All three are now closed — see the follow-up
+      entry immediately below.** The reasoning above (why they were
+      deferred, what each needed) is kept as the historical record of
+      that decision, not as the current state.
+
+- [x] **Follow-up (same day): the three deferred call sites, closed.**
+      `feature_ordinals(bytes, idx)` reads a row once to collect its
+      identity ordinal + tag key/value ordinals (the single-row sibling
+      of `tile_sources`'s many-row version); `single_gather_chains`/
+      `single_gather_books` are the shared gather helpers, factored out
+      of `tile_sources` so all four handlers (the two tile handlers plus
+      these two) share ONE gather implementation per side instead of
+      four separate ones. `query_feature`/`query_geometry` now take
+      `Option<&BooksHandle>`/`Option<&ChainsHandle>` parameters like
+      `query_tile_shapes`/`query_tile_geometry` do.
+
+      `osm_health_handler` needed a genuinely new piece — the header-only
+      reader named as missing above now exists:
+      `osm_soa_bake::codebook::read_books_header` (~40 bytes, sibling
+      repo) and `osm_soa_bake::chains::read_chains_header` (24 bytes,
+      sibling repo), both added with a truncated-buffer falsifier proving
+      they genuinely stop at the header rather than merely returning the
+      right answer on a complete file. q2-side, `books_header_valid_for_
+      slab`/`chains_header_valid_for_slab` wire these into the health
+      endpoint, replacing the two `open_*().is_some()` calls; the JSON
+      response's `"loaded"` key name is unchanged for monitoring
+      compatibility, but now means "header valid for the current slab",
+      not "resident in memory" — documented inline at the call site.
+
+      **Every request path that could reach `open_chains()`/
+      `open_books()` now reads from Lance (or a header-only check) first,
+      falling back to the eager singleton only when that isn't
+      available.** The chains/books RAM bug this whole plan targets has
+      no remaining trigger in the request path.
+
+      Test: `books_and_chains_header_validity_agrees_with_the_real_slab_
+      digest` — the first test in `osm_features.rs` to set `OSM_SLAB_PATH`
+      and exercise the real `slab_digest()` `OnceLock` end-to-end (safe
+      under nextest's one-process-per-test model), proving both the
+      digest-match and digest-mismatch cases against a REAL computed
+      digest, not just that a header parses. Plus 3 sibling-repo tests
+      each for the two new header readers (agreement with the full
+      parser, a truncated-buffer falsifier, a bad-magic falsifier).
+      Verified: `cargo check -p cockpit-server --tests` clean;
+      `cargo nextest run -p cockpit-server --bin q2-cockpit osm_features`
+      21/21 passing (was 20; the one new test is the digest end-to-end
+      proof above).
 - [x] Full verification, scoped given the disk constraints (see below):
       `cargo check -p cockpit-server --tests` (clean) +
       `cargo nextest run -p cockpit-server --bin q2-cockpit osm_features`
