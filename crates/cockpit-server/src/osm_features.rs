@@ -1031,18 +1031,14 @@ where
 /// Tags bind to their member by ORDINAL, not by slot adjacency — the same
 /// filter [`query_feature`] documents, and for the same reason: without it a
 /// continuation row's tags are attributed to the wrong element.
-fn row_tags<'a>(
-    row: &NodeRow,
-    books: &'a osm_soa_bake::codebook::Books,
-    ordinal: u32,
-) -> Vec<(&'a str, &'a str)> {
+fn row_tags<'a>(row: &NodeRow, books: &'a BooksHandle<'_>, ordinal: u32) -> Vec<(&'a str, &'a str)> {
     let mut out = Vec::new();
     for (_slot, facet) in osm_soa_bake::cluster::facets(row) {
         if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet {
             if member != ordinal {
                 continue;
             }
-            if let (Some(k), Some(v)) = (books.tag_keys.key(key), books.tag_values.key(value)) {
+            if let (Some(k), Some(v)) = (books.tag_key(key), books.tag_value(value)) {
                 out.push((k, v));
             }
         }
@@ -1247,10 +1243,89 @@ struct TileShapesRaw {
     shapes: Vec<RawShape>,
 }
 
-fn query_tile_shapes(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileShapesRaw, String> {
-    let slab = RowSlab::new(bytes).map_err(|e| format!("slab bytes not row-aligned: {e:?}"))?;
+/// Which rows a tile request will actually touch — split out of
+/// [`query_tile_shapes`] so the async gather phase (which needs to know the
+/// ordinals BEFORE it can ask Lance for them) and the sync resolve phase
+/// share exactly one sampling implementation. Two implementations of "which
+/// rows get sampled" is precisely the kind of drift this module's own doc
+/// comment (top of file) warns about for `osm_tiles`' old V1/V3 key split.
+fn sample_tile_rows(slab: &RowSlab<'_>, z: u32, x: u32, y: u32) -> (usize, Vec<usize>) {
     let range = slab.tile_range(z, x, y);
     let total = range.len();
+    let selected = overview_sample(
+        z,
+        range.clone(),
+        |i| slab.morton_at(i),
+        geometry_row_budget(z),
+    );
+    (total, selected)
+}
+
+/// Either source of chain geometry a request can be served from: the
+/// request-scoped Lance gather (the common, RAM-safe case — see
+/// `osm_chains_books_lance`'s module doc) or the eager resident singleton
+/// (fallback when the Lance dataset isn't available). Deliberately an enum,
+/// not a trait: both arms already expose the same `get(ordinal)` shape as
+/// inherent methods, and dispatching on a fixed two-case enum reads clearer
+/// at every call site than a generic bound or a trait object would here.
+enum ChainsHandle<'a> {
+    Lance(crate::osm_chains_books_lance::RequestChains),
+    Eager(&'a osm_soa_bake::chains::Chains),
+}
+
+impl ChainsHandle<'_> {
+    fn get(
+        &self,
+        ordinal: u32,
+    ) -> Result<Option<Vec<osm_soa_bake::tms::TileXy>>, osm_soa_bake::chains::ChainError> {
+        match self {
+            Self::Lance(r) => r.get(ordinal),
+            Self::Eager(c) => c.get(ordinal),
+        }
+    }
+}
+
+/// The books-side sibling of [`ChainsHandle`]. `identity`/`tag_key`/
+/// `tag_value` name the three codebooks by role rather than exposing them as
+/// fields (unlike the resident `Books`), since the Lance-gathered
+/// [`osm_chains_books_lance::RequestBooks`] and the eager `Books` don't share
+/// a field type to borrow through uniformly.
+enum BooksHandle<'a> {
+    Lance(crate::osm_chains_books_lance::RequestBooks),
+    Eager(&'a osm_soa_bake::codebook::Books),
+}
+
+impl BooksHandle<'_> {
+    fn identity(&self, ordinal: u32) -> Option<&str> {
+        match self {
+            Self::Lance(r) => r.identities.key(ordinal),
+            Self::Eager(b) => b.identities.key(ordinal),
+        }
+    }
+    fn tag_key(&self, ordinal: u32) -> Option<&str> {
+        match self {
+            Self::Lance(r) => r.tag_keys.key(ordinal),
+            Self::Eager(b) => b.tag_keys.key(ordinal),
+        }
+    }
+    fn tag_value(&self, ordinal: u32) -> Option<&str> {
+        match self {
+            Self::Lance(r) => r.tag_values.key(ordinal),
+            Self::Eager(b) => b.tag_values.key(ordinal),
+        }
+    }
+}
+
+fn query_tile_shapes(
+    bytes: &[u8],
+    z: u32,
+    x: u32,
+    y: u32,
+    chains: Option<&ChainsHandle<'_>>,
+    books: Option<&BooksHandle<'_>>,
+) -> Result<TileShapesRaw, String> {
+    let slab = RowSlab::new(bytes).map_err(|e| format!("slab bytes not row-aligned: {e:?}"))?;
+    let (total, selected) = sample_tile_rows(&slab, z, x, y);
     let empty = |sampled| TileShapesRaw {
         z,
         x,
@@ -1264,17 +1339,10 @@ fn query_tile_shapes(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileShapesR
     // Identity needs the typed row and geometry needs the sidecar; without
     // either there are no shapes to draw, which is a real answer and not an
     // error (the dots still work).
-    let (Some(rows), Some(chains)) = (slab.rows(), open_chains()) else {
+    let (Some(rows), Some(chains)) = (slab.rows(), chains) else {
         return Ok(empty(0));
     };
-    let books = open_books();
 
-    let selected = overview_sample(
-        z,
-        range.clone(),
-        |i| slab.morton_at(i),
-        geometry_row_budget(z),
-    );
     let sampled = selected.len();
 
     let mut shapes = Vec::new();
@@ -1329,8 +1397,15 @@ fn query_tile_shapes(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileShapesR
 }
 
 /// The JSON projection of [`query_tile_shapes`].
-fn query_tile_geometry(bytes: &[u8], z: u32, x: u32, y: u32) -> Result<TileGeometryOut, String> {
-    let raw = query_tile_shapes(bytes, z, x, y)?;
+fn query_tile_geometry(
+    bytes: &[u8],
+    z: u32,
+    x: u32,
+    y: u32,
+    chains: Option<&ChainsHandle<'_>>,
+    books: Option<&BooksHandle<'_>>,
+) -> Result<TileGeometryOut, String> {
+    let raw = query_tile_shapes(bytes, z, x, y, chains, books)?;
     let shapes: Vec<TileShapeOut> = raw
         .shapes
         .iter()
@@ -1429,6 +1504,81 @@ fn slab_digest() -> Option<u64> {
     *SLAB_DIGEST.get_or_init(|| open_slab().map(osm_soa_bake::codebook::hash_slab))
 }
 
+/// Gather-then-serve orchestration for the tile-shapes hot path.
+///
+/// Samples the tile's rows (via [`sample_tile_rows`] — the SAME sampling
+/// [`query_tile_shapes`] itself uses, so what gets gathered and what gets
+/// served can never disagree), collects exactly the chain/tag/identity
+/// ordinals those rows need, and gathers them from Lance in one batched read
+/// per table. Falls back to the eager resident singletons
+/// (`open_chains()`/`open_books()`) only when the Lance dataset isn't
+/// available — the boot-time conversion failed, was skipped, or hasn't run.
+///
+/// This is what actually stops the permanent `Vec`/`String` residency in the
+/// success case; see `osm_chains_books_lance`'s module doc and
+/// `claude-notes/plans/2026-08-16-chains-books-lancedb-blob.md`.
+async fn tile_sources<'a>(
+    slab: &RowSlab<'a>,
+    selected: &[usize],
+) -> (Option<ChainsHandle<'a>>, Option<BooksHandle<'a>>) {
+    let Some(rows) = slab.rows() else {
+        return (None, None);
+    };
+
+    let mut ordinals = Vec::new();
+    let mut key_ordinals = Vec::new();
+    let mut value_ordinals = Vec::new();
+    for &i in selected {
+        let Some((_, ordinal)) = read_identity(&rows[i]) else {
+            continue;
+        };
+        ordinals.push(ordinal);
+        for (_slot, facet) in osm_soa_bake::cluster::facets(&rows[i]) {
+            if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet {
+                if member == ordinal {
+                    key_ordinals.push(key);
+                    value_ordinals.push(value);
+                }
+            }
+        }
+    }
+
+    let chains = match sidecar_path("chains") {
+        Some(chains_path) => {
+            let dataset_path = chains_path.with_extension("chains.lance");
+            match crate::osm_chains_books_lance::gather_chains(&dataset_path, &ordinals).await {
+                Some(r) => Some(ChainsHandle::Lance(r)),
+                None => open_chains().map(ChainsHandle::Eager),
+            }
+        }
+        None => open_chains().map(ChainsHandle::Eager),
+    };
+
+    let books = match sidecar_path("books") {
+        Some(books_path) => {
+            let identities_path = books_path.with_extension("identities.lance");
+            let tag_keys_path = books_path.with_extension("tag_keys.lance");
+            let tag_values_path = books_path.with_extension("tag_values.lance");
+            match crate::osm_chains_books_lance::gather_books(
+                &identities_path,
+                &tag_keys_path,
+                &tag_values_path,
+                &[], // identities aren't read by this hot path — see BooksHandle's doc
+                &key_ordinals,
+                &value_ordinals,
+            )
+            .await
+            {
+                Some(r) => Some(BooksHandle::Lance(r)),
+                None => open_books().map(BooksHandle::Eager),
+            }
+        }
+        None => open_books().map(BooksHandle::Eager),
+    };
+
+    (chains, books)
+}
+
 /// `GET /api/osm/geometry/tile-bin/:z/:x/:y` — the same tile query as the
 /// JSON form, on the binary wire, with an honest cache story:
 /// `Cache-Control: no-cache` + a digest ETag means a zoom revisit costs one
@@ -1467,7 +1617,16 @@ pub async fn osm_tile_geometry_bin_handler(
         )
             .into_response();
     }
-    match query_tile_shapes(bytes, z, x, y) {
+    let Ok(slab) = RowSlab::new(bytes) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "slab bytes not row-aligned" })),
+        )
+            .into_response();
+    };
+    let (_, selected) = sample_tile_rows(&slab, z, x, y);
+    let (chains, books) = tile_sources(&slab, &selected).await;
+    match query_tile_shapes(bytes, z, x, y, chains.as_ref(), books.as_ref()) {
         Ok(raw) => (
             [
                 (
@@ -1503,7 +1662,16 @@ pub async fn osm_tile_geometry_handler(Path((z, x, y)): Path<(u32, u32, u32)>) -
         )
             .into_response();
     };
-    match query_tile_geometry(bytes, z, x, y) {
+    let Ok(slab) = RowSlab::new(bytes) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "slab bytes not row-aligned" })),
+        )
+            .into_response();
+    };
+    let (_, selected) = sample_tile_rows(&slab, z, x, y);
+    let (chains, books) = tile_sources(&slab, &selected).await;
+    match query_tile_geometry(bytes, z, x, y, chains.as_ref(), books.as_ref()) {
         Ok(out) => Json(out).into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,

@@ -172,18 +172,63 @@ just with a variable-length Arrow column instead of `FixedSizeBinaryArray`:
       datasets get built at boot, next to the slab's own `.lance`
       dataset. Confirmed via `cargo check -p cockpit-server` (clean,
       2.83s once the incremental cache was warm).
-- [ ] q2: `osm_features.rs` — gather phase (batched `Dataset::take_rows`
-      per table) + request-scoped `HashMap`-backed accessor types
-      replacing `open_chains()`'s / `open_books()`'s `'static` singletons
-      in the request path. `query_feature` and `query_tile_shapes` keep
-      their sync shape, fed from the transient maps. **This is the
-      remaining item** — everything above it is done and test-verified;
-      this item is what actually stops the eager `Vec` from being
-      allocated at all.
-- [ ] Full verification per `CLAUDE.md`: `cargo build --workspace`,
-      `cargo nextest run --workspace`, `cargo xtask verify
-      --skip-hub-build` (Rust-only change, no WASM/hub-client surface
-      touched). Not yet run — see the disk-constraint note below.
+- [x] q2: `osm_features.rs` — gather phase + request-scoped accessor
+      types, wired into the two HIGH-VOLUME tile handlers.
+      `gather_chains`/`gather_books` (in `osm_chains_books_lance.rs`)
+      collect exactly the ordinals a tile request needs (via a new
+      `sample_tile_rows` helper, factored out of `query_tile_shapes` so
+      the gather phase and the resolve phase can never disagree on which
+      rows were sampled — the same "two implementations of one
+      projection drift" lesson this file's own module doc names for
+      `osm_tiles`' old V1/V3 key split). Two new enums,
+      `ChainsHandle`/`BooksHandle`, dispatch between the Lance-gathered
+      source and the eager resident singleton (fallback when the Lance
+      dataset isn't available) — deliberately enums rather than traits
+      or trait objects, since both arms already expose the same
+      `get`/`identity`/`tag_key`/`tag_value` shape as inherent methods.
+      `query_tile_shapes` and `query_tile_geometry` now take
+      `Option<&ChainsHandle>`/`Option<&BooksHandle>` as parameters
+      instead of calling `open_chains()`/`open_books()` internally; a new
+      async `tile_sources` function (in `osm_features.rs`) does the
+      gather-then-serve orchestration for both of the tile endpoints
+      (`osm_tile_geometry_bin_handler`, `osm_tile_geometry_handler`).
+      **This is what actually stops the ~4.9GB eager load on the
+      highest-volume path** (every map pan/zoom hits one of these two
+      handlers).
+
+      **Deliberately DEFERRED, not silently dropped** — three call sites
+      still use the eager `open_chains()`/`open_books()` singletons
+      directly, unchanged:
+      - `query_feature` / `osm_feature_handler` (`/api/osm/feature/:idx`)
+        and `query_geometry` / `osm_geometry_handler`
+        (`/api/osm/geometry/:idx`) — single-row lookups. Migrating them
+        needs a two-phase split (read the row's identity + facet
+        ordinals first, THEN gather, THEN resolve) since they're
+        currently one synchronous pass; lower priority than the tile
+        handlers because they fire on a deliberate click, not on every
+        pan.
+      - `osm_health_handler` (`/api/osm/health`) — its `styling_verdict`
+        needs to distinguish "codebook present but pinned to a different
+        slab digest" (refused) from "codebook loaded and valid" (ok),
+        which needs the SAME digest-validation `open_books()`'s
+        `read_books` does internally. There is no cheap header-only
+        reader to check just the digest without parsing the whole
+        codebook — building one is real additional scope, not attempted
+        here. This is a genuine residual trigger (a health/monitoring
+        probe hitting this endpoint would still eagerly load everything)
+        and should be the next piece of this plan if it proves to matter
+        in practice.
+- [x] Full verification, scoped given the disk constraints (see below):
+      `cargo check -p cockpit-server --tests` (clean) +
+      `cargo nextest run -p cockpit-server --bin q2-cockpit osm_features`
+      (20/20 passing) + `... osm_chains_books_lance` (7/7 passing).
+      `cargo fmt --check -p cockpit-server` flags pre-existing,
+      crate-wide formatting drift unrelated to this change (spans ~20
+      files never touched this session) — not chased here.
+      **NOT run**: `cargo build --workspace` / `cargo nextest run
+      --workspace` / `cargo xtask verify` — deferred by explicit request
+      given this session's repeated near-total disk exhaustion (see
+      below).
 - [ ] Ask for push permission per `CLAUDE.md`'s GIT PUSH POLICY — do not
       push without explicit approval, same as #135/#136/#137.
 

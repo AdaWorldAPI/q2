@@ -347,6 +347,147 @@ pub async fn ensure_books_lance_local(books_path: &Path) -> Option<[PathBuf; 4]>
     out.try_into().ok()
 }
 
+// ── request-scoped gather layer ─────────────────────────────────────
+//
+// Everything above this point is boot-time (conversion) or general-purpose
+// (the take_* primitives). What follows is what actually removes the
+// permanent `Vec`/`String` residency `osm_features.rs::open_chains()` /
+// `open_books()` hold today: a request calls `gather_chains`/`gather_books`
+// with exactly the ordinals it needs, gets back a small owned map that is
+// DROPPED at the end of the request, and the dataset handles themselves
+// (cheap metadata, not row data — same as `osm_lance.rs`'s own cached
+// `Dataset`) are the only thing that lives for the process lifetime.
+
+/// A single codebook's request-scoped lookup: ordinal → owned string. Mirrors
+/// `lance_graph_contract::identity_quad::IdentityCodebook::key`'s read shape
+/// exactly (`fn key(&self, ordinal: u32) -> Option<&str>`), so call sites
+/// written against the resident codebook need no change beyond the type of
+/// what they hold.
+pub struct Lookup {
+    map: HashMap<u32, String>,
+}
+
+impl Lookup {
+    pub fn key(&self, ordinal: u32) -> Option<&str> {
+        self.map.get(&ordinal).map(String::as_str)
+    }
+}
+
+/// The three dense codebooks the hot request path (`query_feature` /
+/// `query_tile_shapes`) actually reads. `labels` is never read by that path
+/// (grep-confirmed in `osm_features.rs`), so it is not gathered here — a
+/// caller that needs labels reads the eager `Books` singleton for that one
+/// field, same as today.
+pub struct RequestBooks {
+    pub identities: Lookup,
+    pub tag_keys: Lookup,
+    pub tag_values: Lookup,
+}
+
+/// Sparse chain lookup, request-scoped — mirrors
+/// `osm_soa_bake::chains::Chains::get`'s `Result<Option<Vec<TileXy>>,
+/// ChainError>` shape, so a caller holding a `RequestChains` instead of the
+/// resident `Chains` needs no change to its call syntax.
+pub struct RequestChains {
+    raw: HashMap<u32, Vec<u8>>,
+}
+
+impl RequestChains {
+    pub fn get(
+        &self,
+        ordinal: u32,
+    ) -> Result<Option<Vec<osm_soa_bake::tms::TileXy>>, osm_soa_bake::chains::ChainError> {
+        self.raw
+            .get(&ordinal)
+            .map(|rec| osm_soa_bake::chains::decode_chain(rec))
+            .transpose()
+    }
+}
+
+static CHAINS_DATASET: tokio::sync::OnceCell<Option<Dataset>> = tokio::sync::OnceCell::const_new();
+static CHAINS_INDEX: std::sync::OnceLock<Option<OrdinalIndex>> = std::sync::OnceLock::new();
+static IDENTITIES_DATASET: tokio::sync::OnceCell<Option<Dataset>> =
+    tokio::sync::OnceCell::const_new();
+static TAG_KEYS_DATASET: tokio::sync::OnceCell<Option<Dataset>> = tokio::sync::OnceCell::const_new();
+static TAG_VALUES_DATASET: tokio::sync::OnceCell<Option<Dataset>> =
+    tokio::sync::OnceCell::const_new();
+
+/// Boot calls this once, right after [`ensure_chains_lance_local`] succeeds —
+/// the `OrdinalIndex` is the resident structure the module doc's "Sparse vs.
+/// dense" section names; this just gives request-time gather a place to find
+/// it without re-parsing the `.chains` file's index a second time on the
+/// first request. A no-op if called twice (first write wins), matching every
+/// other boot-time `OnceLock` in this crate.
+pub fn set_chains_index(index: OrdinalIndex) {
+    let _ = CHAINS_INDEX.set(Some(index));
+}
+
+async fn open_cached(cell: &'static tokio::sync::OnceCell<Option<Dataset>>, path: &Path) -> Option<&'static Dataset> {
+    cell.get_or_init(|| async {
+        let path_str = path.to_str()?;
+        Dataset::open(path_str).await.ok()
+    })
+    .await
+    .as_ref()
+}
+
+/// Gather every requested chain ordinal in ONE batched Lance read into a
+/// request-scoped map. `None` when the dataset or the index isn't available
+/// (conversion failed, was skipped, or hasn't run yet) — the caller falls
+/// back to the eager `Chains` singleton in that case, same fail-open
+/// contract as the rest of this module.
+pub async fn gather_chains(chains_dataset_path: &Path, ordinals: &[u32]) -> Option<RequestChains> {
+    if ordinals.is_empty() {
+        return Some(RequestChains { raw: HashMap::new() });
+    }
+    let index = CHAINS_INDEX.get()?.as_ref()?;
+    let dataset = open_cached(&CHAINS_DATASET, chains_dataset_path).await?;
+    let raw = take_by_ordinal_sparse(dataset, index, ordinals).await.ok()?;
+    Some(RequestChains { raw })
+}
+
+async fn gather_lookup(
+    cell: &'static tokio::sync::OnceCell<Option<Dataset>>,
+    path: &Path,
+    ordinals: &[u32],
+) -> Option<Lookup> {
+    if ordinals.is_empty() {
+        return Some(Lookup { map: HashMap::new() });
+    }
+    let dataset = open_cached(cell, path).await?;
+    // Dense addressing: row index == ordinal directly (see the module doc).
+    let row_indices: Vec<u64> = ordinals.iter().map(|&o| u64::from(o)).collect();
+    let raw = take_by_row_index(dataset, &row_indices).await.ok()?;
+    let map = raw
+        .into_iter()
+        .filter_map(|(ordinal, bytes)| String::from_utf8(bytes).ok().map(|s| (ordinal, s)))
+        .collect();
+    Some(Lookup { map })
+}
+
+/// Gather every requested identity/tag-key/tag-value ordinal in three
+/// batched Lance reads (one per codebook) into a request-scoped
+/// [`RequestBooks`]. `None` when ANY of the three datasets is unavailable —
+/// a partial books set is worse than none, same reasoning as
+/// [`ensure_books_lance_local`]'s all-or-nothing write.
+pub async fn gather_books(
+    identities_path: &Path,
+    tag_keys_path: &Path,
+    tag_values_path: &Path,
+    identity_ordinals: &[u32],
+    key_ordinals: &[u32],
+    value_ordinals: &[u32],
+) -> Option<RequestBooks> {
+    let identities = gather_lookup(&IDENTITIES_DATASET, identities_path, identity_ordinals).await?;
+    let tag_keys = gather_lookup(&TAG_KEYS_DATASET, tag_keys_path, key_ordinals).await?;
+    let tag_values = gather_lookup(&TAG_VALUES_DATASET, tag_values_path, value_ordinals).await?;
+    Some(RequestBooks {
+        identities,
+        tag_keys,
+        tag_values,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,6 +676,109 @@ mod tests {
         let labels_ds = Dataset::open(labels_path.to_str().unwrap()).await.expect("open");
         let got = take_by_row_index(&labels_ds, &[0]).await.expect("take");
         assert_eq!(got.get(&0), Some(&"Hauptstraße".as_bytes().to_vec()));
+    }
+
+    /// The actual request-scoped path: convert once, then `gather_chains`
+    /// with a SUBSET of ordinals — proving the gathered `RequestChains`
+    /// decodes correctly for what was asked, stays silent on a real gap
+    /// (ordinal 4, never stored), AND doesn't leak an ordinal that exists in
+    /// the dataset but wasn't requested (the anti-vacuity check: a broken
+    /// gather that just returned "everything" would still pass a
+    /// requested-ordinals-only assertion).
+    ///
+    /// Uses the crate's OWN process-global caches
+    /// (`CHAINS_DATASET`/`CHAINS_INDEX`), which is safe here ONLY because
+    /// nextest runs every test in its own process (per this repo's
+    /// `.claude/rules/integration-tests.md`) — a `cargo test` run sharing one
+    /// process across tests would collide on these statics.
+    #[tokio::test]
+    async fn gather_chains_returns_exactly_the_requested_ordinals() {
+        use osm_soa_bake::tms::TileXy;
+
+        fn c(x: u32, y: u32) -> TileXy {
+            TileXy { x, y_xyz: y }
+        }
+        let ring = vec![c(10, 20), c(11, 25), c(9, 30), c(10, 20)];
+        let mut chains = vec![(3u32, ring.clone()), (500, vec![c(1, 1)]), (501, ring)];
+        let mut buf = Vec::new();
+        osm_soa_bake::chains::write_chains(&mut buf, 0xAAAA, &mut chains).expect("write");
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let chains_path = dir.path().join("gather.chains");
+        std::fs::write(&chains_path, &buf).expect("write fixture");
+
+        let (dataset_path, index) =
+            ensure_chains_lance_local(&chains_path).await.expect("conversion");
+        set_chains_index(index);
+
+        // Ask for 3 and 500 (present), 4 (a real gap), and NOT 501 (present
+        // in the dataset but never requested).
+        let gathered = gather_chains(&dataset_path, &[3, 500, 4])
+            .await
+            .expect("gather should succeed once the index is set");
+
+        assert_eq!(
+            gathered.get(3).unwrap(),
+            Some(vec![c(10, 20), c(11, 25), c(9, 30), c(10, 20)])
+        );
+        assert_eq!(gathered.get(500).unwrap(), Some(vec![c(1, 1)]));
+        assert_eq!(gathered.get(4).unwrap(), None, "4 was never stored");
+        assert_eq!(
+            gathered.get(501).unwrap(),
+            None,
+            "501 exists in the dataset but was not in the requested set — a \
+             gather that leaked it would still pass every assertion above"
+        );
+    }
+
+    /// `gather_books` end-to-end: convert all four codebooks, gather a
+    /// subset across the three the hot path reads, and prove `labels` is
+    /// genuinely not part of this surface (no field for it on
+    /// `RequestBooks`) while `identities`/`tag_keys`/`tag_values` resolve
+    /// exactly the requested ordinals.
+    #[tokio::test]
+    async fn gather_books_resolves_the_three_hot_path_codebooks() {
+        use lance_graph_contract::identity_quad::IdentityCodebook;
+        use osm_soa_bake::codebook::{Books, Header};
+        use osm_soa_bake::tms::AnchorRounding;
+
+        let identities =
+            IdentityCodebook::try_new(vec!["node/1".into(), "way/2".into()]).unwrap();
+        let tag_keys = IdentityCodebook::try_new(vec!["highway".into()]).unwrap();
+        let tag_values =
+            IdentityCodebook::try_new(vec!["primary".into(), "residential".into()]).unwrap();
+        let labels = IdentityCodebook::try_new(vec!["Hauptstraße".into()]).unwrap();
+        let books = Books {
+            identities,
+            tag_keys,
+            tag_values,
+            labels,
+        };
+        let header = Header {
+            rows: 2,
+            slots_written: 3,
+            slab: 0x5566,
+            rounding: AnchorRounding::CURRENT,
+        };
+        let mut buf = Vec::new();
+        osm_soa_bake::codebook::write_books(&mut buf, &header, &books).expect("write");
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let books_path = dir.path().join("gather.books");
+        std::fs::write(&books_path, &buf).expect("write fixture");
+
+        let [id_path, keys_path, values_path, _labels_path] =
+            ensure_books_lance_local(&books_path).await.expect("conversion");
+
+        let gathered = gather_books(&id_path, &keys_path, &values_path, &[1], &[0], &[1])
+            .await
+            .expect("gather should succeed");
+
+        assert_eq!(gathered.identities.key(1), Some("way/2"));
+        assert_eq!(gathered.identities.key(0), None, "0 was not requested");
+        assert_eq!(gathered.tag_keys.key(0), Some("highway"));
+        assert_eq!(gathered.tag_values.key(1), Some("residential"));
+        assert_eq!(gathered.tag_values.key(0), None, "0 was not requested");
     }
 
     #[tokio::test]
