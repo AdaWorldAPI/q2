@@ -422,6 +422,56 @@ pub fn set_chains_index(index: OrdinalIndex) {
     let _ = CHAINS_INDEX.set(Some(index));
 }
 
+/// The ONE call site responsible for wiring a boot-time
+/// [`ensure_chains_lance_local`] result into [`gather_chains`]'s read path,
+/// via [`set_chains_index`].
+///
+/// This function exists because that wiring step was silently OMITTED
+/// once already: the caller bound the returned index to `_index` and
+/// discarded it. `gather_chains` requires `CHAINS_INDEX` to be populated
+/// (see its own doc — `CHAINS_INDEX.get()?` short-circuits to `None`
+/// otherwise), so every tile/feature request needing chain geometry
+/// silently fell back to the eager `open_chains()` singleton — for the
+/// entire process lifetime, on every single request, never only the
+/// first. Measured live on Brandenburg (a bake too large for the raw
+/// slab's own Arrow ceiling, so the browsing session that triggers this
+/// is a normal one, not an edge case): cgroup memory jumped from ~850 MB
+/// baseline to ~5.7 GB after the first request touching chains data, and
+/// never came back down — consistent with a `OnceLock`-backed singleton,
+/// which is never freed once populated, rather than the request-scoped,
+/// bounded Lance gather this whole module exists to serve from instead.
+///
+/// `main()`'s own boot sequence cannot be unit-tested directly (nothing
+/// executes it as a function call), which is exactly why this wiring step
+/// is split into its own function: `main()` becomes a thin, mechanical
+/// caller, and the actual wiring behavior — publish on `Some`, log and do
+/// nothing on `None` — is covered by
+/// [`publish_chains_conversion_wires_the_index_into_the_global_gather_path`]
+/// below, independent of any S3/volume machinery.
+///
+/// Returns the dataset directory path (so the caller can still log it),
+/// unchanged either way.
+pub fn publish_chains_conversion(result: Option<(PathBuf, OrdinalIndex)>) -> Option<PathBuf> {
+    match result {
+        Some((dataset_dir, index)) => {
+            set_chains_index(index);
+            tracing::info!(
+                path = %dataset_dir.display(),
+                "osm chains lance: converted and wired into the request-time gather path"
+            );
+            Some(dataset_dir)
+        }
+        None => {
+            tracing::warn!(
+                "osm chains lance: conversion to a Lance dataset failed or was skipped; \
+                 tile/feature requests needing chains fall back to the eager open_chains() \
+                 singleton (a permanent per-process memory cost, not a request-scoped one)"
+            );
+            None
+        }
+    }
+}
+
 async fn open_cached(cell: &'static tokio::sync::OnceCell<Option<Dataset>>, path: &Path) -> Option<&'static Dataset> {
     cell.get_or_init(|| async {
         let path_str = path.to_str()?;
@@ -676,6 +726,51 @@ mod tests {
         let labels_ds = Dataset::open(labels_path.to_str().unwrap()).await.expect("open");
         let got = take_by_row_index(&labels_ds, &[0]).await.expect("take");
         assert_eq!(got.get(&0), Some(&"Hauptstraße".as_bytes().to_vec()));
+    }
+
+    /// `publish_chains_conversion`'s `Some` arm: proves the wiring this
+    /// function exists to fix actually happens — `CHAINS_INDEX` transitions
+    /// from unset to populated as a DIRECT effect of calling this function,
+    /// not because some other test in the process already set it (this test
+    /// builds its own `OrdinalIndex`, independent of any real dataset, so
+    /// the assertion is about the wiring, not about Lance I/O). This is the
+    /// exact regression `publish_chains_conversion` was written to fix: the
+    /// old inline `match` at the `main()` call site bound the returned
+    /// index to `_index` and discarded it, so `CHAINS_INDEX` never got set
+    /// and every chains-touching request fell back to the eager
+    /// `open_chains()` singleton for the life of the process.
+    #[test]
+    fn publish_chains_conversion_wires_the_index_into_the_global_gather_path() {
+        assert!(
+            CHAINS_INDEX.get().is_none(),
+            "process-global CHAINS_INDEX must start unset in this test's own \
+             nextest process for the assertion below to mean anything"
+        );
+
+        let dataset_dir = PathBuf::from("/tmp/does-not-need-to-exist.chains.lance");
+        let index = OrdinalIndex::new(vec![3, 500, 501]);
+
+        let returned = publish_chains_conversion(Some((dataset_dir.clone(), index)));
+
+        assert_eq!(returned, Some(dataset_dir));
+        assert!(
+            CHAINS_INDEX.get().is_some(),
+            "publish_chains_conversion's whole job is to call set_chains_index \
+             on the Some arm — a version that merely logged and returned the \
+             path (without wiring the index) would still pass a check on the \
+             return value alone, which is why this test also asserts on \
+             CHAINS_INDEX directly"
+        );
+    }
+
+    /// The `None` arm: conversion failed or was skipped upstream (no dataset
+    /// this boot), and `publish_chains_conversion` must fail OPEN — return
+    /// `None` and never fabricate a `CHAINS_INDEX` entry that would make
+    /// `gather_chains` claim ordinals it cannot actually resolve.
+    #[test]
+    fn publish_chains_conversion_stays_silent_on_none() {
+        let returned = publish_chains_conversion(None);
+        assert_eq!(returned, None);
     }
 
     /// The actual request-scoped path: convert once, then `gather_chains`

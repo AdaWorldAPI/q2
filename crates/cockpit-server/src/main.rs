@@ -253,30 +253,29 @@ async fn main() {
         // hydrated LOCAL slab path — `.chains`/`.books` were hydrated
         // alongside it by `ensure_slab_local` above (S3 is the source of
         // truth for all three sidecars in one hydration pass; see
-        // `osm_slab_hydrate::artifacts`). This wires the CONVERSION only:
-        // `osm_features.rs`'s `open_chains`/`open_books` still read the raw
-        // sidecar files directly — a Lance-backed read path is follow-up
-        // work, not yet wired to consume what is written here.
+        // `osm_slab_hydrate::artifacts`). `osm_features.rs`'s
+        // `single_gather_chains`/`single_gather_books` already try this
+        // Lance-backed path first and fall back to the eager
+        // `open_chains()`/`open_books()` singletons only when it's
+        // unavailable — so wiring the CONVERSION's result all the way
+        // through (chains needs `publish_chains_conversion` to publish its
+        // `OrdinalIndex`; books addresses densely and needs no such step)
+        // is what makes that fast path actually reachable, instead of every
+        // request silently falling back to the permanent, unbounded
+        // in-memory singleton.
         let chains_path = path.with_extension("chains");
-        match osm_chains_books_lance::ensure_chains_lance_local(&chains_path).await {
-            Some((dataset_dir, _index)) => tracing::info!(
-                path = %dataset_dir.display(),
-                "osm chains lance: converted; not yet consumed by the read path"
-            ),
-            None => tracing::warn!(
-                "osm chains lance: conversion to a Lance dataset failed or was skipped; \
-                 no effect on serving (the read path does not consume it yet)"
-            ),
-        }
+        osm_chains_books_lance::publish_chains_conversion(
+            osm_chains_books_lance::ensure_chains_lance_local(&chains_path).await,
+        );
         let books_path = path.with_extension("books");
         match osm_chains_books_lance::ensure_books_lance_local(&books_path).await {
             Some(datasets) => tracing::info!(
                 identities = %datasets[0].display(),
-                "osm books lance: converted; not yet consumed by the read path"
+                "osm books lance: converted; request-time gather can serve from it directly"
             ),
             None => tracing::warn!(
                 "osm books lance: conversion to Lance datasets failed or was skipped; \
-                 no effect on serving (the read path does not consume it yet)"
+                 requests fall back to the eager open_books() singleton"
             ),
         }
     }
