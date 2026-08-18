@@ -47,6 +47,7 @@ mod osm_chains_books_lance;
 mod osm_features;
 mod osm_lance;
 mod osm_lifecycle;
+mod osm_region_catalogue;
 mod osm_slab_hydrate;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
@@ -363,6 +364,10 @@ async fn main() {
         // working map on every other signal (200s, full tiles, correct
         // geometry) while drawing grey and untagged.
         .route("/api/osm/health", get(osm_features::osm_health_handler))
+        .route(
+            "/api/osm/regions",
+            get(osm_region_catalogue::osm_regions_handler),
+        )
         // Phase B of the OSM/Lance lifecycle plan: the OsmArtifactManager's
         // lifecycle/artifact snapshot + cgroup memory, observational only —
         // does not read map data and does not touch the OnceLock-backed

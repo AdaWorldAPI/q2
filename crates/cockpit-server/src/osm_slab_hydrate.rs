@@ -169,9 +169,18 @@ fn missing_inputs(bucket: Option<&str>, vol: Option<&str>) -> Vec<&'static str> 
 
 /// Resolve a local, verified slab path, hydrating from S3 if needed.
 ///
-/// Returns the path to set as `OSM_SLAB_PATH`, or `None` when the feature is
-/// not configured — never panics, and never returns a path that failed its
-/// checksum.
+/// Returns the path to set as `OSM_SLAB_PATH` for the ACTIVE region, or
+/// `None` when the feature is not configured — never panics, and never
+/// returns a path that failed its checksum.
+///
+/// Since [`crate::osm_region_catalogue`] landed, this also: reads a
+/// multi-region catalogue from `.config/q2/config.yaml` (falling back to a
+/// single synthetic entry when absent/invalid — see that module's doc for
+/// the full `OSM_BAKE_REGION` interaction), hydrates every catalogue entry
+/// declared `hydrate: true` (not only the active one, so a deploy can
+/// pre-warm several regions), and publishes the resolved catalogue via
+/// [`crate::osm_region_catalogue::publish`] for `/api/osm/regions` to read.
+/// `hydrate: false` entries are deliberately never fetched here.
 pub async fn ensure_slab_local() -> Option<PathBuf> {
     // 1. An explicit local path always wins. This is the local-dev and
     //    already-hydrated case, and it must not require S3 credentials.
@@ -206,28 +215,12 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
     }
     let bucket = bucket_env.expect("checked non-empty above");
     let vol = vol_env.expect("checked non-empty above");
-    let region = bake_region();
-    let artifacts = artifacts(&region);
-    let prefix =
-        env_var_nonempty("OSM_SLAB_S3_PREFIX").unwrap_or_else(|| default_prefix(&region));
 
     let dir = cache_dir(&vol);
     if let Err(e) = std::fs::create_dir_all(&dir) {
         tracing::error!(dir = %dir.display(), error = %e, "osm slab: cannot create cache dir");
         return None;
     }
-
-    // Announce BEFORE the transfer, not after. This call blocks the listener
-    // bind, and a cold boot moves ~1.42 GB — so without a line here the boot
-    // log is silent for 60-90s, which is indistinguishable from a hang for
-    // whoever is watching a deploy. Naming the bucket and destination also
-    // makes a misconfigured prefix obvious from the first line rather than
-    // from a later "not readable" error.
-    tracing::info!(
-        %region, %bucket, %prefix, dir = %dir.display(),
-        "osm slab: resolving from S3 (a cold boot transfers the whole bake and delays the \
-         listener — Berlin is ~1.42 GB; a warm volume re-verifies in ~1s)"
-    );
 
     // `from_env()` reads AWS_ENDPOINT_URL / AWS_ACCESS_KEY_ID /
     // AWS_SECRET_ACCESS_KEY / AWS_DEFAULT_REGION with no glue — `aws_endpoint_url`
@@ -244,16 +237,152 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
         }
     };
 
-    let sums = match fetch_sums(&store, &prefix).await {
-        Some(s) => s,
-        None => return None,
+    // The env-var override, when set, wins outright as the active region —
+    // see `crate::osm_region_catalogue`'s module doc for why this is
+    // preserved unchanged rather than superseded by the catalogue.
+    //
+    // `None` only when `OSM_BAKE_REGION` itself is unset/empty (the
+    // catalogue decides in that case). When it IS set, `bake_region()`'s
+    // exact validate-or-fall-back-to-`DEFAULT_REGION`-with-a-warning
+    // behavior is preserved unchanged — an invalid value (uppercase, `/`,
+    // `..`) must still gracefully degrade to the default region, not become
+    // a hard hydration failure.
+    let override_region = env_var_nonempty("OSM_BAKE_REGION").map(|_| bake_region());
+
+    let catalogue = fetch_catalogue(&store, &bucket).await;
+    let catalogue = if catalogue.is_empty() {
+        vec![crate::osm_region_catalogue::RegionEntry {
+            name: override_region.clone().unwrap_or_else(|| DEFAULT_REGION.to_string()),
+            hydrate: true,
+        }]
+    } else {
+        catalogue
     };
 
-    for name in artifacts.iter().map(String::as_str) {
+    let Some(active) =
+        crate::osm_region_catalogue::pick_active(&catalogue, override_region.as_deref())
+            .map(str::to_string)
+    else {
+        tracing::warn!(
+            "osm slab: catalogue declares no hydrate:true region and OSM_BAKE_REGION is \
+             unset; nothing to serve"
+        );
+        return None;
+    };
+
+    // `OSM_SLAB_S3_PREFIX` is the pre-catalogue single-region escape hatch
+    // (module doc, "Absent configuration" section) — it applies ONLY to the
+    // active region, exactly as it always has. Pre-warmed, non-active
+    // catalogue entries always use `default_prefix` (the `{region}-v1`
+    // convention); a global prefix override cannot mean something different
+    // per region.
+    let active_prefix_override = env_var_nonempty("OSM_SLAB_S3_PREFIX");
+    let active_path =
+        hydrate_one_region(&store, &dir, &active, active_prefix_override.as_deref()).await;
+
+    // Pre-warm every OTHER declared hydrate:true region — best-effort. A
+    // failure here is logged by `hydrate_one_region` itself and does not
+    // affect the active region's own hydration result.
+    for entry in catalogue.iter().filter(|e| e.hydrate && e.name != active) {
+        hydrate_one_region(&store, &dir, &entry.name, None).await;
+    }
+
+    crate::osm_region_catalogue::publish(catalogue, active);
+
+    let Some(slab) = active_path else {
+        return None;
+    };
+    tracing::info!(path = %slab.display(), "osm slab: hydrated and verified");
+    Some(slab)
+}
+
+/// Fetch and parse `.config/<repo>/config.yaml` into a region catalogue.
+/// Returns an EMPTY `Vec` — never an error — when the object is absent or
+/// fails to parse: [`ensure_slab_local`] treats that identically to "no
+/// catalogue configured" and falls back to the single-region default. A
+/// parse failure is still logged loudly by
+/// [`crate::osm_region_catalogue::parse_catalogue_yaml`] itself.
+async fn fetch_catalogue(
+    store: &impl ObjectStore,
+    bucket: &str,
+) -> Vec<crate::osm_region_catalogue::RegionEntry> {
+    let key = lance_graph::soa_config::config_key("q2");
+    let path = object_store::path::Path::from(key.clone());
+    let bytes = match store.get(&path).await {
+        Ok(r) => match r.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(
+                    %bucket, %key, error = %e,
+                    "osm regions: config.yaml body read failed; falling back to a single region"
+                );
+                return Vec::new();
+            }
+        },
+        // Absent is the expected, common case for a deploy that has not
+        // opted into the multi-region catalogue — INFO, not WARN/ERROR.
+        Err(e) => {
+            tracing::info!(
+                %bucket, %key, error = %e,
+                "osm regions: no config.yaml (single-region mode via OSM_BAKE_REGION)"
+            );
+            return Vec::new();
+        }
+    };
+    crate::osm_region_catalogue::parse_catalogue_yaml(&String::from_utf8_lossy(&bytes))
+        .unwrap_or_default()
+}
+
+/// Hydrate ONE region's artifact triplet to local disk, verified against its
+/// `SHA256SUMS`. Returns the path to `<region>.soa`, or `None` on any
+/// failure — logged at the call site's usual level, never panics.
+///
+/// `region` is re-validated HERE, not only at `bake_region()`'s env-var
+/// boundary: since `crate::osm_region_catalogue` landed, this is also
+/// called with names read from a bucket-hosted YAML catalogue an operator
+/// controls, and this string is interpolated into both an S3 key and a
+/// filesystem path (see [`is_valid_region`]'s own doc for why that makes
+/// validation load-bearing, not decoration). A rejected name hydrates
+/// nothing and returns `None` rather than trying anyway.
+async fn hydrate_one_region(
+    store: &impl ObjectStore,
+    dir: &Path,
+    region: &str,
+    prefix_override: Option<&str>,
+) -> Option<PathBuf> {
+    if !is_valid_region(region) {
+        tracing::error!(
+            region,
+            "osm slab: region name rejected (must be lowercase [a-z0-9-], \u{2264}64 bytes); \
+             refusing to hydrate it"
+        );
+        return None;
+    }
+    let region_artifacts = artifacts(region);
+    let prefix = prefix_override
+        .map(str::to_string)
+        .unwrap_or_else(|| default_prefix(region));
+
+    // Announce BEFORE the transfer, not after. This call blocks the listener
+    // bind for the ACTIVE region, and a cold boot moves multiple GB — so
+    // without a line here the boot log is silent for 60-90s, which is
+    // indistinguishable from a hang for whoever is watching a deploy. Naming
+    // the region and prefix also makes a misconfigured catalogue entry
+    // obvious from the first line rather than from a later "not readable"
+    // error.
+    tracing::info!(
+        region, %prefix, dir = %dir.display(),
+        "osm slab: resolving region from S3 (a cold boot transfers the whole bake; a warm \
+         volume re-verifies in ~1s)"
+    );
+
+    let sums = fetch_sums(store, &prefix).await?;
+
+    for name in region_artifacts.iter().map(String::as_str) {
         let want = match sums.iter().find(|(k, _)| k == name).map(|(_, h)| h.clone()) {
             Some(h) => h,
             None => {
-                tracing::error!(artifact = name, "osm slab: no checksum pinned; refusing");
+                tracing::error!(region, artifact = name, "osm slab: no checksum pinned; refusing");
                 return None;
             }
         };
@@ -264,34 +393,32 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
             match resolve_cache_hit(&dest, &want) {
                 CacheDecision::TrustedViaMarker => {
                     tracing::info!(
-                        artifact = name,
+                        region, artifact = name,
                         "osm slab: cache hit, trusted via unchanged marker (mtime+len \
                          match the last real verification; skipped re-hash)"
                     );
                     continue;
                 }
                 CacheDecision::Verified => {
-                    tracing::info!(artifact = name, "osm slab: cache hit, checksum verified");
+                    tracing::info!(region, artifact = name, "osm slab: cache hit, checksum verified");
                     continue;
                 }
                 CacheDecision::Mismatch(got) => tracing::warn!(
-                    artifact = name, %got, %want,
+                    region, artifact = name, %got, %want,
                     "osm slab: cached copy failed its checksum; re-fetching"
                 ),
                 CacheDecision::Unreadable(e) => {
-                    tracing::warn!(artifact = name, error = %e, "osm slab: cannot hash cached copy; re-fetching")
+                    tracing::warn!(region, artifact = name, error = %e, "osm slab: cannot hash cached copy; re-fetching")
                 }
             }
         }
 
-        if !download_verified(&store, &prefix, name, &dest, &want).await {
+        if !download_verified(store, &prefix, name, &dest, &want).await {
             return None;
         }
     }
 
-    let slab = dir.join(&artifacts[0]);
-    tracing::info!(path = %slab.display(), "osm slab: hydrated and verified");
-    Some(slab)
+    Some(dir.join(&region_artifacts[0]))
 }
 
 /// Fetch and parse `SHA256SUMS` — `<hex>  <name>` per line, the `sha256sum`
