@@ -1179,17 +1179,6 @@ fn simplify_cells_raw(
     out
 }
 
-/// The lon/lat projection of [`simplify_cells_raw`] — the JSON wire's view.
-fn simplify_cells(chain: &[osm_soa_bake::tms::TileXy], z: u32) -> Vec<[f64; 2]> {
-    simplify_cells_raw(chain, z)
-        .into_iter()
-        .map(|c| {
-            let (lon, lat) = osm_soa_bake::tms::tile_to_lonlat(c.x, c.y_xyz);
-            [lon, lat]
-        })
-        .collect()
-}
-
 /// Geometry is far heavier per row than a dot, so it gets its own ceiling
 /// rather than reusing [`row_budget`]. Same zoom split and same reasoning as
 /// there: decimating an overview is a legitimate LOD choice, decimating a city
@@ -1994,6 +1983,22 @@ mod tests {
             .map(|i| osm_soa_bake::tms::TileXy {
                 x: base + i as u32 * step,
                 y_xyz: base,
+            })
+            .collect()
+    }
+
+    /// Test-only convenience: the lon/lat projection of [`simplify_cells_raw`],
+    /// so the assertions below can compare degrees directly instead of
+    /// re-deriving `tile_to_lonlat` at every call site. Production code
+    /// projects `simplify_cells_raw`'s output inline (`query_tile_geometry`
+    /// for JSON, `encode_tile_bin` for the binary wire) — this wrapper has no
+    /// production caller of its own.
+    fn simplify_cells(chain: &[osm_soa_bake::tms::TileXy], z: u32) -> Vec<[f64; 2]> {
+        simplify_cells_raw(chain, z)
+            .into_iter()
+            .map(|c| {
+                let (lon, lat) = osm_soa_bake::tms::tile_to_lonlat(c.x, c.y_xyz);
+                [lon, lat]
             })
             .collect()
     }
