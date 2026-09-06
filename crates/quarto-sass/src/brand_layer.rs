@@ -175,7 +175,7 @@ fn bootstrap_defaults_layer(brand: &Brand) -> Result<Option<SassLayer>, SassErro
     // Bootstrap colors from palette (only when defaults.bootstrap is
     // set, matching Q1's guard).
     if let Some(palette) = brand.color.as_ref().and_then(|c| c.palette.as_ref()) {
-        for (key, _) in palette.iter() {
+        for key in palette.keys() {
             if !BOOTSTRAP_COLOR_NAMES.contains(&key.as_str()) {
                 continue;
             }
