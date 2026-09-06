@@ -5,9 +5,7 @@
 //! relationships, runs NARS deduction/abduction/induction, builds
 //! causal chains, and projects forward.
 
-use crate::reasoning::{
-    infer_edges, nars_deduction, InferenceType, TruthEdge, TruthValue,
-};
+use crate::reasoning::{infer_edges, TruthEdge, TruthValue};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -305,7 +303,7 @@ fn build_chains(edges: &[TruthEdge], node_map: &HashMap<String, (String, String)
             chains.push(CausalityChain { name: format!("{} → {}", name(start), name(cur)), edges: chain, confidence: conf, inference_type: if has_inf { "deduction+observed" } else { "observed" }.into(), narrative });
         }
     }
-    chains.sort_by(|a, b| b.edges.len().cmp(&a.edges.len()));
+    chains.sort_by_key(|c| std::cmp::Reverse(c.edges.len()));
     chains.truncate(8);
     chains
 }

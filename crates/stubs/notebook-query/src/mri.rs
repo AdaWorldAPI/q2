@@ -15,9 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::osint_audit::{osint_registry, OsintCounterSnapshot};
-use super::reasoning::{
-    nars_abduction, nars_deduction, nars_induction, InferenceType, TruthEdge, TruthValue,
-};
+use super::reasoning::{InferenceType, TruthEdge, TruthValue};
 
 // ============================================================================
 // Brain Region Model
@@ -229,7 +227,7 @@ pub fn run_brain_mri(
         .iter()
         .map(|(style, cluster, count, quality)| {
             let effectiveness = if *count > 0 {
-                TruthValue::new(*quality as f64, (*count as f64 / (*count as f64 + 1.0)))
+                TruthValue::new(*quality as f64, *count as f64 / (*count as f64 + 1.0))
             } else {
                 TruthValue::new(0.5, 0.0)
             };

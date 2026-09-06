@@ -7,10 +7,8 @@
 //! Exposed via q2 cockpit-server at `/api/debug/osint`.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
-use std::time::Instant;
 
 // ── Global OSINT Pipeline Registry ──────────────────────────────────────────
 
@@ -63,11 +61,7 @@ impl OsintCounter {
             calls,
             successes: self.successes.load(Ordering::Relaxed),
             failures: self.failures.load(Ordering::Relaxed),
-            avg_latency_us: if calls > 0 {
-                total_ns / calls / 1000
-            } else {
-                0
-            },
+            avg_latency_us: total_ns.checked_div(calls).map(|q| q / 1000).unwrap_or(0),
             triplets_produced: self.triplets_produced.load(Ordering::Relaxed),
         }
     }

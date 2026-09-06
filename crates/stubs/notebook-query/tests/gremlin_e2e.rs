@@ -7,15 +7,12 @@
 use notebook_query::{execute, QueryLanguage};
 
 fn aiwar_data_path() -> Option<&'static str> {
-    for p in [
+    [
         "/home/user/q2/cockpit/public/aiwar_graph.json",
         "/home/user/aiwar-neo4j-harvest/data/aiwar_graph.json",
-    ] {
-        if std::path::Path::new(p).exists() {
-            return Some(p);
-        }
-    }
-    None
+    ]
+    .into_iter()
+    .find(|p| std::path::Path::new(p).exists())
 }
 
 #[test]
