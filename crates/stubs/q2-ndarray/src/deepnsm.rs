@@ -366,11 +366,53 @@ pub struct NsmLegality {
 /// Approved semantic molecules (frequently used complex concepts that are
 /// accepted in NSM explications even though they are not primes).
 const MOLECULES: &[&str] = &[
-    "hands", "eyes", "mouth", "head", "face", "ears", "nose", "legs", "arms", "heart", "mind",
-    "children", "men", "women", "animal", "dog", "cat", "bird", "fish", "tree", "ground", "sun",
-    "moon", "day", "night", "morning", "evening", "long_time", "short_time", "hot", "cold",
-    "hard", "soft", "round", "flat", "sharp", "heavy", "light", "wet", "dry", "colour", "white",
-    "black", "red", "green", "blue", "yellow",
+    "hands",
+    "eyes",
+    "mouth",
+    "head",
+    "face",
+    "ears",
+    "nose",
+    "legs",
+    "arms",
+    "heart",
+    "mind",
+    "children",
+    "men",
+    "women",
+    "animal",
+    "dog",
+    "cat",
+    "bird",
+    "fish",
+    "tree",
+    "ground",
+    "sun",
+    "moon",
+    "day",
+    "night",
+    "morning",
+    "evening",
+    "long_time",
+    "short_time",
+    "hot",
+    "cold",
+    "hard",
+    "soft",
+    "round",
+    "flat",
+    "sharp",
+    "heavy",
+    "light",
+    "wet",
+    "dry",
+    "colour",
+    "white",
+    "black",
+    "red",
+    "green",
+    "blue",
+    "yellow",
 ];
 
 /// Analyse an NSM explication for legality with respect to a target word.
@@ -458,7 +500,10 @@ mod tests {
         // "to" is not in vocab → should not contribute
         // All values should be non-negative and sum to ~1.0 (L1-normalised).
         let sum: f32 = v.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-5, "L1 norm should be ~1.0, got {sum}");
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "L1 norm should be ~1.0, got {sum}"
+        );
     }
 
     #[test]
@@ -545,7 +590,10 @@ mod tests {
     fn test_legality_with_molecules() {
         let result = analyze_legality("someone feels something good in the head", "joy");
         assert!(!result.uses_original_word);
-        assert!(result.molecule_tokens > 0, "should detect 'head' as molecule");
+        assert!(
+            result.molecule_tokens > 0,
+            "should detect 'head' as molecule"
+        );
     }
 
     #[test]

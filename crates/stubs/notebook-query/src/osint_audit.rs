@@ -7,8 +7,8 @@
 //! Exposed via q2 cockpit-server at `/api/debug/osint`.
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 // ── Global OSINT Pipeline Registry ──────────────────────────────────────────
 
@@ -51,7 +51,8 @@ impl OsintCounter {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.successes.fetch_add(1, Ordering::Relaxed);
         self.total_ns.fetch_add(elapsed_ns, Ordering::Relaxed);
-        self.triplets_produced.fetch_add(triplets, Ordering::Relaxed);
+        self.triplets_produced
+            .fetch_add(triplets, Ordering::Relaxed);
     }
 
     pub fn record_failure(&self, elapsed_ns: u64) {
@@ -134,7 +135,10 @@ impl OsintRegistry {
                 ("contradiction".into(), self.contradiction.snapshot()),
                 ("revision".into(), self.revision.snapshot()),
                 ("episodic_store".into(), self.episodic_store.snapshot()),
-                ("episodic_retrieve".into(), self.episodic_retrieve.snapshot()),
+                (
+                    "episodic_retrieve".into(),
+                    self.episodic_retrieve.snapshot(),
+                ),
                 ("graph_bfs".into(), self.graph_bfs.snapshot()),
                 ("spatial_path".into(), self.spatial_path.snapshot()),
                 ("xai_api_call".into(), self.xai_api_call.snapshot()),
@@ -313,7 +317,8 @@ pub fn run_osint_audit(
         ));
     }
     if episodic_saturation > 90.0 {
-        recommendations.push("Episodic memory >90% full — consider increasing capacity or pruning".into());
+        recommendations
+            .push("Episodic memory >90% full — consider increasing capacity or pruning".into());
     }
     if deleted as f32 / (graph_triplet_count.max(1) as f32) > 0.3 {
         recommendations.push("30%+ triplets soft-deleted — consider compaction".into());
@@ -322,7 +327,9 @@ pub fn run_osint_audit(
         recommendations.push("xAI API failure rate >50% — check API key and network".into());
     }
     if nars_deductions.calls == 0 && graph_active_count > 10 {
-        recommendations.push("No NARS deductions run yet — call infer_deductions() to expand knowledge".into());
+        recommendations.push(
+            "No NARS deductions run yet — call infer_deductions() to expand knowledge".into(),
+        );
     }
 
     let timestamp_ms = std::time::SystemTime::now()
@@ -372,7 +379,11 @@ mod tests {
         r.xai_api_call.record_success(50_000_000, 0);
         let health = r.snapshot();
         assert_eq!(health.stages.len(), 12);
-        let extraction = health.stages.iter().find(|(n, _)| n == "extraction").unwrap();
+        let extraction = health
+            .stages
+            .iter()
+            .find(|(n, _)| n == "extraction")
+            .unwrap();
         assert_eq!(extraction.1.calls, 1);
     }
 
@@ -384,7 +395,12 @@ mod tests {
         assert_eq!(result.graph.deleted_triplets, 20);
         assert_eq!(result.graph.contradictions, 2);
         assert!(!result.recommendations.is_empty());
-        assert!(result.recommendations.iter().any(|r| r.contains("contradiction")));
+        assert!(
+            result
+                .recommendations
+                .iter()
+                .any(|r| r.contains("contradiction"))
+        );
     }
 
     #[test]
@@ -408,6 +424,9 @@ mod tests {
         let r2 = osint_registry();
         // Same singleton
         r1.extraction.record_success(100, 1);
-        assert_eq!(r2.extraction.snapshot().calls, r1.extraction.snapshot().calls);
+        assert_eq!(
+            r2.extraction.snapshot().calls,
+            r1.extraction.snapshot().calls
+        );
     }
 }

@@ -71,11 +71,7 @@ fn parse_steps(src: &str) -> Option<Vec<Step>> {
         }
         steps.push(Step { name, args });
     }
-    if steps.is_empty() {
-        None
-    } else {
-        Some(steps)
-    }
+    if steps.is_empty() { None } else { Some(steps) }
 }
 
 /// Transpile a Gremlin traversal to Cypher, or `None` if unsupported.
@@ -154,10 +150,10 @@ pub fn gremlin_to_cypher(gremlin: &str) -> Option<String> {
             "out" | "in" | "both" => {
                 close_node(&mut pattern, &mut node_open, &mut cur_has_label);
                 let rel = step
-                .args
-                .first()
-                .map(|r| format!(":{}", sanitize_label(r)))
-                .unwrap_or_else(|| ":Edge".to_string());
+                    .args
+                    .first()
+                    .map(|r| format!(":{}", sanitize_label(r)))
+                    .unwrap_or_else(|| ":Edge".to_string());
                 let nv = fresh(&mut var_idx);
                 let arrow = match step.name.as_str() {
                     "out" => format!("-[{rel}]->("),
@@ -174,10 +170,10 @@ pub fn gremlin_to_cypher(gremlin: &str) -> Option<String> {
                 close_node(&mut pattern, &mut node_open, &mut cur_has_label);
                 let ev = format!("e{}", edge_vars.len());
                 let rel = step
-                .args
-                .first()
-                .map(|r| format!(":{}", sanitize_label(r)))
-                .unwrap_or_else(|| ":Edge".to_string());
+                    .args
+                    .first()
+                    .map(|r| format!(":{}", sanitize_label(r)))
+                    .unwrap_or_else(|| ":Edge".to_string());
                 let dir = match step.name.as_str() {
                     "outE" => format!("-[{ev}{rel}]->("),
                     "inE" => format!("<-[{ev}{rel}]-("),
@@ -247,11 +243,15 @@ fn escape(s: &str) -> String {
 
 /// Labels and rel types are identifiers in Cypher — keep alnum/underscore only.
 fn sanitize_label(s: &str) -> String {
-    s.chars().filter(|c| c.is_alphanumeric() || *c == '_').collect()
+    s.chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_')
+        .collect()
 }
 
 fn sanitize_ident(s: &str) -> String {
-    s.chars().filter(|c| c.is_alphanumeric() || *c == '_').collect()
+    s.chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_')
+        .collect()
 }
 
 #[cfg(test)]
@@ -278,7 +278,8 @@ mod tests {
 
     #[test]
     fn out_with_rel_type_and_limit() {
-        let c = gremlin_to_cypher("g.V().hasLabel('System').out('DEVELOPED_BY').limit(10)").unwrap();
+        let c =
+            gremlin_to_cypher("g.V().hasLabel('System').out('DEVELOPED_BY').limit(10)").unwrap();
         assert_eq!(
             c,
             "MATCH (n0:System)-[:DEVELOPED_BY]->(n1:Entity) RETURN n1.id, n1.name LIMIT 10"

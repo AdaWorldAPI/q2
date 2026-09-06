@@ -391,7 +391,10 @@ mod tests {
         // endpoints — the edge is skipped instead.
         let cypher = "MERGE (a)-[r:PERSON_LINK]->(b)";
         let (_, edges) = parse_cypher(cypher);
-        assert!(edges.is_empty(), "unbound endpoints are skipped, not emitted");
+        assert!(
+            edges.is_empty(),
+            "unbound endpoints are skipped, not emitted"
+        );
     }
 
     #[test]
@@ -405,9 +408,11 @@ mod tests {
         assert_eq!(edges[0].source, "Development");
         assert_eq!(edges[0].target, "currentStatus_airo");
         assert_eq!(edges[0].rel_type, "VALID_FOR");
-        assert!(nodes
-            .iter()
-            .any(|n| n.id == "Development" && n.labels == ["SchemaValue"]));
+        assert!(
+            nodes
+                .iter()
+                .any(|n| n.id == "Development" && n.labels == ["SchemaValue"])
+        );
         assert!(nodes.iter().any(|n| n.id == "currentStatus_airo"));
         // no phantom single-letter node ids
         assert!(!nodes.iter().any(|n| n.id == "v" || n.id == "a"));
@@ -438,10 +443,7 @@ mod tests {
         );
         assert_eq!(full_edges[0].target, "Hegseth");
         assert_eq!(full_edges[0].rel_type, "PERSON_LINK");
-        assert_eq!(
-            &full_edges[0].properties["label"],
-            "appointed SecDef"
-        );
+        assert_eq!(&full_edges[0].properties["label"], "appointed SecDef");
     }
 
     #[test]

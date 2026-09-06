@@ -50,7 +50,9 @@ fn counters() -> parking_lot::MutexGuard<'static, Option<Counters>> {
 #[inline]
 pub fn track<T>(_function_id: &str, f: impl FnOnce() -> T) -> T {
     #[cfg(not(feature = "instrument"))]
-    { f() }
+    {
+        f()
+    }
 
     #[cfg(feature = "instrument")]
     {
@@ -61,8 +63,12 @@ pub fn track<T>(_function_id: &str, f: impl FnOnce() -> T) -> T {
         let mut c = counters();
         let c = c.as_mut().unwrap();
         *c.calls.entry(function_id.to_string()).or_insert(0) += 1;
-        c.timing.entry(function_id.to_string()).or_default().push(elapsed);
-        c.last_called.insert(function_id.to_string(), Instant::now());
+        c.timing
+            .entry(function_id.to_string())
+            .or_default()
+            .push(elapsed);
+        c.last_called
+            .insert(function_id.to_string(), Instant::now());
 
         result
     }
@@ -72,7 +78,9 @@ pub fn track<T>(_function_id: &str, f: impl FnOnce() -> T) -> T {
 #[inline]
 pub fn track_numeric(_function_id: &str, value: f32) -> f32 {
     #[cfg(not(feature = "instrument"))]
-    { value }
+    {
+        value
+    }
 
     #[cfg(feature = "instrument")]
     {
@@ -81,13 +89,16 @@ pub fn track_numeric(_function_id: &str, value: f32) -> f32 {
         *c.calls.entry(function_id.to_string()).or_insert(0) += 1;
 
         if value.is_nan() || value.is_infinite() {
-            c.nan_producers.entry(function_id.to_string()).or_default().push(NanEvent {
-                timestamp_ms: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64,
-                input_snapshot: format!("returned {value}"),
-            });
+            c.nan_producers
+                .entry(function_id.to_string())
+                .or_default()
+                .push(NanEvent {
+                    timestamp_ms: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64,
+                    input_snapshot: format!("returned {value}"),
+                });
         }
 
         value
@@ -98,7 +109,9 @@ pub fn track_numeric(_function_id: &str, value: f32) -> f32 {
 #[inline]
 pub fn track_numeric_f64(_function_id: &str, value: f64) -> f64 {
     #[cfg(not(feature = "instrument"))]
-    { value }
+    {
+        value
+    }
 
     #[cfg(feature = "instrument")]
     {
@@ -107,13 +120,16 @@ pub fn track_numeric_f64(_function_id: &str, value: f64) -> f64 {
         *c.calls.entry(function_id.to_string()).or_insert(0) += 1;
 
         if value.is_nan() || value.is_infinite() {
-            c.nan_producers.entry(function_id.to_string()).or_default().push(NanEvent {
-                timestamp_ms: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64,
-                input_snapshot: format!("returned {value}"),
-            });
+            c.nan_producers
+                .entry(function_id.to_string())
+                .or_default()
+                .push(NanEvent {
+                    timestamp_ms: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64,
+                    input_snapshot: format!("returned {value}"),
+                });
         }
 
         value
@@ -126,7 +142,11 @@ pub fn get_stats(function_id: &str) -> CallStats {
     let c = c.as_ref().unwrap();
     let call_count = c.calls.get(function_id).copied().unwrap_or(0);
     let timings = c.timing.get(function_id);
-    let nan_count = c.nan_producers.get(function_id).map(|v| v.len()).unwrap_or(0);
+    let nan_count = c
+        .nan_producers
+        .get(function_id)
+        .map(|v| v.len())
+        .unwrap_or(0);
 
     let (avg_us, max_us) = if let Some(ts) = timings {
         if ts.is_empty() {
@@ -141,7 +161,10 @@ pub fn get_stats(function_id: &str) -> CallStats {
         (0.0, 0.0)
     };
 
-    let last_called_ago_ms = c.last_called.get(function_id).map(|t| t.elapsed().as_millis() as u64);
+    let last_called_ago_ms = c
+        .last_called
+        .get(function_id)
+        .map(|t| t.elapsed().as_millis() as u64);
 
     CallStats {
         call_count,
@@ -163,7 +186,10 @@ pub fn alive_functions() -> Vec<String> {
 pub fn nan_functions() -> Vec<(String, Vec<NanEvent>)> {
     let c = counters();
     let c = c.as_ref().unwrap();
-    c.nan_producers.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+    c.nan_producers
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
 }
 
 /// Reset all counters.

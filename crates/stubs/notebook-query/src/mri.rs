@@ -14,7 +14,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::osint_audit::{osint_registry, OsintCounterSnapshot};
+use super::osint_audit::{OsintCounterSnapshot, osint_registry};
 use super::reasoning::{InferenceType, TruthEdge, TruthValue};
 
 // ============================================================================
@@ -306,7 +306,10 @@ pub fn run_brain_mri(
         .filter(|p| p.state == PlasticityState::Hot)
         .count();
     if hot_count > 0 {
-        findings.push(format!("{} entities are actively learning (hot plasticity)", hot_count));
+        findings.push(format!(
+            "{} entities are actively learning (hot plasticity)",
+            hot_count
+        ));
     }
     let frozen_count = plasticity_map
         .iter()
@@ -367,7 +370,12 @@ fn build_brain_regions(stages: &[(String, OsintCounterSnapshot)]) -> Vec<BrainRe
     // Group stages into 4 brain regions
     let perception_stages = ["extraction", "xai_api_call"];
     let reasoning_stages = ["deduction", "contradiction", "revision"];
-    let memory_stages = ["episodic_store", "episodic_retrieve", "graph_bfs", "spatial_path"];
+    let memory_stages = [
+        "episodic_store",
+        "episodic_retrieve",
+        "graph_bfs",
+        "spatial_path",
+    ];
     let action_stages = ["refinement", "planning", "classification"];
 
     let build_region = |name: &str, stage_names: &[&str]| {
@@ -451,7 +459,11 @@ fn trace_reasoning_chains(edges: &[TruthEdge]) -> Vec<ReasoningChain> {
 
         let step = InferenceStep {
             rule: rule.to_string(),
-            premise_a: format!("{} → {}", edge.source, edge.via.first().unwrap_or(&edge.target)),
+            premise_a: format!(
+                "{} → {}",
+                edge.source,
+                edge.via.first().unwrap_or(&edge.target)
+            ),
             premise_b: format!(
                 "{} → {}",
                 edge.via.last().unwrap_or(&edge.source),
@@ -545,10 +557,11 @@ mod tests {
         assert_eq!(mri.dominant_mode, "Analytical");
         assert!(!mri.findings.is_empty());
         // Should detect US_DoD as conflicted (1 contradiction)
-        assert!(mri
-            .plasticity_map
-            .iter()
-            .any(|p| p.entity == "US_DoD" && p.state == PlasticityState::Conflicted));
+        assert!(
+            mri.plasticity_map
+                .iter()
+                .any(|p| p.entity == "US_DoD" && p.state == PlasticityState::Conflicted)
+        );
         // Should have reasoning chains (1 inferred edge)
         assert!(!mri.reasoning_chains.is_empty());
     }
@@ -566,49 +579,91 @@ mod tests {
     #[test]
     fn test_plasticity_states() {
         let mut stats = HashMap::new();
-        stats.insert("hot_entity".into(), EntityStats {
-            triplet_count: 10,
-            avg_confidence: 0.5,
-            revisions: 20,
-            contradictions: 0,
-        });
-        stats.insert("frozen_entity".into(), EntityStats {
-            triplet_count: 5,
-            avg_confidence: 0.95,
-            revisions: 1,
-            contradictions: 0,
-        });
-        stats.insert("conflicted_entity".into(), EntityStats {
-            triplet_count: 3,
-            avg_confidence: 0.6,
-            revisions: 2,
-            contradictions: 2,
-        });
+        stats.insert(
+            "hot_entity".into(),
+            EntityStats {
+                triplet_count: 10,
+                avg_confidence: 0.5,
+                revisions: 20,
+                contradictions: 0,
+            },
+        );
+        stats.insert(
+            "frozen_entity".into(),
+            EntityStats {
+                triplet_count: 5,
+                avg_confidence: 0.95,
+                revisions: 1,
+                contradictions: 0,
+            },
+        );
+        stats.insert(
+            "conflicted_entity".into(),
+            EntityStats {
+                triplet_count: 3,
+                avg_confidence: 0.6,
+                revisions: 2,
+                contradictions: 2,
+            },
+        );
 
         let mri = run_brain_mri(&[], &stats, &[], ScanMode::Full);
 
-        let hot = mri.plasticity_map.iter().find(|p| p.entity == "hot_entity").unwrap();
+        let hot = mri
+            .plasticity_map
+            .iter()
+            .find(|p| p.entity == "hot_entity")
+            .unwrap();
         assert_eq!(hot.state, PlasticityState::Hot);
 
-        let frozen = mri.plasticity_map.iter().find(|p| p.entity == "frozen_entity").unwrap();
+        let frozen = mri
+            .plasticity_map
+            .iter()
+            .find(|p| p.entity == "frozen_entity")
+            .unwrap();
         assert_eq!(frozen.state, PlasticityState::Frozen);
 
-        let conflicted = mri.plasticity_map.iter().find(|p| p.entity == "conflicted_entity").unwrap();
+        let conflicted = mri
+            .plasticity_map
+            .iter()
+            .find(|p| p.entity == "conflicted_entity")
+            .unwrap();
         assert_eq!(conflicted.state, PlasticityState::Conflicted);
     }
 
     #[test]
     fn test_brain_regions() {
         let stages = vec![
-            ("extraction".into(), OsintCounterSnapshot {
-                calls: 10, successes: 9, failures: 1, avg_latency_us: 500, triplets_produced: 45,
-            }),
-            ("deduction".into(), OsintCounterSnapshot {
-                calls: 5, successes: 5, failures: 0, avg_latency_us: 100, triplets_produced: 12,
-            }),
-            ("episodic_store".into(), OsintCounterSnapshot {
-                calls: 0, successes: 0, failures: 0, avg_latency_us: 0, triplets_produced: 0,
-            }),
+            (
+                "extraction".into(),
+                OsintCounterSnapshot {
+                    calls: 10,
+                    successes: 9,
+                    failures: 1,
+                    avg_latency_us: 500,
+                    triplets_produced: 45,
+                },
+            ),
+            (
+                "deduction".into(),
+                OsintCounterSnapshot {
+                    calls: 5,
+                    successes: 5,
+                    failures: 0,
+                    avg_latency_us: 100,
+                    triplets_produced: 12,
+                },
+            ),
+            (
+                "episodic_store".into(),
+                OsintCounterSnapshot {
+                    calls: 0,
+                    successes: 0,
+                    failures: 0,
+                    avg_latency_us: 0,
+                    triplets_produced: 0,
+                },
+            ),
         ];
 
         let regions = build_brain_regions(&stages);
@@ -619,7 +674,12 @@ mod tests {
 
         let memory = regions.iter().find(|r| r.name == "memory").unwrap();
         // episodic_store has 0 calls, so some sub-regions are dead
-        assert!(memory.sub_regions.iter().any(|s| s.status == RegionStatus::Dead));
+        assert!(
+            memory
+                .sub_regions
+                .iter()
+                .any(|s| s.status == RegionStatus::Dead)
+        );
     }
 
     #[test]

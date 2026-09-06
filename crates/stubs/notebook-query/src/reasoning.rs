@@ -5,8 +5,8 @@
 //! - NARS abductive inference: infer edges from chain walks
 //! - Progressive hydration lens: ZeckF64 resolution slider
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // =============================================================================
 // NARS Truth Values
@@ -94,11 +94,7 @@ pub enum InferenceType {
 ///
 /// For every A→B→C chain where both edges have confidence > `min_confidence`,
 /// infer A→C with deduction truth.
-pub fn infer_edges(
-    edges: &[TruthEdge],
-    min_confidence: f64,
-    max_hops: usize,
-) -> Vec<TruthEdge> {
+pub fn infer_edges(edges: &[TruthEdge], min_confidence: f64, max_hops: usize) -> Vec<TruthEdge> {
     // Build adjacency: source → [(target, truth, rel_type)]
     let mut adj: HashMap<&str, Vec<(&str, &TruthValue, &str)>> = HashMap::new();
     for e in edges {
@@ -149,7 +145,9 @@ pub fn infer_edges(
     let mut rev: HashMap<&str, Vec<(&str, &TruthValue)>> = HashMap::new();
     for e in edges {
         if !e.inferred && e.truth.confidence >= min_confidence {
-            rev.entry(&e.target).or_default().push((&e.source, &e.truth));
+            rev.entry(&e.target)
+                .or_default()
+                .push((&e.source, &e.truth));
         }
     }
 
@@ -276,19 +274,31 @@ pub struct ResolutionLevel {
 
 impl ResolutionLevel {
     pub fn scent_only() -> Self {
-        Self { bytes: 1, threshold: 3 }
+        Self {
+            bytes: 1,
+            threshold: 3,
+        }
     }
 
     pub fn low() -> Self {
-        Self { bytes: 2, threshold: 4 }
+        Self {
+            bytes: 2,
+            threshold: 4,
+        }
     }
 
     pub fn medium() -> Self {
-        Self { bytes: 4, threshold: 5 }
+        Self {
+            bytes: 4,
+            threshold: 5,
+        }
     }
 
     pub fn full() -> Self {
-        Self { bytes: 8, threshold: 6 }
+        Self {
+            bytes: 8,
+            threshold: 6,
+        }
     }
 }
 
@@ -304,10 +314,10 @@ pub fn filter_edges_by_resolution(
     // (real ZeckF64 would use the packed edge bytes, but we don't have them
     // in the JSON layer — bgz17 works at the container level)
     let threshold = match _resolution.bytes {
-        1 => 0.0,  // show everything
-        2 => 0.3,  // filter weak edges
-        4 => 0.5,  // medium filter
-        _ => 0.7,  // strong edges only
+        1 => 0.0, // show everything
+        2 => 0.3, // filter weak edges
+        4 => 0.5, // medium filter
+        _ => 0.7, // strong edges only
     };
 
     edges
@@ -394,14 +404,22 @@ mod tests {
     fn test_resolution_filter() {
         let edges = vec![
             TruthEdge {
-                source: "A".into(), target: "B".into(), rel_type: "KNOWS".into(),
+                source: "A".into(),
+                target: "B".into(),
+                rel_type: "KNOWS".into(),
                 truth: TruthValue::new(0.95, 0.87),
-                inferred: false, via: vec![], inference_type: None,
+                inferred: false,
+                via: vec![],
+                inference_type: None,
             },
             TruthEdge {
-                source: "C".into(), target: "D".into(), rel_type: "MAYBE".into(),
+                source: "C".into(),
+                target: "D".into(),
+                rel_type: "MAYBE".into(),
                 truth: TruthValue::new(0.20, 0.15),
-                inferred: false, via: vec![], inference_type: None,
+                inferred: false,
+                via: vec![],
+                inference_type: None,
             },
         ];
 
@@ -433,22 +451,29 @@ mod tests {
     fn test_infer_edges_deduction() {
         let edges = vec![
             TruthEdge {
-                source: "Palantir".into(), target: "US_DoD".into(),
+                source: "Palantir".into(),
+                target: "US_DoD".into(),
                 rel_type: "DEVELOPED_BY".into(),
                 truth: TruthValue::new(0.95, 0.87),
-                inferred: false, via: vec![], inference_type: None,
+                inferred: false,
+                via: vec![],
+                inference_type: None,
             },
             TruthEdge {
-                source: "US_DoD".into(), target: "Gotham".into(),
+                source: "US_DoD".into(),
+                target: "Gotham".into(),
                 rel_type: "DEPLOYED_BY".into(),
                 truth: TruthValue::new(0.90, 0.82),
-                inferred: false, via: vec![], inference_type: None,
+                inferred: false,
+                via: vec![],
+                inference_type: None,
             },
         ];
 
         let inferred = infer_edges(&edges, 0.5, 2);
         assert!(!inferred.is_empty());
-        let palantir_gotham = inferred.iter()
+        let palantir_gotham = inferred
+            .iter()
             .find(|e| e.source == "Palantir" && e.target == "Gotham");
         assert!(palantir_gotham.is_some());
         let edge = palantir_gotham.unwrap();
@@ -459,22 +484,31 @@ mod tests {
     #[test]
     fn test_seal_status() {
         let prev = GraphSnapshot {
-            version: 0, name: "base".into(),
-            nodes: vec![], edges: vec![],
+            version: 0,
+            name: "base".into(),
+            nodes: vec![],
+            edges: vec![],
             seal_status: SealStatus::Staunen,
-            new_edge_count: 10, revised_edge_count: 0,
+            new_edge_count: 10,
+            revised_edge_count: 0,
         };
         let same = GraphSnapshot {
-            version: 1, name: "no change".into(),
-            nodes: vec![], edges: vec![],
+            version: 1,
+            name: "no change".into(),
+            nodes: vec![],
+            edges: vec![],
             seal_status: SealStatus::Wisdom,
-            new_edge_count: 0, revised_edge_count: 0,
+            new_edge_count: 0,
+            revised_edge_count: 0,
         };
         let learning = GraphSnapshot {
-            version: 2, name: "enrichment".into(),
-            nodes: vec![], edges: vec![],
+            version: 2,
+            name: "enrichment".into(),
+            nodes: vec![],
+            edges: vec![],
             seal_status: SealStatus::Staunen,
-            new_edge_count: 5, revised_edge_count: 3,
+            new_edge_count: 5,
+            revised_edge_count: 3,
         };
 
         assert_eq!(compute_seal_status(&prev, &same), SealStatus::Wisdom);

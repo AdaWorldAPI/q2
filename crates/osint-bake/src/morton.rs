@@ -65,7 +65,14 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        for &(x, y) in &[(0u16, 0u16), (1, 0), (0, 1), (3, 2), (255, 255), (40_000, 25_000)] {
+        for &(x, y) in &[
+            (0u16, 0u16),
+            (1, 0),
+            (0, 1),
+            (3, 2),
+            (255, 255),
+            (40_000, 25_000),
+        ] {
             assert_eq!(decode(encode(x, y)), (x, y), "round-trip ({x},{y})");
         }
     }
@@ -96,6 +103,9 @@ mod tests {
         // horizontally-adjacent cells stay within one 4×4 block of each other.
         let a = encode(10, 10);
         let b = encode(11, 10);
-        assert!((a as i64 - b as i64).abs() <= 16, "adjacent cells stay near in Z-order");
+        assert!(
+            (a as i64 - b as i64).abs() <= 16,
+            "adjacent cells stay near in Z-order"
+        );
     }
 }

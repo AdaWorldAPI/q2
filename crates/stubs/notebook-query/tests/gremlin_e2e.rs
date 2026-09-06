@@ -4,7 +4,7 @@
 //! query reached real lance-graph execution ("→ Cypher" in the output) or fell
 //! back to the graph echo (a lance-graph Cypher-coverage gap — still safe).
 
-use notebook_query::{execute, QueryLanguage};
+use notebook_query::{QueryLanguage, execute};
 
 fn aiwar_data_path() -> Option<&'static str> {
     [
@@ -27,13 +27,18 @@ fn gremlin_has_label_executes_or_falls_back_cleanly() {
     let q = "g.V().hasLabel('System').limit(3)";
     let res = execute(q, QueryLanguage::Gremlin).expect("execute returns Ok");
 
-    eprintln!("--- gremlin e2e ---\nquery: {q}\nraw_output:\n{}", res.raw_output);
+    eprintln!(
+        "--- gremlin e2e ---\nquery: {q}\nraw_output:\n{}",
+        res.raw_output
+    );
     assert!(res.graph_json.is_some(), "graph_json should be present");
 
     if res.raw_output.contains("→ Cypher") {
         eprintln!("RESULT: real lance-graph Gremlin execution CONFIRMED");
     } else {
-        eprintln!("RESULT: fell back to graph echo (lance-graph Cypher coverage gap for this shape)");
+        eprintln!(
+            "RESULT: fell back to graph echo (lance-graph Cypher coverage gap for this shape)"
+        );
     }
 }
 
@@ -49,7 +54,10 @@ fn gremlin_multihop_path_traversal_runs() {
     // The cockpit's headline traversal shape (real label that exists in the data).
     let q = "g.V().hasLabel('System').outE().inV().path()";
     let res = execute(q, QueryLanguage::Gremlin).expect("execute returns Ok");
-    eprintln!("--- multi-hop ---\nquery: {q}\nraw_output:\n{}", res.raw_output);
+    eprintln!(
+        "--- multi-hop ---\nquery: {q}\nraw_output:\n{}",
+        res.raw_output
+    );
     assert!(res.graph_json.is_some(), "graph_json should be present");
     // With the Entity inheritance root, the untyped target binds and the
     // multi-hop pattern reaches real execution (no "n1__id" projection failure).
@@ -95,7 +103,10 @@ fn gremlin_returns_dictionary_encoded_label_column() {
     // back to its string value transparently, so the codebook table is queryable.
     let q = "g.V().hasLabel('System').values('type')";
     let res = execute(q, QueryLanguage::Gremlin).expect("execute returns Ok");
-    eprintln!("--- dict column ---\nquery: {q}\nraw_output:\n{}", res.raw_output);
+    eprintln!(
+        "--- dict column ---\nquery: {q}\nraw_output:\n{}",
+        res.raw_output
+    );
     assert!(
         res.raw_output.contains("→ Cypher"),
         "RETURN over a dictionary-encoded codebook column should reach real lance-graph execution, got: {}",
@@ -155,7 +166,10 @@ fn entity_type_column_is_the_canonical_codebook() {
     // Arrow dictionary. It must be queryable through the real engine.
     let q = "MATCH (n:Entity) RETURN n.entity_type LIMIT 5";
     match execute(q, QueryLanguage::Cypher) {
-        Ok(res) => eprintln!("--- entity_type (canonical EntityTypeId) ---\n{}", res.raw_output),
+        Ok(res) => eprintln!(
+            "--- entity_type (canonical EntityTypeId) ---\n{}",
+            res.raw_output
+        ),
         Err(e) => panic!("entity_type codebook column should be queryable, got: {e}"),
     }
 }
@@ -176,7 +190,10 @@ fn reltype_column_is_the_canonical_link_codebook() {
     // Entity root (anonymous `()` defaults to an unregistered `Node` label).
     let q = "MATCH (a:Entity)-[r:Edge]->(b:Entity) RETURN r.reltype LIMIT 5";
     match execute(q, QueryLanguage::Cypher) {
-        Ok(res) => eprintln!("--- reltype (canonical link codebook) ---\n{}", res.raw_output),
+        Ok(res) => eprintln!(
+            "--- reltype (canonical link codebook) ---\n{}",
+            res.raw_output
+        ),
         Err(e) => panic!("reltype codebook column should be queryable, got: {e}"),
     }
 }

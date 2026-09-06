@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::registry::{FunctionMeta, ModuleSummary, NeuronState};
 use crate::instrument;
+use crate::registry::{FunctionMeta, ModuleSummary, NeuronState};
 
 /// Diagnosis for a single function.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,7 +58,10 @@ impl NeuralDiagnosis {
                 NeuronState::Static
             };
 
-            module_map.entry(func.module.clone()).or_default().push(state);
+            module_map
+                .entry(func.module.clone())
+                .or_default()
+                .push(state);
 
             neurons.push(NeuronDiagnosis {
                 id: func.id.clone(),
@@ -81,21 +84,46 @@ impl NeuralDiagnosis {
                 let nan = states.iter().filter(|s| **s == NeuronState::Nan).count();
                 let stat = states.iter().filter(|s| **s == NeuronState::Static).count();
                 let stub = states.iter().filter(|s| **s == NeuronState::Stub).count();
-                let wired = states.iter().filter(|s| **s == NeuronState::WiredUnused).count();
-                ModuleSummary { name, total, alive, dead, nan, r#static: stat, stub, wired_unused: wired }
+                let wired = states
+                    .iter()
+                    .filter(|s| **s == NeuronState::WiredUnused)
+                    .count();
+                ModuleSummary {
+                    name,
+                    total,
+                    alive,
+                    dead,
+                    nan,
+                    r#static: stat,
+                    stub,
+                    wired_unused: wired,
+                }
             })
             .collect();
 
         let total_functions = neurons.len();
-        let alive_count = neurons.iter().filter(|n| n.state == NeuronState::Alive).count();
-        let dead_count = neurons.iter().filter(|n| n.state == NeuronState::Dead).count();
-        let nan_count = neurons.iter().filter(|n| n.state == NeuronState::Nan).count();
+        let alive_count = neurons
+            .iter()
+            .filter(|n| n.state == NeuronState::Alive)
+            .count();
+        let dead_count = neurons
+            .iter()
+            .filter(|n| n.state == NeuronState::Dead)
+            .count();
+        let nan_count = neurons
+            .iter()
+            .filter(|n| n.state == NeuronState::Nan)
+            .count();
 
         NeuralDiagnosis {
             neurons,
             modules,
             total_functions,
-            alive_pct: if total_functions > 0 { alive_count as f32 / total_functions as f32 * 100.0 } else { 0.0 },
+            alive_pct: if total_functions > 0 {
+                alive_count as f32 / total_functions as f32 * 100.0
+            } else {
+                0.0
+            },
             dead_count,
             nan_count,
         }

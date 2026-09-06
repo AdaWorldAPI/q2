@@ -14,7 +14,7 @@
 //!
 //! Usage:  scan [n_patients=1000000] [reps=5]
 
-use cpic::{basin, cascade3, gene_part_of, norm, NodeGuid, GOLDEN32, CID_PHENOTYPE};
+use cpic::{basin, cascade3, gene_part_of, norm, NodeGuid, CID_PHENOTYPE, GOLDEN32};
 use serde_json::Value;
 use std::fs;
 use std::time::Instant;
@@ -105,7 +105,10 @@ fn main() {
         .find(|p| p.label == "CYP2C19 Poor Metabolizer")
         .unwrap_or(&phenos[0]);
     let tgt_prefix = target.prefix13;
-    let (g, r) = target.label.split_once(' ').unwrap_or((target.label.as_str(), ""));
+    let (g, r) = target
+        .label
+        .split_once(' ')
+        .unwrap_or((target.label.as_str(), ""));
     let marker = format!("{g}|{r}|");
 
     println!(

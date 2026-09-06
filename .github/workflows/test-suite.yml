@@ -26,11 +26,49 @@ jobs:
     runs-on: ${{ matrix.os }}
     
     name: Run test suite
-    if: github.repository == 'quarto-dev/q2'
-    
+
+    # Every `run:` step works inside the q2 checkout; the sibling repos below
+    # are checked out beside it, which is the layout the path-deps expect.
+    defaults:
+      run:
+        working-directory: q2
+
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v6
+        with:
+          path: q2
+
+      # Sibling checkouts — REQUIRED, not optional. This workspace does not
+      # resolve without them, so `cargo metadata` (and therefore every cargo
+      # command, including the fmt gate) fails before it starts:
+      #
+      #   crates/cockpit-server  -> ../../../openstreetmap-website-rs  (osm-soa-bake)
+      #   crates/stubs/q2-ndarray -> ../../../../ndarray               (optional dep;
+      #                              cargo still resolves the path)
+      #   [patch."…/lance-graph"] -> ../lance-graph/crates/lance-graph-contract
+      #   [patch."…/OGAR"]        -> ../OGAR/crates/{ogar-vocab,ogar-class-view,
+      #                              ogar-ontology,ogar-adapter-surrealql}
+      #
+      # All four are public, so the default token clones them — the same
+      # pattern bake-osm.yml already uses for ndarray + lance-graph. Each takes
+      # its own default branch (note ndarray's is `master`, not `main`).
+      - uses: actions/checkout@v6
+        with:
+          repository: AdaWorldAPI/openstreetmap-website-rs
+          path: openstreetmap-website-rs
+      - uses: actions/checkout@v6
+        with:
+          repository: AdaWorldAPI/ndarray
+          path: ndarray
+      - uses: actions/checkout@v6
+        with:
+          repository: AdaWorldAPI/lance-graph
+          path: lance-graph
+      - uses: actions/checkout@v6
+        with:
+          repository: AdaWorldAPI/OGAR
+          path: OGAR
 
       # Fix mtimes IMMEDIATELY after checkout, before anything else
       - name: Restore file modification times
@@ -67,6 +105,8 @@ jobs:
           # action's prebuilts each run, which is cheap (~1-2s).
           cache-bin: false
           shared-key: "rust-test-suite"
+          # The workspace is no longer at the repo root — see `path: q2` above.
+          workspaces: q2
 
       # Cache cargo-nextest and insta separately to avoid reinstalling
       - name: Install nextest
@@ -141,9 +181,20 @@ jobs:
       # Formatting gate (before build to fail fast). rustfmt and clippy are
       # orthogonal — clippy can pass on code rustfmt would rewrite — so a fmt
       # check is needed to stop external PRs landing unformatted code. No
-      # `rustfmt.toml` in-tree → nightly defaults (the toolchain set up above),
-      # matching the local `cargo fmt` post-edit hook. Linux-only: formatting is
-      # platform-independent, so running it once is enough.
+      # `rustfmt.toml` in-tree → the defaults of whichever rustfmt runs, and
+      # that is the one `rust-toolchain.toml` pins (1.98.1), NOT the nightly the
+      # step above installs: `dtolnay/rust-toolchain` only runs `rustup toolchain
+      # install` + `rustup default` and never exports `RUSTUP_TOOLCHAIN`, so the
+      # override file wins for every cargo invocation inside the checkout. That
+      # also matches the local `cargo fmt` post-edit hook. Linux-only:
+      # formatting is platform-independent, so running it once is enough.
+      #
+      # Measured, and worth knowing before it surprises someone: with the
+      # siblings present, `--all` also reformats
+      # `openstreetmap-website-rs/src/{chains,codebook}.rs` — the direct
+      # path-dep — so that repo has to be rustfmt-clean for this gate to pass.
+      # It does NOT currently reach the `[patch]`-replaced sources: lance-graph
+      # -contract carries real drift today and this check stays green.
       - name: Rustfmt (check)
         if: runner.os == 'Linux'
         shell: bash
