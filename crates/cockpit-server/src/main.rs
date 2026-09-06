@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::{StatusCode, header};
+use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -1015,7 +1015,7 @@ async fn style_handler(
 async fn strategy_check_handler() -> Json<serde_json::Value> {
     // Run in a blocking thread since strategy checks may be CPU-intensive
     let result =
-        tokio::task::spawn_blocking(|| notebook_query::diagnostics::run_strategy_checks()).await;
+        tokio::task::spawn_blocking(notebook_query::diagnostics::run_strategy_checks).await;
 
     match result {
         Ok(matrix) => Json(serde_json::to_value(matrix).unwrap_or_default()),
@@ -1345,19 +1345,18 @@ async fn orchestrator_step_handler(
     let mut orch = get_orchestrator().lock().unwrap();
 
     // If quality is provided, record the outcome of the previous step.
-    if let Some(Json(body)) = body {
-        if let Some(quality) = body.get("quality").and_then(|v| v.as_f64()) {
-            if let Some(style_name) = body.get("style").and_then(|v| v.as_str()) {
-                let style = match style_name {
-                    "plan" => notebook_query::orchestrator::AgentStyle::Plan,
-                    "act" => notebook_query::orchestrator::AgentStyle::Act,
-                    "explore" => notebook_query::orchestrator::AgentStyle::Explore,
-                    "reflex" => notebook_query::orchestrator::AgentStyle::Reflex,
-                    _ => notebook_query::orchestrator::AgentStyle::Plan,
-                };
-                orch.record_outcome(style, quality as f32);
-            }
-        }
+    if let Some(Json(body)) = body
+        && let Some(quality) = body.get("quality").and_then(|v| v.as_f64())
+        && let Some(style_name) = body.get("style").and_then(|v| v.as_str())
+    {
+        let style = match style_name {
+            "plan" => notebook_query::orchestrator::AgentStyle::Plan,
+            "act" => notebook_query::orchestrator::AgentStyle::Act,
+            "explore" => notebook_query::orchestrator::AgentStyle::Explore,
+            "reflex" => notebook_query::orchestrator::AgentStyle::Reflex,
+            _ => notebook_query::orchestrator::AgentStyle::Plan,
+        };
+        orch.record_outcome(style, quality as f32);
     }
 
     let result = orch.select_next();
@@ -1414,7 +1413,7 @@ async fn analyst_analyze_handler(
 
 /// Run all 6 analysis buckets.
 async fn analyst_full_handler() -> Json<serde_json::Value> {
-    let result = tokio::task::spawn_blocking(|| notebook_query::analyst::full_analysis()).await;
+    let result = tokio::task::spawn_blocking(notebook_query::analyst::full_analysis).await;
 
     match result {
         Ok(analyses) => Json(serde_json::to_value(analyses).unwrap_or_default()),
@@ -1465,7 +1464,7 @@ async fn data_status_handler() -> Json<serde_json::Value> {
             .map(|entries| {
                 entries
                     .filter_map(|e| e.ok())
-                    .filter(|e| e.path().extension().map_or(false, |ext| ext == "cypher"))
+                    .filter(|e| e.path().extension().is_some_and(|ext| ext == "cypher"))
                     .count()
             })
             .unwrap_or(0);

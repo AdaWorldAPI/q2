@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::registry::{FunctionMeta, ModuleSummary, NeuronState};
-use crate::instrument::{self, CallStats};
+use crate::instrument;
 
 /// Diagnosis for a single function.
 #[derive(Debug, Clone, Serialize, Deserialize)]

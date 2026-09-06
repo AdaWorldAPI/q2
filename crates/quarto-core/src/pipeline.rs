@@ -1537,21 +1537,21 @@ mod tests {
                 .html
                 .contains("<span class=\"hl-keyword\">def</span>"),
             "expected hl-keyword span around `def`; got:\n{}",
-            &output.html,
+            output.html,
         );
         assert!(
             output
                 .html
                 .contains("<span class=\"hl-function-builtin\">print</span>"),
             "expected hl-function-builtin span around `print`; got:\n{}",
-            &output.html,
+            output.html,
         );
 
         // The raw `data-hl-spans` attribute must not leak to the container.
         assert!(
             !output.html.contains("data-hl-spans="),
             "container should not carry the raw data-hl-spans attr; got:\n{}",
-            &output.html,
+            output.html,
         );
 
         // The `.sourceCode` marker should be present so default themes
@@ -1683,7 +1683,7 @@ mod tests {
         assert!(
             output.html.contains("test_files/styles.css"),
             "expected `<link href=\"test_files/styles.css\">` from the resolver; got:\n{}",
-            &output.html,
+            output.html,
         );
     }
 
@@ -1724,19 +1724,19 @@ mod tests {
                 .html
                 .contains("<span class=\"hl-keyword\">def</span>"),
             "expected hl-keyword span around `def` on the CLI path; got:\n{}",
-            &output.html,
+            output.html,
         );
         assert!(
             output
                 .html
                 .contains("<span class=\"hl-function-builtin\">print</span>"),
             "expected hl-function-builtin span around `print` on the CLI path; got:\n{}",
-            &output.html,
+            output.html,
         );
         assert!(
             !output.html.contains("data-hl-spans="),
             "container should not carry the raw data-hl-spans attr; got:\n{}",
-            &output.html,
+            output.html,
         );
     }
 
@@ -2327,17 +2327,17 @@ mod tests {
         assert!(
             output.html.contains("Replayed Heading"),
             "rendered HTML must contain the replay engine's heading; got:\n{}",
-            &output.html,
+            output.html,
         );
         assert!(
             output.html.contains("Replayed body marker XYZ"),
             "rendered HTML must contain the replay marker; got:\n{}",
-            &output.html,
+            output.html,
         );
         assert!(
             !output.html.contains("Original body"),
             "rendered HTML must not contain the original body — replay should override; got:\n{}",
-            &output.html,
+            output.html,
         );
     }
 

@@ -73,7 +73,7 @@ fn test_block_quote_outside_list() {
     assert!(
         matches!(&pandoc.blocks[0], Block::BlockQuote(_)),
         "Expected BlockQuote, got {:?}",
-        &pandoc.blocks[0]
+        pandoc.blocks[0]
     );
 }
 

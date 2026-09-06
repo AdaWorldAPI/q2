@@ -793,11 +793,11 @@ fn feature_ordinals(bytes: &[u8], idx: usize) -> (Vec<u32>, Vec<u32>, Vec<u32>) 
     let mut key_ordinals = Vec::new();
     let mut value_ordinals = Vec::new();
     for (_slot, facet) in osm_soa_bake::cluster::facets(row) {
-        if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet {
-            if member == ordinal {
-                key_ordinals.push(key);
-                value_ordinals.push(value);
-            }
+        if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet
+            && member == ordinal
+        {
+            key_ordinals.push(key);
+            value_ordinals.push(value);
         }
     }
     (vec![ordinal], key_ordinals, value_ordinals)
@@ -1647,11 +1647,11 @@ async fn tile_sources<'a>(
         };
         ordinals.push(ordinal);
         for (_slot, facet) in osm_soa_bake::cluster::facets(&rows[i]) {
-            if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet {
-                if member == ordinal {
-                    key_ordinals.push(key);
-                    value_ordinals.push(value);
-                }
+            if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet
+                && member == ordinal
+            {
+                key_ordinals.push(key);
+                value_ordinals.push(value);
             }
         }
     }
@@ -1938,7 +1938,7 @@ mod tests {
         let books_path = dir.path().join("region.books");
         {
             use lance_graph_contract::identity_quad::IdentityCodebook;
-            use osm_soa_bake::codebook::{Books, Header};
+            use osm_soa_bake::codebook::Books;
             let books = Books {
                 identities: IdentityCodebook::try_new(vec!["node/1".into()]).unwrap(),
                 tag_keys: IdentityCodebook::try_new(vec!["highway".into()]).unwrap(),
@@ -2465,7 +2465,7 @@ mod tests {
     ///
     /// What went wrong, recorded so it is not repeated: the first fix replaced
     /// head-truncation with stride sampling and asserted the result covered
-    /// >=95% of the tile's EXTENT. That assertion is unfalsifiable for this
+    /// \>=95% of the tile's EXTENT. That assertion is unfalsifiable for this
     /// defect. A uniform stride covers ~100% of a bounding box at ANY stride —
     /// measured on this very fixture shape, the >=0.95 assertion passes while
     /// keeping 25% of rows, and still passes while keeping 5.9%. It certified

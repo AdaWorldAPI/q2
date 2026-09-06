@@ -38,7 +38,7 @@ fn unit_test_simple_qmd_parses() {
         )
         .unwrap();
         let ast = String::from_utf8(buf).expect("Invalid UTF-8 in output");
-        println!("{}", &ast);
+        println!("{}", ast);
         assert!(true, "Parsed successfully");
     }
 }
@@ -67,7 +67,7 @@ fn test_unnumbered_section_specifier() {
     )
     .unwrap();
     let ast = String::from_utf8(buf).expect("Invalid UTF-8 in output");
-    println!("Output AST: {}", &ast);
+    println!("Output AST: {}", ast);
 
     // The output should contain the "unnumbered" class
     assert!(

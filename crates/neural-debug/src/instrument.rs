@@ -50,7 +50,7 @@ fn counters() -> parking_lot::MutexGuard<'static, Option<Counters>> {
 #[inline]
 pub fn track<T>(_function_id: &str, f: impl FnOnce() -> T) -> T {
     #[cfg(not(feature = "instrument"))]
-    { return f(); }
+    { f() }
 
     #[cfg(feature = "instrument")]
     {
@@ -72,7 +72,7 @@ pub fn track<T>(_function_id: &str, f: impl FnOnce() -> T) -> T {
 #[inline]
 pub fn track_numeric(_function_id: &str, value: f32) -> f32 {
     #[cfg(not(feature = "instrument"))]
-    { return value; }
+    { value }
 
     #[cfg(feature = "instrument")]
     {
@@ -98,7 +98,7 @@ pub fn track_numeric(_function_id: &str, value: f32) -> f32 {
 #[inline]
 pub fn track_numeric_f64(_function_id: &str, value: f64) -> f64 {
     #[cfg(not(feature = "instrument"))]
-    { return value; }
+    { value }
 
     #[cfg(feature = "instrument")]
     {

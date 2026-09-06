@@ -291,9 +291,7 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
 
     crate::osm_region_catalogue::publish(catalogue, active);
 
-    let Some(slab) = active_path else {
-        return None;
-    };
+    let slab = active_path?;
     tracing::info!(path = %slab.display(), "osm slab: hydrated and verified");
     Some(slab)
 }

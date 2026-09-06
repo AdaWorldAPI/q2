@@ -232,15 +232,15 @@ pub async fn ensure_lance_local(slab_path: &Path) -> Option<PathBuf> {
     // the stale directory cannot be removed, do NOT write into it (that
     // is exactly how a 4-file `data/` happens) — keep serving from the
     // `.soa` unchanged.
-    if dest.exists() {
-        if let Err(e) = remove_stale_dataset(&dest) {
-            tracing::error!(
-                path = %dest.display(), error = %e,
-                "osm lance: cannot remove the stale dataset; refusing to write \
-                 into it — the raw .soa slab keeps serving the map"
-            );
-            return None;
-        }
+    if dest.exists()
+        && let Err(e) = remove_stale_dataset(&dest)
+    {
+        tracing::error!(
+            path = %dest.display(), error = %e,
+            "osm lance: cannot remove the stale dataset; refusing to write \
+             into it — the raw .soa slab keeps serving the map"
+        );
+        return None;
     }
 
     tracing::info!(

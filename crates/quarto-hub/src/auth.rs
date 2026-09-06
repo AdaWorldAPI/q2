@@ -453,8 +453,7 @@ fn validate_discovery_document(
     // loopback + --allow-insecure-auth gate in AuthConfig::new(), so an
     // http issuer here is evidence of an explicitly-insecure dev setup.
     let issuer_is_http_loopback = url::Url::parse(configured_issuer)
-        .ok()
-        .is_some_and(|u| u.scheme() == "http" && u.host_str().is_some_and(is_loopback_host));
+        .is_ok_and(|u| u.scheme() == "http" && u.host_str().is_some_and(is_loopback_host));
     let jwks_is_http_loopback =
         jwks_url.scheme() == "http" && jwks_url.host_str().is_some_and(is_loopback_host);
     if issuer_is_http_loopback && jwks_is_http_loopback {

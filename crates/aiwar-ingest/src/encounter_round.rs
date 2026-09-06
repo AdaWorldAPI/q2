@@ -78,10 +78,10 @@ pub fn confidence_for_file(filename: &str) -> f64 {
 fn version_for_file(filename: &str) -> u32 {
     // Check for explicit version numbers v31..v99
     let re = Regex::new(r"v(\d{2,})").expect("valid regex");
-    if let Some(caps) = re.captures(filename) {
-        if let Ok(v) = caps[1].parse::<u32>() {
-            return v;
-        }
+    if let Some(caps) = re.captures(filename)
+        && let Ok(v) = caps[1].parse::<u32>()
+    {
+        return v;
     }
     if filename.contains("aiwar_full") {
         0
@@ -273,10 +273,7 @@ pub fn load_encounter_rounds(cypher_dir: &Path) -> Result<Vec<EncounterRound>, s
         let confidence = confidence_for_file(&filename);
         let (nodes, edges) = parse_cypher(&text);
 
-        let name = filename
-            .trim_end_matches(".cypher")
-            .replace('_', " ")
-            .to_string();
+        let name = filename.trim_end_matches(".cypher").replace('_', " ");
 
         rounds.push(EncounterRound {
             version,
@@ -358,8 +355,8 @@ mod tests {
         assert_eq!(edges.len(), 0);
         assert_eq!(nodes[0].id, "Maven");
         assert_eq!(nodes[0].labels, vec!["System"]);
-        assert_eq!(nodes[0].properties.get("name").unwrap(), "Project Maven");
-        assert_eq!(nodes[0].properties.get("year").unwrap(), "2017");
+        assert_eq!(&nodes[0].properties["name"], "Project Maven");
+        assert_eq!(&nodes[0].properties["year"], "2017");
     }
 
     #[test]
@@ -383,7 +380,7 @@ mod tests {
         assert_eq!(edges[0].source, "A");
         assert_eq!(edges[0].target, "B");
         assert_eq!(edges[0].rel_type, "DEVELOPED_BY");
-        assert_eq!(edges[0].properties.get("weight").unwrap(), "3");
+        assert_eq!(&edges[0].properties["weight"], "3");
         // both endpoints were also declared as nodes
         assert_eq!(nodes.len(), 2);
     }
@@ -442,7 +439,7 @@ mod tests {
         assert_eq!(full_edges[0].target, "Hegseth");
         assert_eq!(full_edges[0].rel_type, "PERSON_LINK");
         assert_eq!(
-            full_edges[0].properties.get("label").unwrap(),
+            &full_edges[0].properties["label"],
             "appointed SecDef"
         );
     }
@@ -450,17 +447,17 @@ mod tests {
     #[test]
     fn test_parse_property_block() {
         let props = parse_property_block("id: 'test', name: 'Hello World', weight: 42");
-        assert_eq!(props.get("id").unwrap(), "test");
-        assert_eq!(props.get("name").unwrap(), "Hello World");
-        assert_eq!(props.get("weight").unwrap(), "42");
+        assert_eq!(&props["id"], "test");
+        assert_eq!(&props["name"], "Hello World");
+        assert_eq!(&props["weight"], "42");
     }
 
     #[test]
     fn test_parse_set_clause() {
         let props = parse_set_clause("r.label='test edge', r.weight=5, r.source='Reuters'");
-        assert_eq!(props.get("label").unwrap(), "test edge");
-        assert_eq!(props.get("weight").unwrap(), "5");
-        assert_eq!(props.get("source").unwrap(), "Reuters");
+        assert_eq!(&props["label"], "test edge");
+        assert_eq!(&props["weight"], "5");
+        assert_eq!(&props["source"], "Reuters");
     }
 
     #[test]
