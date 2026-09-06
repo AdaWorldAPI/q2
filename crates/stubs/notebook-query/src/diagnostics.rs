@@ -71,7 +71,10 @@ pub fn run_strategy_checks() -> StrategyHealthMatrix {
     let test_queries = [
         ("MATCH (n:System) RETURN n", "cypher"),
         ("MATCH (n)-[r]->(m) RETURN n, r, m", "cypher_join"),
-        ("MATCH (n:System) WHERE n.year > 2020 RETURN n.name ORDER BY n.year", "cypher_filter"),
+        (
+            "MATCH (n:System) WHERE n.year > 2020 RETURN n.name ORDER BY n.year",
+            "cypher_filter",
+        ),
         ("MATCH path = (a)-[*1..3]->(b) RETURN path", "cypher_vlp"),
     ];
 
@@ -89,7 +92,10 @@ pub fn run_strategy_checks() -> StrategyHealthMatrix {
     // Demo analyses — run same query through all 12 thinking styles
     let demo_analyses = run_demo_analyses(&planner);
 
-    let operational = strategies.iter().filter(|s| s.status == ProbeStatus::Ready).count();
+    let operational = strategies
+        .iter()
+        .filter(|s| s.status == ProbeStatus::Ready)
+        .count();
     let total = strategies.len();
     let scan_duration_us = start.elapsed().as_micros() as u64;
 
@@ -113,9 +119,8 @@ fn probe_strategy(
     let start = std::time::Instant::now();
 
     // Try the first Cypher query — most strategies should handle this
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        planner.plan(queries[0].0)
-    }));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| planner.plan(queries[0].0)));
 
     let (status, error, strategies_used) = match result {
         Ok(Ok(plan_result)) => {
@@ -126,12 +131,17 @@ fn probe_strategy(
                 (ProbeStatus::Ready, None, strats)
             } else {
                 // Strategy exists but wasn't selected for this query
-                (ProbeStatus::Partial, Some("Not selected for test query".into()), strats)
+                (
+                    ProbeStatus::Partial,
+                    Some("Not selected for test query".into()),
+                    strats,
+                )
             }
         }
         Ok(Err(e)) => (ProbeStatus::Error, Some(format!("{:?}", e)), vec![]),
         Err(panic) => {
-            let msg = panic.downcast_ref::<String>()
+            let msg = panic
+                .downcast_ref::<String>()
                 .cloned()
                 .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
                 .unwrap_or_else(|| "unknown panic".to_string());
@@ -157,46 +167,58 @@ fn probe_strategy(
 fn run_pipeline_checks(planner: &Planner) -> Vec<PipelineProbeResult> {
     let pipelines = [
         ("Parse→Plan", "MATCH (n:System) RETURN n"),
-        ("Parse→Plan→Scan", "MATCH (n:System) WHERE n.year > 2020 RETURN n"),
+        (
+            "Parse→Plan→Scan",
+            "MATCH (n:System) WHERE n.year > 2020 RETURN n",
+        ),
         ("Parse→Join→Scan", "MATCH (a)-[r]->(b) RETURN a, r, b"),
-        ("Parse→VLP→Scan", "MATCH path = (a)-[*1..3]->(b) RETURN path"),
-        ("Full pipeline", "MATCH (s:System)-[:DEVELOPED_BY]->(st:Stakeholder) WHERE s.year > 2020 RETURN s.name, st.name ORDER BY s.year DESC LIMIT 10"),
+        (
+            "Parse→VLP→Scan",
+            "MATCH path = (a)-[*1..3]->(b) RETURN path",
+        ),
+        (
+            "Full pipeline",
+            "MATCH (s:System)-[:DEVELOPED_BY]->(st:Stakeholder) WHERE s.year > 2020 RETURN s.name, st.name ORDER BY s.year DESC LIMIT 10",
+        ),
     ];
 
-    pipelines.iter().map(|(name, query)| {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            planner.plan(query)
-        }));
+    pipelines
+        .iter()
+        .map(|(name, query)| {
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| planner.plan(query)));
 
-        match result {
-            Ok(Ok(plan)) => PipelineProbeResult {
-                name: name.to_string(),
-                stages: plan.strategies_used.clone(),
-                passed: true,
-                broke_at: None,
-                error: None,
-            },
-            Ok(Err(e)) => PipelineProbeResult {
-                name: name.to_string(),
-                stages: vec![],
-                passed: false,
-                broke_at: Some(format!("{:?}", e)),
-                error: Some(format!("{:?}", e)),
-            },
-            Err(panic) => {
-                let msg = panic.downcast_ref::<String>()
-                    .cloned()
-                    .unwrap_or_else(|| "panic".to_string());
-                PipelineProbeResult {
+            match result {
+                Ok(Ok(plan)) => PipelineProbeResult {
+                    name: name.to_string(),
+                    stages: plan.strategies_used.clone(),
+                    passed: true,
+                    broke_at: None,
+                    error: None,
+                },
+                Ok(Err(e)) => PipelineProbeResult {
                     name: name.to_string(),
                     stages: vec![],
                     passed: false,
-                    broke_at: Some(msg.clone()),
-                    error: Some(msg),
+                    broke_at: Some(format!("{:?}", e)),
+                    error: Some(format!("{:?}", e)),
+                },
+                Err(panic) => {
+                    let msg = panic
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .unwrap_or_else(|| "panic".to_string());
+                    PipelineProbeResult {
+                        name: name.to_string(),
+                        stages: vec![],
+                        passed: false,
+                        broke_at: Some(msg.clone()),
+                        error: Some(msg),
+                    }
                 }
             }
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 // ── Demo Analyses: 12 Thinking Styles × Same Query ──────────────────────────
@@ -257,66 +279,72 @@ fn run_demo_analyses(planner: &Planner) -> Vec<DemoAnalysis> {
         StyleFamily::Metacognitive,
     ];
 
-    demo_queries.iter().map(|query| {
-        let style_results: Vec<StyleAnalysisResult> = all_styles.iter().map(|style| {
-            let start = std::time::Instant::now();
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                planner.plan_with_style(query, *style)
-            }));
+    demo_queries
+        .iter()
+        .map(|query| {
+            let style_results: Vec<StyleAnalysisResult> = all_styles
+                .iter()
+                .map(|style| {
+                    let start = std::time::Instant::now();
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        planner.plan_with_style(query, *style)
+                    }));
 
-            let modulation = style.default_modulation();
-            let mod_snapshot = ModulationSnapshot {
-                resonance_threshold: modulation.resonance_threshold,
-                fan_out: modulation.fan_out as u32,
-                depth_bias: modulation.depth_bias,
-                breadth_bias: modulation.breadth_bias,
-                noise_tolerance: modulation.noise_tolerance,
-                speed_bias: modulation.speed_bias,
-                exploration: modulation.exploration,
-            };
+                    let modulation = style.default_modulation();
+                    let mod_snapshot = ModulationSnapshot {
+                        resonance_threshold: modulation.resonance_threshold,
+                        fan_out: modulation.fan_out as u32,
+                        depth_bias: modulation.depth_bias,
+                        breadth_bias: modulation.breadth_bias,
+                        noise_tolerance: modulation.noise_tolerance,
+                        speed_bias: modulation.speed_bias,
+                        exploration: modulation.exploration,
+                    };
 
-            match result {
-                Ok(Ok(plan)) => StyleAnalysisResult {
-                    style: format!("{:?}", style),
-                    cluster: format!("{:?}", style.cluster()),
-                    strategies_used: plan.strategies_used.clone(),
-                    strategy_count: plan.strategies_used.len(),
-                    free_will_modifier: plan.free_will_modifier,
-                    latency_us: start.elapsed().as_micros() as u64,
-                    status: ProbeStatus::Ready,
-                    error: None,
-                    modulation: mod_snapshot,
-                },
-                Ok(Err(e)) => StyleAnalysisResult {
-                    style: format!("{:?}", style),
-                    cluster: format!("{:?}", style.cluster()),
-                    strategies_used: vec![],
-                    strategy_count: 0,
-                    free_will_modifier: 0.0,
-                    latency_us: start.elapsed().as_micros() as u64,
-                    status: ProbeStatus::Error,
-                    error: Some(format!("{:?}", e)),
-                    modulation: mod_snapshot,
-                },
-                Err(_) => StyleAnalysisResult {
-                    style: format!("{:?}", style),
-                    cluster: format!("{:?}", style.cluster()),
-                    strategies_used: vec![],
-                    strategy_count: 0,
-                    free_will_modifier: 0.0,
-                    latency_us: start.elapsed().as_micros() as u64,
-                    status: ProbeStatus::Dead,
-                    error: Some("panic during planning".to_string()),
-                    modulation: mod_snapshot,
-                },
+                    match result {
+                        Ok(Ok(plan)) => StyleAnalysisResult {
+                            style: format!("{:?}", style),
+                            cluster: format!("{:?}", style.cluster()),
+                            strategies_used: plan.strategies_used.clone(),
+                            strategy_count: plan.strategies_used.len(),
+                            free_will_modifier: plan.free_will_modifier,
+                            latency_us: start.elapsed().as_micros() as u64,
+                            status: ProbeStatus::Ready,
+                            error: None,
+                            modulation: mod_snapshot,
+                        },
+                        Ok(Err(e)) => StyleAnalysisResult {
+                            style: format!("{:?}", style),
+                            cluster: format!("{:?}", style.cluster()),
+                            strategies_used: vec![],
+                            strategy_count: 0,
+                            free_will_modifier: 0.0,
+                            latency_us: start.elapsed().as_micros() as u64,
+                            status: ProbeStatus::Error,
+                            error: Some(format!("{:?}", e)),
+                            modulation: mod_snapshot,
+                        },
+                        Err(_) => StyleAnalysisResult {
+                            style: format!("{:?}", style),
+                            cluster: format!("{:?}", style.cluster()),
+                            strategies_used: vec![],
+                            strategy_count: 0,
+                            free_will_modifier: 0.0,
+                            latency_us: start.elapsed().as_micros() as u64,
+                            status: ProbeStatus::Dead,
+                            error: Some("panic during planning".to_string()),
+                            modulation: mod_snapshot,
+                        },
+                    }
+                })
+                .collect();
+
+            DemoAnalysis {
+                query: query.to_string(),
+                style_results,
             }
-        }).collect();
-
-        DemoAnalysis {
-            query: query.to_string(),
-            style_results,
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 // ── Fallback when planner feature is off ─────────────────────────────────────
@@ -329,7 +357,9 @@ pub fn run_strategy_checks() -> StrategyHealthMatrix {
             index: 0,
             status: ProbeStatus::Stub,
             latency_us: 0,
-            error: Some("Compile with --features planner to enable live strategy checks".to_string()),
+            error: Some(
+                "Compile with --features planner to enable live strategy checks".to_string(),
+            ),
             strategies_used: vec![],
         }],
         pipelines: vec![],

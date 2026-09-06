@@ -22,10 +22,13 @@ impl Default for Session {
 impl Session {
     pub fn new() -> Self {
         Self {
-            id: format!("session-{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()),
+            id: format!(
+                "session-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+            ),
             context: SessionContext::new(),
             current_node: String::new(),
         }
@@ -78,7 +81,8 @@ impl SessionContext {
     /// Get a value from the context. Returns None if key doesn't exist or type doesn't match.
     pub async fn get<T: serde::de::DeserializeOwned>(&self, key: &str) -> Option<T> {
         let data = self.data.read().await;
-        data.get(key).and_then(|v| serde_json::from_value(v.clone()).ok())
+        data.get(key)
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 
     /// Get raw JSON value.

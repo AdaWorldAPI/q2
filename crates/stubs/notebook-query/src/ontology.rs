@@ -8,7 +8,7 @@
 
 use std::sync::LazyLock;
 
-use lance_graph_contract::ontology::{entity_type_id, EntityTypeId, Ontology};
+use lance_graph_contract::ontology::{EntityTypeId, Ontology, entity_type_id};
 use lance_graph_contract::property::{LinkSpec, Schema};
 
 /// The aiwar ontology: five node entity types. Schema **order fixes the

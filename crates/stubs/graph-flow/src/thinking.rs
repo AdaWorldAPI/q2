@@ -28,43 +28,71 @@ struct Layer {
 /// Build the default 10-layer thinking graph.
 pub fn build_thinking_graph() -> ThinkingGraph {
     let layers = vec![
-        Layer { name: "sensory_ingest".into(), execute: Box::new(|input| {
-            serde_json::json!({ "parsed": input, "tokens": input.split_whitespace().count() })
-        })},
-        Layer { name: "fingerprint".into(), execute: Box::new(|input| {
-            // Simple hash-based fingerprint
-            let hash: u64 = input.bytes().fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
-            serde_json::json!({ "fingerprint": format!("{:016x}", hash) })
-        })},
-        Layer { name: "cascade_search".into(), execute: Box::new(|input| {
-            let is_familiar = input.contains("MATCH") || input.contains("RETURN");
-            serde_json::json!({ "band": if is_familiar { "Foveal" } else { "Parafoveal" }, "familiar": is_familiar })
-        })},
-        Layer { name: "semiring_reasoning".into(), execute: Box::new(|_| {
-            serde_json::json!({ "inference": "deduction", "truth": { "f": 0.85, "c": 0.72 } })
-        })},
-        Layer { name: "memory_consolidation".into(), execute: Box::new(|_| {
-            serde_json::json!({ "seal": "staunen", "new_learning": true })
-        })},
-        Layer { name: "planning".into(), execute: Box::new(|input| {
-            serde_json::json!({ "strategy": if input.contains("*") { "depth_first" } else { "breadth_first" } })
-        })},
-        Layer { name: "action".into(), execute: Box::new(|input| {
-            serde_json::json!({ "executed": true, "query": input })
-        })},
-        Layer { name: "output".into(), execute: Box::new(|input| {
-            serde_json::json!({ "result": format!("Thinking complete for: {}", &input[..input.len().min(50)]) })
-        })},
-        Layer { name: "meta_cognition".into(), execute: Box::new(|_| {
-            serde_json::json!({ "reflection": "process was efficient", "confidence": 0.78 })
-        })},
-        Layer { name: "pet_scan".into(), execute: Box::new(|_| {
-            serde_json::json!({ "layers_executed": 10, "trace": [
-                "sensory_ingest", "fingerprint", "cascade_search",
-                "semiring_reasoning", "memory_consolidation", "planning",
-                "action", "output", "meta_cognition", "pet_scan"
-            ]})
-        })},
+        Layer {
+            name: "sensory_ingest".into(),
+            execute: Box::new(
+                |input| serde_json::json!({ "parsed": input, "tokens": input.split_whitespace().count() }),
+            ),
+        },
+        Layer {
+            name: "fingerprint".into(),
+            execute: Box::new(|input| {
+                // Simple hash-based fingerprint
+                let hash: u64 = input
+                    .bytes()
+                    .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+                serde_json::json!({ "fingerprint": format!("{:016x}", hash) })
+            }),
+        },
+        Layer {
+            name: "cascade_search".into(),
+            execute: Box::new(|input| {
+                let is_familiar = input.contains("MATCH") || input.contains("RETURN");
+                serde_json::json!({ "band": if is_familiar { "Foveal" } else { "Parafoveal" }, "familiar": is_familiar })
+            }),
+        },
+        Layer {
+            name: "semiring_reasoning".into(),
+            execute: Box::new(
+                |_| serde_json::json!({ "inference": "deduction", "truth": { "f": 0.85, "c": 0.72 } }),
+            ),
+        },
+        Layer {
+            name: "memory_consolidation".into(),
+            execute: Box::new(|_| serde_json::json!({ "seal": "staunen", "new_learning": true })),
+        },
+        Layer {
+            name: "planning".into(),
+            execute: Box::new(
+                |input| serde_json::json!({ "strategy": if input.contains("*") { "depth_first" } else { "breadth_first" } }),
+            ),
+        },
+        Layer {
+            name: "action".into(),
+            execute: Box::new(|input| serde_json::json!({ "executed": true, "query": input })),
+        },
+        Layer {
+            name: "output".into(),
+            execute: Box::new(
+                |input| serde_json::json!({ "result": format!("Thinking complete for: {}", &input[..input.len().min(50)]) }),
+            ),
+        },
+        Layer {
+            name: "meta_cognition".into(),
+            execute: Box::new(
+                |_| serde_json::json!({ "reflection": "process was efficient", "confidence": 0.78 }),
+            ),
+        },
+        Layer {
+            name: "pet_scan".into(),
+            execute: Box::new(|_| {
+                serde_json::json!({ "layers_executed": 10, "trace": [
+                    "sensory_ingest", "fingerprint", "cascade_search",
+                    "semiring_reasoning", "memory_consolidation", "planning",
+                    "action", "output", "meta_cognition", "pet_scan"
+                ]})
+            }),
+        },
     ];
     ThinkingGraph { layers }
 }
@@ -79,16 +107,21 @@ impl ThinkingGraph {
         let layer_idx = self.layers.iter().position(|l| l.name == current);
         let idx = match layer_idx {
             Some(i) => i,
-            None => return Ok(StepResult {
-                status: ExecutionStatus::Error(format!("Unknown layer: {}", current)),
-                node_name: current,
-                output: None,
-            }),
+            None => {
+                return Ok(StepResult {
+                    status: ExecutionStatus::Error(format!("Unknown layer: {}", current)),
+                    node_name: current,
+                    output: None,
+                })
+            }
         };
 
         // Execute this layer
         let output = (self.layers[idx].execute)(&input);
-        session.context.set(&format!("layer_{}", current), output.clone()).await;
+        session
+            .context
+            .set(&format!("layer_{}", current), output.clone())
+            .await;
 
         // Merge layer outputs into aggregate contexts
         if current == "cascade_search" {
@@ -97,7 +130,10 @@ impl ThinkingGraph {
             }
         }
         if current == "memory_consolidation" {
-            let staunen = output.get("new_learning").and_then(|v| v.as_bool()).unwrap_or(false);
+            let staunen = output
+                .get("new_learning")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             session.context.set("staunen", staunen).await;
         }
         if current == "output" {
@@ -135,7 +171,10 @@ mod tests {
     async fn test_thinking_graph_runs_all_layers() {
         let graph = build_thinking_graph();
         let mut session = Session::new_from_task("test".into(), "sensory_ingest");
-        session.context.set("raw_input", "MATCH (n:System) RETURN n.name".to_string()).await;
+        session
+            .context
+            .set("raw_input", "MATCH (n:System) RETURN n.name".to_string())
+            .await;
 
         let mut steps = 0;
         loop {

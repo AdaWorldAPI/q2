@@ -44,10 +44,8 @@ pub async fn execute_think(source: &str) -> Result<ThinkResult, String> {
     let graph = build_thinking_graph();
     let t0 = std::time::Instant::now();
 
-    let mut session = Session::new_from_task(
-        format!("think-{}", uuid::Uuid::new_v4()),
-        "sensory_ingest",
-    );
+    let mut session =
+        Session::new_from_task(format!("think-{}", uuid::Uuid::new_v4()), "sensory_ingest");
     session.context.set("raw_input", source.to_string()).await;
 
     // Execute all layers until completion (max 50 steps for safety)
@@ -100,7 +98,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_think() {
-        let result = execute_think("MATCH (n:System) RETURN n.name").await.unwrap();
+        let result = execute_think("MATCH (n:System) RETURN n.name")
+            .await
+            .unwrap();
         assert!(!result.output.is_empty());
         assert!(result.layers_executed >= 6);
         assert!(!result.band.is_empty());

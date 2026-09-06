@@ -74,7 +74,10 @@ impl StrategyDiagnosis {
     }
 
     pub fn alive_deps(&self) -> usize {
-        self.deps.iter().filter(|d| d.status.is_operational()).count()
+        self.deps
+            .iter()
+            .filter(|d| d.status.is_operational())
+            .count()
     }
 
     pub fn total_deps(&self) -> usize {
@@ -153,7 +156,10 @@ pub fn default_pipeline_checks() -> Vec<(&'static str, Vec<usize>)> {
         ("Parse→Scan→Truth→Collapse", vec![0, 9, 11, 12]),
         ("Parse→DPJoin→Scan→Collapse", vec![0, 5, 9, 12]),
         ("Parse→Optimize→Scan→Collapse", vec![0, 7, 9, 12]),
-        ("Full pipeline (all 13)", vec![0, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14]),
+        (
+            "Full pipeline (all 13)",
+            vec![0, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14],
+        ),
     ]
 }
 
@@ -164,8 +170,14 @@ mod tests {
     #[test]
     fn test_dep_status_operational() {
         assert!(DepStatus::Alive.is_operational());
-        assert!(!DepStatus::Dead { reason: "todo".into() }.is_operational());
-        assert!(!DepStatus::Nan { input: "0.0".into() }.is_operational());
+        assert!(!DepStatus::Dead {
+            reason: "todo".into()
+        }
+        .is_operational());
+        assert!(!DepStatus::Nan {
+            input: "0.0".into()
+        }
+        .is_operational());
         assert!(!DepStatus::Stub.is_operational());
     }
 
@@ -180,8 +192,22 @@ mod tests {
             strategy: "test".into(),
             strategy_index: 0,
             deps: vec![
-                DepCheck { name: "a".into(), status: DepStatus::Alive, location: "a.rs:1".into(), error: None, latency_us: 100 },
-                DepCheck { name: "b".into(), status: DepStatus::Dead { reason: "todo".into() }, location: "b.rs:1".into(), error: Some("todo".into()), latency_us: 0 },
+                DepCheck {
+                    name: "a".into(),
+                    status: DepStatus::Alive,
+                    location: "a.rs:1".into(),
+                    error: None,
+                    latency_us: 100,
+                },
+                DepCheck {
+                    name: "b".into(),
+                    status: DepStatus::Dead {
+                        reason: "todo".into(),
+                    },
+                    location: "b.rs:1".into(),
+                    error: Some("todo".into()),
+                    latency_us: 0,
+                },
             ],
             self_test: None,
             verdict: Verdict::Partial,

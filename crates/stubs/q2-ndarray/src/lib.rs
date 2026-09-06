@@ -77,8 +77,7 @@ pub fn ones(rows: usize, cols: usize) -> Array2D {
 /// Build a 2D array from a flat `Vec<f64>`.
 #[cfg(feature = "ndarray-simd")]
 pub fn from_vec(rows: usize, cols: usize, data: Vec<f64>) -> Result<Array2D, String> {
-    ndarray::Array2::from_shape_vec((rows, cols), data)
-        .map_err(|e| format!("Shape error: {e}"))
+    ndarray::Array2::from_shape_vec((rows, cols), data).map_err(|e| format!("Shape error: {e}"))
 }
 
 // ── Fallback: pure-Rust scalar (no ndarray dependency) ──────────────────────

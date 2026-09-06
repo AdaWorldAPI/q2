@@ -194,7 +194,10 @@ pub struct Truth {
 }
 impl Truth {
     pub fn deduction(self, o: Truth) -> Truth {
-        Truth { f: self.f * o.f, c: self.f * o.f * self.c * o.c }
+        Truth {
+            f: self.f * o.f,
+            c: self.f * o.f * self.c * o.c,
+        }
     }
     pub fn exp(self) -> f32 {
         self.c * (self.f - 0.5) + 0.5
@@ -248,7 +251,7 @@ pub struct Kb {
     recs: Vec<Value>,
     drug_by_name: HashMap<String, (String, String)>, // lc name -> (drugid, display name)
     pair_level: HashMap<(String, String), String>,   // (gene, drugid) -> cpiclevel
-    pair_gid: HashMap<(String, String), i64>,         // (gene, drugid) -> guidelineid
+    pair_gid: HashMap<(String, String), i64>,        // (gene, drugid) -> guidelineid
     guideline: HashMap<i64, (Option<String>, usize)>, // gid -> (notesonusage, gene-count)
 }
 
@@ -412,8 +415,15 @@ fn new_outcome(gene: &str, input: &str, drug: &str) -> Outcome {
 /// Resolve the 2nd arg to a phenotype + the t1 (input→phenotype) truth. A direct phenotype is
 /// near-certain; a diplotype is combined by the transparent simple allele-function rule (lower c).
 fn resolve_phenotype(kb: &Kb, gene: &str, input: &str) -> Option<(String, Truth, String)> {
-    if kb.gene_results.contains(&(gene.to_string(), input.to_string())) {
-        return Some((input.to_string(), Truth { f: 1.0, c: 0.99 }, "direct phenotype".into()));
+    if kb
+        .gene_results
+        .contains(&(gene.to_string(), input.to_string()))
+    {
+        return Some((
+            input.to_string(),
+            Truth { f: 1.0, c: 0.99 },
+            "direct phenotype".into(),
+        ));
     }
     let alleles: Vec<&str> = input.split('/').collect();
     if alleles.len() != 2 {
@@ -421,20 +431,34 @@ fn resolve_phenotype(kb: &Kb, gene: &str, input: &str) -> Option<(String, Truth,
     }
     let mut score = 0.0;
     for al in &alleles {
-        let st = kb.allele_status.get(&(gene.to_string(), al.trim().to_string()))?;
+        let st = kb
+            .allele_status
+            .get(&(gene.to_string(), al.trim().to_string()))?;
         score += rank(st)?;
     }
     let class = class_from_score(score);
     let cands = [
         format!("{class} Metabolizer"),
         format!("{class} Function"),
-        if score == 0.5 { "Decreased Function".to_string() } else { String::new() },
+        if score == 0.5 {
+            "Decreased Function".to_string()
+        } else {
+            String::new()
+        },
     ];
     let pheno = cands
         .iter()
         .find(|c| !c.is_empty() && kb.gene_results.contains(&(gene.to_string(), (*c).clone())))?;
-    let c = if alleles[0].trim() == alleles[1].trim() { 0.85 } else { 0.7 };
-    Some((pheno.clone(), Truth { f: 1.0, c }, format!("simple rule (score {score})")))
+    let c = if alleles[0].trim() == alleles[1].trim() {
+        0.85
+    } else {
+        0.7
+    };
+    Some((
+        pheno.clone(),
+        Truth { f: 1.0, c },
+        format!("simple rule (score {score})"),
+    ))
 }
 
 /// Reason a `{gene, diplotype|phenotype, drug}` scenario over the real CPIC graph → `Outcome`.
@@ -444,7 +468,8 @@ pub fn reason(kb: &Kb, gene: &str, input: &str, drug: &str) -> Outcome {
     let mut o = new_outcome(gene, input, drug);
 
     let Some((drugid, _drugname)) = kb.drug_by_name.get(&drug.to_lowercase()).cloned() else {
-        o.flags.push(format!("drug '{drug}' is not in the CPIC drug table"));
+        o.flags
+            .push(format!("drug '{drug}' is not in the CPIC drug table"));
         return o;
     };
     let Some((pheno, t1, how)) = resolve_phenotype(kb, gene, input) else {
@@ -488,11 +513,13 @@ pub fn reason(kb: &Kb, gene: &str, input: &str, drug: &str) -> Outcome {
     });
 
     let Some(rec) = rec else {
-        o.flags
-            .push(format!("no simple phenotype→recommendation for {gene} {pheno} + {drug}"));
+        o.flags.push(format!(
+            "no simple phenotype→recommendation for {gene} {pheno} + {drug}"
+        ));
         if let Some(gid) = kb.pair_gid.get(&(gene.to_string(), drugid.clone())) {
             if let Some((Some(notes), _)) = kb.guideline.get(gid) {
-                o.flags.push(format!("COMPLEX guideline g{gid} (CPIC): {notes}"));
+                o.flags
+                    .push(format!("COMPLEX guideline g{gid} (CPIC): {notes}"));
             }
         }
         return o;
@@ -520,14 +547,22 @@ pub fn reason(kb: &Kb, gene: &str, input: &str, drug: &str) -> Outcome {
         "D" => 0.45,
         _ => 0.7,
     };
-    let t = t1.deduction(Truth { f: class_f, c: level_c });
+    let t = t1.deduction(Truth {
+        f: class_f,
+        c: level_c,
+    });
 
     {
         let p = vec!["recommendations".into(), format!("g{gid}"), norm(&drugid)];
         o.chain.push(ChainNode {
             role: "recommendation".into(),
             label: format!("g{gid} → {class}"),
-            guid: addr(CID_REC, &p, &["recommendation".into(), norm(&class)], &format!("rec:g{gid}")),
+            guid: addr(
+                CID_REC,
+                &p,
+                &["recommendation".into(), norm(&class)],
+                &format!("rec:g{gid}"),
+            ),
         });
     }
 
@@ -544,8 +579,9 @@ pub fn reason(kb: &Kb, gene: &str, input: &str, drug: &str) -> Outcome {
             o.flags.push(format!("COMPLEX guideline (CPIC note): {n}"));
         }
         if *ngenes > 1 {
-            o.flags
-                .push(format!("MULTI-GENE guideline ({ngenes} genes) — single-gene deduction is partial"));
+            o.flags.push(format!(
+                "MULTI-GENE guideline ({ngenes} genes) — single-gene deduction is partial"
+            ));
         }
     }
     o
@@ -567,13 +603,20 @@ mod reason_tests {
         assert_eq!(o.classification.as_deref(), Some("Strong"));
         assert!(o.truth_c > 0.0 && o.truth_f > 0.0);
         assert_eq!(o.chain.len(), 3); // diplotype, phenotype, recommendation
-        assert!(o.recommendation.unwrap().to_lowercase().contains("clopidogrel"));
+        assert!(o
+            .recommendation
+            .unwrap()
+            .to_lowercase()
+            .contains("clopidogrel"));
     }
 
     #[test]
     fn unknown_drug_is_flagged_not_fabricated() {
         let o = reason(&kb(), "CYP2C19", "*2/*2", "definitely_not_a_drug");
         assert!(!o.resolved);
-        assert!(o.flags.iter().any(|f| f.contains("not in the CPIC drug table")));
+        assert!(o
+            .flags
+            .iter()
+            .any(|f| f.contains("not in the CPIC drug table")));
     }
 }

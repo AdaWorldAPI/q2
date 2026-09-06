@@ -405,10 +405,7 @@ mod tests {
         assert_eq!(maven.node_type, "System");
         assert_eq!(maven.label, "Project Maven");
         // non id/name fields preserved verbatim
-        assert_eq!(
-            &maven.properties["year"],
-            &serde_json::json!(2017)
-        );
+        assert_eq!(&maven.properties["year"], &serde_json::json!(2017));
         assert_eq!(
             &maven.properties["MLTask"],
             &serde_json::json!("object-detection")
@@ -432,10 +429,7 @@ mod tests {
         assert_eq!(dev.source, "Maven");
         assert_eq!(dev.target, "Palantir");
         assert_eq!(dev.weight, 3.0);
-        assert_eq!(
-            &dev.properties["label"],
-            &serde_json::json!("builds")
-        );
+        assert_eq!(&dev.properties["label"], &serde_json::json!("builds"));
 
         assert!(
             g.edges
@@ -538,7 +532,11 @@ mod tests {
         }"#;
         let g = load_from_str(json).expect("non-finite literals sanitized to null");
         assert_eq!(g.node_count(), 1);
-        let x = g.nodes.iter().find(|n| n.id == "X").expect("node X present");
+        let x = g
+            .nodes
+            .iter()
+            .find(|n| n.id == "X")
+            .expect("node X present");
         assert_eq!(x.label, "Sys X");
         // the non-finite numeric became JSON null (or was dropped) — not a parse error.
         assert!(matches!(

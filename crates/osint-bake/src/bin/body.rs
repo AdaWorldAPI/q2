@@ -34,7 +34,7 @@
 //! inflates it client-side. `cockpit/public/body.soa*` is gitignored so a local
 //! bake never lands the binary in the repo.
 
-use lance_graph_contract::canonical_node::{classid_read_mode, NodeGuid};
+use lance_graph_contract::canonical_node::{NodeGuid, classid_read_mode};
 use std::path::{Path, PathBuf};
 
 /// FMA V3 cascade key (`0x0A01_1000` since the 2026-07-02 half-order flip; pre-flip
@@ -57,7 +57,9 @@ const fn mixin_for_depth(k: usize) -> u8 {
 }
 
 fn arg(n: usize, default: &str) -> String {
-    std::env::args().nth(n).unwrap_or_else(|| default.to_string())
+    std::env::args()
+        .nth(n)
+        .unwrap_or_else(|| default.to_string())
 }
 
 fn main() {
@@ -65,11 +67,13 @@ fn main() {
     let spm1_path = arg(2, "scratch-fma/out/body.spm1");
     let out_arg = arg(3, "");
 
-    let nodes_json = std::fs::read_to_string(&nodes_path)
-        .unwrap_or_else(|e| panic!("read {nodes_path}: {e}"));
+    let nodes_json =
+        std::fs::read_to_string(&nodes_path).unwrap_or_else(|e| panic!("read {nodes_path}: {e}"));
     let doc: serde_json::Value =
         serde_json::from_str(&nodes_json).unwrap_or_else(|e| panic!("parse {nodes_path}: {e}"));
-    let nodes = doc["nodes"].as_array().expect("body.nodes.json: .nodes array");
+    let nodes = doc["nodes"]
+        .as_array()
+        .expect("body.nodes.json: .nodes array");
 
     let spm1 = std::fs::read(&spm1_path).unwrap_or_else(|e| panic!("read {spm1_path}: {e}"));
     assert_eq!(&spm1[..4], b"SPM1", "geometry block is not SPM1");
@@ -85,20 +89,31 @@ fn main() {
         let depth = n["depth"].as_u64().unwrap_or(0).min(255) as u8;
         deepest = deepest.max(depth);
         let rgb = n["rgb"].as_array();
-        let r = rgb.and_then(|a| a.first()).and_then(|v| v.as_u64()).unwrap_or(180) as u8;
-        let g = rgb.and_then(|a| a.get(1)).and_then(|v| v.as_u64()).unwrap_or(180) as u8;
-        let b = rgb.and_then(|a| a.get(2)).and_then(|v| v.as_u64()).unwrap_or(180) as u8;
+        let r = rgb
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_u64())
+            .unwrap_or(180) as u8;
+        let g = rgb
+            .and_then(|a| a.get(1))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(180) as u8;
+        let b = rgb
+            .and_then(|a| a.get(2))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(180) as u8;
         let v_start = n["v_start"].as_u64().unwrap_or(0) as u32;
         let v_count = n["v_count"].as_u64().unwrap_or(0) as u32;
 
         // cascade = is_a ancestor sibling ranks root->self (≤5 tier identity bytes).
         let cascade = n["cascade"].as_array().cloned().unwrap_or_default();
-        let id_at = |k: usize| -> u8 {
-            cascade.get(k).and_then(|v| v.as_u64()).unwrap_or(0) as u8
-        };
+        let id_at = |k: usize| -> u8 { cascade.get(k).and_then(|v| v.as_u64()).unwrap_or(0) as u8 };
         let tier_at = |k: usize| -> u16 {
             let id = id_at(k);
-            if id == 0 { 0 } else { tier(mixin_for_depth(k), id) }
+            if id == 0 {
+                0
+            } else {
+                tier(mixin_for_depth(k), id)
+            }
         };
 
         // Mint by the classid's registered tail variant (V3), never hardcoding the
@@ -106,12 +121,12 @@ fn main() {
         let key = NodeGuid::mint_for(
             tail,
             CLASSID_FMA,
-            tier_at(0),                // HEEL  [depth0-mixin : rank]
-            tier_at(1),                // HIP   [depth1-mixin : rank]
-            tier_at(2),                // TWIG  [depth2-mixin : rank]
-            tier_at(3),                // LEAF  [depth3-mixin : rank]
-            u32::from(tier_at(4)),     // family[depth4-mixin : rank]
-            row,                       // identity — stable concept row (node_row link)
+            tier_at(0),            // HEEL  [depth0-mixin : rank]
+            tier_at(1),            // HIP   [depth1-mixin : rank]
+            tier_at(2),            // TWIG  [depth2-mixin : rank]
+            tier_at(3),            // LEAF  [depth3-mixin : rank]
+            u32::from(tier_at(4)), // family[depth4-mixin : rank]
+            row,                   // identity — stable concept row (node_row link)
         );
 
         table.extend_from_slice(key.as_bytes());
@@ -153,8 +168,15 @@ fn main() {
     std::fs::write(&out_path, &out).unwrap_or_else(|e| panic!("write {}: {e}", out_path.display()));
 
     println!("── body.soa (BSO1) ──");
-    println!("  V3 substrate : {} concepts minted on CLASSID_FMA_V3 cascade (max depth {deepest})", nodes.len());
+    println!(
+        "  V3 substrate : {} concepts minted on CLASSID_FMA_V3 cascade (max depth {deepest})",
+        nodes.len()
+    );
     println!("  geometry     : {vc} verts · {tc} tris (ALL points, full-res SPM1)");
-    println!("  node table   : {} B   geometry block: {} B", table.len(), spm1.len());
+    println!(
+        "  node table   : {} B   geometry block: {} B",
+        table.len(),
+        spm1.len()
+    );
     println!("  baked {} ({} B)", out_path.display(), out.len());
 }

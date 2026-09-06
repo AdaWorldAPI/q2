@@ -38,7 +38,10 @@ fn print_outcome(o: &Outcome) {
     if let (Some(class), Some(level)) = (&o.classification, &o.cpic_level) {
         println!("       │  recommends  (class={class}, cpic level {level})");
     }
-    println!("\n  ⊢ NARS deduction  {} {} → recommendation", o.gene, o.input);
+    println!(
+        "\n  ⊢ NARS deduction  {} {} → recommendation",
+        o.gene, o.input
+    );
     println!(
         "    truth f={:.3} c={:.3}  (expectation {:.3})",
         o.truth_f, o.truth_c, o.truth_exp

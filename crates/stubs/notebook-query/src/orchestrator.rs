@@ -97,7 +97,7 @@ impl DkPosition {
     /// Exploration rate modifier: how much to explore vs exploit.
     pub fn exploration_modifier(&self) -> f32 {
         match self {
-            Self::MountStupid => 0.0,         // Don't explore, you're overconfident
+            Self::MountStupid => 0.0,          // Don't explore, you're overconfident
             Self::ValleyOfDespair => 2.0,      // Explore heavily, you're learning
             Self::SlopeOfEnlightenment => 1.0, // Normal
             Self::PlateauOfMastery => 0.5,     // Exploit more, you've earned it
@@ -150,9 +150,9 @@ impl FlowState {
     pub fn patience_modifier(&self) -> f32 {
         match self {
             Self::Flow => 1.0,
-            Self::Boredom => 1.5,   // More patient, try more things
-            Self::Anxiety => 0.5,   // Less patient, fallback sooner
-            Self::Apathy => 0.25,   // Very impatient
+            Self::Boredom => 1.5, // More patient, try more things
+            Self::Anxiety => 0.5, // Less patient, fallback sooner
+            Self::Apathy => 0.25, // Very impatient
         }
     }
 }
@@ -230,17 +230,14 @@ impl MulAssessment {
         // Compass override
         let compass = if dk_position == DkPosition::MountStupid {
             CompassDecision::ForceSandbox
-        } else if dk_position == DkPosition::ValleyOfDespair
-            && demonstrated_competence < 0.2
-        {
+        } else if dk_position == DkPosition::ValleyOfDespair && demonstrated_competence < 0.2 {
             CompassDecision::ForceExplore
         } else {
             CompassDecision::None
         };
 
-        let free_will = dk_position.humility_factor()
-            * trust.trust_factor()
-            * flow.patience_modifier();
+        let free_will =
+            dk_position.humility_factor() * trust.trust_factor() * flow.patience_modifier();
 
         let exploration_rate =
             BASE_EXPLORATION_RATE * dk_position.exploration_modifier() * trust.trust_factor();
@@ -263,10 +260,10 @@ impl MulAssessment {
     /// topology confidence as felt competence.
     pub fn from_efficiency(efficiency: f32, topology_confidence: f32) -> Self {
         Self::assess(
-            topology_confidence,    // felt = how confident the topology is
-            efficiency,             // demonstrated = actual rolling efficiency
-            0.7,                    // default source reliability
-            0.8,                    // default environment stability
+            topology_confidence,                      // felt = how confident the topology is
+            efficiency,                               // demonstrated = actual rolling efficiency
+            0.7,                                      // default source reliability
+            0.8,                                      // default environment stability
             (efficiency - 0.3).abs().clamp(0.0, 1.0), // challenge ~ distance from mediocrity
         )
     }
@@ -310,7 +307,13 @@ impl MulAssessment {
             0.1 // No challenge, no skill → Boredom
         };
 
-        Self::assess(felt, demonstrated, source_reliability, stability, challenge_skill)
+        Self::assess(
+            felt,
+            demonstrated,
+            source_reliability,
+            stability,
+            challenge_skill,
+        )
     }
 }
 
@@ -583,10 +586,7 @@ impl MetaOrchestrator {
 
         // If the orchestrator's own topology is producing consistently bad results
         // AND the graph is in bad shape, reset the topology too.
-        if self.rolling_efficiency() < 0.2
-            && self.step_count > 20
-            && signals.truth_entropy > 0.5
-        {
+        if self.rolling_efficiency() < 0.2 && self.step_count > 20 && signals.truth_entropy > 0.5 {
             actions.push(HealingAction {
                 action: HealingType::ResetTopology,
                 reason: format!(
@@ -748,11 +748,7 @@ impl StyleTopology {
     ///
     /// With probability `exploration_rate`, picks a random style (explore).
     /// Otherwise picks the highest expected quality.
-    pub fn select_next(
-        &self,
-        current: AgentStyle,
-        step: u64,
-    ) -> AgentStyle {
+    pub fn select_next(&self, current: AgentStyle, step: u64) -> AgentStyle {
         // Deterministic "random" from step counter for reproducibility.
         let pseudo_random = ((step.wrapping_mul(0x9E3779B97F4A7C15)) >> 56) as f32 / 256.0;
 
@@ -906,13 +902,9 @@ pub enum StepReason {
     },
     /// Exploration: picked least-observed edge for information gain.
     /// Exploration rate was modulated by DK position + trust texture.
-    TopologyExplore {
-        observations: u64,
-    },
+    TopologyExplore { observations: u64 },
     /// Hardcoded sequence position (fallback mode).
-    HardcodedSequence {
-        position: usize,
-    },
+    HardcodedSequence { position: usize },
     /// MUL compass/DK override — forced a specific style regardless of topology.
     MulOverride {
         dk: DkPosition,
@@ -988,11 +980,20 @@ impl MetaOrchestrator {
         self.steps_in_current_mode += 1;
 
         // ── MUL Assessment (self-regulated from graph signals when available) ──
-        let avg_confidence = self.topology.edges.values()
+        let avg_confidence = self
+            .topology
+            .edges
+            .values()
             .filter(|e| e.observations > 0)
             .map(|e| e.truth.confidence)
             .sum::<f64>()
-            / self.topology.edges.values().filter(|e| e.observations > 0).count().max(1) as f64;
+            / self
+                .topology
+                .edges
+                .values()
+                .filter(|e| e.observations > 0)
+                .count()
+                .max(1) as f64;
         let mul = if let Some(ref signals) = self.sensorium {
             MulAssessment::from_graph_signals(signals, avg_confidence as f32)
         } else {
@@ -1023,7 +1024,8 @@ impl MetaOrchestrator {
                 reason: StepReason::MulOverride {
                     dk: mul.dk_position,
                     compass: mul.compass,
-                    explanation: "Valley of Despair + low competence — compass forces exploration".into(),
+                    explanation: "Valley of Despair + low competence — compass forces exploration"
+                        .into(),
                 },
                 mul,
                 efficiency: self.rolling_efficiency(),
@@ -1069,7 +1071,8 @@ impl MetaOrchestrator {
                         // Temperature noise: deterministic from step + style index
                         let noise = if self.temperature > 0.01 {
                             let hash = (self.step_count.wrapping_mul(0x517cc1b727220a95)
-                                ^ (to as u64).wrapping_mul(0x6c62272e07bb0142)) >> 48;
+                                ^ (to as u64).wrapping_mul(0x6c62272e07bb0142))
+                                >> 48;
                             let uniform = (hash as f64) / 65536.0; // [0, 1)
                             (uniform - 0.5) * self.temperature as f64
                         } else {
@@ -1438,12 +1441,17 @@ mod tests {
     #[test]
     fn test_graph_sensorium_healthy() {
         let signals = GraphSensorium::compute(
-            100, 2,                  // 100 active, 2 contradictions
-            &[80, 10, 5, 3, 2],     // mostly certain
-            5, 10,                   // 5 revisions in 10 steps
-            3, 50,                   // 3/50 entities hot
-            10, 15,                  // 10 deductions from 15 attempts
-            5, 20,                   // 5/20 episodic
+            100,
+            2,                  // 100 active, 2 contradictions
+            &[80, 10, 5, 3, 2], // mostly certain
+            5,
+            10, // 5 revisions in 10 steps
+            3,
+            50, // 3/50 entities hot
+            10,
+            15, // 10 deductions from 15 attempts
+            5,
+            20, // 5/20 episodic
         );
         assert!(signals.contradiction_rate < 0.1);
         assert!(signals.truth_entropy < 0.5); // mostly certain
@@ -1453,12 +1461,17 @@ mod tests {
     #[test]
     fn test_graph_sensorium_contradicted() {
         let signals = GraphSensorium::compute(
-            100, 40,                 // 40% contradictions!
-            &[10, 10, 30, 30, 20],  // spread across bands
-            1, 10,                   // low revision
-            20, 50,                  // 40% hot
-            2, 20,                   // low deduction
-            18, 20,                  // near-full episodic
+            100,
+            40,                    // 40% contradictions!
+            &[10, 10, 30, 30, 20], // spread across bands
+            1,
+            10, // low revision
+            20,
+            50, // 40% hot
+            2,
+            20, // low deduction
+            18,
+            20, // near-full episodic
         );
         assert!(signals.contradiction_rate > 0.3);
         assert_eq!(signals.suggested_bias(), GraphBias::Resolve);
@@ -1467,12 +1480,17 @@ mod tests {
     #[test]
     fn test_graph_sensorium_stagnant() {
         let signals = GraphSensorium::compute(
-            100, 5,
-            &[20, 20, 20, 20, 20],  // uniform = high entropy
-            0, 20,                   // zero revisions = stagnant
-            2, 100,                  // low plasticity
-            0, 10,                   // zero deductions
-            5, 20,
+            100,
+            5,
+            &[20, 20, 20, 20, 20], // uniform = high entropy
+            0,
+            20, // zero revisions = stagnant
+            2,
+            100, // low plasticity
+            0,
+            10, // zero deductions
+            5,
+            20,
         );
         assert!(signals.revision_velocity < 0.05);
         assert!(signals.truth_entropy > 0.5);
@@ -1484,9 +1502,8 @@ mod tests {
         let mut orch = MetaOrchestrator::new();
         assert!((orch.temperature - 0.0).abs() < f32::EPSILON);
 
-        let stagnant = GraphSensorium::compute(
-            100, 5, &[20, 20, 20, 20, 20], 0, 20, 2, 100, 0, 10, 5, 20,
-        );
+        let stagnant =
+            GraphSensorium::compute(100, 5, &[20, 20, 20, 20, 20], 0, 20, 2, 100, 0, 10, 5, 20);
         orch.update_sensorium(stagnant.clone());
         assert!(orch.temperature > 0.1);
 
@@ -1500,18 +1517,16 @@ mod tests {
         let mut orch = MetaOrchestrator::new();
         orch.temperature = 0.5;
 
-        let healthy = GraphSensorium::compute(
-            100, 1, &[90, 5, 3, 1, 1], 8, 10, 1, 100, 12, 15, 5, 20,
-        );
+        let healthy =
+            GraphSensorium::compute(100, 1, &[90, 5, 3, 1, 1], 8, 10, 1, 100, 12, 15, 5, 20);
         orch.update_sensorium(healthy);
         assert!(orch.temperature < 0.5);
     }
 
     #[test]
     fn test_mul_from_graph_signals() {
-        let signals = GraphSensorium::compute(
-            100, 2, &[80, 10, 5, 3, 2], 5, 10, 3, 50, 10, 15, 5, 20,
-        );
+        let signals =
+            GraphSensorium::compute(100, 2, &[80, 10, 5, 3, 2], 5, 10, 3, 50, 10, 15, 5, 20);
         let mul = MulAssessment::from_graph_signals(&signals, 0.7);
         // Healthy graph → should be Slope or Plateau.
         assert!(mul.dk_position != DkPosition::MountStupid);
@@ -1521,23 +1536,29 @@ mod tests {
     #[test]
     fn test_auto_heal_contradictions() {
         let mut orch = MetaOrchestrator::new();
-        let sick = GraphSensorium::compute(
-            100, 30, &[10, 10, 30, 30, 20], 1, 10, 20, 50, 2, 20, 18, 20,
-        );
+        let sick =
+            GraphSensorium::compute(100, 30, &[10, 10, 30, 30, 20], 1, 10, 20, 50, 2, 20, 18, 20);
         orch.update_sensorium(sick);
         let actions = orch.auto_heal();
-        assert!(actions.iter().any(|a| a.action == HealingType::ResolveContradictions));
+        assert!(
+            actions
+                .iter()
+                .any(|a| a.action == HealingType::ResolveContradictions)
+        );
     }
 
     #[test]
     fn test_auto_heal_bootstrap_truth() {
         let mut orch = MetaOrchestrator::new();
-        let unset = GraphSensorium::compute(
-            100, 5, &[20, 20, 20, 20, 20], 0, 20, 2, 100, 0, 10, 5, 20,
-        );
+        let unset =
+            GraphSensorium::compute(100, 5, &[20, 20, 20, 20, 20], 0, 20, 2, 100, 0, 10, 5, 20);
         orch.update_sensorium(unset);
         let actions = orch.auto_heal();
-        assert!(actions.iter().any(|a| a.action == HealingType::BootstrapTruth));
+        assert!(
+            actions
+                .iter()
+                .any(|a| a.action == HealingType::BootstrapTruth)
+        );
     }
 
     #[test]
@@ -1549,13 +1570,16 @@ mod tests {
             orch.record_outcome(r.style, 0.05);
         }
         // Now feed sick graph signals.
-        let sick = GraphSensorium::compute(
-            100, 30, &[20, 20, 20, 20, 20], 0, 20, 20, 50, 0, 20, 18, 20,
-        );
+        let sick =
+            GraphSensorium::compute(100, 30, &[20, 20, 20, 20, 20], 0, 20, 20, 50, 0, 20, 18, 20);
         orch.update_sensorium(sick);
         let actions = orch.auto_heal();
         // Should trigger topology reset.
-        assert!(actions.iter().any(|a| a.action == HealingType::ResetTopology));
+        assert!(
+            actions
+                .iter()
+                .any(|a| a.action == HealingType::ResetTopology)
+        );
         // Should be back in fallback mode.
         assert_eq!(orch.mode, OrchestratorMode::HardcodedFallback);
         // Temperature should be warm (0.5 from reset).
@@ -1564,9 +1588,8 @@ mod tests {
 
     #[test]
     fn test_graph_bias_exploit() {
-        let signals = GraphSensorium::compute(
-            200, 2, &[180, 10, 5, 3, 2], 15, 20, 2, 100, 15, 20, 5, 50,
-        );
+        let signals =
+            GraphSensorium::compute(200, 2, &[180, 10, 5, 3, 2], 15, 20, 2, 100, 15, 20, 5, 50);
         assert_eq!(signals.suggested_bias(), GraphBias::Exploit);
     }
 }

@@ -71,10 +71,15 @@ pub fn hhtl_heel_search(
         .iter()
         .enumerate()
         .map(|(i, &(pos, dist))| {
-            let stage = if i < heel_count / 4 { HhtlStage::Heel }
-                else if i < heel_count / 2 { HhtlStage::Hip }
-                else if i < heel_count * 3 / 4 { HhtlStage::Twig }
-                else { HhtlStage::Leaf };
+            let stage = if i < heel_count / 4 {
+                HhtlStage::Heel
+            } else if i < heel_count / 2 {
+                HhtlStage::Hip
+            } else if i < heel_count * 3 / 4 {
+                HhtlStage::Twig
+            } else {
+                HhtlStage::Leaf
+            };
             HhtlHit {
                 node_id: format!("node-{pos}"),
                 distance: dist,
@@ -123,10 +128,15 @@ pub fn hhtl_full_cascade(
         .iter()
         .enumerate()
         .map(|(i, hit)| {
-            let stage = if i < leaf_count / 4 { HhtlStage::Heel }
-                else if i < leaf_count / 2 { HhtlStage::Hip }
-                else if i < leaf_count * 3 / 4 { HhtlStage::Twig }
-                else { HhtlStage::Leaf };
+            let stage = if i < leaf_count / 4 {
+                HhtlStage::Heel
+            } else if i < leaf_count / 2 {
+                HhtlStage::Hip
+            } else if i < leaf_count * 3 / 4 {
+                HhtlStage::Twig
+            } else {
+                HhtlStage::Leaf
+            };
             HhtlHit {
                 node_id: format!("node-{}", hit.position),
                 distance: hit.best_distance,
@@ -240,11 +250,7 @@ pub fn fingerprint_distance(a: &Fingerprint, b: &Fingerprint) -> u32 {
 }
 
 /// Find the top-K most similar labels by fingerprint distance.
-pub fn find_similar(
-    query_label: &str,
-    all_labels: &[&str],
-    top_k: usize,
-) -> Vec<(String, u32)> {
+pub fn find_similar(query_label: &str, all_labels: &[&str], top_k: usize) -> Vec<(String, u32)> {
     let query_fp = fingerprint::label_fp(query_label);
     let mut results: Vec<(String, u32)> = all_labels
         .iter()

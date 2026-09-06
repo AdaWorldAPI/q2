@@ -53,7 +53,13 @@ impl Graph {
         let c = self.counters.entry((n.classid, family)).or_insert(0);
         *c += 1;
         let identity = mint_identity(*c);
-        let g = NodeGuid::mint(n.classid, cascade3(&n.part), cascade3(&n.isa), family, identity);
+        let g = NodeGuid::mint(
+            n.classid,
+            cascade3(&n.part),
+            cascade3(&n.isa),
+            family,
+            identity,
+        );
         self.minted += 1;
         if let Some(prev) = self.keys.insert(g.key16(), n.label.clone()) {
             eprintln!("[COLLISION] {} :: {prev} vs {}", g.hex(), n.label);
@@ -72,7 +78,8 @@ impl Graph {
         g
     }
     fn edge(&mut self, src: NodeGuid, rel: &str, dst: NodeGuid) {
-        self.edges.push(format!("{}\t{rel}\t{}", src.hex(), dst.hex()));
+        self.edges
+            .push(format!("{}\t{rel}\t{}", src.hex(), dst.hex()));
     }
 }
 
@@ -335,7 +342,10 @@ fn main() {
     fs::write(format!("{out}/pgx_edges.tsv"), eb).unwrap();
 
     // ── summary + the "both axes route" demonstration ──
-    eprintln!("[ingest] minted {} GUIDs, {} collisions", gr.minted, gr.collisions);
+    eprintln!(
+        "[ingest] minted {} GUIDs, {} collisions",
+        gr.minted, gr.collisions
+    );
     eprintln!(
         "[ingest] nodes recorded {} (diplotypes minted {}, recorded ≤{}), edges {}",
         gr.nodes.len(),
@@ -355,7 +365,10 @@ fn main() {
         ("CYP2D6", "*4"),
     ];
     eprintln!("\n[ingest] (part_of:is_a) cascade demo — HEEL/HIP/TWIG = (part·is_a):");
-    eprintln!("  {:<14} {:<46} part_of                              is_a", "allele", "guid");
+    eprintln!(
+        "  {:<14} {:<46} part_of                              is_a",
+        "allele", "guid"
+    );
     for (sym, name) in demo {
         if let Some(g) = allele_g.get(&(sym.to_string(), name.to_string())) {
             eprintln!(
@@ -370,6 +383,8 @@ fn main() {
         }
     }
     eprintln!("  ↑ part_of HIGH bytes c3/ec/f7 = pharmacogenome→CYP→CYP2, shared by all four (siblings route together).");
-    eprintln!("    is_a  LOW bytes  58=allele, then function: no_function=6f, decreased=d8, normal=07.");
+    eprintln!(
+        "    is_a  LOW bytes  58=allele, then function: no_function=6f, decreased=d8, normal=07."
+    );
     eprintln!("    CYP2C19*2 & CYP2D6*4 (both no-function, both CYP2) share the FULL path c358-ec6f-f76f — only family (gene) differs.");
 }

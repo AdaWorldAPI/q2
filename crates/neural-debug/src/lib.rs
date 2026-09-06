@@ -12,14 +12,14 @@
 //! MCP:           /api/debug/* endpoints serve diagnosis to the cockpit
 //! ```
 
-pub mod registry;
-pub mod instrument;
 pub mod diagnosis;
-pub mod strategy_check;
+pub mod instrument;
+pub mod registry;
 #[cfg(feature = "mcp")]
 pub mod server;
+pub mod strategy_check;
 
-pub use registry::{FunctionMeta, NeuronState};
-pub use instrument::{track, track_numeric, CallStats};
 pub use diagnosis::{NeuralDiagnosis, NeuronDiagnosis};
-pub use strategy_check::{StrategyDiagnosis, DepStatus, PipelineCheckResult};
+pub use instrument::{track, track_numeric, CallStats};
+pub use registry::{FunctionMeta, NeuronState};
+pub use strategy_check::{DepStatus, PipelineCheckResult, StrategyDiagnosis};
