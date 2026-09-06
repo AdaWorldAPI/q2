@@ -38,8 +38,16 @@ use lance_graph::parser::parse_cypher_query;
 #[derive(Clone, Debug)]
 pub struct CypherStream {
     /// Provenance label ("AriGraph" for graph-derived perturbations).
+    #[allow(
+        dead_code,
+        reason = "provenance field carried on the DTO for downstream consumers; no reader in this crate yet; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+    )]
     pub source: &'static str,
     pub codebook_indices: Vec<u16>,
+    #[allow(
+        dead_code,
+        reason = "provenance field carried on the DTO for downstream consumers; no reader in this crate yet; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+    )]
     pub timestamp: u64,
 }
 
