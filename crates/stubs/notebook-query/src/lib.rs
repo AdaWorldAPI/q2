@@ -279,33 +279,33 @@ fn execute_graph_query(source: &str, language: QueryLanguage) -> Result<QueryRes
         // run it through lance-graph's DataFusion path. On any miss (unsupported
         // shape or execution error) fall through to the graph echo below — the
         // demo never breaks, and supported traversals return real rows.
-        if language == QueryLanguage::Gremlin {
-            if let Some(cypher) = gremlin::gremlin_to_cypher(source) {
-                match run_cypher_on_aiwar(&cypher) {
-                    Ok(batch) => {
-                        let elapsed_ms = t0.elapsed().as_millis() as u64;
-                        return Ok(QueryResult {
-                            language,
-                            raw_output: format!(
-                                "{lang_name} → Cypher: {cypher}\n\n{}",
-                                batch_to_text(&batch)
-                            ),
-                            html: Some(format!(
-                                "<div class=\"query-executed\">\
-                                 <div class=\"lang-badge\">{lang_name} → Cypher</div>\
-                                 <pre>{cypher}</pre>{}</div>",
-                                batch_to_html(&batch)
-                            )),
-                            graph_json: aiwar_graph_json().ok(),
-                            elapsed_ms,
-                            planner_info,
-                        });
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[gremlin] transpiled `{cypher}` failed: {e} — falling back to graph echo"
-                        );
-                    }
+        if language == QueryLanguage::Gremlin
+            && let Some(cypher) = gremlin::gremlin_to_cypher(source)
+        {
+            match run_cypher_on_aiwar(&cypher) {
+                Ok(batch) => {
+                    let elapsed_ms = t0.elapsed().as_millis() as u64;
+                    return Ok(QueryResult {
+                        language,
+                        raw_output: format!(
+                            "{lang_name} → Cypher: {cypher}\n\n{}",
+                            batch_to_text(&batch)
+                        ),
+                        html: Some(format!(
+                            "<div class=\"query-executed\">\
+                             <div class=\"lang-badge\">{lang_name} → Cypher</div>\
+                             <pre>{cypher}</pre>{}</div>",
+                            batch_to_html(&batch)
+                        )),
+                        graph_json: aiwar_graph_json().ok(),
+                        elapsed_ms,
+                        planner_info,
+                    });
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[gremlin] transpiled `{cypher}` failed: {e} — falling back to graph echo"
+                    );
                 }
             }
         }
@@ -1471,10 +1471,16 @@ pub fn extract_graph_truth_edges() -> Result<Vec<reasoning::TruthEdge>, String> 
 
                     if let (Some(source), Some(target)) = (src, tgt) {
                         // Check for weight column
-                        let (freq, conf) = if let Some(wi) = schema.index_of("weight").ok() {
+                        let (freq, conf) = if let Ok(wi) = schema.index_of("weight") {
                             get_string_value(batch, wi, row)
                                 .and_then(|w| w.parse::<f64>().ok())
-                                .map(|w| (w.min(1.0).max(0.0), *default_conf))
+                                // `clamp` is not the same as the old
+                                // `.min(1.0).max(0.0)` for a non-finite weight:
+                                // that chain silently turned NaN into 1.0, i.e.
+                                // maximum confidence. Drop non-finite weights
+                                // and fall back to the default instead.
+                                .filter(|w| w.is_finite())
+                                .map(|w| (w.clamp(0.0, 1.0), *default_conf))
                                 .unwrap_or((*default_freq, *default_conf))
                         } else {
                             (*default_freq, *default_conf)

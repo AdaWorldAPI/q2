@@ -236,7 +236,7 @@ pub fn compute_seal_status(_prev: &GraphSnapshot, current: &GraphSnapshot) -> Se
 ///
 /// If an edge (src, dst, rel_type) appears in both `existing` and `incoming`,
 /// their truth values are combined via Bayesian revision.
-pub fn revise_edges(existing: &mut Vec<TruthEdge>, incoming: &[TruthEdge]) -> usize {
+pub fn revise_edges(existing: &mut [TruthEdge], incoming: &[TruthEdge]) -> usize {
     let mut revised_count = 0;
 
     let mut incoming_map: HashMap<(&str, &str, &str), &TruthValue> = HashMap::new();

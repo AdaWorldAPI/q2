@@ -57,7 +57,7 @@ use serde::Serialize;
 use tokio::sync::RwLock;
 
 use lance_graph_contract::cognitive_shader::{
-    CognitiveShaderDriver, ShaderBus, ShaderCrystal, ShaderDispatch, ShaderResonance, ShaderSink,
+    CognitiveShaderDriver, ShaderBus, ShaderCrystal, ShaderResonance, ShaderSink,
 };
 use lance_graph_contract::cycle_accumulator::{AccumulatorAction, CycleAccumulator};
 

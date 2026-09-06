@@ -387,7 +387,7 @@ async fn create_chat_completion(
         .iter()
         .filter(|m| m.role == "user")
         .filter_map(|m| m.content.as_deref())
-        .last()
+        .next_back()
         .unwrap_or("");
 
     Json(ChatCompletionResp {
@@ -417,7 +417,7 @@ async fn create_chat_completion(
 }
 
 async fn create_embedding(
-    State(state): State<SharedOpenAiState>,
+    State(_state): State<SharedOpenAiState>,
     Json(req): Json<EmbeddingReq>,
 ) -> Json<EmbeddingResp> {
     let model = req.model.unwrap_or_else(|| "gpt2".into());
@@ -441,7 +441,7 @@ async fn create_embedding(
 }
 
 async fn create_image(
-    State(state): State<SharedOpenAiState>,
+    State(_state): State<SharedOpenAiState>,
     Json(req): Json<ImageGenReq>,
 ) -> Json<ImageGenResp> {
     let n = req.n.unwrap_or(1);

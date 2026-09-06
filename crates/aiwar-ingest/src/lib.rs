@@ -351,17 +351,17 @@ pub fn load_with_enrichment(
     cypher_dir: &Path,
 ) -> Result<AiWarGraph, IngestError> {
     let mut graph = load_from_file(graph_json_path)?;
-    if cypher_dir.is_dir() {
-        if let Ok(rounds) = encounter_round::load_encounter_rounds(cypher_dir) {
-            for round in &rounds {
-                graph.apply_round(round);
-            }
-            tracing::info!(
-                "aiwar-ingest: applied {} enrichment rounds from {}",
-                rounds.len(),
-                cypher_dir.display()
-            );
+    if cypher_dir.is_dir()
+        && let Ok(rounds) = encounter_round::load_encounter_rounds(cypher_dir)
+    {
+        for round in &rounds {
+            graph.apply_round(round);
         }
+        tracing::info!(
+            "aiwar-ingest: applied {} enrichment rounds from {}",
+            rounds.len(),
+            cypher_dir.display()
+        );
     }
     tracing::info!(
         "aiwar-ingest: loaded {} nodes, {} edges",
@@ -406,11 +406,11 @@ mod tests {
         assert_eq!(maven.label, "Project Maven");
         // non id/name fields preserved verbatim
         assert_eq!(
-            maven.properties.get("year").unwrap(),
+            &maven.properties["year"],
             &serde_json::json!(2017)
         );
         assert_eq!(
-            maven.properties.get("MLTask").unwrap(),
+            &maven.properties["MLTask"],
             &serde_json::json!("object-detection")
         );
 
@@ -433,7 +433,7 @@ mod tests {
         assert_eq!(dev.target, "Palantir");
         assert_eq!(dev.weight, 3.0);
         assert_eq!(
-            dev.properties.get("label").unwrap(),
+            &dev.properties["label"],
             &serde_json::json!("builds")
         );
 
@@ -553,6 +553,6 @@ mod tests {
         assert_eq!(g.node_count(), 4);
         let maven = g.nodes.iter().find(|n| n.id == "Maven").unwrap();
         // a real number is preserved verbatim (sanitizer only touches non-finite).
-        assert_eq!(maven.properties.get("year").unwrap(), &serde_json::json!(2017));
+        assert_eq!(&maven.properties["year"], &serde_json::json!(2017));
     }
 }

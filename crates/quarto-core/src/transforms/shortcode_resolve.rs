@@ -2393,7 +2393,7 @@ mod tests {
                 panic!("Expected Paragraph");
             };
             let Inline::Str(s) = &para.content[0] else {
-                panic!("Expected resolved Str, got {:?}", &para.content[0]);
+                panic!("Expected resolved Str, got {:?}", para.content[0]);
             };
             assert_eq!(s.text, "Hello typed");
             match &s.source_info {

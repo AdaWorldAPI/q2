@@ -157,14 +157,14 @@ fn test_writer_emits_compact_json_on_disk() {
     assert!(
         !s.contains("\n  "),
         "trace file appears to be pretty-printed (found indented line); first 200 bytes: {:?}",
-        &s.chars().take(200).collect::<String>()
+        s.chars().take(200).collect::<String>()
     );
     // Pretty output also starts with `{\n  "schema_version"`; compact
     // starts with `{"schema_version"`.
     assert!(
         s.starts_with("{\"schema_version\""),
         "expected compact start, got: {:?}",
-        &s.chars().take(40).collect::<String>()
+        s.chars().take(40).collect::<String>()
     );
 
     // Sanity: still parses back to an equivalent doc.

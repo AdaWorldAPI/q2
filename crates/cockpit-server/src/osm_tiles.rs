@@ -289,7 +289,7 @@ mod tests {
         // Asserting `== y` directly would fail; asserting the *raw* recovered
         // value equals some constant would pass against a key that mirrors the
         // world about the equator. Neither is what we want to pin.
-        let (z, x, y) = (HHTL_DEPTH, 0x00AB_12u32, 0x00CD_34u32);
+        let (z, x, y) = (HHTL_DEPTH, 0x0000_AB12_u32, 0x0000_CD34_u32);
         let h = tile_to_hhtl(z, x, y);
         let code = (u64::from(h.heel) << 48)
             | (u64::from(h.hip) << 32)

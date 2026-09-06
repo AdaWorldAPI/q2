@@ -530,7 +530,7 @@ fn pipeline_website_post_render_substitutes_listing_placeholders() {
     assert!(
         !host.contains("desc-begin(5A0113B34292)"),
         "begin marker must be stripped from rendered host; got first 800 chars:\n{}",
-        &host.chars().take(800).collect::<String>()
+        host.chars().take(800).collect::<String>()
     );
     assert!(
         !host.contains("desc-end(5A0113B34292)"),
@@ -658,7 +658,7 @@ fn pipeline_default_project_does_not_substitute_listing_placeholders() {
     assert!(
         html.contains("desc-begin(5A0113B34292)"),
         "default project must not invoke L7 substitution; markers should survive. Got first 800 chars:\n{}",
-        &html.chars().take(800).collect::<String>()
+        html.chars().take(800).collect::<String>()
     );
     assert!(
         html.contains("desc-end(5A0113B34292)"),

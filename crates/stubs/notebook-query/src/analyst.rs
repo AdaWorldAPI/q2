@@ -5,9 +5,7 @@
 //! relationships, runs NARS deduction/abduction/induction, builds
 //! causal chains, and projects forward.
 
-use crate::reasoning::{
-    infer_edges, nars_deduction, InferenceType, TruthEdge, TruthValue,
-};
+use crate::reasoning::{infer_edges, TruthEdge, TruthValue};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -80,7 +78,16 @@ struct RawGraph {
 }
 
 #[derive(Debug, Deserialize)]
-struct RawNode { id: Option<String>, name: Option<String>, #[serde(rename = "type")] node_type: Option<String> }
+struct RawNode {
+    id: Option<String>,
+    name: Option<String>,
+    // Kept, though nothing reads it: this struct documents the shape of
+    // `aiwar_graph.json`, and dropping the field would make the type a
+    // partial and misleading record of the file it parses.
+    #[expect(dead_code, reason = "documents the on-disk JSON shape")]
+    #[serde(rename = "type")]
+    node_type: Option<String>,
+}
 
 #[derive(Debug, Deserialize)]
 struct RawEdge { source: Option<String>, target: Option<String>, label: Option<String> }
@@ -305,7 +312,7 @@ fn build_chains(edges: &[TruthEdge], node_map: &HashMap<String, (String, String)
             chains.push(CausalityChain { name: format!("{} → {}", name(start), name(cur)), edges: chain, confidence: conf, inference_type: if has_inf { "deduction+observed" } else { "observed" }.into(), narrative });
         }
     }
-    chains.sort_by(|a, b| b.edges.len().cmp(&a.edges.len()));
+    chains.sort_by_key(|c| std::cmp::Reverse(c.edges.len()));
     chains.truncate(8);
     chains
 }

@@ -439,7 +439,7 @@ mod tests {
             };
             assert_eq!(s.text, "hello edited");
         } else {
-            panic!("expected paragraph, got {:?}", &out.blocks[0]);
+            panic!("expected paragraph, got {:?}", out.blocks[0]);
         }
         // Second block is the spliced wrapper.
         assert_eq!(first_div_marker(&out.blocks[1]), Some("X1"));

@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "planner")]
-use lance_graph_planner::api::{Planner, PlanResult};
+use lance_graph_planner::api::Planner;
 // The 12-family orchestration space is `StyleFamily` (canonical type in
 // lance_graph_contract::style_family, re-exported here). `ThinkingStyle` is now a
 // deprecated alias for it, and the planner-local semantics (`cluster()`,
@@ -132,7 +132,7 @@ fn probe_strategy(
         Ok(Err(e)) => (ProbeStatus::Error, Some(format!("{:?}", e)), vec![]),
         Err(panic) => {
             let msg = panic.downcast_ref::<String>()
-                .map(|s| s.clone())
+                .cloned()
                 .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
                 .unwrap_or_else(|| "unknown panic".to_string());
             if msg.contains("not yet implemented") || msg.contains("todo") {

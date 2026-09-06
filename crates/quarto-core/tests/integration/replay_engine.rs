@@ -171,12 +171,12 @@ fn replay_capture_in_options_overrides_engine_through_render_to_file() {
     assert!(
         html.contains("Replayed Heading"),
         "rendered HTML must carry replay heading; got first 400 chars:\n{}",
-        &html.chars().take(400).collect::<String>()
+        html.chars().take(400).collect::<String>()
     );
     assert!(
         html.contains("Distinct replay marker QQQ"),
         "rendered HTML must carry replay marker; got first 400 chars:\n{}",
-        &html.chars().take(400).collect::<String>()
+        html.chars().take(400).collect::<String>()
     );
     assert!(
         !html.contains("Original body line"),

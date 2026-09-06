@@ -13,6 +13,12 @@ pub struct Session {
     current_node: String,
 }
 
+impl Default for Session {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Session {
     pub fn new() -> Self {
         Self {
@@ -48,6 +54,12 @@ impl Session {
 #[derive(Debug, Clone)]
 pub struct SessionContext {
     data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+}
+
+impl Default for SessionContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SessionContext {

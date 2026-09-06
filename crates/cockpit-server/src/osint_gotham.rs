@@ -537,11 +537,11 @@ fn theme_stem(source_file: &str) -> String {
             s = t.to_string();
             continue;
         }
-        if let Some((head, tail)) = s.rsplit_once('_') {
-            if is_version_token(tail) {
-                s = head.to_string();
-                continue;
-            }
+        if let Some((head, tail)) = s.rsplit_once('_')
+            && is_version_token(tail)
+        {
+            s = head.to_string();
+            continue;
         }
         break;
     }
@@ -1125,10 +1125,10 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
     // — no synthetic hub, no self-loop on the anchor itself.
     for (i, r) in rows.iter().enumerate() {
         let basin = (r.key.family_v2() & 0xFF) as u8;
-        if let Some(&a) = anchor_idx.get(&basin) {
-            if a != i {
-                push_edge(&mut edges, i, a, rel_code("member-of"));
-            }
+        if let Some(&a) = anchor_idx.get(&basin)
+            && a != i
+        {
+            push_edge(&mut edges, i, a, rel_code("member-of"));
         }
         let ifaces: std::collections::BTreeSet<u8> = r
             .edges
@@ -1139,10 +1139,10 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
             .filter(|&b| b != 0 && b != basin)
             .collect();
         for b in ifaces {
-            if let Some(&a) = anchor_idx.get(&b) {
-                if a != i {
-                    push_edge(&mut edges, i, a, rel_code("interfaces"));
-                }
+            if let Some(&a) = anchor_idx.get(&b)
+                && a != i
+            {
+                push_edge(&mut edges, i, a, rel_code("interfaces"));
             }
         }
     }
@@ -1154,7 +1154,7 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
     //    foveal view can show "Fortify", not just a class. Old readers stop after
     //    `edges`; new readers consume this tail.
     let mut labels: Vec<u8> = Vec::new();
-    let mut push_label = |buf: &mut Vec<u8>, s: &str| {
+    let push_label = |buf: &mut Vec<u8>, s: &str| {
         let b = s.as_bytes();
         let l = b.len().min(255);
         buf.push(l as u8);
