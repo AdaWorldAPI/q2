@@ -343,7 +343,10 @@ explicit_into_iter_loop = "warn"
 filter_map_next = "warn"
 flat_map_option = "warn"
 float_cmp_const = "warn"
-from_iter_instead_of_collect = "warn"
+# from_iter_instead_of_collect — REMOVED in Rust 1.98 ("lint has proved
+# problematic"). Requesting it makes every clippy run emit a
+# `renamed_and_removed_lints` warning, which notably ignores `-D warnings`,
+# so it degraded the signal without ever failing the gate.
 get_unwrap = "warn"
 implicit_clone = "warn"
 implicit_hasher = "warn"

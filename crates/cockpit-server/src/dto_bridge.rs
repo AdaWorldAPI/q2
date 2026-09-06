@@ -410,7 +410,10 @@ mod tests {
 
         assert_eq!(style_selector_str(StyleSelector::Auto), "auto");
         assert_eq!(style_selector_str(StyleSelector::Ordinal(7)), "explicit");
-        assert_eq!(style_selector_str(StyleSelector::Named("focus")), "explicit");
+        assert_eq!(
+            style_selector_str(StyleSelector::Named("focus")),
+            "explicit"
+        );
     }
 
     #[test]
@@ -431,6 +434,10 @@ mod tests {
         assert!(!j.contains("color_acc\":["), "color_acc array leaked: {j}");
         assert!(j.contains("\"color_acc_active_dims\":3"));
         // Footprint sanity: small struct must serialize tiny.
-        assert!(j.len() < 256, "alpha composite frame too large: {} B", j.len());
+        assert!(
+            j.len() < 256,
+            "alpha composite frame too large: {} B",
+            j.len()
+        );
     }
 }

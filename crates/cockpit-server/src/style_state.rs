@@ -25,8 +25,7 @@ use std::sync::{LazyLock, Mutex};
 use lance_graph_contract::cognitive_shader::{ShaderDispatch, StyleSelector};
 use lance_graph_contract::thinking::ThinkingStyle;
 
-static SELECTED: LazyLock<Mutex<StyleSelector>> =
-    LazyLock::new(|| Mutex::new(StyleSelector::Auto));
+static SELECTED: LazyLock<Mutex<StyleSelector>> = LazyLock::new(|| Mutex::new(StyleSelector::Auto));
 
 /// Read the currently-selected `StyleSelector` (defaults to `Auto`).
 pub fn current_style() -> StyleSelector {

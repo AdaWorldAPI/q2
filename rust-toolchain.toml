@@ -8,6 +8,6 @@
 # actually fixing the underlying overflow. Pinning is the durable fix
 # until the upstream regression is resolved; bump the date when nightly
 # stabilizes again.
-channel = "nightly-2026-04-28"
+channel = "1.98.1"
 components = ["rust-src","rustfmt", "clippy"]
 targets = ["wasm32-unknown-unknown"]

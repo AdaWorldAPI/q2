@@ -19,8 +19,8 @@
 //! return the tile **address + source URL + HHTL key**; a client fetches the
 //! raster from the source. Pure math, fully unit-tested.
 
-use axum::extract::{Path, Query};
 use axum::Json;
+use axum::extract::{Path, Query};
 use serde::Deserialize;
 
 /// The canonical OSM raster-tile source (standard slippy-map template). This is
@@ -268,7 +268,13 @@ mod tests {
 
     #[test]
     fn morton_roundtrips() {
-        for &(x, y) in &[(0u32, 0u32), (1, 0), (0, 1), (12345, 67890), (0xFFFFFF, 0xFFFFFF)] {
+        for &(x, y) in &[
+            (0u32, 0u32),
+            (1, 0),
+            (0, 1),
+            (12345, 67890),
+            (0xFFFFFF, 0xFFFFFF),
+        ] {
             assert_eq!(morton_deinterleave(morton_interleave(x, y)), (x, y));
         }
     }
@@ -356,7 +362,11 @@ mod tests {
         for (name, lon, lat) in [
             ("Berlin", 13.404954, 52.520008),
             ("Reykjavik", -21.940022, 64.146575),
-            ("Sydney (southern — exercises the TMS Y-flip)", 151.2093, -33.8688),
+            (
+                "Sydney (southern — exercises the TMS Y-flip)",
+                151.2093,
+                -33.8688,
+            ),
         ] {
             let (_code, want) = osm_soa_bake::tms::point_to_tiers(lon, lat);
             let (x, y) = lonlat_to_tile(lon, lat, HHTL_DEPTH);

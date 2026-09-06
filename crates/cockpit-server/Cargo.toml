@@ -96,7 +96,7 @@ arc-swap = "1.9"
 # `lance-graph` -> `lance` -> `arrow` — declaring them directly here changes
 # no resolved version, it just makes the capability this crate USES a thing
 # this crate ASKS FOR. Same move lance-graph PR #931 made for `object_store`.
-lance = "=9.0.0"
+lance = "=11.0.0"
 arrow = { version = "58", features = ["prettyprint"] }
 
 

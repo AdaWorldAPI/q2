@@ -15,7 +15,7 @@
 use std::sync::LazyLock;
 
 use axum::Json;
-use ndarray::hpc::splat3d::depth_cascade::{cascade_blocks, BlockBounds, DepthCascadeBudget};
+use ndarray::hpc::splat3d::depth_cascade::{BlockBounds, DepthCascadeBudget, cascade_blocks};
 use ndarray::hpc::splat3d::project::Camera;
 use serde::{Deserialize, Serialize};
 
@@ -25,10 +25,15 @@ static BODY_BLOCKS: &[u8] =
 
 static BLOCKS: LazyLock<Vec<BlockBounds>> = LazyLock::new(|| {
     BODY_BLOCKS
-        .chunks_exact(16)
+        .as_chunks::<16>()
+        .0
+        .iter()
         .map(|c| {
             let f = |k: usize| f32::from_le_bytes(c[k * 4..k * 4 + 4].try_into().unwrap());
-            BlockBounds { center: [f(0), f(1), f(2)], radius: f(3).max(1e-4) }
+            BlockBounds {
+                center: [f(0), f(1), f(2)],
+                radius: f(3).max(1e-4),
+            }
         })
         .collect()
 });
@@ -87,5 +92,9 @@ pub async fn body_lod_handler(Json(cam): Json<LodCamera>) -> Json<LodResponse> {
             tally[a] += 1;
         }
     }
-    Json(LodResponse { actions, n_concepts: BLOCKS.len(), tally })
+    Json(LodResponse {
+        actions,
+        n_concepts: BLOCKS.len(),
+        tally,
+    })
 }

@@ -15,7 +15,7 @@
 
 use std::sync::LazyLock;
 
-use cpic::{reason, Catalog, Kb, Outcome};
+use cpic::{Catalog, Kb, Outcome, reason};
 
 /// The CPIC knowledge base, parsed once from the tables baked into the binary
 /// (`include_str!` of `cpic/data/*.json`). No runtime files; safe on a fresh container.

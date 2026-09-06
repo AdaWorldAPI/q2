@@ -44,8 +44,8 @@ use std::sync::{Arc, OnceLock};
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-use aiwar_ingest::encounter_round::{load_encounter_rounds, EncounterRound};
 use aiwar_ingest::AiWarGraph;
+use aiwar_ingest::encounter_round::{EncounterRound, load_encounter_rounds};
 use lance_graph_contract::canonical_node::{EdgeBlock, NodeGuid, NodeRow};
 use lance_graph_contract::class_view::{ClassView, FieldMask};
 use lance_graph_contract::exploration::NarsTruth;
@@ -619,15 +619,22 @@ fn plan_basins(graph: &AiWarGraph, rounds: &[EncounterRound]) -> BasinPlan {
     for e in &graph.edges {
         *degree.entry(e.source.clone()).or_insert(0) += 1;
         *degree.entry(e.target.clone()).or_insert(0) += 1;
-        adj.entry(e.source.clone()).or_default().push(e.target.clone());
-        adj.entry(e.target.clone()).or_default().push(e.source.clone());
+        adj.entry(e.source.clone())
+            .or_default()
+            .push(e.target.clone());
+        adj.entry(e.target.clone())
+            .or_default()
+            .push(e.source.clone());
     }
     let deg = |id: &str| degree.get(id).copied().unwrap_or(0);
 
     // 4. per-theme anchors = top-15 by (degree desc, id asc) → low nibble 1..=15.
     let mut theme_nodes: HashMap<String, Vec<String>> = HashMap::new();
     for n in &graph.nodes {
-        let t = node_theme.get(&n.id).cloned().unwrap_or_else(|| "core".into());
+        let t = node_theme
+            .get(&n.id)
+            .cloned()
+            .unwrap_or_else(|| "core".into());
         theme_nodes.entry(t).or_default().push(n.id.clone());
     }
     let mut anchor_nibble: HashMap<String, u8> = HashMap::new(); // node → its anchor nibble
@@ -646,7 +653,10 @@ fn plan_basins(graph: &AiWarGraph, rounds: &[EncounterRound]) -> BasinPlan {
     // 5. non-anchor members take the anchor (same theme) they are most tied to.
     let mut node_basin: HashMap<String, u8> = HashMap::new();
     for n in &graph.nodes {
-        let theme = node_theme.get(&n.id).cloned().unwrap_or_else(|| "core".into());
+        let theme = node_theme
+            .get(&n.id)
+            .cloned()
+            .unwrap_or_else(|| "core".into());
         let ti = *theme_index.get(&theme).unwrap_or(&0);
         let nib = if let Some(nib) = anchor_nibble.get(&n.id) {
             *nib
@@ -696,7 +706,9 @@ pub fn osint_node_rows(graph: &AiWarGraph, plan: &BasinPlan) -> Vec<NodeRow> {
     // node id → its outgoing target ids (for the adapter mask).
     let mut out: HashMap<&str, Vec<&str>> = HashMap::new();
     for e in &graph.edges {
-        out.entry(e.source.as_str()).or_default().push(e.target.as_str());
+        out.entry(e.source.as_str())
+            .or_default()
+            .push(e.target.as_str());
     }
 
     graph
@@ -780,7 +792,9 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
     // basin byte → entity ids in it (for hub member counts).
     let mut basin_members: HashMap<u8, usize> = HashMap::new();
     for r in &rows {
-        *basin_members.entry((r.key.family_v2() & 0xFF) as u8).or_insert(0) += 1;
+        *basin_members
+            .entry((r.key.family_v2() & 0xFF) as u8)
+            .or_insert(0) += 1;
     }
 
     let mut nodes: Vec<GraphNode> = Vec::with_capacity(rows.len() + basin_members.len());
@@ -795,7 +809,10 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
         .map(|(k, v)| (*v, k.clone()))
         .collect();
     for &b in &basins {
-        let theme = theme_name.get(&(b >> 4)).cloned().unwrap_or_else(|| "core".into());
+        let theme = theme_name
+            .get(&(b >> 4))
+            .cloned()
+            .unwrap_or_else(|| "core".into());
         let anchor = plan.anchor_of_basin.get(&b).cloned();
         let label = match &anchor {
             Some(a) => format!("{theme} · {a}"),
@@ -1092,8 +1109,7 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         .collect();
     let mut edges: Vec<u8> = Vec::new();
     for e in &graph.edges {
-        if let (Some(&s), Some(&t)) =
-            (idx_of.get(e.source.as_str()), idx_of.get(e.target.as_str()))
+        if let (Some(&s), Some(&t)) = (idx_of.get(e.source.as_str()), idx_of.get(e.target.as_str()))
         {
             push_edge(&mut edges, s, t, rel_code(&e.rel_type));
         }
@@ -1145,7 +1161,11 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         buf.extend_from_slice(&b[..l]);
     };
     for n in &graph.nodes {
-        let nm = if n.label.is_empty() { n.id.as_str() } else { n.label.as_str() };
+        let nm = if n.label.is_empty() {
+            n.id.as_str()
+        } else {
+            n.label.as_str()
+        };
         push_label(&mut labels, nm);
     }
 
@@ -1160,8 +1180,7 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         tenants.extend_from_slice(&r.value[1..=FACET_STAKEHOLDER]);
     }
 
-    let mut out =
-        Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len() + tenants.len());
+    let mut out = Vec::with_capacity(12 + nodes.len() + edges.len() + labels.len() + tenants.len());
     out.extend_from_slice(&OSINT_SOA_MAGIC);
     out.extend_from_slice(&(node_count as u32).to_le_bytes());
     out.extend_from_slice(&(edge_count as u32).to_le_bytes());
@@ -1242,7 +1261,10 @@ mod tests {
 
     #[test]
     fn theme_stem_normalizes_version_markers() {
-        assert_eq!(theme_stem("aiwar_enrichment_epstein_v31_patch.cypher"), "epstein");
+        assert_eq!(
+            theme_stem("aiwar_enrichment_epstein_v31_patch.cypher"),
+            "epstein"
+        );
         assert_eq!(
             theme_stem("aiwar_enrichment_thiel_infrastructure.cypher"),
             "thiel_infrastructure"
@@ -1319,7 +1341,10 @@ mod tests {
         assert_ne!(lv[FACET_MLTASK], 0, "MLTask coded");
         assert_ne!(lv[FACET_PURPOSE], 0, "purpose coded");
         assert_ne!(lv[FACET_CAPACITY], 0, "capacity coded");
-        assert_eq!(lv[FACET_AIRO_ROLE], 0, "a System carries no AIRO actor role");
+        assert_eq!(
+            lv[FACET_AIRO_ROLE], 0,
+            "a System carries no AIRO actor role"
+        );
 
         let boom = g.nodes.iter().position(|n| n.id == "Boomerang").unwrap();
         let bv = &rows[boom].value;
@@ -1328,7 +1353,10 @@ mod tests {
             bv[FACET_AIRO_ROLE], 0b011,
             "deployer AND subject — the boomerang"
         );
-        assert_eq!(bv[FACET_MILITARY], 0, "a stakeholder carries no system facet");
+        assert_eq!(
+            bv[FACET_MILITARY], 0,
+            "a stakeholder carries no system facet"
+        );
 
         // The V3 byte this fixture actually populates. Asserted POSITIVELY,
         // because the zero-tail check below was widened from `FACET_CAPACITY + 1`
@@ -1380,10 +1408,14 @@ mod tests {
         let rows = osint_node_rows(&g, &plan);
 
         // Every adapter byte resolves to a real basin (an interface to a basin).
-        let known: std::collections::HashSet<u8> =
-            plan.node_basin.values().copied().collect();
+        let known: std::collections::HashSet<u8> = plan.node_basin.values().copied().collect();
         for row in &rows {
-            for &b in row.edges.in_family.iter().chain(row.edges.out_family.iter()) {
+            for &b in row
+                .edges
+                .in_family
+                .iter()
+                .chain(row.edges.out_family.iter())
+            {
                 if b != 0 {
                     assert!(known.contains(&b), "adapter {b:02x} must be a real basin");
                 }
@@ -1408,7 +1440,9 @@ mod tests {
         // zero rows until OGAR's codebook defines 0x07XX classes (graceful).
         assert_eq!(class_view.field_count(osint_class_id()), 0);
         assert_eq!(
-            class_view.render_rows(osint_class_id(), FieldMask::FULL).len(),
+            class_view
+                .render_rows(osint_class_id(), FieldMask::FULL)
+                .len(),
             0
         );
     }
@@ -1430,11 +1464,12 @@ mod tests {
         assert!(snap.nodes.iter().any(|n| n.label == "Peter Thiel"));
 
         // every member node carries the OGAR ClassView display-wiring marker.
-        assert!(snap
-            .nodes
-            .iter()
-            .filter(|n| n.node_type != "Basin")
-            .all(|n| n.properties.contains_key("display_class_fields")));
+        assert!(
+            snap.nodes
+                .iter()
+                .filter(|n| n.node_type != "Basin")
+                .all(|n| n.properties.contains_key("display_class_fields"))
+        );
     }
 
     #[test]
@@ -1454,7 +1489,11 @@ mod tests {
                 [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()]
             })
             .collect();
-        assert_eq!(pts.len(), rows.len(), "distinct addresses → distinct points");
+        assert_eq!(
+            pts.len(),
+            rows.len(),
+            "distinct addresses → distinct points"
+        );
 
         // distinct basins occupy distinct regions of space.
         assert_ne!(basin_center(1), basin_center(2));
@@ -1724,7 +1763,11 @@ mod tests {
                 gnode("Intelligence", "SchemaValue", &[]),
                 gnode("Policing", "SchemaValue", &[]),
                 gnode("CrowdControl", "SchemaValue", &[]),
-                gnode("Israel", "Stakeholder", &[("airo:type", "AIDeployer, AISubject")]),
+                gnode(
+                    "Israel",
+                    "Stakeholder",
+                    &[("airo:type", "AIDeployer, AISubject")],
+                ),
                 gnode("AIDeployer", "SchemaValue", &[]),
                 gnode("AISubject", "SchemaValue", &[]),
             ],
@@ -1734,7 +1777,10 @@ mod tests {
         // System → its militaryUse value, and BOTH civicUse values (compound split).
         assert!(fe.contains(&(0, 1, REL_FACET_MILITARY)), "militaryUse edge");
         assert!(fe.contains(&(0, 2, REL_FACET_CIVIC)), "civicUse Policing");
-        assert!(fe.contains(&(0, 3, REL_FACET_CIVIC)), "civicUse CrowdControl");
+        assert!(
+            fe.contains(&(0, 3, REL_FACET_CIVIC)),
+            "civicUse CrowdControl"
+        );
         // Stakeholder → BOTH airo roles (the boomerang, as two edges).
         assert!(fe.contains(&(4, 5, REL_FACET_AIRO)), "airo AIDeployer");
         assert!(fe.contains(&(4, 6, REL_FACET_AIRO)), "airo AISubject");

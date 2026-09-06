@@ -235,11 +235,36 @@ impl OpenAiState {
     pub fn new() -> Self {
         Self {
             models: vec![
-                ModelObject { id: "gpt2".into(), object: "model", created: 0, owned_by: "adaworldapi".into() },
-                ModelObject { id: "openchat_3.5".into(), object: "model", created: 0, owned_by: "openchat".into() },
-                ModelObject { id: "stable-diffusion-v1-5".into(), object: "model", created: 0, owned_by: "stabilityai".into() },
-                ModelObject { id: "text-embedding-jina-v4".into(), object: "model", created: 0, owned_by: "jinaai".into() },
-                ModelObject { id: "text-embedding-bert-base".into(), object: "model", created: 0, owned_by: "google".into() },
+                ModelObject {
+                    id: "gpt2".into(),
+                    object: "model",
+                    created: 0,
+                    owned_by: "adaworldapi".into(),
+                },
+                ModelObject {
+                    id: "openchat_3.5".into(),
+                    object: "model",
+                    created: 0,
+                    owned_by: "openchat".into(),
+                },
+                ModelObject {
+                    id: "stable-diffusion-v1-5".into(),
+                    object: "model",
+                    created: 0,
+                    owned_by: "stabilityai".into(),
+                },
+                ModelObject {
+                    id: "text-embedding-jina-v4".into(),
+                    object: "model",
+                    created: 0,
+                    owned_by: "jinaai".into(),
+                },
+                ModelObject {
+                    id: "text-embedding-bert-base".into(),
+                    object: "model",
+                    created: 0,
+                    owned_by: "google".into(),
+                },
             ],
             request_counter: 0,
         }
@@ -269,18 +294,20 @@ pub fn openai_router(state: SharedOpenAiState) -> Router {
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
-async fn list_models(
-    State(state): State<SharedOpenAiState>,
-) -> Json<ModelListResponse> {
+async fn list_models(State(state): State<SharedOpenAiState>) -> Json<ModelListResponse> {
     let st = state.lock().await;
     Json(ModelListResponse {
         object: "list",
-        data: st.models.iter().map(|m| ModelObject {
-            id: m.id.clone(),
-            object: "model",
-            created: m.created,
-            owned_by: m.owned_by.clone(),
-        }).collect(),
+        data: st
+            .models
+            .iter()
+            .map(|m| ModelObject {
+                id: m.id.clone(),
+                object: "model",
+                created: m.created,
+                owned_by: m.owned_by.clone(),
+            })
+            .collect(),
     })
 }
 
@@ -290,20 +317,28 @@ async fn get_model(
 ) -> impl IntoResponse {
     let st = state.lock().await;
     match st.models.iter().find(|m| m.id == model_id) {
-        Some(m) => (StatusCode::OK, Json(serde_json::json!({
-            "id": m.id,
-            "object": "model",
-            "created": m.created,
-            "owned_by": m.owned_by,
-        }))).into_response(),
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "error": {
-                "message": format!("The model '{}' does not exist", model_id),
-                "type": "invalid_request_error",
-                "param": "model",
-                "code": "model_not_found"
-            }
-        }))).into_response(),
+        Some(m) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "id": m.id,
+                "object": "model",
+                "created": m.created,
+                "owned_by": m.owned_by,
+            })),
+        )
+            .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": {
+                    "message": format!("The model '{}' does not exist", model_id),
+                    "type": "invalid_request_error",
+                    "param": "model",
+                    "code": "model_not_found"
+                }
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -323,11 +358,18 @@ async fn create_completion(
         model: model.clone(),
         choices: vec![CompletionChoice {
             index: 0,
-            text: format!("[completion from {} — load weights to enable inference]", model),
+            text: format!(
+                "[completion from {} — load weights to enable inference]",
+                model
+            ),
             logprobs: None,
             finish_reason: Some("stop".into()),
         }],
-        usage: UsageObj { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        usage: UsageObj {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        },
     })
 }
 
@@ -340,7 +382,9 @@ async fn create_chat_completion(
     let model = req.model.unwrap_or_else(|| "openchat_3.5".into());
 
     // Build content from messages for scaffold
-    let user_msg = req.messages.iter()
+    let user_msg = req
+        .messages
+        .iter()
         .filter(|m| m.role == "user")
         .filter_map(|m| m.content.as_deref())
         .last()
@@ -363,7 +407,11 @@ async fn create_chat_completion(
             },
             finish_reason: Some("stop".into()),
         }],
-        usage: UsageObj { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        usage: UsageObj {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        },
         system_fingerprint: None,
     })
 }
@@ -384,7 +432,11 @@ async fn create_embedding(
             index: 0,
             embedding: vec![0.0; dim],
         }],
-        usage: UsageObj { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 },
+        usage: UsageObj {
+            prompt_tokens: 1,
+            completion_tokens: 0,
+            total_tokens: 1,
+        },
     })
 }
 
@@ -396,10 +448,12 @@ async fn create_image(
 
     Json(ImageGenResp {
         created: 0,
-        data: (0..n).map(|_| ImageObj {
-            b64_json: Some("[scaffold — load SD weights to enable generation]".into()),
-            url: None,
-            revised_prompt: Some(req.prompt.clone()),
-        }).collect(),
+        data: (0..n)
+            .map(|_| ImageObj {
+                b64_json: Some("[scaffold — load SD weights to enable generation]".into()),
+                url: None,
+                revised_prompt: Some(req.prompt.clone()),
+            })
+            .collect(),
     })
 }

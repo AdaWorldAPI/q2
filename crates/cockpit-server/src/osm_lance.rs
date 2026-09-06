@@ -1199,7 +1199,12 @@ mod tests {
     /// where it is claimed to be, rather than matching any repeated filler.
     fn distinct_slab(rows: usize) -> Vec<u8> {
         let mut bytes = vec![0u8; rows * NODE_ROW_STRIDE];
-        for (i, chunk) in bytes.chunks_exact_mut(NODE_ROW_STRIDE).enumerate() {
+        for (i, chunk) in bytes
+            .as_chunks_mut::<NODE_ROW_STRIDE>()
+            .0
+            .iter_mut()
+            .enumerate()
+        {
             for (j, b) in chunk.iter_mut().enumerate() {
                 *b = ((i * 31 + j * 7) % 251) as u8;
             }
