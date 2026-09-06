@@ -9,8 +9,8 @@
 //! `lance_graph::thinking_engine::engine::CODEBOOK_SIZE` (currently 4096).
 //! If the upstream value changes, update this constant in lockstep.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// Codebook width. Mirrors `thinking_engine::engine::CODEBOOK_SIZE`.
@@ -37,10 +37,9 @@ pub fn default_distance_table() -> Vec<u8> {
 
 /// Cypher keywords excluded from identifier extraction.
 const CYPHER_KEYWORDS: &[&str] = &[
-    "MATCH", "RETURN", "WHERE", "CREATE", "MERGE", "SET", "DELETE", "AS",
-    "AND", "OR", "NOT", "NULL", "TRUE", "FALSE", "OPTIONAL", "WITH",
-    "UNWIND", "ORDER", "BY", "ASC", "DESC", "LIMIT", "SKIP", "COUNT",
-    "COLLECT", "DISTINCT",
+    "MATCH", "RETURN", "WHERE", "CREATE", "MERGE", "SET", "DELETE", "AS", "AND", "OR", "NOT",
+    "NULL", "TRUE", "FALSE", "OPTIONAL", "WITH", "UNWIND", "ORDER", "BY", "ASC", "DESC", "LIMIT",
+    "SKIP", "COUNT", "COLLECT", "DISTINCT",
 ];
 
 /// Maximum identifiers returned by [`extract_cypher_identifiers`] per call.

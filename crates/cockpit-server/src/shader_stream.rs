@@ -61,7 +61,9 @@ use lance_graph_contract::cognitive_shader::{
 };
 use lance_graph_contract::cycle_accumulator::{AccumulatorAction, CycleAccumulator};
 
-use crate::dto_bridge::{WireShaderBus, WireShaderCrystal, WireShaderDispatch, WireShaderResonance};
+use crate::dto_bridge::{
+    WireShaderBus, WireShaderCrystal, WireShaderDispatch, WireShaderResonance,
+};
 use crate::mock_driver::MockShaderDriver;
 
 // ── Accumulator defaults (per Phase 3 plan) ──────────────────────────────────
@@ -180,7 +182,11 @@ fn now_ms() -> u64 {
 // ── SSE event builder ─────────────────────────────────────────────────────────
 
 fn shader_event(kind: &'static str, payload: serde_json::Value) -> Event {
-    let ev = ShaderEvent { kind, ts: now_ms(), payload };
+    let ev = ShaderEvent {
+        kind,
+        ts: now_ms(),
+        payload,
+    };
     let json = serde_json::to_string(&ev).unwrap_or_default();
     Event::default().data(json).event(kind)
 }

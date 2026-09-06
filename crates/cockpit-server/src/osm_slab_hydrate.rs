@@ -252,7 +252,9 @@ pub async fn ensure_slab_local() -> Option<PathBuf> {
     let catalogue = fetch_catalogue(&store, &bucket).await;
     let catalogue = if catalogue.is_empty() {
         vec![crate::osm_region_catalogue::RegionEntry {
-            name: override_region.clone().unwrap_or_else(|| DEFAULT_REGION.to_string()),
+            name: override_region
+                .clone()
+                .unwrap_or_else(|| DEFAULT_REGION.to_string()),
             hydrate: true,
         }]
     } else {
@@ -382,7 +384,11 @@ async fn hydrate_one_region(
         let want = match sums.iter().find(|(k, _)| k == name).map(|(_, h)| h.clone()) {
             Some(h) => h,
             None => {
-                tracing::error!(region, artifact = name, "osm slab: no checksum pinned; refusing");
+                tracing::error!(
+                    region,
+                    artifact = name,
+                    "osm slab: no checksum pinned; refusing"
+                );
                 return None;
             }
         };
@@ -393,14 +399,19 @@ async fn hydrate_one_region(
             match resolve_cache_hit(&dest, &want) {
                 CacheDecision::TrustedViaMarker => {
                     tracing::info!(
-                        region, artifact = name,
+                        region,
+                        artifact = name,
                         "osm slab: cache hit, trusted via unchanged marker (mtime+len \
                          match the last real verification; skipped re-hash)"
                     );
                     continue;
                 }
                 CacheDecision::Verified => {
-                    tracing::info!(region, artifact = name, "osm slab: cache hit, checksum verified");
+                    tracing::info!(
+                        region,
+                        artifact = name,
+                        "osm slab: cache hit, checksum verified"
+                    );
                     continue;
                 }
                 CacheDecision::Mismatch(got) => tracing::warn!(
@@ -1019,7 +1030,11 @@ not-a-hash                        junk.txt
     /// name EVERY absent piece, not stop at the first.
     #[test]
     fn missing_inputs_names_every_absent_variable() {
-        assert_eq!(missing_inputs(None, None).len(), 2, "both absent: both named");
+        assert_eq!(
+            missing_inputs(None, None).len(),
+            2,
+            "both absent: both named"
+        );
         assert_eq!(
             missing_inputs(Some("my-bucket"), None),
             vec!["OSM_SLAB_CACHE_DIR (or RAILWAY_VOL)"]
@@ -1057,7 +1072,10 @@ not-a-hash                        junk.txt
                 "baden-wuerttemberg.chains"
             ]
         );
-        assert!(artifacts("bw")[0].ends_with(".soa"), "slab stays at index 0");
+        assert!(
+            artifacts("bw")[0].ends_with(".soa"),
+            "slab stays at index 0"
+        );
         assert_eq!(default_prefix("berlin"), "q2/bakes/berlin-v1");
         assert_eq!(
             default_prefix("baden-wuerttemberg"),
@@ -1071,12 +1089,7 @@ not-a-hash                        junk.txt
     /// Geofabrik region name takes are all accepted.
     #[test]
     fn region_validation_rejects_traversal_and_accepts_real_names() {
-        for good in [
-            "berlin",
-            "baden-wuerttemberg",
-            "nordrhein-westfalen",
-            "bw2",
-        ] {
+        for good in ["berlin", "baden-wuerttemberg", "nordrhein-westfalen", "bw2"] {
             assert!(is_valid_region(good), "{good} is a legitimate region name");
         }
         for bad in [

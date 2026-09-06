@@ -46,7 +46,7 @@ use std::sync::LazyLock;
 use askama::Template;
 use axum::http::StatusCode;
 use axum::response::Html;
-use axum::{extract::Query, Json};
+use axum::{Json, extract::Query};
 use lance_graph_contract::class_view::{ClassId, ClassView, FieldMask, RenderRow, ValueRow};
 use lance_graph_contract::ontology::{DisplayTemplate, FieldRef};
 use serde::Deserialize;
@@ -69,13 +69,13 @@ static OSINT_SYSTEM_FIELDS: LazyLock<[FieldRef; 12]> = LazyLock::new(|| {
         FieldRef::new("aiwar:need/militaryUse", "militaryUse"), // 2  NEED
         FieldRef::new("aiwar:need/civicUse", "civicUse"),       // 3  NEED
         // TWIG hi:lo
-        FieldRef::new("aiwar:need/mlTask", "MLTask"),  // 4  NEED (the task)
+        FieldRef::new("aiwar:need/mlTask", "MLTask"), // 4  NEED (the task)
         FieldRef::new("aiwar:offer/mlType", "MLType"), // 5  OFFER (the technique)
         // LEAF hi:lo
-        FieldRef::new("aiwar:intent/purpose", "purpose:vair"),  // 6  INTENT (explicit)
+        FieldRef::new("aiwar:intent/purpose", "purpose:vair"), // 6  INTENT (explicit)
         FieldRef::new("aiwar:offer/capacity", "capacity:airo"), // 7  OFFER
         // family hi:lo
-        FieldRef::new("aiwar:offer/output", "output:airo"),     // 8  OFFER
+        FieldRef::new("aiwar:offer/output", "output:airo"), // 8  OFFER
         FieldRef::new("aiwar:causality/impact", "impact:vair"), // 9  CAUSALITY (implicit)
         // identity hi:lo
         FieldRef::new("aiwar:relation/stakeholder", "stakeholder"), // 10 RELATION (edge)

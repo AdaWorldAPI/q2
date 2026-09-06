@@ -210,7 +210,10 @@ pub async fn take_by_ordinal_sparse(
     index: &OrdinalIndex,
     ordinals: &[u32],
 ) -> Result<HashMap<u32, Vec<u8>>, lance::Error> {
-    let row_indices: Vec<u64> = ordinals.iter().filter_map(|o| index.row_index(*o)).collect();
+    let row_indices: Vec<u64> = ordinals
+        .iter()
+        .filter_map(|o| index.row_index(*o))
+        .collect();
     take_by_row_index(dataset, &row_indices).await
 }
 
@@ -257,8 +260,10 @@ pub async fn ensure_chains_lance_local(chains_path: &Path) -> Option<(PathBuf, O
         }
     };
 
-    let entries: Vec<(u32, Vec<u8>)> =
-        chains.iter().map(|(ordinal, raw)| (ordinal, raw.to_vec())).collect();
+    let entries: Vec<(u32, Vec<u8>)> = chains
+        .iter()
+        .map(|(ordinal, raw)| (ordinal, raw.to_vec()))
+        .collect();
     let dest = book_dataset_path(chains_path, "chains");
     match write_ordinal_blob_dataset(&dest, &entries).await {
         Ok(written_ordinals) => {
@@ -408,7 +413,8 @@ static CHAINS_DATASET: tokio::sync::OnceCell<Option<Dataset>> = tokio::sync::Onc
 static CHAINS_INDEX: std::sync::OnceLock<Option<OrdinalIndex>> = std::sync::OnceLock::new();
 static IDENTITIES_DATASET: tokio::sync::OnceCell<Option<Dataset>> =
     tokio::sync::OnceCell::const_new();
-static TAG_KEYS_DATASET: tokio::sync::OnceCell<Option<Dataset>> = tokio::sync::OnceCell::const_new();
+static TAG_KEYS_DATASET: tokio::sync::OnceCell<Option<Dataset>> =
+    tokio::sync::OnceCell::const_new();
 static TAG_VALUES_DATASET: tokio::sync::OnceCell<Option<Dataset>> =
     tokio::sync::OnceCell::const_new();
 
@@ -472,7 +478,10 @@ pub fn publish_chains_conversion(result: Option<(PathBuf, OrdinalIndex)>) -> Opt
     }
 }
 
-async fn open_cached(cell: &'static tokio::sync::OnceCell<Option<Dataset>>, path: &Path) -> Option<&'static Dataset> {
+async fn open_cached(
+    cell: &'static tokio::sync::OnceCell<Option<Dataset>>,
+    path: &Path,
+) -> Option<&'static Dataset> {
     cell.get_or_init(|| async {
         let path_str = path.to_str()?;
         Dataset::open(path_str).await.ok()
@@ -488,11 +497,15 @@ async fn open_cached(cell: &'static tokio::sync::OnceCell<Option<Dataset>>, path
 /// contract as the rest of this module.
 pub async fn gather_chains(chains_dataset_path: &Path, ordinals: &[u32]) -> Option<RequestChains> {
     if ordinals.is_empty() {
-        return Some(RequestChains { raw: HashMap::new() });
+        return Some(RequestChains {
+            raw: HashMap::new(),
+        });
     }
     let index = CHAINS_INDEX.get()?.as_ref()?;
     let dataset = open_cached(&CHAINS_DATASET, chains_dataset_path).await?;
-    let raw = take_by_ordinal_sparse(dataset, index, ordinals).await.ok()?;
+    let raw = take_by_ordinal_sparse(dataset, index, ordinals)
+        .await
+        .ok()?;
     Some(RequestChains { raw })
 }
 
@@ -502,7 +515,9 @@ async fn gather_lookup(
     ordinals: &[u32],
 ) -> Option<Lookup> {
     if ordinals.is_empty() {
-        return Some(Lookup { map: HashMap::new() });
+        return Some(Lookup {
+            map: HashMap::new(),
+        });
     }
     let dataset = open_cached(cell, path).await?;
     // Dense addressing: row index == ordinal directly (see the module doc).
@@ -616,7 +631,11 @@ mod tests {
             "an unstored ordinal is silently absent from the result, mirroring \
              Chains::get's existing Ok(None) contract — never a panic or an error"
         );
-        assert_eq!(got.len(), 2, "exactly the two real ordinals came back, nothing extra");
+        assert_eq!(
+            got.len(),
+            2,
+            "exactly the two real ordinals came back, nothing extra"
+        );
     }
 
     /// Anti-vacuity for the round trip: bytes come back byte-for-byte,
@@ -630,7 +649,7 @@ mod tests {
     /// via the raw-record path (never re-encoding).
     #[tokio::test]
     async fn ensure_chains_lance_local_round_trips_a_real_chains_sidecar() {
-        use osm_soa_bake::chains::{decode_chain, Chains};
+        use osm_soa_bake::chains::{Chains, decode_chain};
         use osm_soa_bake::tms::TileXy;
 
         fn c(x: u32, y: u32) -> TileXy {
@@ -640,7 +659,11 @@ mod tests {
 
         // A gapped, non-contiguous ordinal space — the sparse case this
         // module exists for (see the "sparse_ordinals" test above).
-        let mut chains = vec![(3u32, ring.clone()), (500, vec![c(1, 1)]), (501, ring.clone())];
+        let mut chains = vec![
+            (3u32, ring.clone()),
+            (500, vec![c(1, 1)]),
+            (501, ring.clone()),
+        ];
         let mut buf = Vec::new();
         osm_soa_bake::chains::write_chains(&mut buf, 0xABCD_1234, &mut chains).expect("write");
 
@@ -657,7 +680,9 @@ mod tests {
         // dataset now serves must decode to exactly what Chains::get()
         // returns for that same ordinal from the original bytes.
         let original = Chains::from_bytes(buf).expect("parse original");
-        let dataset = Dataset::open(dataset_path.to_str().unwrap()).await.expect("open");
+        let dataset = Dataset::open(dataset_path.to_str().unwrap())
+            .await
+            .expect("open");
 
         for ordinal in [3u32, 500, 501] {
             let row = index.row_index(ordinal).expect("ordinal was written");
@@ -707,8 +732,9 @@ mod tests {
         let books_path = dir.path().join("region.books");
         std::fs::write(&books_path, &buf).expect("write fixture");
 
-        let [id_path, keys_path, values_path, labels_path] =
-            ensure_books_lance_local(&books_path).await.expect("conversion should succeed");
+        let [id_path, keys_path, values_path, labels_path] = ensure_books_lance_local(&books_path)
+            .await
+            .expect("conversion should succeed");
         assert_eq!(id_path, dir.path().join("region.identities.lance"));
         assert_eq!(keys_path, dir.path().join("region.tag_keys.lance"));
         assert_eq!(values_path, dir.path().join("region.tag_values.lance"));
@@ -716,14 +742,18 @@ mod tests {
 
         // Dense addressing: ordinal 1 of tag_values ("residential") sits at
         // row 1 directly — no index translation, per the module doc.
-        let values_ds = Dataset::open(values_path.to_str().unwrap()).await.expect("open");
+        let values_ds = Dataset::open(values_path.to_str().unwrap())
+            .await
+            .expect("open");
         let got = take_by_row_index(&values_ds, &[0, 1]).await.expect("take");
         assert_eq!(got.get(&0), Some(&b"primary".to_vec()));
         assert_eq!(got.get(&1), Some(&b"residential".to_vec()));
 
         // UTF-8 multibyte content (the German ß) survives verbatim — labels
         // carry street names, not ASCII-only tag vocabulary.
-        let labels_ds = Dataset::open(labels_path.to_str().unwrap()).await.expect("open");
+        let labels_ds = Dataset::open(labels_path.to_str().unwrap())
+            .await
+            .expect("open");
         let got = take_by_row_index(&labels_ds, &[0]).await.expect("take");
         assert_eq!(got.get(&0), Some(&"Hauptstraße".as_bytes().to_vec()));
     }
@@ -802,8 +832,9 @@ mod tests {
         let chains_path = dir.path().join("gather.chains");
         std::fs::write(&chains_path, &buf).expect("write fixture");
 
-        let (dataset_path, index) =
-            ensure_chains_lance_local(&chains_path).await.expect("conversion");
+        let (dataset_path, index) = ensure_chains_lance_local(&chains_path)
+            .await
+            .expect("conversion");
         set_chains_index(index);
 
         // Ask for 3 and 500 (present), 4 (a real gap), and NOT 501 (present
@@ -837,8 +868,7 @@ mod tests {
         use osm_soa_bake::codebook::{Books, Header};
         use osm_soa_bake::tms::AnchorRounding;
 
-        let identities =
-            IdentityCodebook::try_new(vec!["node/1".into(), "way/2".into()]).unwrap();
+        let identities = IdentityCodebook::try_new(vec!["node/1".into(), "way/2".into()]).unwrap();
         let tag_keys = IdentityCodebook::try_new(vec!["highway".into()]).unwrap();
         let tag_values =
             IdentityCodebook::try_new(vec!["primary".into(), "residential".into()]).unwrap();
@@ -862,8 +892,9 @@ mod tests {
         let books_path = dir.path().join("gather.books");
         std::fs::write(&books_path, &buf).expect("write fixture");
 
-        let [id_path, keys_path, values_path, _labels_path] =
-            ensure_books_lance_local(&books_path).await.expect("conversion");
+        let [id_path, keys_path, values_path, _labels_path] = ensure_books_lance_local(&books_path)
+            .await
+            .expect("conversion");
 
         let gathered = gather_books(&id_path, &keys_path, &values_path, &[1], &[0], &[1])
             .await

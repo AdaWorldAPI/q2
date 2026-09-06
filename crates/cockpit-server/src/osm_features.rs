@@ -18,10 +18,10 @@
 //! straight to `tile_range`, which applies the flip internally — so the
 //! request path never round-trips through a key at all.
 
+use axum::Json;
 use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use lance_graph_contract::canonical_node::NodeRow;
 use osm_soa_bake::identity::read_identity;
 use osm_soa_bake::slab::RowSlab;
@@ -499,7 +499,10 @@ fn sidecar_path(ext: &str) -> Option<std::path::PathBuf> {
             // deploy without an OSM bake runs this way by design, and the
             // endpoints already answer 503. It is logged so "unset" and
             // "present but unreadable" are never confused for each other.
-            tracing::debug!(ext, "osm sidecar: OSM_SLAB_PATH unset — no OSM bake configured");
+            tracing::debug!(
+                ext,
+                "osm sidecar: OSM_SLAB_PATH unset — no OSM bake configured"
+            );
             None
         }
     }
@@ -677,7 +680,9 @@ pub async fn osm_health_handler() -> Json<serde_json::Value> {
     // "header-valid", not "resident in memory".
     let books_loaded = books_header_valid_for_slab(sidecar("books"));
     let chains_loaded = chains_header_valid_for_slab(sidecar("chains"));
-    let rows = open_slab().and_then(|b| RowSlab::new(b).ok()).map(|s| s.len());
+    let rows = open_slab()
+        .and_then(|b| RowSlab::new(b).ok())
+        .map(|s| s.len());
 
     let styling = styling_verdict(
         slab_env.is_some(),
@@ -1076,24 +1081,56 @@ where
     // to the fallback is everything.
     if matches!(
         landuse,
-        Some("grass" | "meadow" | "farmland" | "farmyard" | "orchard" | "vineyard"
-            | "allotments" | "village_green" | "greenfield" | "flowerbed")
-    ) || matches!(natural, Some("grassland" | "heath" | "scrub" | "moor" | "fell"))
-    {
+        Some(
+            "grass"
+                | "meadow"
+                | "farmland"
+                | "farmyard"
+                | "orchard"
+                | "vineyard"
+                | "allotments"
+                | "village_green"
+                | "greenfield"
+                | "flowerbed"
+        )
+    ) || matches!(
+        natural,
+        Some("grassland" | "heath" | "scrub" | "moor" | "fell")
+    ) {
         return ShapeClass::Meadow;
     }
     if matches!(
         leisure,
-        Some("park" | "garden" | "pitch" | "playground" | "recreation_ground"
-            | "golf_course" | "dog_park" | "common")
-    ) || matches!(landuse, Some("cemetery" | "grave_yard" | "recreation_ground"))
-    {
+        Some(
+            "park"
+                | "garden"
+                | "pitch"
+                | "playground"
+                | "recreation_ground"
+                | "golf_course"
+                | "dog_park"
+                | "common"
+        )
+    ) || matches!(
+        landuse,
+        Some("cemetery" | "grave_yard" | "recreation_ground")
+    ) {
         return ShapeClass::Park;
     }
     if matches!(
         landuse,
-        Some("residential" | "industrial" | "commercial" | "retail" | "construction"
-            | "garages" | "railway" | "quarry" | "brownfield" | "military")
+        Some(
+            "residential"
+                | "industrial"
+                | "commercial"
+                | "retail"
+                | "construction"
+                | "garages"
+                | "railway"
+                | "quarry"
+                | "brownfield"
+                | "military"
+        )
     ) {
         return ShapeClass::Built;
     }
@@ -1114,7 +1151,11 @@ where
 /// Tags bind to their member by ORDINAL, not by slot adjacency — the same
 /// filter [`query_feature`] documents, and for the same reason: without it a
 /// continuation row's tags are attributed to the wrong element.
-fn row_tags<'a>(row: &NodeRow, books: &'a BooksHandle<'_>, ordinal: u32) -> Vec<(&'a str, &'a str)> {
+fn row_tags<'a>(
+    row: &NodeRow,
+    books: &'a BooksHandle<'_>,
+    ordinal: u32,
+) -> Vec<(&'a str, &'a str)> {
     let mut out = Vec::new();
     for (_slot, facet) in osm_soa_bake::cluster::facets(row) {
         if let osm_soa_bake::cluster::Facet::Tag { member, key, value } = facet {
@@ -1803,8 +1844,14 @@ mod tests {
         // The two that actually fire on a broken deploy must be findable by an
         // operator grepping for trouble, and must name their distinct fix.
         assert!(refused.contains("DEGRADED") && absent.contains("DEGRADED"));
-        assert!(refused.contains("re-bake"), "a refused codebook needs a re-bake");
-        assert!(absent.contains("Ship"), "an absent codebook needs the file shipped");
+        assert!(
+            refused.contains("re-bake"),
+            "a refused codebook needs a re-bake"
+        );
+        assert!(
+            absent.contains("Ship"),
+            "an absent codebook needs the file shipped"
+        );
         // A working deploy must NOT shout — otherwise the signal is worthless.
         assert!(!ok.contains("DEGRADED") && !unconfigured.contains("DEGRADED"));
     }
@@ -1823,7 +1870,10 @@ mod tests {
     fn sidecars_resolve_from_the_slab_stem_not_the_lance_dir() {
         use std::path::PathBuf;
         let slab = PathBuf::from("/vol/osm/berlin.soa");
-        assert_eq!(slab.with_extension("books"), PathBuf::from("/vol/osm/berlin.books"));
+        assert_eq!(
+            slab.with_extension("books"),
+            PathBuf::from("/vol/osm/berlin.books")
+        );
         assert_eq!(
             slab.with_extension("chains"),
             PathBuf::from("/vol/osm/berlin.chains")
@@ -1874,8 +1924,12 @@ mod tests {
         );
 
         // Missing files: false, cheaply, no digest comparison needed.
-        assert!(!books_header_valid_for_slab(Some(dir.path().join("nope.books"))));
-        assert!(!chains_header_valid_for_slab(Some(dir.path().join("nope.chains"))));
+        assert!(!books_header_valid_for_slab(Some(
+            dir.path().join("nope.books")
+        )));
+        assert!(!chains_header_valid_for_slab(Some(
+            dir.path().join("nope.chains")
+        )));
         assert!(!books_header_valid_for_slab(None));
         assert!(!chains_header_valid_for_slab(None));
 
@@ -2155,7 +2209,10 @@ mod tests {
     #[test]
     fn specific_land_kinds_beat_the_generic_green_fallback() {
         assert_eq!(class_for_tags([("landuse", "meadow")]), ShapeClass::Meadow);
-        assert_eq!(class_for_tags([("landuse", "farmland")]), ShapeClass::Meadow);
+        assert_eq!(
+            class_for_tags([("landuse", "farmland")]),
+            ShapeClass::Meadow
+        );
         assert_eq!(class_for_tags([("natural", "heath")]), ShapeClass::Meadow);
         assert_eq!(class_for_tags([("leisure", "park")]), ShapeClass::Park);
         assert_eq!(class_for_tags([("landuse", "cemetery")]), ShapeClass::Park);
@@ -2174,14 +2231,19 @@ mod tests {
         assert_eq!(class_for_tags([("building", "yes")]), ShapeClass::Building);
         // …and the fallback still catches a green-ish tag none of them name,
         // so widening the specific set can never demote one to `Other`.
-        assert_eq!(class_for_tags([("landuse", "some_new_tag")]), ShapeClass::Green);
+        assert_eq!(
+            class_for_tags([("landuse", "some_new_tag")]),
+            ShapeClass::Green
+        );
         assert_eq!(class_for_tags([("leisure", "marina")]), ShapeClass::Green);
     }
 
     /// Decode `OSM1` bytes back into shapes — an independent reader for the
     /// round-trip test below, written from the format DOC, not from the
     /// encoder's code, so a shared misunderstanding can't self-certify.
-    fn decode_tile_bin(buf: &[u8]) -> Option<(u32, u32, u32, u32, Vec<(u32, u8, bool, Vec<(f32, f32)>)>)> {
+    fn decode_tile_bin(
+        buf: &[u8],
+    ) -> Option<(u32, u32, u32, u32, Vec<(u32, u8, bool, Vec<(f32, f32)>)>)> {
         let rd_u32 = |at: usize| u32::from_le_bytes(buf[at..at + 4].try_into().unwrap());
         if buf.len() < 20 || rd_u32(0) != 0x314D_534F {
             return None;
@@ -2220,12 +2282,27 @@ mod tests {
         let z = 14u32;
         // A tile that really contains the cells below (Berlin-ish).
         let cells = [
-            osm_soa_bake::tms::TileXy { x: 0x8988_0000, y_xyz: 0x5470_0000 },
-            osm_soa_bake::tms::TileXy { x: 0x8988_4000, y_xyz: 0x5470_4000 },
-            osm_soa_bake::tms::TileXy { x: 0x8988_8000, y_xyz: 0x5470_0000 },
-            osm_soa_bake::tms::TileXy { x: 0x8988_0000, y_xyz: 0x5470_0000 },
+            osm_soa_bake::tms::TileXy {
+                x: 0x8988_0000,
+                y_xyz: 0x5470_0000,
+            },
+            osm_soa_bake::tms::TileXy {
+                x: 0x8988_4000,
+                y_xyz: 0x5470_4000,
+            },
+            osm_soa_bake::tms::TileXy {
+                x: 0x8988_8000,
+                y_xyz: 0x5470_0000,
+            },
+            osm_soa_bake::tms::TileXy {
+                x: 0x8988_0000,
+                y_xyz: 0x5470_0000,
+            },
         ];
-        let (tx, ty) = (cells[0].x >> (32 - z as usize as u32), cells[0].y_xyz >> (32 - z));
+        let (tx, ty) = (
+            cells[0].x >> (32 - z as usize as u32),
+            cells[0].y_xyz >> (32 - z),
+        );
         let raw = TileShapesRaw {
             z,
             x: tx,
@@ -2254,8 +2331,9 @@ mod tests {
             let n = f64::exp2(z as f64);
             let wx = (lon + 180.0) / 360.0 * n * 256.0 - (tx * 256) as f64;
             let r = lat.to_radians();
-            let wy = (1.0 - (r.tan() + 1.0 / r.cos()).ln() / std::f64::consts::PI) / 2.0 * n * 256.0
-                - (ty * 256) as f64;
+            let wy =
+                (1.0 - (r.tan() + 1.0 / r.cos()).ln() / std::f64::consts::PI) / 2.0 * n * 256.0
+                    - (ty * 256) as f64;
             assert!(
                 (pts[i].0 as f64 - wx).abs() < 0.01 && (pts[i].1 as f64 - wy).abs() < 0.01,
                 "point {i}: bin ({}, {}) vs lonlat projection ({wx:.4}, {wy:.4})",
@@ -2331,8 +2409,14 @@ mod tests {
         let berlin_range = slab.tile_range(z, bx, by);
         let reyk_range = slab.tile_range(z, rx, ry);
 
-        assert!(!berlin_range.is_empty(), "Berlin tile must contain the Berlin rows, got {berlin_range:?}");
-        assert!(!reyk_range.is_empty(), "Reykjavik tile must contain the Reykjavik rows, got {reyk_range:?}");
+        assert!(
+            !berlin_range.is_empty(),
+            "Berlin tile must contain the Berlin rows, got {berlin_range:?}"
+        );
+        assert!(
+            !reyk_range.is_empty(),
+            "Reykjavik tile must contain the Reykjavik rows, got {reyk_range:?}"
+        );
         assert!(
             berlin_range.end <= reyk_range.start || reyk_range.end <= berlin_range.start,
             "neighboring tiles must return disjoint row ranges, got {berlin_range:?} vs {reyk_range:?}"
@@ -2352,7 +2436,10 @@ mod tests {
         let (x, y) = crate::osm_tiles::lonlat_to_tile(lon, lat, z);
         let out = query_tile(&bytes, z, x, y).expect("query succeeds over a valid slab");
 
-        assert_eq!(out.total, 1, "exactly the one fixture row must fall in its own tile");
+        assert_eq!(
+            out.total, 1,
+            "exactly the one fixture row must fall in its own tile"
+        );
         assert_eq!(out.returned, 1);
         let got = &out.features[0];
         assert!(
@@ -2641,7 +2728,10 @@ mod tests {
             .collect();
         pts.extend_from_slice(&outliers);
 
-        let mut mortons: Vec<u64> = pts.iter().map(|&(a, b)| point_to_tms_morton(a, b)).collect();
+        let mut mortons: Vec<u64> = pts
+            .iter()
+            .map(|&(a, b)| point_to_tms_morton(a, b))
+            .collect();
         mortons.sort_unstable();
         let bytes = synthetic_slab(&mortons);
         let slab = RowSlab::new(&bytes).expect("row-aligned synthetic buffer");
@@ -2715,9 +2805,8 @@ mod tests {
         let (cx, cy, step) = (13.40_f64, 52.50_f64, 0.002_f64);
         let mut mortons: Vec<u64> = (0..40)
             .flat_map(|i| {
-                (0..40).map(move |j| {
-                    point_to_tms_morton(cx + i as f64 * step, cy + j as f64 * step)
-                })
+                (0..40)
+                    .map(move |j| point_to_tms_morton(cx + i as f64 * step, cy + j as f64 * step))
             })
             .collect();
         mortons.sort_unstable();
@@ -2741,7 +2830,10 @@ mod tests {
             prev = n;
         }
         // Anti-vacuity: monotonicity is trivially true of a constant sequence.
-        assert!(grew, "fixture never split a cell, so monotonicity proves nothing");
+        assert!(
+            grew,
+            "fixture never split a cell, so monotonicity proves nothing"
+        );
         assert_eq!(
             prev,
             mortons.len(),
@@ -2758,9 +2850,8 @@ mod tests {
         let (cx, cy, step) = (13.40_f64, 52.50_f64, 0.0005_f64);
         let mut mortons: Vec<u64> = (0..60)
             .flat_map(|i| {
-                (0..60).map(move |j| {
-                    point_to_tms_morton(cx + i as f64 * step, cy + j as f64 * step)
-                })
+                (0..60)
+                    .map(move |j| point_to_tms_morton(cx + i as f64 * step, cy + j as f64 * step))
             })
             .collect();
         mortons.sort_unstable();
@@ -2774,7 +2865,10 @@ mod tests {
         let zz = choose_cell_zoom(z, range.clone(), morton, budget);
 
         let here = occupied_cells(range.clone(), morton, zz * 2);
-        assert!(here <= budget, "chosen depth z={zz} yields {here} cells, over budget");
+        assert!(
+            here <= budget,
+            "chosen depth z={zz} yields {here} cells, over budget"
+        );
 
         assert!(
             zz < HHTL_ZOOM_MAX,
@@ -2863,14 +2957,12 @@ mod tests {
             let extent = |sel: &[usize]| -> (f64, f64) {
                 let pts: Vec<(f64, f64)> =
                     sel.iter().map(|&i| morton_to_lonlat(morton(i))).collect();
-                let all: Vec<(f64, f64)> = range
-                    .clone()
-                    .map(|i| morton_to_lonlat(morton(i)))
-                    .collect();
+                let all: Vec<(f64, f64)> =
+                    range.clone().map(|i| morton_to_lonlat(morton(i))).collect();
                 let span = |v: &[(f64, f64)], f: fn(&(f64, f64)) -> f64| {
-                    let (lo, hi) = v.iter().fold((f64::MAX, f64::MIN), |a, p| {
-                        (a.0.min(f(p)), a.1.max(f(p)))
-                    });
+                    let (lo, hi) = v
+                        .iter()
+                        .fold((f64::MAX, f64::MIN), |a, p| (a.0.min(f(p)), a.1.max(f(p))));
                     hi - lo
                 };
                 (

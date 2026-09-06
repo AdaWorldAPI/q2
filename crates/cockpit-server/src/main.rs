@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::sse::{Event, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -27,20 +27,15 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
-mod openai;
 mod body_lod;
-mod graph_engine;
 mod clinical;
-mod pgx;
-mod osint_gotham;
-mod scene_player;
-mod shader_stream;
-mod style_state;
-mod dto_bridge;
 mod codebook;
+mod dto_bridge;
+mod graph_engine;
 mod mock_driver;
+mod openai;
 mod osint_classview;
-mod osm_tiles;
+mod osint_gotham;
 mod osm;
 mod osm_artifact_manager;
 mod osm_chains_books_lance;
@@ -49,6 +44,11 @@ mod osm_lance;
 mod osm_lifecycle;
 mod osm_region_catalogue;
 mod osm_slab_hydrate;
+mod osm_tiles;
+mod pgx;
+mod scene_player;
+mod shader_stream;
+mod style_state;
 
 // ── Embed the Vite build at compile time ─────────────────────────────────────
 // The cockpit/ directory is built by `cd cockpit && npm run build` which
@@ -56,14 +56,16 @@ mod osm_slab_hydrate;
 // If dist/ doesn't exist at compile time, we fall back to the inline HTML shell.
 
 #[cfg(feature = "embed-cockpit")]
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 
 #[cfg(feature = "embed-cockpit")]
 static COCKPIT_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../cockpit/dist");
 
 /// Committed fallback OSINT SoA (used only if the harvest graph isn't on disk).
-static OSINT_SOA_FALLBACK: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/osint_scene.soa"));
+static OSINT_SOA_FALLBACK: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/osint_scene.soa"
+));
 
 /// OSINT SoA wire buffer, **baked at startup from the on-disk enriched harvest**
 /// (`osint_gotham::osint_soa_bytes`) so the served 3D scene reflects the CURRENT
@@ -75,7 +77,10 @@ static OSINT_SOA: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
     let candidates = [
         // Anchored on the crate dir (baked at build) so it resolves regardless
         // of the runtime cwd Railway launches from.
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../cockpit/public/aiwar_graph.json"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../cockpit/public/aiwar_graph.json"
+        ),
         "cockpit/public/aiwar_graph.json",
         "/home/user/aiwar-neo4j-harvest/data/aiwar_graph.json",
         "../aiwar-neo4j-harvest/data/aiwar_graph.json",
@@ -302,8 +307,14 @@ async fn main() {
     let scene_state_for_routes = state.scene_state.clone();
     let main_routes: Router<Arc<AppState>> = Router::new()
         // Shader stream — DTO pipeline SSE (Φ StreamDto → Ψ ResonanceDto → B BusDto → Γ ThoughtStruct)
-        .route("/v1/shader/stream", get(shader_stream::shader_stream_handler).with_state(scene_state_for_routes.clone()))
-        .route("/v1/shader/status", get(shader_stream::shader_status_handler).with_state(scene_state_for_routes))
+        .route(
+            "/v1/shader/stream",
+            get(shader_stream::shader_stream_handler).with_state(scene_state_for_routes.clone()),
+        )
+        .route(
+            "/v1/shader/status",
+            get(shader_stream::shader_status_handler).with_state(scene_state_for_routes),
+        )
         // Shader style selection — POST { "style": "Focused" } sets the
         // process-global StyleSelector that shader_stream reads when
         // building each ShaderDispatch (overrides default Auto).
@@ -329,11 +340,17 @@ async fn main() {
         .route("/api/analyst/analyze/:bucket", get(analyst_analyze_handler))
         .route("/api/analyst/full", get(analyst_full_handler))
         // Live graph engine — neo4j-emulating renderer with AGI thinking
-        .route("/api/graph/snapshot", get(graph_engine::graph_snapshot_handler))
+        .route(
+            "/api/graph/snapshot",
+            get(graph_engine::graph_snapshot_handler),
+        )
         .route("/api/graph/infer", post(graph_engine::nars_infer_handler))
         .route("/api/graph/health", get(graph_engine::graph_health_handler))
         // Clinical NARS reasoning for the /fma-body organ panel (real TruthValue::deduction)
-        .route("/api/clinical/reason", post(clinical::clinical_reason_handler))
+        .route(
+            "/api/clinical/reason",
+            post(clinical::clinical_reason_handler),
+        )
         // CPIC pharmacogenomics for the /cpic cockpit (cpic::reason over the baked CPIC tables)
         .route("/api/cpic/reason", post(pgx::cpic_reason_handler))
         .route("/api/cpic/catalog", get(pgx::cpic_catalog_handler))
@@ -347,7 +364,10 @@ async fn main() {
         // The canonical OSINT card (classid 0x0700) projected through a FieldMask —
         // the Redmine-style ViewFilter, server-side (`?mask=<bits>`, omitted = FULL).
         .route("/api/osint/card", get(osint_classview::osint_card_handler))
-        .route("/api/osint/card.html", get(osint_classview::osint_card_html_handler))
+        .route(
+            "/api/osint/card.html",
+            get(osint_classview::osint_card_html_handler),
+        )
         // The generic, OSINT-agnostic sibling: any well-formed 16-byte node
         // key renders through the SAME ClassView fieldmask core as the OSINT
         // route above (`resolve_card` + `render_card_response` in
@@ -373,10 +393,22 @@ async fn main() {
         // serving path /api/osm/health reports on.
         .route("/api/osm/status", get(osm_status_handler))
         .route("/api/osm/locate", get(osm_tiles::osm_locate_handler))
-        .route("/api/osm/tile/:z/:x/:y", get(osm_tiles::osm_tile_meta_handler))
-        .route("/api/osm/features/:z/:x/:y", get(osm_features::osm_features_handler))
-        .route("/api/osm/feature/:idx", get(osm_features::osm_feature_handler))
-        .route("/api/osm/geometry/:idx", get(osm_features::osm_geometry_handler))
+        .route(
+            "/api/osm/tile/:z/:x/:y",
+            get(osm_tiles::osm_tile_meta_handler),
+        )
+        .route(
+            "/api/osm/features/:z/:x/:y",
+            get(osm_features::osm_features_handler),
+        )
+        .route(
+            "/api/osm/feature/:idx",
+            get(osm_features::osm_feature_handler),
+        )
+        .route(
+            "/api/osm/geometry/:idx",
+            get(osm_features::osm_geometry_handler),
+        )
         // The basemap itself, drawn from the bake. Registered AFTER the :idx
         // form; axum matches the literal `tile` segment ahead of the param, so
         // `/geometry/tile/12/2200/1341` cannot be swallowed as an index.
@@ -403,7 +435,10 @@ async fn main() {
         .route("/api/garmin-drape/:location", get(garmin_drape_handler))
         // The DRP1 contour-line overlay (topo lines) for a garmin terrain scene,
         // resolved through the manifest's `garmin_contours` map; 404 = no contours.
-        .route("/api/garmin-contours/:location", get(garmin_contour_handler))
+        .route(
+            "/api/garmin-contours/:location",
+            get(garmin_contour_handler),
+        )
         // Health
         .route("/health", get(health_handler));
 
@@ -426,7 +461,9 @@ async fn main() {
     tracing::info!("  /demo   → infrastructure demo (24 seed nodes)");
     tracing::info!("  /debug  → neural debugger (18,763 functions)");
     tracing::info!("  /api/debug/osint → live OSINT pipeline audit (AriGraph + NARS + xAI)");
-    tracing::info!("  /mri             → AGI Brain MRI (pre-rendered, 500ms refresh, LazyLock double-buffer)");
+    tracing::info!(
+        "  /mri             → AGI Brain MRI (pre-rendered, 500ms refresh, LazyLock double-buffer)"
+    );
     tracing::info!("  /mcp/*  → MCP endpoints (lance-graph)");
     tracing::info!("  /v1/*   → OpenAI-compatible API (gpt2, openchat_3.5, stable-diffusion)");
 
@@ -445,13 +482,17 @@ async fn main() {
     });
     if let Some(path) = aiwar_path {
         match graph_engine::hydrate_from_aiwar_json(&path).await {
-            Ok(()) => tracing::info!("  /api/graph/*     → live graph engine (lance-graph, NARS-enabled): {path}"),
+            Ok(()) => tracing::info!(
+                "  /api/graph/*     → live graph engine (lance-graph, NARS-enabled): {path}"
+            ),
             Err(e) => tracing::warn!("  /api/graph/*     → fallback mode (hydration failed: {e})"),
         }
         // OSINT domain (classid 0x0700): same harvest as a CANON family-basin
         // graph (round→anchor basins), displayed through the OGAR ClassView.
         match osint_gotham::hydrate_osint_gotham(&path).await {
-            Ok(()) => tracing::info!("  /api/graph/osint → OSINT/Gotham family-basin view (classid 0x0700, OGAR ClassView)"),
+            Ok(()) => tracing::info!(
+                "  /api/graph/osint → OSINT/Gotham family-basin view (classid 0x0700, OGAR ClassView)"
+            ),
             Err(e) => tracing::warn!("  /api/graph/osint → fallback (OSINT hydration failed: {e})"),
         }
     } else {
@@ -517,10 +558,8 @@ fn garmin_scene_slugs(manifest_json: &str) -> Vec<String> {
     serde_json::from_str::<serde_json::Value>(manifest_json)
         .ok()
         .and_then(|v| {
-            v.get("garmin_scenes").and_then(|m| {
-                m.as_object()
-                    .map(|o| o.keys().cloned().collect::<Vec<_>>())
-            })
+            v.get("garmin_scenes")
+                .and_then(|m| m.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()))
         })
         .unwrap_or_default()
 }
@@ -529,14 +568,20 @@ fn garmin_scene_slugs(manifest_json: &str) -> Vec<String> {
 /// The gz bytes are served raw (application/gzip, no Content-Encoding):
 /// BodyHelix inflates client-side via DecompressionStream, same contract as
 /// the same-origin body/berlin/iceland wires.
-async fn garmin_scene_handler(axum::extract::Path(location): axum::extract::Path<String>) -> Response {
+async fn garmin_scene_handler(
+    axum::extract::Path(location): axum::extract::Path<String>,
+) -> Response {
     #[cfg(feature = "embed-cockpit")]
     {
         let Some(man) = COCKPIT_DIST
             .get_file("body.manifest.json")
             .and_then(|f| std::str::from_utf8(f.contents()).ok())
         else {
-            return (StatusCode::INTERNAL_SERVER_ERROR, "manifest missing from embedded dist").into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "manifest missing from embedded dist",
+            )
+                .into_response();
         };
         if let Some(fname) = resolve_garmin_scene(man, &location) {
             if let Some(file) = COCKPIT_DIST.get_file(&fname) {
@@ -579,14 +624,20 @@ async fn garmin_scene_handler(axum::extract::Path(location): axum::extract::Path
 /// (the roads / trails / rivers that drape onto its terrain). A scene with no
 /// registered drape returns 404 quietly; the client treats that as "no overlay"
 /// and renders the bare terrain (graceful — the drape is purely additive).
-async fn garmin_drape_handler(axum::extract::Path(location): axum::extract::Path<String>) -> Response {
+async fn garmin_drape_handler(
+    axum::extract::Path(location): axum::extract::Path<String>,
+) -> Response {
     #[cfg(feature = "embed-cockpit")]
     {
         let Some(man) = COCKPIT_DIST
             .get_file("body.manifest.json")
             .and_then(|f| std::str::from_utf8(f.contents()).ok())
         else {
-            return (StatusCode::INTERNAL_SERVER_ERROR, "manifest missing from embedded dist").into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "manifest missing from embedded dist",
+            )
+                .into_response();
         };
         if let Some(fname) = resolve_garmin_drape(man, &location) {
             if let Some(file) = COCKPIT_DIST.get_file(&fname) {
@@ -603,7 +654,11 @@ async fn garmin_drape_handler(axum::extract::Path(location): axum::extract::Path
     #[cfg(not(feature = "embed-cockpit"))]
     {
         let _ = location;
-        (StatusCode::SERVICE_UNAVAILABLE, "garmin drape needs the embed-cockpit build").into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "garmin drape needs the embed-cockpit build",
+        )
+            .into_response()
     }
 }
 
@@ -611,14 +666,20 @@ async fn garmin_drape_handler(axum::extract::Path(location): axum::extract::Path
 /// `location` (the topo lines that drape onto its terrain). A scene with no
 /// registered contours returns 404 quietly; the client treats that as "no
 /// overlay" and renders without contours (graceful — contours are additive).
-async fn garmin_contour_handler(axum::extract::Path(location): axum::extract::Path<String>) -> Response {
+async fn garmin_contour_handler(
+    axum::extract::Path(location): axum::extract::Path<String>,
+) -> Response {
     #[cfg(feature = "embed-cockpit")]
     {
         let Some(man) = COCKPIT_DIST
             .get_file("body.manifest.json")
             .and_then(|f| std::str::from_utf8(f.contents()).ok())
         else {
-            return (StatusCode::INTERNAL_SERVER_ERROR, "manifest missing from embedded dist").into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "manifest missing from embedded dist",
+            )
+                .into_response();
         };
         if let Some(fname) = resolve_garmin_contours(man, &location) {
             if let Some(file) = COCKPIT_DIST.get_file(&fname) {
@@ -635,7 +696,11 @@ async fn garmin_contour_handler(axum::extract::Path(location): axum::extract::Pa
     #[cfg(not(feature = "embed-cockpit"))]
     {
         let _ = location;
-        (StatusCode::SERVICE_UNAVAILABLE, "garmin contours need the embed-cockpit build").into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "garmin contours need the embed-cockpit build",
+        )
+            .into_response()
     }
 }
 
@@ -682,16 +747,27 @@ async fn static_handler(uri: axum::http::Uri) -> Response {
 }
 
 fn mime_from_path(path: &str) -> &'static str {
-    if path.ends_with(".html") { "text/html; charset=utf-8" }
-    else if path.ends_with(".css") { "text/css; charset=utf-8" }
-    else if path.ends_with(".js") { "application/javascript; charset=utf-8" }
-    else if path.ends_with(".json") { "application/json" }
-    else if path.ends_with(".svg") { "image/svg+xml" }
-    else if path.ends_with(".png") { "image/png" }
-    else if path.ends_with(".ico") { "image/x-icon" }
-    else if path.ends_with(".woff2") { "font/woff2" }
-    else if path.ends_with(".woff") { "font/woff" }
-    else { "application/octet-stream" }
+    if path.ends_with(".html") {
+        "text/html; charset=utf-8"
+    } else if path.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if path.ends_with(".js") {
+        "application/javascript; charset=utf-8"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".ico") {
+        "image/x-icon"
+    } else if path.ends_with(".woff2") {
+        "font/woff2"
+    } else if path.ends_with(".woff") {
+        "font/woff"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 /// Minimal fallback shell when the Vite build isn't embedded.
@@ -820,15 +896,15 @@ async fn mcp_message_handler(
             jsonrpc: "2.0".into(),
             id: req.id,
             result: None,
-            error: Some(McpError { code: -32000, message: msg }),
+            error: Some(McpError {
+                code: -32000,
+                message: msg,
+            }),
         }),
     }
 }
 
-async fn handle_tool_call(
-    state: &AppState,
-    req: &McpRequest,
-) -> Result<serde_json::Value, String> {
+async fn handle_tool_call(state: &AppState, req: &McpRequest) -> Result<serde_json::Value, String> {
     let params = req.params.as_ref().ok_or("Missing params")?;
     let tool_name = params.name.as_deref().ok_or("Missing tool name")?;
     let args = params.arguments.as_ref().cloned().unwrap_or_default();
@@ -856,12 +932,11 @@ async fn handle_tool_call(
             // async worker (keeps the request executor free and never blocks a
             // Tokio worker for the whole DataFusion query).
             let code_owned = code.to_string();
-            let result = tokio::task::spawn_blocking(move || {
-                notebook_query::execute(&code_owned, language)
-            })
-            .await
-            .map_err(|e| format!("query task panicked: {e}"))?
-            .map_err(|e| format!("lance-graph: {e}"))?;
+            let result =
+                tokio::task::spawn_blocking(move || notebook_query::execute(&code_owned, language))
+                    .await
+                    .map_err(|e| format!("query task panicked: {e}"))?
+                    .map_err(|e| format!("lance-graph: {e}"))?;
 
             let cell = serde_json::json!({
                 "id": format!("cell-{}", std::time::SystemTime::now()
@@ -939,10 +1014,8 @@ async fn style_handler(
 /// Also runs demo analyses: same query through all 12 thinking styles.
 async fn strategy_check_handler() -> Json<serde_json::Value> {
     // Run in a blocking thread since strategy checks may be CPU-intensive
-    let result = tokio::task::spawn_blocking(|| {
-        notebook_query::diagnostics::run_strategy_checks()
-    })
-    .await;
+    let result =
+        tokio::task::spawn_blocking(|| notebook_query::diagnostics::run_strategy_checks()).await;
 
     match result {
         Ok(matrix) => Json(serde_json::to_value(matrix).unwrap_or_default()),
@@ -965,12 +1038,12 @@ async fn osint_audit_handler() -> Json<serde_json::Value> {
         // In production these come from the live graph state.
         // For now, report pipeline registry stats + env status.
         notebook_query::osint_audit::run_osint_audit(
-            0, // graph_triplet_count — wire to live graph
-            0, // graph_active_count
-            0, // graph_entity_count
-            0, // graph_spatial_edges
-            0, // graph_contradictions
-            0, // episodic_count
+            0,   // graph_triplet_count — wire to live graph
+            0,   // graph_active_count
+            0,   // graph_entity_count
+            0,   // graph_spatial_edges
+            0,   // graph_contradictions
+            0,   // episodic_count
             100, // episodic_capacity
         )
     })
@@ -1025,7 +1098,11 @@ impl Default for MriFrame {
             "timestamp_ms": 0,
         });
         let html = render_mri_html(&empty_json);
-        Self { html, json: empty_json, rendered_at_ms: 0 }
+        Self {
+            html,
+            json: empty_json,
+            rendered_at_ms: 0,
+        }
     }
 }
 
@@ -1169,7 +1246,9 @@ pub fn spawn_mri_prerender() {
                 let entity_stats = std::collections::HashMap::new();
                 let thinking_activations = Vec::new();
                 let mri = notebook_query::mri::run_brain_mri(
-                    &edges, &entity_stats, &thinking_activations,
+                    &edges,
+                    &entity_stats,
+                    &thinking_activations,
                     notebook_query::mri::ScanMode::Full,
                 );
                 serde_json::to_value(mri).unwrap_or_default()
@@ -1240,8 +1319,9 @@ async fn mri_scan_mode_handler(
 // ── Meta-Orchestrator — Thinking About Thinking ─────────────────────────────
 
 /// Global orchestrator instance. Persists across requests.
-static ORCHESTRATOR: std::sync::OnceLock<std::sync::Mutex<notebook_query::orchestrator::MetaOrchestrator>> =
-    std::sync::OnceLock::new();
+static ORCHESTRATOR: std::sync::OnceLock<
+    std::sync::Mutex<notebook_query::orchestrator::MetaOrchestrator>,
+> = std::sync::OnceLock::new();
 
 fn get_orchestrator() -> &'static std::sync::Mutex<notebook_query::orchestrator::MetaOrchestrator> {
     ORCHESTRATOR.get_or_init(|| {
@@ -1293,12 +1373,14 @@ async fn analyst_buckets_handler() -> Json<serde_json::Value> {
     // We surface 0 here rather than running every analysis just to count.
     let buckets: Vec<serde_json::Value> = notebook_query::analyst::AnalysisBucket::all()
         .iter()
-        .map(|b| serde_json::json!({
-            "id": serde_json::to_value(b).unwrap_or_default(),
-            "label": b.label(),
-            "description": b.description(),
-            "query_count": 0,
-        }))
+        .map(|b| {
+            serde_json::json!({
+                "id": serde_json::to_value(b).unwrap_or_default(),
+                "label": b.label(),
+                "description": b.description(),
+                "query_count": 0,
+            })
+        })
         .collect();
     Json(serde_json::json!({ "buckets": buckets }))
 }
@@ -1321,9 +1403,8 @@ async fn analyst_analyze_handler(
         }
     };
 
-    let result = tokio::task::spawn_blocking(move || {
-        notebook_query::analyst::analyze(bucket)
-    }).await;
+    let result =
+        tokio::task::spawn_blocking(move || notebook_query::analyst::analyze(bucket)).await;
 
     match result {
         Ok(analysis) => Json(serde_json::to_value(analysis).unwrap_or_default()),
@@ -1333,9 +1414,7 @@ async fn analyst_analyze_handler(
 
 /// Run all 6 analysis buckets.
 async fn analyst_full_handler() -> Json<serde_json::Value> {
-    let result = tokio::task::spawn_blocking(|| {
-        notebook_query::analyst::full_analysis()
-    }).await;
+    let result = tokio::task::spawn_blocking(|| notebook_query::analyst::full_analysis()).await;
 
     match result {
         Ok(analyses) => Json(serde_json::to_value(analyses).unwrap_or_default()),
@@ -1383,9 +1462,12 @@ async fn data_status_handler() -> Json<serde_json::Value> {
     let cypher_dir = std::path::Path::new("/home/user/aiwar-neo4j-harvest/cypher");
     let enrichment_status = if cypher_dir.exists() {
         let count = std::fs::read_dir(cypher_dir)
-            .map(|entries| entries.filter_map(|e| e.ok()).filter(|e| {
-                e.path().extension().map_or(false, |ext| ext == "cypher")
-            }).count())
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().extension().map_or(false, |ext| ext == "cypher"))
+                    .count()
+            })
             .unwrap_or(0);
         serde_json::json!({
             "name": "Enrichment Cypher",
@@ -1427,7 +1509,9 @@ async fn data_status_handler() -> Json<serde_json::Value> {
         "/home/user/aiwar-neo4j-harvest/data/aiwarcloud-table.csv",
         "../aiwar-neo4j-harvest/data/aiwarcloud-table.csv",
     ];
-    let csv_status = csv_candidates.iter().find(|p| std::path::Path::new(p).exists());
+    let csv_status = csv_candidates
+        .iter()
+        .find(|p| std::path::Path::new(p).exists());
     sources.push(match csv_status {
         Some(path) => serde_json::json!({
             "name": "Aiwar CSV",

@@ -25,8 +25,8 @@
 //! Wire JSON keeps the historical field names `truth_f` / `truth_c` so
 //! the cockpit React frontend keeps working unchanged.
 
-use std::sync::{Arc, OnceLock};
 use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 
 use serde::Serialize;
 use tokio::sync::RwLock;
@@ -107,9 +107,13 @@ pub struct GraphEdge {
 
 impl GraphEdge {
     /// Convenience: legacy `truth_f` accessor for in-process consumers.
-    pub fn truth_f(&self) -> f32 { self.truth.frequency }
+    pub fn truth_f(&self) -> f32 {
+        self.truth.frequency
+    }
     /// Convenience: legacy `truth_c` accessor for in-process consumers.
-    pub fn truth_c(&self) -> f32 { self.truth.confidence }
+    pub fn truth_c(&self) -> f32 {
+        self.truth.confidence
+    }
 }
 
 impl Serialize for GraphEdge {
@@ -244,7 +248,11 @@ pub async fn hydrate_from_aiwar_json(path: &str) -> Result<(), String> {
     let mut state = graph.write().await;
     *state = snapshot;
 
-    tracing::info!("hydrated live graph: {} nodes, {} edges", node_count, edge_count);
+    tracing::info!(
+        "hydrated live graph: {} nodes, {} edges",
+        node_count,
+        edge_count
+    );
     Ok(())
 }
 
@@ -270,7 +278,9 @@ pub async fn run_nars_deduction(min_confidence: f32, max_hops: usize) -> Vec<Nar
     }
 
     // Existing edges for dedup
-    let existing: std::collections::HashSet<(&str, &str)> = state.edges.iter()
+    let existing: std::collections::HashSet<(&str, &str)> = state
+        .edges
+        .iter()
         .map(|e| (e.source.as_str(), e.target.as_str()))
         .collect();
 
@@ -280,11 +290,17 @@ pub async fn run_nars_deduction(min_confidence: f32, max_hops: usize) -> Vec<Nar
     if max_hops >= 2 {
         for (a, a_edges) in &adj {
             for &(b, _ab_label, ab_truth) in a_edges {
-                if ab_truth.confidence < min_confidence { continue; }
+                if ab_truth.confidence < min_confidence {
+                    continue;
+                }
                 if let Some(b_edges) = adj.get(b) {
                     for &(c_node, bc_label, bc_truth) in b_edges {
-                        if bc_truth.confidence < min_confidence { continue; }
-                        if *a == c_node || existing.contains(&(a, c_node)) { continue; }
+                        if bc_truth.confidence < min_confidence {
+                            continue;
+                        }
+                        if *a == c_node || existing.contains(&(a, c_node)) {
+                            continue;
+                        }
 
                         // NARS deduction via canonical planner TruthValue::deduction.
                         let inferred = nars_deduction(&ab_truth, &bc_truth);
@@ -322,9 +338,15 @@ pub async fn graph_snapshot_handler() -> axum::Json<GraphSnapshot> {
 pub async fn nars_infer_handler(
     axum::Json(params): axum::Json<serde_json::Value>,
 ) -> axum::Json<serde_json::Value> {
-    let min_conf = params.get("min_confidence").and_then(|v| v.as_f64()).unwrap_or(0.4) as f32;
+    let min_conf = params
+        .get("min_confidence")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.4) as f32;
     let max_hops = params.get("max_hops").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-    let node_id = params.get("node_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let node_id = params
+        .get("node_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let mut inferences = run_nars_deduction(min_conf, max_hops).await;
 
@@ -364,7 +386,15 @@ mod nars_planner_bridge_tests {
         let bc = NarsTruth::new(0.7, 0.6);
         let result = nars_deduction(&ab, &bc);
         // Canonical NARS: f = f1*f2 = 0.63, c = f1*f2*c1*c2 = 0.3024
-        assert!((result.frequency - 0.63).abs() < 0.01, "f={}", result.frequency);
-        assert!((result.confidence - 0.3024).abs() < 0.01, "c={}", result.confidence);
+        assert!(
+            (result.frequency - 0.63).abs() < 0.01,
+            "f={}",
+            result.frequency
+        );
+        assert!(
+            (result.confidence - 0.3024).abs() < 0.01,
+            "c={}",
+            result.confidence
+        );
     }
 }

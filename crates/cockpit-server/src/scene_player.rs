@@ -75,7 +75,11 @@ pub fn discover_acts(dir: &str) -> Vec<SceneAct> {
                 let name = p.file_stem()?.to_string_lossy().into_owned();
                 let cypher_text = std::fs::read_to_string(&p).ok()?;
                 let confidence = confidence_from_name(&name);
-                Some(SceneAct { name, cypher_text, confidence })
+                Some(SceneAct {
+                    name,
+                    cypher_text,
+                    confidence,
+                })
             } else {
                 None
             }
@@ -311,8 +315,10 @@ fn collect_from_property_value(pv: &PropertyValue, out: &mut Vec<String>) {
         }
         PropertyValue::Parameter(name) => out.push(name.clone()),
         PropertyValue::Property(p) => collect_from_property_ref(p, out),
-        PropertyValue::Integer(_) | PropertyValue::Float(_)
-        | PropertyValue::Boolean(_) | PropertyValue::Null => {}
+        PropertyValue::Integer(_)
+        | PropertyValue::Float(_)
+        | PropertyValue::Boolean(_)
+        | PropertyValue::Null => {}
     }
 }
 
@@ -388,13 +394,47 @@ fn is_valid_identifier(s: &str) -> bool {
 fn is_cypher_keyword(s: &str) -> bool {
     matches!(
         s.to_ascii_uppercase().as_str(),
-        "MATCH" | "WHERE" | "RETURN" | "WITH" | "AND" | "OR" | "NOT"
-        | "AS" | "ORDER" | "BY" | "LIMIT" | "SKIP" | "UNWIND" | "MERGE"
-        | "CREATE" | "DELETE" | "DETACH" | "SET" | "REMOVE" | "OPTIONAL"
-        | "DISTINCT" | "TRUE" | "FALSE" | "NULL" | "IS" | "IN"
-        | "STARTS" | "ENDS" | "CONTAINS" | "EXISTS" | "ASC" | "DESC"
-        | "CASE" | "WHEN" | "THEN" | "ELSE" | "END" | "CALL" | "YIELD"
-        | "LIKE" | "ILIKE"
+        "MATCH"
+            | "WHERE"
+            | "RETURN"
+            | "WITH"
+            | "AND"
+            | "OR"
+            | "NOT"
+            | "AS"
+            | "ORDER"
+            | "BY"
+            | "LIMIT"
+            | "SKIP"
+            | "UNWIND"
+            | "MERGE"
+            | "CREATE"
+            | "DELETE"
+            | "DETACH"
+            | "SET"
+            | "REMOVE"
+            | "OPTIONAL"
+            | "DISTINCT"
+            | "TRUE"
+            | "FALSE"
+            | "NULL"
+            | "IS"
+            | "IN"
+            | "STARTS"
+            | "ENDS"
+            | "CONTAINS"
+            | "EXISTS"
+            | "ASC"
+            | "DESC"
+            | "CASE"
+            | "WHEN"
+            | "THEN"
+            | "ELSE"
+            | "END"
+            | "CALL"
+            | "YIELD"
+            | "LIKE"
+            | "ILIKE"
     )
 }
 
@@ -448,8 +488,14 @@ mod tests {
 
     #[test]
     fn stable_hash_is_case_insensitive() {
-        assert_eq!(stable_codebook_index("Person"), stable_codebook_index("person"));
-        assert_eq!(stable_codebook_index("KNOWS"), stable_codebook_index("knows"));
+        assert_eq!(
+            stable_codebook_index("Person"),
+            stable_codebook_index("person")
+        );
+        assert_eq!(
+            stable_codebook_index("KNOWS"),
+            stable_codebook_index("knows")
+        );
     }
 
     #[test]
@@ -458,7 +504,10 @@ mod tests {
         let stream = cypher_to_stream(cypher, 12345);
         assert_eq!(stream.source, "AriGraph");
         assert_eq!(stream.timestamp, 12345);
-        assert!(!stream.codebook_indices.is_empty(), "expected indices for Person/KNOWS/City/age/name");
+        assert!(
+            !stream.codebook_indices.is_empty(),
+            "expected indices for Person/KNOWS/City/age/name"
+        );
         // All indices in range.
         for idx in &stream.codebook_indices {
             assert!((*idx as u32) < CODEBOOK_SIZE);
@@ -477,8 +526,16 @@ mod tests {
         let stream = cypher_to_stream(bad, 99);
         assert_eq!(stream.source, "AriGraph");
         assert!(!stream.codebook_indices.is_empty());
-        assert!(stream.codebook_indices.contains(&stable_codebook_index("Person")));
-        assert!(stream.codebook_indices.contains(&stable_codebook_index("City")));
+        assert!(
+            stream
+                .codebook_indices
+                .contains(&stable_codebook_index("Person"))
+        );
+        assert!(
+            stream
+                .codebook_indices
+                .contains(&stable_codebook_index("City"))
+        );
     }
 
     #[test]
@@ -487,7 +544,11 @@ mod tests {
         let cypher = "MATCH (a:Foo)-[:R]->(b:Foo)-[:R]->(c:Foo) RETURN a, b, c";
         let stream = cypher_to_stream(cypher, 1);
         let foo_idx = stable_codebook_index("Foo");
-        let count = stream.codebook_indices.iter().filter(|i| **i == foo_idx).count();
+        let count = stream
+            .codebook_indices
+            .iter()
+            .filter(|i| **i == foo_idx)
+            .count();
         assert_eq!(count, 1, "Foo should appear exactly once after dedup");
     }
 
