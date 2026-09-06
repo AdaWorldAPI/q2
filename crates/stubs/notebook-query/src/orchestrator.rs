@@ -360,6 +360,9 @@ pub struct GraphSensorium {
 
 impl GraphSensorium {
     /// Compute from raw graph statistics.
+    // The arity mirrors the upstream API this stub stands in for; grouping the
+    // counters into a struct here would diverge from it.
+    #[expect(clippy::too_many_arguments, reason = "mirrors the upstream signature")]
     pub fn compute(
         active_triplets: usize,
         contradictions: usize,
@@ -712,6 +715,12 @@ impl TopologyEdge {
 pub struct StyleTopology {
     /// Edges keyed by (from, to).
     edges: HashMap<(AgentStyle, AgentStyle), TopologyEdge>,
+}
+
+impl Default for StyleTopology {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StyleTopology {

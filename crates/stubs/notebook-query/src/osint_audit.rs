@@ -30,6 +30,12 @@ pub struct OsintCounter {
     pub triplets_produced: AtomicU64,
 }
 
+impl Default for OsintCounter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OsintCounter {
     pub const fn new() -> Self {
         Self {
@@ -90,6 +96,12 @@ pub struct OsintRegistry {
     pub graph_bfs: OsintCounter,
     pub spatial_path: OsintCounter,
     pub xai_api_call: OsintCounter,
+}
+
+impl Default for OsintRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OsintRegistry {

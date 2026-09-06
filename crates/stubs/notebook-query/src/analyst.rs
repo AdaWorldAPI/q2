@@ -78,7 +78,16 @@ struct RawGraph {
 }
 
 #[derive(Debug, Deserialize)]
-struct RawNode { id: Option<String>, name: Option<String>, #[serde(rename = "type")] node_type: Option<String> }
+struct RawNode {
+    id: Option<String>,
+    name: Option<String>,
+    // Kept, though nothing reads it: this struct documents the shape of
+    // `aiwar_graph.json`, and dropping the field would make the type a
+    // partial and misleading record of the file it parses.
+    #[expect(dead_code, reason = "documents the on-disk JSON shape")]
+    #[serde(rename = "type")]
+    node_type: Option<String>,
+}
 
 #[derive(Debug, Deserialize)]
 struct RawEdge { source: Option<String>, target: Option<String>, label: Option<String> }
