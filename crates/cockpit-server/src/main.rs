@@ -18,6 +18,8 @@ use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
+#[cfg(feature = "embed-cockpit")]
+use axum::http::header;
 use axum::response::sse::{Event, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -770,9 +772,9 @@ async fn static_handler(uri: axum::http::Uri) -> Response {
     (StatusCode::NOT_FOUND, "Not found").into_response()
 }
 
-#[expect(
+#[allow(
     dead_code,
-    reason = "MIME lookup utility; sole call site is inside the cfg(feature = \"embed-cockpit\") static_handler block"
+    reason = "MIME lookup utility; sole call site is inside the cfg(feature = \"embed-cockpit\") static_handler block; allow not expect — with that feature enabled the call exists, so no expectation holds in every configuration"
 )]
 fn mime_from_path(path: &str) -> &'static str {
     if path.ends_with(".html") {
