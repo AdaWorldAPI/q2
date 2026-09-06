@@ -608,7 +608,7 @@ pub fn prune_diagnostics_by_error_nodes(
     // For each ERROR node, keep only the earliest diagnostic (tiebreak with score)
     let mut kept_indices = Vec::new();
 
-    for (_range_idx, diag_indices) in diagnostics_by_range.iter() {
+    for diag_indices in diagnostics_by_range.values() {
         if diag_indices.is_empty() {
             continue;
         }
