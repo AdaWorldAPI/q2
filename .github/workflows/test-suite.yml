@@ -27,6 +27,14 @@ jobs:
     
     name: Run test suite
 
+    # This job compiles and runs PR-controlled code — build scripts and proc
+    # macros execute arbitrary code at build time — so it takes the least token
+    # that does the work. Nothing here writes to the repository: the only
+    # post-checkout git use is `git ls-files` / `git log` in the mtime step,
+    # both purely local.
+    permissions:
+      contents: read
+
     # Every `run:` step works inside the q2 checkout; the sibling repos below
     # are checked out beside it, which is the layout the path-deps expect.
     defaults:
@@ -38,6 +46,10 @@ jobs:
         uses: actions/checkout@v6
         with:
           path: q2
+          # `actions/checkout`'s default is `true`, which leaves the token in a
+          # git credential file the compiled PR code could reach. No step needs
+          # it after the clone.
+          persist-credentials: false
 
       # Sibling checkouts — REQUIRED, not optional. This workspace does not
       # resolve without them, so `cargo metadata` (and therefore every cargo
@@ -57,18 +69,22 @@ jobs:
         with:
           repository: AdaWorldAPI/openstreetmap-website-rs
           path: openstreetmap-website-rs
+          persist-credentials: false
       - uses: actions/checkout@v6
         with:
           repository: AdaWorldAPI/ndarray
           path: ndarray
+          persist-credentials: false
       - uses: actions/checkout@v6
         with:
           repository: AdaWorldAPI/lance-graph
           path: lance-graph
+          persist-credentials: false
       - uses: actions/checkout@v6
         with:
           repository: AdaWorldAPI/OGAR
           path: OGAR
+          persist-credentials: false
 
       # Fix mtimes IMMEDIATELY after checkout, before anything else
       - name: Restore file modification times
