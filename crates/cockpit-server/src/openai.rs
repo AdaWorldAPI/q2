@@ -59,19 +59,75 @@ struct ModelListResponse {
 #[derive(Deserialize)]
 pub struct CompletionReq {
     pub model: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub prompt: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub max_tokens: Option<usize>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub temperature: Option<f32>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub top_p: Option<f32>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub n: Option<usize>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub stream: Option<bool>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub logprobs: Option<usize>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub echo: Option<bool>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub stop: Option<Vec<String>>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub presence_penalty: Option<f32>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub frequency_penalty: Option<f32>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub seed: Option<u64>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub suffix: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub user: Option<String>,
 }
 
@@ -99,18 +155,70 @@ struct CompletionChoice {
 pub struct ChatCompletionReq {
     pub model: Option<String>,
     pub messages: Vec<ChatMessageReq>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub max_tokens: Option<usize>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub temperature: Option<f32>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub top_p: Option<f32>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub n: Option<usize>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub stream: Option<bool>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub stop: Option<Vec<String>>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub presence_penalty: Option<f32>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub frequency_penalty: Option<f32>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub seed: Option<u64>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub user: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub tools: Option<serde_json::Value>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub tool_choice: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub response_format: Option<serde_json::Value>,
 }
 
@@ -118,8 +226,20 @@ pub struct ChatCompletionReq {
 pub struct ChatMessageReq {
     pub role: String,
     pub content: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub name: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub tool_calls: Option<serde_json::Value>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub tool_call_id: Option<String>,
 }
 
@@ -152,9 +272,21 @@ struct ChatMessageObj {
 #[derive(Deserialize)]
 pub struct EmbeddingReq {
     pub model: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub input: serde_json::Value, // string, array of strings, or token IDs
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub encoding_format: Option<String>,
     pub dimensions: Option<usize>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub user: Option<String>,
 }
 
@@ -177,13 +309,37 @@ struct EmbeddingObj {
 
 #[derive(Deserialize)]
 pub struct ImageGenReq {
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub model: Option<String>,
     pub prompt: String,
     pub n: Option<usize>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub size: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub response_format: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub quality: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub style: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "OpenAI-compatible request DTO field; part of the wire schema and must deserialize, but this server does not read it"
+    )]
     pub user: Option<String>,
 }
 
@@ -210,11 +366,19 @@ struct UsageObj {
 }
 
 #[derive(Serialize)]
+#[expect(
+    dead_code,
+    reason = "typed OpenAI error DTO; every error path in this file builds its body ad hoc via serde_json::json! instead, so nothing constructs this type"
+)]
 struct ErrorResp {
     error: ErrorObj,
 }
 
 #[derive(Serialize)]
+#[expect(
+    dead_code,
+    reason = "typed OpenAI error DTO; every error path in this file builds its body ad hoc via serde_json::json! instead, so nothing constructs this type"
+)]
 struct ErrorObj {
     message: String,
     r#type: String,
