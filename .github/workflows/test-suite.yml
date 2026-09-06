@@ -223,11 +223,20 @@ jobs:
       # formatting is platform-independent, so running it once is enough.
       #
       # Measured, and worth knowing before it surprises someone: with the
-      # siblings present, `--all` also reformats
-      # `openstreetmap-website-rs/src/{chains,codebook}.rs` — the direct
-      # path-dep — so that repo has to be rustfmt-clean for this gate to pass.
-      # It does NOT currently reach the `[patch]`-replaced sources: lance-graph
-      # -contract carries real drift today and this check stays green.
+      # siblings present, `--all` reformats their sources too, so a sibling repo
+      # has to be rustfmt-clean for this gate to pass. Confirmed for BOTH a
+      # direct path-dep (`openstreetmap-website-rs/src/{chains,codebook}.rs`)
+      # and a crate reached through the sibling checkout
+      # (`lance-graph/crates/lance-graph-ogar/src/bridges/*.rs`, which turned
+      # this gate red on 2026-09-06 the moment an unformatted commit landed on
+      # lance-graph main).
+      #
+      # An earlier version of this comment claimed `--all` does NOT reach
+      # `[patch]`-replaced sources, generalising from one observation
+      # (`lance-graph-contract` carries drift and produced no diff). The
+      # lance-graph-ogar failure disproves the general form. What actually
+      # separates the two cases is not established — treat any sibling source
+      # as in scope until it is.
       - name: Rustfmt (check)
         if: runner.os == 'Linux'
         shell: bash
