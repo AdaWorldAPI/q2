@@ -85,10 +85,23 @@ carrying one relation in both axes.
 
 ### F-6 — Depth exceeds the addressable tiers  [OPEN]
 
-part_of max depth 16; the key offers classid + 5 tier slots + identity. 279
-FMA nodes (20%) sit deeper than the 7 addressable levels (118 counted below the
-classid). Current behaviour: `tier_at(k)` returns 0 past the cascade length
-(`body.rs:110-117`), so deep nodes share a prefix with their ancestor.
+**Level-counting convention, pinned here and used everywhere in this plan:**
+a *level* is the classid (the root) plus one per **rail**; `identity` is the
+instance slot and is NOT a level. Under that convention the V3 key gives
+**6 levels** — classid + the 5 cascade rails `body.rs:121-129` fills
+(HEEL/HIP/TWIG/LEAF/family), with the 6th rail spent on `identity`. This is
+the same convention §6.3 uses to reach *classid + 12 rails = 13 levels*.
+
+part_of max depth is **16**, so the key is short by 10 levels. Current
+behaviour: `tier_at(k)` returns 0 past the cascade length (`body.rs:110-117`),
+so deep nodes share a prefix with their ancestor.
+
+⚠ **The overflow counts need re-deriving.** The earlier measurement — 279 FMA
+nodes (20%) over the cap, 118 counted below the classid — was taken against a
+7-level reading that counted `identity` as a level, which the convention above
+rejects. The shape of the finding is unchanged (the tree is deeper than the key)
+but the magnitude is not yet trustworthy at the pinned convention. **P-1 must
+report the depth histogram, not just the max**, and D-4 is sized from that.
 
 ### F-7 — Upstream deliberately rejected the version we bake from  [CONTEXT]
 
@@ -164,16 +177,21 @@ deterministic, content-ordered probe, or carry the exact id in a value tenant
 where *"invertibility (not similarity) is the acceptance criterion"* — 19 bits
 fits a u24 slot exactly.
 
-### D-2 — Multi-parent / views (addresses F-3, F-5)
+### D-2 — Rail contents and multi-parent (F-5 is closable here; F-3 is not)
 
 | # | Option | Cost | Risk | Verdict |
 |---|---|---|---|---|
-| a | **Fill the rails as designed**: `part_of` in one byte axis, `is_a` in the other, per L1 | medium | low — uses the carving that already exists | **RECOMMENDED** |
+| a | **Fill the rails as designed**: `part_of` in one byte axis, `is_a` in the other, per L1 | medium | low — uses the carving that already exists | **RECOMMENDED — for F-5 only** |
 | b | Pommert-style views: a node addressed once per view, view selected by ClassView | high | medium — needs a view carrier that does not exist | worth a probe, not a v4 |
 | c | First-parent-wins (status quo) + record which parent won | low | medium — silently arbitrary | interim only |
 
-(a) is the cheap win and is what the rails were carved for. It does not solve
-multi-parent; it stops wasting half the rail on a duplicate relation.
+(a) is the cheap win and is what the rails were carved for, but it closes
+**F-5 and nothing else**: one byte-axis per relation still stores exactly ONE
+`part_of` parent, so a node with three parents keeps getting one. **Do not read
+the RECOMMENDED verdict as covering F-3.** Multi-parent is closable only by (b),
+which needs a view carrier that does not exist; until that carrier is designed,
+F-3 stays open whatever this row says. §7.2 states the same thing from the
+remedy side.
 
 ### D-3 — Laterality (addresses F-4)
 
@@ -232,7 +250,8 @@ the surfel/torso line. This plan is about the key, not the mesh.
 > §4 probes are unchanged by anything here.
 
 Nine directions, checked against `AdaWorldAPI/lance-graph`'s
-`.claude/v3/soa_layout/` contract. Most are already carved; three are new. The
+`.claude/v3/soa_layout/` contract: **five already carved (§6.1), four new
+(§6.3)**. The
 split matters because a carved item needs *wiring*, and a new one needs a
 *ruling* first.
 
@@ -244,7 +263,7 @@ split matters because a carved item needs *wiring*, and a new one needs a
 | **6 × palette256² for Fisher-z** | `le-contract.md:171-186` — L4 reads through the **analytic Fisher-z codec** (`bgz-tensor::fisher_z::{FamilyGamma, FisherZTable}`), certified ρ≥0.999, `E-FISHERZ-CANONICAL-COSINE-REPLACEMENT-1`. *"A materialized k×k table is a CACHE of the formula, never the canon."* Boundary: replaces the distance/rank READ; the semiring COMPOSE keeps its table |
 | **helix Signed360** | tenant 4 `HelixResidue`, 6 B `[112,118)` — *"48-bit helix place (2× 24-bit equal-area hemisphere, Signed360)"*. Sibling of the above: *"helix is to Fisher-2z what the cosine-replacement is to Fisher-z"* |
 | **many-to-many nodes** | **three** existing mechanisms — tenant 15 `EpisodicBasin` (§6.2), L2 facet `memberof : members`, and q2's own EdgeBlock 16×8-bit adapter mask (`osint_gotham.rs:12-16`) |
-| **24 × i4 Markov context** | tenant 14 `CausalWitness`, `U8 × 16` `[204,220)`, read **G24N4** — *"24 signed i4 loci… each nibble is a context pointer (signed ±8 window offset), not a strength"*. Slots 16..24 reserved-zero. **EXPERIMENTAL**, and by its own doc-comment *"not in the operator-locked §3 catalogue"*; it is a **lane shape name, never a `CascadeShape` variant** |
+| **24 × i4 Markov context** | tenant 14 `CausalWitness`, a 16-byte lane at `[204,220)` holding the V3 4+12 facet. The **G24N4 carving applies to the 12-byte payload, not the 16-byte lane**: `WITNESS_REGISTER_BYTES` = 12 B = **24 nibbles**, `WITNESS_LOCI = 24`, `NAMED_LOCI = 16`, and slots **`16..24` (half-open, 8 slots) reserved-empty** — "held open, never padded with a construct to reach 24" (`causal_witness.rs:71-85`). Each nibble is a context pointer (signed ±8 window offset), never a strength. **EXPERIMENTAL**: `causal_witness.rs:14-19` records that the cited "§3 L9 `G24N4`" entry **does not exist** — §3 is L1–L8 — and that a sub-byte carving is a **lane shape NAME**, never a `CascadeShape` variant |
 
 ### 6.2 The many-to-many node already encodes the no-hub ruling
 
@@ -334,8 +353,8 @@ has no owning decision at all.
 | **F-2** `row: u32` → `identity: u16`, unchecked | silent wrap past 65,536 concepts; today never fires at 1,658 | **nothing on its own** | D-1a removes `row` as the identity source | **D-1a does not add a guard.** F-2 needs an explicit `TryFrom`/`debug_assert` at the mint regardless of which D-1 option wins. Do not treat it as closed by D-1 |
 | **F-3** part_of is a DAG upstream; cascade consumes a tree | ~35% of concepts (3.0 table) addressed under one arbitrary parent — CONJECTURE for 4.0 | **D-2b** (views as attributes of relations) | D-2c (record which parent won) makes the arbitrariness auditable, not correct | D-2b needs a **view carrier that does not exist**. Blocked on **P-1**; until P-1 runs, the size of this flaw in 4.0 is unknown |
 | **F-4** laterality edge table unconsumed | 8,265 of 12,530 composite→primitive edges carry an axis word; the axis is reachable only by string-matching a label | **D-3a** (consume `composite_parts.txt` as an edge relation) | — | Sized by **P-4** — unknown how many composites/primitives are in the meshed set. D-3b (axis into a key tier) is *rejected*, not deferred |
-| **F-5** `is_a` fills both rail axes | the L1 `part_of : is_a` carving carries one relation twice; part_of contributes nothing to the address | **D-2a** (fill the rails as designed) | — | Closes the waste, **not F-3**. A node with three parents still gets one |
-| **F-6** part_of depth 16 > 7 addressable levels | 279 nodes (20%) share a prefix with an ancestor via the `tier_at → 0` fallback | **D-4b** (registry resolve + ref-escape) | D-4a (record the truncated remainder in a tenant) makes it lossless-on-read, not addressable; §6.3's 2×12 zipper reaches 13 levels of 16 | D-4c (widen the key) is **forbidden by canon** — scale is the next cascade level, never field-widening |
+| **F-5** `is_a` fills both rail axes | the L1 `part_of : is_a` carving carries one relation twice; part_of contributes nothing to the address | **D-2a** (fill the rails as designed) — and D-2a closes **nothing else** | — | Closes the waste, **not F-3**. A node with three parents still gets one |
+| **F-6** part_of depth 16 > the key's 6 addressable levels | deep nodes share a prefix with an ancestor via the `tier_at → 0` fallback; the old 279-node/20% figure is withdrawn pending P-1's depth histogram (see F-6) | **D-4b** (registry resolve + ref-escape) | D-4a (record the truncated remainder in a tenant) makes it lossless-on-read, not addressable; §6.3's 2×12 zipper reaches 13 levels of 16 | D-4c (widen the key) is **forbidden by canon** — scale is the next cascade level, never field-widening |
 | **F-7** we bake 4.0; upstream rejected 4.0 for intersecting skin/muscle | two re-bakes (20260629b, c) spent on classification overlap | **no option yet** — D-5 is deliberately undecided | — | Gated on **P-5**. Until measured, a common cause is CONJECTURE only |
 | **F-8** three group-membership mechanisms coexist | `EpisodicBasin` (tenant 15), L2 `memberof : members`, and q2's EdgeBlock adapter mask all address many-to-many | **no owning decision — this is a gap in §3** | §6.2 states the constraint ("pick one, do not add a fourth") but assigns no verdict | Needs a **D-6** before any group work lands, or the v4 adds a fourth by accident |
 | **§6.5** `tenants.md:88` says 15 tenants; the table runs 0–15 | a session sizing a preset from the prose is off by one | a one-line doc fix **in lance-graph** | — | **Not fixable from this repo.** Code is correct (`canonical_node.rs:1252` compile-asserts the pairing); prose only |
@@ -344,8 +363,10 @@ has no owning decision at all.
 
 - **Multi-parent addressing is not solved by anything currently on the table.**
   D-2a stops the rails wasting an axis; D-2b is the real answer and needs a
-  carrier that does not exist. If P-1 shows the 4.0 part_of is a DAG, this
-  becomes the largest open item in the plan, larger than F-1.
+  carrier that does not exist. D-2a is marked RECOMMENDED for F-5 **only** —
+  reading that verdict as covering F-3 is the specific misreading §3's D-2 note
+  now guards against. If P-1 shows the 4.0 part_of is a DAG, this becomes the
+  largest open item in the plan, larger than F-1.
 - **Vessel caliber** (§6.4) is excluded by §5 and no D-item covers it.
 - **The hex substrate / explicit volumetric trie** (§6.3) are research, not
   remedies; neither closes a flaw listed above.
