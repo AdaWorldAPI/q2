@@ -96,9 +96,20 @@ fn env_var_nonempty(key: &str) -> Option<String> {
     // these containers arrive wrapped in literal `"` (documented for the token
     // vars in `medcare-rs`'s CLAUDE.md), and an unstripped value fails auth in a
     // way that reads as a bad credential rather than a quoting artifact.
+    // Trim, THEN unquote, THEN trim again. The second trim is not redundant:
+    // a value written as `"  x  "` has its padding INSIDE the quotes, so a
+    // single leading trim sees only the quote characters and leaves the spaces
+    // behind once they are removed. Caught by
+    // `every_object_store_value_is_unquoted_before_it_reaches_the_client`.
     std::env::var(key)
         .ok()
-        .map(|v| v.trim().trim_matches('"').trim_matches('\'').to_string())
+        .map(|v| {
+            v.trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .trim()
+                .to_string()
+        })
         .filter(|v| !v.is_empty())
 }
 
@@ -152,14 +163,65 @@ fn coordinates() -> Option<(String, String)> {
 /// proven against this bucket, and a second spelling of the same handshake is a
 /// second thing to get wrong.
 fn build_store() -> Option<impl ObjectStore> {
-    let bucket = env_var_nonempty("AWS_S3_BUCKET_NAME")?;
-    match AmazonS3Builder::from_env().with_bucket_name(bucket).build() {
+    let cfg = s3_env()?;
+    // `from_env()` FIRST so anything else the deployment sets (a session token,
+    // say) is still picked up, then the values that matter re-applied from
+    // `s3_env` — a later setter overrides what `from_env` parsed.
+    //
+    // Re-applying them is not belt-and-braces: `from_env()` hands the RAW
+    // environment string to the builder, so a quoted `AWS_ENDPOINT_URL` or
+    // credential would pass [`missing_vars`] (which reads through
+    // `env_var_nonempty`) and still reach the client with its quotes attached,
+    // failing later as a bad endpoint or bad credential. Normalising in one
+    // place and one place only is what makes the strip real rather than
+    // decorative. The process environment itself is never mutated.
+    let builder = AmazonS3Builder::from_env()
+        .with_bucket_name(cfg.bucket)
+        .with_endpoint(cfg.endpoint)
+        .with_access_key_id(cfg.key_id)
+        .with_secret_access_key(cfg.secret)
+        .with_region(cfg.region);
+
+    match builder.build() {
         Ok(s) => Some(s),
         Err(e) => {
             tracing::error!(error = %e, "{LABEL}: S3 client build failed");
             None
         }
     }
+}
+
+/// The object-store settings, read once and normalised.
+///
+/// Split out so the normalisation is testable without constructing a client:
+/// the quoting defect this guards is invisible from the outside of
+/// [`build_store`].
+struct S3Env {
+    endpoint: String,
+    bucket: String,
+    key_id: String,
+    secret: String,
+    region: String,
+}
+
+/// Resolve every object-store value through [`env_var_nonempty`], so each one
+/// is trimmed and unquoted. `None` when any required one is absent — the same
+/// partial-config-is-no-config rule [`missing_vars`] reports on.
+///
+/// `AWS_DEFAULT_REGION` is the documented name here; `AWS_REGION` is accepted
+/// as the AWS-standard alias, and `"auto"` is the fallback these providers
+/// expect — the region is part of the SigV4 credential scope, not an
+/// addressing input, so it must be *some* value.
+fn s3_env() -> Option<S3Env> {
+    Some(S3Env {
+        endpoint: env_var_nonempty("AWS_ENDPOINT_URL")?,
+        bucket: env_var_nonempty("AWS_S3_BUCKET_NAME")?,
+        key_id: env_var_nonempty("AWS_ACCESS_KEY_ID")?,
+        secret: env_var_nonempty("AWS_SECRET_ACCESS_KEY")?,
+        region: env_var_nonempty("AWS_DEFAULT_REGION")
+            .or_else(|| env_var_nonempty("AWS_REGION"))
+            .unwrap_or_else(|| "auto".to_string()),
+    })
 }
 
 /// Which required v4 variables are absent, so one boot line settles it.
@@ -505,6 +567,92 @@ mod tests {
             6,
             "required inputs: 2 v4 coordinates + 4 AWS"
         );
+    }
+
+    #[test]
+    fn every_object_store_value_is_unquoted_before_it_reaches_the_client() {
+        // The defect this pins (CodeRabbit, #153): `env_var_nonempty` stripped
+        // quotes on the PRESENCE check while `AmazonS3Builder::from_env()` read
+        // the raw environment separately — so a quoted endpoint or credential
+        // passed `missing_vars()` and still reached the client quoted, failing
+        // later as a bad endpoint or bad credential. Remove the strip in
+        // `env_var_nonempty` and this fails on all five fields.
+        //
+        // SAFETY: single-threaded test; every variable is restored below.
+        let saved: Vec<(&str, Option<String>)> = [
+            "AWS_ENDPOINT_URL",
+            "AWS_S3_BUCKET_NAME",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_DEFAULT_REGION",
+        ]
+        .iter()
+        .map(|k| (*k, std::env::var(k).ok()))
+        .collect();
+
+        unsafe {
+            std::env::set_var("AWS_ENDPOINT_URL", "\"https://example.invalid\"");
+            std::env::set_var("AWS_S3_BUCKET_NAME", "\"a-bucket\"");
+            std::env::set_var("AWS_ACCESS_KEY_ID", "'a-key'");
+            std::env::set_var("AWS_SECRET_ACCESS_KEY", "\"  a-secret  \"");
+            std::env::set_var("AWS_DEFAULT_REGION", "\"eu-central-1\"");
+        }
+        let cfg = s3_env().expect("all five are set");
+        assert_eq!(cfg.endpoint, "https://example.invalid");
+        assert_eq!(cfg.bucket, "a-bucket");
+        assert_eq!(cfg.key_id, "a-key");
+        assert_eq!(cfg.secret, "a-secret");
+        assert_eq!(cfg.region, "eu-central-1");
+
+        // A missing required value is "no S3", never a half-built client.
+        unsafe { std::env::remove_var("AWS_SECRET_ACCESS_KEY") };
+        assert!(s3_env().is_none(), "partial config must resolve to None");
+
+        for (k, v) in saved {
+            // SAFETY: same single-threaded restore.
+            unsafe {
+                match v {
+                    Some(v) => std::env::set_var(k, v),
+                    None => std::env::remove_var(k),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_region_falls_back_without_inventing_an_endpoint() {
+        // SAFETY: single-threaded test; restored below.
+        let saved = (
+            std::env::var("AWS_DEFAULT_REGION").ok(),
+            std::env::var("AWS_REGION").ok(),
+        );
+        unsafe {
+            std::env::remove_var("AWS_DEFAULT_REGION");
+            std::env::set_var("AWS_REGION", "\"us-east-1\"");
+        }
+        // The alias is honoured...
+        assert_eq!(
+            env_var_nonempty("AWS_DEFAULT_REGION")
+                .or_else(|| env_var_nonempty("AWS_REGION"))
+                .unwrap_or_else(|| "auto".to_string()),
+            "us-east-1"
+        );
+        unsafe { std::env::remove_var("AWS_REGION") };
+        // ...and with neither set, the scope still gets a value.
+        assert_eq!(
+            env_var_nonempty("AWS_DEFAULT_REGION")
+                .or_else(|| env_var_nonempty("AWS_REGION"))
+                .unwrap_or_else(|| "auto".to_string()),
+            "auto"
+        );
+        unsafe {
+            if let Some(v) = saved.0 {
+                std::env::set_var("AWS_DEFAULT_REGION", v);
+            }
+            if let Some(v) = saved.1 {
+                std::env::set_var("AWS_REGION", v);
+            }
+        }
     }
 
     #[test]
