@@ -19,13 +19,17 @@
 //!   runs a baker, never reads a baker's inputs, and never writes into a
 //!   directory a baker writes to. Bake sources and bake outputs live on the
 //!   producer side; this side only ever consumes a published artifact.
-//! - **It shares no variable NAME with anything.** Every setting is
-//!   `BODY_BAKE_V4_*`, including its own object-store credentials — it does
-//!   NOT read the ambient `AWS_*` or `RAILWAY_VOL` that the map path uses.
-//!   Paste the same values in if you like; the point is that changing this
-//!   deploy's v4 settings cannot move anything else, and vice versa. This is
-//!   also what makes the module liftable into its own crate later: it has no
-//!   configuration entanglement to unpick.
+//! - **It invents no credential variable.** The object store is reached with
+//!   the deployment's existing `AWS_*` contract — `AWS_ENDPOINT_URL`,
+//!   `AWS_S3_BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+//!   `AWS_DEFAULT_REGION` — the same five every other consumer of this bucket
+//!   reads. An earlier version of this module demanded `BODY_BAKE_V4_`-prefixed
+//!   COPIES of all of them, which meant four duplicate secrets per deploy to
+//!   serve one artifact; that is a configuration burden, not an isolation win.
+//!   Shared read-only CREDENTIALS cannot move anything. Shared PATHS can, which
+//!   is why the cache directory below is still v4's own and why `RAILWAY_VOL`
+//!   (which steers the map's cache) is deliberately not consulted. That is the
+//!   real boundary: credentials shared, paths never.
 //! - **There is no v3 slot.** Not an oversight: a v3 slot here would be a
 //!   second way to serve the shipped body, adjacent to the v4 one, and the
 //!   whole reason `/helix2` exists is that the two must be separable. v3 is
@@ -35,7 +39,7 @@
 //!
 //! ```text
 //!   S3  (durable source of truth, published by the baker — a different system)
-//!    │   $BODY_BAKE_V4_ENDPOINT/$BODY_BAKE_V4_BUCKET
+//!    │   $AWS_ENDPOINT_URL/$AWS_S3_BUCKET_NAME
 //!    │     /q2/bakes/$BODY_BAKE_V4_TAG/{$BODY_BAKE_V4_ASSET, SHA256SUMS}
 //!    ▼
 //!   volume  ($BODY_BAKE_V4_DIR, /volume01/body-v4, else temp)
@@ -46,7 +50,7 @@
 //!
 //! # No defaults, ever
 //!
-//! Neither variable has a default. A default artifact name is a bake this
+//! Neither v4 coordinate has a default. A default artifact name is a bake this
 //! deploy did not choose, and the only artifact that exists to default TO is
 //! the v3 one — which is how a first version of this module came to point the
 //! v4 route at the v3 bake. Unconfigured means unconfigured: the route says so
@@ -88,7 +92,14 @@ pub fn verified_path() -> Option<&'static Path> {
 /// exactly like an unset one rather than attempt a doomed call with an empty
 /// bucket name.
 fn env_var_nonempty(key: &str) -> Option<String> {
-    std::env::var(key).ok().filter(|v| !v.trim().is_empty())
+    // The surrounding-quote strip is defensive, not cosmetic: some variables in
+    // these containers arrive wrapped in literal `"` (documented for the token
+    // vars in `medcare-rs`'s CLAUDE.md), and an unstripped value fails auth in a
+    // way that reads as a bad credential rather than a quoting artifact.
+    std::env::var(key)
+        .ok()
+        .map(|v| v.trim().trim_matches('"').trim_matches('\'').to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// A name interpolated into BOTH an S3 key and a filesystem path.
@@ -124,28 +135,25 @@ fn coordinates() -> Option<(String, String)> {
     Some((checked("BODY_BAKE_V4_TAG")?, checked("BODY_BAKE_V4_ASSET")?))
 }
 
-/// The v4 object store, built from v4-only variables.
+/// The object store, from the deployment's existing `AWS_*` contract.
 ///
-/// `AmazonS3Builder::from_env()` is deliberately NOT used: it reads the ambient
-/// `AWS_*` that the map path also reads, which would make one deploy's v4
-/// credentials and another subsystem's the same knob. Every field is named
-/// here so the two can never be the same setting — set them to the same values
-/// if that is what you want.
+/// **`.with_bucket_name` is load-bearing, not redundant.**
+/// `AmazonS3Builder::from_env()` walks every `AWS_*` variable and silently drops
+/// any whose lowercased name does not parse as one of its config keys. Its
+/// bucket key accepts only `aws_bucket`, `aws_bucket_name`, `bucket_name` and
+/// `bucket` (`object_store-0.13.2` `src/aws/builder.rs:497`) — so
+/// `AWS_S3_BUCKET_NAME`, this workspace's name for it, is discarded with no
+/// warning and the build then fails as if the bucket were never configured.
+/// The endpoint, key id, secret and default region ARE read by `from_env`
+/// (`:492-497`, `aws_endpoint_url` among the accepted endpoint spellings), so
+/// the bucket is the only one this has to re-apply.
+///
+/// Same call shape as [`crate::osm_slab_hydrate`]'s, deliberately: that path is
+/// proven against this bucket, and a second spelling of the same handshake is a
+/// second thing to get wrong.
 fn build_store() -> Option<impl ObjectStore> {
-    let endpoint = env_var_nonempty("BODY_BAKE_V4_ENDPOINT")?;
-    let bucket = env_var_nonempty("BODY_BAKE_V4_BUCKET")?;
-    let key_id = env_var_nonempty("BODY_BAKE_V4_ACCESS_KEY_ID")?;
-    let secret = env_var_nonempty("BODY_BAKE_V4_SECRET_ACCESS_KEY")?;
-    let region = env_var_nonempty("BODY_BAKE_V4_REGION").unwrap_or_else(|| "auto".to_string());
-
-    match AmazonS3Builder::new()
-        .with_endpoint(endpoint)
-        .with_bucket_name(bucket)
-        .with_access_key_id(key_id)
-        .with_secret_access_key(secret)
-        .with_region(region)
-        .build()
-    {
+    let bucket = env_var_nonempty("AWS_S3_BUCKET_NAME")?;
+    match AmazonS3Builder::from_env().with_bucket_name(bucket).build() {
         Ok(s) => Some(s),
         Err(e) => {
             tracing::error!(error = %e, "{LABEL}: S3 client build failed");
@@ -156,17 +164,25 @@ fn build_store() -> Option<impl ObjectStore> {
 
 /// Which required v4 variables are absent, so one boot line settles it.
 fn missing_vars() -> Vec<&'static str> {
+    required_vars()
+        .into_iter()
+        .filter(|k| env_var_nonempty(k).is_none())
+        .collect()
+}
+
+/// Every input this module requires, set or not.
+fn required_vars() -> [&'static str; 6] {
     [
+        // v4's own coordinates — the only names this module adds.
         "BODY_BAKE_V4_TAG",
         "BODY_BAKE_V4_ASSET",
-        "BODY_BAKE_V4_ENDPOINT",
-        "BODY_BAKE_V4_BUCKET",
-        "BODY_BAKE_V4_ACCESS_KEY_ID",
-        "BODY_BAKE_V4_SECRET_ACCESS_KEY",
+        // The deployment's existing object-store contract, shared with every
+        // other consumer of this bucket. Not duplicated under a v4 prefix.
+        "AWS_ENDPOINT_URL",
+        "AWS_S3_BUCKET_NAME",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
     ]
-    .into_iter()
-    .filter(|k| env_var_nonempty(k).is_none())
-    .collect()
 }
 
 /// The v4 cache directory. Its own leaf — `body-v4` — so nothing this module
@@ -452,26 +468,42 @@ mod tests {
         unsafe { std::env::remove_var("RAILWAY_VOL") };
     }
 
+    fn missing_vars_all() -> Vec<&'static str> {
+        required_vars().to_vec()
+    }
+
     #[test]
-    fn no_v4_setting_shares_a_name_with_the_map_or_the_ambient_aws_config() {
-        // The crossed-wire guard: every name this module reads must be
-        // v4-scoped, so changing a v4 setting cannot move anything else.
-        for key in [
-            "BODY_BAKE_V4_TAG",
-            "BODY_BAKE_V4_ASSET",
-            "BODY_BAKE_V4_ENDPOINT",
-            "BODY_BAKE_V4_BUCKET",
-            "BODY_BAKE_V4_ACCESS_KEY_ID",
-            "BODY_BAKE_V4_SECRET_ACCESS_KEY",
-            "BODY_BAKE_V4_REGION",
-            "BODY_BAKE_V4_DIR",
-        ] {
-            assert!(key.starts_with("BODY_BAKE_V4_"), "{key} is not v4-scoped");
+    fn the_module_invents_no_credential_variable() {
+        // The defect this pins: an earlier version demanded BODY_BAKE_V4_
+        // copies of the endpoint, bucket, key id and secret, so serving one
+        // artifact cost four duplicate secrets on a deploy that already had
+        // them. The object-store contract must be the deployment's existing
+        // AWS_* names; the ONLY names this module adds are v4's own
+        // coordinates and its cache directory.
+        let required: Vec<&str> = missing_vars_all();
+        for k in &required {
+            assert!(
+                !(k.starts_with("BODY_BAKE_V4_")
+                    && (k.contains("ENDPOINT")
+                        || k.contains("BUCKET")
+                        || k.contains("ACCESS_KEY")
+                        || k.contains("SECRET")
+                        || k.contains("REGION"))),
+                "{k} duplicates a credential the deployment already sets as AWS_*"
+            );
         }
+        assert!(
+            required.contains(&"AWS_S3_BUCKET_NAME"),
+            "the bucket must come from the deployment's AWS_S3_BUCKET_NAME"
+        );
+        assert!(
+            required.contains(&"BODY_BAKE_V4_TAG") && required.contains(&"BODY_BAKE_V4_ASSET"),
+            "the artifact coordinates must stay v4's own"
+        );
         assert_eq!(
-            missing_vars().len(),
+            required.len(),
             6,
-            "with nothing set, every required v4 variable must be reported missing"
+            "required inputs: 2 v4 coordinates + 4 AWS"
         );
     }
 
