@@ -753,7 +753,7 @@ async fn garmin_contour_handler(
 async fn bake_asset_handler(
     axum::extract::Path((tag, asset)): axum::extract::Path<(String, String)>,
 ) -> impl axum::response::IntoResponse {
-    use axum::http::{header, StatusCode};
+    use axum::http::{StatusCode, header};
 
     let bad = |s: &str| s.contains('/') || s.contains('\\') || s.contains("..") || s.is_empty();
     if bad(&tag) || bad(&asset) {

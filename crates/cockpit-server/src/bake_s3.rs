@@ -70,9 +70,7 @@ impl S3Config {
     pub fn from_env() -> Option<Self> {
         let get = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
         Some(Self {
-            endpoint: get("AWS_ENDPOINT_URL")?
-                .trim_end_matches('/')
-                .to_string(),
+            endpoint: get("AWS_ENDPOINT_URL")?.trim_end_matches('/').to_string(),
             bucket: get("AWS_S3_BUCKET_NAME")?,
             region: get("AWS_DEFAULT_REGION").unwrap_or_else(|| "auto".to_string()),
             key_id: get("AWS_ACCESS_KEY_ID")?,
@@ -121,14 +119,20 @@ fn hexs(bytes: &[u8]) -> String {
 ///
 /// Unsigned payload is correct rather than lax: a GET has no body, so signing
 /// the empty payload would authenticate nothing.
-fn sign_get(cfg: &S3Config, url: &str, now: &chrono::DateTime<chrono::Utc>) -> Vec<(String, String)> {
+fn sign_get(
+    cfg: &S3Config,
+    url: &str,
+    now: &chrono::DateTime<chrono::Utc>,
+) -> Vec<(String, String)> {
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
     let date = now.format("%Y%m%d").to_string();
 
     let after_scheme = url.split_once("://").map_or(url, |(_, r)| r);
     let (host, path) = after_scheme
         .split_once('/')
-        .map_or((after_scheme, "/".to_string()), |(h, p)| (h, format!("/{p}")));
+        .map_or((after_scheme, "/".to_string()), |(h, p)| {
+            (h, format!("/{p}"))
+        });
 
     const PAYLOAD: &str = "UNSIGNED-PAYLOAD";
     let signed_headers = "host;x-amz-content-sha256;x-amz-date";
