@@ -28,7 +28,9 @@ use futures_core::Stream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeFile;
 
+mod body_bake_v4;
 mod body_lod;
 mod clinical;
 mod codebook;
@@ -291,6 +293,15 @@ async fn main() {
         }
     }
 
+    // The FMA body bake, on the same terms as the OSM slab above: S3 is truth,
+    // the volume is a cache that survives a rebuild, and a redeploy without the
+    // volume mounted re-fetches rather than serving something stale. Failure is
+    // never fatal — `/helix` reads the copy embedded in `dist/` and does not
+    // consult this at all; only `/helix2`'s newer bake needs it, and it degrades
+    // to a 503 with the missing variables named in the boot log. It shares no
+    // variable, directory, or code with the map hydrate above.
+    body_bake_v4::ensure_local().await;
+
     let (tx, _rx) = broadcast::channel::<SseEvent>(256);
     let scene_state = shader_stream::new_scene_state();
     let osm_manager = Arc::new(osm_artifact_manager::OsmArtifactManager::absent());
@@ -455,6 +466,21 @@ async fn main() {
         // Static files + SPA fallback (serves the Vite React build)
         .fallback(get(static_handler))
         .layer(CorsLayer::permissive());
+
+    // `/api/bake/v4` — /helix2's bake, and nothing else's. Attached here rather
+    // than in the table above so this addition cannot perturb a single existing
+    // route, and served by `ServeFile` so a ~59 MB artifact streams from disk
+    // instead of being read into a `Vec<u8>` per request (Codex P2 on #152:
+    // concurrent cache misses would multiply that allocation).
+    //
+    // Only a path that PASSED its checksum is served: `verified_path()` is
+    // published by the hydrate, so a cached copy that failed verification and
+    // whose re-download also failed leaves nothing to serve (Codex P1 on #152 —
+    // the handler used to trust file existence alone).
+    let app = match body_bake_v4::verified_path() {
+        Some(p) => app.route_service("/api/bake/v4", ServeFile::new(p)),
+        None => app.route("/api/bake/v4", get(bake_v4_unavailable)),
+    };
 
     let port: u16 = std::env::var("PORT")
         .ok()
@@ -733,6 +759,18 @@ async fn garmin_contour_handler(
 // ── Static file handler with SPA fallback ────────────────────────────────────
 
 /// Serves embedded Vite build files. Falls back to index.html for SPA routing.
+/// `GET /api/bake/v4` when no verified v4 bake exists on this deploy.
+///
+/// A deploy with no v4 bake is the normal state, not an error: `/helix` serves
+/// the body embedded in the image and never consults this route.
+async fn bake_v4_unavailable() -> impl axum::response::IntoResponse {
+    (
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        "no verified v4 bake on this deploy (the boot log names the missing \
+         BODY_BAKE_V4_* variables); /helix is unaffected",
+    )
+}
+
 async fn static_handler(uri: axum::http::Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
 
