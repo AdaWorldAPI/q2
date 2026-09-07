@@ -364,9 +364,18 @@ mod tests {
         assert_eq!(w.gate, 0);
         assert_eq!(w.merge, "Bundle");
 
+        // Ordinals are 0=Flow, 1=Hold, 2=Block — locked to the contract's
+        // `collapse_gate::GateDecision` and to ndarray's `QualiaGateLevel`, so
+        // severity is monotone in the byte. These assertions carried the
+        // pre-2026-08-26 order (1=Block, 2=Hold) that
+        // ISS-GATEDECISION-ORDINAL-COLLISION corrected upstream.
         let blocked: WireGateDecision = GateDecision::BLOCK.into();
-        assert_eq!(blocked.gate, 1);
+        assert_eq!(blocked.gate, 2);
         assert_eq!(blocked.merge, "Xor");
+
+        let held: WireGateDecision = GateDecision::HOLD.into();
+        assert_eq!(held.gate, 1);
+        assert_eq!(held.merge, "Xor");
     }
 
     #[test]
@@ -397,8 +406,8 @@ mod tests {
         // Sanity: dispatch defaults surface `style: "auto"` and `emit: "Cycle"`.
         assert!(j_dispatch.contains("\"style\":\"auto\""));
         assert!(j_dispatch.contains("\"emit\":\"Cycle\""));
-        // Default ShaderBus has gate=HOLD (gate ordinal 2, merge Xor).
-        assert!(j_bus.contains("\"gate\":2"));
+        // Default ShaderBus has gate=HOLD (gate ordinal 1, merge Xor).
+        assert!(j_bus.contains("\"gate\":1"));
         assert!(j_bus.contains("\"merge\":\"Xor\""));
     }
 
