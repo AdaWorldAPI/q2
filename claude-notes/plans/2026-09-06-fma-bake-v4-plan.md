@@ -711,6 +711,38 @@ systemic veins` (169), `Set of nerves` (141).
 is three (13), and 5 need four. The ladder is right, one rung longer than
 stated for most organs.
 
+**Do not read the `Set of…` / `Subdivision of…` names as many2many markers —
+they are fan-out, and the distinction decides whether mask −1 survives.**
+Many-to-many requires more than one parent; is_a has only **2** multi-parent
+nodes in all 104,698, so **no is_a naming pattern can be the many2many layer**.
+Measured:
+
+| pattern | nodes | fan-out mean/max | leaves | multi-parent |
+|---|---|---|---|---|
+| `Subdivision of…` | 537 | 5.0 / 40 | 3 % | **0** |
+| `Tributary of…` | 146 | 3.1 / 22 | 31 % | **0** |
+| `Region of…` | 489 | 5.6 / 150 | 2 % | **0** |
+| `Segment of…` | 552 | 4.7 / 52 | 14 % | **0** |
+| `Set of…` | 3 409 | **1.0** / 224 | **79 %** | **0** |
+
+`Subdivision of…` and `Tributary of…` are strictly ONE-to-many (522 and 101
+respectively are single-parent-with-children). They are the **depth spine** of
+the is_a tree — the rungs that produce §10.2's 24-level chain (`Subdivision of
+inferior systemic venous tree` → `Tributary of femoral vein` → … ). They BUILD
+the tree that makes `parent = mask −1` valid; they do not violate it.
+
+So the two layers are in two different graphs and must not be conflated:
+
+- **depth spine** — `Subdivision of…` / `Tributary of…`, in **is_a**, a tree,
+  addressed by the mask chain;
+- **hub shell** — the region/set nodes of §10.5's hop-1 ring, in **part_of**,
+  where the 536 genuine many2many nodes actually live, carried on edges.
+
+Also: `Set of…` is **not** a reliable hub marker — 79 % are leaves with mean
+fan-out 1.0. Only a handful (`Set of arteries` 224, `Set of systemic veins`
+169, `Set of nerves` 141) are real hubs, so keying on the name would be wrong
+four times in five.
+
 Worked example (operator: *"sternum connective tissue(n) > lunge, herz
 <aorta hub>"*), traced in the data:
 
