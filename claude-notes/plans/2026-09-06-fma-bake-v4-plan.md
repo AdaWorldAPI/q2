@@ -597,3 +597,163 @@ and is now the *only* unblocked item — with its sub-choice sharpened by the
 D-2 and D-4 remain blocked, and P-1 did not unblock them — it ran on 3.0, and
 it surfaced a **prior** question (shortest vs deepest ancestry) that must be
 ruled before D-4 can be sized at all.
+
+---
+
+## 10. The zipper addressing proposal (measured 2026-09-07)
+
+> **STATUS: MEASURED, TO BE RESEARCHED.** Every figure below is a command
+> output over the BodyParts3D **3.0** data on disk (`FMA.csv`,
+> `conventional_part_of.txt`). Nothing here is ruled, and §6 remains
+> unresearched. P-5 (4.0) is still blocked, so every bound is 3.0's.
+
+### 10.1 The proposal
+
+Operator, 2026-09-07. Replace the shared L1 rail with a same-relation zipper
+spanning two tenants:
+
+```
+old   L1 = 6 × (8:8) = part_of : is_a        → 6 is_a slots, 6 part_of slots
+new   L1 = 6 × (8:8) = is_a : is_a           ┐
+      L2 = 6 × (8:8) = is_a : is_a           ┘ → 24 is_a slots
+```
+
+with `part_of` read as **the parent of the last** occupied slot, **parent =
+mask −1** (prefix truncation), extra `part_of` parents carried on the
+`EdgeBlock`, and — where edges do not suffice — many2many group nodes.
+
+### 10.2 Why 24: it is the measured bound, not a round number
+
+is_a depth over all 104,698 parented nodes in `FMA.csv`:
+
+| is_a levels | overflow | share |
+|---|---|---|
+| 6 (today's L1 rail) | 100,439 | **95.93 %** |
+| 12 (one tenant) | 50,885 | 48.60 % |
+| **24 (two tenants)** | **0** | **0.00 %** |
+
+Max is_a depth is **exactly 24** — a coherent chain `owl#Thing` →
+`Anatomical entity` → … → `Dorsal digital vein of left big toe`. At today's
+6 slots the is_a rail does not merely overflow, it fails for **96 %** of
+concepts. **24 has ZERO headroom**: any deepening in 4.0 breaks it.
+
+### 10.3 `parent = mask −1` is valid for is_a, and NOT for part_of
+
+| relation | source | nodes | multi-parent | shape |
+|---|---|---|---|---|
+| **is_a** | `FMA.csv` | 104,698 | **2** (0.002 %) | **tree** |
+| **part_of** | `conventional_part_of.txt` | 1,522 | **536** (35 %) | **DAG** |
+
+Prefix truncation needs a tree. is_a is one (104,696/104,698 single-parent;
+the exceptions are `Aortopulmonary septum` with two real parents, plus one
+malformed row). part_of is not: 365 nodes have 2 parents, 83 have 3, 48 have
+4, 39 have 5, and one — the sacrum — has 6.
+
+**§9.4's shortest-vs-deepest question (D-4) becomes MOOT** at these widths:
+part_of max depth is 12 (longest path) / 9 (shortest), so a 12-slot part_of
+lane overflows **0 either way**. The zipper does not answer D-4; it dissolves
+it.
+
+### 10.4 Edges carry the DAG; group nodes are not needed for it
+
+Once the mask chain holds the primary parent, edges carry only the extras:
+365 nodes need 1 slot, 83 need 2, 48 need 3, 39 need 4, **1 needs 5** — 836
+extra edges, worst case **5 against the EdgeBlock's 16**.
+
+**But a slot is a ONE-BYTE ref, and one byte is not a global address.** The
+operator's two escapes — *"accumulate if they are global, or reference the
+uncle"* — are decided by which relation orders the address:
+
+| ladder the address is ordered by | extras within uncle range (climb ≤ 2) | max climb | unreachable |
+|---|---|---|---|
+| **is_a-ordered** | 14.0 % | 16 | **23** |
+| **part_of-ordered** | **45.8 %** (88.9 % at ≤ 3) | **5** | **0** |
+
+A one-byte relative ref (`climb` 3 bits, `sibling` 5 bits) fits the part_of
+ladder: max climb 5, and only **1 of 493** internal nodes exceeds 32 children
+(max 36, mean 3.1).
+
+**Consequence for this proposal:** with is_a in the 24, the address is
+is_a-ordered, so the uncle escape does NOT apply (86 % out of range, 23
+unreachable) and the extras must be the **accumulating/global** kind. That is
+affordable — the part_of graph is 1,523 nodes ≈ 11 bits, so ~2 bytes per ref,
+worst node 5 × 2 = 10 of 16 EdgeBlock bytes. **The real decision is the
+ordering relation, not the slot count**: is_a-ordered buys the clean 24-deep
+taxonomy mask and pays 2-byte global edge refs; part_of-ordered buys one-byte
+uncles and needs is_a represented some other way.
+
+### 10.5 The bone baseline, and hubs that already exist
+
+Operator: *"bones as the baseline"*, then *"bones > many2many > second hop
+many2many (organs)"*. Rings outward from the 301 skeleton nodes, over
+undirected part_of:
+
+| hop | nodes | composition |
+|---|---|---|
+| 0 | 301 | skeleton (baseline) |
+| **1** | **54** | **100 % tissue-less ("other")** |
+| 2 | 143 | muscle 72, other 65, **organ 6** |
+| 3 | 263 | muscle 151, other 99, **organ 13** |
+| 4 | 294 | muscle 207, other 68, vessel 11, **organ 5** |
+
+The hop-1 shell carrying **no tissue at all** is the signature of a grouping
+layer — and its members are named as such: `Set of phalanges` (deg 57),
+`Skeletal system of lower free limb` (44), `Foot` (33), `Anterior chest` (33),
+`Abdomen` (24), `Thorax` (20), `Trunk` (19).
+
+**The many2many hubs do not need inserting — they need recognising.** FMA
+already ships regions and sets as first-class nodes; they classify as "other"
+only because `layer_of` keys on tissue, which a container has none of. The
+same pattern dominates is_a: `Set of arteries` (224 subtypes), `Set of
+systemic veins` (169), `Set of nerves` (141).
+
+**Correction to the hop count:** two hops reaches **6 of 24** organs; the mode
+is three (13), and 5 need four. The ladder is right, one rung longer than
+stated for most organs.
+
+Worked example (operator: *"sternum connective tissue(n) > lunge, herz
+<aorta hub>"*), traced in the data:
+
+```
+sternum → anterior chest → middle mediastinum → heart        (3 hops)
+sternum → anterior chest → thorax → right lung → lung        (4 hops)
+sternum → anterior chest → thorax → thoracic aorta → aorta   (4 hops)
+```
+
+`anterior chest` (32 children, 1 parent) and `thorax` (19/1) are clean
+fan-out hubs. `middle mediastinum` has 1 child and **2 parents** — a bridge,
+i.e. one of the 536 edge-carried cases, not a fan-out hub.
+
+**The aorta is NOT a hub in either graph**: 0 is_a subtypes, 2 part_of parts —
+effectively a leaf. An aorta-rooted vessel hub would have to be MINTED; what
+FMA ships is the flat `Set of arteries`. Vessel *depth* comes instead from the
+`Subdivision of…` / `Tributary of…` chain, which is the 24-deep ladder of
+§10.2.
+
+### 10.6 Open items this section adds
+
+- **O-10a — the baseline's cardinality is ambiguous.** Three skeleton counts
+  are live: **203** bones (the original `bake_torso_splat.py` v4 census),
+  **281** (what `/helix` renders today), **301** (part_of under `layer_of`'s
+  `bone|cartilage`). If bones are the baseline, a 203/281/301 ambiguity in the
+  anchor propagates into every address derived from it. Pin it before minting.
+- **O-10b — 23 rows in `FMA.csv` carry an EMPTY FMAID** (e.g. `Costal surface
+  of scapula`, `Oral orifice`). At mint time they either vanish or collide at
+  address 0. Decide before the bake, not after.
+- **O-10c — the one-byte reachability gate (falsifier).** After minting, check
+  that all 836 extra part_of edges are one-byte-reachable from their child. If
+  yes, edges alone suffice and group nodes stay unused headroom. If no, that is
+  where group nodes earn their place — for the out-of-scope extras
+  specifically, never for multi-parenthood in general.
+- **O-10d — 24 has zero headroom.** The bound is exact on 3.0. P-5 (4.0) must
+  run before 24 is locked.
+
+### 10.7 Reproducing these numbers
+
+All figures come from read-only passes over
+`bodyparts3d/assets/BodyParts3D_data/{FMA.csv,conventional_part_of.txt,parts_list_e.txt}`;
+`FMA.csv` ids are bare numerals and `conventional_part_of.txt` ids carry an
+`FMA` prefix, so the join needs `removeprefix("FMA")` (1,496 of 1,522 part_of
+children resolve into the is_a tree). Layer names follow
+`crates/osint-bake/tools/body-soa-wire/src/main.rs::layer_of`. No producer was
+run and no bake artifact was read or written.
