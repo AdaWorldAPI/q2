@@ -730,8 +730,28 @@ async function fetchSoa(): Promise<ArrayBuffer> {
   if (!stamped) {
     throw new Error(`no bake for scene="${scene ?? 'body'}" — set ${key} in /body.manifest.json (soabake → helix::encode_signed; osm → geo/osm_helix)`);
   }
+  // 1. Same-origin: the copy the Dockerfile baked into dist/ at image build.
+  //    Fastest and always correct when present, so it stays first.
   const s = await fetch(`/${stamped}`).catch(() => null);
   if (s && s.ok) return inflate(s);
+  // 2. The object store, proxied same-origin by /api/bake/:tag/:asset. This is
+  //    what lets a NEWLY published bake reach a RUNNING deploy: the dist/ copy
+  //    above is fixed at image build, so without this a v4 bake needs a rebuild
+  //    before /helix2 can see it. The server signs (SigV4) and streams; the
+  //    bucket is private and stays private — it is shared with clinical bakes,
+  //    and a browser cannot sign without being handed credentials.
+  //    The tag comes from the manifest so publishing a bake is a manifest edit,
+  //    not a code change; absent, this hop is skipped rather than guessed.
+  const tag: string | undefined = man?.helix_v4_tag;
+  if (tag) {
+    const o = await fetch(`/api/bake/${encodeURIComponent(tag)}/${encodeURIComponent(stamped)}`)
+      .catch(() => null);
+    if (o && o.ok) return inflate(o);
+  }
+  // 3. The GitHub release. Kept last and expected to fail in a browser: the
+  //    releases/download redirect sends no CORS header (see the Dockerfile note
+  //    at the same asset). It is a fallback for same-origin contexts, not a
+  //    working browser path.
   const rel = await fetch(`${REL}/${stamped}`);
   if (!rel.ok) throw new Error(`HTTP ${rel.status} fetching ${stamped}`);
   return inflate(rel);
