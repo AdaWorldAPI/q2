@@ -17,6 +17,10 @@ use std::hash::{Hash, Hasher};
 ///
 /// Both this crate and `lance-graph`'s thinking engine assume the same
 /// codebook width when exchanging `u16` indices. Keep in sync.
+#[allow(
+    dead_code,
+    reason = "codebook token-index surface (Cypher identifier extraction -> stable u16 index); built out but no call site wires it yet; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 pub const CODEBOOK_SIZE: usize = 4096;
 
 /// Synthetic placeholder distance table for `ThinkingEngine::new`.
@@ -31,11 +35,19 @@ pub const CODEBOOK_SIZE: usize = 4096;
 ///
 /// Cost: 4096 × 4096 × 1 byte = 16 MB. Allocated once per cockpit-server
 /// boot (per SSE connection in the current handler).
+#[expect(
+    dead_code,
+    reason = "codebook token-index surface; PHASE 2A stub distance table for ThinkingEngine::new, built out but no call site wires it yet"
+)]
 pub fn default_distance_table() -> Vec<u8> {
     vec![0u8; CODEBOOK_SIZE * CODEBOOK_SIZE]
 }
 
 /// Cypher keywords excluded from identifier extraction.
+#[allow(
+    dead_code,
+    reason = "codebook token-index surface; keyword exclusion list for extract_cypher_identifiers, built out but no call site wires it yet; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 const CYPHER_KEYWORDS: &[&str] = &[
     "MATCH", "RETURN", "WHERE", "CREATE", "MERGE", "SET", "DELETE", "AS", "AND", "OR", "NOT",
     "NULL", "TRUE", "FALSE", "OPTIONAL", "WITH", "UNWIND", "ORDER", "BY", "ASC", "DESC", "LIMIT",
@@ -43,6 +55,10 @@ const CYPHER_KEYWORDS: &[&str] = &[
 ];
 
 /// Maximum identifiers returned by [`extract_cypher_identifiers`] per call.
+#[allow(
+    dead_code,
+    reason = "codebook token-index surface; per-call cap for extract_cypher_identifiers, built out but no call site wires it yet; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 const MAX_IDENTIFIERS_PER_CALL: usize = 32;
 
 /// Map a token to a stable `u16` codebook index in `[0, CODEBOOK_SIZE)`.
@@ -51,6 +67,10 @@ const MAX_IDENTIFIERS_PER_CALL: usize = 32;
 /// deterministic within a single process run; callers must not rely on
 /// stability across Rust toolchain versions, since `DefaultHasher` is not
 /// guaranteed stable across releases.
+#[allow(
+    dead_code,
+    reason = "codebook token-index surface; stable token->u16 index mapping, built out but no call site wires it yet; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 pub fn token_to_index(token: &str) -> u16 {
     let mut hasher = DefaultHasher::new();
     token.hash(&mut hasher);
@@ -63,6 +83,10 @@ pub fn token_to_index(token: &str) -> u16 {
 /// Preserves first-occurrence order: if two distinct tokens hash to the same
 /// index, both appear once in input order, but duplicate tokens collapse to
 /// a single index in the output.
+#[allow(
+    dead_code,
+    reason = "codebook token-index surface; batch token->indices dedup helper, built out but no call site wires it yet; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 pub fn tokens_to_indices(tokens: &[&str]) -> Vec<u16> {
     let mut seen: HashSet<&str> = HashSet::with_capacity(tokens.len());
     let mut out: Vec<u16> = Vec::with_capacity(tokens.len());
@@ -80,6 +104,10 @@ pub fn tokens_to_indices(tokens: &[&str]) -> Vec<u16> {
 /// start with an ASCII letter and have length >= 2, drops Cypher keywords
 /// (case-insensitive), deduplicates while preserving first-occurrence
 /// order, and caps the output at [`MAX_IDENTIFIERS_PER_CALL`] entries.
+#[allow(
+    dead_code,
+    reason = "codebook token-index surface; Cypher identifier extraction for the scene player/shader stream, built out but no call site wires it yet; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 pub fn extract_cypher_identifiers(content: &str) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut out: Vec<String> = Vec::new();

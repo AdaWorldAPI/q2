@@ -107,10 +107,18 @@ pub struct GraphEdge {
 
 impl GraphEdge {
     /// Convenience: legacy `truth_f` accessor for in-process consumers.
+    #[expect(
+        dead_code,
+        reason = "legacy accessor for in-process consumers; the wire Serialize impl reads self.truth.frequency/.confidence directly, so nothing calls this yet"
+    )]
     pub fn truth_f(&self) -> f32 {
         self.truth.frequency
     }
     /// Convenience: legacy `truth_c` accessor for in-process consumers.
+    #[expect(
+        dead_code,
+        reason = "legacy accessor for in-process consumers; the wire Serialize impl reads self.truth.frequency/.confidence directly, so nothing calls this yet"
+    )]
     pub fn truth_c(&self) -> f32 {
         self.truth.confidence
     }

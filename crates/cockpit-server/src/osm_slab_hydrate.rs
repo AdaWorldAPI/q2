@@ -729,9 +729,14 @@ static FADVISE_ATTEMPTED: std::sync::atomic::AtomicUsize = std::sync::atomic::At
 /// Advise the kernel it can drop `f`'s pages from the page cache now that
 /// we're done reading it.
 ///
-/// No portable equivalent exists for this on non-Unix targets (see
-/// `.claude/rules/cross-platform.md`), so it is a documented no-op there —
-/// this is memory hygiene, not correctness, so a silent no-op is fine.
+/// `posix_fadvise` is a **Linux/Android extension, not POSIX-universal** —
+/// Apple's libc does not declare it, so `cfg(unix)` reads as "has fadvise"
+/// and is not. Gating this on `cfg(unix)` broke the macOS build outright
+/// with "E0425: cannot find function posix_fadvise in crate libc"; see
+/// `.claude/rules/cross-platform.md`. Every other target takes the
+/// documented no-op below — this is memory hygiene, not correctness, so a
+/// silent no-op is fine. **Widen this gate only to targets whose libc
+/// actually declares the call.**
 ///
 /// Deliberately untestable via RSS or cgroup memory accounting, same as
 /// `osm_lance.rs`'s `release_after_write`: `/proc/self/statm` cannot see
@@ -743,7 +748,7 @@ static FADVISE_ATTEMPTED: std::sync::atomic::AtomicUsize = std::sync::atomic::At
 /// silently skipped or removed, which a counter catches and an RSS
 /// measurement cannot (see the falsifiability rule: a test that cannot
 /// fail when the guard is deleted is not a test of the guard).
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn advise_dontneed(f: &std::fs::File) {
     #[cfg(test)]
     FADVISE_ATTEMPTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -762,7 +767,7 @@ fn advise_dontneed(f: &std::fs::File) {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn advise_dontneed(_f: &std::fs::File) {
     #[cfg(test)]
     FADVISE_ATTEMPTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

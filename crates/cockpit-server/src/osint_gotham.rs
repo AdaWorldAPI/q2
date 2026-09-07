@@ -562,7 +562,7 @@ fn is_version_token(tok: &str) -> bool {
 /// The deterministic basin plan: every node → an 8-bit basin byte
 /// `(theme << 4) | anchor`, plus the inverse map basin → anchor entity id (for
 /// hub labels).
-struct BasinPlan {
+pub(crate) struct BasinPlan {
     /// node id → basin byte.
     node_basin: HashMap<String, u8>,
     /// node id → theme stem (for hub labels / props).

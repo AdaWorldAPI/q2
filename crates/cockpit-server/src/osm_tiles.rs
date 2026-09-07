@@ -89,12 +89,20 @@ pub fn lonlat_to_tile(lon: f64, lat: f64, z: u32) -> (u32, u32) {
 /// Delegates to the substrate's `morton64`, which interleaves the full 32-bit
 /// lanes the 4-tier key needs.
 #[must_use]
+#[allow(
+    dead_code,
+    reason = "Morton interleave/deinterleave pair; only callers are under cfg(test), so a non-test build sees no reference; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 pub fn morton_interleave(x: u32, y: u32) -> u64 {
     osm_soa_bake::tms::morton64(x, y)
 }
 
 /// Inverse of [`morton_interleave`].
 #[must_use]
+#[allow(
+    dead_code,
+    reason = "Morton interleave/deinterleave pair; only callers are under cfg(test), so a non-test build sees no reference; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 pub fn morton_deinterleave(code: u64) -> (u32, u32) {
     osm_soa_bake::tms::demorton64(code)
 }

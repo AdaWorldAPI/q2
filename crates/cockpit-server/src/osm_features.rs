@@ -155,6 +155,10 @@ fn row_budget(z: u32) -> usize {
 /// Take every `stride`-th row so a decimated tile stays spatially
 /// representative. Split out from `query_tile` so the *selection* rule can be
 /// falsified at any budget, without a fixture the size of a real overview tile.
+#[allow(
+    dead_code,
+    reason = "only called from #[cfg(test)] callers; unused in a non-test build; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 fn stride_for(total: usize, budget: usize) -> usize {
     total.div_ceil(budget).max(1)
 }
@@ -1247,6 +1251,12 @@ fn simplify_cells_raw(
 ///   untouched — dots are points, geometry is the map.
 const GEOMETRY_OVERVIEW_BUDGET: usize = 12_000;
 const GEOMETRY_CITY_BUDGET: usize = CITY_ROW_CEILING;
+// Compile-time invariant: reordering these two budgets must fail the BUILD,
+// not one test. (A runtime assert! on two consts can never fire.)
+const _: () = assert!(
+    GEOMETRY_CITY_BUDGET > GEOMETRY_OVERVIEW_BUDGET,
+    "a city tile must be allowed more shapes than an overview tile"
+);
 /// Below this on-screen extent a shape has no resolvable outline, and drawing
 /// one is worse than drawing nothing.
 ///
@@ -2241,9 +2251,13 @@ mod tests {
     /// Decode `OSM1` bytes back into shapes — an independent reader for the
     /// round-trip test below, written from the format DOC, not from the
     /// encoder's code, so a shared misunderstanding can't self-certify.
-    fn decode_tile_bin(
-        buf: &[u8],
-    ) -> Option<(u32, u32, u32, u32, Vec<(u32, u8, bool, Vec<(f32, f32)>)>)> {
+    /// A decoded vertex: (x, y) in z32-cell-scaled units — never lon/lat.
+    type Point = (f32, f32);
+    /// One decoded shape record: (index, class wire code, closed, vertices).
+    type DecodedShape = (u32, u8, bool, Vec<Point>);
+    /// A fully decoded OSM1 tile: (total, sampled, count, malformed, shapes).
+    type DecodedTile = (u32, u32, u32, u32, Vec<DecodedShape>);
+    fn decode_tile_bin(buf: &[u8]) -> Option<DecodedTile> {
         let rd_u32 = |at: usize| u32::from_le_bytes(buf[at..at + 4].try_into().unwrap());
         if buf.len() < 20 || rd_u32(0) != 0x314D_534F {
             return None;
@@ -2371,10 +2385,6 @@ mod tests {
             GEOMETRY_OVERVIEW_BUDGET
         );
         assert_eq!(geometry_row_budget(CITY_ZOOM_FLOOR), GEOMETRY_CITY_BUDGET);
-        assert!(
-            GEOMETRY_CITY_BUDGET > GEOMETRY_OVERVIEW_BUDGET,
-            "a city tile must be allowed more shapes than an overview tile"
-        );
     }
 
     /// Anti-vacuity test (per the plan's Phase-1 requirement): two real,

@@ -18,6 +18,8 @@ use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
+#[cfg(feature = "embed-cockpit")]
+use axum::http::header;
 use axum::response::sse::{Event, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -149,6 +151,10 @@ struct SseEvent {
 
 #[derive(Debug, Deserialize)]
 struct McpRequest {
+    #[expect(
+        dead_code,
+        reason = "part of the JSON-RPC 2.0 envelope; required for serde to parse incoming requests per the wire schema, but the value itself is never consulted"
+    )]
     jsonrpc: String,
     id: serde_json::Value,
     method: String,
@@ -523,6 +529,10 @@ async fn shutdown_signal() {
 /// filename for a known slug, `None` for unknown/malformed ones. Slugs are
 /// lowercase `[a-z0-9-]` — anything else is rejected before the map lookup
 /// (no path traversal into the dist).
+#[allow(
+    dead_code,
+    reason = "Garmin terrain-scene resolution surface; only call sites are under cfg(feature = \"embed-cockpit\") and cfg(test), so a default build sees no reference; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 fn resolve_garmin_map(manifest_json: &str, map_key: &str, location: &str) -> Option<String> {
     if location.is_empty()
         || !location
@@ -535,6 +545,10 @@ fn resolve_garmin_map(manifest_json: &str, map_key: &str, location: &str) -> Opt
     v.get(map_key)?.get(location)?.as_str().map(String::from)
 }
 
+#[allow(
+    dead_code,
+    reason = "Garmin terrain-scene resolution surface; only call sites are under cfg(feature = \"embed-cockpit\") and cfg(test), so a default build sees no reference; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 fn resolve_garmin_scene(manifest_json: &str, location: &str) -> Option<String> {
     resolve_garmin_map(manifest_json, "garmin_scenes", location)
 }
@@ -542,6 +556,10 @@ fn resolve_garmin_scene(manifest_json: &str, location: &str) -> Option<String> {
 /// Resolve a `/garmin-drape/:location` slug through the manifest's `garmin_drapes`
 /// map — the DRP1 vector overlay (roads / trails / rivers) that drapes onto the
 /// `garmin_scenes` terrain of the same slug. Absent = the scene has no drape.
+#[allow(
+    dead_code,
+    reason = "Garmin terrain-scene resolution surface; only call sites are under cfg(feature = \"embed-cockpit\") and cfg(test), so a default build sees no reference; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 fn resolve_garmin_drape(manifest_json: &str, location: &str) -> Option<String> {
     resolve_garmin_map(manifest_json, "garmin_drapes", location)
 }
@@ -549,11 +567,19 @@ fn resolve_garmin_drape(manifest_json: &str, location: &str) -> Option<String> {
 /// Resolve a `/garmin-contours/:location` slug through the manifest's
 /// `garmin_contours` map — the DRP1 topo-line overlay that drapes onto the
 /// `garmin_scenes` terrain of the same slug. Absent = the scene has no contours.
+#[allow(
+    dead_code,
+    reason = "Garmin terrain-scene resolution surface; only call sites are under cfg(feature = \"embed-cockpit\") and cfg(test), so a default build sees no reference; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 fn resolve_garmin_contours(manifest_json: &str, location: &str) -> Option<String> {
     resolve_garmin_map(manifest_json, "garmin_contours", location)
 }
 
 /// List the available scene slugs (for the self-documenting 404).
+#[allow(
+    dead_code,
+    reason = "Garmin terrain-scene resolution surface; only call sites are under cfg(feature = \"embed-cockpit\") and cfg(test), so a default build sees no reference; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+)]
 fn garmin_scene_slugs(manifest_json: &str) -> Vec<String> {
     serde_json::from_str::<serde_json::Value>(manifest_json)
         .ok()
@@ -746,6 +772,10 @@ async fn static_handler(uri: axum::http::Uri) -> Response {
     (StatusCode::NOT_FOUND, "Not found").into_response()
 }
 
+#[allow(
+    dead_code,
+    reason = "MIME lookup utility; sole call site is inside the cfg(feature = \"embed-cockpit\") static_handler block; allow not expect — with that feature enabled the call exists, so no expectation holds in every configuration"
+)]
 fn mime_from_path(path: &str) -> &'static str {
     if path.ends_with(".html") {
         "text/html; charset=utf-8"

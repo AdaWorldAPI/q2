@@ -90,6 +90,10 @@ impl OsmArtifactManager {
     /// Atomically replace the lifecycle snapshot. A caller holding an
     /// `Arc<Lifecycle>` from a prior `current()` keeps observing the old
     /// value — this call never mutates through an existing `Arc`.
+    #[allow(
+        dead_code,
+        reason = "hydration write path for Phase C, which has not landed yet; exercised only by this module's tests today; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+    )]
     pub fn publish_lifecycle(&self, next: Lifecycle) {
         self.lifecycle.store(Arc::new(next));
     }
@@ -98,6 +102,10 @@ impl OsmArtifactManager {
     /// guarantee as `publish_lifecycle`, and `None` is a valid publication
     /// (Phase C uses it to retract content whose lifecycle moved to
     /// `absent`/`CandidateFailed` with no prior active version).
+    #[allow(
+        dead_code,
+        reason = "hydration write path for Phase C, which has not landed yet; exercised only by this module's tests today; allow not expect — used under cfg(test)/feature, so no expectation holds in every --all-targets compilation"
+    )]
     pub fn publish_artifact(&self, next: Option<Arc<ActiveArtifact>>) {
         self.artifact.store(next);
     }
@@ -127,6 +135,10 @@ pub struct CgroupMemory {
 }
 
 /// Parse `memory.current`'s content: a bare decimal integer.
+#[allow(
+    dead_code,
+    reason = "read only by `read_cgroup_memory`'s cfg(target_os = \"linux\") arm and by this module's tests; dead on every non-Linux target, so allow not expect — no single expectation holds across targets"
+)]
 #[must_use]
 pub fn parse_cgroup_current(raw: &str) -> Option<u64> {
     raw.trim().parse().ok()
@@ -136,6 +148,10 @@ pub fn parse_cgroup_current(raw: &str) -> Option<u64> {
 /// string `max` meaning "no limit" (represented here as `None`, same as an
 /// unreadable file — see [`CgroupMemory::max_bytes`] for how to tell them
 /// apart).
+#[allow(
+    dead_code,
+    reason = "read only by `read_cgroup_memory`'s cfg(target_os = \"linux\") arm and by this module's tests; dead on every non-Linux target, so allow not expect — no single expectation holds across targets"
+)]
 #[must_use]
 pub fn parse_cgroup_max(raw: &str) -> Option<u64> {
     let trimmed = raw.trim();
