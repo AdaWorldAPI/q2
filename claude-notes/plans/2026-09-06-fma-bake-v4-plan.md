@@ -220,3 +220,100 @@ addressing defects and a new date in its filename.
 
 Geometry, palettes, LOD, the 20260629c connective-layer fix, the renderer, and
 the surfel/torso line. This plan is about the key, not the mesh.
+
+---
+
+## 6. Operator sketch — v4 direction (added 2026-09-07)
+
+> **STATUS: TO BE RESEARCHED.** Nothing in this section is decided, scheduled,
+> or recommended. It records an operator sketch and what the contract already
+> says about each item, so the research starts from the carved state instead of
+> re-deriving it. Verdicts belong to a later pass; the §3 weighted decisions and
+> §4 probes are unchanged by anything here.
+
+Nine directions, checked against `AdaWorldAPI/lance-graph`'s
+`.claude/v3/soa_layout/` contract. Most are already carved; three are new. The
+split matters because a carved item needs *wiring*, and a new one needs a
+*ruling* first.
+
+### 6.1 Already carved — wire, don't invent
+
+| direction | where it already lives |
+|---|---|
+| **2 × 12 (second GUID for relationships)** | `le-contract.md:130-137` — *"**Second GUID (relationships):** when a node carries a second GUID dedicated to relationships, its rail plane is ENCOURAGED to carry six relations as `basin : relationtype` pairs"*; and *"if the basins are **12 static**, the pair upgrades to `relationtype : relationtype_orthogonal`"* |
+| **6 × palette256² for Fisher-z** | `le-contract.md:171-186` — L4 reads through the **analytic Fisher-z codec** (`bgz-tensor::fisher_z::{FamilyGamma, FisherZTable}`), certified ρ≥0.999, `E-FISHERZ-CANONICAL-COSINE-REPLACEMENT-1`. *"A materialized k×k table is a CACHE of the formula, never the canon."* Boundary: replaces the distance/rank READ; the semiring COMPOSE keeps its table |
+| **helix Signed360** | tenant 4 `HelixResidue`, 6 B `[112,118)` — *"48-bit helix place (2× 24-bit equal-area hemisphere, Signed360)"*. Sibling of the above: *"helix is to Fisher-2z what the cosine-replacement is to Fisher-z"* |
+| **many-to-many nodes** | **three** existing mechanisms — tenant 15 `EpisodicBasin` (§6.2), L2 facet `memberof : members`, and q2's own EdgeBlock 16×8-bit adapter mask (`osint_gotham.rs:12-16`) |
+| **24 × i4 Markov context** | tenant 14 `CausalWitness`, `U8 × 16` `[204,220)`, read **G24N4** — *"24 signed i4 loci… each nibble is a context pointer (signed ±8 window offset), not a strength"*. Slots 16..24 reserved-zero. **EXPERIMENTAL**, and by its own doc-comment *"not in the operator-locked §3 catalogue"*; it is a **lane shape name, never a `CascadeShape` variant** |
+
+### 6.2 The many-to-many node already encodes the no-hub ruling
+
+Tenant 15 `EpisodicBasin` — *"a promoted basin as **REFERENCES**: `subject` u16 ·
+`member_count` u16 · `self_code` 12 B (Cam96 centroid) · `version_from`/`version_to`
+u64. **Members are reached by following `(subject, [from,to))` into the triple
+stream, never inlined** — the fat-concept guard §3a names. Width is NOT stored
+(recomputable through the references)."*
+
+A group that carries a member *count* and a version range but not a member
+*list*. That is the same ruling q2 reached independently at
+`osint_gotham.rs:1081-1087` (*"A materialized hub cannot dock as an edge"*),
+arrived at from the other side. **A v4 needing group semantics picks one of the
+three; it does not add a fourth.**
+
+### 6.3 Genuinely new — TO BE RESEARCHED
+
+- **Zipper over 2 × 12 = 24 bytes.** Arithmetic first: 24 bytes read as `(8:8)`
+  rails is **12 rails**, not 24. With classid that is 13 addressable levels
+  against part_of's measured max depth of **16** (F-6). It closes most of the
+  279 over-deep nodes but not all, so it *pairs with* D-4b (registry resolve +
+  ref-escape), it does not replace it. Open: whether the second 12 B comes from
+  the EdgeBlock or from a second GUID per §6.1 — these are different rows.
+- **Hexagon substrate with trie addressing.** CONFLICT, at the arithmetic
+  level: HHTL is `FAN_OUT = 16`, one nibble per level, tier-of-level =
+  `level >> 2` — *"a shift, never a branch"* (OGAR canon). A hex lattice has 6
+  neighbours (7 with centre); neither divides a nibble. Adopting it trades away
+  the shift/mask uniformity the 3×4-vs-4×3 ruling was decided on. Needs the
+  standing-watch flip condition (a measured workload where it wins) before it
+  is more than an idea. TO BE RESEARCHED, not proposed.
+- **Volumetric fill as an EXPLICIT trie + spatial edges.** The stronger half of
+  the same thought, and it does *not* carry the hex conflict.
+  `fill_body_soa.py` already does 3D connected-component analysis (`:82-83`)
+  and ring-sweeps a core (`:115-146`); today it emits triangles. Emitting an
+  addressed trie with spatial edges instead is a real substrate change and is
+  what Gagvani & Silver's volumetric skeleton (*"an advanced data structure for
+  referencing all of the voxels"*) was reaching for. Prerequisite: decide
+  whether the trie is the address or a second index beside it.
+- **BPE for behaviour.** No prior art found anywhere in the workspace. Needs a
+  statement of what the token vocabulary is over before it can be weighed.
+
+### 6.4 Adjacent, and deliberately still out of scope
+
+- **Better vessels** — geometry, excluded by §5. The shipped fix is empirical
+  clamps (`caliber × CAP`, `PCTL = 0.30`), not a growth sequence; a v4 that
+  also re-opens vessel caliber should say so explicitly and take §5 with it.
+- **"Street" nodes repurposed** — the OSM `.chains` sidecar is the one carrier
+  in the stack that holds an **ordered, variable-length path**
+  (`osm_features.rs:829`, *"vertex chains for tagged ways"*). If vessel
+  centerlines want to be first-class paths rather than swept triangles, that is
+  the shape to reuse. Note its sparse-ordinal cost is already documented:
+  chains need an ascending ordinal index (~17.6 MB at ~4.4 M entries) because
+  row position ≠ ordinal, where dense books need none
+  (`osm_chains_books_lance.rs:19-41`).
+- **Masking algebra** — measured (ternlog `T3/T1 → 0.50` by K=8, flat in K,
+  contingent on L2 residency: 138 → 15 GB/s past L2). Not wired to any FMA
+  read path today; it is a consumer of whichever addressing v4 settles on, not
+  an input to it.
+
+### 6.5 One doc-drift found while checking the above  [DOC-ONLY]
+
+`.claude/v3/soa_layout/tenants.md:88` describes the `Full = 3` preset as
+*"all 15 tenants 0–14 (Meta … `CausalWitness`)"*. The tenant table in the same
+file runs **0–15**, ending at `EpisodicBasin`.
+
+The **code is correct** — `canonical_node.rs:942` has `EpisodicBasin = 15`, and
+`:1252` compile-asserts
+`ValueSchema::Full.field_mask().count() == VALUE_TENANTS.len()`, which would not
+build if the preset and the table disagreed. So this is stale prose in
+`tenants.md`, not a defect: 16 tenants, 0–15. Belongs upstream in lance-graph,
+not in this repo; noted here only so a v4 session reading that line does not
+size a preset from it.
