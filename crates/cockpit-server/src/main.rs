@@ -402,7 +402,7 @@ async fn main() {
         // bakes that must stay private), and a browser cannot sign SigV4
         // without being handed credentials. The bytes are already local —
         // `body_bake::ensure_body_bake_local` put them there at boot.
-        .route("/api/bake/:tag/:asset", get(bake_asset_handler))
+        .route("/api/bake", get(bake_asset_handler))
         .route("/api/osm/health", get(osm_features::osm_health_handler))
         .route(
             "/api/osm/regions",
@@ -748,42 +748,38 @@ async fn garmin_contour_handler(
 // ── Static file handler with SPA fallback ────────────────────────────────────
 
 /// Serves embedded Vite build files. Falls back to index.html for SPA routing.
-/// `GET /api/bake/:tag/:asset` — serve the hydrated bake from disk.
+/// `GET /api/bake` — serve the artifact this deploy hydrated.
 ///
 /// Exists so a NEW bake can reach a running deploy without an image rebuild:
 /// the embedded `dist/` copy is fixed at build time, this is not. The embedded
-/// copy remains the primary path and is untouched — a deploy that hydrated
-/// nothing simply 503s here and `/helix` is unaffected.
+/// copy remains the primary path for `/helix` and is untouched — a deploy that
+/// hydrated nothing simply 503s here.
 ///
-/// The coordinates are checked against what this deploy actually hydrated
-/// rather than used to address the filesystem. A request naming some other tag
-/// is answered "not this deploy's bake", not translated into a path — so no
-/// input from the wire ever reaches a `join`.
-async fn bake_asset_handler(
-    axum::extract::Path((tag, asset)): axum::extract::Path<(String, String)>,
-) -> impl axum::response::IntoResponse {
+/// **It takes no coordinates on purpose.** The first version was
+/// `/api/bake/:tag/:asset`, with the client reading the tag and filename from
+/// `body.manifest.json` while the server read them from its own environment —
+/// two places naming one artifact, either of which could be set without the
+/// other, producing a 404 in which both halves looked right. The server already
+/// knows what it fetched; asking the client to agree added a way to disagree
+/// and nothing else. One name, one place: `BODY_BAKE_ASSET`.
+///
+/// The filename travels in `Content-Disposition` so a caller that wants to
+/// know WHICH bake it received can read it, rather than having to assert it.
+async fn bake_asset_handler() -> impl axum::response::IntoResponse {
     use axum::http::{StatusCode, header};
-
-    let (have_tag, have_asset) = body_bake::coordinates();
-    if tag != have_tag || asset != have_asset {
-        return (
-            StatusCode::NOT_FOUND,
-            format!("this deploy serves {have_tag}/{have_asset}"),
-        )
-            .into_response();
-    }
 
     let path = body_bake::local_path();
     let Ok(bytes) = tokio::fs::read(&path).await else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            "the bake is not hydrated on this deploy (see the boot log for which \
-             variable is missing); the embedded bake is still served"
+            "no bake is hydrated on this deploy (the boot log names the missing \
+             variable); /helix still serves the bake embedded in the image"
                 .to_string(),
         )
             .into_response();
     };
 
+    let (tag, asset) = body_bake::coordinates();
     let ct = if asset.ends_with(".gz") {
         "application/gzip"
     } else {
@@ -792,10 +788,20 @@ async fn bake_asset_handler(
     (
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, ct),
-            // Artifacts are content-addressed by name (a new bake gets a new
-            // filename), so they are safe to cache hard.
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            (header::CONTENT_TYPE, ct.to_string()),
+            // Named, not addressed: the caller can see which bake this is
+            // without a second variable that could name a different one.
+            (
+                header::CONTENT_DISPOSITION,
+                format!("inline; filename=\"{asset}\""),
+            ),
+            (header::ETAG, format!("\"{tag}/{asset}\"")),
+            // The name changes when the bake changes, and the ETag carries it,
+            // so the bytes behind this URL are safe to cache hard.
+            (
+                header::CACHE_CONTROL,
+                "public, max-age=31536000, immutable".to_string(),
+            ),
         ],
         bytes,
     )

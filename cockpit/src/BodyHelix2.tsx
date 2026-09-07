@@ -3,16 +3,21 @@
 // FMA v4 bake work — re-addressed cascade, laterality on the edge, vessel radii —
 // can NEVER regress the working /helix anatomy body.
 //
-// It differs from BodyHelix in exactly ONE line of behaviour: the manifest key.
-// /helix reads `helix_latest`; /helix2 reads `helix_v4_latest`. Both resolve
-// through the SAME loader, the SAME BSO2 ver-6 decoder and the SAME Signed360
-// shading, so a v4 bake is compared against v3 with the renderer held constant —
-// any visible difference is the BAKE, never the viewer.
+// It differs from BodyHelix in exactly ONE line of behaviour: WHERE the bake
+// comes from. /helix reads the manifest's `helix_latest` and the copy baked into
+// dist/ at image build; /helix2 reads `/api/bake`, the artifact the server
+// hydrated from the object store at boot. Both resolve through the SAME loader,
+// the SAME BSO2 ver-6 decoder and the SAME Signed360 shading, so a v4 bake is
+// compared against v3 with the renderer held constant — any visible difference
+// is the BAKE, never the viewer.
 //
-// Until a v4 bake exists and `helix_v4_latest` is set in /body.manifest.json,
-// /helix2 says so verbatim (the CANONICAL-ONLY no-fallback rule below is
-// deliberately inherited: silently falling back to the v3 artifact would make
-// /helix2 a copy of /helix that LOOKS like a successful v4 render).
+// That split is what makes a NEW bake reachable without an image rebuild, and
+// it is deliberately ONE-SIDED: the deploy's own `BODY_BAKE_ASSET` is the only
+// name involved, so there is no second place to keep in sync. Until a v4 bake
+// is hydrated, /helix2 reports what the server said (the CANONICAL-ONLY
+// no-fallback rule below is deliberately inherited: silently falling back to
+// the v3 artifact would make /helix2 a copy of /helix that LOOKS like a
+// successful v4 render).
 //
 // Nothing here writes: `helix_latest` is untouched, so /helix keeps working and
 // the release asset medcare-rs SHA256-pins stays exactly as published.
@@ -725,34 +730,35 @@ async function fetchSoa(): Promise<ArrayBuffer> {
     }
     return inflate(r);
   }
-  const key = scene ? `${scene}_latest` : 'helix_v4_latest';
+  // THE BAKE THIS DEPLOY SERVES HAS ONE NAME, AND THE SERVER HOLDS IT.
+  //
+  // An earlier version of this function asked the manifest for BOTH a filename
+  // (`helix_v4_latest`) and a tag (`helix_v4_tag`) while the server independently
+  // read `BODY_BAKE_ASSET`/`BODY_BAKE_TAG` — two places naming one artifact, so a
+  // deploy could satisfy one and not the other and the route would 404 with both
+  // halves looking correct. There is now exactly one place: the server's own
+  // environment. `/api/bake` takes no coordinates and answers with whatever it
+  // hydrated, so there is nothing for the client to keep in sync and nothing to
+  // set here at all.
+  if (!scene) {
+    const o = await fetch('/api/bake').catch(() => null);
+    if (o && o.ok) return inflate(o);
+    const why = o ? await o.text().catch(() => `HTTP ${o.status}`) : 'the request failed';
+    throw new Error(`no v4 bake on this deploy: ${why}`);
+  }
+  // A named scene still resolves through the manifest — those bakes ship in
+  // dist/ and are not what the object-store hydrate is for.
+  const key = `${scene}_latest`;
   const stamped: string | undefined = man?.[key];
   if (!stamped) {
-    throw new Error(`no bake for scene="${scene ?? 'body'}" — set ${key} in /body.manifest.json (soabake → helix::encode_signed; osm → geo/osm_helix)`);
+    throw new Error(`no bake for scene="${scene}" — set ${key} in /body.manifest.json (soabake → helix::encode_signed; osm → geo/osm_helix)`);
   }
-  // 1. Same-origin: the copy the Dockerfile baked into dist/ at image build.
-  //    Fastest and always correct when present, so it stays first.
   const s = await fetch(`/${stamped}`).catch(() => null);
   if (s && s.ok) return inflate(s);
-  // 2. The hydrated bake, served same-origin by /api/bake/:tag/:asset. This is
-  //    what lets a NEWLY published bake reach a RUNNING deploy: the dist/ copy
-  //    above is fixed at image build, so without this a v4 bake needs a rebuild
-  //    before /helix2 can see it. The server fetched it from the object store
-  //    ONCE at boot onto its volume and serves the file; the bucket is private
-  //    and stays private — it is shared with clinical bakes, and a browser
-  //    cannot sign for it. The tag comes from the manifest so publishing a bake
-  //    is a manifest edit plus the deploy's BODY_BAKE_TAG, not a code change;
-  //    absent, this hop is skipped rather than guessed.
-  const tag: string | undefined = man?.helix_v4_tag;
-  if (tag) {
-    const o = await fetch(`/api/bake/${encodeURIComponent(tag)}/${encodeURIComponent(stamped)}`)
-      .catch(() => null);
-    if (o && o.ok) return inflate(o);
-  }
-  // 3. The GitHub release. Kept last and expected to fail in a browser: the
-  //    releases/download redirect sends no CORS header (see the Dockerfile note
-  //    at the same asset). It is a fallback for same-origin contexts, not a
-  //    working browser path.
+  // The GitHub release. Kept last and expected to fail in a browser: the
+  // releases/download redirect sends no CORS header (see the Dockerfile note
+  // at the same asset). It is a fallback for same-origin contexts, not a
+  // working browser path.
   const rel = await fetch(`${REL}/${stamped}`);
   if (!rel.ok) throw new Error(`HTTP ${rel.status} fetching ${stamped}`);
   return inflate(rel);
