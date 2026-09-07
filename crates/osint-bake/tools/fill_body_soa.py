@@ -35,9 +35,26 @@ CORE = 0.62    # inner-core radius fraction (under the wall)
 RMAX = 0.020   # ABSOLUTE diameter boundary: max cross-section radius in normalized
                # [-1,1] body units (~34 mm dia — covers the aorta; clamps balloons).
 RMIN = 0.0008  # floor so capillaries still get a visible core
-CAP = 2.0      # PER-VESSEL diameter boundary: a ring may not exceed this vessel's own
-               # caliber × CAP. RMAX alone lets a finger artery balloon to aorta size at
-               # a bend; this keeps a capillary a capillary through its bends.
+# PER-VESSEL diameter boundary: a ring may not exceed this vessel's own caliber × CAP.
+# RMAX alone lets a finger artery balloon to aorta size at a bend; this keeps a capillary
+# a capillary through its bends.
+#
+# TUNABLE PER BAKE, and the DEFAULT IS THE v3 VALUE — do not change it. The v3 artifact
+# (`helix_latest`, the one /helix serves and the one medcare-rs SHA256-pins) must keep
+# reproducing byte-identically, so an unset env var reproduces v3 exactly.
+#
+# The v4 bake sets BODY_FILL_CAP=1.2 (operator, 2026-09-07). Rationale: at 2.0 a ring may
+# be twice the vessel's own caliber, which is the mechanism behind the "way too voluptuous"
+# arteries visible on the live /helix render — see the v4 plan §11.1, where all six of this
+# file's constants are shown to be scaffolding around a centerline that is RECONSTRUCTED
+# from an unordered point cloud rather than given. 1.2 tightens the bend allowance from
+# +100% to +20%; it does NOT fix the reconstruction, it narrows the damage until an ordered
+# way exists (§11 O-11a).
+#
+# NOTE: this knob only bounds the bend BALLOON. It cannot make a vessel thinner than its
+# own measured caliber, so if the render is still heavy at 1.2 the remaining size comes
+# from CORE/PCTL or from the caliber estimate itself, not from here.
+CAP = float(os.environ.get("BODY_FILL_CAP", "2.0"))
 PCTL = 0.30    # per-bin radius percentile (NOT the median): at a strong bend two arms
                # share one axial bin and the median perp-distance is ~half the gap (a
                # balloon); the low percentile picks the near wall = the true radius.

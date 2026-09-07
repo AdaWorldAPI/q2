@@ -597,3 +597,414 @@ and is now the *only* unblocked item — with its sub-choice sharpened by the
 D-2 and D-4 remain blocked, and P-1 did not unblock them — it ran on 3.0, and
 it surfaced a **prior** question (shortest vs deepest ancestry) that must be
 ruled before D-4 can be sized at all.
+
+---
+
+## 10. The zipper addressing proposal (measured 2026-09-07)
+
+> **STATUS: MEASURED, TO BE RESEARCHED.** Every figure below is a command
+> output over the BodyParts3D **3.0** data on disk (`FMA.csv`,
+> `conventional_part_of.txt`). Nothing here is ruled, and §6 remains
+> unresearched. P-5 (4.0) is still blocked, so every bound is 3.0's.
+
+### 10.1 The proposal
+
+Operator, 2026-09-07. Replace the shared L1 rail with a same-relation zipper
+spanning two tenants:
+
+```
+old   L1 = 6 × (8:8) = part_of : is_a        → 6 is_a slots, 6 part_of slots
+new   L1 = 6 × (8:8) = is_a : is_a           ┐
+      L2 = 6 × (8:8) = is_a : is_a           ┘ → 24 is_a slots
+```
+
+with `part_of` read as **the parent of the last** occupied slot, **parent =
+mask −1** (prefix truncation), extra `part_of` parents carried on the
+`EdgeBlock`, and — where edges do not suffice — many2many group nodes.
+
+### 10.2 Why 24: it is the measured bound, not a round number
+
+is_a depth over all 104,698 parented nodes in `FMA.csv`:
+
+| is_a levels | overflow | share |
+|---|---|---|
+| 6 (today's L1 rail) | 100,439 | **95.93 %** |
+| 12 (one tenant) | 50,885 | 48.60 % |
+| **24 (two tenants)** | **0** | **0.00 %** |
+
+Max is_a depth is **exactly 24** — a coherent chain `owl#Thing` →
+`Anatomical entity` → … → `Dorsal digital vein of left big toe`. At today's
+6 slots the is_a rail does not merely overflow, it fails for **96 %** of
+concepts. **24 has ZERO headroom**: any deepening in 4.0 breaks it.
+
+### 10.3 `parent = mask −1` is valid for is_a, and NOT for part_of
+
+| relation | source | nodes | multi-parent | shape |
+|---|---|---|---|---|
+| **is_a** | `FMA.csv` | 104,698 | **2** (0.002 %) | **tree** |
+| **part_of** | `conventional_part_of.txt` | 1,522 | **536** (35 %) | **DAG** |
+
+Prefix truncation needs a tree. is_a is one (104,696/104,698 single-parent;
+the exceptions are `Aortopulmonary septum` with two real parents, plus one
+malformed row). part_of is not: 365 nodes have 2 parents, 83 have 3, 48 have
+4, 39 have 5, and one — the sacrum — has 6.
+
+**§9.4's shortest-vs-deepest question (D-4) becomes MOOT** at these widths:
+part_of max depth is 12 (longest path) / 9 (shortest), so a 12-slot part_of
+lane overflows **0 either way**. The zipper does not answer D-4; it dissolves
+it.
+
+### 10.4 Edges carry the DAG; group nodes are not needed for it
+
+Once the mask chain holds the primary parent, edges carry only the extras:
+365 nodes need 1 slot, 83 need 2, 48 need 3, 39 need 4, **1 needs 5** — 836
+extra edges, worst case **5 against the EdgeBlock's 16**.
+
+**But a slot is a ONE-BYTE ref, and one byte is not a global address.** The
+operator's two escapes — *"accumulate if they are global, or reference the
+uncle"* — are decided by which relation orders the address:
+
+| ladder the address is ordered by | extras within uncle range (climb ≤ 2) | max climb | unreachable |
+|---|---|---|---|
+| **is_a-ordered** | 14.0 % | 16 | **23** |
+| **part_of-ordered** | **45.8 %** (88.9 % at ≤ 3) | **5** | **0** |
+
+A one-byte relative ref (`climb` 3 bits, `sibling` 5 bits) fits the part_of
+ladder: max climb 5, and only **1 of 493** internal nodes exceeds 32 children
+(max 36, mean 3.1).
+
+**Consequence for this proposal:** with is_a in the 24, the address is
+is_a-ordered, so the uncle escape does NOT apply (86 % out of range, 23
+unreachable) and the extras must be the **accumulating/global** kind. That is
+affordable — the part_of graph is 1,523 nodes ≈ 11 bits, so ~2 bytes per ref,
+worst node 5 × 2 = 10 of 16 EdgeBlock bytes. **The real decision is the
+ordering relation, not the slot count**: is_a-ordered buys the clean 24-deep
+taxonomy mask and pays 2-byte global edge refs; part_of-ordered buys one-byte
+uncles and needs is_a represented some other way.
+
+### 10.5 The bone baseline, and hubs that already exist
+
+Operator: *"bones as the baseline"*, then *"bones > many2many > second hop
+many2many (organs)"*. Rings outward from the 301 skeleton nodes, over
+undirected part_of:
+
+| hop | nodes | composition |
+|---|---|---|
+| 0 | 301 | skeleton (baseline) |
+| **1** | **54** | **100 % tissue-less ("other")** |
+| 2 | 143 | muscle 72, other 65, **organ 6** |
+| 3 | 263 | muscle 151, other 99, **organ 13** |
+| 4 | 294 | muscle 207, other 68, vessel 11, **organ 5** |
+
+The hop-1 shell carrying **no tissue at all** is the signature of a grouping
+layer — and its members are named as such: `Set of phalanges` (deg 57),
+`Skeletal system of lower free limb` (44), `Foot` (33), `Anterior chest` (33),
+`Abdomen` (24), `Thorax` (20), `Trunk` (19).
+
+**The many2many hubs do not need inserting — they need recognising.** FMA
+already ships regions and sets as first-class nodes; they classify as "other"
+only because `layer_of` keys on tissue, which a container has none of. The
+same pattern dominates is_a: `Set of arteries` (224 subtypes), `Set of
+systemic veins` (169), `Set of nerves` (141).
+
+**Correction to the hop count:** two hops reaches **6 of 24** organs; the mode
+is three (13), and 5 need four. The ladder is right, one rung longer than
+stated for most organs.
+
+**Do not read the `Set of…` / `Subdivision of…` names as many2many markers —
+they are fan-out, and the distinction decides whether mask −1 survives.**
+Many-to-many requires more than one parent; is_a has only **2** multi-parent
+nodes in all 104,698, so **no is_a naming pattern can be the many2many layer**.
+Measured:
+
+| pattern | nodes | fan-out mean/max | leaves | multi-parent |
+|---|---|---|---|---|
+| `Subdivision of…` | 537 | 5.0 / 40 | 3 % | **0** |
+| `Tributary of…` | 146 | 3.1 / 22 | 31 % | **0** |
+| `Region of…` | 489 | 5.6 / 150 | 2 % | **0** |
+| `Segment of…` | 552 | 4.7 / 52 | 14 % | **0** |
+| `Set of…` | 3 409 | **1.0** / 224 | **79 %** | **0** |
+
+`Subdivision of…` and `Tributary of…` are strictly ONE-to-many (522 and 101
+respectively are single-parent-with-children). They are the **depth spine** of
+the is_a tree — the rungs that produce §10.2's 24-level chain (`Subdivision of
+inferior systemic venous tree` → `Tributary of femoral vein` → … ). They BUILD
+the tree that makes `parent = mask −1` valid; they do not violate it.
+
+So the two layers are in two different graphs and must not be conflated:
+
+- **depth spine** — `Subdivision of…` / `Tributary of…`, in **is_a**, a tree,
+  addressed by the mask chain;
+- **hub shell** — the region/set nodes of §10.5's hop-1 ring, in **part_of**,
+  where the 536 genuine many2many nodes actually live, carried on edges.
+
+Also: `Set of…` is **not** a reliable hub marker — 79 % are leaves with mean
+fan-out 1.0. Only a handful (`Set of arteries` 224, `Set of systemic veins`
+169, `Set of nerves` 141) are real hubs, so keying on the name would be wrong
+four times in five.
+
+**What `Set of…` actually is (operator, 2026-09-07): a TRIGGER that spawns a
+many2many, not a container that holds one.** Measured over all 3 409 `Set of`
+nodes: **only 30 have any part_of members**, only 57 appear in
+`conventional_part_of` at all, and 79 % have no is_a children. They are
+edge-less declarations in BOTH shipped relations.
+
+Their extent is not stored because it is **derivable** — the name is a
+specification, and the set is where part_of and is_a MEET:
+
+> **`Set of <T> of <O>`  ≡  `{ p ∈ parts(O) : p is_a T }`**
+
+Verified against the heart, whose 10 conventional parts filter cleanly:
+
+| set node (stores nothing) | computed extent |
+|---|---|
+| `Set of arteries of heart` | left coronary artery, right coronary artery |
+| `Set of veins of heart` | small cardiac vein, cardiac vein |
+| `Set of organ components of heart` | left/right atrium, left/right ventricle, wall of heart, myocardium |
+
+(A naive label-string query recovers only 32 % with ~1 member each — the JOIN
+is what works, not name matching.)
+
+Consequences for the bake:
+
+- **Do NOT mint a hub node per `Set of`.** That yields 3 409 empty containers.
+  The node declares that a many2many is AVAILABLE at that point; materialise it
+  on demand by running the join.
+- **Do not store the extent.** It would be a second source of truth for
+  something `parts(O) × is_a` already yields — the same reasoning that keeps
+  labels out of the payload (§2 slot-purity).
+- The set node itself is many-to-ONE into the taxonomy (single parent), so it
+  costs nothing in the §10 mask chain; only its computed extent is many2many.
+
+Worked example (operator: *"sternum connective tissue(n) > lunge, herz
+<aorta hub>"*), traced in the data:
+
+```
+sternum → anterior chest → middle mediastinum → heart        (3 hops)
+sternum → anterior chest → thorax → right lung → lung        (4 hops)
+sternum → anterior chest → thorax → thoracic aorta → aorta   (4 hops)
+```
+
+`anterior chest` (32 children, 1 parent) and `thorax` (19/1) are clean
+fan-out hubs. `middle mediastinum` has 1 child and **2 parents** — a bridge,
+i.e. one of the 536 edge-carried cases, not a fan-out hub.
+
+**The aorta is NOT a hub in either graph**: 0 is_a subtypes, 2 part_of parts —
+effectively a leaf. An aorta-rooted vessel hub would have to be MINTED; what
+FMA ships is the flat `Set of arteries`. Vessel *depth* comes instead from the
+`Subdivision of…` / `Tributary of…` chain, which is the 24-deep ladder of
+§10.2.
+
+### 10.6 Open items this section adds
+
+- **O-10a — the baseline's cardinality is ambiguous.** Three skeleton counts
+  are live: **203** bones (the original `bake_torso_splat.py` v4 census),
+  **281** (what `/helix` renders today), **301** (part_of under `layer_of`'s
+  `bone|cartilage`). If bones are the baseline, a 203/281/301 ambiguity in the
+  anchor propagates into every address derived from it. Pin it before minting.
+- **O-10b — 23 rows in `FMA.csv` carry an EMPTY FMAID** (e.g. `Costal surface
+  of scapula`, `Oral orifice`). At mint time they either vanish or collide at
+  address 0. Decide before the bake, not after.
+- **O-10c — the one-byte reachability gate (falsifier).** After minting, check
+  that all 836 extra part_of edges are one-byte-reachable from their child. If
+  yes, edges alone suffice and group nodes stay unused headroom. If no, that is
+  where group nodes earn their place — for the out-of-scope extras
+  specifically, never for multi-parenthood in general.
+- **O-10d — 24 has zero headroom.** The bound is exact on 3.0. P-5 (4.0) must
+  run before 24 is locked.
+
+### 10.7 Reproducing these numbers
+
+All figures come from read-only passes over
+`bodyparts3d/assets/BodyParts3D_data/{FMA.csv,conventional_part_of.txt,parts_list_e.txt}`;
+`FMA.csv` ids are bare numerals and `conventional_part_of.txt` ids carry an
+`FMA` prefix, so the join needs `removeprefix("FMA")` (1,496 of 1,522 part_of
+children resolve into the is_a tree). Layer names follow
+`crates/osint-bake/tools/body-soa-wire/src/main.rs::layer_of`. No producer was
+run and no bake artifact was read or written.
+
+---
+
+## 11. Vessels as OSM ways ("street nodes") — measured 2026-09-07
+
+> **STATUS: MEASURED, TO BE RESEARCHED.** Operator proposal: *"the aorta then
+> could be a street node as on OSM"*. What follows is what the code and data
+> say about it; nothing is ruled.
+
+### 11.1 The current pipeline RECONSTRUCTS what a way would GIVE
+
+`crates/osint-bake/tools/fill_body_soa.py` derives each vessel's centerline
+from an **unordered point cloud**: principal axis by power iteration on the
+3×3 covariance, `BINS = 14` axial bins, then a per-bin radius from the
+perpendicular distances. Six constants govern it, and each one's own comment
+names the failure it patches:
+
+| const | value | the comment's justification |
+|---|---|---|
+| `CORE` | 0.62 | inner-core radius fraction under the wall |
+| `RMAX` | 0.020 | *"ABSOLUTE diameter boundary … covers the aorta; clamps balloons"* |
+| `RMIN` | 0.0008 | floor so capillaries keep a visible core |
+| `CAP` | 2.0 → **1.2 for v4** | *"RMAX alone lets a finger artery balloon to aorta size at a bend"* |
+| `PCTL` | 0.30 | *"at a strong bend two arms share one axial bin and the median perp-distance is ~half the gap (a balloon)"* |
+| `CELL` | 0.015 | *"a continuous vessel keeps adjacent cells occupied … blobs farther apart split"* |
+
+**Every one is the absence of a way.** An OSM way is an ORDERED node list:
+the centerline is given, never inferred; junctions are explicit SHARED nodes,
+so "two arms share one axial bin" cannot arise; and calibre is an attribute
+along the way, so a finger artery cannot inherit aortic radius. `RMAX` sized
+to cover the aorta together with `CAP = 2.0` (twice the vessel's own calibre)
+is the mechanism behind the operator's *"way too voluptuous"* observation on
+the live `/helix` render.
+
+This corroborates §9.7 from the other direction: P-6 found the vessel
+constants were empirical clamps from their first commit with no sequence ever
+tried and replaced. They are not a tuning history — they are scaffolding
+around a missing topology.
+
+### 11.1a `CAP` is now per-bake: v3 keeps 2.0, v4 takes 1.2
+
+Operator ruling, 2026-09-07: **the v4 bake uses `CAP = 1.2`.** At 2.0 a ring may
+be TWICE the vessel's own calibre, which is the mechanism behind the "way too
+voluptuous" arteries on the live `/helix` render; 1.2 tightens the bend
+allowance from +100 % to +20 %. Worked example: a 0.004-calibre vessel's bend
+ceiling falls from 0.0080 to 0.0048.
+
+Implemented as `CAP = float(os.environ.get("BODY_FILL_CAP", "2.0"))`, and **the
+default is deliberately the v3 value**: an unset variable reproduces the v3
+artifact byte-identically, so `helix_latest` — the bake `/helix` serves and the
+release asset medcare-rs SHA256-pins — is untouched. Nothing invokes
+`fill_body_soa.py` from a script (it is run by hand as
+`python3 fill_body_soa.py <soa_dir>`), so **the v4 bake procedure must set the
+variable explicitly**:
+
+```sh
+BODY_FILL_CAP=1.2 python3 crates/osint-bake/tools/fill_body_soa.py <soa_dir>
+```
+
+Two honest limits on what this buys:
+
+- **It bounds the bend BALLOON only.** `cap = min(RMAX, caliber * CAP)` cannot
+  make a vessel thinner than its own measured calibre. If the render is still
+  heavy at 1.2, the remaining size is coming from `CORE` (0.62), `PCTL` (0.30)
+  or the calibre estimate — not from here.
+- **It narrows the damage; it does not fix the cause.** The centerline is still
+  RECONSTRUCTED from an unordered point cloud (§11.1). A tighter clamp is a
+  better-scaffolded reconstruction, not a given way (O-11a). The §11.5
+  falsifier still stands: with a stored ordered centerline, `CAP` and `PCTL`
+  should become removable altogether.
+
+### 11.2 It is the same bug class `kurvenlineal.rs` already fixed
+
+`geo/src/kurvenlineal.rs` documents the **intra-family needle bug**: seeding a
+fresh `CurveRuler` per lattice cell made adjacent cells draw uncorrelated
+phases, so the residue *"stepped discontinuously at every cell boundary … every
+cell its own isolated spike, never connected to its neighbour"*. The fix was to
+sample at lattice corners and interpolate — C1-continuous **across** boundaries
+(inter-family), not a blur.
+
+Per-bin independent radius estimation is the same failure one domain over:
+**needle field → balloon field.** Both are intra-family independence where the
+feature is continuous; both are fixed by inter-family continuity along the
+feature.
+
+### 11.3 What already exists to build on
+
+- `geo/src/osm_read.rs` **already reads OSM ways** — `RawWay`, ordered
+  `way.refs`, `Element::Way(w)`. It is filtered to `building=*` and closed into
+  rings (`refs[..len-1]` drops the repeat), but the way machinery is there.
+- `geo/src/bin/osm_helix.rs` bakes those into the **same BSO2 `/helix` wire**
+  (`encode_bso2`) that the body uses — *"the geo counterpart of
+  `body-soa-wire`"*.
+- `cockpit/src/GeoHelix.tsx` is a verbatim `BodyHelix` fork sharing the **same
+  BSO2 decoder**. Body and map are already one substrate; vessels-as-ways
+  closes the loop rather than opening a new one.
+
+### 11.4 Why this fits the §10 addressing, not fights it
+
+§10.5 measured that the venous depth spine is `Subdivision of…` /
+`Tributary of…` — 537 + 146 nodes, single-parent, ~5 children each. Those names
+are *linear* language: a tributary is a segment of a run, not a taxon. The is_a
+tree is currently encoding a **linear structure as a hierarchy**, which is why
+the deepest chain in the whole ontology (24, §10.2) is a venous one. A way
+model carries that run natively and leaves is_a to carry type.
+
+### 11.5 Open items
+
+- **O-11a — no ordered centerline exists in the source.** BodyParts3D ships
+  meshes, not ways. The ordered node list has to come from somewhere: derived
+  once at bake time and STORED (so the reconstruction happens once, not per
+  render), or authored. Until it exists, this is a proposal, not a plan.
+- **O-11b — the source ships NO connectivity relation at all.** This is the
+  hard item, and it is harder than a missing-direction problem. Checked in both
+  directions (operator, 2026-09-07): `conventional_part_of` rows carry whole AND
+  part, so the aorta chain reads intact upward —
+  `cardiovascular system → aorta → {thoracic aorta → {arch of aorta, ascending
+  aorta}, descending aorta}` (and `thoracic aorta` has TWO parents, `aorta` and
+  `thorax`, i.e. one of the §10.3 bridges). An earlier draft of this section
+  said *"arch of aorta has zero parts"*; that is true DOWNWARD but misleading —
+  the arch is simply a leaf of the containment tree.
+
+  What is actually absent is a **kind** of relation, not a direction. All six
+  aorta rows are mereological. **No branch, junction, upstream or downstream
+  edge exists anywhere in the dataset**: nothing leaves the arch — no
+  brachiocephalic, no left common carotid, no left subclavian. BodyParts3D
+  ships taxonomy (`FMA.csv` is_a), containment (`conventional_part_of`) and
+  composition (`composite_parts`), and **zero connectivity**. Only 8
+  `bifurcation` NODES exist in all of FMA (`Bifurcation of aorta`, the carotid
+  and iliac ones, trachea, pulmonary trunk, tooth root) — and a node named for a
+  junction is not an edge between two ways.
+
+  A way network is DEFINED by connectivity; nesting cannot substitute for it.
+
+  **⊘ CORRECTED same-day (2026-09-07).** The paragraph above said connectivity
+  could not be derived from the shipped relations. That is WRONG as stated, and
+  the correction matters because it makes §11 cheaper, not more expensive.
+  Connectivity is not declared as a RELATION, but it is **flattened into the
+  labels** and is recoverable: **74 % of all FMA labels (77 677 of 104 697)**
+  have the form `<Predicate> of <Object>`, and the object half resolves back to
+  a real node by name at high rates:
+
+  | flattened predicate | nodes | object resolves |
+  |---|---|---|
+  | `Subdivision of` | 537 | **95 %** |
+  | `Periosteum of` | 1 598 | 93 % |
+  | `Segment of` | 552 | 91 % |
+  | **`Tributary of`** | 146 | **90 %** |
+  | `Wall of` | 1 296 | 89 % |
+  | `Lumen of` | 984 | 88 % |
+  | `Tendon of` | 649 | 87 % |
+  | `Trunk of` | 4 638 | 86 % |
+  | `Vasculature of` | 1 582 | 84 % |
+  | **`Branch of`** | 784 | 46 % |
+
+  Recovered edges are real: `Branch of deep cervical artery` → `Deep cervical
+  artery`; `Tributary of femoral vein` → `femoral vein`. That yields roughly
+  **490 vessel connectivity edges** (359 `branch_of` + 131 `tributary_of`)
+  without any new source.
+
+  What remains true: BodyParts3D itself ships only ONE relation — its README
+  calls it *"conventional inclusion"* — plus names, composite definitions and
+  meshes; it is a *"dictionary-type database"* of shapes and positions, so the
+  absence there is by design. And only **8** `bifurcation` NODES exist in FMA; a
+  node named for a junction is still not an edge between two ways.
+
+  So the corrected position: the junction graph is **partially derivable by
+  label parsing** (a string join, no new data), not unobtainable. `Branch of` at
+  46 % is the weak spot — most misses are compound objects — and that number,
+  not the existence of connectivity, is what gates the way model.
+
+- **O-11d — the predicates ask for other TYPES, and they are already counted.**
+  Each flattened predicate names a type pair the substrate does not yet model:
+  `Periosteum of <bone>` and `Compact bone of` / `Trabecular bone of` (1 640 /
+  1 711) are tissue layers ON a bone; `Lumen of <tube>` (984) is the hollow;
+  `Wall of <organ>` (1 296); `Tendon of <muscle>` (649); `Vasculature of
+  <organ>` (1 582) is an organ's vessel set. These are the "other types" a v4
+  bake would have to admit or deliberately collapse — and unlike the ordered
+  centerline, they need no acquisition: they are derivable today from labels
+  already in `FMA.csv`.
+- **O-11c — falsifier.** Replace the derived centerline with a stored ordered
+  way for ONE vessel (the aorta is the natural candidate: `Bifurcation of
+  aorta` exists, and `thoracic aorta` → `ascending aorta` + `arch of aorta`
+  gives a real segment chain) and check whether `CAP` and `PCTL` can be
+  removed without the balloon returning. If the clamps are still needed with a
+  given centerline, the diagnosis in §11.1 is wrong.
