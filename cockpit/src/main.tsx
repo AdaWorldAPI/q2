@@ -15,6 +15,7 @@ import { TorsoMap } from './TorsoMap';
 import { FmaBody } from './FmaBody';
 import { BodyV3 } from './BodyV3';
 import BodyHelix from './BodyHelix';
+import BodyHelix2 from './BodyHelix2';
 import GeoHelix from './GeoHelix';
 import GenomeHelix from './GenomeHelix';
 import { CpicCockpit } from './CpicCockpit';
@@ -113,6 +114,12 @@ createRoot(document.getElementById('root')!).render(
               materialized once at load: one vertex-shader fetch/vert, no per-vertex decode,
               no rebake. Standalone (BodyHelix.tsx) so it can never break /body (#64). */}
           <Route path="/helix" element={<BodyHelix />} />
+          {/* /helix2 — the V4-BAKE sibling of /helix. Identical viewer (verbatim
+              BodyHelix2.tsx fork, #64-style); the ONLY difference is the manifest key
+              it reads: helix_v4_latest instead of helix_latest. Renderer held constant
+              so any visible difference is the BAKE, not the viewer. Until a v4 bake is
+              published it reports the missing key rather than falling back to v3. */}
+          <Route path="/helix2" element={<BodyHelix2 />} />
           {/* /geo, /ice, /garmin/:location — the MAP/TERRAIN scenes, served by the
               GeoHelix fork (verbatim copy of BodyHelix, #64-style) so map-shader
               work can never regress the /helix anatomy body. Same BSO2 decoder;
