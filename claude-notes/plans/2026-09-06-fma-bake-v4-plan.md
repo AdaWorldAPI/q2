@@ -890,9 +890,53 @@ model carries that run natively and leaves is_a to carry type.
   junction is not an edge between two ways.
 
   A way network is DEFINED by connectivity; nesting cannot substitute for it.
-  So the ordered centerline of O-11a and the junction graph here are two
-  separate acquisitions, and neither can be derived from the shipped
-  relations — only from geometry, or from a source that carries flow.
+
+  **⊘ CORRECTED same-day (2026-09-07).** The paragraph above said connectivity
+  could not be derived from the shipped relations. That is WRONG as stated, and
+  the correction matters because it makes §11 cheaper, not more expensive.
+  Connectivity is not declared as a RELATION, but it is **flattened into the
+  labels** and is recoverable: **74 % of all FMA labels (77 677 of 104 697)**
+  have the form `<Predicate> of <Object>`, and the object half resolves back to
+  a real node by name at high rates:
+
+  | flattened predicate | nodes | object resolves |
+  |---|---|---|
+  | `Subdivision of` | 537 | **95 %** |
+  | `Periosteum of` | 1 598 | 93 % |
+  | `Segment of` | 552 | 91 % |
+  | **`Tributary of`** | 146 | **90 %** |
+  | `Wall of` | 1 296 | 89 % |
+  | `Lumen of` | 984 | 88 % |
+  | `Tendon of` | 649 | 87 % |
+  | `Trunk of` | 4 638 | 86 % |
+  | `Vasculature of` | 1 582 | 84 % |
+  | **`Branch of`** | 784 | 46 % |
+
+  Recovered edges are real: `Branch of deep cervical artery` → `Deep cervical
+  artery`; `Tributary of femoral vein` → `femoral vein`. That yields roughly
+  **490 vessel connectivity edges** (359 `branch_of` + 131 `tributary_of`)
+  without any new source.
+
+  What remains true: BodyParts3D itself ships only ONE relation — its README
+  calls it *"conventional inclusion"* — plus names, composite definitions and
+  meshes; it is a *"dictionary-type database"* of shapes and positions, so the
+  absence there is by design. And only **8** `bifurcation` NODES exist in FMA; a
+  node named for a junction is still not an edge between two ways.
+
+  So the corrected position: the junction graph is **partially derivable by
+  label parsing** (a string join, no new data), not unobtainable. `Branch of` at
+  46 % is the weak spot — most misses are compound objects — and that number,
+  not the existence of connectivity, is what gates the way model.
+
+- **O-11d — the predicates ask for other TYPES, and they are already counted.**
+  Each flattened predicate names a type pair the substrate does not yet model:
+  `Periosteum of <bone>` and `Compact bone of` / `Trabecular bone of` (1 640 /
+  1 711) are tissue layers ON a bone; `Lumen of <tube>` (984) is the hollow;
+  `Wall of <organ>` (1 296); `Tendon of <muscle>` (649); `Vasculature of
+  <organ>` (1 582) is an organ's vessel set. These are the "other types" a v4
+  bake would have to admit or deliberately collapse — and unlike the ordered
+  centerline, they need no acquisition: they are derivable today from labels
+  already in `FMA.csv`.
 - **O-11c — falsifier.** Replace the derived centerline with a stored ordered
   way for ONE vessel (the aorta is the natural candidate: `Bifurcation of
   aorta` exists, and `thoracic aorta` → `ascending aorta` + `arch of aorta`
