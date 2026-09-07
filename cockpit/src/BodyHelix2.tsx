@@ -498,6 +498,10 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // sky dome is added. An empty `?scene=` resolves falsy → anatomy body → all three stay off.
   const sceneParam = new URLSearchParams(window.location.search).get('scene');
   const isGeoScene = Boolean(sceneParam ?? pathScene());
+  // Server LOD is unconditionally off in BodyHelix2: geo scenes for BodyHelix's original
+  // reason, and the anatomy path because it now resolves the V4 artifact, which the v3
+  // `body.blocks` bounds do not describe. See the LOD comment in mount().
+  const LOD_DISABLED = true;
   // TERRAIN vs BUILDINGS. A terrain scene (Iceland DEM) is a dense, watertight heightfield —
   // the same kind of surface as the anatomy body, so it earns the height-recolour + relief
   // exaggeration + breathing that make the body read in 3D. A building scene (OSM/Berlin) is
@@ -595,15 +599,18 @@ function mount(container: HTMLDivElement, d: Decoded, enabled: Float32Array, dir
   // strictly fewer triangles when zoomed in (the mobile lever, working WITH the database). Absent
   // endpoint (old deploy) → silently keep the full render. This is the living DB reasoning the view.
   let lodNext = 0, lodInflight = false, lodFail = false, lodDirty = false, lodWasOn = false;
-  // Any geo scene (scene=osm, scene=iceland, /geo, /ice, …) shares the /api/body/lod
-  // endpoint, but that cascade runs over the BODY's compile-time block-bounds — it would
-  // cull the geo concepts with anatomy bounds. Server LOD is therefore disabled for EVERY
-  // geo scene (full render); a geo LOD that reads the scene's own .blocks sidecar is future
-  // work. The gate is `isGeoScene`, computed once near the top of mount() via the SAME
-  // pathScene() helper fetchSoa() uses, so the artifact resolver and the LOD gate can never
-  // disagree (an empty `?scene=` → anatomy body → helix_latest → LOD stays ON).
+  // Server LOD is disabled on EVERY path of this component, and the anatomy case is the
+  // reason this fork differs from BodyHelix. `/api/body/lod` cascades over the v3 body's
+  // COMPILE-TIME block-bounds (`include_bytes!("assets/body.blocks")` in
+  // crates/cockpit-server/src/body_lod.rs) and returns actions indexed by v3 concept-row
+  // position. BodyHelix disables it for geo scenes on exactly that argument — anatomy
+  // bounds would cull geo concepts. A v4 bake changes concept rows and geometry by
+  // construction (that is what v4 IS), so folding v3 actions into this component's `d.vrow`
+  // would hide visible structures and keep off-screen ones — silently, and looking like a
+  // successful v4 render. Same argument, same verdict: OFF until a v4-matched `.blocks`
+  // sidecar (or a bake-aware endpoint) exists. Re-enable ONLY together with that sidecar.
   const postLod = (now: number) => {
-    if (isGeoScene || lodFail || lodInflight || now < lodNext) return;
+    if (LOD_DISABLED || lodFail || lodInflight || now < lodNext) return;
     lodInflight = true; lodNext = now + 220;
     camera.updateMatrixWorld();
     const e = camera.matrixWorldInverse.elements;   // column-major → row-major view rows
@@ -812,6 +819,10 @@ export default function BodyHelix2() {
       .catch(() => {});
   }, []);
   const sceneOptions = [
+    // `/helix2` must be listed: the <select> value falls back to '/helix' for any path not
+    // in this list, so without it the selector claims the v3 body is selected while this
+    // component renders the v4 bake — and offers no way back to the comparison route.
+    { label: 'body v4 (/helix2)', path: '/helix2' },
     { label: 'body (/helix)', path: '/helix' },
     { label: 'berlin (/geo)', path: '/geo' },
     { label: 'iceland (/ice)', path: '/ice' },
@@ -838,7 +849,11 @@ export default function BodyHelix2() {
             {sceneOptions.map((o) => <option key={o.path} value={o.path}>{o.label}</option>)}
           </select>
           <button style={btn(xray)} onClick={() => setXray((x) => !x)} title="x-ray: make the whole body translucent so deeper structures show through">x-ray</button>
-          <button style={btn(lod)} onClick={() => setLod((v) => !v)} title="LOD: the HHTL depth-cascade culls off-frustum structures as you zoom in — the living database deciding what's worth drawing">LOD {lod ? 'on' : 'off'}</button>
+          {/* LOD is inert on /helix2 (see LOD_DISABLED): the endpoint's bounds describe the
+              v3 bake, not this one. Render it disabled rather than removing it, so the
+              control's absence is explained rather than mysterious — and so re-enabling it
+              is a one-line change once a v4-matched .blocks sidecar exists. */}
+          <button style={{ ...btn(false), opacity: 0.4, cursor: 'not-allowed' }} disabled title="LOD is unavailable on /helix2: /api/body/lod cascades over the v3 body.blocks bounds, which do not describe the v4 bake. Needs a v4-matched sidecar.">LOD n/a</button>
           {activeLayers.map((l) => (
             <button key={l.id} style={btn(on[l.id])} onClick={() => setOn((p) => ({ ...p, [l.id]: !p[l.id] }))}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: l.color, marginRight: 5, verticalAlign: 'middle' }} />{l.name}
