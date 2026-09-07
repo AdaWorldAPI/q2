@@ -28,8 +28,9 @@ use futures_core::Stream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeFile;
 
-mod body_bake;
+mod body_bake_v4;
 mod body_lod;
 mod clinical;
 mod codebook;
@@ -297,8 +298,9 @@ async fn main() {
     // volume mounted re-fetches rather than serving something stale. Failure is
     // never fatal — `/helix` reads the copy embedded in `dist/` and does not
     // consult this at all; only `/helix2`'s newer bake needs it, and it degrades
-    // to a 503 with the missing variable named in the boot log.
-    let _ = body_bake::ensure_body_bake_local().await;
+    // to a 503 with the missing variables named in the boot log. It shares no
+    // variable, directory, or code with the map hydrate above.
+    body_bake_v4::ensure_local().await;
 
     let (tx, _rx) = broadcast::channel::<SseEvent>(256);
     let scene_state = shader_stream::new_scene_state();
@@ -397,12 +399,6 @@ async fn main() {
         // read. A missing codebook is otherwise indistinguishable from a
         // working map on every other signal (200s, full tiles, correct
         // geometry) while drawing grey and untagged.
-        // Serve the hydrated bake from disk, same-origin. The browser cannot
-        // fetch the bucket itself: it is private (and shared with clinical
-        // bakes that must stay private), and a browser cannot sign SigV4
-        // without being handed credentials. The bytes are already local —
-        // `body_bake::ensure_body_bake_local` put them there at boot.
-        .route("/api/bake", get(bake_asset_handler))
         .route("/api/osm/health", get(osm_features::osm_health_handler))
         .route(
             "/api/osm/regions",
@@ -470,6 +466,21 @@ async fn main() {
         // Static files + SPA fallback (serves the Vite React build)
         .fallback(get(static_handler))
         .layer(CorsLayer::permissive());
+
+    // `/api/bake/v4` — /helix2's bake, and nothing else's. Attached here rather
+    // than in the table above so this addition cannot perturb a single existing
+    // route, and served by `ServeFile` so a ~59 MB artifact streams from disk
+    // instead of being read into a `Vec<u8>` per request (Codex P2 on #152:
+    // concurrent cache misses would multiply that allocation).
+    //
+    // Only a path that PASSED its checksum is served: `verified_path()` is
+    // published by the hydrate, so a cached copy that failed verification and
+    // whose re-download also failed leaves nothing to serve (Codex P1 on #152 —
+    // the handler used to trust file existence alone).
+    let app = match body_bake_v4::verified_path() {
+        Some(p) => app.route_service("/api/bake/v4", ServeFile::new(p)),
+        None => app.route("/api/bake/v4", get(bake_v4_unavailable)),
+    };
 
     let port: u16 = std::env::var("PORT")
         .ok()
@@ -748,64 +759,16 @@ async fn garmin_contour_handler(
 // ── Static file handler with SPA fallback ────────────────────────────────────
 
 /// Serves embedded Vite build files. Falls back to index.html for SPA routing.
-/// `GET /api/bake` — serve the artifact this deploy hydrated.
+/// `GET /api/bake/v4` when no verified v4 bake exists on this deploy.
 ///
-/// Exists so a NEW bake can reach a running deploy without an image rebuild:
-/// the embedded `dist/` copy is fixed at build time, this is not. The embedded
-/// copy remains the primary path for `/helix` and is untouched — a deploy that
-/// hydrated nothing simply 503s here.
-///
-/// **It takes no coordinates on purpose.** The first version was
-/// `/api/bake/:tag/:asset`, with the client reading the tag and filename from
-/// `body.manifest.json` while the server read them from its own environment —
-/// two places naming one artifact, either of which could be set without the
-/// other, producing a 404 in which both halves looked right. The server already
-/// knows what it fetched; asking the client to agree added a way to disagree
-/// and nothing else. One name, one place: `BODY_BAKE_ASSET`.
-///
-/// The filename travels in `Content-Disposition` so a caller that wants to
-/// know WHICH bake it received can read it, rather than having to assert it.
-async fn bake_asset_handler() -> impl axum::response::IntoResponse {
-    use axum::http::{StatusCode, header};
-
-    let path = body_bake::local_path();
-    let Ok(bytes) = tokio::fs::read(&path).await else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "no bake is hydrated on this deploy (the boot log names the missing \
-             variable); /helix still serves the bake embedded in the image"
-                .to_string(),
-        )
-            .into_response();
-    };
-
-    let (tag, asset) = body_bake::coordinates();
-    let ct = if asset.ends_with(".gz") {
-        "application/gzip"
-    } else {
-        "application/octet-stream"
-    };
+/// A deploy with no v4 bake is the normal state, not an error: `/helix` serves
+/// the body embedded in the image and never consults this route.
+async fn bake_v4_unavailable() -> impl axum::response::IntoResponse {
     (
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, ct.to_string()),
-            // Named, not addressed: the caller can see which bake this is
-            // without a second variable that could name a different one.
-            (
-                header::CONTENT_DISPOSITION,
-                format!("inline; filename=\"{asset}\""),
-            ),
-            (header::ETAG, format!("\"{tag}/{asset}\"")),
-            // The name changes when the bake changes, and the ETag carries it,
-            // so the bytes behind this URL are safe to cache hard.
-            (
-                header::CACHE_CONTROL,
-                "public, max-age=31536000, immutable".to_string(),
-            ),
-        ],
-        bytes,
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        "no verified v4 bake on this deploy (the boot log names the missing \
+         BODY_BAKE_V4_* variables); /helix is unaffected",
     )
-        .into_response()
 }
 
 async fn static_handler(uri: axum::http::Uri) -> Response {

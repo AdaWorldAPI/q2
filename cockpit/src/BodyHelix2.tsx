@@ -5,15 +5,16 @@
 //
 // It differs from BodyHelix in exactly ONE line of behaviour: WHERE the bake
 // comes from. /helix reads the manifest's `helix_latest` and the copy baked into
-// dist/ at image build; /helix2 reads `/api/bake`, the artifact the server
+// dist/ at image build; /helix2 reads `/api/bake/v4`, the artifact the server
 // hydrated from the object store at boot. Both resolve through the SAME loader,
 // the SAME BSO2 ver-6 decoder and the SAME Signed360 shading, so a v4 bake is
 // compared against v3 with the renderer held constant — any visible difference
 // is the BAKE, never the viewer.
 //
 // That split is what makes a NEW bake reachable without an image rebuild, and
-// it is deliberately ONE-SIDED: the deploy's own `BODY_BAKE_ASSET` is the only
-// name involved, so there is no second place to keep in sync. Until a v4 bake
+// it is deliberately ONE-SIDED: the deploy's own `BODY_BAKE_V4_*` variables are
+// the only names involved, and they are v4's alone — this route shares no
+// variable, directory, module, or line of code with /helix or with the map. Until a v4 bake
 // is hydrated, /helix2 reports what the server said (the CANONICAL-ONLY
 // no-fallback rule below is deliberately inherited: silently falling back to
 // the v3 artifact would make /helix2 a copy of /helix that LOOKS like a
@@ -732,16 +733,16 @@ async function fetchSoa(): Promise<ArrayBuffer> {
   }
   // THE BAKE THIS DEPLOY SERVES HAS ONE NAME, AND THE SERVER HOLDS IT.
   //
-  // An earlier version of this function asked the manifest for BOTH a filename
-  // (`helix_v4_latest`) and a tag (`helix_v4_tag`) while the server independently
-  // read `BODY_BAKE_ASSET`/`BODY_BAKE_TAG` — two places naming one artifact, so a
-  // deploy could satisfy one and not the other and the route would 404 with both
-  // halves looking correct. There is now exactly one place: the server's own
-  // environment. `/api/bake` takes no coordinates and answers with whatever it
-  // hydrated, so there is nothing for the client to keep in sync and nothing to
-  // set here at all.
+  // `/api/bake/v4` is v4's own route, backed by v4's own module, v4's own
+  // directory and v4's own BODY_BAKE_V4_* variables. It cannot serve, fall back
+  // to, or be defaulted to the v3 bake — an earlier version defaulted to exactly
+  // that and would have rendered v3 here as if it were v4.
+  //
+  // The coordinates live ONLY in the server's environment. An earlier version
+  // also read a filename and tag from the manifest, so a deploy could satisfy
+  // one place and not the other and 404 with both halves looking correct.
   if (!scene) {
-    const o = await fetch('/api/bake').catch(() => null);
+    const o = await fetch('/api/bake/v4').catch(() => null);
     if (o && o.ok) return inflate(o);
     const why = o ? await o.text().catch(() => `HTTP ${o.status}`) : 'the request failed';
     throw new Error(`no v4 bake on this deploy: ${why}`);
