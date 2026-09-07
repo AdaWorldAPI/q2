@@ -789,3 +789,113 @@ All figures come from read-only passes over
 children resolve into the is_a tree). Layer names follow
 `crates/osint-bake/tools/body-soa-wire/src/main.rs::layer_of`. No producer was
 run and no bake artifact was read or written.
+
+---
+
+## 11. Vessels as OSM ways ("street nodes") — measured 2026-09-07
+
+> **STATUS: MEASURED, TO BE RESEARCHED.** Operator proposal: *"the aorta then
+> could be a street node as on OSM"*. What follows is what the code and data
+> say about it; nothing is ruled.
+
+### 11.1 The current pipeline RECONSTRUCTS what a way would GIVE
+
+`crates/osint-bake/tools/fill_body_soa.py` derives each vessel's centerline
+from an **unordered point cloud**: principal axis by power iteration on the
+3×3 covariance, `BINS = 14` axial bins, then a per-bin radius from the
+perpendicular distances. Six constants govern it, and each one's own comment
+names the failure it patches:
+
+| const | value | the comment's justification |
+|---|---|---|
+| `CORE` | 0.62 | inner-core radius fraction under the wall |
+| `RMAX` | 0.020 | *"ABSOLUTE diameter boundary … covers the aorta; clamps balloons"* |
+| `RMIN` | 0.0008 | floor so capillaries keep a visible core |
+| `CAP` | 2.0 | *"RMAX alone lets a finger artery balloon to aorta size at a bend"* |
+| `PCTL` | 0.30 | *"at a strong bend two arms share one axial bin and the median perp-distance is ~half the gap (a balloon)"* |
+| `CELL` | 0.015 | *"a continuous vessel keeps adjacent cells occupied … blobs farther apart split"* |
+
+**Every one is the absence of a way.** An OSM way is an ORDERED node list:
+the centerline is given, never inferred; junctions are explicit SHARED nodes,
+so "two arms share one axial bin" cannot arise; and calibre is an attribute
+along the way, so a finger artery cannot inherit aortic radius. `RMAX` sized
+to cover the aorta together with `CAP = 2.0` (twice the vessel's own calibre)
+is the mechanism behind the operator's *"way too voluptuous"* observation on
+the live `/helix` render.
+
+This corroborates §9.7 from the other direction: P-6 found the vessel
+constants were empirical clamps from their first commit with no sequence ever
+tried and replaced. They are not a tuning history — they are scaffolding
+around a missing topology.
+
+### 11.2 It is the same bug class `kurvenlineal.rs` already fixed
+
+`geo/src/kurvenlineal.rs` documents the **intra-family needle bug**: seeding a
+fresh `CurveRuler` per lattice cell made adjacent cells draw uncorrelated
+phases, so the residue *"stepped discontinuously at every cell boundary … every
+cell its own isolated spike, never connected to its neighbour"*. The fix was to
+sample at lattice corners and interpolate — C1-continuous **across** boundaries
+(inter-family), not a blur.
+
+Per-bin independent radius estimation is the same failure one domain over:
+**needle field → balloon field.** Both are intra-family independence where the
+feature is continuous; both are fixed by inter-family continuity along the
+feature.
+
+### 11.3 What already exists to build on
+
+- `geo/src/osm_read.rs` **already reads OSM ways** — `RawWay`, ordered
+  `way.refs`, `Element::Way(w)`. It is filtered to `building=*` and closed into
+  rings (`refs[..len-1]` drops the repeat), but the way machinery is there.
+- `geo/src/bin/osm_helix.rs` bakes those into the **same BSO2 `/helix` wire**
+  (`encode_bso2`) that the body uses — *"the geo counterpart of
+  `body-soa-wire`"*.
+- `cockpit/src/GeoHelix.tsx` is a verbatim `BodyHelix` fork sharing the **same
+  BSO2 decoder**. Body and map are already one substrate; vessels-as-ways
+  closes the loop rather than opening a new one.
+
+### 11.4 Why this fits the §10 addressing, not fights it
+
+§10.5 measured that the venous depth spine is `Subdivision of…` /
+`Tributary of…` — 537 + 146 nodes, single-parent, ~5 children each. Those names
+are *linear* language: a tributary is a segment of a run, not a taxon. The is_a
+tree is currently encoding a **linear structure as a hierarchy**, which is why
+the deepest chain in the whole ontology (24, §10.2) is a venous one. A way
+model carries that run natively and leaves is_a to carry type.
+
+### 11.5 Open items
+
+- **O-11a — no ordered centerline exists in the source.** BodyParts3D ships
+  meshes, not ways. The ordered node list has to come from somewhere: derived
+  once at bake time and STORED (so the reconstruction happens once, not per
+  render), or authored. Until it exists, this is a proposal, not a plan.
+- **O-11b — the source ships NO connectivity relation at all.** This is the
+  hard item, and it is harder than a missing-direction problem. Checked in both
+  directions (operator, 2026-09-07): `conventional_part_of` rows carry whole AND
+  part, so the aorta chain reads intact upward —
+  `cardiovascular system → aorta → {thoracic aorta → {arch of aorta, ascending
+  aorta}, descending aorta}` (and `thoracic aorta` has TWO parents, `aorta` and
+  `thorax`, i.e. one of the §10.3 bridges). An earlier draft of this section
+  said *"arch of aorta has zero parts"*; that is true DOWNWARD but misleading —
+  the arch is simply a leaf of the containment tree.
+
+  What is actually absent is a **kind** of relation, not a direction. All six
+  aorta rows are mereological. **No branch, junction, upstream or downstream
+  edge exists anywhere in the dataset**: nothing leaves the arch — no
+  brachiocephalic, no left common carotid, no left subclavian. BodyParts3D
+  ships taxonomy (`FMA.csv` is_a), containment (`conventional_part_of`) and
+  composition (`composite_parts`), and **zero connectivity**. Only 8
+  `bifurcation` NODES exist in all of FMA (`Bifurcation of aorta`, the carotid
+  and iliac ones, trachea, pulmonary trunk, tooth root) — and a node named for a
+  junction is not an edge between two ways.
+
+  A way network is DEFINED by connectivity; nesting cannot substitute for it.
+  So the ordered centerline of O-11a and the junction graph here are two
+  separate acquisitions, and neither can be derived from the shipped
+  relations — only from geometry, or from a source that carries flow.
+- **O-11c — falsifier.** Replace the derived centerline with a stored ordered
+  way for ONE vessel (the aorta is the natural candidate: `Bifurcation of
+  aorta` exists, and `thoracic aorta` → `ascending aorta` + `arch of aorta`
+  gives a real segment chain) and check whether `CAP` and `PCTL` can be
+  removed without the balloon returning. If the clamps are still needed with a
+  given centerline, the diagnosis in §11.1 is wrong.
