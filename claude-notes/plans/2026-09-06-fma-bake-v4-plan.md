@@ -317,3 +317,71 @@ build if the preset and the table disagreed. So this is stale prose in
 `tenants.md`, not a defect: 16 tenants, 0–15. Belongs upstream in lance-graph,
 not in this repo; noted here only so a v4 session reading that line does not
 size a preset from it.
+
+---
+
+## 7. Defect → remedy matrix (added 2026-09-07)
+
+What is wrong today, what closes it, and what each remedy leaves standing.
+Read with §2: several rows are gated on a probe that has not run, and one row
+has no owning decision at all.
+
+### 7.1 The matrix
+
+| flaw | observable symptom today | closed by | partially addressed by | residual after the fix |
+|---|---|---|---|---|
+| **F-1** identity minted three ways, two order-dependent | a key from one producer does not resolve in another's output; re-ordering the input moves every identity | **D-1a** (one shared content-addressed minter) | D-1b (content hash into `golden_id`) — its `+1` collision probe still resolves in enumeration order, so collisions differ per run | FMA ids are 19 bits and `identity_v2` is 16: D-1a forces the sub-choice of hash-with-probe vs the `4 × u24` quad. Unresolved until that is picked |
+| **F-2** `row: u32` → `identity: u16`, unchecked | silent wrap past 65,536 concepts; today never fires at 1,658 | **nothing on its own** | D-1a removes `row` as the identity source | **D-1a does not add a guard.** F-2 needs an explicit `TryFrom`/`debug_assert` at the mint regardless of which D-1 option wins. Do not treat it as closed by D-1 |
+| **F-3** part_of is a DAG upstream; cascade consumes a tree | ~35% of concepts (3.0 table) addressed under one arbitrary parent — CONJECTURE for 4.0 | **D-2b** (views as attributes of relations) | D-2c (record which parent won) makes the arbitrariness auditable, not correct | D-2b needs a **view carrier that does not exist**. Blocked on **P-1**; until P-1 runs, the size of this flaw in 4.0 is unknown |
+| **F-4** laterality edge table unconsumed | 8,265 of 12,530 composite→primitive edges carry an axis word; the axis is reachable only by string-matching a label | **D-3a** (consume `composite_parts.txt` as an edge relation) | — | Sized by **P-4** — unknown how many composites/primitives are in the meshed set. D-3b (axis into a key tier) is *rejected*, not deferred |
+| **F-5** `is_a` fills both rail axes | the L1 `part_of : is_a` carving carries one relation twice; part_of contributes nothing to the address | **D-2a** (fill the rails as designed) | — | Closes the waste, **not F-3**. A node with three parents still gets one |
+| **F-6** part_of depth 16 > 7 addressable levels | 279 nodes (20%) share a prefix with an ancestor via the `tier_at → 0` fallback | **D-4b** (registry resolve + ref-escape) | D-4a (record the truncated remainder in a tenant) makes it lossless-on-read, not addressable; §6.3's 2×12 zipper reaches 13 levels of 16 | D-4c (widen the key) is **forbidden by canon** — scale is the next cascade level, never field-widening |
+| **F-7** we bake 4.0; upstream rejected 4.0 for intersecting skin/muscle | two re-bakes (20260629b, c) spent on classification overlap | **no option yet** — D-5 is deliberately undecided | — | Gated on **P-5**. Until measured, a common cause is CONJECTURE only |
+| **F-8** three group-membership mechanisms coexist | `EpisodicBasin` (tenant 15), L2 `memberof : members`, and q2's EdgeBlock adapter mask all address many-to-many | **no owning decision — this is a gap in §3** | §6.2 states the constraint ("pick one, do not add a fourth") but assigns no verdict | Needs a **D-6** before any group work lands, or the v4 adds a fourth by accident |
+| **§6.5** `tenants.md:88` says 15 tenants; the table runs 0–15 | a session sizing a preset from the prose is off by one | a one-line doc fix **in lance-graph** | — | **Not fixable from this repo.** Code is correct (`canonical_node.rs:1252` compile-asserts the pairing); prose only |
+
+### 7.2 What no remedy in this plan touches
+
+- **Multi-parent addressing is not solved by anything currently on the table.**
+  D-2a stops the rails wasting an axis; D-2b is the real answer and needs a
+  carrier that does not exist. If P-1 shows the 4.0 part_of is a DAG, this
+  becomes the largest open item in the plan, larger than F-1.
+- **Vessel caliber** (§6.4) is excluded by §5 and no D-item covers it.
+- **The hex substrate / explicit volumetric trie** (§6.3) are research, not
+  remedies; neither closes a flaw listed above.
+
+### 7.3 Ordering constraint
+
+F-1 is BLOCKING and independent — D-1a can land before any probe. Everything
+else has a gate:
+
+    P-1 ──gates──▶ D-2 (F-3, F-5)
+    P-4 ──sizes──▶ D-3 (F-4)
+    P-5 ──gates──▶ D-5 (F-7)
+    P-2, P-3 ─────▶ quantify and falsify F-1 (evidence, not a gate on D-1a)
+
+D-1a plus the F-2 guard is therefore the only work in this plan that could
+begin today. Everything else waits on a measurement, and the plan's §4 rule
+stands: a v4 that lands without P-1, P-2 and P-3 green is a rebake with the
+same addressing defects and a new date in its filename.
+
+---
+
+## 8. Sources
+
+Full reference doc — what each source is, what it establishes, and the required
+BodyParts3D attribution — lives at
+**`.claude/docs/anatomy-substrate-prior-art.md`**. Short form:
+
+| source | establishes | bears on |
+|---|---|---|
+| Mitsuhashi et al., *Nucleic Acids Res* 2009 (PMC2686534, doi:10.1093/nar/gkn613) — **BodyParts3D** | the geometry + the `part_of` / `is_a` / `composite_parts` tables our bakes read | F-3, F-4, F-5, F-7 |
+| Pommert et al., *Medical Image Analysis* 5(3), 2001 — **VOXEL-MAN / InnerOrgans** | *"views are represented as attributes of relations"*; a separate `branching from` type for arterial flow; `hidden part of`; ellipsoid + connected-component segmentation | F-3 (→ D-2b), F-4 (→ D-3a), §6.4 vessels |
+| Gagvani & Silver (Rutgers) — **Animating the Visible Human** | a volumetric skeleton as *"an advanced data structure for referencing all of the voxels"* | §6.3 explicit volumetric trie |
+| NLM **Visible Human Project** | the cryosection/CT source under both of the above | lineage context only |
+
+**Lineage caution, restated because it is easy to lose:** VOXEL-MAN and Gagvani
+are voxel models over the Visible Human; BodyParts3D is surface mesh from
+DBCLS/Anatomography, independent. Our bake is on the mesh line. The convergence
+recorded above is in the **addressing**, not the geometry — no code path linking
+the lineages was measured, and none is claimed (C-4).
