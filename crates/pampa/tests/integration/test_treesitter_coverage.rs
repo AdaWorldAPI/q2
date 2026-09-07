@@ -466,7 +466,7 @@ fn test_example_list() {
     assert!(
         matches!(&pandoc.blocks[0], Block::OrderedList(_)),
         "Expected OrderedList, got {:?}",
-        &pandoc.blocks[0]
+        pandoc.blocks[0]
     );
 
     if let Block::OrderedList(list) = &pandoc.blocks[0] {
