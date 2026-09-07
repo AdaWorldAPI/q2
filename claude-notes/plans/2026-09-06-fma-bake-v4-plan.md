@@ -743,6 +743,39 @@ fan-out 1.0. Only a handful (`Set of arteries` 224, `Set of systemic veins`
 169, `Set of nerves` 141) are real hubs, so keying on the name would be wrong
 four times in five.
 
+**What `Set of…` actually is (operator, 2026-09-07): a TRIGGER that spawns a
+many2many, not a container that holds one.** Measured over all 3 409 `Set of`
+nodes: **only 30 have any part_of members**, only 57 appear in
+`conventional_part_of` at all, and 79 % have no is_a children. They are
+edge-less declarations in BOTH shipped relations.
+
+Their extent is not stored because it is **derivable** — the name is a
+specification, and the set is where part_of and is_a MEET:
+
+> **`Set of <T> of <O>`  ≡  `{ p ∈ parts(O) : p is_a T }`**
+
+Verified against the heart, whose 10 conventional parts filter cleanly:
+
+| set node (stores nothing) | computed extent |
+|---|---|
+| `Set of arteries of heart` | left coronary artery, right coronary artery |
+| `Set of veins of heart` | small cardiac vein, cardiac vein |
+| `Set of organ components of heart` | left/right atrium, left/right ventricle, wall of heart, myocardium |
+
+(A naive label-string query recovers only 32 % with ~1 member each — the JOIN
+is what works, not name matching.)
+
+Consequences for the bake:
+
+- **Do NOT mint a hub node per `Set of`.** That yields 3 409 empty containers.
+  The node declares that a many2many is AVAILABLE at that point; materialise it
+  on demand by running the join.
+- **Do not store the extent.** It would be a second source of truth for
+  something `parts(O) × is_a` already yields — the same reasoning that keeps
+  labels out of the payload (§2 slot-purity).
+- The set node itself is many-to-ONE into the taxonomy (single parent), so it
+  costs nothing in the §10 mask chain; only its computed extent is many2many.
+
 Worked example (operator: *"sternum connective tissue(n) > lunge, herz
 <aorta hub>"*), traced in the data:
 
