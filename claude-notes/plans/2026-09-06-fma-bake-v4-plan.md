@@ -844,7 +844,7 @@ names the failure it patches:
 | `CORE` | 0.62 | inner-core radius fraction under the wall |
 | `RMAX` | 0.020 | *"ABSOLUTE diameter boundary … covers the aorta; clamps balloons"* |
 | `RMIN` | 0.0008 | floor so capillaries keep a visible core |
-| `CAP` | 2.0 | *"RMAX alone lets a finger artery balloon to aorta size at a bend"* |
+| `CAP` | 2.0 → **1.2 for v4** | *"RMAX alone lets a finger artery balloon to aorta size at a bend"* |
 | `PCTL` | 0.30 | *"at a strong bend two arms share one axial bin and the median perp-distance is ~half the gap (a balloon)"* |
 | `CELL` | 0.015 | *"a continuous vessel keeps adjacent cells occupied … blobs farther apart split"* |
 
@@ -860,6 +860,38 @@ This corroborates §9.7 from the other direction: P-6 found the vessel
 constants were empirical clamps from their first commit with no sequence ever
 tried and replaced. They are not a tuning history — they are scaffolding
 around a missing topology.
+
+### 11.1a `CAP` is now per-bake: v3 keeps 2.0, v4 takes 1.2
+
+Operator ruling, 2026-09-07: **the v4 bake uses `CAP = 1.2`.** At 2.0 a ring may
+be TWICE the vessel's own calibre, which is the mechanism behind the "way too
+voluptuous" arteries on the live `/helix` render; 1.2 tightens the bend
+allowance from +100 % to +20 %. Worked example: a 0.004-calibre vessel's bend
+ceiling falls from 0.0080 to 0.0048.
+
+Implemented as `CAP = float(os.environ.get("BODY_FILL_CAP", "2.0"))`, and **the
+default is deliberately the v3 value**: an unset variable reproduces the v3
+artifact byte-identically, so `helix_latest` — the bake `/helix` serves and the
+release asset medcare-rs SHA256-pins — is untouched. Nothing invokes
+`fill_body_soa.py` from a script (it is run by hand as
+`python3 fill_body_soa.py <soa_dir>`), so **the v4 bake procedure must set the
+variable explicitly**:
+
+```sh
+BODY_FILL_CAP=1.2 python3 crates/osint-bake/tools/fill_body_soa.py <soa_dir>
+```
+
+Two honest limits on what this buys:
+
+- **It bounds the bend BALLOON only.** `cap = min(RMAX, caliber * CAP)` cannot
+  make a vessel thinner than its own measured calibre. If the render is still
+  heavy at 1.2, the remaining size is coming from `CORE` (0.62), `PCTL` (0.30)
+  or the calibre estimate — not from here.
+- **It narrows the damage; it does not fix the cause.** The centerline is still
+  RECONSTRUCTED from an unordered point cloud (§11.1). A tighter clamp is a
+  better-scaffolded reconstruction, not a given way (O-11a). The §11.5
+  falsifier still stands: with a stored ordered centerline, `CAP` and `PCTL`
+  should become removable altogether.
 
 ### 11.2 It is the same bug class `kurvenlineal.rs` already fixed
 
