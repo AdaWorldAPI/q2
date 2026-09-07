@@ -36,7 +36,11 @@ Consequence: a `(classid, tiers, identity)` key minted by one producer does not
 resolve in the other's output. Any cross-bake join (mesh ↔ anchor ↔ label) is
 currently unsound and only appears to work because each consumer reads one bake.
 
-### F-2 — `row: u32` is written into a `u16` identity slot, unchecked  [LATENT]
+### F-2 — ⊘ REFUTED by P-2/P-3 measurement, see §9.3  [WITHDRAWN]
+
+> **This finding is wrong.** Both mint paths assert with a message naming their
+> width; there is no silent wrap. The text below is kept as the original claim.
+> The real (test-coverage) defect it surfaced is fixed in lance-graph#1211.
 
 `body.rs:129` passes `row` (u32) as `mint_for`'s identity argument. Under V3 the
 slot is `identity_v2: u16`. At 1,658 concepts this never fires; at >65,536 it
@@ -83,7 +87,11 @@ lane for is_a per tier — but `body.rs:107-118` fills all six tiers from the
 `is_a` ancestor **sibling-rank** chain and nothing from part_of. The rails are
 carrying one relation in both axes.
 
-### F-6 — Depth exceeds the addressable tiers  [OPEN]
+### F-6 — Depth exceeds the addressable tiers  [OPEN — figures replaced, see §9.4]
+
+> ⚠ The "max depth 16" below is **withdrawn**: measured 9 (shortest) / 12
+> (longest) on 3.0. Overflow is 4.99% or 50.43% depending on which depth is
+> addressed — a question §9.4 shows is unruled.
 
 **Level-counting convention, pinned here and used everywhere in this plan:**
 a *level* is the classid (the root) plus one per **rail**; `identity` is the
@@ -406,3 +414,186 @@ are voxel models over the Visible Human; BodyParts3D is surface mesh from
 DBCLS/Anatomography, independent. Our bake is on the mesh line. The convergence
 recorded above is in the **addressing**, not the geometry — no code path linking
 the lineages was measured, and none is claimed (C-4).
+
+---
+
+## 9. Probe results (run 2026-09-07)
+
+Four of the six §4 probes ran. Every number below is a command output; the
+commands are in the PR that carries this section. **Three findings above are
+corrected by these results, one of them a refutation of a claim this plan
+itself made.** The §1 entries are regraded in place, not deleted.
+
+### 9.1 Probe status
+
+| probe | status | why |
+|---|---|---|
+| **P-1** depth histogram / DAG | **PARTIAL** | ran on BodyParts3D **3.0**; the 4.0 `partof_BP3D_4.0_obj_99` the bake reads is **not on disk** |
+| **P-2** identity divergence | **DONE** | real binaries, real trees |
+| **P-3** immutability falsifier | **DONE**, and it **corrected the stated mechanism** |
+| **P-4** laterality sizing | **PARTIAL** | 3.0 STL presence used as the "has geometry" proxy; 4.0 OBJ meshes not on disk |
+| **P-5** 4.0-vs-3.0 skin/muscle | **BLOCKED** | needs both geometry sets; neither 4.0 nor a 3.0 OBJ set is present |
+| **P-6** history archaeology | **DONE** | shallow clone deepened 56 → **2201** commits |
+
+### 9.2 F-1 — CONFIRMED, but the failure mode is not the one stated
+
+**P-2, measured on the real binaries over `fma/data/{inclusion,isa_inclusion,element_parts}.txt`:**
+223 concepts appear in both outputs. **223/223 (100%) get a different
+identity.** `classid`, HEEL, HIP, TWIG and F4 are **identical in all 223** —
+both binaries compute the address prefix with byte-identical code, and diverge
+only at the mint. So the two producers agree on *where* a concept sits and
+disagree on *which* concept it is.
+
+**P-3 refutes this plan's stated mechanism.** F-1 and the §3 D-1 table said
+re-ordering the input moves every identity. Measured: reversing the input file
+changes **0 of 1368**. `guid.rs` calls `sorted.sort()` before minting, so file
+order cannot reach `k`.
+
+**The real failure is enumeration-index shift.** Deleting one node near the
+start of the sorted set — so every later `k` shifts by one — changes
+**863 of 1367 (63%)** of the identities. That is worse than the original
+claim in practice: it means **adding or removing a single concept anywhere
+upstream re-mints most of the tree**, while merely receiving the same set in a
+different order is harmless.
+
+`anchor.rs` is stable as claimed: **0 of 203** changed across two runs with
+different membership. Its `fnv16(path)` is a pure content hash.
+
+Collision probes fired **0 times** in all three `guid.rs` runs — no evidence
+either way about the probe path on this corpus; recorded rather than omitted.
+
+> **Consequence for D-1.** The sub-choice is unchanged (16-bit hash+probe vs
+> the `4 × u24` quad), but the *argument* changes: the defect is not
+> order-sensitivity, it is that identity is a function of **set membership**.
+> Any content-addressed mint fixes it; `golden_id(k)` cannot be rescued by
+> stabilising input order, because input order was never the input.
+
+### 9.3 F-2 — REFUTED. There is no silent truncation.
+
+Both mint paths in `lance-graph-contract` assert, in release:
+
+- `NodeGuid::new` (V1): `assert!(identity <= 0x00FF_FFFF, "identity must fit in 24 bits")` — `canonical_node.rs:209`
+- `mint_for` V2/V3 arm: `assert!(identity <= 0xFFFF, "v2/v3 identity must fit in 16 bits (no silent truncation)")` — `:386-389`
+
+`osint-bake` requests `features = ["guid-v3-tail"]`, which implies
+`guid-v2-tail`, so the guarded arm is the live one. A row ≥ 65,536 **panics
+with a message naming the width**; it does not wrap. F-2's "silent wrap" and
+§7's "closed by nothing on its own — needs an explicit `TryFrom`/`debug_assert`"
+are both **wrong** and are withdrawn.
+
+What the audit did surface, indirectly and genuinely: the V1 guards have had
+`should_panic` cover since they landed (`:2152-2162`); **the V2/V3 guards that
+supersede them had none** — their panic strings grep to exactly one hit each,
+the definition site. Fixed upstream in `AdaWorldAPI/lance-graph#1211` (three
+tests, `cargo test -p lance-graph-contract --lib` 1318 → 1321).
+
+### 9.4 F-6 — the depth figures are replaced, and the severity is convention-dependent
+
+**P-1 on BodyParts3D 3.0** `conventional_part_of.txt`: 2,358 edges, 1,523
+nodes, **acyclic**, single root `FMA20394 human body`.
+
+The plan said "part_of max depth is **16**". Measured:
+
+| metric | value |
+|---|---|
+| max(**min_depth**) — shortest path from root | **9** |
+| max(**max_depth**) — longest path from root | **12** |
+
+Neither is 16. The 16 is unverified and withdrawn.
+
+**Overflow past the key's 6 addressable levels (depths 0..5) — and this is the
+finding:**
+
+| basis | nodes over | share |
+|---|---|---|
+| min_depth | **76** | **4.99%** |
+| max_depth | **768** | **50.43%** |
+
+A **10× spread**, from a rounding error to half the graph, decided entirely by
+a question nobody has answered: **does the cascade encode a concept's shortest
+ancestry or must it represent its deepest?** In a DAG with 536 multi-parent
+nodes those are different addresses for the same concept. D-4 cannot be sized —
+and arguably F-6 cannot be graded — until that is ruled.
+
+### 9.5 F-3 — independently confirmed
+
+**536 of 1,523 nodes have >1 distinct parent** (365 with exactly 2, 83 with 3,
+48 with 4, 40 with ≥5). Most-parented: `FMA16202 sacrum` with **6**. Acyclic,
+single-rooted. Matches the earlier count exactly, from an independent script.
+
+### 9.6 F-4 / D-3a — the shape is right, the mechanism needs reshaping
+
+Axis census recomputed independently over all 12,530 rows: **8,265 (66.0%)**
+carry an axis word (right 3871, left 3849, proximal 311, distal 310, lateral
+287, posterior 256, anterior 250, superior 248, lower 239, upper 236, medial
+196, inferior 192, dorsal 34, **ventral 0**).
+
+**The join says D-3a cannot mean what it says.** Of 579 distinct composite ids,
+**0 have geometry** — the composite column holds `BP##` sentinels and
+high-level aggregates (`FMA20394 human body`, `FMA7153 cardinal body part`,
+`FMA72954 muscular system`). Primitives are different: **873 of 1,419** are
+meshed.
+
+| rows | count |
+|---|---|
+| both composite and primitive meshed | **0** |
+| primitive meshed, composite not | **8,611** |
+| neither meshed | 3,919 |
+
+So "consume composite→primitive as an edge relation" cannot be an edge between
+two mesh nodes. It is **an edge from a meshed concept to an abstract grouping
+label** — which is still useful, and is 8,611 rows of it.
+
+**And it is not redundant with part_of:** only **2,172 of 12,530** pairs also
+appear as a part_of edge. **83% are orthogonal** — composite_parts carries
+relations part_of does not have. That is the strongest evidence yet for D-3a's
+core claim, even as it reshapes the mechanism.
+
+### 9.7 P-6 — the Tribonacci→Fibonacci vessel lineage did not happen
+
+History deepened 56 → **2201 commits** and searched in full.
+
+**`tribonacci`: 2 hits, neither about vessels.** Both are GLSL cloud-shader
+lacunarity in the terrain renderer (`b77da963`, 2026-07-08, *"tribonacci cloud
+sky"*, `TRIBONACCI ≈ 1.8393` as an fBm octave multiplier). The other hit is
+this plan's own P-6 line proposing the search.
+
+**`fibonacci` / golden: all hits are orientation and placement** — helix
+surfel-normal encoding, golden-angle spiral scene layout, and `GOLDEN_STRIDE` /
+`golden_id` in the GUID cascade. None touch vessel radius.
+
+**The vessel constants were empirical clamps from the first commit that
+introduced them:**
+
+| commit | date | change |
+|---|---|---|
+| `473ed2a5` | 2026-06-28 | introduces `CORE = 0.55`, `RMAX = 0.020`, `RMIN = 0.0008` |
+| `7689878a` | 2026-06-28 | `CORE 0.55 → 0.62` |
+| `daf987f8` | 2026-06-28 | median-based clamp, same formula shape |
+| `2a7ac4a3` | 2026-06-29 | adds `CAP = 2.0` + `PCTL = 0.30` (per-vessel caliber cap) |
+
+No mathematical sequence was ever tried for radii and replaced. The
+"monstrous → voluptuous → clamps" narrative is **not supported by the commit
+record**; §6.4's reading of the clamps as the *fix* stands, but its implied
+history does not.
+
+**Producer recency, now measurable** (the shallow clone made every file look
+identically aged — C-7 discharged):
+
+| producer | last commit | date |
+|---|---|---|
+| `crates/osint-bake/src/bin/body.rs` | `b3d33112` | **2026-09-06** (youngest) |
+| `crates/osint-bake/tools/bake_body_v3.py` | `f9a3ad69` | 2026-06-29 |
+| `crates/osint-bake/tools/fill_body_soa.py` | `2a7ac4a3` | 2026-06-29 |
+| `fma/src/bin/guid.rs`, `anchor.rs` | `ac55a7a2` | 2026-06-24 (oldest) |
+
+### 9.8 What this changes about the ordering
+
+§7.3 said D-1a plus the F-2 guard was the only work that could start today.
+**F-2 needs no work at all.** D-1a stands, with a corrected argument (§9.2),
+and is now the *only* unblocked item — with its sub-choice sharpened by the
+19-bit FMA id: the `4 × u24` quad holds it exactly, a 16-bit hash cannot.
+
+D-2 and D-4 remain blocked, and P-1 did not unblock them — it ran on 3.0, and
+it surfaced a **prior** question (shortest vs deepest ancestry) that must be
+ruled before D-4 can be sized at all.
