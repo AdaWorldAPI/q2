@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
-mod bake_s3;
+mod body_bake;
 mod body_lod;
 mod clinical;
 mod codebook;
@@ -292,6 +292,14 @@ async fn main() {
         }
     }
 
+    // The FMA body bake, on the same terms as the OSM slab above: S3 is truth,
+    // the volume is a cache that survives a rebuild, and a redeploy without the
+    // volume mounted re-fetches rather than serving something stale. Failure is
+    // never fatal — `/helix` reads the copy embedded in `dist/` and does not
+    // consult this at all; only `/helix2`'s newer bake needs it, and it degrades
+    // to a 503 with the missing variable named in the boot log.
+    let _ = body_bake::ensure_body_bake_local().await;
+
     let (tx, _rx) = broadcast::channel::<SseEvent>(256);
     let scene_state = shader_stream::new_scene_state();
     let osm_manager = Arc::new(osm_artifact_manager::OsmArtifactManager::absent());
@@ -389,10 +397,11 @@ async fn main() {
         // read. A missing codebook is otherwise indistinguishable from a
         // working map on every other signal (200s, full tiles, correct
         // geometry) while drawing grey and untagged.
-        // Serve a baked artifact from the shared object store, same-origin.
-        // The browser cannot fetch the bucket itself: it is private (and shared
-        // with clinical bakes that must stay private), and a browser cannot
-        // sign SigV4 without being handed credentials. See bake_s3.rs.
+        // Serve the hydrated bake from disk, same-origin. The browser cannot
+        // fetch the bucket itself: it is private (and shared with clinical
+        // bakes that must stay private), and a browser cannot sign SigV4
+        // without being handed credentials. The bytes are already local —
+        // `body_bake::ensure_body_bake_local` put them there at boot.
         .route("/api/bake/:tag/:asset", get(bake_asset_handler))
         .route("/api/osm/health", get(osm_features::osm_health_handler))
         .route(
@@ -739,61 +748,58 @@ async fn garmin_contour_handler(
 // ── Static file handler with SPA fallback ────────────────────────────────────
 
 /// Serves embedded Vite build files. Falls back to index.html for SPA routing.
-/// `GET /api/bake/:tag/:asset` — stream one baked artifact from the object
-/// store, same-origin.
+/// `GET /api/bake/:tag/:asset` — serve the hydrated bake from disk.
 ///
 /// Exists so a NEW bake can reach a running deploy without an image rebuild:
 /// the embedded `dist/` copy is fixed at build time, this is not. The embedded
-/// copy remains the primary path and is untouched — a deploy with no object
-/// store configured behaves exactly as before, and this route simply 503s.
+/// copy remains the primary path and is untouched — a deploy that hydrated
+/// nothing simply 503s here and `/helix` is unaffected.
 ///
-/// `asset` is a single path segment by construction (axum will not match a `/`
-/// inside it), so it cannot traverse out of the tag prefix; the guard below is
-/// belt-and-braces for the `%2F`-decoded case.
+/// The coordinates are checked against what this deploy actually hydrated
+/// rather than used to address the filesystem. A request naming some other tag
+/// is answered "not this deploy's bake", not translated into a path — so no
+/// input from the wire ever reaches a `join`.
 async fn bake_asset_handler(
     axum::extract::Path((tag, asset)): axum::extract::Path<(String, String)>,
 ) -> impl axum::response::IntoResponse {
     use axum::http::{StatusCode, header};
 
-    let bad = |s: &str| s.contains('/') || s.contains('\\') || s.contains("..") || s.is_empty();
-    if bad(&tag) || bad(&asset) {
-        return (StatusCode::BAD_REQUEST, "bad artifact name".to_string()).into_response();
+    let (have_tag, have_asset) = body_bake::coordinates();
+    if tag != have_tag || asset != have_asset {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("this deploy serves {have_tag}/{have_asset}"),
+        )
+            .into_response();
     }
 
-    let Some(cfg) = bake_s3::S3Config::from_env() else {
+    let path = body_bake::local_path();
+    let Ok(bytes) = tokio::fs::read(&path).await else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            "object store not configured (AWS_ENDPOINT_URL / AWS_S3_BUCKET_NAME / \
-             AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY); the embedded bake is still served"
+            "the bake is not hydrated on this deploy (see the boot log for which \
+             variable is missing); the embedded bake is still served"
                 .to_string(),
         )
             .into_response();
     };
 
-    match bake_s3::get(&cfg, &tag, &asset).await {
-        Ok(bytes) => {
-            let ct = if asset.ends_with(".gz") {
-                "application/gzip"
-            } else {
-                "application/octet-stream"
-            };
-            (
-                StatusCode::OK,
-                [
-                    (header::CONTENT_TYPE, ct),
-                    // Artifacts are content-addressed by name (a new bake gets a
-                    // new filename), so they are safe to cache hard.
-                    (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
-                ],
-                bytes,
-            )
-                .into_response()
-        }
-        Err(e) => {
-            tracing::warn!(%tag, %asset, error = %e, "bake fetch failed");
-            (StatusCode::NOT_FOUND, e).into_response()
-        }
-    }
+    let ct = if asset.ends_with(".gz") {
+        "application/gzip"
+    } else {
+        "application/octet-stream"
+    };
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, ct),
+            // Artifacts are content-addressed by name (a new bake gets a new
+            // filename), so they are safe to cache hard.
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 async fn static_handler(uri: axum::http::Uri) -> Response {

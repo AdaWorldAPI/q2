@@ -77,10 +77,6 @@ memmap2 = "0.5"
 object_store = { version = "0.13.2", features = ["aws"] }
 sha2 = "0.10"
 hex = "0.4"
-# Object-store fetch for /api/bake/* (see bake_s3.rs). Both already resolve in
-# the workspace lock via other crates, so this adds no new dependency tree.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-chrono = "0.4"
 futures = "0.3"
 # `osm_slab_hydrate::sha256_file`: advise the kernel to drop a hashed file's
 # pages from its page cache afterward (`posix_fadvise(POSIX_FADV_DONTNEED)`,

@@ -734,14 +734,15 @@ async function fetchSoa(): Promise<ArrayBuffer> {
   //    Fastest and always correct when present, so it stays first.
   const s = await fetch(`/${stamped}`).catch(() => null);
   if (s && s.ok) return inflate(s);
-  // 2. The object store, proxied same-origin by /api/bake/:tag/:asset. This is
+  // 2. The hydrated bake, served same-origin by /api/bake/:tag/:asset. This is
   //    what lets a NEWLY published bake reach a RUNNING deploy: the dist/ copy
   //    above is fixed at image build, so without this a v4 bake needs a rebuild
-  //    before /helix2 can see it. The server signs (SigV4) and streams; the
-  //    bucket is private and stays private — it is shared with clinical bakes,
-  //    and a browser cannot sign without being handed credentials.
-  //    The tag comes from the manifest so publishing a bake is a manifest edit,
-  //    not a code change; absent, this hop is skipped rather than guessed.
+  //    before /helix2 can see it. The server fetched it from the object store
+  //    ONCE at boot onto its volume and serves the file; the bucket is private
+  //    and stays private — it is shared with clinical bakes, and a browser
+  //    cannot sign for it. The tag comes from the manifest so publishing a bake
+  //    is a manifest edit plus the deploy's BODY_BAKE_TAG, not a code change;
+  //    absent, this hop is skipped rather than guessed.
   const tag: string | undefined = man?.helix_v4_tag;
   if (tag) {
     const o = await fetch(`/api/bake/${encodeURIComponent(tag)}/${encodeURIComponent(stamped)}`)

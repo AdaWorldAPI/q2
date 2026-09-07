@@ -72,6 +72,11 @@ use object_store::aws::AmazonS3Builder;
 use object_store::{ObjectStore, ObjectStoreExt};
 use sha2::{Digest, Sha256};
 
+/// The label the in-module call sites pass to the reusable helpers below
+/// ([`fetch_sums`], [`download_verified`], …), which `body_bake` also calls
+/// with its own name. It is the log prefix, nothing more.
+pub(crate) const SLAB: &str = "osm slab";
+
 /// The region baked by default. `OSM_BAKE_REGION` selects another one.
 ///
 /// The region is the ONLY thing that differs between bakes: the baker
@@ -146,7 +151,7 @@ fn cache_dir(vol: &str) -> PathBuf {
 /// in), and that must fail the SAME way as the variable not existing at all —
 /// not attempt a real S3 call with an empty bucket name, which fails later,
 /// differently, and less legibly than "not configured".
-fn env_var_nonempty(key: &str) -> Option<String> {
+pub(crate) fn env_var_nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.trim().is_empty())
 }
 
@@ -376,7 +381,7 @@ async fn hydrate_one_region(
          volume re-verifies in ~1s)"
     );
 
-    let sums = fetch_sums(store, &prefix).await?;
+    let sums = fetch_sums(SLAB, store, &prefix).await?;
 
     for name in region_artifacts.iter().map(String::as_str) {
         let want = match sums.iter().find(|(k, _)| k == name).map(|(_, h)| h.clone()) {
@@ -394,7 +399,7 @@ async fn hydrate_one_region(
 
         // Cache hit, but only if it still hashes correctly — see module docs.
         if dest.is_file() {
-            match resolve_cache_hit(&dest, &want) {
+            match resolve_cache_hit(SLAB, &dest, &want) {
                 CacheDecision::TrustedViaMarker => {
                     tracing::info!(
                         region,
@@ -422,7 +427,7 @@ async fn hydrate_one_region(
             }
         }
 
-        if !download_verified(store, &prefix, name, &dest, &want).await {
+        if !download_verified(SLAB, store, &prefix, name, &dest, &want).await {
             return None;
         }
     }
@@ -432,18 +437,22 @@ async fn hydrate_one_region(
 
 /// Fetch and parse `SHA256SUMS` — `<hex>  <name>` per line, the `sha256sum`
 /// format the bucket already uses for the MedCare bakes.
-async fn fetch_sums(store: &impl ObjectStore, prefix: &str) -> Option<Vec<(String, String)>> {
+pub(crate) async fn fetch_sums(
+    label: &str,
+    store: &impl ObjectStore,
+    prefix: &str,
+) -> Option<Vec<(String, String)>> {
     let path = object_store::path::Path::from(format!("{prefix}/SHA256SUMS"));
     let bytes = match store.get(&path).await {
         Ok(r) => match r.bytes().await {
             Ok(b) => b,
             Err(e) => {
-                tracing::error!(error = %e, "osm slab: SHA256SUMS body read failed");
+                tracing::error!(error = %e, "{label}: SHA256SUMS body read failed");
                 return None;
             }
         },
         Err(e) => {
-            tracing::error!(error = %e, %prefix, "osm slab: SHA256SUMS not readable");
+            tracing::error!(error = %e, %prefix, "{label}: SHA256SUMS not readable");
             return None;
         }
     };
@@ -452,7 +461,7 @@ async fn fetch_sums(store: &impl ObjectStore, prefix: &str) -> Option<Vec<(Strin
 
 /// Parse `sha256sum` output. Tolerates the `*name` binary marker and blank
 /// lines; ignores anything that is not `<hex> <name>`.
-fn parse_sums(text: &str) -> Vec<(String, String)> {
+pub(crate) fn parse_sums(text: &str) -> Vec<(String, String)> {
     text.lines()
         .filter_map(|line| {
             let mut it = line.split_whitespace();
@@ -469,7 +478,8 @@ fn parse_sums(text: &str) -> Vec<(String, String)> {
 
 /// Stream one object to `<dest>.part`, hash while writing, and rename into
 /// place only if it matches. A mismatch leaves no file behind.
-async fn download_verified(
+pub(crate) async fn download_verified(
+    label: &str,
     store: &impl ObjectStore,
     prefix: &str,
     name: &str,
@@ -483,7 +493,7 @@ async fn download_verified(
     let result = match store.get(&path).await {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!(artifact = name, error = %e, "osm slab: download failed");
+            tracing::error!(artifact = name, error = %e, "{label}: download failed");
             return false;
         }
     };
@@ -492,7 +502,7 @@ async fn download_verified(
     let mut file = match std::fs::File::create(&part) {
         Ok(f) => f,
         Err(e) => {
-            tracing::error!(artifact = name, error = %e, "osm slab: cannot create .part");
+            tracing::error!(artifact = name, error = %e, "{label}: cannot create .part");
             return false;
         }
     };
@@ -504,21 +514,21 @@ async fn download_verified(
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!(artifact = name, error = %e, "osm slab: stream error");
+                tracing::error!(artifact = name, error = %e, "{label}: stream error");
                 let _ = std::fs::remove_file(&part);
                 return false;
             }
         };
         hasher.update(&chunk);
         if let Err(e) = file.write_all(&chunk) {
-            tracing::error!(artifact = name, error = %e, "osm slab: write error");
+            tracing::error!(artifact = name, error = %e, "{label}: write error");
             let _ = std::fs::remove_file(&part);
             return false;
         }
         written += chunk.len() as u64;
     }
     if let Err(e) = file.flush() {
-        tracing::error!(artifact = name, error = %e, "osm slab: flush error");
+        tracing::error!(artifact = name, error = %e, "{label}: flush error");
         let _ = std::fs::remove_file(&part);
         return false;
     }
@@ -526,22 +536,22 @@ async fn download_verified(
 
     let got = hex::encode(hasher.finalize());
     if got != want {
-        tracing::error!(artifact = name, %got, %want, "osm slab: checksum mismatch; discarding");
+        tracing::error!(artifact = name, %got, %want, "{label}: checksum mismatch; discarding");
         let _ = std::fs::remove_file(&part);
         return false;
     }
     if let Err(e) = std::fs::rename(&part, dest) {
-        tracing::error!(artifact = name, error = %e, "osm slab: rename into place failed");
+        tracing::error!(artifact = name, error = %e, "{label}: rename into place failed");
         let _ = std::fs::remove_file(&part);
         return false;
     }
     // A fresh download IS a real verification — record it so the NEXT boot's
     // cache hit can trust it via `resolve_cache_hit` without re-reading.
-    write_marker(dest, &got);
+    write_marker(label, dest, &got);
     tracing::info!(
         artifact = name,
         bytes = written,
-        "osm slab: downloaded and verified"
+        "{label}: downloaded and verified"
     );
     true
 }
@@ -626,7 +636,7 @@ fn marker_path(dest: &Path) -> PathBuf {
 /// changed at all: the marker's digest no longer equals the freshly
 /// fetched `want`, so this declines and `sha256_file` runs for real,
 /// which then correctly reports a mismatch and triggers a re-download.
-fn trusted_via_marker(dest: &Path, want: &str) -> bool {
+pub(crate) fn trusted_via_marker(dest: &Path, want: &str) -> bool {
     let Some(marker) = std::fs::read_to_string(marker_path(dest))
         .ok()
         .and_then(|text| VerifiedMarker::parse(&text))
@@ -643,7 +653,7 @@ fn trusted_via_marker(dest: &Path, want: &str) -> bool {
 /// proven-correct identity a later boot's [`trusted_via_marker`] can trust.
 /// Failure to write is logged, never fatal: the next boot simply re-hashes,
 /// which is exactly today's behaviour without this whole mechanism.
-fn write_marker(dest: &Path, digest: &str) {
+pub(crate) fn write_marker(label: &str, dest: &Path, digest: &str) {
     let Some((mtime_nanos, len)) = stat_identity(dest) else {
         return;
     };
@@ -655,7 +665,7 @@ fn write_marker(dest: &Path, digest: &str) {
     if let Err(e) = std::fs::write(marker_path(dest), marker.render()) {
         tracing::warn!(
             path = %dest.display(), error = %e,
-            "osm slab: could not write verification marker (non-fatal; next boot re-hashes)"
+            "{label}: could not write verification marker (non-fatal; next boot re-hashes)"
         );
     }
 }
@@ -664,7 +674,7 @@ fn write_marker(dest: &Path, digest: &str) {
 /// [`ensure_slab_local`]'s loop needs to log and branch on. Split out from
 /// that loop so it is directly testable without env vars or an S3 stub —
 /// see `resolve_cache_hit_trusts_a_matching_marker_without_hashing` below.
-enum CacheDecision {
+pub(crate) enum CacheDecision {
     /// The marker proved identity without touching the file's bytes.
     TrustedViaMarker,
     /// A real `sha256_file` ran and matched `want` — the marker is now
@@ -676,13 +686,13 @@ enum CacheDecision {
     Unreadable(std::io::Error),
 }
 
-fn resolve_cache_hit(dest: &Path, want: &str) -> CacheDecision {
+pub(crate) fn resolve_cache_hit(label: &str, dest: &Path, want: &str) -> CacheDecision {
     if trusted_via_marker(dest, want) {
         return CacheDecision::TrustedViaMarker;
     }
     match sha256_file(dest) {
         Ok(got) if got == want => {
-            write_marker(dest, &got);
+            write_marker(label, dest, &got);
             CacheDecision::Verified
         }
         Ok(got) => CacheDecision::Mismatch(got),
@@ -910,7 +920,7 @@ not-a-hash                        junk.txt
         let p = write_temp_artifact(&dir, "artifact.bin", b"original content");
         let (mtime_nanos, len) = stat_identity(&p).expect("stat");
         let digest = sha256_file(&p).expect("hash");
-        write_marker(&p, &digest);
+        write_marker(SLAB, &p, &digest);
 
         // Rewrite with DIFFERENT content — a real mtime bump, not a forced one.
         std::fs::write(&p, b"different content, different length").expect("rewrite");
@@ -936,7 +946,7 @@ not-a-hash                        junk.txt
         std::fs::create_dir_all(&dir).unwrap();
         let p = write_temp_artifact(&dir, "artifact.bin", b"stable content");
         let digest = sha256_file(&p).expect("hash");
-        write_marker(&p, &digest);
+        write_marker(SLAB, &p, &digest);
 
         assert!(
             !trusted_via_marker(&p, &"f".repeat(64)),
@@ -955,7 +965,7 @@ not-a-hash                        junk.txt
         std::fs::create_dir_all(&dir).unwrap();
         let p = write_temp_artifact(&dir, "artifact.bin", b"unchanged content");
         let digest = sha256_file(&p).expect("hash");
-        write_marker(&p, &digest);
+        write_marker(SLAB, &p, &digest);
 
         assert!(trusted_via_marker(&p, &digest));
 
@@ -976,10 +986,10 @@ not-a-hash                        junk.txt
         std::fs::create_dir_all(&dir).unwrap();
         let p = write_temp_artifact(&dir, "artifact.bin", b"trust me, i'm unchanged");
         let digest = sha256_file(&p).expect("hash");
-        write_marker(&p, &digest);
+        write_marker(SLAB, &p, &digest);
 
         let before = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
-        let decision = resolve_cache_hit(&p, &digest);
+        let decision = resolve_cache_hit(SLAB, &p, &digest);
         let after = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
 
         assert!(matches!(decision, CacheDecision::TrustedViaMarker));
@@ -1006,7 +1016,7 @@ not-a-hash                        junk.txt
         let digest = sha256_file(&p).expect("hash");
 
         let before = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
-        let decision = resolve_cache_hit(&p, &digest);
+        let decision = resolve_cache_hit(SLAB, &p, &digest);
         let after = FADVISE_ATTEMPTED.load(std::sync::atomic::Ordering::Relaxed);
 
         assert!(matches!(decision, CacheDecision::Verified));
