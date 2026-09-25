@@ -14,7 +14,7 @@
 #   /debug  → Neural debugger (18,763 functions across 4 repos)
 #   /mcp/*  → MCP endpoints (lance-graph)
 #
-# Pinned: Rust 1.94.0 | Arrow 57 | DataFusion 51
+# Pinned: Rust 1.98.1 | Arrow 57 | DataFusion 51
 # ══════════════════════════════════════════════════════════════════════
 
 # ── Stage 1: Build the Vite frontend ─────────────────────────────────
@@ -36,9 +36,9 @@ RUN apt-get update && apt-get install -y \
     ca-certificates lld zip unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Rust 1.94.0
+# Rust 1.98.1
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --default-toolchain 1.94.0
+    sh -s -- -y --default-toolchain 1.98.1
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build

@@ -2,7 +2,7 @@
 name = "q2-ndarray"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.98.1"
 description = "SIMD-accelerated N-dimensional arrays for Quarto graph notebooks"
 
 [features]
