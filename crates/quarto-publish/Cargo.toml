@@ -20,7 +20,7 @@ serde_json.workspace = true
 serde_yaml.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-url = "2.5"
+url = { version = "2.5", features = ["serde"] }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 uuid.workspace = true
 
