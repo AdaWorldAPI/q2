@@ -587,12 +587,10 @@ pub fn osint_node_rows(graph: &AiWarGraph, plan: &BasinPlan) -> Vec<NodeRow> {
             mixins.sort_unstable();
             // Fill the 16-byte EdgeBlock as one flat array of mixin adapters.
             let mut edges = EdgeBlock::default();
+            // The 16 bytes are one content-blind facet (no in/out-family
+            // split); byte k carries mixin k exactly as before.
             for (k, &b) in mixins.iter().take(16).enumerate() {
-                if k < edges.in_family.len() {
-                    edges.in_family[k] = b;
-                } else {
-                    edges.out_family[k - edges.in_family.len()] = b;
-                }
+                edges.as_bytes_mut()[k] = b;
             }
 
             // value tenant: byte 0 carries the class-label ORDER (an instance
@@ -782,9 +780,8 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         }
         let ifaces: std::collections::BTreeSet<u8> = r
             .edges
-            .in_family
+            .as_bytes()
             .iter()
-            .chain(r.edges.out_family.iter())
             .copied()
             .filter(|&b| b != 0 && b != basin)
             .collect();
@@ -1010,12 +1007,7 @@ mod tests {
         // Every adapter byte resolves to a real basin (an interface to a basin).
         let known: std::collections::HashSet<u8> = plan.node_basin.values().copied().collect();
         for row in &rows {
-            for &b in row
-                .edges
-                .in_family
-                .iter()
-                .chain(row.edges.out_family.iter())
-            {
+            for &b in row.edges.as_bytes().iter() {
                 if b != 0 {
                     assert!(known.contains(&b), "adapter {b:02x} must be a real basin");
                 }

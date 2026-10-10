@@ -737,12 +737,10 @@ pub fn osint_node_rows(graph: &AiWarGraph, plan: &BasinPlan) -> Vec<NodeRow> {
             mixins.sort_unstable();
             // Fill the 16-byte EdgeBlock as one flat array of mixin adapters.
             let mut edges = EdgeBlock::default();
+            // The 16 bytes are one content-blind facet (no in/out-family
+            // split); byte k carries mixin k exactly as before.
             for (k, &b) in mixins.iter().take(16).enumerate() {
-                if k < edges.in_family.len() {
-                    edges.in_family[k] = b;
-                } else {
-                    edges.out_family[k - edges.in_family.len()] = b;
-                }
+                edges.as_bytes_mut()[k] = b;
             }
 
             // value tenant: byte 0 carries the class-label ORDER (an instance
@@ -891,9 +889,8 @@ pub fn build_osint_gotham(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Grap
         // interface edges: member → each adapted basin hub (the 16×8-bit mask).
         let interfaces = r
             .edges
-            .in_family
+            .as_bytes()
             .iter()
-            .chain(r.edges.out_family.iter())
             .copied()
             .filter(|&b| b != 0)
             .collect::<std::collections::BTreeSet<u8>>();
@@ -1132,9 +1129,8 @@ pub fn osint_soa_bytes(graph: &AiWarGraph, rounds: &[EncounterRound]) -> Vec<u8>
         }
         let ifaces: std::collections::BTreeSet<u8> = r
             .edges
-            .in_family
+            .as_bytes()
             .iter()
-            .chain(r.edges.out_family.iter())
             .copied()
             .filter(|&b| b != 0 && b != basin)
             .collect();
@@ -1410,12 +1406,7 @@ mod tests {
         // Every adapter byte resolves to a real basin (an interface to a basin).
         let known: std::collections::HashSet<u8> = plan.node_basin.values().copied().collect();
         for row in &rows {
-            for &b in row
-                .edges
-                .in_family
-                .iter()
-                .chain(row.edges.out_family.iter())
-            {
+            for &b in row.edges.as_bytes().iter() {
                 if b != 0 {
                     assert!(known.contains(&b), "adapter {b:02x} must be a real basin");
                 }
@@ -1662,14 +1653,7 @@ mod tests {
         }
         eprintln!();
 
-        let nonzero = |r: &NodeRow| {
-            r.edges
-                .in_family
-                .iter()
-                .chain(r.edges.out_family.iter())
-                .filter(|&&b| b != 0)
-                .count()
-        };
+        let nonzero = |r: &NodeRow| r.edges.as_bytes().iter().filter(|&&b| b != 0).count();
         let total_adapters: usize = rows.iter().map(nonzero).sum();
         let saturated = rows.iter().filter(|r| nonzero(r) == 16).count();
         eprintln!(

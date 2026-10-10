@@ -51,7 +51,7 @@ pub fn read<T: Write>(
     input_bytes: &[u8],
     _loose: bool,
     filename: &str,
-    mut output_stream: &mut T,
+    output_stream: &mut T,
     prune_errors: bool,
     parent_source_info: Option<quarto_source_map::SourceInfo>,
 ) -> Result<
@@ -163,12 +163,12 @@ pub fn read<T: Write>(
     // the log_observer.had_errors() check above already catches parse errors
     // and produces better formatted diagnostics via produce_diagnostic_messages.
     // The old parse_is_good check was causing duplicate error messages.
-    print_whole_tree(&mut tree.walk(), &mut output_stream);
+    print_whole_tree(&mut tree.walk(), &mut *output_stream);
 
     // Create diagnostic collector and convert to Pandoc AST
     let mut error_collector = DiagnosticCollector::new();
     let mut result = match pandoc::treesitter_to_pandoc(
-        &mut output_stream,
+        &mut *output_stream,
         &tree,
         input_bytes,
         &context,

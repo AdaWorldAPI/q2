@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y \
 
 # Rust 1.98.1
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --default-toolchain 1.98.1
+    sh -s -- -y --default-toolchain 1.99.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build

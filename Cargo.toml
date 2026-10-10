@@ -328,6 +328,7 @@ manual_strip = "allow"  # Sometimes clearer than strip_prefix
 needless_range_loop = "allow"  # Sometimes index access is intentional
 const_is_empty = "allow"  # False positive in tests
 needless_for_each = "allow"  # Style preference
+double_must_use = "allow"  # #[async_trait] adds #[must_use] to boxed futures (clippy 1.99)
 
 # Keep these as warnings
 cfg_not_test = "warn"
