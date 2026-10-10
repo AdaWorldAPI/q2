@@ -7,6 +7,11 @@
 //! See `claude-notes/plans/2026-05-03-publish-command-and-gh-pages.md`
 //! for the design.
 
+// #[async_trait] adds #[must_use] to methods returning boxed futures, which
+// are already must_use (clippy 1.99 `double_must_use`). This crate does not
+// inherit [workspace.lints], so the workspace allow does not reach it.
+#![allow(clippy::double_must_use)]
+
 pub mod cli;
 pub mod common;
 pub mod config;
